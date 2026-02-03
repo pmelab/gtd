@@ -1,0 +1,220 @@
+import { Command } from "@effect/cli"
+import { Console, Effect } from "effect"
+import { makePlanCommand } from "./commands/plan.js"
+import { makeBuildCommand } from "./commands/build.js"
+import { makeCleanupCommand } from "./commands/cleanup.js"
+import { commitFeedbackCommand } from "./commands/commit-feedback.js"
+import { GitService } from "./services/Git.js"
+import { GtdConfigService } from "./services/Config.js"
+import { AgentService, AgentError } from "./services/Agent.js"
+import { parseCommitPrefix, type CommitPrefix } from "./services/CommitPrefix.js"
+import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
+import { hasUncheckedItems } from "./services/TodoState.js"
+import { isOnlyLearningsModified as checkOnlyLearnings } from "./services/LearningsDiff.js"
+import { extractLearnings, hasLearningsSection } from "./services/Markdown.js"
+import { learnPrompt, interpolate } from "./prompts/index.js"
+import { createSpinnerRenderer, isInteractive } from "./services/Renderer.js"
+import { notify } from "./services/Notify.js"
+
+export const idleMessage = "Nothing to do. Create a TODO.md or add in-code comments to start."
+
+export interface DispatchResult {
+  readonly step: Step
+}
+
+interface FileOps {
+  readonly readFile: () => Effect.Effect<string>
+  readonly exists: () => Effect.Effect<boolean>
+  readonly getDiffContent: () => Effect.Effect<string>
+  readonly remove: () => Effect.Effect<void>
+}
+
+export interface LearnInput {
+  readonly fs: Pick<FileOps, "readFile" | "exists" | "remove">
+  readonly hasUncommittedLearnings: boolean
+}
+
+export const learnAction = (input: LearnInput) =>
+  Effect.gen(function* () {
+    const config = yield* GtdConfigService
+    const git = yield* GitService
+    const agent = yield* AgentService
+
+    const renderer = createSpinnerRenderer(isInteractive())
+
+    const exists = yield* input.fs.exists()
+    if (!exists) {
+      renderer.fail(`Plan file ${config.file} not found. Nothing to learn from.`)
+      return
+    }
+
+    const content = yield* input.fs.readFile()
+
+    if (input.hasUncommittedLearnings) {
+      if (!hasLearningsSection(content)) {
+        renderer.succeed(`No Learnings section in ${config.file}. Nothing to persist.`)
+        return
+      }
+
+      const learnings = extractLearnings(content)
+      if (learnings.trim() === "") {
+        renderer.succeed(`Learnings section is empty. Nothing to persist.`)
+        return
+      }
+
+      renderer.setText("Persisting learnings to AGENTS.md...")
+
+      const prompt = interpolate(learnPrompt, {
+        learnings: learnings,
+      })
+
+      yield* agent
+        .invoke({
+          prompt,
+          systemPrompt: "",
+          mode: "learn",
+          cwd: process.cwd(),
+          onEvent: renderer.onEvent,
+        })
+        .pipe(Effect.ensuring(Effect.sync(() => renderer.dispose())))
+
+      yield* git.atomicCommit("all", "🎓 learn: extract learnings")
+      renderer.succeed("Learnings persisted to AGENTS.md and committed.")
+      yield* notify("gtd", "Learnings committed.")
+    } else {
+      renderer.setText("Extracting learnings from plan...")
+
+      const prompt = [
+        `Read the file ${config.file} and extract any learnings from the completed work.`,
+        `Write the learnings as bullet points into the "## Learnings" section of ${config.file}.`,
+        `If a Learnings section doesn't exist, create one at the end of the file.`,
+        `Only write the learnings — do not modify any other sections.`,
+      ].join("\n")
+
+      yield* agent
+        .invoke({
+          prompt,
+          systemPrompt: "",
+          mode: "learn",
+          cwd: process.cwd(),
+          onEvent: renderer.onEvent,
+        })
+        .pipe(Effect.ensuring(Effect.sync(() => renderer.dispose())))
+
+      renderer.succeed("Learnings extracted into TODO.md. Review and re-run gtd.")
+      yield* notify("gtd", "Learnings extracted. Review and re-run gtd.")
+    }
+  }).pipe(
+    Effect.catchAll((err) => {
+      if (err instanceof AgentError) {
+        if (err.reason === "inactivity_timeout") {
+          console.error(`[gtd] Agent timed out (no activity)`)
+          return Effect.void
+        }
+        if (err.reason === "input_requested") {
+          console.error(`[gtd] Agent requested user input, aborting`)
+          return Effect.void
+        }
+      }
+      return Effect.fail(err)
+    }),
+  )
+
+export const gatherState = (
+  fs: FileOps,
+): Effect.Effect<InferStepInput, Error, GitService | GtdConfigService> =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    const config = yield* GtdConfigService
+
+    const uncommitted = yield* git.hasUncommittedChanges()
+    const lastMsg = yield* git.getLastCommitMessage().pipe(
+      Effect.catchAll(() => Effect.succeed("")),
+    )
+    const lastPrefix = parseCommitPrefix(lastMsg)
+
+    const fileExists = yield* fs.exists()
+    const content = fileExists ? yield* fs.readFile() : ""
+    const unchecked = hasUncheckedItems(content)
+
+    let onlyLearningsModified = false
+    if (uncommitted) {
+      const diff = yield* fs.getDiffContent()
+      onlyLearningsModified = checkOnlyLearnings(diff, content)
+    }
+
+    return {
+      hasUncommittedChanges: uncommitted,
+      lastCommitPrefix: lastPrefix,
+      hasUncheckedItems: unchecked,
+      onlyLearningsModified,
+    }
+  })
+
+export const dispatch = (state: InferStepInput): DispatchResult => {
+  const step = inferStep(state)
+  return { step }
+}
+
+const bunFileOps = (filePath: string): FileOps => ({
+  readFile: () =>
+    Effect.tryPromise({
+      try: () => Bun.file(filePath).text(),
+      catch: () => new Error(`Failed to read ${filePath}`),
+    }).pipe(Effect.catchAll(() => Effect.succeed(""))),
+  exists: () =>
+    Effect.tryPromise({
+      try: async () => {
+        const f = Bun.file(filePath)
+        return f.size > 0
+      },
+      catch: () => false,
+    }).pipe(Effect.catchAll(() => Effect.succeed(false))),
+  getDiffContent: () =>
+    Effect.gen(function* () {
+      const git = yield* GitService
+      return yield* git.getDiff().pipe(Effect.catchAll(() => Effect.succeed("")))
+    }),
+  remove: () =>
+    Effect.tryPromise({
+      try: async () => {
+        const fs = await import("node:fs/promises")
+        await fs.unlink(filePath)
+      },
+      catch: () => new Error(`Failed to remove ${filePath}`),
+    }).pipe(Effect.catchAll(() => Effect.void)),
+})
+
+export const command = Command.make("gtd", {}, () =>
+  Effect.gen(function* () {
+    const config = yield* GtdConfigService
+    const fs = bunFileOps(config.file)
+
+    const state = yield* gatherState(fs)
+    const result = dispatch(state)
+
+    switch (result.step) {
+      case "plan":
+        yield* makePlanCommand
+        break
+      case "build":
+        yield* makeBuildCommand
+        break
+      case "learn":
+        yield* learnAction({
+          fs: bunFileOps(config.file),
+          hasUncommittedLearnings: state.onlyLearningsModified,
+        })
+        break
+      case "cleanup":
+        yield* makeCleanupCommand
+        break
+      case "commit-feedback":
+        yield* commitFeedbackCommand
+        break
+      case "idle":
+        yield* Console.log(idleMessage)
+        break
+    }
+  }),
+)
