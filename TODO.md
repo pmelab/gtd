@@ -1,0 +1,3 @@
+- human feedback step should output confirmation and directly trigger planning
+- all commits should have llm-generated summaries
+- include prettier formatting for TODO.md
