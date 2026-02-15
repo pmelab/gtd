@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { Effect } from "effect"
-import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises"
+import { mkdtemp, writeFile, rm, mkdir, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { resolveAllConfigs, mergeConfigs } from "./ConfigResolver.js"
+import { resolveAllConfigs, mergeConfigs, createExampleConfig, SCHEMA_URL, EXAMPLE_CONFIG } from "./ConfigResolver.js"
 
 let tempDir: string
 
@@ -236,5 +236,68 @@ describe("mergeConfigs", () => {
 
     expect(result.agent).toBe("opencode")
     expect(result.testCmd).toBe("pytest")
+  })
+})
+
+describe("createExampleConfig", () => {
+  it("writes example config to cwd when no config files exist", async () => {
+    const cwd = join(tempDir, "empty-project")
+    await mkdir(cwd, { recursive: true })
+
+    const result = await Effect.runPromise(createExampleConfig(cwd))
+
+    expect(result).not.toBeNull()
+    expect(result!.filepath).toBe(join(cwd, ".gtdrc.json"))
+    const content = await readFile(join(cwd, ".gtdrc.json"), "utf-8")
+    const parsed = JSON.parse(content)
+    expect(parsed.$schema).toBe(SCHEMA_URL)
+    expect(parsed.file).toBeDefined()
+    expect(parsed.agent).toBeDefined()
+    expect(parsed.testCmd).toBeDefined()
+  })
+
+  it("includes $schema URL pointing to GitHub-hosted schema", async () => {
+    const cwd = join(tempDir, "schema-test")
+    await mkdir(cwd, { recursive: true })
+
+    await Effect.runPromise(createExampleConfig(cwd))
+
+    const content = await readFile(join(cwd, ".gtdrc.json"), "utf-8")
+    const parsed = JSON.parse(content)
+    expect(parsed.$schema).toMatch(/^https:\/\/raw\.githubusercontent\.com\//)
+    expect(parsed.$schema).toContain("schema.json")
+  })
+
+  it("includes a _comment field with location hint", async () => {
+    const cwd = join(tempDir, "comment-test")
+    await mkdir(cwd, { recursive: true })
+
+    await Effect.runPromise(createExampleConfig(cwd))
+
+    const content = await readFile(join(cwd, ".gtdrc.json"), "utf-8")
+    const parsed = JSON.parse(content)
+    expect(parsed._comment).toBeDefined()
+    expect(parsed._comment).toContain("~/.config/gtd/")
+  })
+
+  it("returns the filepath and message", async () => {
+    const cwd = join(tempDir, "result-test")
+    await mkdir(cwd, { recursive: true })
+
+    const result = await Effect.runPromise(createExampleConfig(cwd))
+
+    expect(result).not.toBeNull()
+    expect(result!.filepath).toBe(join(cwd, ".gtdrc.json"))
+    expect(result!.message).toContain(".gtdrc.json")
+    expect(result!.message).toContain("~/.config/gtd/")
+  })
+
+  it("EXAMPLE_CONFIG contains all expected default keys", () => {
+    expect(EXAMPLE_CONFIG.$schema).toBe(SCHEMA_URL)
+    expect(EXAMPLE_CONFIG.file).toBeDefined()
+    expect(EXAMPLE_CONFIG.agent).toBeDefined()
+    expect(EXAMPLE_CONFIG.testCmd).toBeDefined()
+    expect(EXAMPLE_CONFIG.testRetries).toBeDefined()
+    expect(EXAMPLE_CONFIG._comment).toBeDefined()
   })
 })

@@ -23,7 +23,7 @@
 
 ### Create Example Config on Missing Config
 
-- [ ] When no config file is found anywhere, create an example config in the
+- [x] When no config file is found anywhere, create an example config in the
       current directory
   - In the config resolution flow, detect when all search locations return no
     config

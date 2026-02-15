@@ -1,9 +1,39 @@
 import { Effect } from "effect"
-import { access } from "node:fs/promises"
+import { access, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { cosmiconfig } from "cosmiconfig"
 
 import type { GtdConfig } from "./Config.js"
+
+export const SCHEMA_URL =
+  "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json"
+
+export const EXAMPLE_CONFIG = {
+  $schema: SCHEMA_URL,
+  _comment:
+    "This is an example config. You can move this file to ~/.config/gtd/ or any other supported location.",
+  file: "TODO.md",
+  agent: "auto",
+  testCmd: "npm test",
+  testRetries: 10,
+  agentInactivityTimeout: 300,
+  agentForbiddenTools: ["AskUserQuestion"],
+}
+
+export const createExampleConfig = (
+  cwd: string,
+): Effect.Effect<{ filepath: string; message: string } | null, never> =>
+  Effect.tryPromise({
+    try: async () => {
+      await access(cwd)
+      const filepath = join(cwd, ".gtdrc.json")
+      const content = JSON.stringify(EXAMPLE_CONFIG, null, 2) + "\n"
+      await writeFile(filepath, content, "utf-8")
+      const message = `Created example config at .gtdrc.json — you can move it to ~/.config/gtd/ or any other supported location.`
+      return { filepath, message }
+    },
+    catch: () => null as never,
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)))
 
 const explorer = cosmiconfig("gtd")
 
