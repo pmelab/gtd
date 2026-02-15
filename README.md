@@ -122,10 +122,11 @@ until all items are done — no need to re-run `gtd` between items.
 
 ### 5. Learn
 
-When all items are checked, `gtd` enters the learn phase. If you've edited the
-`## Learnings` section of `TODO.md`, your changes are first committed as `🤦`.
-Then `gtd` detects that only learnings were modified and writes them to
-`AGENTS.md` (committed as `🎓`), followed by automatic cleanup.
+When all items are checked, `gtd` stops — the build phase is complete. This is
+your chance to review the results and add feedback or learnings to the
+`## Learnings` section of `TODO.md`. When you're ready, run `gtd` again. It
+commits your edits as `🤦`, detects that only learnings were modified, and
+writes them to `AGENTS.md` (committed as `🎓`), followed by cleanup.
 
 ### 6. Cleanup
 

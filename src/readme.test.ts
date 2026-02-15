@@ -73,4 +73,22 @@ describe("README.md", () => {
     const content = readmeContent()
     expect(content).toContain("## How It Works")
   })
+
+  it("section 5 Learn describes manual step between build completion and learn", () => {
+    const content = readmeContent()
+    const learnMatch = content.match(/### 5\. Learn\n([\s\S]*?)(?=\n### \d|$)/)
+    expect(learnMatch).not.toBeNull()
+    const learnSection = learnMatch![1]!
+
+    // Should mention that gtd stops after build
+    expect(learnSection).toMatch(/stops|exit|finish|complet/i)
+
+    // Should mention that user runs gtd again to trigger learn
+    expect(learnSection).toMatch(/run.*`gtd`.*again|re-run|run\s+`gtd`/i)
+
+    // Should NOT imply learn starts automatically after build
+    expect(learnSection).not.toMatch(
+      /automatically.*enter.*learn|auto.*learn phase/i,
+    )
+  })
 })

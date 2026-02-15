@@ -13,7 +13,7 @@
 
 ### Fix README Learn Section
 
-- [ ] Update README.md section "5. Learn" to clarify that learn is not automatic
+- [x] Update README.md section "5. Learn" to clarify that learn is not automatic
   - Current text implies learn phase starts automatically when all items are
     checked — clarify that `gtd` stops after build completes so the human can
     add feedback/learnings to `TODO.md`, then the user runs `gtd` again to
