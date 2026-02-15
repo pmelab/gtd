@@ -75,6 +75,19 @@ describe("isOnlyLearningsModified", () => {
     expect(isOnlyLearningsModified(diff, todoContent)).toBe(true)
   })
 
+  it("returns true when entire Learnings section is removed", () => {
+    const diff = makeDiff([{
+      oldStart: 8,
+      lines: [
+        "-## Learnings",
+        "-",
+        "-- some learning",
+        "-",
+      ],
+    }])
+    expect(isOnlyLearningsModified(diff, todoContent)).toBe(true)
+  })
+
   it("handles file with content after Learnings section", () => {
     const contentWithMore = [
       "# Feature",                   // 1

@@ -49,7 +49,7 @@ export const isOnlyLearningsModified = (diff: string, fileContent: string): bool
 
     if (line.startsWith("-") || line.startsWith(" ")) {
       if (line.startsWith("-")) {
-        if (currentOldLine < range.start || currentOldLine >= range.end) return false
+        if (currentOldLine < range.start || currentOldLine > range.end) return false
       }
       currentOldLine++
     } else if (line.startsWith("+")) {
