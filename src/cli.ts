@@ -212,7 +212,7 @@ export const command = Command.make("gtd", {}, () =>
         yield* makeCleanupCommand
         break
       case "commit-feedback":
-        yield* commitFeedbackCommand
+        yield* commitFeedbackCommand()
         break
       case "idle":
         yield* Console.log(idleMessage)

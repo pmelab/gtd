@@ -4,7 +4,7 @@
 
 ### Human Feedback Flow
 
-- [ ] Output confirmation message before triggering plan
+- [x] Output confirmation message before triggering plan
   - In `commit-feedback.ts`, after the atomic commit succeeds, log a
     confirmation message (e.g., "Feedback committed. Triggering plan...")
   - Then invoke `makePlanCommand` to automatically run the planning step
