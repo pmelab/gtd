@@ -34,6 +34,7 @@
     "@effect/cli": "^0.73.1",
     "@effect/platform": "^0.94.2",
     "@effect/platform-bun": "^0.87.1",
+    "cosmiconfig": "^9.0.0",
     "effect": "^3.19.15",
     "ora": "^9.3.0"
   }

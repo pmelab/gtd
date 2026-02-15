@@ -7,7 +7,7 @@ hierarchical configuration system that merges config from multiple directories.
 
 ### Research and Select Library
 
-- [ ] Integrate `cosmiconfig` for RC file loading with Effect
+- [x] Integrate `cosmiconfig` for RC file loading with Effect
   - Use `cosmiconfig` which supports JSON, YAML, JS, TS config files and
     hierarchical directory searching out of the box
   - Wrap cosmiconfig's async API in Effect using `Effect.tryPromise`
