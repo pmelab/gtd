@@ -10,9 +10,11 @@
   - Then invoke `makePlanCommand` to automatically run the planning step
   - This chains the commit-feedback → plan flow without requiring a second
     manual `gtd` invocation
+  - The plan step should read the last commit (just created by commit-feedback)
+    rather than re-reading the diff (which is empty post-commit)
   - Tests: Unit test in `commit-feedback.test.ts` that verifies (1) confirmation
     is logged after commit and (2) `makePlanCommand` is invoked after the commit
-    succeeds
+    succeeds, passing context to read from the last commit
 
 ### LLM-Generated Commit Summaries
 
@@ -25,6 +27,9 @@
     `plan.ts` (`atomicCommit([config.file], ...)`) — extract a shared helper
     (e.g., `generateCommitMessage` in `services/Git.ts` or a new
     `services/CommitMessage.ts`)
+  - Also apply to `learnAction` commits — these benefit from LLM summaries
+  - Do NOT apply to `cleanup.ts` — cleanup commits are always just TODO removal
+    and don't need LLM summarization
   - Keep the emoji prefix convention (`🤦`, `🔨`, `🤖`) intact — the LLM
     generates only the descriptive part
   - Tests: Unit test the helper with a mock agent that returns a known summary;
@@ -44,12 +49,9 @@
     plan file path; integration test that the committed markdown is properly
     wrapped
 
-## Open Questions
+## Learnings
 
-- Should LLM-generated summaries also apply to `cleanup.ts` and `learnAction`
-  commits, or only the three main commands?
-  > yes for learnAction, but not for cleanup. thats always just the TODO removal
-- For the commit-feedback → plan chaining: should it re-read the diff (which is
-  now empty post-commit) or pass context forward?
-  > plan chaining should always read the last commit, which was comitted right
-  > before in this case
+- Cleanup commits are always simple TODO removals — no need for LLM-generated
+  summaries there
+- When chaining commit-feedback → plan, the plan step should read the last
+  commit rather than the working tree diff (which is empty after the commit)
