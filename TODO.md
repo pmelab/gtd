@@ -18,7 +18,7 @@ hierarchical configuration system that merges config from multiple directories.
 
 ### Define Configuration Schema
 
-- [ ] Create an Effect Schema for the config file that mirrors the existing
+- [x] Create an Effect Schema for the config file that mirrors the existing
       `GtdConfig` interface
   - Map current env var names to config keys: `file`, `agent`, `agentPlan`,
     `agentBuild`, `agentLearn`, `testCmd`, `testRetries`, `commitPrompt`,
