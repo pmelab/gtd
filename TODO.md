@@ -55,7 +55,7 @@ hierarchical configuration system that merges config from multiple directories.
 
 ### Rewrite `GtdConfigService`
 
-- [ ] Replace the `Config.string`/`Config.integer` env var reads in
+- [x] Replace the `Config.string`/`Config.integer` env var reads in
       `GtdConfigService` with the new file-based loader
   - Keep the same `GtdConfig` interface so downstream consumers are unaffected
   - Environment variables are NOT supported as an override layer — config comes
@@ -66,7 +66,7 @@ hierarchical configuration system that merges config from multiple directories.
   - Tests: Provide a mock filesystem with config files; verify
     `GtdConfigService` produces correct merged config
 
-- [ ] Update `GtdConfigService.Live` layer dependencies in `src/main.ts`
+- [x] Update `GtdConfigService.Live` layer dependencies in `src/main.ts`
   - Add `PlatformBun` or appropriate filesystem layer if needed
   - Remove any `ConfigProvider` setup for `GTD_` env vars
   - Tests: `bun run test` passes; `bun run dev` starts without errors
