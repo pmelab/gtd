@@ -19,11 +19,12 @@ picks the next step:
 ```mermaid
 flowchart TD
     Start([Run gtd]) --> Uncommitted{Uncommitted changes?}
-    Uncommitted -->|Yes, learnings only| Learn["🎓 Learn: persist learnings to AGENTS.md"]
-    Uncommitted -->|Yes, other changes| Feedback["🤦 Commit Feedback: commit your edits"]
+    Uncommitted -->|Yes| Feedback["🤦 Commit Feedback: commit your edits"]
     Uncommitted -->|No| CheckLast{Last commit prefix?}
-    Feedback --> Plan["🤖 Plan: refine TODO.md with agent"]
-    CheckLast -->|🤦| Plan
+    Feedback --> ReDispatch{Re-dispatch}
+    ReDispatch --> CheckLast
+    CheckLast -->|🤦 learnings only| Learn["🎓 Learn: persist learnings to AGENTS.md"]
+    CheckLast -->|🤦 other changes| Plan["🤖 Plan: refine TODO.md with agent"]
     Plan --> Build["🔨 Build: implement next unchecked item"]
     CheckLast -->|🤖| Build
     Build --> ItemsLeft{Unchecked items remain?}
@@ -108,8 +109,9 @@ Open `TODO.md` in your editor, answer questions, and add comments:
   > yes
 ```
 
-Run `gtd` again. It commits your feedback as `🤦`, then immediately refines the
-plan (`🤖`). Repeat until the plan is ready.
+Run `gtd` again. It commits your feedback as `🤦`, then re-dispatches — since
+the last commit is now `🤦`, it immediately refines the plan (`🤖`). Repeat
+until the plan is ready.
 
 ### 4. Build
 
@@ -120,10 +122,10 @@ checked.
 
 ### 5. Learn
 
-When all items are checked, `gtd` extracts learnings from the completed work
-into the `## Learnings` section of `TODO.md`. Review the learnings in your
-editor. If you want to persist them, run `gtd` again — it detects learnings-only
-changes and writes them to `AGENTS.md` (committed as `🎓`).
+When all items are checked, `gtd` enters the learn phase. If you've edited the
+`## Learnings` section of `TODO.md`, your changes are first committed as `🤦`.
+Then `gtd` detects that only learnings were modified and writes them to
+`AGENTS.md` (committed as `🎓`), followed by automatic cleanup.
 
 ### 6. Cleanup
 

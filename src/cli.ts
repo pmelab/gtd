@@ -7,7 +7,7 @@ import { commitFeedbackCommand } from "./commands/commit-feedback.js"
 import { GitService } from "./services/Git.js"
 import { GtdConfigService } from "./services/Config.js"
 import { AgentService, AgentError } from "./services/Agent.js"
-import { parseCommitPrefix, type CommitPrefix } from "./services/CommitPrefix.js"
+import { parseCommitPrefix, HUMAN } from "./services/CommitPrefix.js"
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
 import { hasUncheckedItems } from "./services/TodoState.js"
 import { isOnlyLearningsModified as checkOnlyLearnings } from "./services/LearningsDiff.js"
@@ -32,7 +32,6 @@ interface FileOps {
 
 export interface LearnInput {
   readonly fs: Pick<FileOps, "readFile" | "exists" | "remove">
-  readonly hasUncommittedLearnings: boolean
 }
 
 export const learnAction = (input: LearnInput) =>
@@ -51,15 +50,7 @@ export const learnAction = (input: LearnInput) =>
 
     const content = yield* input.fs.readFile()
 
-    if (input.hasUncommittedLearnings) {
-      if (!hasLearningsSection(content) || extractLearnings(content).trim() === "") {
-        yield* input.fs.remove()
-        yield* git.atomicCommit("all", `🧹 cleanup: remove ${config.file}`)
-        renderer.succeed("No learnings to persist. Cleaned up.")
-        yield* notify("gtd", "Skipped learnings, cleaned up.")
-        return
-      }
-
+    if (hasLearningsSection(content) && extractLearnings(content).trim() !== "") {
       const learnings = extractLearnings(content)
 
       renderer.setText("Persisting learnings to AGENTS.md...")
@@ -82,29 +73,15 @@ export const learnAction = (input: LearnInput) =>
       const learnCommitMsg = yield* generateCommitMessage("🎓", learnDiff)
       yield* git.atomicCommit("all", learnCommitMsg)
       renderer.succeed("Learnings persisted to AGENTS.md and committed.")
-      yield* notify("gtd", "Learnings committed.")
+
+      yield* input.fs.remove()
+      yield* git.atomicCommit("all", `🧹 cleanup: remove ${config.file}`)
+      yield* notify("gtd", "Learnings committed and cleaned up.")
     } else {
-      renderer.setText("Extracting learnings from plan...")
-
-      const prompt = [
-        `Read the file ${config.file} and extract any learnings from the completed work.`,
-        `Write the learnings as bullet points into the "## Learnings" section of ${config.file}.`,
-        `If a Learnings section doesn't exist, create one at the end of the file.`,
-        `Only write the learnings — do not modify any other sections.`,
-      ].join("\n")
-
-      yield* agent
-        .invoke({
-          prompt,
-          systemPrompt: "",
-          mode: "learn",
-          cwd: process.cwd(),
-          onEvent: renderer.onEvent,
-        })
-        .pipe(Effect.ensuring(Effect.sync(() => renderer.dispose())))
-
-      renderer.succeed("Learnings extracted into TODO.md. Review and re-run gtd.")
-      yield* notify("gtd", "Learnings extracted. Review and re-run gtd.")
+      yield* input.fs.remove()
+      yield* git.atomicCommit("all", `🧹 cleanup: remove ${config.file}`)
+      renderer.succeed("No learnings to persist. Cleaned up.")
+      yield* notify("gtd", "Skipped learnings, cleaned up.")
     }
   }).pipe(
     Effect.catchAll((err) => {
@@ -146,6 +123,15 @@ export const gatherState = (
         Effect.catchAll(() => Effect.succeed("")),
       )
       onlyLearningsModified = checkOnlyLearnings(diff, committedContent)
+    } else if (lastPrefix === HUMAN) {
+      // For 🤦 commits, check if the committed diff only modified learnings
+      const diff = yield* git.show("HEAD").pipe(
+        Effect.catchAll(() => Effect.succeed("")),
+      )
+      const preCommitContent = yield* git.show(`HEAD~1:${config.file}`).pipe(
+        Effect.catchAll(() => Effect.succeed("")),
+      )
+      onlyLearningsModified = checkOnlyLearnings(diff, preCommitContent)
     }
 
     return {
@@ -208,15 +194,37 @@ export const command = Command.make("gtd", {}, () =>
       case "learn":
         yield* learnAction({
           fs: bunFileOps(config.file),
-          hasUncommittedLearnings: state.onlyLearningsModified,
         })
         break
       case "cleanup":
         yield* makeCleanupCommand
         break
-      case "commit-feedback":
+      case "commit-feedback": {
         yield* commitFeedbackCommand()
+        // Re-dispatch after committing feedback
+        const newState = yield* gatherState(bunFileOps(config.file))
+        const newResult = dispatch(newState)
+        switch (newResult.step) {
+          case "plan":
+            yield* makePlanCommand
+            break
+          case "learn":
+            yield* learnAction({
+              fs: bunFileOps(config.file),
+            })
+            break
+          case "build":
+            yield* makeBuildCommand
+            break
+          case "cleanup":
+            yield* makeCleanupCommand
+            break
+          case "idle":
+            yield* Console.log(idleMessage)
+            break
+        }
         break
+      }
       case "idle":
         yield* Console.log(idleMessage)
         break

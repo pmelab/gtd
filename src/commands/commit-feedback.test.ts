@@ -15,6 +15,8 @@ const defaultConfig = {
   testCmd: "npm test",
   testRetries: 10,
   commitPrompt: "{{diff}}",
+  agentInactivityTimeout: 300,
+  agentForbiddenTools: [] as ReadonlyArray<string>,
 }
 
 const mockConfig = (overrides: Partial<typeof defaultConfig> = {}) =>
@@ -64,7 +66,7 @@ describe("commitFeedbackCommand", () => {
         isAvailable: () => Effect.succeed(true),
       })
 
-      yield* commitFeedbackCommand(Effect.void).pipe(
+      yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
@@ -91,7 +93,7 @@ describe("commitFeedbackCommand", () => {
         isAvailable: () => Effect.succeed(true),
       })
 
-      yield* commitFeedbackCommand(Effect.void).pipe(
+      yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
@@ -119,7 +121,7 @@ describe("commitFeedbackCommand", () => {
         isAvailable: () => Effect.succeed(true),
       })
 
-      yield* commitFeedbackCommand(Effect.void).pipe(
+      yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
@@ -128,15 +130,13 @@ describe("commitFeedbackCommand", () => {
     }),
   )
 
-  it.effect("logs confirmation message after commit and invokes planCommand", () =>
+  it.effect("logs confirmation message after commit without chaining plan", () =>
     Effect.gen(function* () {
       const logs: string[] = []
       const consoleSpy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
         logs.push(args.map(String).join(" "))
       })
 
-      let planInvoked = false
-
       const gitLayer = mockGit({
         atomicCommit: () => Effect.void,
       })
@@ -146,49 +146,13 @@ describe("commitFeedbackCommand", () => {
         isAvailable: () => Effect.succeed(true),
       })
 
-      const fakePlan = Effect.sync(() => {
-        planInvoked = true
-      })
-
-      yield* commitFeedbackCommand(fakePlan).pipe(
+      yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
       expect(logs.some((l) => l.includes("Feedback committed"))).toBe(true)
-      expect(logs.some((l) => l.includes("Triggering plan"))).toBe(true)
-      expect(planInvoked).toBe(true)
 
       consoleSpy.mockRestore()
-    }),
-  )
-
-  it.effect("passes context so plan reads from last commit (empty working diff)", () =>
-    Effect.gen(function* () {
-      let planInvoked = false
-      let diffAtPlanTime: string | undefined
-
-      const gitLayer = mockGit({
-        getDiff: () => Effect.succeed("diff --git a/foo.ts\n+const x = 1"),
-        atomicCommit: () => Effect.void,
-      })
-
-      const agentLayer = Layer.succeed(AgentService, {
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
-      })
-
-      const fakePlan = Effect.gen(function* () {
-        const git = yield* GitService
-        diffAtPlanTime = yield* git.getDiff()
-        planInvoked = true
-      })
-
-      yield* commitFeedbackCommand(fakePlan).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
-      )
-
-      expect(planInvoked).toBe(true)
-      expect(diffAtPlanTime).toBeDefined()
     }),
   )
 })

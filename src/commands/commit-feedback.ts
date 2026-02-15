@@ -4,11 +4,8 @@ import { GitService } from "../services/Git.js"
 import { AgentService } from "../services/Agent.js"
 import { interpolate } from "../prompts/index.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
-import { makePlanCommand } from "./plan.js"
 
-export const commitFeedbackCommand = (
-  planEffect: Effect.Effect<void, any, any> = makePlanCommand,
-) =>
+export const commitFeedbackCommand = () =>
   Effect.gen(function* () {
     const config = yield* GtdConfigService
     const git = yield* GitService
@@ -29,7 +26,5 @@ export const commitFeedbackCommand = (
 
     yield* git.atomicCommit("all", commitMessage)
 
-    console.log("Feedback committed. Triggering plan...")
-
-    yield* planEffect
+    console.log("Feedback committed.")
   })

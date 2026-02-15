@@ -24,12 +24,12 @@ export interface InferStepInput {
 
 export const inferStep = (input: InferStepInput): Step => {
   if (input.hasUncommittedChanges) {
-    return input.onlyLearningsModified ? "learn" : "commit-feedback"
+    return "commit-feedback"
   }
 
   switch (input.lastCommitPrefix) {
     case HUMAN:
-      return "plan"
+      return input.onlyLearningsModified ? "learn" : "plan"
     case PLAN:
       return "build"
     case BUILD:

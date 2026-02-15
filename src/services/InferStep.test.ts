@@ -13,14 +13,14 @@ describe("inferStep", () => {
     expect(inferStep(input)).toBe("commit-feedback")
   })
 
-  it("returns learn when uncommitted changes are only in Learnings section", () => {
+  it("returns commit-feedback when uncommitted changes are only in Learnings section", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: true,
       lastCommitPrefix: undefined,
       hasUncheckedItems: false,
       onlyLearningsModified: true,
     }
-    expect(inferStep(input)).toBe("learn")
+    expect(inferStep(input)).toBe("commit-feedback")
   })
 
   it("returns commit-feedback when uncommitted changes include non-Learnings", () => {
@@ -33,7 +33,7 @@ describe("inferStep", () => {
     expect(inferStep(input)).toBe("commit-feedback")
   })
 
-  it("returns plan when last commit prefix is HUMAN", () => {
+  it("returns plan when last commit prefix is HUMAN and not only learnings", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: false,
       lastCommitPrefix: HUMAN,
@@ -41,6 +41,16 @@ describe("inferStep", () => {
       onlyLearningsModified: false,
     }
     expect(inferStep(input)).toBe("plan")
+  })
+
+  it("returns learn when last commit prefix is HUMAN and only learnings modified", () => {
+    const input: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: HUMAN,
+      hasUncheckedItems: false,
+      onlyLearningsModified: true,
+    }
+    expect(inferStep(input)).toBe("learn")
   })
 
   it("returns build when last commit prefix is PLAN", () => {
@@ -123,13 +133,13 @@ describe("inferStep", () => {
     expect(inferStep(input)).toBe("commit-feedback")
   })
 
-  it("learn from uncommitted takes priority over prefix", () => {
+  it("uncommitted + onlyLearnings still returns commit-feedback", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: true,
       lastCommitPrefix: BUILD,
       hasUncheckedItems: true,
       onlyLearningsModified: true,
     }
-    expect(inferStep(input)).toBe("learn")
+    expect(inferStep(input)).toBe("commit-feedback")
   })
 })
