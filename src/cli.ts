@@ -51,16 +51,15 @@ export const learnAction = (input: LearnInput) =>
     const content = yield* input.fs.readFile()
 
     if (input.hasUncommittedLearnings) {
-      if (!hasLearningsSection(content)) {
-        renderer.succeed(`No Learnings section in ${config.file}. Nothing to persist.`)
+      if (!hasLearningsSection(content) || extractLearnings(content).trim() === "") {
+        yield* input.fs.remove()
+        yield* git.atomicCommit("all", `🧹 cleanup: remove ${config.file}`)
+        renderer.succeed("No learnings to persist. Cleaned up.")
+        yield* notify("gtd", "Skipped learnings, cleaned up.")
         return
       }
 
       const learnings = extractLearnings(content)
-      if (learnings.trim() === "") {
-        renderer.succeed(`Learnings section is empty. Nothing to persist.`)
-        return
-      }
 
       renderer.setText("Persisting learnings to AGENTS.md...")
 
@@ -140,7 +139,10 @@ export const gatherState = (
     let onlyLearningsModified = false
     if (uncommitted) {
       const diff = yield* fs.getDiffContent()
-      onlyLearningsModified = checkOnlyLearnings(diff, content)
+      const committedContent = yield* git.show(`HEAD:${config.file}`).pipe(
+        Effect.catchAll(() => Effect.succeed("")),
+      )
+      onlyLearningsModified = checkOnlyLearnings(diff, committedContent)
     }
 
     return {

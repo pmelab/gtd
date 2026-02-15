@@ -256,6 +256,156 @@ describe("learnAction", () => {
     expect(calls[0]!.mode).toBe("learn")
     expect(commits.length).toBe(0)
   })
+
+  it("skips to cleanup when hasUncommittedLearnings but Learnings section is empty", async () => {
+    const calls: AgentInvocation[] = []
+    const commits: string[] = []
+    let removed = false
+    const planWithEmptyLearnings = [
+      "# Feature",
+      "",
+      "## Action Items",
+      "",
+      "- [x] Done item",
+      "",
+      "## Learnings",
+      "",
+    ].join("\n")
+    const agentLayer = Layer.succeed(AgentService, {
+      invoke: (params) =>
+        Effect.sync(() => {
+          calls.push(params)
+        }),
+      isAvailable: () => Effect.succeed(true),
+    })
+    const gitLayer = mockGit({
+      commit: (msg) =>
+        Effect.sync(() => {
+          commits.push(msg)
+        }),
+    })
+    const fs = {
+      ...mockFs(planWithEmptyLearnings),
+      remove: () =>
+        Effect.sync(() => {
+          removed = true
+        }),
+    }
+    await Effect.runPromise(
+      learnAction({
+        fs,
+        hasUncommittedLearnings: true,
+      }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer))),
+    )
+    expect(calls.length).toBe(0)
+    expect(removed).toBe(true)
+    expect(commits.length).toBe(1)
+    expect(commits[0]!).toContain("🧹")
+  })
+
+  it("skips to cleanup when hasUncommittedLearnings but Learnings section is missing", async () => {
+    const calls: AgentInvocation[] = []
+    const commits: string[] = []
+    let removed = false
+    const planWithoutLearnings = [
+      "# Feature",
+      "",
+      "## Action Items",
+      "",
+      "- [x] Done item",
+      "",
+    ].join("\n")
+    const agentLayer = Layer.succeed(AgentService, {
+      invoke: (params) =>
+        Effect.sync(() => {
+          calls.push(params)
+        }),
+      isAvailable: () => Effect.succeed(true),
+    })
+    const gitLayer = mockGit({
+      commit: (msg) =>
+        Effect.sync(() => {
+          commits.push(msg)
+        }),
+    })
+    const fs = {
+      ...mockFs(planWithoutLearnings),
+      remove: () =>
+        Effect.sync(() => {
+          removed = true
+        }),
+    }
+    await Effect.runPromise(
+      learnAction({
+        fs,
+        hasUncommittedLearnings: true,
+      }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer))),
+    )
+    expect(calls.length).toBe(0)
+    expect(removed).toBe(true)
+    expect(commits.length).toBe(1)
+    expect(commits[0]!).toContain("🧹")
+  })
+})
+
+describe("gatherState uses committed content for onlyLearningsModified", () => {
+  it("uses git show HEAD:<file> instead of current file content", async () => {
+    const committedContent = [
+      "# Feature",
+      "",
+      "## Action Items",
+      "",
+      "- [x] Done",
+      "",
+      "## Learnings",
+      "",
+    ].join("\n")
+
+    // Diff that modifies only line 8 (inside Learnings section of committed content)
+    const diff = [
+      "diff --git a/TODO.md b/TODO.md",
+      "--- a/TODO.md",
+      "+++ b/TODO.md",
+      "@@ -8,0 +8,1 @@",
+      "+- new learning",
+    ].join("\n")
+
+    const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(true),
+      getLastCommitMessage: () => Effect.succeed("🤖 build: done"),
+      getDiff: () => Effect.succeed(diff),
+      show: (ref) =>
+        ref.includes("TODO.md")
+          ? Effect.succeed(committedContent)
+          : Effect.succeed(""),
+    })
+
+    // Current file content has NO Learnings section (user deleted it)
+    const currentContent = [
+      "# Feature",
+      "",
+      "## Action Items",
+      "",
+      "- [x] Done",
+      "",
+    ].join("\n")
+
+    const fileOps = {
+      readFile: () => Effect.succeed(currentContent),
+      exists: () => Effect.succeed(true),
+      getDiffContent: () => Effect.succeed(diff),
+      remove: () => Effect.void,
+    }
+
+    const state = await Effect.runPromise(
+      gatherState(fileOps).pipe(
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+      ),
+    )
+
+    // Should be true because committed content has the Learnings section
+    expect(state.onlyLearningsModified).toBe(true)
+  })
 })
 
 describe("gtd learn subcommand removed", () => {
