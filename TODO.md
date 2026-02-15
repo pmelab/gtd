@@ -29,12 +29,19 @@
     config
   - Write a default `.gtdrc.json` (or similar) with example/default values to
     `process.cwd()`
+  - Include a `$schema` field pointing to the raw schema file on GitHub (e.g.
+    `https://raw.githubusercontent.com/<org>/<repo>/main/schema.json`) so
+    editors with JSON Schema support provide validation and autocompletion
   - Include a note (printed to stdout and as a comment/field in the file)
     explaining the user can move it to `~/.config/gtd/` or any other supported
     location
   - Tests: Unit test — mock filesystem with no config files, run config
-    resolution, verify example config is written to cwd with expected content
-    and a location hint. Integration test — verify the CLI prints a message
-    about the created config.
-    > the example config file should reference the schema file directly from
-    > github for editor validation
+    resolution, verify example config is written to cwd with expected content,
+    including a `$schema` URL referencing the GitHub-hosted schema, and a
+    location hint. Integration test — verify the CLI prints a message about the
+    created config.
+
+## Learnings
+
+- Example config files should include a `$schema` reference to the GitHub-hosted
+  JSON schema so users get editor validation out of the box
