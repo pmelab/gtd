@@ -73,7 +73,7 @@ hierarchical configuration system that merges config from multiple directories.
 
 ### Update Tests
 
-- [ ] Rewrite `Config.test.ts` to use mock filesystem instead of
+- [x] Rewrite `Config.test.ts` to use mock filesystem instead of
       `ConfigProvider.fromMap`
   - Test default values when no config file exists
   - Test single file override (`.gtdrc.json`, `.gtdrc.yaml`)
