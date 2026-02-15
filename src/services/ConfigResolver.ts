@@ -1,0 +1,127 @@
+import { Effect } from "effect"
+import { access } from "node:fs/promises"
+import { join } from "node:path"
+import { cosmiconfig } from "cosmiconfig"
+
+import type { GtdConfig } from "./Config.js"
+
+const explorer = cosmiconfig("gtd")
+
+export type ConfigResult = {
+  readonly config: Record<string, unknown>
+  readonly filepath: string
+}
+
+export interface ResolveOptions {
+  readonly cwd: string
+  readonly home: string
+  readonly xdgConfigHome: string
+}
+
+const tryLoad = (filepath: string): Effect.Effect<ConfigResult | null, never> =>
+  Effect.tryPromise({
+    try: async () => {
+      await access(filepath)
+      const result = await explorer.load(filepath)
+      return result
+        ? { config: result.config as Record<string, unknown>, filepath: result.filepath }
+        : null
+    },
+    catch: () => null as never,
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)))
+
+const searchFrom = (dir: string): Effect.Effect<ConfigResult | null, never> =>
+  Effect.tryPromise({
+    try: async () => {
+      const result = await explorer.search(dir)
+      return result
+        ? { config: result.config as Record<string, unknown>, filepath: result.filepath }
+        : null
+    },
+    catch: () => null as never,
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)))
+
+const configFileNames = [
+  ".gtdrc",
+  ".gtdrc.json",
+  ".gtdrc.yaml",
+  ".gtdrc.yml",
+  ".gtdrc.js",
+  ".gtdrc.ts",
+  ".gtdrc.mjs",
+  ".gtdrc.cjs",
+  "gtd.config.js",
+  "gtd.config.ts",
+  "gtd.config.mjs",
+  "gtd.config.cjs",
+]
+
+const findFirstInDir = (dir: string): Effect.Effect<ConfigResult | null, never> =>
+  Effect.gen(function* () {
+    for (const name of configFileNames) {
+      const result = yield* tryLoad(join(dir, name))
+      if (result) return result
+    }
+    return null
+  })
+
+export const resolveAllConfigs = (
+  options: ResolveOptions,
+): Effect.Effect<ReadonlyArray<ConfigResult>, Error> =>
+  Effect.gen(function* () {
+    const results: ConfigResult[] = []
+    const seen = new Set<string>()
+
+    const add = (r: ConfigResult | null) => {
+      if (r && !seen.has(r.filepath)) {
+        seen.add(r.filepath)
+        results.push(r)
+      }
+    }
+
+    // 1. PWD and parent directories (cosmiconfig default search)
+    add(yield* searchFrom(options.cwd))
+
+    // 2. $XDG_CONFIG_HOME/gtd/
+    add(yield* findFirstInDir(join(options.xdgConfigHome, "gtd")))
+
+    // 3. $XDG_CONFIG_HOME/.gtdrc.*
+    add(yield* findFirstInDir(options.xdgConfigHome))
+
+    // 4. $HOME
+    add(yield* findFirstInDir(options.home))
+
+    return results
+  })
+
+const defaultCommitPrompt = `Look at the following diff and create a concise commit message, following the conventional commit standards:
+
+{{diff}}`
+
+const defaults: GtdConfig = {
+  file: "TODO.md",
+  agent: "auto",
+  agentPlan: "plan",
+  agentBuild: "code",
+  agentLearn: "plan",
+  testCmd: "npm test",
+  testRetries: 10,
+  commitPrompt: defaultCommitPrompt,
+  agentInactivityTimeout: 300,
+  agentForbiddenTools: ["AskUserQuestion"],
+}
+
+export const mergeConfigs = (
+  configs: ReadonlyArray<ConfigResult>,
+): GtdConfig => {
+  // Merge from lowest priority to highest (reverse order), so higher priority wins
+  const merged: Record<string, unknown> = {}
+  for (let i = configs.length - 1; i >= 0; i--) {
+    Object.assign(merged, configs[i]!.config)
+  }
+
+  return {
+    ...defaults,
+    ...merged,
+  } as GtdConfig
+}

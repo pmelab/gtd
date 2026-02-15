@@ -32,7 +32,7 @@ hierarchical configuration system that merges config from multiple directories.
 
 ### Implement Hierarchical Config Loading
 
-- [ ] Implement a config file resolver that searches multiple directories
+- [x] Implement a config file resolver that searches multiple directories
   - Search order (highest to lowest priority):
     1. `$PWD` and parent directories up to `/` (cosmiconfig's default search)
     2. `$XDG_CONFIG_HOME/gtd/` (e.g. `~/.config/gtd/.gtdrc.json`)
@@ -45,7 +45,7 @@ hierarchical configuration system that merges config from multiple directories.
   - Tests: Mock filesystem with config files at multiple levels; verify all
     files are discovered in correct priority order
 
-- [ ] Implement shallow merge of config files respecting priority order
+- [x] Implement shallow merge of config files respecting priority order
   - Higher-priority files override lower-priority ones (shallow merge per
     top-level key since config is flat)
   - Arrays (like `agentForbiddenTools`) should be replaced, not concatenated

@@ -1,0 +1,240 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { Effect } from "effect"
+import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { resolveAllConfigs, mergeConfigs } from "./ConfigResolver.js"
+
+let tempDir: string
+
+beforeEach(async () => {
+  tempDir = await mkdtemp(join(tmpdir(), "gtd-resolver-"))
+})
+
+afterEach(async () => {
+  await rm(tempDir, { recursive: true, force: true })
+})
+
+describe("resolveAllConfigs", () => {
+  it("discovers config from PWD search", async () => {
+    const projectDir = join(tempDir, "project")
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(
+      join(projectDir, ".gtdrc.json"),
+      JSON.stringify({ file: "PROJECT.md" }),
+    )
+
+    const results = await Effect.runPromise(
+      resolveAllConfigs({
+        cwd: projectDir,
+        home: join(tempDir, "fakehome"),
+        xdgConfigHome: join(tempDir, "fakexdg"),
+      }),
+    )
+
+    expect(results.length).toBeGreaterThanOrEqual(1)
+    expect(results[0]!.config).toEqual({ file: "PROJECT.md" })
+  })
+
+  it("discovers config from HOME", async () => {
+    const home = join(tempDir, "home")
+    await mkdir(home, { recursive: true })
+    await writeFile(
+      join(home, ".gtdrc.json"),
+      JSON.stringify({ agent: "claude" }),
+    )
+
+    const results = await Effect.runPromise(
+      resolveAllConfigs({
+        cwd: join(tempDir, "emptyproject"),
+        home,
+        xdgConfigHome: join(tempDir, "fakexdg"),
+      }),
+    )
+
+    expect(results.some((r) => r.config.agent === "claude")).toBe(true)
+  })
+
+  it("discovers config from XDG_CONFIG_HOME/gtd/", async () => {
+    const xdg = join(tempDir, "xdg")
+    const xdgGtd = join(xdg, "gtd")
+    await mkdir(xdgGtd, { recursive: true })
+    await writeFile(
+      join(xdgGtd, ".gtdrc.json"),
+      JSON.stringify({ testCmd: "bun test" }),
+    )
+
+    const results = await Effect.runPromise(
+      resolveAllConfigs({
+        cwd: join(tempDir, "emptyproject"),
+        home: join(tempDir, "fakehome"),
+        xdgConfigHome: xdg,
+      }),
+    )
+
+    expect(results.some((r) => r.config.testCmd === "bun test")).toBe(true)
+  })
+
+  it("discovers config from XDG_CONFIG_HOME/.gtdrc.json", async () => {
+    const xdg = join(tempDir, "xdg")
+    await mkdir(xdg, { recursive: true })
+    await writeFile(
+      join(xdg, ".gtdrc.json"),
+      JSON.stringify({ testRetries: 7 }),
+    )
+
+    const results = await Effect.runPromise(
+      resolveAllConfigs({
+        cwd: join(tempDir, "emptyproject"),
+        home: join(tempDir, "fakehome"),
+        xdgConfigHome: xdg,
+      }),
+    )
+
+    expect(results.some((r) => (r.config as Record<string, unknown>).testRetries === 7)).toBe(true)
+  })
+
+  it("returns configs in correct priority order (PWD first, HOME last)", async () => {
+    const projectDir = join(tempDir, "project")
+    const home = join(tempDir, "home")
+    const xdg = join(tempDir, "xdg")
+    const xdgGtd = join(xdg, "gtd")
+
+    await mkdir(projectDir, { recursive: true })
+    await mkdir(home, { recursive: true })
+    await mkdir(xdgGtd, { recursive: true })
+
+    await writeFile(
+      join(projectDir, ".gtdrc.json"),
+      JSON.stringify({ file: "pwd" }),
+    )
+    await writeFile(
+      join(xdgGtd, ".gtdrc.json"),
+      JSON.stringify({ file: "xdg-gtd" }),
+    )
+    await writeFile(
+      join(xdg, ".gtdrc.json"),
+      JSON.stringify({ file: "xdg" }),
+    )
+    await writeFile(
+      join(home, ".gtdrc.json"),
+      JSON.stringify({ file: "home" }),
+    )
+
+    const results = await Effect.runPromise(
+      resolveAllConfigs({
+        cwd: projectDir,
+        home,
+        xdgConfigHome: xdg,
+      }),
+    )
+
+    expect(results.length).toBe(4)
+    expect(results[0]!.config.file).toBe("pwd")
+    expect(results[1]!.config.file).toBe("xdg-gtd")
+    expect(results[2]!.config.file).toBe("xdg")
+    expect(results[3]!.config.file).toBe("home")
+  })
+
+  it("deduplicates configs found at the same filepath", async () => {
+    // When HOME and cosmiconfig search overlap, don't include twice
+    const home = join(tempDir, "home")
+    await mkdir(home, { recursive: true })
+    await writeFile(
+      join(home, ".gtdrc.json"),
+      JSON.stringify({ agent: "claude" }),
+    )
+
+    // Search from home itself - cosmiconfig search will find it, and HOME check will too
+    const results = await Effect.runPromise(
+      resolveAllConfigs({
+        cwd: home,
+        home,
+        xdgConfigHome: join(tempDir, "fakexdg"),
+      }),
+    )
+
+    const paths = results.map((r) => r.filepath)
+    const unique = new Set(paths)
+    expect(paths.length).toBe(unique.size)
+  })
+
+  it("returns empty array when no configs exist", async () => {
+    const results = await Effect.runPromise(
+      resolveAllConfigs({
+        cwd: join(tempDir, "nonexistent"),
+        home: join(tempDir, "fakehome"),
+        xdgConfigHome: join(tempDir, "fakexdg"),
+      }),
+    )
+
+    expect(results).toEqual([])
+  })
+})
+
+describe("mergeConfigs", () => {
+  it("merges configs with higher priority winning", () => {
+    const configs = [
+      { config: { file: "PROJECT.md", agent: "claude" } as Record<string, unknown>, filepath: "/a" },
+      { config: { file: "HOME.md", testCmd: "bun test" } as Record<string, unknown>, filepath: "/b" },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.file).toBe("PROJECT.md")
+    expect(result.agent).toBe("claude")
+    expect(result.testCmd).toBe("bun test")
+  })
+
+  it("applies defaults for missing keys", () => {
+    const configs = [
+      { config: { file: "PLAN.md" } as Record<string, unknown>, filepath: "/a" },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.file).toBe("PLAN.md")
+    expect(result.agent).toBe("auto")
+    expect(result.testRetries).toBe(10)
+    expect(result.agentForbiddenTools).toEqual(["AskUserQuestion"])
+  })
+
+  it("replaces arrays instead of concatenating", () => {
+    const configs = [
+      { config: { agentForbiddenTools: ["ToolA"] } as Record<string, unknown>, filepath: "/a" },
+      { config: { agentForbiddenTools: ["ToolB", "ToolC"] } as Record<string, unknown>, filepath: "/b" },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.agentForbiddenTools).toEqual(["ToolA"])
+  })
+
+  it("uses all defaults when no configs provided", () => {
+    const result = mergeConfigs([])
+
+    expect(result.file).toBe("TODO.md")
+    expect(result.agent).toBe("auto")
+    expect(result.agentPlan).toBe("plan")
+    expect(result.agentBuild).toBe("code")
+    expect(result.agentLearn).toBe("plan")
+    expect(result.testCmd).toBe("npm test")
+    expect(result.testRetries).toBe(10)
+    expect(result.commitPrompt).toContain("{{diff}}")
+    expect(result.agentInactivityTimeout).toBe(300)
+    expect(result.agentForbiddenTools).toEqual(["AskUserQuestion"])
+  })
+
+  it("higher priority overrides lower for overlapping keys", () => {
+    const configs = [
+      { config: { agent: "opencode" } as Record<string, unknown>, filepath: "/pwd" },
+      { config: { agent: "claude", testCmd: "pytest" } as Record<string, unknown>, filepath: "/home" },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.agent).toBe("opencode")
+    expect(result.testCmd).toBe("pytest")
+  })
+})
