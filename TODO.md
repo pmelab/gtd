@@ -36,3 +36,5 @@
     resolution, verify example config is written to cwd with expected content
     and a location hint. Integration test — verify the CLI prints a message
     about the created config.
+    > the example config file should reference the schema file directly from
+    > github for editor validation
