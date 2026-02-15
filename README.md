@@ -117,8 +117,8 @@ until the plan is ready.
 
 Once the plan is solid, run `gtd`. It picks the first unchecked item, invokes
 your agent in build mode, runs tests, checks the item off, and commits as `🔨`.
-Run `gtd` again to build the next item. The loop continues until all items are
-checked.
+It then automatically continues to the next unchecked item, repeating the cycle
+until all items are done — no need to re-run `gtd` between items.
 
 ### 5. Learn
 

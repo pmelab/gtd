@@ -4,7 +4,7 @@
 
 ### Fix README Build Section
 
-- [ ] Update README.md section "4. Build" to clarify automatic iteration
+- [x] Update README.md section "4. Build" to clarify automatic iteration
   - Current text says "Run `gtd` again to build the next item" — replace with
     explanation that `gtd` automatically continues to the next unchecked item
     until all are done, without requiring the user to re-run
