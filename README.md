@@ -132,6 +132,77 @@ You're done — start a new feature by creating a fresh `TODO.md`.
 
 ## Configuration
 
+`gtd` uses file-based configuration via [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig).
+Environment variables are **not** used for configuration.
+
+### Config File Locations
+
+Config files are searched in the following order (highest priority first):
+
+1. **Project directory** (and parent directories) — cosmiconfig default search
+2. **`$XDG_CONFIG_HOME/gtd/`** — e.g. `~/.config/gtd/.gtdrc.json`
+3. **`$XDG_CONFIG_HOME/`** — e.g. `~/.config/.gtdrc.json`
+4. **`$HOME/`** — e.g. `~/.gtdrc.json`
+
+When multiple config files are found, they are merged with higher-priority
+files overriding lower-priority ones (shallow merge).
+
+### Supported File Formats
+
+Any format supported by cosmiconfig:
+
+- `.gtdrc` (JSON)
+- `.gtdrc.json`
+- `.gtdrc.yaml` / `.gtdrc.yml`
+- `.gtdrc.js` / `.gtdrc.cjs` / `.gtdrc.mjs`
+- `.gtdrc.ts` / `.gtdrc.cts` / `.gtdrc.mts`
+- `gtd.config.js` / `gtd.config.cjs` / `gtd.config.mjs`
+- `gtd.config.ts` / `gtd.config.cts` / `gtd.config.mts`
+
+### Sample `.gtdrc.json`
+
+```jsonc
+{
+  // Planning file path (relative to project root)
+  // Default: "TODO.md"
+  "file": "TODO.md",
+
+  // Agent selection: "auto", "pi", "opencode", or "claude"
+  // "auto" tries pi → opencode → claude in order
+  // Default: "auto"
+  "agent": "auto",
+
+  // Agent mode overrides for each phase
+  // Default: "plan"
+  "agentPlan": "plan",
+  // Default: "code"
+  "agentBuild": "code",
+  // Default: "plan"
+  "agentLearn": "plan",
+
+  // Test command run after each build step
+  // Default: "npm test"
+  "testCmd": "npm test",
+
+  // Max test retries before giving up (must be >= 0)
+  // Default: 10
+  "testRetries": 10,
+
+  // Prompt template for generating commit messages
+  // Use {{diff}} as a placeholder for the staged diff
+  // Default: "Look at the following diff and create a concise commit message, following the conventional commit standards:\n\n{{diff}}"
+  "commitPrompt": "Look at the following diff and create a concise commit message, following the conventional commit standards:\n\n{{diff}}",
+
+  // Seconds before the agent times out due to inactivity (must be >= 0)
+  // Default: 300
+  "agentInactivityTimeout": 300,
+
+  // Agent tools to forbid (array of tool name strings)
+  // Default: ["AskUserQuestion"]
+  "agentForbiddenTools": ["AskUserQuestion"]
+}
+```
+
 ### Agents
 
 The following agents are supported:
@@ -140,33 +211,5 @@ The following agents are supported:
 - Opencode (id: `opencode`)
 - Claude Code (id: `claude`)
 
-`gtd` will attempt to use them in this order. Override with the `GTD_AGENT`
-environment variable.
-
-### Planning file
-
-Use `GTD_FILE` to configure a specific planning file. Defaults to `TODO.md`.
-
-### Commits
-
-The `GTD_COMMIT_PROMPT` is used to generate commit messages. It defaults to:
-
-```md
-Look at the following diff and create a concise commit message, following the
-conventional commit standards:
-
-{{diff}}
-```
-
-### Testing
-
-The build step runs tests after each item. Configure the test command with
-`GTD_TEST_CMD` (defaults to `npm test`). Tests are retried up to
-`GTD_TEST_RETRIES` times (defaults to `10`).
-
-### Agent Behavior
-
-- `GTD_AGENT_INACTIVITY_TIMEOUT`: Seconds before the agent times out due to
-  inactivity (defaults to `300`).
-- `GTD_AGENT_FORBIDDEN_TOOLS`: Comma-separated list of agent tools to forbid
-  (defaults to `AskUserQuestion`).
+When `agent` is set to `"auto"` (the default), `gtd` tries them in the order
+listed above and uses the first one available.

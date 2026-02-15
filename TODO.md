@@ -86,7 +86,7 @@ hierarchical configuration system that merges config from multiple directories.
 
 ### Documentation
 
-- [ ] Add a sample `.gtdrc.json` to the README or a new `docs/` file
+- [x] Add a sample `.gtdrc.json` to the README or a new `docs/` file
   - Show all available keys with descriptions and defaults
   - Explain the merge order and supported file formats
   - Mention that env vars are no longer used for configuration
