@@ -37,7 +37,7 @@
 
 ### Prettier Formatting for TODO.md
 
-- [ ] Run prettier on TODO.md after plan generation
+- [x] Run prettier on TODO.md after plan generation
   - After the agent writes the plan file and before the atomic commit in
     `plan.ts`, run `prettier --write <config.file>` using `@effect/platform`
     `Command`

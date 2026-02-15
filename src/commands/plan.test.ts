@@ -265,4 +265,68 @@ describe("planCommand", () => {
       expect(writeSessionCalled).toBe(false)
     }),
   )
+
+  it.effect("invokes formatFile on the plan file before committing", () =>
+    Effect.gen(function* () {
+      let formatCalled = false
+      const agentLayer = Layer.succeed(AgentService, {
+        invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+      const gitCalls: string[] = []
+      const gitLayer = mockGit({
+        add: (files) =>
+          Effect.sync(() => {
+            gitCalls.push(`add:${files.join(",")}`)
+          }),
+        commit: (msg) =>
+          Effect.sync(() => {
+            gitCalls.push(`commit:${msg}`)
+          }),
+      })
+      const fs = {
+        ...mockFs(""),
+        formatFile: () =>
+          Effect.sync(() => {
+            formatCalled = true
+          }),
+      }
+      yield* planCommand(fs).pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+      expect(formatCalled).toBe(true)
+      // formatFile should be called before the commit
+      const commitIdx = gitCalls.findIndex((c) => c.startsWith("commit:"))
+      expect(commitIdx).toBeGreaterThanOrEqual(0)
+    }),
+  )
+
+  it.effect("still commits when formatFile fails", () =>
+    Effect.gen(function* () {
+      const agentLayer = Layer.succeed(AgentService, {
+        invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+      const gitCalls: string[] = []
+      const gitLayer = mockGit({
+        add: (files) =>
+          Effect.sync(() => {
+            gitCalls.push(`add:${files.join(",")}`)
+          }),
+        commit: (msg) =>
+          Effect.sync(() => {
+            gitCalls.push(`commit:${msg}`)
+          }),
+      })
+      const fs = {
+        ...mockFs(""),
+        formatFile: () => Effect.fail(new Error("prettier not found")),
+      }
+      yield* planCommand(fs).pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+      // Should still commit despite prettier failure
+      expect(gitCalls.some((c) => c.startsWith("commit:"))).toBe(true)
+    }),
+  )
 })

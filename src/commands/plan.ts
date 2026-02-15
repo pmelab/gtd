@@ -1,3 +1,4 @@
+import { Command } from "@effect/platform"
 import { Effect } from "effect"
 import { resolve } from "node:path"
 import { GtdConfigService } from "../services/Config.js"
@@ -14,6 +15,7 @@ interface FileOps {
   readonly exists: () => Effect.Effect<boolean>
   readonly readSessionId?: () => Effect.Effect<string | undefined>
   readonly writeSessionId?: (sessionId: string) => Effect.Effect<void>
+  readonly formatFile?: () => Effect.Effect<void, Error>
 }
 
 const MAX_LINT_RETRIES = 3
@@ -102,13 +104,23 @@ export const planCommand = (fs: FileOps) =>
       sessionId = lintResult.sessionId ?? sessionId
     }
 
-    // 6. Atomic git add + commit
+    // 6. Format plan file with prettier
+    if (fs.formatFile) {
+      yield* fs.formatFile().pipe(
+        Effect.catchAll((err) => {
+          renderer.setText(`Prettier warning: ${err.message}`)
+          return Effect.void
+        }),
+      )
+    }
+
+    // 7. Atomic git add + commit
     const planDiff = yield* git.getDiff()
     const planCommitMessage = yield* generateCommitMessage("🤖", planDiff)
     yield* git.atomicCommit([config.file], planCommitMessage)
     renderer.succeed("Plan committed.")
 
-    // 7. Save session ID for build command
+    // 8. Save session ID for build command
     if (sessionId && fs.writeSessionId) {
       yield* fs.writeSessionId(sessionId)
     }
@@ -162,6 +174,12 @@ const bunFileOps = (filePath: string): FileOps => ({
       try: () => Bun.write(sessionFilePath(filePath), sessionId),
       catch: () => new Error(`Failed to write session file`),
     }).pipe(Effect.catchAll(() => Effect.void)),
+  formatFile: () =>
+    Command.make("prettier", "--write", filePath).pipe(
+      Command.string,
+      Effect.asVoid,
+      Effect.mapError((e) => new Error(String(e))),
+    ),
 })
 
 export const makePlanCommand = Effect.gen(function* () {
