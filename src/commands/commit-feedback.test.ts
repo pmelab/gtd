@@ -95,8 +95,11 @@ describe("commitFeedbackCommand", () => {
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
-      expect(calls.length).toBe(1)
+      // 2 calls: one for commit prompt, one for commit message generation
+      expect(calls.length).toBe(2)
       expect(calls[0]!.prompt).toContain("diff --git a/bar.ts")
+      // Second call is for commit message summarization
+      expect(calls[1]!.prompt).toContain("commit message")
     }),
   )
 

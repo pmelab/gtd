@@ -13,6 +13,7 @@ import { hasUncheckedItems } from "./services/TodoState.js"
 import { isOnlyLearningsModified as checkOnlyLearnings } from "./services/LearningsDiff.js"
 import { extractLearnings, hasLearningsSection } from "./services/Markdown.js"
 import { learnPrompt, interpolate } from "./prompts/index.js"
+import { generateCommitMessage } from "./services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "./services/Renderer.js"
 import { notify } from "./services/Notify.js"
 
@@ -77,7 +78,9 @@ export const learnAction = (input: LearnInput) =>
         })
         .pipe(Effect.ensuring(Effect.sync(() => renderer.dispose())))
 
-      yield* git.atomicCommit("all", "🎓 learn: extract learnings")
+      const learnDiff = yield* git.getDiff()
+      const learnCommitMsg = yield* generateCommitMessage("🎓", learnDiff)
+      yield* git.atomicCommit("all", learnCommitMsg)
       renderer.succeed("Learnings persisted to AGENTS.md and committed.")
       yield* notify("gtd", "Learnings committed.")
     } else {

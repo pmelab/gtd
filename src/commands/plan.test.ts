@@ -89,7 +89,7 @@ describe("planCommand", () => {
     }),
   )
 
-  it.effect("calls git add and commit", () =>
+  it.effect("calls git add and commit with LLM-generated message", () =>
     Effect.gen(function* () {
       const gitCalls: string[] = []
       const gitLayer = mockGit({
@@ -103,7 +103,10 @@ describe("planCommand", () => {
           }),
       })
       const agentLayer = Layer.succeed(AgentService, {
-        invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
+        invoke: (params) => {
+          if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "plan: update TODO.md" })
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
         isAvailable: () => Effect.succeed(true),
       })
       yield* planCommand(mockFs("")).pipe(
@@ -139,17 +142,18 @@ describe("planCommand", () => {
   it.effect("lint retries resume the plan session", () =>
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
-      let callCount = 0
+      let planCallCount = 0
       const agentLayer = Layer.succeed(AgentService, {
-        invoke: (params) =>
-          Effect.succeed<AgentResult>({
-            sessionId: callCount++ === 0 ? "plan-ses-1" : undefined,
-          }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
-          ),
+        invoke: (params) => {
+          calls.push(params)
+          if (params.mode === "plan") {
+            const sessionId = planCallCount++ === 0 ? "plan-ses-1" : undefined
+            return Effect.succeed<AgentResult>({ sessionId })
+          }
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
         isAvailable: () => Effect.succeed(true),
       })
-      // Plan with blockquote → triggers lint error
       const planWithBlockquote = [
         "# Feature",
         "",
@@ -164,7 +168,6 @@ describe("planCommand", () => {
         "> Fix this",
         "",
       ].join("\n")
-      // After agent "fixes" it, return clean plan
       const cleanPlan = [
         "# Feature",
         "",
@@ -179,17 +182,16 @@ describe("planCommand", () => {
       ].join("\n")
       let readCount = 0
       const fs = {
-        // Reads: 0=initial plan, 1=first lint check (has errors), 2=second lint check (clean)
         readFile: () => Effect.succeed(readCount++ < 2 ? planWithBlockquote : cleanPlan),
         exists: () => Effect.succeed(true),
       }
       yield* planCommand(fs).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
       )
-      // 2 calls: initial plan + 1 lint fix
-      expect(calls.length).toBe(2)
-      // Lint fix should resume the plan session
-      expect(calls[1]!.resumeSessionId).toBe("plan-ses-1")
+      const planCalls = calls.filter((c) => c.mode === "plan" && !c.prompt.includes("commit message"))
+      // 2 plan calls: initial plan + 1 lint fix
+      expect(planCalls.length).toBe(2)
+      expect(planCalls[1]!.resumeSessionId).toBe("plan-ses-1")
     }),
   )
 

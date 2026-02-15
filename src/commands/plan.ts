@@ -5,6 +5,7 @@ import { GitService } from "../services/Git.js"
 import { AgentService, AgentError } from "../services/Agent.js"
 import { detectState, lint, type LintError } from "../services/Markdown.js"
 import { planPrompt, interpolate } from "../prompts/index.js"
+import { generateCommitMessage } from "../services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
 import { notify } from "../services/Notify.js"
 
@@ -102,7 +103,9 @@ export const planCommand = (fs: FileOps) =>
     }
 
     // 6. Atomic git add + commit
-    yield* git.atomicCommit([config.file], `🤖 plan: update ${config.file}`)
+    const planDiff = yield* git.getDiff()
+    const planCommitMessage = yield* generateCommitMessage("🤖", planDiff)
+    yield* git.atomicCommit([config.file], planCommitMessage)
     renderer.succeed("Plan committed.")
 
     // 7. Save session ID for build command

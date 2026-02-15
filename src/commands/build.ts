@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { GtdConfigService } from "../services/Config.js"
 import { GitService } from "../services/Git.js"
 import { AgentService, AgentError } from "../services/Agent.js"
+import { generateCommitMessage } from "../services/CommitMessage.js"
 import {
   getNextUncheckedPackage,
   hasUncheckedItems,
@@ -171,7 +172,9 @@ export const buildCommand = (fs: FileOps) =>
       }
 
       renderer.setStatus(pkg.title, "done")
-      yield* git.atomicCommit("all", `🔨 build: ${pkg.title}`)
+      const buildDiff = yield* git.getDiff()
+      const buildCommitMsg = yield* generateCommitMessage("🔨", buildDiff)
+      yield* git.atomicCommit("all", buildCommitMsg)
       completedSummaries.push(`- ${pkg.title}: implemented and tests passing`)
     }
 

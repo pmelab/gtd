@@ -195,10 +195,11 @@ describe("learnAction", () => {
     const calls: AgentInvocation[] = []
     const commits: string[] = []
     const agentLayer = Layer.succeed(AgentService, {
-      invoke: (params) =>
-        Effect.sync(() => {
-          calls.push(params)
-        }),
+      invoke: (params) => {
+        calls.push(params)
+        if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "learn: extract learnings" })
+        return Effect.succeed({ sessionId: undefined })
+      },
       isAvailable: () => Effect.succeed(true),
     })
     const gitLayer = mockGit({
@@ -213,9 +214,9 @@ describe("learnAction", () => {
         hasUncommittedLearnings: true,
       }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer))),
     )
-    expect(calls.length).toBe(1)
-    expect(calls[0]!.mode).toBe("learn")
-    expect(calls[0]!.prompt).toContain("never auto-submit forms")
+    const learnCalls = calls.filter((c) => c.mode === "learn")
+    expect(learnCalls.length).toBe(1)
+    expect(learnCalls[0]!.prompt).toContain("never auto-submit forms")
     expect(commits.length).toBe(1)
     expect(commits[0]!).toBe("🎓 learn: extract learnings")
   })

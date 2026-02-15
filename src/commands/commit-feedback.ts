@@ -3,6 +3,7 @@ import { GtdConfigService } from "../services/Config.js"
 import { GitService } from "../services/Git.js"
 import { AgentService } from "../services/Agent.js"
 import { interpolate } from "../prompts/index.js"
+import { generateCommitMessage } from "../services/CommitMessage.js"
 import { makePlanCommand } from "./plan.js"
 
 export const commitFeedbackCommand = (
@@ -24,16 +25,9 @@ export const commitFeedbackCommand = (
       cwd: process.cwd(),
     })
 
-    const summary = diff
-      .split("\n")
-      .filter((l) => l.startsWith("diff --git") || l.startsWith("+++ ") || l.startsWith("--- "))
-      .map((l) => l.replace(/^diff --git a\//, "").replace(/ b\/.*/, ""))
-      .filter((l) => !l.startsWith("---") && !l.startsWith("+++"))
-      .join(", ")
+    const commitMessage = yield* generateCommitMessage("🤦", diff)
 
-    const shortSummary = summary.length > 0 ? summary.slice(0, 72) : "human feedback"
-
-    yield* git.atomicCommit("all", `🤦 ${shortSummary}`)
+    yield* git.atomicCommit("all", commitMessage)
 
     console.log("Feedback committed. Triggering plan...")
 

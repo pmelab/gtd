@@ -103,10 +103,10 @@ describe("buildCommand", () => {
       yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
       )
-      expect(calls.length).toBe(1)
-      expect(calls[0]!.mode).toBe("build")
-      expect(calls[0]!.prompt).toContain("Only item")
-      expect(calls[0]!.systemPrompt).toBe("")
+      const buildCalls = calls.filter((c) => c.mode === "build")
+      expect(buildCalls.length).toBe(1)
+      expect(buildCalls[0]!.prompt).toContain("Only item")
+      expect(buildCalls[0]!.systemPrompt).toBe("")
     }),
   )
 
@@ -157,7 +157,10 @@ describe("buildCommand", () => {
           }),
       })
       const agentLayer = Layer.succeed(AgentService, {
-        invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
+        invoke: (params) => {
+          if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Build Phase" })
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
         isAvailable: () => Effect.succeed(true),
       })
       const singleItem = [
@@ -185,10 +188,11 @@ describe("buildCommand", () => {
       const calls: AgentInvocation[] = []
       const gitCalls: string[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        invoke: (params) =>
-          Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
-          ),
+        invoke: (params) => {
+          calls.push(params)
+          if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Pkg2" })
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
         isAvailable: () => Effect.succeed(true),
       })
       const gitLayer = mockGit({
@@ -201,7 +205,6 @@ describe("buildCommand", () => {
             gitCalls.push(`commit:${msg}`)
           }),
       })
-      // Simulate a plan where Pkg1 was already completed (checked) and Pkg2 remains
       const partiallyDone = [
         "# Feature",
         "",
@@ -223,10 +226,10 @@ describe("buildCommand", () => {
       yield* buildCommand(mockFsWithProgress(partiallyDone)).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
-      // Should only build Pkg2 (Pkg1 is already done)
-      expect(calls.length).toBe(1)
-      expect(calls[0]!.prompt).toContain("Item 2")
-      expect(calls[0]!.prompt).not.toContain("Item 1")
+      const buildCalls = calls.filter((c) => c.mode === "build")
+      expect(buildCalls.length).toBe(1)
+      expect(buildCalls[0]!.prompt).toContain("Item 2")
+      expect(buildCalls[0]!.prompt).not.toContain("Item 1")
       expect(gitCalls.some((c) => c === "commit:🔨 build: Pkg2")).toBe(true)
     }),
   )
@@ -264,10 +267,11 @@ describe("buildCommand", () => {
       const calls: AgentInvocation[] = []
       const gitCalls: string[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        invoke: (params) =>
-          Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
-          ),
+        invoke: (params) => {
+          calls.push(params)
+          if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Error Handling" })
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
         isAvailable: () => Effect.succeed(true),
       })
       const gitLayer = mockGit({
@@ -304,11 +308,10 @@ describe("buildCommand", () => {
       yield* buildCommand(mockFsWithProgress(packagedPlan)).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
-      // First invocation should contain both items from the first package
-      expect(calls.length).toBeGreaterThanOrEqual(1)
-      expect(calls[0]!.prompt).toContain("Capture stderr")
-      expect(calls[0]!.prompt).toContain("Include stderr in error")
-      // Commit should use the package title with 🔨 prefix
+      const buildCalls = calls.filter((c) => c.mode === "build")
+      expect(buildCalls.length).toBeGreaterThanOrEqual(1)
+      expect(buildCalls[0]!.prompt).toContain("Capture stderr")
+      expect(buildCalls[0]!.prompt).toContain("Include stderr in error")
       expect(gitCalls.some((c) => c === "commit:🔨 build: Error Handling")).toBe(true)
     }),
   )
@@ -317,14 +320,12 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        invoke: (params) =>
-          Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
-          ),
+        invoke: (params) => {
+          calls.push(params)
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
         isAvailable: () => Effect.succeed(true),
       })
-      // Two packages — mockFsWithProgress marks all checked after 2 reads
-      // so we need a custom fs that progresses package by package
       let readCount = 0
       const initial = [
         "# Feature",
@@ -346,8 +347,6 @@ describe("buildCommand", () => {
       ].join("\n")
       const pkg1Done = initial.replace("- [ ] Capture stderr", "- [x] Capture stderr")
       const allDone = initial.replace(/- \[ \]/g, "- [x]")
-      // Reads: 0=pre-loop, 1=while-iter1 (build Error Handling),
-      //        2=while-iter2 (build Integration Tests), 3=while-iter3 (break)
       const fs = {
         readFile: () => {
           const count = readCount++
@@ -360,13 +359,11 @@ describe("buildCommand", () => {
       yield* buildCommand(fs).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
       )
-      // Should have 2 agent calls (one per package)
-      expect(calls.length).toBe(2)
-      // First package: no completed context
-      expect(calls[0]!.prompt).toContain("No previous packages completed.")
-      // Second package: includes summary of first
-      expect(calls[1]!.prompt).toContain("Error Handling")
-      expect(calls[1]!.prompt).toContain("implemented and tests passing")
+      const buildCalls = calls.filter((c) => c.mode === "build")
+      expect(buildCalls.length).toBe(2)
+      expect(buildCalls[0]!.prompt).toContain("No previous packages completed.")
+      expect(buildCalls[1]!.prompt).toContain("Error Handling")
+      expect(buildCalls[1]!.prompt).toContain("implemented and tests passing")
     }),
   )
 
@@ -377,17 +374,15 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         invoke: (params) => {
           const count = callCount++
-          // Build returns "ses-build-1", retry1 returns "ses-retry-1", retry2 inherits
+          // Build returns "ses-build-1", retry1 returns "ses-retry-1", commit msg calls return undefined
           const sessionId = count === 0 ? "ses-build-1" : count === 1 ? "ses-retry-1" : undefined
-          return Effect.succeed<AgentResult>({ sessionId }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
-          )
+          calls.push(params)
+          return Effect.succeed<AgentResult>({ sessionId })
         },
         isAvailable: () => Effect.succeed(true),
       })
 
       let testRunCount = 0
-      // Fail twice, pass on third
       const mockTestRunner = (_cmd: string): Effect.Effect<TestResult> =>
         Effect.succeed({
           exitCode: testRunCount++ < 2 ? 1 : 0,
@@ -418,16 +413,14 @@ describe("buildCommand", () => {
         ),
       )
 
+      const buildCalls = calls.filter((c) => c.mode === "build")
       // Initial build + 2 retries = 3 calls
-      expect(calls.length).toBe(3)
-      // Initial build has no resumeSessionId
-      expect(calls[0]!.resumeSessionId).toBeUndefined()
-      // First retry resumes build session
-      expect(calls[1]!.resumeSessionId).toBe("ses-build-1")
-      expect(calls[1]!.prompt).toContain("Tests failed:")
-      expect(calls[1]!.prompt).not.toContain("You are a build agent")
-      // Second retry chains from first retry's session
-      expect(calls[2]!.resumeSessionId).toBe("ses-retry-1")
+      expect(buildCalls.length).toBe(3)
+      expect(buildCalls[0]!.resumeSessionId).toBeUndefined()
+      expect(buildCalls[1]!.resumeSessionId).toBe("ses-build-1")
+      expect(buildCalls[1]!.prompt).toContain("Tests failed:")
+      expect(buildCalls[1]!.prompt).not.toContain("You are a build agent")
+      expect(buildCalls[2]!.resumeSessionId).toBe("ses-retry-1")
     }),
   )
 
@@ -435,10 +428,10 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        invoke: (params) =>
-          Effect.succeed<AgentResult>({ sessionId: "build-ses" }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
-          ),
+        invoke: (params) => {
+          calls.push(params)
+          return Effect.succeed<AgentResult>({ sessionId: "build-ses" })
+        },
         isAvailable: () => Effect.succeed(true),
       })
       let readCount = 0
@@ -476,30 +469,30 @@ describe("buildCommand", () => {
       yield* buildCommand(fs).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
       )
-      // Both packages should resume plan session
-      expect(calls[0]!.resumeSessionId).toBe("plan-ses-xyz")
-      expect(calls[1]!.resumeSessionId).toBe("plan-ses-xyz")
+      const buildCalls = calls.filter((c) => c.mode === "build")
+      expect(buildCalls[0]!.resumeSessionId).toBe("plan-ses-xyz")
+      expect(buildCalls[1]!.resumeSessionId).toBe("plan-ses-xyz")
     }),
   )
 
   it.effect("test retries do not affect plan session", () =>
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
-      let callCount = 0
+      let buildCallCount = 0
       const agentLayer = Layer.succeed(AgentService, {
         invoke: (params) => {
-          const count = callCount++
-          // Build returns build session, retry returns retry session
-          const sessionId = count === 0 ? "ses-build-1" : count === 1 ? "ses-retry-1" : "ses-build-2"
-          return Effect.succeed<AgentResult>({ sessionId }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
-          )
+          calls.push(params)
+          if (params.mode === "build") {
+            const count = buildCallCount++
+            const sessionId = count === 0 ? "ses-build-1" : count === 1 ? "ses-retry-1" : "ses-build-2"
+            return Effect.succeed<AgentResult>({ sessionId })
+          }
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
         },
         isAvailable: () => Effect.succeed(true),
       })
 
       let testRunCount = 0
-      // pkg1: fail then pass; pkg2: pass immediately
       const mockTestRunner = (_cmd: string): Effect.Effect<TestResult> =>
         Effect.succeed({
           exitCode: testRunCount++ === 0 ? 1 : 0,
@@ -527,7 +520,6 @@ describe("buildCommand", () => {
       ].join("\n")
       const pkg1Done = initial.replace("- [ ] Item 1", "- [x] Item 1")
       const allDone = initial.replace(/- \[ \]/g, "- [x]")
-      // Reads: 0=pre-loop check, 1=iter1 (Pkg1 build), 2=iter2 (Pkg2 build), 3=iter3 (break)
       const fs = {
         readFile: () => {
           const count = readCount++
@@ -545,14 +537,12 @@ describe("buildCommand", () => {
           Layer.mergeAll(mockConfig({ testCmd: "npm test", testRetries: 3 }), mockGit(), agentLayer),
         ),
       )
-      // 3 calls: pkg1 build, pkg1 retry, pkg2 build
-      expect(calls.length).toBe(3)
-      // pkg1 build: resumes plan session
-      expect(calls[0]!.resumeSessionId).toBe("plan-ses-xyz")
-      // pkg1 retry: resumes build session (NOT plan session)
-      expect(calls[1]!.resumeSessionId).toBe("ses-build-1")
-      // pkg2 build: resumes plan session (NOT retry or build session from pkg1)
-      expect(calls[2]!.resumeSessionId).toBe("plan-ses-xyz")
+      const buildCalls = calls.filter((c) => c.mode === "build")
+      // 3 build calls: pkg1 build, pkg1 retry, pkg2 build
+      expect(buildCalls.length).toBe(3)
+      expect(buildCalls[0]!.resumeSessionId).toBe("plan-ses-xyz")
+      expect(buildCalls[1]!.resumeSessionId).toBe("ses-build-1")
+      expect(buildCalls[2]!.resumeSessionId).toBe("plan-ses-xyz")
     }),
   )
 
@@ -560,14 +550,10 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        invoke: (params) =>
-          Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() =>
-              Effect.sync(() => {
-                calls.push(params)
-              }),
-            ),
-          ),
+        invoke: (params) => {
+          calls.push(params)
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
         isAvailable: () => Effect.succeed(true),
       })
 
@@ -602,11 +588,10 @@ describe("buildCommand", () => {
         ),
       )
 
-      expect(calls.length).toBe(2)
-      // No session => no resumeSessionId
-      expect(calls[1]!.resumeSessionId).toBeUndefined()
-      // Full prompt (contains template text)
-      expect(calls[1]!.prompt).toContain("You are a build agent")
+      const buildCalls = calls.filter((c) => c.mode === "build")
+      expect(buildCalls.length).toBe(2)
+      expect(buildCalls[1]!.resumeSessionId).toBeUndefined()
+      expect(buildCalls[1]!.prompt).toContain("You are a build agent")
     }),
   )
 

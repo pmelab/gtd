@@ -18,7 +18,7 @@
 
 ### LLM-Generated Commit Summaries
 
-- [ ] Generate commit messages via agent instead of filename-based summaries
+- [x] Generate commit messages via agent instead of filename-based summaries
   - Replace the manual `diff`-line-parsing summary in `commit-feedback.ts` with
     an agent call that produces a concise commit message from the diff content
   - Use the existing `AgentService.invoke` with a short prompt like "Summarize
