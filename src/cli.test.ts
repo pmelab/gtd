@@ -364,6 +364,82 @@ describe("gatherState computes onlyLearningsModified", () => {
   })
 })
 
+describe("gatherState computes todoFileIsNew", () => {
+  it("todoFileIsNew is true when TODO exists in HEAD but not HEAD~1", async () => {
+    const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(false),
+      getLastCommitMessage: () => Effect.succeed("👷 fix: something"),
+      show: (ref) => {
+        if (ref === "HEAD:TODO.md") return Effect.succeed("# Plan\n")
+        if (ref === "HEAD~1:TODO.md") return Effect.fail(new Error("not found"))
+        return Effect.succeed("")
+      },
+    })
+
+    const fileOps = {
+      ...mockFs("# Plan\n"),
+      getDiffContent: () => Effect.succeed(""),
+    }
+
+    const state = await Effect.runPromise(
+      gatherState(fileOps).pipe(
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+      ),
+    )
+
+    expect(state.todoFileIsNew).toBe(true)
+  })
+
+  it("todoFileIsNew is false when TODO exists in both HEAD and HEAD~1", async () => {
+    const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(false),
+      getLastCommitMessage: () => Effect.succeed("👷 fix: something"),
+      show: (ref) => {
+        if (ref === "HEAD:TODO.md") return Effect.succeed("# Plan\n")
+        if (ref === "HEAD~1:TODO.md") return Effect.succeed("# Plan\n")
+        return Effect.succeed("")
+      },
+    })
+
+    const fileOps = {
+      ...mockFs("# Plan\n"),
+      getDiffContent: () => Effect.succeed(""),
+    }
+
+    const state = await Effect.runPromise(
+      gatherState(fileOps).pipe(
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+      ),
+    )
+
+    expect(state.todoFileIsNew).toBe(false)
+  })
+
+  it("todoFileIsNew is false when uncommitted changes exist", async () => {
+    const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(true),
+      getLastCommitMessage: () => Effect.succeed("👷 fix: something"),
+      show: (ref) => {
+        if (ref.includes("TODO.md")) return Effect.succeed("# Plan\n")
+        return Effect.succeed("")
+      },
+    })
+
+    const fileOps = {
+      ...mockFs("# Plan\n"),
+      getDiffContent: () => Effect.succeed(""),
+    }
+
+    const state = await Effect.runPromise(
+      gatherState(fileOps).pipe(
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+      ),
+    )
+
+    expect(state.todoFileIsNew).toBe(false)
+  })
+})
+
 describe("gtd learn subcommand removed", () => {
   it("no standalone learn subcommand exists", async () => {
     const mod = await import("./cli.js")
