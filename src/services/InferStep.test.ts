@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest"
 import { inferStep, type InferStepInput } from "./InferStep.js"
-import { HUMAN, PLAN, BUILD, LEARN, CLEANUP } from "./CommitPrefix.js"
+import { HUMAN, PLAN, BUILD, LEARN, CLEANUP, FIX } from "./CommitPrefix.js"
 
 describe("inferStep", () => {
   it("returns commit-feedback when uncommitted changes exist", () => {
@@ -131,6 +131,26 @@ describe("inferStep", () => {
       onlyLearningsModified: false,
     }
     expect(inferStep(input)).toBe("commit-feedback")
+  })
+
+  it("returns build when last commit prefix is FIX and unchecked items remain", () => {
+    const input: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: FIX,
+      hasUncheckedItems: true,
+      onlyLearningsModified: false,
+    }
+    expect(inferStep(input)).toBe("build")
+  })
+
+  it("returns learn when last commit prefix is FIX and all items checked", () => {
+    const input: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: FIX,
+      hasUncheckedItems: false,
+      onlyLearningsModified: false,
+    }
+    expect(inferStep(input)).toBe("learn")
   })
 
   it("uncommitted + onlyLearnings still returns commit-feedback", () => {

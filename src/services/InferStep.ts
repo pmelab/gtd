@@ -2,6 +2,7 @@ import {
   HUMAN,
   PLAN,
   BUILD,
+  FIX,
   LEARN,
   CLEANUP,
   type CommitPrefix,
@@ -33,6 +34,7 @@ export const inferStep = (input: InferStepInput): Step => {
     case PLAN:
       return "build"
     case BUILD:
+    case FIX:
       return input.hasUncheckedItems ? "build" : "learn"
     case LEARN:
       return "cleanup"

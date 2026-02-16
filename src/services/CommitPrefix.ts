@@ -3,6 +3,7 @@ export const PLAN = "🤖" as const
 export const BUILD = "🔨" as const
 export const LEARN = "🎓" as const
 export const CLEANUP = "🧹" as const
+export const FIX = "👷" as const
 
 export type CommitPrefix =
   | typeof HUMAN
@@ -10,6 +11,7 @@ export type CommitPrefix =
   | typeof BUILD
   | typeof LEARN
   | typeof CLEANUP
+  | typeof FIX
 
 const ALL_PREFIXES: ReadonlyArray<CommitPrefix> = [
   HUMAN,
@@ -17,6 +19,7 @@ const ALL_PREFIXES: ReadonlyArray<CommitPrefix> = [
   BUILD,
   LEARN,
   CLEANUP,
+  FIX,
 ]
 
 export const parseCommitPrefix = (
