@@ -4,6 +4,7 @@ import { GitService } from "../services/Git.js"
 import { AgentService } from "../services/Agent.js"
 import { interpolate } from "../prompts/index.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
+import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
 
 export const commitFeedbackCommand = () =>
   Effect.gen(function* () {
@@ -11,20 +12,37 @@ export const commitFeedbackCommand = () =>
     const git = yield* GitService
     const agent = yield* AgentService
 
-    const diff = yield* git.getDiff()
+    const renderer = createSpinnerRenderer(isInteractive())
 
-    const prompt = interpolate(config.commitPrompt, { diff })
+    yield* Effect.gen(function* () {
+      renderer.setText("Classifying changes…")
 
-    yield* agent.invoke({
-      prompt,
-      systemPrompt: "",
-      mode: "plan",
-      cwd: process.cwd(),
-    })
+      const diff = yield* git.getDiff()
 
-    const commitMessage = yield* generateCommitMessage("🤦", diff)
+      const prompt = interpolate(config.commitPrompt, { diff })
 
-    yield* git.atomicCommit("all", commitMessage)
+      renderer.setText("Generating feedback…")
 
-    console.log("Feedback committed.")
+      yield* agent.invoke({
+        prompt,
+        systemPrompt: "",
+        mode: "plan",
+        cwd: process.cwd(),
+        onEvent: renderer.onEvent,
+      })
+
+      renderer.setText("Committing feedback…")
+
+      const commitMessage = yield* generateCommitMessage("🤦", diff)
+
+      yield* git.atomicCommit("all", commitMessage)
+
+      renderer.succeed("Feedback committed.")
+    }).pipe(
+      Effect.tapError(() =>
+        Effect.sync(() => {
+          renderer.fail("Commit feedback failed.")
+        }),
+      ),
+    )
   })

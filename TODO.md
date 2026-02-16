@@ -4,7 +4,7 @@
 
 ### Progress Indication
 
-- [ ] Show immediate progress feedback when `commit-feedback` starts using a
+- [x] Show immediate progress feedback when `commit-feedback` starts using a
       proper spinner
   - Add a spinner (e.g., `ora` or Effect-idiomatic equivalent) at the top of
     `commitFeedbackCommand` in `src/commands/commit-feedback.ts` before any

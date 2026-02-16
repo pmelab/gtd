@@ -155,4 +155,126 @@ describe("commitFeedbackCommand", () => {
       consoleSpy.mockRestore()
     }),
   )
+
+  it.effect("starts spinner before getDiff is called", () =>
+    Effect.gen(function* () {
+      const callOrder: string[] = []
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+        const msg = args.map(String).join(" ")
+        if (msg.includes("[gtd]")) callOrder.push(`spinner:${msg}`)
+      })
+
+      const gitLayer = mockGit({
+        getDiff: () =>
+          Effect.sync(() => {
+            callOrder.push("getDiff")
+            return "diff --git a/foo.ts\n+const x = 1"
+          }),
+        atomicCommit: () => Effect.void,
+      })
+
+      const agentLayer = Layer.succeed(AgentService, {
+        invoke: () => Effect.succeed({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      const spinnerIdx = callOrder.findIndex((c) => c.startsWith("spinner:"))
+      const getDiffIdx = callOrder.findIndex((c) => c === "getDiff")
+      expect(spinnerIdx).toBeGreaterThanOrEqual(0)
+      expect(getDiffIdx).toBeGreaterThan(spinnerIdx)
+
+      consoleSpy.mockRestore()
+    }),
+  )
+
+  it.effect("updates spinner text through phases", () =>
+    Effect.gen(function* () {
+      const spinnerTexts: string[] = []
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+        const msg = args.map(String).join(" ")
+        if (msg.includes("[gtd]")) spinnerTexts.push(msg)
+      })
+
+      const gitLayer = mockGit({
+        atomicCommit: () => Effect.void,
+      })
+
+      const agentLayer = Layer.succeed(AgentService, {
+        invoke: () => Effect.succeed({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      expect(spinnerTexts.some((t) => t.toLowerCase().includes("classifying"))).toBe(true)
+      expect(spinnerTexts.some((t) => t.toLowerCase().includes("committing"))).toBe(true)
+
+      consoleSpy.mockRestore()
+    }),
+  )
+
+  it.effect("stops spinner on success", () =>
+    Effect.gen(function* () {
+      const spinnerTexts: string[] = []
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+        const msg = args.map(String).join(" ")
+        if (msg.includes("[gtd]")) spinnerTexts.push(msg)
+      })
+
+      const gitLayer = mockGit({
+        atomicCommit: () => Effect.void,
+      })
+
+      const agentLayer = Layer.succeed(AgentService, {
+        invoke: () => Effect.succeed({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      expect(spinnerTexts.some((t) => t.toLowerCase().includes("committed"))).toBe(true)
+
+      consoleSpy.mockRestore()
+    }),
+  )
+
+  it.effect("stops spinner on error", () =>
+    Effect.gen(function* () {
+      const errorTexts: string[] = []
+      const consoleErrSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+        const msg = args.map(String).join(" ")
+        if (msg.includes("[gtd]")) errorTexts.push(msg)
+      })
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {})
+
+      const gitLayer = mockGit({
+        getDiff: () => Effect.fail(new Error("git failed")),
+        atomicCommit: () => Effect.void,
+      })
+
+      const agentLayer = Layer.succeed(AgentService, {
+        invoke: () => Effect.succeed({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+
+      const result = yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+        Effect.either,
+      )
+
+      expect(result._tag).toBe("Left")
+      expect(errorTexts.some((t) => t.toLowerCase().includes("failed"))).toBe(true)
+
+      consoleErrSpy.mockRestore()
+      consoleSpy.mockRestore()
+    }),
+  )
 })
