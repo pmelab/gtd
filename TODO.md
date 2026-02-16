@@ -20,7 +20,6 @@
 ### Add `init` Subcommand
 
 - [ ] Create `src/commands/init.ts` with an `initCommand` effect
-
   - Call `createExampleConfig(process.cwd())` from `ConfigResolver.ts`
   - On success, print the result message via `Console.log`
   - On `null` result (write failure), print an error message and exit with
