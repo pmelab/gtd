@@ -59,7 +59,7 @@
 
 ### Clean Up Tests
 
-- [ ] Remove or update `ConfigResolver.test.ts` tests that depend on
+- [x] Remove or update `ConfigResolver.test.ts` tests that depend on
       auto-creation behavior
   - The `createExampleConfig` unit tests in `ConfigResolver.test.ts` should
     remain — the function still exists, it's just no longer called automatically
