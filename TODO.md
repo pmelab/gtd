@@ -53,10 +53,15 @@ useful information that is derived from the environment.
   - Tests: Unit test `mergeConfigs` returns source paths; integration test that
     `GtdConfigService` exposes which files were loaded
 
+> addition: if not --quiet, output should also log the full decision tree on
+> each invocation (feedback, plan, build ...)
+
 ## Open Questions
 
 - Should the banner be suppressible via a `--quiet` flag or config option?
+  > yes
 - Should the banner include the git branch or working directory path?
+  > no
 
 ## Learnings
 
