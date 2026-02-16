@@ -73,7 +73,7 @@ const reconstructDiff = (files: ParsedFile[]): string => {
   return parts.length > 0 ? parts.join("\n") + "\n" : ""
 }
 
-export const classifyDiff = (diff: string): { fixes: string; feedback: string } => {
+export const classifyDiff = (diff: string, todoFile: string): { fixes: string; feedback: string } => {
   if (diff.trim() === "") return { fixes: "", feedback: "" }
 
   const files = parseUnifiedDiff(diff)
@@ -84,7 +84,7 @@ export const classifyDiff = (diff: string): { fixes: string; feedback: string } 
     const fixHunks: ParsedFile["hunks"] = []
     const feedbackHunks: ParsedFile["hunks"] = []
 
-    const classify = file.path === "TODO.md" ? isTodoFeedbackHunk : isFeedbackHunk
+    const classify = file.path === todoFile ? isTodoFeedbackHunk : isFeedbackHunk
 
     for (const hunk of file.hunks) {
       if (classify(hunk)) {

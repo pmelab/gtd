@@ -21,6 +21,7 @@ export interface InferStepInput {
   readonly lastCommitPrefix: CommitPrefix | undefined
   readonly hasUncheckedItems: boolean
   readonly onlyLearningsModified: boolean
+  readonly todoFileIsNew: boolean
 }
 
 export const inferStep = (input: InferStepInput): Step => {
@@ -35,12 +36,13 @@ export const inferStep = (input: InferStepInput): Step => {
       return "build"
     case BUILD:
     case FIX:
+      if (input.todoFileIsNew) return "plan"
       return input.hasUncheckedItems ? "build" : "learn"
     case LEARN:
       return "cleanup"
     case CLEANUP:
       return "idle"
     default:
-      return "idle"
+      return input.todoFileIsNew ? "plan" : "idle"
   }
 }

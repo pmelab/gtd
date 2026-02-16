@@ -35,6 +35,7 @@ describe("gtd unified command", () => {
       lastCommitPrefix: "🤖",
       hasUncheckedItems: true,
       onlyLearningsModified: false,
+      todoFileIsNew: false,
     })
   })
 
@@ -45,6 +46,7 @@ describe("gtd unified command", () => {
       lastCommitPrefix: "🎓",
       hasUncheckedItems: false,
       onlyLearningsModified: false,
+      todoFileIsNew: false,
     })
     expect(step).toBe("cleanup")
   })
@@ -57,6 +59,7 @@ describe("gtd unified command", () => {
       lastCommitPrefix: "🤦",
       hasUncheckedItems: false,
       onlyLearningsModified: false,
+      todoFileIsNew: false,
     })).toBe("plan")
 
     expect(dispatch({
@@ -64,6 +67,7 @@ describe("gtd unified command", () => {
       lastCommitPrefix: "🤖",
       hasUncheckedItems: true,
       onlyLearningsModified: false,
+      todoFileIsNew: false,
     })).toBe("build")
 
     expect(dispatch({
@@ -71,6 +75,7 @@ describe("gtd unified command", () => {
       lastCommitPrefix: "🧹",
       hasUncheckedItems: false,
       onlyLearningsModified: false,
+      todoFileIsNew: false,
     })).toBe("idle")
 
     expect(dispatch({
@@ -78,6 +83,7 @@ describe("gtd unified command", () => {
       lastCommitPrefix: undefined,
       hasUncheckedItems: false,
       onlyLearningsModified: false,
+      todoFileIsNew: false,
     })).toBe("commit-feedback")
   })
 
@@ -87,6 +93,7 @@ describe("gtd unified command", () => {
       lastCommitPrefix: "🤦",
       hasUncheckedItems: false,
       onlyLearningsModified: true,
+      todoFileIsNew: false,
     })).toBe("learn")
   })
 
@@ -96,6 +103,7 @@ describe("gtd unified command", () => {
       lastCommitPrefix: "🧹",
       hasUncheckedItems: false,
       onlyLearningsModified: false,
+      todoFileIsNew: false,
     })).toBe("idle")
   })
 

@@ -19,7 +19,7 @@ export const commitFeedbackCommand = () =>
       renderer.setText("Classifying changes…")
 
       const diff = yield* git.getDiff()
-      const { fixes, feedback } = classifyDiff(diff)
+      const { fixes, feedback } = classifyDiff(diff, config.file)
 
       const prompt = interpolate(config.commitPrompt, { diff })
 

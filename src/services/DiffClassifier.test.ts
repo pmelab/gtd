@@ -34,7 +34,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
 
     expect(result.feedback).toContain("TODO: refactor this")
     expect(result.feedback).not.toContain("const b = 2")
@@ -55,7 +55,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
     expect(result.feedback).toContain("FIX: broken logic")
     expect(result.fixes).toBe("")
   })
@@ -73,7 +73,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
     expect(result.feedback).toContain("FIXME: this is wrong")
   })
 
@@ -90,7 +90,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
     expect(result.feedback).toContain("HACK: workaround")
   })
 
@@ -107,7 +107,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
     expect(result.feedback).toContain("XXX: needs attention")
   })
 
@@ -124,7 +124,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
     expect(result.feedback).toContain("todo: lowercase marker")
   })
 
@@ -145,7 +145,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
     expect(result.feedback).toContain("TODO: first")
     expect(result.feedback).toContain("FIXME: second")
     expect(result.fixes).toBe("")
@@ -164,18 +164,18 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
     expect(result.fixes).toContain("const newVar = 42")
     expect(result.feedback).toBe("")
   })
 
   it("returns empty strings for empty diff", () => {
-    const result = classifyDiff("")
+    const result = classifyDiff("", "TODO.md")
     expect(result.fixes).toBe("")
     expect(result.feedback).toBe("")
   })
 
-  it("classifies TODO.md changes without blockquotes as fixes", () => {
+  it("classifies TODO.md additions as feedback regardless of format", () => {
     const diff = makeDiff([
       {
         path: "TODO.md",
@@ -188,9 +188,9 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
-    expect(result.fixes).toContain("New item without any marker")
-    expect(result.feedback).toBe("")
+    const result = classifyDiff(diff, "TODO.md")
+    expect(result.feedback).toContain("New item without any marker")
+    expect(result.fixes).toBe("")
   })
 
   it("classifies TODO.md blockquote additions as feedback", () => {
@@ -206,7 +206,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
     expect(result.feedback).toContain("This approach is wrong")
     expect(result.fixes).toBe("")
   })
@@ -228,7 +228,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
     expect(result.feedback).toContain("Check off item")
     expect(result.feedback).toContain("rethink")
     expect(result.fixes).toBe("")
@@ -256,7 +256,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
     expect(result.feedback).toContain("TODO.md")
     expect(result.feedback).toContain("New item")
     expect(result.fixes).toContain("const y = 2")
@@ -280,7 +280,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
 
     expect(result.feedback).toContain("diff --git a/src/app.ts b/src/app.ts")
     expect(result.feedback).toContain("--- a/src/app.ts")
@@ -313,7 +313,7 @@ describe("classifyDiff", () => {
       },
     ])
 
-    const result = classifyDiff(diff)
+    const result = classifyDiff(diff, "TODO.md")
     expect(result.feedback).toContain("src/foo.ts")
     expect(result.feedback).not.toContain("src/bar.ts")
     expect(result.fixes).toContain("src/bar.ts")
