@@ -4,6 +4,10 @@ import { PiAgent, parsePiEvent } from "./Pi.js"
 import type { AgentEvent } from "../AgentEvent.js"
 
 describe("PiAgent", () => {
+  it("exposes name as 'pi'", () => {
+    expect(PiAgent.name).toBe("pi")
+  })
+
   describe("isAvailable", () => {
     it.effect("returns boolean when checking pi executable", () =>
       Effect.gen(function* () {

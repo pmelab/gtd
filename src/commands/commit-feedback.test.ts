@@ -22,6 +22,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -47,6 +49,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           calls.push(params)
           return Effect.succeed({ sessionId: undefined })
@@ -80,6 +84,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -107,6 +113,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -140,6 +148,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -172,6 +182,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -202,6 +214,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -232,6 +246,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -309,6 +325,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -340,6 +358,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -367,6 +387,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -399,6 +421,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })

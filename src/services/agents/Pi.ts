@@ -56,6 +56,7 @@ export const parsePiEvent = (line: string): AgentEvent | undefined => {
 }
 
 export const PiAgent: AgentProvider = {
+  name: "pi",
   isAvailable: () =>
     Effect.try({
       try: () => findPiExecutable() !== undefined,

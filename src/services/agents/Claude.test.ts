@@ -3,6 +3,10 @@ import { Effect } from "effect"
 import { ClaudeAgent, parseClaudeEvent, extractSessionId, buildClaudeArgs } from "./Claude.js"
 
 describe("ClaudeAgent", () => {
+  it("exposes name as 'claude'", () => {
+    expect(ClaudeAgent.name).toBe("claude")
+  })
+
   describe("isAvailable", () => {
     it.effect("returns boolean when checking claude executable", () =>
       Effect.gen(function* () {

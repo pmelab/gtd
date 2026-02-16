@@ -22,6 +22,8 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -39,6 +41,8 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -71,6 +75,8 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -114,6 +120,8 @@ describe("buildCommand", () => {
           }),
       })
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Build Phase" })
           return Effect.succeed<AgentResult>({ sessionId: undefined })
@@ -145,6 +153,8 @@ describe("buildCommand", () => {
       const calls: AgentInvocation[] = []
       const gitCalls: string[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           calls.push(params)
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Pkg2" })
@@ -195,6 +205,8 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -224,6 +236,8 @@ describe("buildCommand", () => {
       const calls: AgentInvocation[] = []
       const gitCalls: string[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           calls.push(params)
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Error Handling" })
@@ -277,6 +291,8 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           calls.push(params)
           return Effect.succeed<AgentResult>({ sessionId: undefined })
@@ -331,6 +347,8 @@ describe("buildCommand", () => {
       const calls: AgentInvocation[] = []
       let callCount = 0
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           const count = callCount++
           // Build returns "ses-build-1", retry1 returns "ses-retry-1", commit msg calls return undefined
@@ -387,6 +405,8 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           calls.push(params)
           return Effect.succeed<AgentResult>({ sessionId: "build-ses" })
@@ -441,6 +461,8 @@ describe("buildCommand", () => {
       const calls: AgentInvocation[] = []
       let buildCallCount = 0
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           calls.push(params)
           if (params.mode === "build") {
@@ -513,6 +535,8 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           calls.push(params)
           return Effect.succeed<AgentResult>({ sessionId: undefined })
@@ -562,6 +586,8 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       let sessionDeleted = false
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -595,6 +621,8 @@ describe("buildCommand", () => {
   it.effect("handles inactivity timeout error gracefully", () =>
     Effect.gen(function* () {
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () =>
           Effect.fail(
             new AgentError("Agent timed out after 300s of inactivity", undefined, "inactivity_timeout"),
@@ -623,6 +651,8 @@ describe("buildCommand", () => {
   it.effect("handles input_requested error gracefully", () =>
     Effect.gen(function* () {
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () =>
           Effect.fail(
             new AgentError("Agent invoked forbidden tool: AskUserQuestion", undefined, "input_requested"),

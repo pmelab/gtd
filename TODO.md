@@ -7,7 +7,7 @@ useful information that is derived from the environment.
 
 ### Add agent name to resolution result
 
-- [ ] Extend `AgentProvider` with a `readonly name: string` field
+- [x] Extend `AgentProvider` with a `readonly name: string` field
   - Add `name` to the `AgentProvider` interface in `Agent.ts`
   - Set `name` in each concrete agent: `PiAgent`, `OpenCodeAgent`, `ClaudeAgent`
   - For `auto` mode, set `name` to the first available agent's name (e.g.
@@ -15,7 +15,7 @@ useful information that is derived from the environment.
   - Tests: Unit test that each agent provider exposes the correct `name`; test
     that `auto` resolution includes `"(auto)"` suffix
 
-- [ ] Surface resolved agent name from `AgentService.invoke`
+- [x] Surface resolved agent name from `AgentService.invoke`
   - Change `AgentService` so the resolved provider's `name` is accessible
     before/after invoke (e.g. add a `resolvedName` field or return it alongside
     `AgentResult`)

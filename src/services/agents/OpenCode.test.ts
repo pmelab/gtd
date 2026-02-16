@@ -3,6 +3,10 @@ import { Effect } from "effect"
 import { OpenCodeAgent, parseOpenCodeEvent } from "./OpenCode.js"
 
 describe("OpenCodeAgent", () => {
+  it("exposes name as 'opencode'", () => {
+    expect(OpenCodeAgent.name).toBe("opencode")
+  })
+
   describe("isAvailable", () => {
     it.effect("returns boolean when checking opencode executable", () =>
       Effect.gen(function* () {

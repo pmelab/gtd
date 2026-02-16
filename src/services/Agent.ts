@@ -28,15 +28,21 @@ export class AgentError {
 }
 
 export interface AgentProvider {
+  readonly name: string
   readonly invoke: (params: AgentInvocation) => Effect.Effect<AgentResult, AgentError>
   readonly isAvailable: () => Effect.Effect<boolean>
 }
 
-export class AgentService extends Context.Tag("AgentService")<AgentService, AgentProvider>() {
+export interface AgentServiceShape extends AgentProvider {
+  readonly resolvedName: string
+}
+
+export class AgentService extends Context.Tag("AgentService")<AgentService, AgentServiceShape>() {
   static Live = Layer.effect(
     AgentService,
     Effect.gen(function* () {
       const config = yield* GtdConfigService
+      const provider = yield* resolveAgent(config.agent)
 
       const guardsConfig = {
         inactivityTimeoutSeconds: config.agentInactivityTimeout,
@@ -44,9 +50,10 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
       }
 
       return {
+        name: provider.name,
+        resolvedName: provider.name,
         invoke: (params) =>
           Effect.gen(function* () {
-            const provider = yield* resolveAgent(config.agent)
             const guarded = withAgentGuards(provider, guardsConfig)
             return yield* guarded.invoke(params)
           }),
@@ -75,7 +82,7 @@ export const catchAgentError = <A, R>(
     }),
   )
 
-const resolveAgent = (agentId: string): Effect.Effect<AgentProvider, AgentError> =>
+export const resolveAgent = (agentId: string): Effect.Effect<AgentProvider, AgentError> =>
   Effect.gen(function* () {
     if (agentId === "pi") {
       const { PiAgent } = yield* Effect.promise(() => import("./agents/Pi.js"))
@@ -108,18 +115,31 @@ const resolveAgent = (agentId: string): Effect.Effect<AgentProvider, AgentError>
         )
       }
 
-      if (available.length === 1) return available[0]
+      const first = available[0]!
+      const firstName = first.name
+      const autoName = `${firstName} (auto)`
 
-      return {
+      if (available.length === 1) {
+        const provider: AgentProvider = {
+          name: autoName,
+          invoke: (params) => first.invoke(params),
+          isAvailable: () => first.isAvailable(),
+        }
+        return provider
+      }
+
+      const provider: AgentProvider = {
+        name: autoName,
         isAvailable: () => Effect.succeed(true),
         invoke: (params) =>
           available
             .slice(1)
             .reduce(
               (eff, agent) => eff.pipe(Effect.catchAll(() => agent.invoke(params))),
-              available[0].invoke(params),
+              first.invoke(params),
             ),
       }
+      return provider
     }
     return yield* Effect.fail(new AgentError(`Unknown agent: ${agentId}`))
   })

@@ -10,6 +10,8 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -29,6 +31,8 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -57,6 +61,8 @@ describe("planCommand", () => {
           }),
       })
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "plan: update TODO.md" })
           return Effect.succeed<AgentResult>({ sessionId: undefined })
@@ -76,6 +82,8 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       let savedSessionId: string | undefined
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: "plan-ses-abc" }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -98,6 +106,8 @@ describe("planCommand", () => {
       const calls: AgentInvocation[] = []
       let planCallCount = 0
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           calls.push(params)
           if (params.mode === "plan") {
@@ -153,6 +163,8 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: "plan-ses-new" }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -182,6 +194,8 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -203,6 +217,8 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       let writeSessionCalled = false
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -224,6 +240,8 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       let formatCalled = false
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -258,6 +276,8 @@ describe("planCommand", () => {
   it.effect("still commits when formatFile fails", () =>
     Effect.gen(function* () {
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })

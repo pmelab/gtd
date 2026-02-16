@@ -18,6 +18,7 @@ export const withAgentGuards = (
   if (!hasTimeout && !hasForbidden) return provider
 
   return {
+    name: provider.name,
     isAvailable: () => provider.isAvailable(),
     invoke: (params) =>
       Effect.gen(function* () {

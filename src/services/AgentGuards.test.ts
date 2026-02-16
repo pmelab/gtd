@@ -11,6 +11,7 @@ const makeSlowAgent = (
   delayMs: number,
   opts?: { emitEvents?: AgentEvent[]; emitIntervalMs?: number },
 ): AgentProvider => ({
+  name: "slow-mock",
   invoke: (params) =>
     Effect.async<{ sessionId: string | undefined }, AgentError>((resume) => {
       const timers: ReturnType<typeof setTimeout>[] = []
@@ -35,6 +36,7 @@ const makeSlowAgent = (
 })
 
 const makeInstantAgent = (events?: AgentEvent[]): AgentProvider => ({
+  name: "instant-mock",
   invoke: (params) =>
     Effect.sync(() => {
       if (events) {
@@ -176,6 +178,7 @@ describe("withAgentGuards", () => {
   it.effect("isAvailable delegates to wrapped provider", () =>
     Effect.gen(function* () {
       const agent: AgentProvider = {
+        name: "test-mock",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(false),
       }

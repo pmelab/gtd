@@ -31,6 +31,7 @@ export const parseOpenCodeEvent = (line: string): AgentEvent | undefined => {
 }
 
 export const OpenCodeAgent: AgentProvider = {
+  name: "opencode",
   isAvailable: () =>
     Effect.try({
       try: () => {

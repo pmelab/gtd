@@ -6,6 +6,8 @@ import { generateCommitMessage } from "./CommitMessage.js"
 
 const mockAgent = (textResponse: string) =>
   Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
     invoke: (params) =>
       Effect.sync(() => {
         if (params.onEvent) {
@@ -31,6 +33,8 @@ describe("generateCommitMessage", () => {
     Effect.gen(function* () {
       let capturedPrompt = ""
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: (params) => {
           capturedPrompt = params.prompt
           return Effect.succeed({ sessionId: undefined })
@@ -70,6 +74,8 @@ describe("generateCommitMessage", () => {
   it.effect("falls back to default message when agent fails", () =>
     Effect.gen(function* () {
       const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
         invoke: () => Effect.fail(new AgentError("fail", undefined, "general")),
         isAvailable: () => Effect.succeed(true),
       })

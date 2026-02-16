@@ -135,6 +135,8 @@ describe("learnAction", () => {
     const commits: string[] = []
     let removed = false
     const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
       invoke: (params) => {
         calls.push(params)
         if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "learn: persist learnings" })
@@ -185,6 +187,8 @@ describe("learnAction", () => {
       "",
     ].join("\n")
     const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
       invoke: (params) =>
         Effect.sync(() => {
           calls.push(params)
@@ -228,6 +232,8 @@ describe("learnAction", () => {
       "",
     ].join("\n")
     const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
       invoke: (params) =>
         Effect.sync(() => {
           calls.push(params)
