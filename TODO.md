@@ -20,7 +20,6 @@
 
 - [ ] Create a `DiffClassifier` service that splits a unified diff into "fix"
       hunks and "feedback" hunks at the hunk level
-
   - New file `src/services/DiffClassifier.ts`
   - Classification is hunk-level: each hunk is independently classified, and
     patch-level staging (`git add -p` or programmatic equivalent) is used to
@@ -51,7 +50,6 @@
 
 - [ ] Refactor `commitFeedbackCommand` to perform two sequential commits when
       both fix and feedback changes exist
-
   - Use `DiffClassifier` to split the working tree changes
   - Phase 1 — Fixes: if fix hunks exist, selectively stage fix hunks via
     patch-level staging, then `atomicCommit` with emoji `👷` and an
@@ -69,6 +67,13 @@
   - Must handle the case where a single file has both fix and feedback hunks
   - Tests: Integration-style test verifying that hunk-level staging stages only
     the intended hunks within a file, leaving other hunks unstaged
+
+## Additional feedback
+
+Learnings are currently too generic. They should really only contain mistakes
+and hints that are relevant for future iterations, like specific coding
+guidelines, not learnings about the state of the project. Good hints are "never"
+or "always" in feedback hunks.
 
 ## Learnings
 
