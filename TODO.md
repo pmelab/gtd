@@ -4,7 +4,7 @@
 
 ### CI Workflow Setup
 
-- [ ] Create `.github/workflows/test.yml` workflow file
+- [x] Create `.github/workflows/test.yml` workflow file
   - Trigger on `push` (all branches) and `pull_request`
   - Use `ubuntu-latest` runner
   - Steps: checkout, setup Bun (via `oven-sh/setup-bun`), install deps
