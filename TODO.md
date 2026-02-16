@@ -23,18 +23,21 @@
 
 ### CI Step Ordering
 
-- [x] Reorder workflow steps to fail early on cheap checks
-  - Change step order to: format check → typechecks → lint → unit tests → e2e
+- [ ] Reorder workflow steps to fail early on cheap checks
+  - Change step order to: typecheck → lint → format check → unit tests → e2e
     tests
-  - Fast, static checks run first so PRs fail quickly without waiting for slow
-    test suites
-  - Add a `bun run typecheck` step (e.g., `tsc --noEmit` or equivalent) between
-    format check and lint
-  - Tests: Verify the workflow file has steps in the correct order. Introduce a
-    type error on a branch and confirm CI fails on the typecheck step before
-    reaching unit/e2e tests
+  - Rationale: type errors and lint issues are the most common failures and
+    cheapest to detect; format check follows since it's also fast; slow test
+    suites run last
+  - Move the `Typecheck` step before `Lint`, and move `Format check` after
+    `Lint` in `.github/workflows/test.yml`
+  - Tests: Verify the workflow file has steps in the correct order (`typecheck`,
+    `lint`, `format:check`, `test`, `test:e2e`). Introduce a type error on a
+    branch and confirm CI fails on the typecheck step before reaching lint or
+    tests
 
 ## Learnings
 
-- Order CI steps from fastest/cheapest to slowest/most expensive (format →
-  typechecks → lint → unit → e2e) so failures surface early and save runner time
+- Order CI steps from fastest/cheapest to slowest/most expensive so failures
+  surface early and save runner time — prefer: typecheck → lint → format → unit
+  → e2e
