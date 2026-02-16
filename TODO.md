@@ -80,8 +80,3 @@ useful information that is derived from the environment.
     `GtdConfigService` exposes which files were loaded
 
 ## Learnings
-
-- Always write environment/debug info to stderr so it doesn't break piped output
-  or downstream tooling
-- Do not include git branch or working directory in the run info banner — keep
-  it focused on agent, step, config sources
