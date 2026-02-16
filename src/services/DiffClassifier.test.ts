@@ -211,7 +211,7 @@ describe("classifyDiff", () => {
     expect(result.fixes).toBe("")
   })
 
-  it("splits TODO.md hunks: blockquote hunks as feedback, others as fixes", () => {
+  it("classifies all TODO.md hunks with additions as feedback regardless of format", () => {
     const diff = makeDiff([
       {
         path: "TODO.md",
@@ -229,13 +229,12 @@ describe("classifyDiff", () => {
     ])
 
     const result = classifyDiff(diff)
-    expect(result.fixes).toContain("Check off item")
-    expect(result.fixes).not.toContain("rethink")
+    expect(result.feedback).toContain("Check off item")
     expect(result.feedback).toContain("rethink")
-    expect(result.feedback).not.toContain("Check off item")
+    expect(result.fixes).toBe("")
   })
 
-  it("classifies TODO.md non-blockquote changes as fixes mixed with other files", () => {
+  it("classifies TODO.md additions as feedback mixed with other files as fixes", () => {
     const diff = makeDiff([
       {
         path: "TODO.md",
@@ -258,10 +257,10 @@ describe("classifyDiff", () => {
     ])
 
     const result = classifyDiff(diff)
-    expect(result.fixes).toContain("TODO.md")
-    expect(result.fixes).toContain("New item")
+    expect(result.feedback).toContain("TODO.md")
+    expect(result.feedback).toContain("New item")
     expect(result.fixes).toContain("const y = 2")
-    expect(result.feedback).toBe("")
+    expect(result.fixes).not.toContain("TODO.md")
   })
 
   it("preserves file headers in reconstructed diffs", () => {

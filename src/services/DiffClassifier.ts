@@ -54,7 +54,7 @@ const isFeedbackHunk = (hunk: { lines: string[] }): boolean => {
 }
 
 const isTodoFeedbackHunk = (hunk: { lines: string[] }): boolean => {
-  return hunk.lines.some((line) => /^\+\s*>/.test(line))
+  return hunk.lines.some((line) => line.startsWith("+"))
 }
 
 const reconstructDiff = (files: ParsedFile[]): string => {
