@@ -19,7 +19,7 @@
 
 ### Add `init` Subcommand
 
-- [ ] Create `src/commands/init.ts` with an `initCommand` effect
+- [x] Create `src/commands/init.ts` with an `initCommand` effect
 
   - Always create `.gtdrc.json` in `process.cwd()` (no `--path` option)
   - Call `createExampleConfig(process.cwd())` from `ConfigResolver.ts`
@@ -33,7 +33,7 @@
     message; test that it skips when config already exists; test error handling
     when directory is not writable
 
-- [ ] Add `--global` flag to `init` subcommand
+- [x] Add `--global` flag to `init` subcommand
 
   - When `--global` is passed, create config at `~/.config/gtd/.gtdrc.json`
     instead of cwd
@@ -47,7 +47,7 @@
     `XDG_CONFIG_HOME` env var; test that it skips when global config already
     exists
 
-- [ ] Register the `init` subcommand in `src/cli.ts`
+- [x] Register the `init` subcommand in `src/cli.ts`
   - Use `Command.make("init", ...)` and add it as a subcommand of the root `gtd`
     command via `Command.withSubcommands`
   - Add `--global` as a boolean `Options.boolean("global")` flag

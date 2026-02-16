@@ -1,9 +1,10 @@
-import { Command } from "@effect/cli"
+import { Command, Options } from "@effect/cli"
 import { Console, Effect } from "effect"
 import { makePlanCommand } from "./commands/plan.js"
 import { makeBuildCommand } from "./commands/build.js"
 import { makeCleanupCommand } from "./commands/cleanup.js"
 import { commitFeedbackCommand } from "./commands/commit-feedback.js"
+import { initAction } from "./commands/init.js"
 import { GitService } from "./services/Git.js"
 import { GtdConfigService } from "./services/Config.js"
 import { AgentService, catchAgentError } from "./services/Agent.js"
@@ -151,7 +152,17 @@ const runStep = (step: Step, fs: FileOps) => {
   }
 }
 
-export const command = Command.make("gtd", {}, () =>
+const globalOption = Options.boolean("global").pipe(Options.withDefault(false))
+
+export const initCommand = Command.make("init", { global: globalOption }, ({ global }) =>
+  initAction({
+    cwd: process.cwd(),
+    global,
+    log: (msg) => console.log(msg),
+  }),
+)
+
+const rootCommand = Command.make("gtd", {}, () =>
   Effect.gen(function* () {
     const config = yield* GtdConfigService
     const fs = bunFileOps(config.file)
@@ -169,3 +180,5 @@ export const command = Command.make("gtd", {}, () =>
     }
   }),
 )
+
+export const command = rootCommand.pipe(Command.withSubcommands([initCommand]))

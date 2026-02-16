@@ -6,7 +6,7 @@ import type { AgentInvocation } from "./services/Agent.js"
 import { mockConfig, mockGit, mockFs } from "./test-helpers.js"
 
 describe("gtd unified command", () => {
-  it.effect("command is defined without subcommands", () =>
+  it.effect("command is defined with init subcommand", () =>
     Effect.gen(function* () {
       expect(command).toBeDefined()
     }),
@@ -440,9 +440,10 @@ describe("gatherState computes todoFileIsNew", () => {
   })
 })
 
-describe("gtd learn subcommand removed", () => {
-  it("no standalone learn subcommand exists", async () => {
+describe("gtd subcommands", () => {
+  it("init subcommand is registered", async () => {
     const mod = await import("./cli.js")
-    expect((mod.command as any).subcommands).toBeUndefined()
+    expect(mod.command).toBeDefined()
+    expect(mod.initCommand).toBeDefined()
   })
 })
