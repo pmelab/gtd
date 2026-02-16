@@ -4,22 +4,31 @@
 
 ### Progress Indication
 
-- [ ] Show immediate progress feedback when `commit-feedback` starts
-  - Add a console log or spinner at the top of `commitFeedbackCommand` in
-    `src/commands/commit-feedback.ts` before any async work (diff retrieval,
-    agent invocation)
+- [ ] Show immediate progress feedback when `commit-feedback` starts using a
+      proper spinner
+  - Add a spinner (e.g., `ora` or Effect-idiomatic equivalent) at the top of
+    `commitFeedbackCommand` in `src/commands/commit-feedback.ts` before any
+    async work (diff retrieval, agent invocation)
   - Should appear before the `git.getDiff()` call so the user sees it instantly
-  - Tests: Unit test that the progress message is logged before `getDiff` is
-    called (spy on `console.log` and track call order relative to git/agent
-    mocks)
+  - Update spinner text as phases progress (e.g., "Classifying changes…",
+    "Committing fixes…", "Committing feedback…")
+  - Tests: Unit test that the spinner is started before `getDiff` is called (spy
+    on spinner creation and track call order relative to git/agent mocks);
+    verify spinner is stopped on success and on error
 
 ### Classify Diff Hunks as Fixes vs Feedback
 
 - [ ] Create a `DiffClassifier` service that splits a unified diff into "fix"
-      hunks and "feedback" hunks
+      hunks and "feedback" hunks at the hunk level
+
   - New file `src/services/DiffClassifier.ts`
+  - Classification is hunk-level: each hunk is independently classified, and
+    patch-level staging (`git add -p` or programmatic equivalent) is used to
+    stage only the relevant hunks per commit
   - A hunk is "feedback" if its added lines contain markers like `TODO:`,
     `FIX:`, `FIXME:`, `HACK:`, `XXX:` (case-insensitive)
+  - All changes in `TODO.md` are always considered feedback, regardless of
+    content
   - All other hunks are "fixes" (regular manual code changes)
   - Return type: `{ fixes: string; feedback: string }` where each is a valid
     unified diff (or empty string if no hunks of that type)
@@ -27,17 +36,26 @@
     headers)
   - Tests: Given a diff with mixed hunks (some adding `TODO:` lines, some adding
     plain code), verify correct classification; edge cases: all-feedback diff,
-    all-fix diff, empty diff
-    > all changes in TODO.md are always considered feedback
+    all-fix diff, empty diff, diff with only `TODO.md` changes (should be
+    all-feedback), diff with `TODO.md` changes mixed with other file changes
+
+- [ ] Document feedback marker prefixes in the README
+  - Add a section to `README.md` explaining that `commit-feedback` classifies
+    hunks using marker prefixes: `TODO:`, `FIX:`, `FIXME:`, `HACK:`, `XXX:`
+    (case-insensitive)
+  - Document that all changes in `TODO.md` are always treated as feedback
+  - Tests: Verify README contains the marker prefix documentation after the
+    change
 
 ### Two-Phase Commit in commit-feedback
 
 - [ ] Refactor `commitFeedbackCommand` to perform two sequential commits when
       both fix and feedback changes exist
+
   - Use `DiffClassifier` to split the working tree changes
-  - Phase 1 — Fixes: if fix hunks exist, `git add -p` or selectively stage fix
-    files, then `atomicCommit` with emoji `👷` and an agent-generated summary of
-    the fix diff
+  - Phase 1 — Fixes: if fix hunks exist, selectively stage fix hunks via
+    patch-level staging, then `atomicCommit` with emoji `👷` and an
+    agent-generated summary of the fix diff
   - Phase 2 — Feedback: if feedback hunks exist, `atomicCommit` with emoji `🤦`
     and an agent-generated summary of the feedback diff
   - If only one type exists, make a single commit with the appropriate emoji
@@ -45,25 +63,12 @@
     verify correct number of commits, correct emojis, and correct ordering
     (fixes before feedback)
 
-- [ ] Add selective staging support to `GitService`
-  - Add a `addByPatch` or `addFiles` method that can stage specific files or
-    hunks rather than `add -A`
-  - Alternative: classify at the file level (simpler) — files containing only
-    feedback markers go to feedback commit, rest go to fix commit
-  - Tests: Integration-style test verifying that selective add stages only the
-    intended files
-
-## Open Questions
-
-- Should classification be file-level (simpler, a file is either fix or
-  feedback) or hunk-level (more precise but requires patch-level staging)?
-  > hunk level
-- What exact set of marker prefixes should trigger "feedback" classification?
-  Current candidates: `TODO:`, `FIX:`, `FIXME:`, `HACK:`, `XXX:`
-  > thats fine. also reflect that in the readme
-- Should the progress indication be a simple log line or a proper spinner (e.g.,
-  using `ora` or similar)?
-  > proper spinner
+- [ ] Add hunk-level selective staging support to `GitService`
+  - Add a `stageByPatch` method that can stage specific hunks from a unified
+    diff using `git apply --cached` or `git add -p` with scripted input
+  - Must handle the case where a single file has both fix and feedback hunks
+  - Tests: Integration-style test verifying that hunk-level staging stages only
+    the intended hunks within a file, leaving other hunks unstaged
 
 ## Learnings
 
@@ -74,3 +79,9 @@
   reused for both fix and feedback commits with different emojis
 - `atomicCommit` in `GitService` is already `Effect.uninterruptible` with
   rollback on failure, which is good for multi-phase safety
+- Classification is hunk-level, not file-level — this is more precise but
+  requires patch-level staging support in `GitService`
+- All changes in `TODO.md` are always classified as feedback regardless of
+  marker presence
+- Progress indication should use a proper spinner library, not plain
+  `console.log`
