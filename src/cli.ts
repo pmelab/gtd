@@ -17,6 +17,7 @@ import { learnPrompt, interpolate } from "./prompts/index.js"
 import { generateCommitMessage } from "./services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "./services/Renderer.js"
 import { notify } from "./services/Notify.js"
+import { QuietMode } from "./services/QuietMode.js"
 
 export const idleMessage = "Nothing to do. Create a TODO.md or add in-code comments to start."
 
@@ -162,7 +163,12 @@ export const initCommand = Command.make("init", { global: globalOption }, ({ glo
   }),
 )
 
-const rootCommand = Command.make("gtd", {}, () =>
+const quietOption = Options.boolean("quiet").pipe(
+  Options.withAlias("q"),
+  Options.withDefault(false),
+)
+
+const rootCommand = Command.make("gtd", { quiet: quietOption }, ({ quiet }) =>
   Effect.gen(function* () {
     const config = yield* GtdConfigService
     const fs = bunFileOps(config.file)
@@ -178,7 +184,7 @@ const rootCommand = Command.make("gtd", {}, () =>
     } else {
       yield* runStep(step, fs)
     }
-  }),
+  }).pipe(Effect.provide(QuietMode.layer(quiet))),
 )
 
 export const command = rootCommand.pipe(Command.withSubcommands([initCommand]))

@@ -26,7 +26,7 @@ useful information that is derived from the environment.
 
 ### Add `--quiet` flag
 
-- [ ] Add a `--quiet` / `-q` CLI flag to suppress informational output
+- [x] Add a `--quiet` / `-q` CLI flag to suppress informational output
   - Add the flag to the root command options (e.g. via `@effect/cli` `Options`)
   - When `--quiet` is set, skip banner and decision tree output
   - Store the flag in a service or context so downstream renderers can check it
