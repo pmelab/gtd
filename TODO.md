@@ -55,7 +55,7 @@ useful information that is derived from the environment.
 
 ### Log decision tree
 
-- [ ] Log the full decision tree to stderr on each invocation
+- [x] Log the full decision tree to stderr on each invocation
   - After the dispatch/gatherState phase, render a human-readable trace of how
     the step was determined (e.g. "has PR feedback → feedback", "has unchecked
     items → build", "no work → idle")

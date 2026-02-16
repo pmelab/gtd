@@ -19,6 +19,7 @@ import { createSpinnerRenderer, isInteractive } from "./services/Renderer.js"
 import { notify } from "./services/Notify.js"
 import { QuietMode } from "./services/QuietMode.js"
 import { printBanner } from "./services/RunInfo.js"
+import { printDecisionTree } from "./services/DecisionTree.js"
 
 export const idleMessage = "Nothing to do. Create a TODO.md or add in-code comments to start."
 
@@ -178,6 +179,7 @@ const rootCommand = Command.make("gtd", { quiet: quietOption }, ({ quiet }) =>
     const step = dispatch(state)
 
     yield* printBanner(step)
+    yield* printDecisionTree(state, step)
 
     if (step === "commit-feedback") {
       yield* commitFeedbackCommand()
