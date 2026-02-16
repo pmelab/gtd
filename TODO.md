@@ -8,7 +8,6 @@ useful information that is derived from the environment.
 ### Add agent name to resolution result
 
 - [ ] Extend `AgentProvider` with a `readonly name: string` field
-
   - Add `name` to the `AgentProvider` interface in `Agent.ts`
   - Set `name` in each concrete agent: `PiAgent`, `OpenCodeAgent`, `ClaudeAgent`
   - For `auto` mode, set `name` to the first available agent's name (e.g.
@@ -28,7 +27,6 @@ useful information that is derived from the environment.
 ### Add run info banner to CLI output
 
 - [ ] Create a `RunInfo` type capturing environment-derived metadata
-
   - Fields: `agent` (resolved name), `step` (inferred step like
     plan/build/learn/cleanup/idle), `planFile` (config file path),
     `configSources` (list of loaded config filepaths)
