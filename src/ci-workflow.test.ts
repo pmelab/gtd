@@ -43,17 +43,17 @@ describe("CI workflow step ordering", () => {
     expect(stepIndex(steps, "test:e2e")).toBeGreaterThan(-1)
   })
 
-  it("runs steps in fail-early order: format → typecheck → lint → unit tests → e2e", () => {
+  it("runs steps in fail-early order: typecheck → lint → format → unit tests → e2e", () => {
     const steps = getSteps()
-    const formatIdx = stepIndex(steps, "bun run format:check")
     const typecheckIdx = stepIndex(steps, "typecheck")
     const lintIdx = stepIndex(steps, "bun run lint")
+    const formatIdx = stepIndex(steps, "bun run format:check")
     const unitIdx = stepIndex(steps, "bun test")
     const e2eIdx = stepIndex(steps, "test:e2e")
 
-    expect(formatIdx).toBeLessThan(typecheckIdx)
     expect(typecheckIdx).toBeLessThan(lintIdx)
-    expect(lintIdx).toBeLessThan(unitIdx)
+    expect(lintIdx).toBeLessThan(formatIdx)
+    expect(formatIdx).toBeLessThan(unitIdx)
     expect(unitIdx).toBeLessThan(e2eIdx)
   })
 
