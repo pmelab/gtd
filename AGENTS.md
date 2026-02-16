@@ -28,6 +28,9 @@ It automates AI agent execution and git operations:
 
 - use the effect library and it's ecosystem as much as possible
 - strict typing everywhere
+- example config files must include a `$schema` reference pointing to the
+  GitHub-hosted JSON schema (`SCHEMA_URL` in `ConfigResolver.ts`) so users get
+  editor validation out of the box
 - use test-driven development:
   - create a test case first
   - verify it fails
