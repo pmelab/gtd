@@ -7,17 +7,16 @@ project's configuration files.
 
 ## Instructions
 
-Integrate the learnings listed above into the project's permanent documentation
-and configuration:
+Write ALL learnings to the project's `AGENTS.md` file — never to `CLAUDE.md` or
+any other file.
 
-1. Read the project's `AGENTS.md` file (and any files it references)
-2. Read the project's `CLAUDE.md` file (if it exists)
-3. Integrate each learning into the appropriate location:
+1. Read the existing `AGENTS.md` (create it if it doesn't exist)
+2. Integrate each learning into the appropriate section:
    - Coding standards → add to the relevant guidelines section
    - Architecture decisions → add to architecture documentation
    - Tool preferences → add to tooling configuration
    - Testing patterns → add to testing guidelines
-4. Avoid duplicating existing instructions
-5. Keep the documentation concise and well-organized
-6. Do NOT delete or modify any existing instructions that conflict — add the new
+3. Avoid duplicating existing instructions
+4. Keep the documentation concise and well-organized
+5. Do NOT delete or modify any existing instructions that conflict — add the new
    learnings alongside them and note the update

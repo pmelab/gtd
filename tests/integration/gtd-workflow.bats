@@ -49,74 +49,161 @@ git_log() {
   run repo_file TODO.md
   assert_success
   assert_output --partial "- [ ]"
+
+  # Last commit should be a plan commit (🤖)
+  run last_commit_prefix
+  assert_output "🤖"
 }
 
-@test "gtd plan committed changes" {
+# ── Steps 3-4: Human edits → commit-feedback → re-plan ──────────────────────
+
+@test "gtd commits feedback and re-plans" {
   cd "$TEST_REPO"
-  run git log --oneline -1
-  assert_output --partial "plan:"
-}
 
-# ── Build ───────────────────────────────────────────────────────────────────
+  # Simulate human feedback: add blockquote + small formatting fix
+  cat >>TODO.md <<'EOF'
 
-@test "gtd build implements action items" {
-  run_gtd build
+> please also add error handling for non-numeric inputs
+EOF
+  # Also make a small direct formatting fix (extra newline in source)
+  printf '\n' >>src/math.ts
+
+  run_gtd
 
   assert_success
+
+  # Blockquote should be removed from TODO.md (incorporated into plan)
+  run repo_file TODO.md
+  assert_success
+  refute_output --partial "> please also add"
+
+  # Should have fix (👷) or feedback (🤦) commits in the log
+  run git_log
+  assert_output --regexp "(👷|🤦)"
+
+  # Last commit should be plan (🤖) since re-dispatch runs plan after commit-feedback
+  run last_commit_prefix
+  assert_output "🤖"
 }
 
-@test "multiply function exists after build" {
+# ── Steps 5-6: gtd → build ──────────────────────────────────────────────────
+
+@test "gtd builds action items" {
+  run_gtd
+
+  assert_success
+
+  # multiply function should exist
   run repo_file src/math.ts
   assert_success
   assert_output --partial "multiply"
-}
 
-@test "multiply test exists after build" {
-  run repo_file tests/math.test.ts
-  assert_success
-  assert_output --partial "multiply"
-}
-
-@test "all tests pass after build" {
+  # Tests should pass
   cd "$TEST_REPO"
   run bun test
   assert_success
-}
 
-@test "TODO.md items are checked off after build" {
+  # Items should be checked off
   run repo_file TODO.md
   assert_success
   assert_output --partial "- [x]"
+
+  # Last commit should be build (🔨)
+  run last_commit_prefix
+  assert_output "🔨"
 }
 
-@test "build created commits" {
+# ── Steps 7-8: Post-build feedback (code fix + // TODO + blockquote) ─────────
+
+@test "gtd handles post-build feedback" {
   cd "$TEST_REPO"
-  local count
-  count=$(git rev-list --count HEAD)
-  # initial + todo + plan + at least one build commit
-  [[ "$count" -ge 4 ]]
+
+  # Add a // TODO comment in source expressing a general guideline
+  sed -i '' '1i\
+// TODO: never use magic numbers, always use named constants
+' src/math.ts
+
+  # Add blockquote feedback in TODO.md
+  cat >>TODO.md <<'EOF'
+
+> please add a subtract function too
+EOF
+
+  # Make a small direct code fix
+  printf '// fixed\n' >>src/math.ts
+
+  run_gtd
+
+  assert_success
+
+  # Blockquote should be removed
+  run repo_file TODO.md
+  assert_success
+  refute_output --partial "> please add a subtract"
+
+  # Should have new unchecked action item (from TODO comment or blockquote)
+  assert_output --partial "- [ ]"
+
+  # Last commit should be plan (🤖)
+  run last_commit_prefix
+  assert_output "🤖"
 }
 
-# ── Learn ───────────────────────────────────────────────────────────────────
+# ── Step 9: gtd → build (second cycle) ──────────────────────────────────────
 
-@test "gtd learn extracts learnings" {
-  # Only run if there's a Learnings section
+@test "gtd builds again after feedback" {
+  run_gtd
+
+  assert_success
+
+  # Tests should still pass
   cd "$TEST_REPO"
+  run bun test
+  assert_success
+
+  # Last commit should be build (🔨)
+  run last_commit_prefix
+  assert_output "🔨"
+}
+
+# ── Steps 10-11: Human removes learning → commit-feedback → learn → cleanup ─
+
+@test "gtd learns and cleans up" {
+  cd "$TEST_REPO"
+
+  # Only run learn flow if there's a Learnings section
   if ! grep -qi "## Learnings" TODO.md 2>/dev/null; then
     skip "no Learnings section in TODO.md"
   fi
 
-  run_gtd learn
+  # Simulate human removing a learning line (leave uncommitted)
+  sed -i '' '/magic numbers/d' TODO.md
+
+  run_gtd
 
   assert_success
+
+  # AGENTS.md should have been updated with learnings
+  run repo_file_exists AGENTS.md
+  assert_success
+
+  # Learn (🎓) and cleanup (🧹) should appear in log
+  run git_log
+  assert_output --regexp "🎓"
+  assert_output --regexp "🧹"
 }
 
 @test "TODO.md is removed after learn" {
-  cd "$TEST_REPO"
-  if ! grep -qi "## Learnings" TODO.md 2>/dev/null; then
-    skip "learn was skipped"
-  fi
-
+  # learnAction chains: 🎓 persist → 🧹 remove TODO.md, so it's already gone
   run repo_file_exists TODO.md
   assert_failure
+}
+
+# ── Idle ─────────────────────────────────────────────────────────────────────
+
+@test "gtd is idle when done" {
+  run_gtd
+
+  assert_success
+  assert_output --partial "Nothing to do"
 }

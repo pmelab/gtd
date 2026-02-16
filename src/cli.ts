@@ -114,11 +114,11 @@ export const gatherState = (
     let todoFileIsNew = false
     if (!uncommitted) {
       const inHead = yield* git.show(`HEAD:${config.file}`).pipe(
-        Effect.map(() => true),
+        Effect.map((out) => out !== ""),
         Effect.catchAll(() => Effect.succeed(false)),
       )
       const inParent = yield* git.show(`HEAD~1:${config.file}`).pipe(
-        Effect.map(() => true),
+        Effect.map((out) => out !== ""),
         Effect.catchAll(() => Effect.succeed(false)),
       )
       todoFileIsNew = inHead && !inParent

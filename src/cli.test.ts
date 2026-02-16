@@ -415,6 +415,31 @@ describe("gatherState computes todoFileIsNew", () => {
     expect(state.todoFileIsNew).toBe(false)
   })
 
+  it("todoFileIsNew is true when show returns empty string for HEAD~1", async () => {
+    const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(false),
+      getLastCommitMessage: () => Effect.succeed("add TODO.md"),
+      show: (ref) => {
+        if (ref === "HEAD:TODO.md") return Effect.succeed("# Plan\n")
+        if (ref === "HEAD~1:TODO.md") return Effect.succeed("")
+        return Effect.succeed("")
+      },
+    })
+
+    const fileOps = {
+      ...mockFs("# Plan\n"),
+      getDiffContent: () => Effect.succeed(""),
+    }
+
+    const state = await Effect.runPromise(
+      gatherState(fileOps).pipe(
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+      ),
+    )
+
+    expect(state.todoFileIsNew).toBe(true)
+  })
+
   it("todoFileIsNew is false when uncommitted changes exist", async () => {
     const gitLayer = mockGit({
       hasUncommittedChanges: () => Effect.succeed(true),
