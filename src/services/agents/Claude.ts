@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { execSync } from "node:child_process"
 import { AgentError, type AgentProvider, type AgentInvocation, type AgentResult } from "../Agent.js"
-import { AgentEvent, type AgentEvent as AgentEventType } from "../AgentEvent.js"
+import { AgentEvents, type AgentEvent } from "../AgentEvent.js"
 
 const findClaudeExecutable = (): string | undefined => {
   try {
@@ -13,13 +13,13 @@ const findClaudeExecutable = (): string | undefined => {
   }
 }
 
-export const parseClaudeEvent = (line: string): AgentEventType | undefined => {
+export const parseClaudeEvent = (line: string): AgentEvent | undefined => {
   try {
     const data = JSON.parse(line)
 
     switch (data.type) {
       case "system":
-        if (data.subtype === "init") return AgentEvent.agentStart()
+        if (data.subtype === "init") return AgentEvents.agentStart()
         return undefined
       case "assistant": {
         const content = data.message?.content
@@ -27,19 +27,19 @@ export const parseClaudeEvent = (line: string): AgentEventType | undefined => {
 
         const toolUse = content.find((b: { type: string }) => b.type === "tool_use")
         if (toolUse) {
-          return AgentEvent.toolStart(toolUse.name ?? "unknown")
+          return AgentEvents.toolStart(toolUse.name ?? "unknown")
         }
 
         const textBlocks = content.filter((b: { type: string }) => b.type === "text")
         if (textBlocks.length > 0) {
           const text = textBlocks.map((b: { text: string }) => b.text).join("")
-          if (text) return AgentEvent.textDelta(text)
+          if (text) return AgentEvents.textDelta(text)
         }
 
         return undefined
       }
       case "result":
-        return AgentEvent.agentEnd()
+        return AgentEvents.agentEnd()
       default:
         return undefined
     }
@@ -91,14 +91,12 @@ export const ClaudeAgent: AgentProvider = {
         resumeSessionId: params.resumeSessionId,
       })
 
-      const proc = Bun.spawn(args,
-        {
-          cwd: params.cwd,
-          stdin: new Blob([params.prompt]),
-          stdout: "pipe",
-          stderr: "inherit",
-        },
-      )
+      const proc = Bun.spawn(args, {
+        cwd: params.cwd,
+        stdin: new Blob([params.prompt]),
+        stdout: "pipe",
+        stderr: "inherit",
+      })
 
       const reader = proc.stdout.getReader()
       const decoder = new TextDecoder()

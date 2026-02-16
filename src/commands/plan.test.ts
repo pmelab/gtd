@@ -1,55 +1,9 @@
 import { describe, it, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import { GtdConfigService } from "../services/Config.js"
-import { GitService } from "../services/Git.js"
 import { AgentService } from "../services/Agent.js"
 import type { AgentInvocation, AgentResult } from "../services/Agent.js"
 import { planCommand } from "./plan.js"
-
-const defaultConfig = {
-  file: "TODO.md",
-  agent: "auto",
-  agentPlan: "plan",
-  agentBuild: "code",
-  agentLearn: "plan",
-  testCmd: "npm test",
-  testRetries: 10,
-  commitPrompt: "{{diff}}",
-  agentInactivityTimeout: 300,
-  agentForbiddenTools: ["AskUserQuestion"] as ReadonlyArray<string>,
-}
-
-const mockConfig = (overrides: Partial<typeof defaultConfig> = {}) =>
-  Layer.succeed(GtdConfigService, { ...defaultConfig, ...overrides })
-
-const mockGit = (overrides: Partial<GitService["Type"]> = {}) => {
-  const base = {
-    getDiff: () => Effect.succeed("+ new feature"),
-    hasUnstagedChanges: () => Effect.succeed(false),
-    add: (() => Effect.void) as GitService["Type"]["add"],
-    addAll: () => Effect.void,
-    commit: (() => Effect.void) as GitService["Type"]["commit"],
-    show: () => Effect.succeed(""),
-    ...overrides,
-  }
-  return Layer.succeed(GitService, {
-    ...base,
-    atomicCommit:
-      base.atomicCommit ??
-      ((files, message) =>
-        Effect.gen(function* () {
-          if (files === "all") yield* base.addAll()
-          else yield* base.add(files)
-          yield* base.commit(message)
-        })),
-  } satisfies GitService["Type"])
-}
-
-const mockFs = (content: string) => ({
-  readFile: () => Effect.succeed(content),
-  writeFile: () => Effect.void,
-  exists: () => Effect.succeed(content !== ""),
-})
+import { mockConfig, mockGit, mockFs } from "../test-helpers.js"
 
 describe("planCommand", () => {
   it.effect("invokes agent in plan mode with diff", () =>

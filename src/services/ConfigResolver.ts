@@ -1,9 +1,10 @@
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { access, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { cosmiconfig } from "cosmiconfig"
 
 import type { GtdConfig } from "./Config.js"
+import { GtdConfigSchema } from "./ConfigSchema.js"
 
 export const SCHEMA_URL =
   "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json"
@@ -141,13 +142,19 @@ const defaults: GtdConfig = {
   agentForbiddenTools: ["AskUserQuestion"],
 }
 
+const decode = Schema.decodeUnknownEither(GtdConfigSchema)
+
 export const mergeConfigs = (
   configs: ReadonlyArray<ConfigResult>,
 ): GtdConfig => {
   // Merge from lowest priority to highest (reverse order), so higher priority wins
   const merged: Record<string, unknown> = {}
   for (let i = configs.length - 1; i >= 0; i--) {
-    Object.assign(merged, configs[i]!.config)
+    const result = decode(configs[i]!.config)
+    if (result._tag === "Right") {
+      Object.assign(merged, result.right)
+    }
+    // Invalid configs are silently skipped
   }
 
   return {

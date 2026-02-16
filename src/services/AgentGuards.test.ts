@@ -2,7 +2,7 @@ import { describe, it, expect } from "@effect/vitest"
 import { Effect } from "effect"
 import { AgentError } from "./Agent.js"
 import type { AgentProvider, AgentInvocation } from "./Agent.js"
-import { AgentEvent } from "./AgentEvent.js"
+import { AgentEvents, type AgentEvent } from "./AgentEvent.js"
 import { withAgentGuards } from "./AgentGuards.js"
 
 const noop = () => {}
@@ -69,10 +69,10 @@ describe("withAgentGuards", () => {
   it.effect("normal completion unaffected with guards enabled", () =>
     Effect.gen(function* () {
       const agent = makeInstantAgent([
-        AgentEvent.agentStart(),
-        AgentEvent.toolStart("Read"),
-        AgentEvent.toolEnd("Read", false),
-        AgentEvent.agentEnd(),
+        AgentEvents.agentStart(),
+        AgentEvents.toolStart("Read"),
+        AgentEvents.toolEnd("Read", false),
+        AgentEvents.agentEnd(),
       ])
       const guarded = withAgentGuards(agent, {
         inactivityTimeoutSeconds: 5,
@@ -102,7 +102,7 @@ describe("withAgentGuards", () => {
     Effect.gen(function* () {
       // Agent takes 3s but emits events every 500ms — timeout is 2s, should NOT fire
       const events = Array.from({ length: 6 }, (_, i) =>
-        AgentEvent.textDelta(`chunk${i}`),
+        AgentEvents.textDelta(`chunk${i}`),
       )
       const agent = makeSlowAgent(3000, { emitEvents: events, emitIntervalMs: 500 })
       const guarded = withAgentGuards(agent, {
@@ -117,8 +117,8 @@ describe("withAgentGuards", () => {
   it.effect("forbidden tool detected via ToolStart event", () =>
     Effect.gen(function* () {
       const agent = makeInstantAgent([
-        AgentEvent.agentStart(),
-        AgentEvent.toolStart("AskUserQuestion"),
+        AgentEvents.agentStart(),
+        AgentEvents.toolStart("AskUserQuestion"),
       ])
       const guarded = withAgentGuards(agent, {
         inactivityTimeoutSeconds: 0,
@@ -136,10 +136,10 @@ describe("withAgentGuards", () => {
   it.effect("allowed tools pass through", () =>
     Effect.gen(function* () {
       const agent = makeInstantAgent([
-        AgentEvent.agentStart(),
-        AgentEvent.toolStart("Read"),
-        AgentEvent.toolEnd("Read", false),
-        AgentEvent.agentEnd(),
+        AgentEvents.agentStart(),
+        AgentEvents.toolStart("Read"),
+        AgentEvents.toolEnd("Read", false),
+        AgentEvents.agentEnd(),
       ])
       const guarded = withAgentGuards(agent, {
         inactivityTimeoutSeconds: 0,
@@ -154,9 +154,9 @@ describe("withAgentGuards", () => {
     Effect.gen(function* () {
       const received: AgentEvent[] = []
       const agent = makeInstantAgent([
-        AgentEvent.agentStart(),
-        AgentEvent.textDelta("hello"),
-        AgentEvent.agentEnd(),
+        AgentEvents.agentStart(),
+        AgentEvents.textDelta("hello"),
+        AgentEvents.agentEnd(),
       ])
       const guarded = withAgentGuards(agent, {
         inactivityTimeoutSeconds: 5,

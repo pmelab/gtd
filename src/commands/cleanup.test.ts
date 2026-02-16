@@ -1,46 +1,7 @@
 import { describe, it, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import { GtdConfigService } from "../services/Config.js"
-import { GitService } from "../services/Git.js"
 import { cleanupCommand } from "./cleanup.js"
-
-const defaultConfig = {
-  file: "TODO.md",
-  agent: "auto",
-  agentPlan: "plan",
-  agentBuild: "code",
-  agentLearn: "plan",
-  testCmd: "npm test",
-  testRetries: 10,
-  commitPrompt: "{{diff}}",
-}
-
-const mockConfig = (overrides: Partial<typeof defaultConfig> = {}) =>
-  Layer.succeed(GtdConfigService, { ...defaultConfig, ...overrides })
-
-const mockGit = (overrides: Partial<GitService["Type"]> = {}) => {
-  const base: GitService["Type"] = {
-    getDiff: () => Effect.succeed(""),
-    hasUnstagedChanges: () => Effect.succeed(false),
-    hasUncommittedChanges: () => Effect.succeed(false),
-    getLastCommitMessage: () => Effect.succeed(""),
-    add: (() => Effect.void) as GitService["Type"]["add"],
-    addAll: () => Effect.void,
-    commit: (() => Effect.void) as GitService["Type"]["commit"],
-    show: () => Effect.succeed(""),
-    atomicCommit: ((files: ReadonlyArray<string> | "all", message: string) =>
-      Effect.gen(function* () {
-        if (files === "all") yield* base.addAll()
-        else yield* base.add(files)
-        yield* base.commit(message)
-      })) as GitService["Type"]["atomicCommit"],
-    ...overrides,
-  }
-  if (overrides.atomicCommit) {
-    base.atomicCommit = overrides.atomicCommit
-  }
-  return Layer.succeed(GitService, base)
-}
+import { mockConfig, mockGit } from "../test-helpers.js"
 
 describe("cleanupCommand", () => {
   it.effect("removes TODO.md", () =>

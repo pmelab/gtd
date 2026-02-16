@@ -56,6 +56,25 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
   )
 }
 
+export const catchAgentError = <A, R>(
+  effect: Effect.Effect<A, AgentError | Error, R>,
+): Effect.Effect<A, Error, R> =>
+  effect.pipe(
+    Effect.catchAll((err) => {
+      if (err instanceof AgentError) {
+        if (err.reason === "inactivity_timeout") {
+          console.error(`[gtd] Agent timed out (no activity)`)
+          return Effect.void as Effect.Effect<A>
+        }
+        if (err.reason === "input_requested") {
+          console.error(`[gtd] Agent requested user input, aborting`)
+          return Effect.void as Effect.Effect<A>
+        }
+      }
+      return Effect.fail(err as Error)
+    }),
+  )
+
 const resolveAgent = (agentId: string): Effect.Effect<AgentProvider, AgentError> =>
   Effect.gen(function* () {
     if (agentId === "pi") {

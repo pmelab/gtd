@@ -1,49 +1,9 @@
 import { describe, it, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import { GtdConfigService } from "../services/Config.js"
-import { GitService } from "../services/Git.js"
 import { AgentService, AgentError } from "../services/Agent.js"
 import type { AgentInvocation, AgentResult } from "../services/Agent.js"
 import { buildCommand, type TestResult } from "./build.js"
-
-const defaultConfig = {
-  file: "TODO.md",
-  agent: "auto",
-  agentPlan: "plan",
-  agentBuild: "code",
-  agentLearn: "plan",
-  testCmd: "",
-  testRetries: 10,
-  commitPrompt: "{{diff}}",
-  agentInactivityTimeout: 300,
-  agentForbiddenTools: ["AskUserQuestion"] as ReadonlyArray<string>,
-}
-
-const mockConfig = (overrides: Partial<typeof defaultConfig> = {}) =>
-  Layer.succeed(GtdConfigService, { ...defaultConfig, ...overrides })
-
-const mockGit = (overrides: Partial<GitService["Type"]> = {}) => {
-  const base = {
-    getDiff: () => Effect.succeed(""),
-    hasUnstagedChanges: () => Effect.succeed(false),
-    add: (() => Effect.void) as GitService["Type"]["add"],
-    addAll: () => Effect.void,
-    commit: (() => Effect.void) as GitService["Type"]["commit"],
-    show: () => Effect.succeed(""),
-    ...overrides,
-  }
-  return Layer.succeed(GitService, {
-    ...base,
-    atomicCommit:
-      base.atomicCommit ??
-      ((files, message) =>
-        Effect.gen(function* () {
-          if (files === "all") yield* base.addAll()
-          else yield* base.add(files)
-          yield* base.commit(message)
-        })),
-  } satisfies GitService["Type"])
-}
+import { mockConfig, mockGit, mockFs } from "../test-helpers.js"
 
 // Returns initial content for first 2 reads, then all-checked content
 const mockFsWithProgress = (initial: string) => {
@@ -52,13 +12,10 @@ const mockFsWithProgress = (initial: string) => {
   return {
     readFile: () => Effect.succeed(readCount++ < 2 ? initial : checkedContent),
     exists: () => Effect.succeed(initial !== ""),
+    getDiffContent: () => Effect.succeed(""),
+    remove: () => Effect.void,
   }
 }
-
-const mockFs = (content: string) => ({
-  readFile: () => Effect.succeed(content),
-  exists: () => Effect.succeed(content !== ""),
-})
 
 describe("buildCommand", () => {
   it.effect("exits early when plan file missing", () =>
@@ -355,6 +312,8 @@ describe("buildCommand", () => {
           return Effect.succeed(allDone)
         },
         exists: () => Effect.succeed(true),
+        getDiffContent: () => Effect.succeed(""),
+        remove: () => Effect.void,
       }
       yield* buildCommand(fs).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
@@ -463,6 +422,8 @@ describe("buildCommand", () => {
           return Effect.succeed(allDone)
         },
         exists: () => Effect.succeed(true),
+        getDiffContent: () => Effect.succeed(""),
+        remove: () => Effect.void,
         readSessionId: () => Effect.succeed("plan-ses-xyz" as string | undefined),
         deleteSessionFile: () => Effect.void,
       }
@@ -528,6 +489,8 @@ describe("buildCommand", () => {
           return Effect.succeed(allDone)
         },
         exists: () => Effect.succeed(true),
+        getDiffContent: () => Effect.succeed(""),
+        remove: () => Effect.void,
         readSessionId: () => Effect.succeed("plan-ses-xyz" as string | undefined),
         deleteSessionFile: () => Effect.void,
         runTests: mockTestRunner,

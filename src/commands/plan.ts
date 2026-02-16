@@ -1,22 +1,15 @@
-import { Command } from "@effect/platform"
 import { Effect } from "effect"
 import { resolve } from "node:path"
 import { GtdConfigService } from "../services/Config.js"
 import { GitService } from "../services/Git.js"
-import { AgentService, AgentError } from "../services/Agent.js"
-import { detectState, lint, type LintError } from "../services/Markdown.js"
+import { AgentService, catchAgentError } from "../services/Agent.js"
+import { detectState } from "../services/Markdown.js"
+import { lint, type LintError } from "../services/Lint.js"
 import { planPrompt, interpolate } from "../prompts/index.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
 import { notify } from "../services/Notify.js"
-
-interface FileOps {
-  readonly readFile: () => Effect.Effect<string>
-  readonly exists: () => Effect.Effect<boolean>
-  readonly readSessionId?: () => Effect.Effect<string | undefined>
-  readonly writeSessionId?: (sessionId: string) => Effect.Effect<void>
-  readonly formatFile?: () => Effect.Effect<void, Error>
-}
+import { bunFileOps, type FileOps } from "../services/FileOps.js"
 
 const MAX_LINT_RETRIES = 3
 
@@ -126,61 +119,7 @@ export const planCommand = (fs: FileOps) =>
     }
 
     yield* notify("gtd", "Plan committed.")
-  }).pipe(
-    Effect.catchAll((err) => {
-      if (err instanceof AgentError) {
-        if (err.reason === "inactivity_timeout") {
-          console.error(`[gtd] Agent timed out (no activity)`)
-          return Effect.void
-        }
-        if (err.reason === "input_requested") {
-          console.error(`[gtd] Agent requested user input, aborting`)
-          return Effect.void
-        }
-      }
-      return Effect.fail(err)
-    }),
-  )
-
-const sessionFilePath = (planFilePath: string) =>
-  planFilePath.replace(/[^/]+$/, ".gtd-session")
-
-const bunFileOps = (filePath: string): FileOps => ({
-  readFile: () =>
-    Effect.tryPromise({
-      try: () => Bun.file(filePath).text(),
-      catch: () => new Error(`Failed to read ${filePath}`),
-    }).pipe(Effect.catchAll(() => Effect.succeed(""))),
-  exists: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const f = Bun.file(filePath)
-        return f.size > 0
-      },
-      catch: () => false,
-    }).pipe(Effect.catchAll(() => Effect.succeed(false))),
-  readSessionId: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const f = Bun.file(sessionFilePath(filePath))
-        if (f.size === 0) return undefined
-        const content = await f.text()
-        return content.trim() || undefined
-      },
-      catch: () => undefined as string | undefined,
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined as string | undefined))),
-  writeSessionId: (sessionId: string) =>
-    Effect.tryPromise({
-      try: () => Bun.write(sessionFilePath(filePath), sessionId),
-      catch: () => new Error(`Failed to write session file`),
-    }).pipe(Effect.catchAll(() => Effect.void)),
-  formatFile: () =>
-    Command.make("prettier", "--write", filePath).pipe(
-      Command.string,
-      Effect.asVoid,
-      Effect.mapError((e) => new Error(String(e))),
-    ),
-})
+  }).pipe(catchAgentError)
 
 export const makePlanCommand = Effect.gen(function* () {
   const config = yield* GtdConfigService

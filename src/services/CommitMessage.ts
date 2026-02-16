@@ -14,7 +14,7 @@ export const generateCommitMessage = (
     const agent = yield* AgentService
 
     let text = ""
-    const result = yield* agent
+    yield* agent
       .invoke({
         prompt: PROMPT(diff),
         systemPrompt: "",

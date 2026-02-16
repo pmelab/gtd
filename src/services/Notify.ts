@@ -10,16 +10,16 @@ const relativePath = (): string => {
 export const notify = (title: string, body: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const message = `${body}\n${relativePath()}`
-    const cmd =
-      process.platform === "darwin"
-        ? [
-            "osascript",
-            "-e",
-            `display notification "${message}" with title "${title}" sound name "default"`,
-          ]
-        : process.platform === "linux"
-          ? ["notify-send", title, message]
-          : undefined
+    let cmd: string[] | undefined
+    if (process.platform === "darwin") {
+      cmd = [
+        "osascript",
+        "-e",
+        `display notification "${message}" with title "${title}" sound name "default"`,
+      ]
+    } else if (process.platform === "linux") {
+      cmd = ["notify-send", title, message]
+    }
     if (!cmd) return
     yield* Effect.tryPromise({
       try: () => Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" }).exited,

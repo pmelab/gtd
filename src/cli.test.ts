@@ -1,10 +1,9 @@
 import { describe, it, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import { command, gatherState, dispatch, type DispatchResult, learnAction } from "./cli.js"
-import { GitService } from "./services/Git.js"
-import { GtdConfigService } from "./services/Config.js"
+import { command, gatherState, dispatch, learnAction } from "./cli.js"
 import { AgentService } from "./services/Agent.js"
 import type { AgentInvocation } from "./services/Agent.js"
+import { mockConfig, mockGit, mockFs } from "./test-helpers.js"
 
 describe("gtd unified command", () => {
   it.effect("command is defined without subcommands", () =>
@@ -16,44 +15,19 @@ describe("gtd unified command", () => {
   it("gatherState produces correct input for inferStep", async () => {
     const { gatherState } = await import("./cli.js")
 
-    const mockGit = {
-      hasUncommittedChanges: () => Effect.succeed(false),
+    const gitLayer = mockGit({
       getLastCommitMessage: () => Effect.succeed("🤖 plan: update TODO.md"),
-      getDiff: () => Effect.succeed(""),
-      hasUnstagedChanges: () => Effect.succeed(false),
-      add: () => Effect.void,
-      addAll: () => Effect.void,
-      commit: () => Effect.void,
-      show: () => Effect.succeed(""),
-      atomicCommit: () => Effect.void,
-    }
+    })
 
-    const mockConfig = {
-      file: "TODO.md",
-      agent: "auto",
-      agentPlan: "plan",
-      agentBuild: "code",
-      agentLearn: "plan",
-      testCmd: "npm test",
-      testRetries: 10,
-      commitPrompt: "",
-      agentInactivityTimeout: 300,
-      agentForbiddenTools: [] as ReadonlyArray<string>,
-    }
-
-    const mockFileOps = {
-      readFile: () => Effect.succeed("- [x] done\n- [ ] pending"),
-      exists: () => Effect.succeed(true),
+    const fileOps = {
+      ...mockFs("- [x] done\n- [ ] pending"),
       getDiffContent: () => Effect.succeed(""),
     }
 
-    const layer = Layer.mergeAll(
-      Layer.succeed(GitService, mockGit),
-      Layer.succeed(GtdConfigService, mockConfig),
-    )
+    const layer = Layer.mergeAll(gitLayer, mockConfig())
 
     const state = await Effect.runPromise(
-      gatherState(mockFileOps).pipe(Effect.provide(layer)),
+      gatherState(fileOps).pipe(Effect.provide(layer)),
     )
 
     expect(state).toEqual({
@@ -66,71 +40,63 @@ describe("gtd unified command", () => {
 
   it("dispatch returns cleanup when last commit is 🎓", async () => {
     const { dispatch } = await import("./cli.js")
-    const result = dispatch({
+    const step = dispatch({
       hasUncommittedChanges: false,
       lastCommitPrefix: "🎓",
       hasUncheckedItems: false,
       onlyLearningsModified: false,
     })
-    expect(result.step).toBe("cleanup")
+    expect(step).toBe("cleanup")
   })
 
   it("dispatch returns correct step for each inferred state", async () => {
     const { dispatch } = await import("./cli.js")
 
-    const steps: DispatchResult[] = []
-
-    steps.push(dispatch({
+    expect(dispatch({
       hasUncommittedChanges: false,
       lastCommitPrefix: "🤦",
       hasUncheckedItems: false,
       onlyLearningsModified: false,
-    }))
-    expect(steps[0].step).toBe("plan")
+    })).toBe("plan")
 
-    steps.push(dispatch({
+    expect(dispatch({
       hasUncommittedChanges: false,
       lastCommitPrefix: "🤖",
       hasUncheckedItems: true,
       onlyLearningsModified: false,
-    }))
-    expect(steps[1].step).toBe("build")
+    })).toBe("build")
 
-    steps.push(dispatch({
+    expect(dispatch({
       hasUncommittedChanges: false,
       lastCommitPrefix: "🧹",
       hasUncheckedItems: false,
       onlyLearningsModified: false,
-    }))
-    expect(steps[2].step).toBe("idle")
+    })).toBe("idle")
 
-    steps.push(dispatch({
+    expect(dispatch({
       hasUncommittedChanges: true,
       lastCommitPrefix: undefined,
       hasUncheckedItems: false,
       onlyLearningsModified: false,
-    }))
-    expect(steps[3].step).toBe("commit-feedback")
+    })).toBe("commit-feedback")
   })
 
   it("dispatch returns learn when 🤦 + onlyLearningsModified", () => {
-    const result = dispatch({
+    expect(dispatch({
       hasUncommittedChanges: false,
       lastCommitPrefix: "🤦",
       hasUncheckedItems: false,
       onlyLearningsModified: true,
-    })
-    expect(result.step).toBe("learn")
+    })).toBe("learn")
   })
 
   it("idle state is reached when last commit is 🧹 and no uncommitted changes", () => {
-    const result = dispatch({
+    expect(dispatch({
       hasUncommittedChanges: false,
       lastCommitPrefix: "🧹",
       hasUncheckedItems: false,
       onlyLearningsModified: false,
-    })
-    expect(result.step).toBe("idle")
+    })).toBe("idle")
   })
 
   it("idle message matches expected text", async () => {
@@ -139,51 +105,6 @@ describe("gtd unified command", () => {
   })
 })
 
-const defaultConfig = {
-  file: "TODO.md",
-  agent: "auto",
-  agentPlan: "plan",
-  agentBuild: "code",
-  agentLearn: "plan",
-  testCmd: "npm test",
-  testRetries: 10,
-  commitPrompt: "{{diff}}",
-  agentInactivityTimeout: 300,
-  agentForbiddenTools: [] as ReadonlyArray<string>,
-}
-
-const mockConfig = (overrides: Partial<typeof defaultConfig> = {}) =>
-  Layer.succeed(GtdConfigService, { ...defaultConfig, ...overrides })
-
-const mockGit = (overrides: Partial<GitService["Type"]> = {}) => {
-  const base: GitService["Type"] = {
-    getDiff: () => Effect.succeed(""),
-    hasUnstagedChanges: () => Effect.succeed(false),
-    hasUncommittedChanges: () => Effect.succeed(false),
-    getLastCommitMessage: () => Effect.succeed(""),
-    add: (() => Effect.void) as GitService["Type"]["add"],
-    addAll: () => Effect.void,
-    commit: (() => Effect.void) as GitService["Type"]["commit"],
-    show: () => Effect.succeed(""),
-    atomicCommit: ((files: ReadonlyArray<string> | "all", message: string) =>
-      Effect.gen(function* () {
-        if (files === "all") yield* base.addAll()
-        else yield* base.add(files)
-        yield* base.commit(message)
-      })) as GitService["Type"]["atomicCommit"],
-    ...overrides,
-  }
-  if (overrides.atomicCommit) {
-    base.atomicCommit = overrides.atomicCommit
-  }
-  return Layer.succeed(GitService, base)
-}
-
-const mockFs = (content: string) => ({
-  readFile: () => Effect.succeed(content),
-  exists: () => Effect.succeed(content !== ""),
-  remove: () => Effect.void,
-})
 
 const planWithLearnings = [
   "# Feature",

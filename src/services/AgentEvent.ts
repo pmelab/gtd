@@ -11,7 +11,7 @@ export type AgentEvent =
     }
   | { readonly _tag: "AgentEnd" }
 
-export const AgentEvent = {
+export const AgentEvents = {
   agentStart: (): AgentEvent => ({ _tag: "AgentStart" }),
   turnStart: (): AgentEvent => ({ _tag: "TurnStart" }),
   textDelta: (delta: string): AgentEvent => ({ _tag: "TextDelta", delta }),

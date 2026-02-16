@@ -6,29 +6,18 @@ import { makeCleanupCommand } from "./commands/cleanup.js"
 import { commitFeedbackCommand } from "./commands/commit-feedback.js"
 import { GitService } from "./services/Git.js"
 import { GtdConfigService } from "./services/Config.js"
-import { AgentService, AgentError } from "./services/Agent.js"
+import { AgentService, catchAgentError } from "./services/Agent.js"
 import { parseCommitPrefix, HUMAN } from "./services/CommitPrefix.js"
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
-import { hasUncheckedItems } from "./services/TodoState.js"
-import { isOnlyLearningsModified as checkOnlyLearnings } from "./services/LearningsDiff.js"
-import { extractLearnings, filterLearnings, hasLearningsSection } from "./services/Markdown.js"
+import { isOnlyLearningsModified } from "./services/LearningsDiff.js"
+import { extractLearnings, filterLearnings, hasLearningsSection, hasUncheckedItems } from "./services/Markdown.js"
+import { bunFileOps, type FileOps } from "./services/FileOps.js"
 import { learnPrompt, interpolate } from "./prompts/index.js"
 import { generateCommitMessage } from "./services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "./services/Renderer.js"
 import { notify } from "./services/Notify.js"
 
 export const idleMessage = "Nothing to do. Create a TODO.md or add in-code comments to start."
-
-export interface DispatchResult {
-  readonly step: Step
-}
-
-interface FileOps {
-  readonly readFile: () => Effect.Effect<string>
-  readonly exists: () => Effect.Effect<boolean>
-  readonly getDiffContent: () => Effect.Effect<string>
-  readonly remove: () => Effect.Effect<void>
-}
 
 export interface LearnInput {
   readonly fs: Pick<FileOps, "readFile" | "exists" | "remove">
@@ -85,21 +74,7 @@ export const learnAction = (input: LearnInput) =>
       renderer.succeed("No learnings to persist. Cleaned up.")
       yield* notify("gtd", "Skipped learnings, cleaned up.")
     }
-  }).pipe(
-    Effect.catchAll((err) => {
-      if (err instanceof AgentError) {
-        if (err.reason === "inactivity_timeout") {
-          console.error(`[gtd] Agent timed out (no activity)`)
-          return Effect.void
-        }
-        if (err.reason === "input_requested") {
-          console.error(`[gtd] Agent requested user input, aborting`)
-          return Effect.void
-        }
-      }
-      return Effect.fail(err)
-    }),
-  )
+  }).pipe(catchAgentError)
 
 export const gatherState = (
   fs: FileOps,
@@ -124,7 +99,7 @@ export const gatherState = (
       const committedContent = yield* git.show(`HEAD:${config.file}`).pipe(
         Effect.catchAll(() => Effect.succeed("")),
       )
-      onlyLearningsModified = checkOnlyLearnings(diff, committedContent)
+      onlyLearningsModified = isOnlyLearningsModified(diff, committedContent)
     } else if (lastPrefix === HUMAN) {
       // For 🤦 commits, check if the committed diff only modified learnings
       const diff = yield* git.show("HEAD").pipe(
@@ -133,7 +108,7 @@ export const gatherState = (
       const preCommitContent = yield* git.show(`HEAD~1:${config.file}`).pipe(
         Effect.catchAll(() => Effect.succeed("")),
       )
-      onlyLearningsModified = checkOnlyLearnings(diff, preCommitContent)
+      onlyLearningsModified = isOnlyLearningsModified(diff, preCommitContent)
     }
 
     return {
@@ -144,39 +119,24 @@ export const gatherState = (
     }
   })
 
-export const dispatch = (state: InferStepInput): DispatchResult => {
-  const step = inferStep(state)
-  return { step }
-}
+export const dispatch = (state: InferStepInput) => inferStep(state)
 
-const bunFileOps = (filePath: string): FileOps => ({
-  readFile: () =>
-    Effect.tryPromise({
-      try: () => Bun.file(filePath).text(),
-      catch: () => new Error(`Failed to read ${filePath}`),
-    }).pipe(Effect.catchAll(() => Effect.succeed(""))),
-  exists: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const f = Bun.file(filePath)
-        return f.size > 0
-      },
-      catch: () => false,
-    }).pipe(Effect.catchAll(() => Effect.succeed(false))),
-  getDiffContent: () =>
-    Effect.gen(function* () {
-      const git = yield* GitService
-      return yield* git.getDiff().pipe(Effect.catchAll(() => Effect.succeed("")))
-    }),
-  remove: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const fs = await import("node:fs/promises")
-        await fs.unlink(filePath)
-      },
-      catch: () => new Error(`Failed to remove ${filePath}`),
-    }).pipe(Effect.catchAll(() => Effect.void)),
-})
+const runStep = (step: Step, fs: FileOps) => {
+  switch (step) {
+    case "plan":
+      return makePlanCommand
+    case "build":
+      return makeBuildCommand
+    case "learn":
+      return learnAction({ fs })
+    case "cleanup":
+      return makeCleanupCommand
+    case "idle":
+      return Console.log(idleMessage)
+    case "commit-feedback":
+      return Effect.void
+  }
+}
 
 export const command = Command.make("gtd", {}, () =>
   Effect.gen(function* () {
@@ -184,52 +144,15 @@ export const command = Command.make("gtd", {}, () =>
     const fs = bunFileOps(config.file)
 
     const state = yield* gatherState(fs)
-    const result = dispatch(state)
+    const step = dispatch(state)
 
-    switch (result.step) {
-      case "plan":
-        yield* makePlanCommand
-        break
-      case "build":
-        yield* makeBuildCommand
-        break
-      case "learn":
-        yield* learnAction({
-          fs: bunFileOps(config.file),
-        })
-        break
-      case "cleanup":
-        yield* makeCleanupCommand
-        break
-      case "commit-feedback": {
-        yield* commitFeedbackCommand()
-        // Re-dispatch after committing feedback
-        const newState = yield* gatherState(bunFileOps(config.file))
-        const newResult = dispatch(newState)
-        switch (newResult.step) {
-          case "plan":
-            yield* makePlanCommand
-            break
-          case "learn":
-            yield* learnAction({
-              fs: bunFileOps(config.file),
-            })
-            break
-          case "build":
-            yield* makeBuildCommand
-            break
-          case "cleanup":
-            yield* makeCleanupCommand
-            break
-          case "idle":
-            yield* Console.log(idleMessage)
-            break
-        }
-        break
-      }
-      case "idle":
-        yield* Console.log(idleMessage)
-        break
+    if (step === "commit-feedback") {
+      yield* commitFeedbackCommand()
+      const newState = yield* gatherState(bunFileOps(config.file))
+      const newStep = dispatch(newState)
+      yield* runStep(newStep, bunFileOps(config.file))
+    } else {
+      yield* runStep(step, fs)
     }
   }),
 )

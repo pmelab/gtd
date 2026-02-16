@@ -2,7 +2,7 @@ import { Duration, Effect, Option } from "effect"
 import { resolve } from "node:path"
 import { GtdConfigService } from "../services/Config.js"
 import { GitService } from "../services/Git.js"
-import { AgentService, AgentError } from "../services/Agent.js"
+import { AgentService, catchAgentError } from "../services/Agent.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
 import {
   getNextUncheckedPackage,
@@ -15,18 +15,11 @@ import {
 import { buildPrompt, interpolate } from "../prompts/index.js"
 import { createBuildRenderer, isInteractive } from "../services/Renderer.js"
 import { notify } from "../services/Notify.js"
+import { bunFileOps, type FileOps } from "../services/FileOps.js"
 
 export interface TestResult {
   readonly exitCode: number
   readonly output: string
-}
-
-interface FileOps {
-  readonly readFile: () => Effect.Effect<string>
-  readonly exists: () => Effect.Effect<boolean>
-  readonly runTests?: (cmd: string) => Effect.Effect<TestResult>
-  readonly readSessionId?: () => Effect.Effect<string | undefined>
-  readonly deleteSessionFile?: () => Effect.Effect<void>
 }
 
 export const buildCommand = (fs: FileOps) =>
@@ -187,21 +180,7 @@ export const buildCommand = (fs: FileOps) =>
     renderer.finish("All items built.")
     renderer.dispose()
     yield* notify("gtd", "All items built.")
-  }).pipe(
-    Effect.catchAll((err) => {
-      if (err instanceof AgentError) {
-        if (err.reason === "inactivity_timeout") {
-          console.error(`[gtd] Agent timed out (no activity)`)
-          return Effect.void
-        }
-        if (err.reason === "input_requested") {
-          console.error(`[gtd] Agent requested user input, aborting`)
-          return Effect.void
-        }
-      }
-      return Effect.fail(err)
-    }),
-  )
+  }).pipe(catchAgentError)
 
 const formatPackagePrompt = (pkg: Package, planFilePath: string): string => {
   const unchecked = pkg.items.filter((i) => !i.checked)
@@ -243,43 +222,6 @@ const runTests = (cmd: string): Effect.Effect<TestResult> =>
     ),
     Effect.catchAll((error) => Effect.succeed({ exitCode: 1, output: String(error) })),
   )
-
-const sessionFilePath = (planFilePath: string) =>
-  planFilePath.replace(/[^/]+$/, ".gtd-session")
-
-const bunFileOps = (filePath: string) => ({
-  readFile: () =>
-    Effect.tryPromise({
-      try: () => Bun.file(filePath).text(),
-      catch: () => new Error(`Failed to read ${filePath}`),
-    }).pipe(Effect.catchAll(() => Effect.succeed(""))),
-  exists: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const f = Bun.file(filePath)
-        return f.size > 0
-      },
-      catch: () => false,
-    }).pipe(Effect.catchAll(() => Effect.succeed(false))),
-  readSessionId: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const f = Bun.file(sessionFilePath(filePath))
-        if (f.size === 0) return undefined
-        const content = await f.text()
-        return content.trim() || undefined
-      },
-      catch: () => undefined as string | undefined,
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined as string | undefined))),
-  deleteSessionFile: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const fs = await import("node:fs/promises")
-        await fs.unlink(sessionFilePath(filePath))
-      },
-      catch: () => new Error(`Failed to delete session file`),
-    }).pipe(Effect.catchAll(() => Effect.void)),
-})
 
 export const makeBuildCommand = Effect.gen(function* () {
   const config = yield* GtdConfigService

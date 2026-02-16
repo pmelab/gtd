@@ -1,52 +1,9 @@
 import { describe, it, expect, vi } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import { GtdConfigService } from "../services/Config.js"
-import { GitService } from "../services/Git.js"
 import { AgentService } from "../services/Agent.js"
 import type { AgentInvocation } from "../services/Agent.js"
 import { commitFeedbackCommand } from "./commit-feedback.js"
-
-const defaultConfig = {
-  file: "TODO.md",
-  agent: "auto",
-  agentPlan: "plan",
-  agentBuild: "code",
-  agentLearn: "plan",
-  testCmd: "npm test",
-  testRetries: 10,
-  commitPrompt: "{{diff}}",
-  agentInactivityTimeout: 300,
-  agentForbiddenTools: [] as ReadonlyArray<string>,
-}
-
-const mockConfig = (overrides: Partial<typeof defaultConfig> = {}) =>
-  Layer.succeed(GtdConfigService, { ...defaultConfig, ...overrides })
-
-const mockGit = (overrides: Partial<GitService["Type"]> = {}) => {
-  const base = {
-    getDiff: () => Effect.succeed("diff --git a/foo.ts\n+const x = 1"),
-    hasUnstagedChanges: () => Effect.succeed(false),
-    hasUncommittedChanges: () => Effect.succeed(true),
-    getLastCommitMessage: () => Effect.succeed(""),
-    add: (() => Effect.void) as GitService["Type"]["add"],
-    addAll: () => Effect.void,
-    commit: (() => Effect.void) as GitService["Type"]["commit"],
-    show: () => Effect.succeed(""),
-    stageByPatch: () => Effect.void,
-    ...overrides,
-  }
-  return Layer.succeed(GitService, {
-    ...base,
-    atomicCommit:
-      overrides.atomicCommit ??
-      ((files, message) =>
-        Effect.gen(function* () {
-          if (files === "all") yield* base.addAll()
-          else yield* base.add(files)
-          yield* base.commit(message)
-        })),
-  } satisfies GitService["Type"])
-}
+import { mockConfig, mockGit } from "../test-helpers.js"
 
 describe("commitFeedbackCommand", () => {
   it.effect("calls atomicCommit with 'all' and message starting with 🤦", () =>
@@ -55,6 +12,8 @@ describe("commitFeedbackCommand", () => {
       let commitMessage: string | undefined
 
       const gitLayer = mockGit({
+        getDiff: () => Effect.succeed("diff --git a/foo.ts\n+const x = 1"),
+        hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: (files, message) =>
           Effect.sync(() => {
             commitFiles = files
@@ -83,6 +42,7 @@ describe("commitFeedbackCommand", () => {
 
       const gitLayer = mockGit({
         getDiff: () => Effect.succeed("diff --git a/bar.ts\n+export const bar = true"),
+        hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: () => Effect.void,
       })
 
@@ -111,6 +71,8 @@ describe("commitFeedbackCommand", () => {
       let commitMessage: string | undefined
 
       const gitLayer = mockGit({
+        getDiff: () => Effect.succeed("diff --git a/foo.ts\n+const x = 1"),
+        hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: (_files, message) =>
           Effect.sync(() => {
             commitMessage = message
@@ -139,6 +101,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const gitLayer = mockGit({
+        getDiff: () => Effect.succeed("diff --git a/foo.ts\n+const x = 1"),
+        hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: () => Effect.void,
       })
 
@@ -171,6 +135,7 @@ describe("commitFeedbackCommand", () => {
             callOrder.push("getDiff")
             return "diff --git a/foo.ts\n+const x = 1"
           }),
+        hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: () => Effect.void,
       })
 
@@ -201,6 +166,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const gitLayer = mockGit({
+        getDiff: () => Effect.succeed("diff --git a/foo.ts\n+const x = 1"),
+        hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: () => Effect.void,
       })
 
@@ -229,6 +196,8 @@ describe("commitFeedbackCommand", () => {
       })
 
       const gitLayer = mockGit({
+        getDiff: () => Effect.succeed("diff --git a/foo.ts\n+const x = 1"),
+        hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: () => Effect.void,
       })
 
@@ -258,6 +227,7 @@ describe("commitFeedbackCommand", () => {
 
       const gitLayer = mockGit({
         getDiff: () => Effect.fail(new Error("git failed")),
+        hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: () => Effect.void,
       })
 
@@ -323,6 +293,7 @@ describe("commitFeedbackCommand", () => {
 
       const gitLayer = mockGit({
         getDiff: () => Effect.succeed(mixedDiff),
+        hasUncommittedChanges: () => Effect.succeed(true),
         stageByPatch: (patch) =>
           Effect.sync(() => {
             stagedPatch = patch
@@ -361,6 +332,7 @@ describe("commitFeedbackCommand", () => {
 
       const gitLayer = mockGit({
         getDiff: () => Effect.succeed(fixOnlyDiff),
+        hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: (files, message) =>
           Effect.sync(() => {
             commits.push({ files, message })
@@ -387,6 +359,7 @@ describe("commitFeedbackCommand", () => {
 
       const gitLayer = mockGit({
         getDiff: () => Effect.succeed(feedbackOnlyDiff),
+        hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: (files, message) =>
           Effect.sync(() => {
             commits.push({ files, message })
@@ -413,6 +386,7 @@ describe("commitFeedbackCommand", () => {
 
       const gitLayer = mockGit({
         getDiff: () => Effect.succeed(mixedDiff),
+        hasUncommittedChanges: () => Effect.succeed(true),
         stageByPatch: () => Effect.void,
         commit: (message) =>
           Effect.sync(() => {
