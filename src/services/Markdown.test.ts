@@ -4,7 +4,6 @@ import {
   detectState,
   hasUncheckedItems,
   extractLearnings,
-  filterLearnings,
   hasLearningsSection,
   parsePackages,
   getNextUncheckedPackage,
@@ -101,108 +100,6 @@ describe("extractLearnings", () => {
     expect(result).toContain("learning 1")
     expect(result).toContain("learning 2")
     expect(result).not.toContain("not a learning")
-  })
-})
-
-describe("filterLearnings", () => {
-  it("keeps actionable guidelines with 'always'", () => {
-    const input = "- always use Effect.gen for async flows"
-    expect(filterLearnings(input)).toBe("- always use Effect.gen for async flows")
-  })
-
-  it("keeps actionable guidelines with 'never'", () => {
-    const input = "- never use console.log for progress indication"
-    expect(filterLearnings(input)).toBe("- never use console.log for progress indication")
-  })
-
-  it("keeps actionable guidelines with 'must'", () => {
-    const input = "- learnings must only contain actionable coding guidelines"
-    expect(filterLearnings(input)).toBe("- learnings must only contain actionable coding guidelines")
-  })
-
-  it("keeps actionable guidelines with 'should'", () => {
-    const input = "- progress indication should use a proper spinner library"
-    expect(filterLearnings(input)).toBe("- progress indication should use a proper spinner library")
-  })
-
-  it("keeps actionable guidelines with 'do not' or 'don't'", () => {
-    const input = "- do not use plain console.log for spinners"
-    expect(filterLearnings(input)).toBe("- do not use plain console.log for spinners")
-  })
-
-  it("keeps actionable guidelines with 'avoid'", () => {
-    const input = "- avoid duplicating existing instructions"
-    expect(filterLearnings(input)).toBe("- avoid duplicating existing instructions")
-  })
-
-  it("keeps actionable guidelines with 'prefer'", () => {
-    const input = "- prefer Effect.gen over raw pipe chains"
-    expect(filterLearnings(input)).toBe("- prefer Effect.gen over raw pipe chains")
-  })
-
-  it("keeps actionable guidelines with 'ensure'", () => {
-    const input = "- ensure all commits are uninterruptible with rollback"
-    expect(filterLearnings(input)).toBe("- ensure all commits are uninterruptible with rollback")
-  })
-
-  it("discards state observations with 'currently'", () => {
-    const input = "- commitFeedbackCommand currently does a single atomicCommit"
-    expect(filterLearnings(input)).toBe("")
-  })
-
-  it("discards state observations describing what something 'is'", () => {
-    const input = "- atomicCommit in GitService is already Effect.uninterruptible with rollback"
-    expect(filterLearnings(input)).toBe("")
-  })
-
-  it("discards state observations with 'already'", () => {
-    const input = "- generateCommitMessage already accepts an emoji prefix and diff"
-    expect(filterLearnings(input)).toBe("")
-  })
-
-  it("filters mixed list keeping only actionable items", () => {
-    const input = [
-      "- commitFeedbackCommand currently does a single atomicCommit with a 🤦 emoji",
-      "- generateCommitMessage already accepts an emoji prefix and diff",
-      "- always use Effect.gen for async flows",
-      "- atomicCommit in GitService is already Effect.uninterruptible",
-      "- classification is hunk-level, not file-level",
-      "- progress indication should use a proper spinner library, not plain console.log",
-      "- learnings must only contain actionable coding guidelines",
-    ].join("\n")
-
-    const result = filterLearnings(input)
-    expect(result).toContain("always use Effect.gen for async flows")
-    expect(result).toContain("progress indication should use a proper spinner library")
-    expect(result).toContain("learnings must only contain actionable coding guidelines")
-    expect(result).not.toContain("currently does")
-    expect(result).not.toContain("already accepts")
-    expect(result).not.toContain("is already")
-    expect(result).not.toContain("hunk-level")
-  })
-
-  it("returns empty string for empty input", () => {
-    expect(filterLearnings("")).toBe("")
-  })
-
-  it("returns empty string when all items are state observations", () => {
-    const input = [
-      "- X currently does Y",
-      "- Z is already configured",
-    ].join("\n")
-    expect(filterLearnings(input)).toBe("")
-  })
-
-  it("preserves multi-line learning items", () => {
-    const input = [
-      "- always validate input before processing",
-      "  because invalid input causes crashes",
-      "- X currently does Y",
-    ].join("\n")
-    const result = filterLearnings(input)
-    expect(result).toContain("always validate input before processing")
-    expect(result).toContain("because invalid input causes crashes")
-    expect(result).not.toContain("currently does")
   })
 })
 

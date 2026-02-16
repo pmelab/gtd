@@ -119,36 +119,5 @@ export const extractLearnings = (content: string): string => {
   return bodyLines.join("\n").trim()
 }
 
-const ACTIONABLE_PATTERN =
-  /\b(always|never|must|should|do\s+not|don['']t|avoid|prefer|ensure|make\s+sure|use\b.*\binstead)\b/i
-
-const STATE_OBSERVATION_PATTERN =
-  /\b(currently|already|is\s+already|are\s+already|was\s+already)\b/i
-
-const isActionableLearning = (line: string): boolean => {
-  if (ACTIONABLE_PATTERN.test(line)) return true
-  if (STATE_OBSERVATION_PATTERN.test(line)) return false
-  return false
-}
-
-export const filterLearnings = (learnings: string): string => {
-  if (learnings.trim() === "") return ""
-
-  const lines = learnings.split("\n")
-  const filtered: string[] = []
-  let keepCurrent = false
-
-  for (const line of lines) {
-    if (line.startsWith("- ")) {
-      keepCurrent = isActionableLearning(line)
-      if (keepCurrent) filtered.push(line)
-    } else if (line.startsWith("  ") && keepCurrent) {
-      filtered.push(line)
-    }
-  }
-
-  return filtered.join("\n")
-}
-
 export const hasLearningsSection = (content: string): boolean =>
   /^##\s+Learnings\s*$/m.test(content)

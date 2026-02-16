@@ -8,7 +8,6 @@ import {
   getNextUncheckedPackage,
   hasUncheckedItems,
   extractLearnings,
-  filterLearnings,
   parsePackages,
   type Package,
 } from "../services/Markdown.js"
@@ -58,7 +57,7 @@ export const buildCommand = (fs: FileOps) =>
       if (Option.isNone(nextPkg)) break
 
       const pkg = nextPkg.value
-      const learnings = filterLearnings(extractLearnings(content))
+      const learnings = extractLearnings(content)
       renderer.setStatus(pkg.title, "building")
 
       const planFilePath = resolve(process.cwd(), config.file)
@@ -135,7 +134,7 @@ export const buildCommand = (fs: FileOps) =>
             const currentItems = Option.isSome(currentPkg)
               ? formatPackagePrompt(currentPkg.value, planFilePath)
               : itemSection
-            const currentLearnings = filterLearnings(extractLearnings(currentContent))
+            const currentLearnings = extractLearnings(currentContent)
             const currentLearningsSection =
               currentLearnings.trim() !== ""
                 ? `### Learnings\n\n${currentLearnings}`

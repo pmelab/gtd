@@ -10,7 +10,7 @@ import { AgentService, catchAgentError } from "./services/Agent.js"
 import { parseCommitPrefix, HUMAN } from "./services/CommitPrefix.js"
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
 import { isOnlyLearningsModified } from "./services/LearningsDiff.js"
-import { extractLearnings, filterLearnings, hasLearningsSection, hasUncheckedItems } from "./services/Markdown.js"
+import { extractLearnings, hasLearningsSection, hasUncheckedItems } from "./services/Markdown.js"
 import { bunFileOps, type FileOps } from "./services/FileOps.js"
 import { learnPrompt, interpolate } from "./prompts/index.js"
 import { generateCommitMessage } from "./services/CommitMessage.js"
@@ -39,8 +39,7 @@ export const learnAction = (input: LearnInput) =>
 
     const content = yield* input.fs.readFile()
 
-    const rawLearnings = extractLearnings(content)
-    const learnings = filterLearnings(rawLearnings)
+    const learnings = extractLearnings(content)
 
     if (hasLearningsSection(content) && learnings.trim() !== "") {
 
