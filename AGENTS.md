@@ -36,3 +36,6 @@ It automates AI agent execution and git operations:
   - verify it fails
   - implementation
   - verify it passes
+- order CI steps from fastest/cheapest to slowest/most expensive so failures
+  surface early and save runner time — prefer: typecheck → lint → format → unit
+  → e2e
