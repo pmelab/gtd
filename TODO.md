@@ -23,7 +23,7 @@
 
 ### CI Step Ordering
 
-- [ ] Reorder workflow steps to fail early on cheap checks
+- [x] Reorder workflow steps to fail early on cheap checks
   - Change step order to: format check → typechecks → lint → unit tests → e2e
     tests
   - Fast, static checks run first so PRs fail quickly without waiting for slow

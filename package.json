@@ -10,7 +10,8 @@
     "test:watch": "bun vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@effect/eslint-plugin": "^0.3.2",

@@ -6,7 +6,7 @@ import { execSync } from "node:child_process"
 import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 
-describe("CI workflow lint & format steps", () => {
+describe("CI workflow step ordering", () => {
   const workflowPath = join(import.meta.dirname, "../.github/workflows/test.yml")
 
   const getSteps = () => {
@@ -18,28 +18,43 @@ describe("CI workflow lint & format steps", () => {
   const stepIndex = (steps: Array<{ name?: string; run?: string }>, pattern: string) =>
     steps.findIndex((s) => s.run?.includes(pattern))
 
-  it("has a lint step", () => {
-    const steps = getSteps()
-    expect(stepIndex(steps, "bun run lint")).toBeGreaterThan(-1)
-  })
-
   it("has a format:check step", () => {
     const steps = getSteps()
     expect(stepIndex(steps, "bun run format:check")).toBeGreaterThan(-1)
   })
 
-  it("runs lint after tests", () => {
+  it("has a typecheck step", () => {
     const steps = getSteps()
-    const testIdx = stepIndex(steps, "bun test")
-    const lintIdx = stepIndex(steps, "bun run lint")
-    expect(lintIdx).toBeGreaterThan(testIdx)
+    expect(stepIndex(steps, "typecheck")).toBeGreaterThan(-1)
   })
 
-  it("runs format:check after lint", () => {
+  it("has a lint step", () => {
     const steps = getSteps()
-    const lintIdx = stepIndex(steps, "bun run lint")
+    expect(stepIndex(steps, "bun run lint")).toBeGreaterThan(-1)
+  })
+
+  it("has a unit test step", () => {
+    const steps = getSteps()
+    expect(stepIndex(steps, "bun test")).toBeGreaterThan(-1)
+  })
+
+  it("has an e2e test step", () => {
+    const steps = getSteps()
+    expect(stepIndex(steps, "test:e2e")).toBeGreaterThan(-1)
+  })
+
+  it("runs steps in fail-early order: format → typecheck → lint → unit tests → e2e", () => {
+    const steps = getSteps()
     const formatIdx = stepIndex(steps, "bun run format:check")
-    expect(formatIdx).toBeGreaterThan(lintIdx)
+    const typecheckIdx = stepIndex(steps, "typecheck")
+    const lintIdx = stepIndex(steps, "bun run lint")
+    const unitIdx = stepIndex(steps, "bun test")
+    const e2eIdx = stepIndex(steps, "test:e2e")
+
+    expect(formatIdx).toBeLessThan(typecheckIdx)
+    expect(typecheckIdx).toBeLessThan(lintIdx)
+    expect(lintIdx).toBeLessThan(unitIdx)
+    expect(unitIdx).toBeLessThan(e2eIdx)
   })
 
   it("prettier --check fails on formatting violations", () => {
