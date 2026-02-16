@@ -19,6 +19,7 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+        # TODO: order tests typecheck -> lint -> format -> unit -> e2e to fail early
       - name: Format check
         run: bun run format:check
 
