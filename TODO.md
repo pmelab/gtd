@@ -35,7 +35,7 @@ useful information that is derived from the environment.
 
 ### Add run info banner to CLI output
 
-- [ ] Create a `RunInfo` type capturing environment-derived metadata
+- [x] Create a `RunInfo` type capturing environment-derived metadata
   - Fields: `agent` (resolved name), `step` (inferred step like
     plan/build/learn/cleanup/idle), `planFile` (config file path),
     `configSources` (list of loaded config filepaths)
@@ -43,7 +43,7 @@ useful information that is derived from the environment.
   - Define in a new `src/services/RunInfo.ts` or inline in `cli.ts`
   - Tests: Type-level only — ensure the type is used in the banner renderer
 
-- [ ] Render the run info banner at the start of each run
+- [x] Render the run info banner at the start of each run
   - After `gatherState` and `dispatch` in the root command, print a short banner
     to stderr (so it doesn't interfere with piped stdout)
   - Guard output behind `!quiet` check — skip when `--quiet` is set

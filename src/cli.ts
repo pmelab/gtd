@@ -18,6 +18,7 @@ import { generateCommitMessage } from "./services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "./services/Renderer.js"
 import { notify } from "./services/Notify.js"
 import { QuietMode } from "./services/QuietMode.js"
+import { printBanner } from "./services/RunInfo.js"
 
 export const idleMessage = "Nothing to do. Create a TODO.md or add in-code comments to start."
 
@@ -175,6 +176,8 @@ const rootCommand = Command.make("gtd", { quiet: quietOption }, ({ quiet }) =>
 
     const state = yield* gatherState(fs)
     const step = dispatch(state)
+
+    yield* printBanner(step)
 
     if (step === "commit-feedback") {
       yield* commitFeedbackCommand()
