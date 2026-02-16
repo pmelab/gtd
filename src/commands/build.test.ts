@@ -133,13 +133,13 @@ describe("buildCommand", () => {
         "",
         "## Learnings",
         "",
-        "- use TDD",
+        "- always use TDD",
         "",
       ].join("\n")
       yield* buildCommand(mockFsWithProgress(withLearnings)).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
       )
-      expect(calls[0]!.prompt).toContain("use TDD")
+      expect(calls[0]!.prompt).toContain("always use TDD")
     }),
   )
 

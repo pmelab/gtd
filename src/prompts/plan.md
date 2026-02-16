@@ -57,7 +57,7 @@ Write the plan file with this structure:
 
 ## Learnings
 
-- <Insight extracted from feedback>
+- <Actionable guideline extracted from feedback>
 ```
 
 ### Rules
@@ -77,3 +77,8 @@ Write the plan file with this structure:
   the order
 - Keep items actionable and specific
 - Preserve any existing `- [x]` checked items unchanged
+- Learnings must only contain actionable coding guidelines — reusable rules,
+  patterns to follow/avoid, or mistakes to prevent (e.g., "always do X",
+  "never do Y", "prefer X over Y")
+- Do NOT add learnings that merely describe current project state (e.g.,
+  "X currently does Y", "Z is already configured") — these go stale

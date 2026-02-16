@@ -72,7 +72,7 @@
 
 ### Improve Learning Extraction Quality
 
-- [ ] Filter learnings to only include actionable coding guidelines, not project
+- [x] Filter learnings to only include actionable coding guidelines, not project
       state observations
   - Update the agent prompt (or post-processing logic) that extracts learnings
     from feedback hunks to only retain items that represent reusable rules or

@@ -11,7 +11,7 @@ import { parseCommitPrefix, HUMAN } from "./services/CommitPrefix.js"
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
 import { hasUncheckedItems } from "./services/TodoState.js"
 import { isOnlyLearningsModified as checkOnlyLearnings } from "./services/LearningsDiff.js"
-import { extractLearnings, hasLearningsSection } from "./services/Markdown.js"
+import { extractLearnings, filterLearnings, hasLearningsSection } from "./services/Markdown.js"
 import { learnPrompt, interpolate } from "./prompts/index.js"
 import { generateCommitMessage } from "./services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "./services/Renderer.js"
@@ -50,8 +50,10 @@ export const learnAction = (input: LearnInput) =>
 
     const content = yield* input.fs.readFile()
 
-    if (hasLearningsSection(content) && extractLearnings(content).trim() !== "") {
-      const learnings = extractLearnings(content)
+    const rawLearnings = extractLearnings(content)
+    const learnings = filterLearnings(rawLearnings)
+
+    if (hasLearningsSection(content) && learnings.trim() !== "") {
 
       renderer.setText("Persisting learnings to AGENTS.md...")
 
