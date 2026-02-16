@@ -20,6 +20,7 @@
 
 - [ ] Create a `DiffClassifier` service that splits a unified diff into "fix"
       hunks and "feedback" hunks at the hunk level
+
   - New file `src/services/DiffClassifier.ts`
   - Classification is hunk-level: each hunk is independently classified, and
     patch-level staging (`git add -p` or programmatic equivalent) is used to
@@ -50,6 +51,7 @@
 
 - [ ] Refactor `commitFeedbackCommand` to perform two sequential commits when
       both fix and feedback changes exist
+
   - Use `DiffClassifier` to split the working tree changes
   - Phase 1 — Fixes: if fix hunks exist, selectively stage fix hunks via
     patch-level staging, then `atomicCommit` with emoji `👷` and an
@@ -68,12 +70,20 @@
   - Tests: Integration-style test verifying that hunk-level staging stages only
     the intended hunks within a file, leaving other hunks unstaged
 
-## Additional feedback
+### Improve Learning Extraction Quality
 
-Learnings are currently too generic. They should really only contain mistakes
-and hints that are relevant for future iterations, like specific coding
-guidelines, not learnings about the state of the project. Good hints are "never"
-or "always" in feedback hunks.
+- [ ] Filter learnings to only include actionable coding guidelines, not project
+      state observations
+  - Update the agent prompt (or post-processing logic) that extracts learnings
+    from feedback hunks to only retain items that represent reusable rules or
+    mistakes — e.g., statements containing "never", "always", or specific coding
+    patterns to follow/avoid
+  - Discard learnings that merely describe the current state of the project
+    (e.g., "X currently does Y") since those become stale
+  - Tests: Given a set of feedback hunks containing both actionable guidelines
+    ("always use Effect.gen for async flows") and state observations
+    ("commitFeedbackCommand currently does a single atomicCommit"), verify only
+    the actionable guidelines are extracted as learnings
 
 ## Learnings
 
@@ -90,3 +100,5 @@ or "always" in feedback hunks.
   marker presence
 - Progress indication should use a proper spinner library, not plain
   `console.log`
+- Learnings must only contain actionable coding guidelines (e.g., "always do X",
+  "never do Y"), not observations about current project state which go stale
