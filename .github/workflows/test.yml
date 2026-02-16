@@ -19,6 +19,7 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      # TODO: the order should be format, typechecks, lint, unit, e2e to fail early
       - name: Run unit tests
         run: bun test
 
