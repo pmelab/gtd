@@ -1,4 +1,4 @@
-# Move Config File Creation to `--init` Flag
+# Move Config File Creation to `init` Subcommand
 
 ## Action Items
 
@@ -20,6 +20,8 @@
 ### Add `init` Subcommand
 
 - [ ] Create `src/commands/init.ts` with an `initCommand` effect
+
+  - Always create `.gtdrc.json` in `process.cwd()` (no `--path` option)
   - Call `createExampleConfig(process.cwd())` from `ConfigResolver.ts`
   - On success, print the result message via `Console.log`
   - On `null` result (write failure), print an error message and exit with
@@ -31,13 +33,29 @@
     message; test that it skips when config already exists; test error handling
     when directory is not writable
 
+- [ ] Add `--global` flag to `init` subcommand
+
+  - When `--global` is passed, create config at `~/.config/gtd/.gtdrc.json`
+    instead of cwd
+  - Use `$XDG_CONFIG_HOME/gtd/` if `XDG_CONFIG_HOME` is set, otherwise
+    `~/.config/gtd/`
+  - Create the directory if it doesn't exist (`mkdir -p` equivalent)
+  - If config already exists at the global path, print a message and skip
+  - Reuse `createExampleConfig` by passing the resolved global directory path
+  - Tests: Test that `--global` creates `.gtdrc.json` in the XDG config dir;
+    test that it creates the directory when missing; test that it respects
+    `XDG_CONFIG_HOME` env var; test that it skips when global config already
+    exists
+
 - [ ] Register the `init` subcommand in `src/cli.ts`
   - Use `Command.make("init", ...)` and add it as a subcommand of the root `gtd`
     command via `Command.withSubcommands`
+  - Add `--global` as a boolean `Options.boolean("global")` flag
   - The `init` command should not require `AgentService` or `GitService` — only
     needs filesystem access
   - Tests: Verify `gtd init` triggers config creation in an integration test;
-    verify the main `gtd` command still works without `--init`
+    verify `gtd init --global` creates config in global dir; verify the main
+    `gtd` command still works without init
 
 ### Clean Up Tests
 
@@ -48,11 +66,7 @@
   - Tests: Run full test suite (`bun vitest run`) — all tests pass with no
     regressions
 
-## Open Questions
+## Learnings
 
-- Should `gtd init` accept a `--path` option to specify where to create the
-  config, or always use cwd?
-  > alwasy cwd
-- Should `gtd init` also support creating config in `~/.config/gtd/` directly
-  (e.g., `gtd init --global`)?
-  > yes
+- Prefer `process.cwd()` over a `--path` option for config creation — simpler
+  UX, users can just `cd` to the target directory
