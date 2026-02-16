@@ -18,7 +18,7 @@
 
 ### Classify Diff Hunks as Fixes vs Feedback
 
-- [ ] Create a `DiffClassifier` service that splits a unified diff into "fix"
+- [x] Create a `DiffClassifier` service that splits a unified diff into "fix"
       hunks and "feedback" hunks at the hunk level
 
   - New file `src/services/DiffClassifier.ts`
@@ -39,7 +39,7 @@
     all-fix diff, empty diff, diff with only `TODO.md` changes (should be
     all-feedback), diff with `TODO.md` changes mixed with other file changes
 
-- [ ] Document feedback marker prefixes in the README
+- [x] Document feedback marker prefixes in the README
   - Add a section to `README.md` explaining that `commit-feedback` classifies
     hunks using marker prefixes: `TODO:`, `FIX:`, `FIXME:`, `HACK:`, `XXX:`
     (case-insensitive)

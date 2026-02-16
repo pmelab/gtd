@@ -133,6 +133,25 @@ writes them to `AGENTS.md` (committed as `🎓`), followed by cleanup.
 After learnings are committed, `gtd` removes `TODO.md` and commits as `🧹`.
 You're done — start a new feature by creating a fresh `TODO.md`.
 
+## Feedback Classification
+
+When `commit-feedback` runs, it classifies each diff hunk independently as
+either a **fix** (regular code change) or **feedback** (human commentary for
+the agent). Classification uses marker prefixes found in added lines
+(case-insensitive):
+
+- `TODO:` — something that needs to be done
+- `FIX:` — a known issue to address
+- `FIXME:` — same as FIX
+- `HACK:` — a workaround that should be improved
+- `XXX:` — requires attention
+
+Any hunk containing an added line with one of these markers is classified as
+feedback. All other hunks are classified as fixes.
+
+All changes in `TODO.md` are always treated as feedback, regardless of whether
+they contain marker prefixes.
+
 ## Configuration
 
 `gtd` uses file-based configuration via [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig).

@@ -74,6 +74,20 @@ describe("README.md", () => {
     expect(content).toContain("## How It Works")
   })
 
+  it("documents feedback marker prefixes for commit-feedback classification", () => {
+    const content = readmeContent()
+    const markers = ["TODO:", "FIX:", "FIXME:", "HACK:", "XXX:"]
+    for (const marker of markers) {
+      expect(content).toContain(marker)
+    }
+    expect(content).toMatch(/case.insensitive/i)
+  })
+
+  it("documents that TODO.md changes are always treated as feedback", () => {
+    const content = readmeContent()
+    expect(content).toMatch(/TODO\.md.*always.*feedback|all.*changes.*TODO\.md.*feedback/i)
+  })
+
   it("section 5 Learn describes manual step between build completion and learn", () => {
     const content = readmeContent()
     const learnMatch = content.match(/### 5\. Learn\n([\s\S]*?)(?=\n### \d|$)/)
