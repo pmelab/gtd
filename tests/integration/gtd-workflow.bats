@@ -8,7 +8,7 @@ setup_file() {
   build_gtd
   create_test_project
 
-  # Create a simple TODO.md
+  # Create a rough TODO.md with a feature request
   cd "$TEST_REPO"
   cat >TODO.md <<'EOF'
 - add a `multiply` function to `src/math.ts` that multiplies two numbers
@@ -26,10 +26,22 @@ teardown_file() {
   fi
 }
 
-# ── Plan ────────────────────────────────────────────────────────────────────
+# Helper: get last commit message prefix (first character/emoji)
+last_commit_prefix() {
+  cd "$TEST_REPO"
+  git log -1 --format="%s" | head -c4
+}
 
-@test "gtd plan rewrites TODO.md with action items" {
-  run_gtd plan
+# Helper: get git log (one-line format)
+git_log() {
+  cd "$TEST_REPO"
+  git log --oneline
+}
+
+# ── Step 2: First gtd → plan ────────────────────────────────────────────────
+
+@test "gtd plans from initial TODO" {
+  run_gtd
 
   assert_success
 
