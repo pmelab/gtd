@@ -53,6 +53,10 @@ const isFeedbackHunk = (hunk: { lines: string[] }): boolean => {
   return hunk.lines.some((line) => line.startsWith("+") && FEEDBACK_MARKERS.test(line))
 }
 
+const isTodoFeedbackHunk = (hunk: { lines: string[] }): boolean => {
+  return hunk.lines.some((line) => /^\+\s*>/.test(line))
+}
+
 const reconstructDiff = (files: ParsedFile[]): string => {
   if (files.length === 0) return ""
 
@@ -77,16 +81,13 @@ export const classifyDiff = (diff: string): { fixes: string; feedback: string } 
   const feedbackFiles: ParsedFile[] = []
 
   for (const file of files) {
-    if (file.path === "TODO.md") {
-      feedbackFiles.push(file)
-      continue
-    }
-
     const fixHunks: ParsedFile["hunks"] = []
     const feedbackHunks: ParsedFile["hunks"] = []
 
+    const classify = file.path === "TODO.md" ? isTodoFeedbackHunk : isFeedbackHunk
+
     for (const hunk of file.hunks) {
-      if (isFeedbackHunk(hunk)) {
+      if (classify(hunk)) {
         feedbackHunks.push(hunk)
       } else {
         fixHunks.push(hunk)

@@ -175,7 +175,7 @@ describe("classifyDiff", () => {
     expect(result.feedback).toBe("")
   })
 
-  it("classifies all TODO.md changes as feedback regardless of content", () => {
+  it("classifies TODO.md changes without blockquotes as fixes", () => {
     const diff = makeDiff([
       {
         path: "TODO.md",
@@ -189,11 +189,53 @@ describe("classifyDiff", () => {
     ])
 
     const result = classifyDiff(diff)
-    expect(result.feedback).toContain("New item without any marker")
+    expect(result.fixes).toContain("New item without any marker")
+    expect(result.feedback).toBe("")
+  })
+
+  it("classifies TODO.md blockquote additions as feedback", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" # Plan", "+> This approach is wrong", " "],
+          },
+        ],
+      },
+    ])
+
+    const result = classifyDiff(diff)
+    expect(result.feedback).toContain("This approach is wrong")
     expect(result.fixes).toBe("")
   })
 
-  it("classifies TODO.md changes as feedback mixed with other file changes", () => {
+  it("splits TODO.md hunks: blockquote hunks as feedback, others as fixes", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" # Plan", "+- [x] Check off item", " "],
+          },
+          {
+            header: "@@ -10,3 +11,4 @@",
+            lines: [" ## Notes", "+> Need to rethink this", " "],
+          },
+        ],
+      },
+    ])
+
+    const result = classifyDiff(diff)
+    expect(result.fixes).toContain("Check off item")
+    expect(result.fixes).not.toContain("rethink")
+    expect(result.feedback).toContain("rethink")
+    expect(result.feedback).not.toContain("Check off item")
+  })
+
+  it("classifies TODO.md non-blockquote changes as fixes mixed with other files", () => {
     const diff = makeDiff([
       {
         path: "TODO.md",
@@ -216,10 +258,10 @@ describe("classifyDiff", () => {
     ])
 
     const result = classifyDiff(diff)
-    expect(result.feedback).toContain("TODO.md")
-    expect(result.feedback).toContain("New item")
+    expect(result.fixes).toContain("TODO.md")
+    expect(result.fixes).toContain("New item")
     expect(result.fixes).toContain("const y = 2")
-    expect(result.fixes).not.toContain("TODO.md")
+    expect(result.feedback).toBe("")
   })
 
   it("preserves file headers in reconstructed diffs", () => {
