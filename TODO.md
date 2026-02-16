@@ -25,3 +25,4 @@
 
 - What is the exact command to run e2e tests? (e.g., `bun test:e2e`,
   `bun run test:e2e`, or a specific test path/pattern?)
+  > bun run test:e2e
