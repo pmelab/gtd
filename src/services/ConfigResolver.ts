@@ -129,7 +129,7 @@ const defaultCommitPrompt = `Look at the following diff and create a concise com
 
 {{diff}}`
 
-const defaults: GtdConfig = {
+const defaults: Omit<GtdConfig, "configSources"> = {
   file: "TODO.md",
   agent: "auto",
   agentPlan: "plan",
@@ -147,18 +147,19 @@ const decode = Schema.decodeUnknownEither(GtdConfigSchema)
 export const mergeConfigs = (
   configs: ReadonlyArray<ConfigResult>,
 ): GtdConfig => {
-  // Merge from lowest priority to highest (reverse order), so higher priority wins
   const merged: Record<string, unknown> = {}
+  const configSources: string[] = []
   for (let i = configs.length - 1; i >= 0; i--) {
     const result = decode(configs[i]!.config)
     if (result._tag === "Right") {
       Object.assign(merged, result.right)
+      configSources.unshift(configs[i]!.filepath)
     }
-    // Invalid configs are silently skipped
   }
 
   return {
     ...defaults,
     ...merged,
+    configSources,
   } as GtdConfig
 }

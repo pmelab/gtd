@@ -226,6 +226,34 @@ describe("mergeConfigs", () => {
     expect(result.agentForbiddenTools).toEqual(["AskUserQuestion"])
   })
 
+  it("returns source filepaths from all valid configs", () => {
+    const configs = [
+      { config: { file: "A.md" } as Record<string, unknown>, filepath: "/project/.gtdrc.json" },
+      { config: { agent: "claude" } as Record<string, unknown>, filepath: "/home/.gtdrc.json" },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.configSources).toEqual(["/project/.gtdrc.json", "/home/.gtdrc.json"])
+  })
+
+  it("returns empty configSources when no configs provided", () => {
+    const result = mergeConfigs([])
+
+    expect(result.configSources).toEqual([])
+  })
+
+  it("excludes filepaths of configs that fail validation", () => {
+    const configs = [
+      { config: { file: "A.md" } as Record<string, unknown>, filepath: "/valid.json" },
+      { config: { testRetries: "not-a-number" } as Record<string, unknown>, filepath: "/invalid.json" },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.configSources).toEqual(["/valid.json"])
+  })
+
   it("higher priority overrides lower for overlapping keys", () => {
     const configs = [
       { config: { agent: "opencode" } as Record<string, unknown>, filepath: "/pwd" },

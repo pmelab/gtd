@@ -261,6 +261,27 @@ agentForbiddenTools:
     expect(parsed.$schema).toBeUndefined()
   })
 
+  it("exposes configSources with filepaths of loaded configs", async () => {
+    const cwd = join(tempDir, "project")
+    const home = join(tempDir, "home")
+    await mkdir(cwd, { recursive: true })
+    await mkdir(home, { recursive: true })
+
+    await writeFile(join(cwd, ".gtdrc.json"), JSON.stringify({ file: "CWD.md" }))
+    await writeFile(join(home, ".gtdrc.json"), JSON.stringify({ agent: "claude" }))
+
+    const config = await Effect.runPromise(runWithDirs({ cwd, home }))
+    expect(config.configSources).toEqual([
+      join(cwd, ".gtdrc.json"),
+      join(home, ".gtdrc.json"),
+    ])
+  })
+
+  it("exposes empty configSources when no config files exist", async () => {
+    const config = await Effect.runPromise(runWithDirs())
+    expect(config.configSources).toEqual([])
+  })
+
   // --- Live layer smoke test ---
   it("GtdConfigService.Live works (uses real process env)", async () => {
     const config = await Effect.runPromise(

@@ -106,6 +106,7 @@ describe("AgentService.Live", () => {
               commitPrompt: "",
               agentInactivityTimeout: 300,
               agentForbiddenTools: [],
+              configSources: [],
             }),
           ),
         ),

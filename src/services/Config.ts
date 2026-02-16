@@ -13,6 +13,7 @@ export interface GtdConfig {
   readonly commitPrompt: string
   readonly agentInactivityTimeout: number
   readonly agentForbiddenTools: ReadonlyArray<string>
+  readonly configSources: ReadonlyArray<string>
 }
 
 export class GtdConfigService extends Context.Tag("GtdConfigService")<

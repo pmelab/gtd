@@ -13,6 +13,7 @@ export const defaultTestConfig: GtdConfig = {
   commitPrompt: "{{diff}}",
   agentInactivityTimeout: 300,
   agentForbiddenTools: [],
+  configSources: [],
 }
 
 export const mockConfig = (overrides: Partial<GtdConfig> = {}) =>

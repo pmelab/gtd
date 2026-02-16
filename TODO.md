@@ -70,7 +70,7 @@ useful information that is derived from the environment.
 
 ### Expose config sources from resolver
 
-- [ ] Return loaded config filepaths from `GtdConfigService`
+- [x] Return loaded config filepaths from `GtdConfigService`
   - `mergeConfigs` already receives config results with `filepath` — propagate
     the list of filepaths into the merged config or a sidecar value
   - Option A: Add `readonly configSources: ReadonlyArray<string>` to `GtdConfig`

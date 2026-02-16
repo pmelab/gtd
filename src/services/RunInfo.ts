@@ -1,9 +1,7 @@
 import { Effect } from "effect"
-import { homedir } from "node:os"
 import { GtdConfigService } from "./Config.js"
 import { AgentService } from "./Agent.js"
 import { QuietMode } from "./QuietMode.js"
-import { resolveAllConfigs } from "./ConfigResolver.js"
 import type { Step } from "./InferStep.js"
 
 export interface RunInfo {
@@ -25,19 +23,11 @@ export const gatherRunInfo = (
     const config = yield* GtdConfigService
     const agent = yield* AgentService
 
-    const home = homedir()
-    const xdgConfigHome = process.env.XDG_CONFIG_HOME ?? `${home}/.config`
-    const configs = yield* resolveAllConfigs({
-      cwd: process.cwd(),
-      home,
-      xdgConfigHome,
-    }).pipe(Effect.catchAll(() => Effect.succeed([] as const)))
-
     return {
       agent: agent.resolvedName,
       step,
       planFile: config.file,
-      configSources: configs.map((c) => c.filepath),
+      configSources: config.configSources,
     }
   })
 
