@@ -52,5 +52,7 @@
 
 - Should `gtd init` accept a `--path` option to specify where to create the
   config, or always use cwd?
+  > alwasy cwd
 - Should `gtd init` also support creating config in `~/.config/gtd/` directly
   (e.g., `gtd init --global`)?
+  > yes
