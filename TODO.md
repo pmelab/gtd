@@ -28,12 +28,12 @@
   - Tests: Given a diff with mixed hunks (some adding `TODO:` lines, some adding
     plain code), verify correct classification; edge cases: all-feedback diff,
     all-fix diff, empty diff
+    > all changes in TODO.md are always considered feedback
 
 ### Two-Phase Commit in commit-feedback
 
 - [ ] Refactor `commitFeedbackCommand` to perform two sequential commits when
       both fix and feedback changes exist
-
   - Use `DiffClassifier` to split the working tree changes
   - Phase 1 — Fixes: if fix hunks exist, `git add -p` or selectively stage fix
     files, then `atomicCommit` with emoji `👷` and an agent-generated summary of
@@ -57,10 +57,13 @@
 
 - Should classification be file-level (simpler, a file is either fix or
   feedback) or hunk-level (more precise but requires patch-level staging)?
+  > hunk level
 - What exact set of marker prefixes should trigger "feedback" classification?
   Current candidates: `TODO:`, `FIX:`, `FIXME:`, `HACK:`, `XXX:`
+  > thats fine. also reflect that in the readme
 - Should the progress indication be a simple log line or a proper spinner (e.g.,
   using `ora` or similar)?
+  > proper spinner
 
 ## Learnings
 
