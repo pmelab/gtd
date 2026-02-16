@@ -8,10 +8,10 @@
   - Trigger on `push` (all branches) and `pull_request`
   - Use `ubuntu-latest` runner
   - Steps: checkout, setup Bun (via `oven-sh/setup-bun`), install deps
-    (`bun install`), run unit tests (`bun test`)
-    > it should also run e2e tests
+    (`bun install`), run unit tests (`bun test`), run e2e tests (`bun test:e2e`
+    or equivalent e2e test command)
   - Tests: Push a branch and verify the workflow appears in the Actions tab and
-    runs successfully
+    runs successfully, confirming both unit and e2e test steps pass
 
 ### Linting & Formatting Checks
 
@@ -20,3 +20,8 @@
   - Add `bun run format:check` step after lint
   - Tests: Introduce a formatting violation on a branch, verify CI fails on the
     format check step
+
+## Open Questions
+
+- What is the exact command to run e2e tests? (e.g., `bun test:e2e`,
+  `bun run test:e2e`, or a specific test path/pattern?)
