@@ -20,7 +20,6 @@
 
 - [x] Create a `DiffClassifier` service that splits a unified diff into "fix"
       hunks and "feedback" hunks at the hunk level
-
   - New file `src/services/DiffClassifier.ts`
   - Classification is hunk-level: each hunk is independently classified, and
     patch-level staging (`git add -p` or programmatic equivalent) is used to
@@ -51,7 +50,6 @@
 
 - [x] Refactor `commitFeedbackCommand` to perform two sequential commits when
       both fix and feedback changes exist
-
   - Use `DiffClassifier` to split the working tree changes
   - Phase 1 — Fixes: if fix hunks exist, selectively stage fix hunks via
     patch-level staging, then `atomicCommit` with emoji `👷` and an
@@ -86,19 +84,3 @@
     the actionable guidelines are extracted as learnings
 
 ## Learnings
-
-- `commitFeedbackCommand` currently does a single `atomicCommit("all", ...)`
-  with a `🤦` emoji — the refactor needs to split this into conditional
-  two-phase commits
-- `generateCommitMessage` already accepts an emoji prefix and diff, so it can be
-  reused for both fix and feedback commits with different emojis
-- `atomicCommit` in `GitService` is already `Effect.uninterruptible` with
-  rollback on failure, which is good for multi-phase safety
-- Classification is hunk-level, not file-level — this is more precise but
-  requires patch-level staging support in `GitService`
-- All changes in `TODO.md` are always classified as feedback regardless of
-  marker presence
-- Progress indication should use a proper spinner library, not plain
-  `console.log`
-- Learnings must only contain actionable coding guidelines (e.g., "always do X",
-  "never do Y"), not observations about current project state which go stale
