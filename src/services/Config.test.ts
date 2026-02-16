@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
 import { Effect } from "effect"
-import { mkdtemp, writeFile, rm, mkdir, readFile, access } from "node:fs/promises"
+import { mkdtemp, writeFile, rm, mkdir, readFile, readdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { GtdConfigService } from "./Config.js"
@@ -235,40 +235,14 @@ agentForbiddenTools:
     expect(["success", "error"]).toContain(result)
   })
 
-  it("creates example .gtdrc.json in cwd when no config files exist", async () => {
+  it("does not write any files when no config exists", async () => {
     const cwd = join(tempDir, "no-config-project")
     await mkdir(cwd, { recursive: true })
 
     await Effect.runPromise(runWithDirs({ cwd }))
 
-    const configPath = join(cwd, ".gtdrc.json")
-    await access(configPath)
-    const content = await readFile(configPath, "utf-8")
-    const parsed = JSON.parse(content)
-    expect(parsed.$schema).toContain("raw.githubusercontent.com")
-    expect(parsed.$schema).toContain("schema.json")
-    expect(parsed._comment).toContain("~/.config/gtd/")
-  })
-
-  it("prints a message about the created example config", async () => {
-    const cwd = join(tempDir, "msg-test")
-    await mkdir(cwd, { recursive: true })
-
-    const logs: string[] = []
-    const originalLog = console.log
-    console.log = (...args: unknown[]) => {
-      logs.push(args.map(String).join(" "))
-    }
-
-    try {
-      await Effect.runPromise(runWithDirs({ cwd }))
-    } finally {
-      console.log = originalLog
-    }
-
-    const output = logs.join("\n")
-    expect(output).toContain(".gtdrc.json")
-    expect(output).toContain("~/.config/gtd/")
+    const files = await readdir(cwd)
+    expect(files).toEqual([])
   })
 
   it("does not create example config when a config already exists", async () => {

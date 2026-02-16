@@ -1,6 +1,6 @@
-import { Context, Console, Effect, Layer } from "effect"
+import { Context, Effect, Layer } from "effect"
 import { homedir } from "node:os"
-import { resolveAllConfigs, mergeConfigs, createExampleConfig, type ResolveOptions } from "./ConfigResolver.js"
+import { resolveAllConfigs, mergeConfigs, type ResolveOptions } from "./ConfigResolver.js"
 
 export interface GtdConfig {
   readonly file: string
@@ -24,12 +24,6 @@ export class GtdConfigService extends Context.Tag("GtdConfigService")<
       GtdConfigService,
       Effect.gen(function* () {
         const configs = yield* resolveAllConfigs(options)
-        if (configs.length === 0) {
-          const result = yield* createExampleConfig(options.cwd)
-          if (result) {
-            yield* Console.log(result.message)
-          }
-        }
         return mergeConfigs(configs)
       }),
     )

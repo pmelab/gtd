@@ -4,7 +4,7 @@
 
 ### Remove Auto-Creation from Config Service
 
-- [ ] Remove `createExampleConfig` call from `GtdConfigService.make` in
+- [x] Remove `createExampleConfig` call from `GtdConfigService.make` in
       `src/services/Config.ts`
   - Delete the `if (configs.length === 0)` block that calls
     `createExampleConfig` and logs the message
