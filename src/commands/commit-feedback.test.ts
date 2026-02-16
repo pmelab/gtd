@@ -32,6 +32,7 @@ const mockGit = (overrides: Partial<GitService["Type"]> = {}) => {
     addAll: () => Effect.void,
     commit: (() => Effect.void) as GitService["Type"]["commit"],
     show: () => Effect.succeed(""),
+    stageByPatch: () => Effect.void,
     ...overrides,
   }
   return Layer.succeed(GitService, {
@@ -275,6 +276,165 @@ describe("commitFeedbackCommand", () => {
 
       consoleErrSpy.mockRestore()
       consoleSpy.mockRestore()
+    }),
+  )
+
+  const mixedDiff = [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "index abc1234..def5678 100644",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,3 +1,4 @@",
+    " const x = 1",
+    "+const y = 2",
+    " const z = 3",
+    "@@ -10,3 +11,4 @@",
+    " const a = 1",
+    "+// TODO: refactor this",
+    " const b = 2",
+  ].join("\n")
+
+  const fixOnlyDiff = [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "index abc1234..def5678 100644",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,3 +1,4 @@",
+    " const x = 1",
+    "+const y = 2",
+    " const z = 3",
+  ].join("\n")
+
+  const feedbackOnlyDiff = [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "index abc1234..def5678 100644",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,3 +1,4 @@",
+    " const x = 1",
+    "+// TODO: refactor this",
+    " const z = 3",
+  ].join("\n")
+
+  it.effect("two-phase: commits fixes then feedback when both exist", () =>
+    Effect.gen(function* () {
+      const commits: Array<{ type: string; message: string }> = []
+      let stagedPatch: string | undefined
+
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(mixedDiff),
+        stageByPatch: (patch) =>
+          Effect.sync(() => {
+            stagedPatch = patch
+          }),
+        commit: (message) =>
+          Effect.sync(() => {
+            commits.push({ type: "commit", message })
+          }),
+        atomicCommit: (files, message) =>
+          Effect.sync(() => {
+            commits.push({ type: "atomicCommit", message })
+          }),
+      })
+
+      const agentLayer = Layer.succeed(AgentService, {
+        invoke: () => Effect.succeed({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      expect(commits.length).toBe(2)
+      expect(commits[0]!.message.startsWith("👷")).toBe(true)
+      expect(commits[0]!.type).toBe("commit")
+      expect(commits[1]!.message.startsWith("🤦")).toBe(true)
+      expect(commits[1]!.type).toBe("atomicCommit")
+      expect(stagedPatch).toBeDefined()
+    }),
+  )
+
+  it.effect("single commit with 👷 when only fixes exist", () =>
+    Effect.gen(function* () {
+      const commits: Array<{ files: ReadonlyArray<string> | "all"; message: string }> = []
+
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(fixOnlyDiff),
+        atomicCommit: (files, message) =>
+          Effect.sync(() => {
+            commits.push({ files, message })
+          }),
+      })
+
+      const agentLayer = Layer.succeed(AgentService, {
+        invoke: () => Effect.succeed({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      expect(commits.length).toBe(1)
+      expect(commits[0]!.message.startsWith("👷")).toBe(true)
+    }),
+  )
+
+  it.effect("single commit with 🤦 when only feedback exists", () =>
+    Effect.gen(function* () {
+      const commits: Array<{ files: ReadonlyArray<string> | "all"; message: string }> = []
+
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(feedbackOnlyDiff),
+        atomicCommit: (files, message) =>
+          Effect.sync(() => {
+            commits.push({ files, message })
+          }),
+      })
+
+      const agentLayer = Layer.succeed(AgentService, {
+        invoke: () => Effect.succeed({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      expect(commits.length).toBe(1)
+      expect(commits[0]!.message.startsWith("🤦")).toBe(true)
+    }),
+  )
+
+  it.effect("fixes committed before feedback in two-phase", () =>
+    Effect.gen(function* () {
+      const commitOrder: string[] = []
+
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(mixedDiff),
+        stageByPatch: () => Effect.void,
+        commit: (message) =>
+          Effect.sync(() => {
+            commitOrder.push(message.slice(0, 2))
+          }),
+        atomicCommit: (_files, message) =>
+          Effect.sync(() => {
+            commitOrder.push(message.slice(0, 2))
+          }),
+      })
+
+      const agentLayer = Layer.succeed(AgentService, {
+        invoke: () => Effect.succeed({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      expect(commitOrder[0]).toBe("👷")
+      expect(commitOrder[1]).toBe("🤦")
     }),
   )
 })

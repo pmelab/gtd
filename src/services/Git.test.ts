@@ -1,6 +1,11 @@
 import { describe, it, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
+import { BunContext } from "@effect/platform-bun"
 import { GitService } from "./Git.js"
+import { mkdtemp, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { execSync } from "node:child_process"
 
 const mockGit = (overrides: Partial<GitService["Type"]> = {}) =>
   Layer.succeed(GitService, {
@@ -12,6 +17,7 @@ const mockGit = (overrides: Partial<GitService["Type"]> = {}) =>
     addAll: () => Effect.void,
     commit: () => Effect.void,
     show: () => Effect.succeed("mock content"),
+    stageByPatch: () => Effect.void,
     atomicCommit: (files, message) =>
       Effect.gen(function* () {
         const self = {
@@ -139,5 +145,60 @@ describe("GitService", () => {
         mockGit({ hasUncommittedChanges: () => Effect.succeed(false) }),
       ),
     ),
+  )
+})
+
+const execInDir = (dir: string, cmd: string) =>
+  Effect.sync(() => execSync(cmd, { cwd: dir, encoding: "utf-8" }))
+
+describe("GitService.stageByPatch (integration)", () => {
+  it.effect(
+    "stages only intended hunks, leaving other hunks unstaged",
+    () =>
+      Effect.gen(function* () {
+        const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "git-patch-test-")))
+
+        yield* execInDir(dir, "git init")
+        yield* execInDir(dir, "git config user.email test@test.com")
+        yield* execInDir(dir, "git config user.name Test")
+
+        const initialContent = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\n"
+        yield* Effect.promise(() => writeFile(join(dir, "file.ts"), initialContent))
+        yield* execInDir(dir, "git add -A && git commit -m 'initial'")
+
+        const modifiedContent =
+          "line1\nFIX_HUNK\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nFEEDBACK_HUNK\nline10\n"
+        yield* Effect.promise(() => writeFile(join(dir, "file.ts"), modifiedContent))
+
+        const fullDiff = yield* Effect.sync(() =>
+          execSync("git diff", { cwd: dir, encoding: "utf-8" }),
+        )
+
+        const hunks = fullDiff.split(/(?=@@ )/)
+        const header = hunks[0]!
+        const fixPatch = header + hunks[1]!
+
+        const savedCwd = process.cwd()
+        process.chdir(dir)
+
+        const git = yield* GitService
+
+        yield* git.stageByPatch(fixPatch)
+
+        const stagedDiff = yield* Effect.sync(() =>
+          execSync("git diff --cached", { cwd: dir, encoding: "utf-8" }),
+        )
+        const unstagedDiff = yield* Effect.sync(() =>
+          execSync("git diff", { cwd: dir, encoding: "utf-8" }),
+        )
+
+        process.chdir(savedCwd)
+
+        expect(stagedDiff).toContain("FIX_HUNK")
+        expect(stagedDiff).not.toContain("FEEDBACK_HUNK")
+        expect(unstagedDiff).toContain("FEEDBACK_HUNK")
+        expect(unstagedDiff).not.toContain("FIX_HUNK")
+      }).pipe(Effect.provide(GitService.Live.pipe(Layer.provide(BunContext.layer)))),
+    { timeout: 10000 },
   )
 })

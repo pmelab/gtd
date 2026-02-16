@@ -14,12 +14,24 @@ export interface GitOperations {
     files: ReadonlyArray<string> | "all",
     message: string,
   ) => Effect.Effect<void, Error>
+  readonly stageByPatch: (patch: string) => Effect.Effect<void, Error>
 }
 
 const run = (
   ...args: [string, ...Array<string>]
 ): Effect.Effect<string, Error, CommandExecutor.CommandExecutor> =>
   Command.make(...args).pipe(
+    Command.string,
+    Effect.map((s) => s.trim()),
+    Effect.mapError((e) => new Error(String(e))),
+  )
+
+const runWithStdin = (
+  input: string,
+  ...args: [string, ...Array<string>]
+): Effect.Effect<string, Error, CommandExecutor.CommandExecutor> =>
+  Command.make(...args).pipe(
+    Command.feed(input),
     Command.string,
     Effect.map((s) => s.trim()),
     Effect.mapError((e) => new Error(String(e))),
@@ -32,6 +44,10 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
       const executor = yield* CommandExecutor.CommandExecutor
       const exec = (...args: [string, ...Array<string>]) =>
         run(...args).pipe(Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)))
+      const execWithStdin = (input: string, ...args: [string, ...Array<string>]) =>
+        runWithStdin(input, ...args).pipe(
+          Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+        )
 
       return {
         getDiff: () =>
@@ -81,6 +97,9 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
               )
             }),
           ),
+
+        stageByPatch: (patch) =>
+          execWithStdin(patch, "git", "apply", "--cached").pipe(Effect.asVoid),
       }
     }),
   )

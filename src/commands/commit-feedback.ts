@@ -4,6 +4,7 @@ import { GitService } from "../services/Git.js"
 import { AgentService } from "../services/Agent.js"
 import { interpolate } from "../prompts/index.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
+import { classifyDiff } from "../services/DiffClassifier.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
 
 export const commitFeedbackCommand = () =>
@@ -18,6 +19,7 @@ export const commitFeedbackCommand = () =>
       renderer.setText("Classifying changes…")
 
       const diff = yield* git.getDiff()
+      const { fixes, feedback } = classifyDiff(diff)
 
       const prompt = interpolate(config.commitPrompt, { diff })
 
@@ -31,11 +33,24 @@ export const commitFeedbackCommand = () =>
         onEvent: renderer.onEvent,
       })
 
-      renderer.setText("Committing feedback…")
+      if (fixes && feedback) {
+        renderer.setText("Committing fixes…")
+        yield* git.stageByPatch(fixes)
+        const fixMessage = yield* generateCommitMessage("👷", fixes)
+        yield* git.commit(fixMessage)
 
-      const commitMessage = yield* generateCommitMessage("🤦", diff)
-
-      yield* git.atomicCommit("all", commitMessage)
+        renderer.setText("Committing feedback…")
+        const feedbackMessage = yield* generateCommitMessage("🤦", feedback)
+        yield* git.atomicCommit("all", feedbackMessage)
+      } else if (fixes) {
+        renderer.setText("Committing fixes…")
+        const fixMessage = yield* generateCommitMessage("👷", fixes)
+        yield* git.atomicCommit("all", fixMessage)
+      } else {
+        renderer.setText("Committing feedback…")
+        const feedbackMessage = yield* generateCommitMessage("🤦", feedback || diff)
+        yield* git.atomicCommit("all", feedbackMessage)
+      }
 
       renderer.succeed("Feedback committed.")
     }).pipe(

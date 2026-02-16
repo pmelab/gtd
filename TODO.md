@@ -49,7 +49,7 @@
 
 ### Two-Phase Commit in commit-feedback
 
-- [ ] Refactor `commitFeedbackCommand` to perform two sequential commits when
+- [x] Refactor `commitFeedbackCommand` to perform two sequential commits when
       both fix and feedback changes exist
 
   - Use `DiffClassifier` to split the working tree changes
@@ -63,7 +63,7 @@
     verify correct number of commits, correct emojis, and correct ordering
     (fixes before feedback)
 
-- [ ] Add hunk-level selective staging support to `GitService`
+- [x] Add hunk-level selective staging support to `GitService`
   - Add a `stageByPatch` method that can stage specific hunks from a unified
     diff using `git apply --cached` or `git add -p` with scripted input
   - Must handle the case where a single file has both fix and feedback hunks
