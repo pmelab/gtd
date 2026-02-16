@@ -15,7 +15,7 @@
 
 ### Linting & Formatting Checks
 
-- [ ] Add lint and format check steps to the workflow
+- [x] Add lint and format check steps to the workflow
   - Add `bun run lint` step after tests
   - Add `bun run format:check` step after lint
   - Tests: Introduce a formatting violation on a branch, verify CI fails on the
