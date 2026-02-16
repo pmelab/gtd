@@ -9,6 +9,7 @@
   - Use `ubuntu-latest` runner
   - Steps: checkout, setup Bun (via `oven-sh/setup-bun`), install deps
     (`bun install`), run unit tests (`bun test`)
+    > it should also run e2e tests
   - Tests: Push a branch and verify the workflow appears in the Actions tab and
     runs successfully
 
