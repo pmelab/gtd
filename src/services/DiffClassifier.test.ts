@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@effect/vitest"
-import { classifyDiff } from "./DiffClassifier.js"
+import { classifyDiff, classifyPrefix } from "./DiffClassifier.js"
 
 const makeDiff = (
   files: Array<{ path: string; isNew?: boolean; hunks: Array<{ header: string; lines: string[] }> }>,
@@ -425,5 +425,203 @@ describe("classifyDiff", () => {
     const result = classifyDiff(diff, "TODO.md")
     expect(result.feedback).toContain("New task added")
     expect(result.seed).toBe("")
+  })
+})
+
+describe("classifyPrefix", () => {
+  it("returns 🌱 for new TODO file (seed)", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        isNew: true,
+        hunks: [
+          {
+            header: "@@ -0,0 +1,3 @@",
+            lines: ["+# Plan", "+- [ ] First task"],
+          },
+        ],
+      },
+    ])
+
+    expect(classifyPrefix(diff, "TODO.md")).toBe("🌱")
+  })
+
+  it("returns 💬 for feedback on existing TODO file", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" # Plan", "+> Rethink this approach", " "],
+          },
+        ],
+      },
+    ])
+
+    expect(classifyPrefix(diff, "TODO.md")).toBe("💬")
+  })
+
+  it("returns 🤦 for code file with TODO markers", () => {
+    const diff = makeDiff([
+      {
+        path: "src/app.ts",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" const x = 1", "+// TODO: refactor this", " const y = 2"],
+          },
+        ],
+      },
+    ])
+
+    expect(classifyPrefix(diff, "TODO.md")).toBe("🤦")
+  })
+
+  it("returns 👷 for plain code fixes", () => {
+    const diff = makeDiff([
+      {
+        path: "src/app.ts",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" const x = 1", "+const y = 2", " const z = 3"],
+          },
+        ],
+      },
+    ])
+
+    expect(classifyPrefix(diff, "TODO.md")).toBe("👷")
+  })
+
+  it("returns 🌱 when seed is mixed with fixes (seed > 👷)", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        isNew: true,
+        hunks: [
+          {
+            header: "@@ -0,0 +1,3 @@",
+            lines: ["+# Plan", "+- [ ] First task"],
+          },
+        ],
+      },
+      {
+        path: "src/app.ts",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" const x = 1", "+const y = 2", " const z = 3"],
+          },
+        ],
+      },
+    ])
+
+    expect(classifyPrefix(diff, "TODO.md")).toBe("🌱")
+  })
+
+  it("returns 🌱 when seed is mixed with feedback and humanTodos (seed > all)", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        isNew: true,
+        hunks: [
+          {
+            header: "@@ -0,0 +1,3 @@",
+            lines: ["+# Plan", "+- [ ] First task"],
+          },
+        ],
+      },
+      {
+        path: "src/app.ts",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" const x = 1", "+// TODO: refactor", " const y = 2"],
+          },
+        ],
+      },
+    ])
+
+    expect(classifyPrefix(diff, "TODO.md")).toBe("🌱")
+  })
+
+  it("returns 💬 when feedback is mixed with humanTodos (💬 > 🤦)", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" # Plan", "+> Rethink this", " "],
+          },
+        ],
+      },
+      {
+        path: "src/app.ts",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" const x = 1", "+// TODO: fix this", " const y = 2"],
+          },
+        ],
+      },
+    ])
+
+    expect(classifyPrefix(diff, "TODO.md")).toBe("💬")
+  })
+
+  it("returns 💬 when feedback is mixed with fixes (💬 > 👷)", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" # Plan", "+- [ ] New task", " "],
+          },
+        ],
+      },
+      {
+        path: "src/app.ts",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" const x = 1", "+const y = 2", " const z = 3"],
+          },
+        ],
+      },
+    ])
+
+    expect(classifyPrefix(diff, "TODO.md")).toBe("💬")
+  })
+
+  it("returns 🤦 when humanTodos are mixed with fixes (🤦 > 👷)", () => {
+    const diff = makeDiff([
+      {
+        path: "src/foo.ts",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" const x = 1", "+// TODO: needs work", " const y = 2"],
+          },
+        ],
+      },
+      {
+        path: "src/bar.ts",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" const a = 1", "+const b = 2", " const c = 3"],
+          },
+        ],
+      },
+    ])
+
+    expect(classifyPrefix(diff, "TODO.md")).toBe("🤦")
+  })
+
+  it("returns 🤦 for empty diff", () => {
+    expect(classifyPrefix("", "TODO.md")).toBe("🤦")
   })
 })

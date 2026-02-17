@@ -4,7 +4,7 @@ import { GitService } from "../services/Git.js"
 import { AgentService } from "../services/Agent.js"
 import { interpolate } from "../prompts/index.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
-import { classifyDiff } from "../services/DiffClassifier.js"
+import { classifyPrefix } from "../services/DiffClassifier.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
 
 export const commitFeedbackCommand = () =>
@@ -19,7 +19,7 @@ export const commitFeedbackCommand = () =>
       renderer.setText("Classifying changes…")
 
       const diff = yield* git.getDiff()
-      const { fixes, seed, feedback, humanTodos } = classifyDiff(diff, config.file)
+      const prefix = classifyPrefix(diff, config.file)
 
       const prompt = interpolate(config.commitPrompt, { diff })
 
@@ -32,8 +32,6 @@ export const commitFeedbackCommand = () =>
         cwd: process.cwd(),
         onEvent: renderer.onEvent,
       })
-
-      const prefix = seed ? "🌱" : feedback ? "💬" : humanTodos ? "🤦" : fixes ? "👷" : "🤦"
 
       renderer.setText("Committing feedback…")
       const msg = yield* generateCommitMessage(prefix, diff)

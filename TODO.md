@@ -33,7 +33,7 @@
 
 ### Simplify DiffClassifier usage
 
-- [ ] Reduce `classifyDiff` return to a single prefix selection
+- [x] Reduce `classifyDiff` return to a single prefix selection
   - The classifier still parses hunks to determine the dominant change type, but
     no longer needs to return separate reconstructed diffs per category
   - Add a `classifyPrefix(diff, todoFile): CommitPrefix` function that returns

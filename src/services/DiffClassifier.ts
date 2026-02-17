@@ -103,6 +103,7 @@ export interface ClassifiedDiff {
   humanTodos: string
 }
 
+/** @internal — kept for backward compatibility in tests */
 export const classifyDiff = (diff: string, todoFile: string): ClassifiedDiff => {
   if (diff.trim() === "") return { fixes: "", seed: "", feedback: "", humanTodos: "" }
 
@@ -163,4 +164,16 @@ export const classifyDiff = (diff: string, todoFile: string): ClassifiedDiff => 
     feedback: reconstructDiff(feedbackFiles),
     humanTodos: reconstructDiff(humanTodoFiles),
   }
+}
+
+import type { CommitPrefix } from "./CommitPrefix.js"
+import { SEED, FEEDBACK, HUMAN, FIX } from "./CommitPrefix.js"
+
+export const classifyPrefix = (diff: string, todoFile: string): CommitPrefix => {
+  const { seed, feedback, humanTodos, fixes } = classifyDiff(diff, todoFile)
+  if (seed) return SEED
+  if (feedback) return FEEDBACK
+  if (humanTodos) return HUMAN
+  if (fixes) return FIX
+  return HUMAN
 }
