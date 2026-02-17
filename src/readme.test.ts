@@ -131,6 +131,65 @@ describe("README.md", () => {
     expect(content).toContain("sandboxBoundaries")
   })
 
+  it("documents strict defaults: cwd-only filesystem and agent-essential-only network", () => {
+    const content = readmeContent()
+    expect(content).toMatch(/cwd|working directory/i)
+    expect(content).toMatch(/agent.essential/i)
+  })
+
+  it("does not reference interactive approval prompts or escalation policies", () => {
+    const content = readmeContent()
+    expect(content).not.toMatch(/approval prompt/i)
+    expect(content).not.toMatch(/escalation polic/i)
+    expect(content).not.toMatch(/approved escalation/i)
+    expect(content).not.toMatch(/prompting for escalation/i)
+  })
+
+  it("shows permission extension examples for npm registry, parent dir reads, and shared output", () => {
+    const content = readmeContent()
+    expect(content).toContain("registry.npmjs.org")
+    expect(content).toMatch(/allowRead/i)
+    expect(content).toMatch(/allowWrite/i)
+  })
+
+  it("mermaid diagram shows fail-stop flow with violation and error", () => {
+    const content = readmeContent()
+    const mermaidMatch = content.match(/```mermaid\n([\s\S]*?)```/)
+    const mermaid = mermaidMatch![1]!
+    expect(mermaid).toMatch(/violation|denied/i)
+    expect(mermaid).toMatch(/error/i)
+    expect(mermaid).toMatch(/config/i)
+  })
+
+  it("example configs validate against the JSON schema", () => {
+    const content = readmeContent()
+    const jsonBlocks = [...content.matchAll(/```jsonc?\n([\s\S]*?)```/g)]
+    expect(jsonBlocks.length).toBeGreaterThan(0)
+
+    const schema = JSON.parse(
+      readFileSync(join(import.meta.dirname, "..", "schema.json"), "utf-8"),
+    )
+    const Ajv = require("ajv")
+    const ajv = new Ajv({ strict: false })
+    const validate = ajv.compile(schema)
+
+    for (const [, block] of jsonBlocks) {
+      const cleaned = block!
+        .replace(/\/\/.*$/gm, "")
+        .replace(/,(\s*[}\]])/g, "$1")
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(cleaned)
+      } catch {
+        continue
+      }
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        const valid = validate(parsed)
+        expect(valid, `Config block failed schema validation: ${JSON.stringify(validate.errors)}`).toBe(true)
+      }
+    }
+  })
+
   it("mermaid flowchart includes sandbox flow", () => {
     const content = readmeContent()
     const mermaidMatch = content.match(/```mermaid\n([\s\S]*?)```/)

@@ -30,8 +30,12 @@ flowchart TD
     Build --> SandboxCheck{Sandbox enabled?}
     SandboxCheck -->|No| RunAgent[Run agent]
     SandboxCheck -->|Yes| RunSandboxed[Run agent in sandbox]
+    RunSandboxed --> Violation{Permission violation?}
+    Violation -->|Yes| ErrorMsg[Error: permission denied]
+    ErrorMsg --> AdjustConfig[User adjusts config]
+    AdjustConfig --> Rerun([Re-run gtd])
+    Violation -->|No| ItemsLeft
     RunAgent --> ItemsLeft
-    RunSandboxed --> ItemsLeft
     ItemsLeft{Unchecked items remain?}
     CheckLast -->|🔨| ItemsLeft
     ItemsLeft -->|Yes| Build
@@ -164,6 +168,18 @@ sandbox layer. The sandbox does not replace the agent — it wraps it, adding
 isolation and permission controls while delegating all agent logic (prompting,
 tool use) to the underlying provider.
 
+### Strict Defaults
+
+Out of the box, the sandbox applies least-privilege defaults:
+
+- **Filesystem** — read and write access is restricted to the current working
+  directory only. Paths outside cwd are denied.
+- **Network** — only agent-essential domains are allowed (e.g. `api.anthropic.com`
+  for Claude). All other outbound requests are denied.
+
+These defaults ensure the agent cannot access files or services beyond what is
+strictly necessary to operate within your project.
+
 ### Boundary Levels
 
 Each workflow phase runs at a default boundary level that controls what the
@@ -175,17 +191,66 @@ sandboxed agent is allowed to do (file system access, network, etc.):
 | build | standard | Read/write project files, network ok |
 | learn | restricted | Read-only, no network |
 
-You can override the boundary for any phase via `sandboxBoundaries` in your
-config. The three levels — `restricted`, `standard`, and `elevated` — form a
-strict ordering.
+The three levels — `restricted`, `standard`, and `elevated` — form a strict
+ordering.
 
-### Fail-Stop Permissions
+### Fail-Stop on Violation
 
 Sandbox permissions are fully determined at boot time from the workflow phase
-and any user config overrides. There is no runtime escalation — if the agent
-needs more permissions than the current boundary allows, the process stops with
-an actionable error message. To grant broader access, update your config (e.g.
-set `"build": "elevated"` in `sandboxBoundaries`) and re-run `gtd`.
+and any user config overrides. If the agent attempts an operation that exceeds
+the current permissions, the process stops immediately with an actionable error
+message — there are no interactive prompts or runtime permission changes.
+
+To fix a permission violation: read the error, add the needed permission to
+your config, and re-run `gtd`.
+
+```mermaid
+flowchart LR
+    Violation[Permission denied] --> Error[Error message]
+    Error --> Config[User adjusts config]
+    Config --> Rerun[Re-run gtd]
+```
+
+### Extending Permissions via Config
+
+Use `sandboxBoundaries` in your config to grant additional access beyond the
+defaults. User overrides extend (not replace) the built-in defaults.
+
+**Allow npm registry access** (e.g. for `npm install` during build):
+
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
+  "sandboxEnabled": true,
+  "sandboxBoundaries": {
+    "network": { "allowedDomains": ["registry.npmjs.org"] }
+  }
+}
+```
+
+**Allow reads from a parent monorepo directory:**
+
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
+  "sandboxEnabled": true,
+  "sandboxBoundaries": {
+    "filesystem": { "allowRead": ["/home/user/monorepo"] }
+  }
+}
+```
+
+**Allow writes to a shared output directory:**
+
+```jsonc
+{
+  "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
+  "sandboxEnabled": true,
+  "sandboxBoundaries": {
+    "filesystem": { "allowWrite": ["/shared/output"] }
+  }
+}
+```
 
 ### Guards: Forbidden Tools vs. Sandbox Boundaries
 
@@ -201,7 +266,7 @@ orthogonal — both are evaluated independently and neither overrides the other:
 2. **Sandbox boundaries (isolation guard)** — control what the sandboxed agent
    can access (file system, network). These are user-configurable via
    `sandboxBoundaries`. Permissions are fixed at boot; violations stop the
-   process rather than prompting for escalation.
+   process with an error.
 
 ## Configuration
 

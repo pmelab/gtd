@@ -268,7 +268,7 @@
   - Tests: README test (`readme.test.ts`) still passes; example config validates
     against schema
 
-- [ ] Update documentation for fail-stop model and strict defaults
+- [x] Update documentation for fail-stop model and strict defaults
   - Rewrite the sandbox section to explain: strict defaults (cwd-only
     filesystem, agent-essential-only network), fail-stop on violation (no
     prompts), and how to extend permissions via config
