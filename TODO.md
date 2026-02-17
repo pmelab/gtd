@@ -67,6 +67,7 @@
 
 - Should the prefix priority order be configurable, or is the hardcoded 🌱 >
   💬 > 🤦 > 👷 sufficient for all workflows?
+  > hardcoded is sufficient
 
 ## Learnings
 
