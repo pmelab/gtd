@@ -252,6 +252,102 @@ describe("mergeConfigs", () => {
     expect(result.agent).toBe("opencode")
     expect(result.testCmd).toBe("pytest")
   })
+
+  it("applies sandbox defaults when fields are omitted", () => {
+    const result = mergeConfigs([])
+
+    expect(result.sandboxEnabled).toBe(false)
+    expect(result.sandboxBoundaries).toEqual({})
+    expect(result.sandboxEscalationPolicy).toBe("auto")
+    expect(result.sandboxApprovedEscalations).toEqual([])
+  })
+
+  it("merges sandboxBoundaries from config", () => {
+    const configs = [
+      {
+        config: { sandboxBoundaries: { plan: "elevated", build: "elevated" } } as Record<string, unknown>,
+        filepath: "/a",
+      },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.sandboxBoundaries).toEqual({ plan: "elevated", build: "elevated" })
+  })
+
+  it("merges sandboxEscalationPolicy from config", () => {
+    const configs = [
+      { config: { sandboxEscalationPolicy: "prompt" } as Record<string, unknown>, filepath: "/a" },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.sandboxEscalationPolicy).toBe("prompt")
+  })
+
+  it("merges sandboxApprovedEscalations across config levels", () => {
+    const configs = [
+      {
+        config: {
+          sandboxApprovedEscalations: [{ from: "restricted", to: "standard" }],
+        } as Record<string, unknown>,
+        filepath: "/project",
+      },
+      {
+        config: {
+          sandboxApprovedEscalations: [{ from: "standard", to: "elevated" }],
+        } as Record<string, unknown>,
+        filepath: "/user",
+      },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.sandboxApprovedEscalations).toEqual([
+      { from: "restricted", to: "standard" },
+      { from: "standard", to: "elevated" },
+    ])
+  })
+
+  it("deduplicates sandboxApprovedEscalations when merging", () => {
+    const configs = [
+      {
+        config: {
+          sandboxApprovedEscalations: [{ from: "restricted", to: "standard" }],
+        } as Record<string, unknown>,
+        filepath: "/project",
+      },
+      {
+        config: {
+          sandboxApprovedEscalations: [{ from: "restricted", to: "standard" }],
+        } as Record<string, unknown>,
+        filepath: "/user",
+      },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.sandboxApprovedEscalations).toEqual([
+      { from: "restricted", to: "standard" },
+    ])
+  })
+
+  it("higher priority sandboxBoundaries override lower", () => {
+    const configs = [
+      {
+        config: { sandboxBoundaries: { plan: "elevated" } } as Record<string, unknown>,
+        filepath: "/project",
+      },
+      {
+        config: { sandboxBoundaries: { plan: "restricted", build: "standard" } } as Record<string, unknown>,
+        filepath: "/user",
+      },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.sandboxBoundaries).toEqual({ plan: "elevated", build: "standard" })
+  })
 })
 
 describe("createExampleConfig", () => {

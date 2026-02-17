@@ -139,6 +139,9 @@ const defaults: Omit<GtdConfig, "configSources"> = {
   commitPrompt: defaultCommitPrompt,
   agentInactivityTimeout: 300,
   sandboxEnabled: false,
+  sandboxBoundaries: {},
+  sandboxEscalationPolicy: "auto",
+  sandboxApprovedEscalations: [],
 }
 
 const decode = Schema.decodeUnknownEither(GtdConfigSchema)
@@ -148,17 +151,48 @@ export const mergeConfigs = (
 ): GtdConfig => {
   const merged: Record<string, unknown> = {}
   const configSources: string[] = []
-  for (let i = configs.length - 1; i >= 0; i--) {
+  const allEscalations: Array<{ from: string; to: string }> = []
+  const mergedBoundaries: Record<string, string> = {}
+
+  const validParsed: Array<{ parsed: Record<string, unknown>; filepath: string }> = []
+
+  for (let i = 0; i < configs.length; i++) {
     const result = decode(configs[i]!.config)
     if (result._tag === "Right") {
-      Object.assign(merged, result.right)
-      configSources.unshift(configs[i]!.filepath)
+      validParsed.push({ parsed: result.right as Record<string, unknown>, filepath: configs[i]!.filepath })
     }
   }
+
+  for (let i = validParsed.length - 1; i >= 0; i--) {
+    const { parsed, filepath } = validParsed[i]!
+
+    if (parsed.sandboxBoundaries && typeof parsed.sandboxBoundaries === "object") {
+      Object.assign(mergedBoundaries, parsed.sandboxBoundaries)
+    }
+
+    Object.assign(merged, parsed)
+    configSources.unshift(filepath)
+  }
+
+  for (const { parsed } of validParsed) {
+    if (Array.isArray(parsed.sandboxApprovedEscalations)) {
+      for (const e of parsed.sandboxApprovedEscalations) {
+        if (e && typeof e === "object" && "from" in e && "to" in e) {
+          allEscalations.push(e as { from: string; to: string })
+        }
+      }
+    }
+  }
+
+  const dedupedEscalations = allEscalations.filter(
+    (e, i, arr) => arr.findIndex((x) => x.from === e.from && x.to === e.to) === i,
+  )
 
   return {
     ...defaults,
     ...merged,
+    sandboxBoundaries: mergedBoundaries,
+    sandboxApprovedEscalations: dedupedEscalations,
     configSources,
   } as GtdConfig
 }

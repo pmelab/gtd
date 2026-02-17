@@ -1,9 +1,19 @@
 import { Schema } from "effect"
 
+const BoundaryLevelSchema = Schema.Literal("restricted", "standard", "elevated")
+
 const EscalationRuleSchema = Schema.Struct({
-  from: Schema.String,
-  to: Schema.String,
+  from: BoundaryLevelSchema,
+  to: BoundaryLevelSchema,
 })
+
+const SandboxBoundariesSchema = Schema.Struct({
+  plan: Schema.optional(BoundaryLevelSchema),
+  build: Schema.optional(BoundaryLevelSchema),
+  learn: Schema.optional(BoundaryLevelSchema),
+})
+
+const EscalationPolicySchema = Schema.Literal("auto", "prompt")
 
 export const GtdConfigSchema = Schema.Struct({
   file: Schema.optional(Schema.String),
@@ -16,6 +26,9 @@ export const GtdConfigSchema = Schema.Struct({
   commitPrompt: Schema.optional(Schema.String),
   agentInactivityTimeout: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(0))),
   sandboxEnabled: Schema.optional(Schema.Boolean),
+  sandboxBoundaries: Schema.optional(SandboxBoundariesSchema),
+  sandboxEscalationPolicy: Schema.optional(EscalationPolicySchema),
+  sandboxApprovedEscalations: Schema.optional(Schema.Array(EscalationRuleSchema)),
   approvedEscalations: Schema.optional(Schema.Array(EscalationRuleSchema)),
 })
 

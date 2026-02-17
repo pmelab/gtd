@@ -169,7 +169,7 @@
 
 ### Configuration & Schema
 
-- [ ] Extend `.gtdrc.json` schema and `ConfigResolver.ts` for sandbox settings
+- [x] Extend `.gtdrc.json` schema and `ConfigResolver.ts` for sandbox settings
   - Add `sandboxEnabled: boolean` (default `false`) — opt-in to sandbox
     execution
   - Add `sandboxBoundaries` object with per-phase overrides (e.g.,

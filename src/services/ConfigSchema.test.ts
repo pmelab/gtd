@@ -84,4 +84,96 @@ describe("GtdConfigSchema", () => {
     expect(result.agent).toBe("claude")
     expect(result.testRetries).toBe(5)
   })
+
+  it("parses sandboxBoundaries with valid boundary levels", () => {
+    const input = {
+      sandboxBoundaries: {
+        plan: "restricted",
+        build: "standard",
+        learn: "elevated",
+      },
+    }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.sandboxBoundaries).toEqual({
+      plan: "restricted",
+      build: "standard",
+      learn: "elevated",
+    })
+  })
+
+  it("parses sandboxBoundaries with partial phase overrides", () => {
+    const input = {
+      sandboxBoundaries: {
+        build: "elevated",
+      },
+    }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.sandboxBoundaries).toEqual({
+      build: "elevated",
+    })
+  })
+
+  it("rejects invalid boundary levels in sandboxBoundaries", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(GtdConfigSchema)({
+        sandboxBoundaries: { plan: "invalid" },
+      }),
+    ).toThrow()
+  })
+
+  it("parses sandboxEscalationPolicy with valid values", () => {
+    const autoResult = Schema.decodeUnknownSync(GtdConfigSchema)({
+      sandboxEscalationPolicy: "auto",
+    })
+    expect(autoResult.sandboxEscalationPolicy).toBe("auto")
+
+    const promptResult = Schema.decodeUnknownSync(GtdConfigSchema)({
+      sandboxEscalationPolicy: "prompt",
+    })
+    expect(promptResult.sandboxEscalationPolicy).toBe("prompt")
+  })
+
+  it("rejects invalid sandboxEscalationPolicy values", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(GtdConfigSchema)({
+        sandboxEscalationPolicy: "invalid",
+      }),
+    ).toThrow()
+  })
+
+  it("parses sandboxApprovedEscalations array", () => {
+    const input = {
+      sandboxApprovedEscalations: [
+        { from: "restricted", to: "standard" },
+        { from: "standard", to: "elevated" },
+      ],
+    }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.sandboxApprovedEscalations).toEqual([
+      { from: "restricted", to: "standard" },
+      { from: "standard", to: "elevated" },
+    ])
+  })
+
+  it("parses config with all sandbox fields together", () => {
+    const input = {
+      file: "TODO.md",
+      sandboxEnabled: true,
+      sandboxBoundaries: { plan: "restricted", build: "elevated" },
+      sandboxEscalationPolicy: "auto",
+      sandboxApprovedEscalations: [{ from: "restricted", to: "standard" }],
+    }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.sandboxEnabled).toBe(true)
+    expect(result.sandboxBoundaries).toEqual({ plan: "restricted", build: "elevated" })
+    expect(result.sandboxEscalationPolicy).toBe("auto")
+    expect(result.sandboxApprovedEscalations).toEqual([{ from: "restricted", to: "standard" }])
+  })
+
+  it("sandbox fields default to undefined when omitted", () => {
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)({})
+    expect(result.sandboxBoundaries).toBeUndefined()
+    expect(result.sandboxEscalationPolicy).toBeUndefined()
+    expect(result.sandboxApprovedEscalations).toBeUndefined()
+  })
 })

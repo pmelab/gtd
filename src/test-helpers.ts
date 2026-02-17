@@ -13,6 +13,9 @@ export const defaultTestConfig: GtdConfig = {
   commitPrompt: "{{diff}}",
   agentInactivityTimeout: 300,
   sandboxEnabled: false,
+  sandboxBoundaries: {},
+  sandboxEscalationPolicy: "auto",
+  sandboxApprovedEscalations: [],
   configSources: [],
 }
 
