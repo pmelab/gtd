@@ -33,6 +33,8 @@ export const inferStep = (input: InferStepInput): Step => {
 
   switch (input.lastCommitPrefix) {
     case HUMAN:
+    case SEED:
+    case FEEDBACK:
       return input.onlyLearningsModified ? "learn" : "plan"
     case PLAN:
       return "build"
@@ -44,10 +46,6 @@ export const inferStep = (input: InferStepInput): Step => {
       return "cleanup"
     case CLEANUP:
       return "idle"
-    case SEED:
-      return "plan"
-    case FEEDBACK:
-      return "plan"
     default:
       return input.todoFileIsNew ? "plan" : "idle"
   }

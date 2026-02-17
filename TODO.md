@@ -76,7 +76,7 @@
 
 ### Bats Integration Tests
 
-- [ ] Add bats e2e tests for `🌱` (SEED) and `💬` (FEEDBACK) commit workflows in
+- [x] Add bats e2e tests for `🌱` (SEED) and `💬` (FEEDBACK) commit workflows in
       `tests/integration/gtd-workflow.bats`
   - Add a test that creates a new TODO.md, runs `gtd commit-feedback`, and
     asserts the commit prefix is `🌱`

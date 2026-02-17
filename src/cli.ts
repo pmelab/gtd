@@ -184,7 +184,10 @@ const rootCommand = Command.make("gtd", { quiet: quietOption }, ({ quiet }) =>
     if (step === "commit-feedback") {
       yield* commitFeedbackCommand()
       const newState = yield* gatherState(bunFileOps(config.file))
-      const newStep = dispatch(newState)
+      const newStep = dispatch({
+        ...newState,
+        onlyLearningsModified: state.onlyLearningsModified || newState.onlyLearningsModified,
+      })
       yield* runStep(newStep, bunFileOps(config.file))
     } else {
       yield* runStep(step, fs)

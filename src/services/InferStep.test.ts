@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest"
 import { inferStep, type InferStepInput } from "./InferStep.js"
-import { HUMAN, PLAN, BUILD, LEARN, CLEANUP, FIX } from "./CommitPrefix.js"
+import { HUMAN, PLAN, BUILD, LEARN, CLEANUP, FIX, SEED, FEEDBACK } from "./CommitPrefix.js"
 
 describe("inferStep", () => {
   it("returns commit-feedback when uncommitted changes exist", () => {
@@ -199,6 +199,50 @@ describe("inferStep", () => {
       todoFileIsNew: true,
     }
     expect(inferStep(input)).toBe("plan")
+  })
+
+  it("returns plan when last commit prefix is SEED and not only learnings", () => {
+    const input: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: SEED,
+      hasUncheckedItems: false,
+      onlyLearningsModified: false,
+      todoFileIsNew: false,
+    }
+    expect(inferStep(input)).toBe("plan")
+  })
+
+  it("returns learn when last commit prefix is SEED and only learnings modified", () => {
+    const input: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: SEED,
+      hasUncheckedItems: false,
+      onlyLearningsModified: true,
+      todoFileIsNew: false,
+    }
+    expect(inferStep(input)).toBe("learn")
+  })
+
+  it("returns plan when last commit prefix is FEEDBACK and not only learnings", () => {
+    const input: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: FEEDBACK,
+      hasUncheckedItems: false,
+      onlyLearningsModified: false,
+      todoFileIsNew: false,
+    }
+    expect(inferStep(input)).toBe("plan")
+  })
+
+  it("returns learn when last commit prefix is FEEDBACK and only learnings modified", () => {
+    const input: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: FEEDBACK,
+      hasUncheckedItems: false,
+      onlyLearningsModified: true,
+      todoFileIsNew: false,
+    }
+    expect(inferStep(input)).toBe("learn")
   })
 
   it("uncommitted + onlyLearnings still returns commit-feedback", () => {

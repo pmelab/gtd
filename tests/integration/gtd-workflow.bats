@@ -8,14 +8,9 @@ setup_file() {
   build_gtd
   create_test_project
 
-  # Create a rough TODO.md with a feature request
+  # Add a second empty commit so HEAD~1 exists (needed for getDiff fallback)
   cd "$TEST_REPO"
-  cat >TODO.md <<'EOF'
-- add a `multiply` function to `src/math.ts` that multiplies two numbers
-- add a test for the `multiply` function in `tests/math.test.ts`
-EOF
-  git add TODO.md
-  git commit -q -m "add TODO.md"
+  git commit --allow-empty -q -m "chore: setup"
 }
 
 teardown_file() {
@@ -38,26 +33,39 @@ git_log() {
   git log --oneline
 }
 
-# ── Step 2: First gtd → plan ────────────────────────────────────────────────
+# ── Step 1: Seed → plan ─────────────────────────────────────────────────────
 
-@test "gtd plans from initial TODO" {
+@test "gtd seeds new TODO with 🌱 and plans with 🤖" {
+  cd "$TEST_REPO"
+
+  # Create a new TODO.md and stage it (so getDiff sees it via HEAD~1 fallback)
+  cat >TODO.md <<'EOF'
+- add a `multiply` function to `src/math.ts` that multiplies two numbers
+- add a test for the `multiply` function in `tests/math.test.ts`
+EOF
+  git add TODO.md
+
   run_gtd
 
   assert_success
 
-  # TODO.md should now have checkboxes
+  # Git log should contain a 🌱 seed commit
+  run git_log
+  assert_output --partial "🌱"
+
+  # TODO.md should now have checkboxes (plan ran after seed)
   run repo_file TODO.md
   assert_success
   assert_output --partial "- [ ]"
 
-  # Last commit should be a plan commit (🤖)
+  # Last commit should be a plan commit (🤖) — seed triggers plan
   run last_commit_prefix
   assert_output "🤖"
 }
 
-# ── Steps 3-4: Human edits → commit-feedback → re-plan ──────────────────────
+# ── Step 2: Feedback → re-plan ──────────────────────────────────────────────
 
-@test "gtd commits feedback and re-plans" {
+@test "gtd commits blockquote feedback with 💬 and re-plans with 🤖" {
   cd "$TEST_REPO"
 
   # Simulate human feedback: add blockquote + small formatting fix
@@ -77,16 +85,19 @@ EOF
   assert_success
   refute_output --partial "> please also add"
 
-  # Should have fix (👷) or feedback (🤦) commits in the log
+  # Should have 💬 feedback commit in the log (blockquote classified as feedback)
   run git_log
-  assert_output --regexp "(👷|🤦)"
+  assert_output --partial "💬"
 
-  # Last commit should be plan (🤖) since re-dispatch runs plan after commit-feedback
+  # Should also have 👷 fix commit (formatting fix in code)
+  assert_output --partial "👷"
+
+  # Last commit should be plan (🤖) since re-dispatch runs plan after feedback
   run last_commit_prefix
   assert_output "🤖"
 }
 
-# ── Steps 5-6: gtd → build ──────────────────────────────────────────────────
+# ── Step 3: gtd → build ─────────────────────────────────────────────────────
 
 @test "gtd builds action items" {
   run_gtd
@@ -113,9 +124,9 @@ EOF
   assert_output "🔨"
 }
 
-# ── Steps 7-8: Post-build feedback (code fix + // TODO + blockquote) ─────────
+# ── Step 4: Post-build feedback with code TODOs (🤦) ────────────────────────
 
-@test "gtd handles post-build feedback" {
+@test "gtd commits code TODOs with 🤦 prefix" {
   cd "$TEST_REPO"
 
   # Add a // TODO comment in source expressing a general guideline
@@ -141,7 +152,15 @@ EOF
   assert_success
   refute_output --partial "> please add a subtract"
 
+  # Should have 🤦 human TODO commit in the log (code TODO markers)
+  run git_log
+  assert_output --partial "🤦"
+
+  # Should also have 💬 feedback commit (blockquote)
+  assert_output --partial "💬"
+
   # Should have new unchecked action item (from TODO comment or blockquote)
+  run repo_file TODO.md
   assert_output --partial "- [ ]"
 
   # Last commit should be plan (🤖)
@@ -149,7 +168,7 @@ EOF
   assert_output "🤖"
 }
 
-# ── Step 9: gtd → build (second cycle) ──────────────────────────────────────
+# ── Step 5: gtd → build (second cycle) ──────────────────────────────────────
 
 @test "gtd builds again after feedback" {
   run_gtd
@@ -166,7 +185,7 @@ EOF
   assert_output "🔨"
 }
 
-# ── Steps 10-11: Human removes learning → commit-feedback → learn → cleanup ─
+# ── Step 6: Human removes learning → commit-feedback → learn → cleanup ──────
 
 @test "gtd learns and cleans up" {
   cd "$TEST_REPO"
@@ -177,7 +196,8 @@ EOF
   fi
 
   # Simulate human removing a learning line (leave uncommitted)
-  sed -i '' '/magic numbers/d' TODO.md
+  # Scope to ## Learnings section only — "magic numbers" may also appear in action items
+  sed -i '' '/^## Learnings$/,/^## /{ /magic numbers/d; }' TODO.md
 
   run_gtd
 
