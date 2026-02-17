@@ -310,16 +310,17 @@ describe("commitFeedbackCommand", () => {
     " const z = 3",
   ].join("\n")
 
-  it.effect("single commit with 🤦 prefix when fixes and feedback both exist", () =>
+  it.effect("separate commits for fixes (👷) and feedback (🤦) when both exist", () =>
     Effect.gen(function* () {
-      const commits: Array<{ type: string; message: string }> = []
+      const commits: Array<{ message: string }> = []
 
       const gitLayer = mockGit({
         getDiff: () => Effect.succeed(mixedDiff),
         hasUncommittedChanges: () => Effect.succeed(true),
-        atomicCommit: (_files, message) =>
+        stageByPatch: () => Effect.void,
+        commit: (message) =>
           Effect.sync(() => {
-            commits.push({ type: "atomicCommit", message })
+            commits.push({ message })
           }),
       })
 
@@ -335,9 +336,9 @@ describe("commitFeedbackCommand", () => {
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
-      expect(commits.length).toBe(1)
-      expect(commits[0]!.type).toBe("atomicCommit")
+      expect(commits.length).toBe(2)
       expect(commits[0]!.message.startsWith("🤦")).toBe(true)
+      expect(commits[1]!.message.startsWith("👷")).toBe(true)
     }),
   )
 
@@ -401,7 +402,7 @@ describe("commitFeedbackCommand", () => {
     }),
   )
 
-  it.effect("mixed seed + code TODOs + fixes produces exactly one commit with 🌱 prefix", () =>
+  it.effect("mixed seed + code TODOs + fixes produces separate commits in order 🌱 🤦 👷", () =>
     Effect.gen(function* () {
       const seedAndMixedDiff = [
         "diff --git a/TODO.md b/TODO.md",
@@ -426,14 +427,15 @@ describe("commitFeedbackCommand", () => {
         " const b = 2",
       ].join("\n")
 
-      const commits: Array<{ files: ReadonlyArray<string> | "all"; message: string }> = []
+      const commits: Array<{ message: string }> = []
 
       const gitLayer = mockGit({
         getDiff: () => Effect.succeed(seedAndMixedDiff),
         hasUncommittedChanges: () => Effect.succeed(true),
-        atomicCommit: (files, message) =>
+        stageByPatch: () => Effect.void,
+        commit: (message) =>
           Effect.sync(() => {
-            commits.push({ files, message })
+            commits.push({ message })
           }),
       })
 
@@ -449,9 +451,10 @@ describe("commitFeedbackCommand", () => {
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
-      expect(commits.length).toBe(1)
-      expect(commits[0]!.files).toBe("all")
+      expect(commits.length).toBe(3)
       expect(commits[0]!.message.startsWith("🌱")).toBe(true)
+      expect(commits[1]!.message.startsWith("🤦")).toBe(true)
+      expect(commits[2]!.message.startsWith("👷")).toBe(true)
     }),
   )
 })

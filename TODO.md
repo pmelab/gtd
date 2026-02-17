@@ -56,7 +56,7 @@
 
 ### Update E2E and integration tests
 
-- [ ] Update `cli.test.ts` integration tests for single-commit flow
+- [x] Update `cli.test.ts` integration tests for single-commit flow
   - Any test that asserts commit count after `commit-feedback` should expect 1
     commit instead of N
   - Tests that verify the plan step receives diff context should pass with the
