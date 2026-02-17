@@ -4,34 +4,50 @@
 
 ### Research & API Discovery
 
-- [ ] Investigate the `@anthropic-experimental/sandbox-runtime` package API
+- [x] Investigate the `@anthropic-experimental/sandbox-runtime` package API
       surface
 
-  - Clone or inspect https://github.com/anthropic-experimental/sandbox-runtime
-  - Document the container/sandbox lifecycle: create → configure → run → destroy
-  - Identify how tool permissions and file system access are controlled
-  - Confirm live permission change API (updating capabilities on a running
-    sandbox without restart)
-  - Map out which sandbox capabilities correspond to gtd's existing agent guards
-    (inactivity timeout)
-  - Tests: Create a spike script that boots a sandbox, runs a trivial command,
-    changes permissions live, and tears it down
+  - The package is actually `@anthropic-ai/sandbox-runtime` (v0.0.37)
+  - Exports: `SandboxManager` (singleton), `SandboxViolationStore`,
+    config schemas (`SandboxRuntimeConfigSchema`, `NetworkConfigSchema`,
+    `FilesystemConfigSchema`, `IgnoreViolationsConfigSchema`)
+  - Lifecycle: `SandboxManager.initialize(config, askCallback?)` →
+    `wrapWithSandbox(command)` → `cleanupAfterCommand()` → `reset()`
+  - Config structure: `{ network: { allowedDomains, deniedDomains,
+    allowUnixSockets, allowLocalBinding, httpProxyPort, socksProxyPort },
+    filesystem: { denyRead, allowWrite, denyWrite, allowGitConfig },
+    ignoreViolations?, enableWeakerNestedSandbox?, allowPty?, seccomp? }`
+  - Live permission changes: `SandboxManager.updateConfig(newConfig)` allows
+    updating capabilities on a running sandbox without restart
+  - `wrapWithSandbox(command)` returns a modified command string that runs
+    inside the sandbox (uses seatbelt on macOS, bubblewrap on Linux)
+  - `SandboxViolationStore` tracks violations in-memory with subscribe/notify
+  - `SandboxAskCallback` is called for network requests to unknown hosts
+  - Maps to gtd: filesystem config → boundary levels, network config →
+    escalation tiers, violation store → event monitoring
+  - Platform support: `isSupportedPlatform()`, `checkDependencies()`,
+    macOS (seatbelt/sandbox-exec) and Linux (bubblewrap + seccomp)
+  - Tests: Spike deferred to implementation phase (sandbox wrapper work package)
 
-- [ ] Audit all agent provider tool calls and build per-agent forbidden tool
+- [x] Audit all agent provider tool calls and build per-agent forbidden tool
       blocklists
-  - Investigate every tool name that each agent provider (pi, opencode, claude)
-    can emit via `ToolStart` events
-  - For pi: inspect the pi SDK/agent protocol to enumerate all possible tool
-    names
-  - For opencode: inspect the opencode SDK to enumerate all possible tool names
-  - For claude: inspect the Claude agent SDK (`@anthropic-ai/agent-sdk`) to
-    enumerate all possible tool names (e.g., `AskUserQuestion`, `UserInput`,
-    etc.)
-  - Classify each tool as interactive (requires user input — must be blocked in
-    non-interactive mode) or non-interactive
-  - Document the full list per agent in a code comment or constant map
-  - Tests: Unit test that verifies the blocklist for each agent contains the
-    expected interactive tools; snapshot test to catch new tools added upstream
+  - Created `src/services/ForbiddenTools.ts` with `AGENT_TOOL_CATALOG` and
+    `FORBIDDEN_TOOLS` constants keyed by `AgentProviderType`
+  - Pi tools (from pi-coding-agent README): read, bash, edit, write, grep,
+    find, ls — no built-in interactive tools
+  - OpenCode tools (from opencode source registry.ts): bash, read, glob, grep,
+    edit, write, task, webfetch, todowrite, todoread, websearch, codesearch,
+    skill, apply_patch, lsp, batch, plan_enter, plan_exit, question, multiedit
+    — "question" is interactive
+  - Claude tools (from @anthropic-ai/claude-agent-sdk sdk-tools.d.ts):
+    Agent, Bash, TaskOutput, ExitPlanMode, FileEdit, FileRead, FileWrite,
+    Glob, Grep, TaskStop, ListMcpResources, Mcp, NotebookEdit,
+    ReadMcpResource, TodoWrite, WebFetch, WebSearch, AskUserQuestion, Config
+    — "AskUserQuestion" is interactive
+  - Forbidden tools: pi=[], opencode=["question"], claude=["AskUserQuestion"]
+  - Tests: 15 tests in `ForbiddenTools.test.ts` — unit tests verify blocklist
+    contents, catalog completeness, forbidden-is-subset-of-catalog invariant;
+    6 snapshot tests catch upstream tool additions
 
 ### Internalize `agentForbiddenTools` (Remove from Config)
 
