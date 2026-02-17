@@ -1,16 +1,12 @@
 # Sandbox Runtime Integration with Dynamic Boundary Escalation
 
-> additions: e2e tests should also cover escalations of network and filesystem
-> boundaries. it should try to fetch data from an untrusted url, abort, then the
-> local config should be altered and when `gtd` is run again, it should work.
-> the same with writing and reading a file in the tmp directory
-
 ## Action Items
 
 ### Research & API Discovery
 
 - [x] Investigate the `@anthropic-experimental/sandbox-runtime` package API
       surface
+
   - The package is actually `@anthropic-ai/sandbox-runtime` (v0.0.37)
   - Exports: `SandboxManager` (singleton), `SandboxViolationStore`, config
     schemas (`SandboxRuntimeConfigSchema`, `NetworkConfigSchema`,
@@ -55,6 +51,7 @@
 
 - [x] Replace `agentForbiddenTools` config field with internal per-agent
       blocklists
+
   - Create a `FORBIDDEN_TOOLS` constant map in `src/services/AgentGuards.ts`
     keyed by agent provider type (e.g.,
     `{ pi: [...], opencode: [...], claude: ["AskUserQuestion", ...] }`)
@@ -82,6 +79,7 @@
 
 - [x] Create `src/services/agents/Sandbox.ts` as a wrapper around existing
       providers
+
   - Wrap an inner `AgentProvider` (pi, opencode, or claude) — the sandbox
     manages the execution environment while the inner provider drives the agent
   - Accept the inner provider via constructor/config so any existing provider
@@ -110,6 +108,7 @@
 
 - [x] Define a `BoundaryLevel` type and escalation policy in
       `src/services/SandboxBoundaries.ts`
+
   - Design tiered permission levels (e.g., `readonly` → `readwrite` → `network`
     → `full`)
   - Each level maps to concrete sandbox capabilities: file system scope, network
@@ -120,6 +119,7 @@
     capability set; test config parsing with custom boundaries
 
 - [x] Implement automatic escalation triggers tied to the gtd workflow phases
+
   - `plan` mode → `readonly` (agent only reads files and writes to TODO.md)
   - `build` mode → `readwrite` (agent can modify source files, run tests)
   - `learn` mode → `readonly` (agent only reads diff and writes to AGENTS.md)
@@ -151,6 +151,7 @@
 ### Strict Default Permissions
 
 - [x] Default filesystem sandbox to current working directory only
+
   - Set `allowWrite` to `[cwd]` and deny reads outside `cwd` by default so
     agents can only read and write within the project directory
   - Derive `cwd` from `AgentInvocation.cwd` when constructing the sandbox config
@@ -178,6 +179,7 @@
 ### Fail-Stop Escalation (Replace Prompt-Based Approval)
 
 - [x] Replace interactive escalation prompts with fail-stop behavior
+
   - When a sandbox violation occurs (filesystem access outside cwd, network
     request to non-allowed domain), stop the agent process immediately with a
     clear error message describing the violation
@@ -193,6 +195,7 @@
 
 - [x] Remove `sandboxEscalationPolicy` and `sandboxApprovedEscalations` from
       config
+
   - Remove `sandboxEscalationPolicy` field (no longer needed — policy is always
     fail-stop)
   - Remove `sandboxApprovedEscalations` array (no longer needed — users grant
@@ -218,6 +221,7 @@
 ### Configuration & Schema
 
 - [x] Extend `.gtdrc.json` schema and `ConfigResolver.ts` for sandbox settings
+
   - Add `sandboxEnabled: boolean` (default `false`) — opt-in to sandbox
     execution
   - Add `sandboxBoundaries` object with per-phase overrides (e.g.,
@@ -250,6 +254,7 @@
 ### Documentation & Examples
 
 - [x] Update README.md with sandbox runtime section
+
   - Explain the wrapper architecture (sandbox wraps existing providers)
   - Explain the boundary escalation model and per-phase defaults
   - Document the approval flow and how to persist escalation approvals
@@ -277,6 +282,36 @@
   - Tests: README test (`readme.test.ts`) still passes; example configs validate
     against schema
 
+### E2E Tests for Boundary Escalation via Config Adjustment
+
+- [ ] E2E test: network boundary fail-stop and config-driven escalation
+
+  - Set up a sandbox-enabled gtd run that attempts to fetch data from an
+    untrusted URL (not in the default `allowedDomains`)
+  - Verify the agent process stops with a fail-stop error identifying the
+    blocked domain and suggesting the config change
+  - Programmatically update the local `.gtdrc.json` to add the blocked domain to
+    `sandboxBoundaries.network.allowedDomains`
+  - Re-run gtd with the updated config and verify the fetch succeeds without
+    violation
+  - Tests: Single e2e test covering the full cycle — run → fail → adjust config
+    → re-run → success
+
+- [ ] E2E test: filesystem boundary fail-stop and config-driven escalation
+  - Set up a sandbox-enabled gtd run where the agent attempts to write a file to
+    a temporary directory outside cwd (e.g., `/tmp/gtd-test-output`)
+  - Verify the agent process stops with a fail-stop error identifying the denied
+    path and suggesting the config change
+  - Programmatically update the local `.gtdrc.json` to add
+    `/tmp/gtd-test-output` to `sandboxBoundaries.filesystem.allowWrite`
+  - Re-run gtd with the updated config and verify the file write succeeds
+  - Repeat the same pattern for reading a file from `/tmp` — first verify read
+    is denied, then add to `sandboxBoundaries.filesystem.allowRead`, then verify
+    read succeeds
+  - Tests: Single e2e test covering write escalation (run → fail → config →
+    re-run → success) and a second e2e test covering read escalation with the
+    same pattern
+
 ## Learnings
 
 - Always use Effect resource management (`acquireRelease` / `ensuring`) for
@@ -303,3 +338,6 @@
 - Prefer fail-stop over interactive prompts in automated pipelines — stopping
   with an actionable error message is safer and more predictable than prompting
   mid-execution; users adjust permissions in config and re-run
+- E2E tests for fail-stop boundaries should exercise the full user workflow: run
+  → violation → config adjustment → re-run → success — this validates both the
+  error messaging and the config-driven escalation path
