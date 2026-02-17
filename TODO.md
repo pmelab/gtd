@@ -96,15 +96,21 @@
 
 - Does `sandbox-runtime` support live permission changes on a running sandbox,
   or must we restart with new config for each escalation?
+  > yes, live permission changes
 - Should boundary escalation require explicit human approval (e.g., prompt in
   TUI) or be fully automatic based on workflow phase?
+  > yes, but we want to give the option to store it permanently on different
+  > config levels
 - What is the performance overhead of sandbox boot/teardown per agent invocation
   — should we pool/reuse sandbox instances across build steps?
+  > no, thats not a concern
 - How should sandbox mode interact with the existing `agentForbiddenTools`
   config — override, merge, or error if both are set?
+  > override
 - Should the sandbox agent be a wrapper around existing providers (run
   pi/opencode/claude _inside_ the sandbox) or a standalone provider using the
   Anthropic API directly?
+  > it should wrap the existing providers
 
 ## Learnings
 
