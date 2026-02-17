@@ -85,73 +85,7 @@ describe("GtdConfigSchema", () => {
     expect(result.testRetries).toBe(5)
   })
 
-  it("parses sandboxBoundaries with valid boundary levels", () => {
-    const input = {
-      sandboxBoundaries: {
-        plan: "restricted",
-        build: "standard",
-        learn: "elevated",
-      },
-    }
-    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
-    expect(result.sandboxBoundaries).toEqual({
-      plan: "restricted",
-      build: "standard",
-      learn: "elevated",
-    })
-  })
-
-  it("parses sandboxBoundaries with partial phase overrides", () => {
-    const input = {
-      sandboxBoundaries: {
-        build: "elevated",
-      },
-    }
-    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
-    expect(result.sandboxBoundaries).toEqual({
-      build: "elevated",
-    })
-  })
-
-  it("rejects invalid boundary levels in sandboxBoundaries", () => {
-    expect(() =>
-      Schema.decodeUnknownSync(GtdConfigSchema)({
-        sandboxBoundaries: { plan: "invalid" },
-      }),
-    ).toThrow()
-  })
-
-  it("accepts sandboxEscalationPolicy for backwards compatibility", () => {
-    const result = Schema.decodeUnknownSync(GtdConfigSchema)({
-      sandboxEscalationPolicy: "auto",
-    })
-    expect(result.sandboxEscalationPolicy).toBe("auto")
-  })
-
-  it("accepts sandboxApprovedEscalations for backwards compatibility", () => {
-    const result = Schema.decodeUnknownSync(GtdConfigSchema)({
-      sandboxApprovedEscalations: [{ from: "restricted", to: "standard" }],
-    })
-    expect(result.sandboxApprovedEscalations).toEqual([{ from: "restricted", to: "standard" }])
-  })
-
-  it("parses config with all sandbox fields together", () => {
-    const input = {
-      file: "TODO.md",
-      sandboxEnabled: true,
-      sandboxBoundaries: { plan: "restricted", build: "elevated" },
-    }
-    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
-    expect(result.sandboxEnabled).toBe(true)
-    expect(result.sandboxBoundaries).toEqual({ plan: "restricted", build: "elevated" })
-  })
-
-  it("sandbox fields default to undefined when omitted", () => {
-    const result = Schema.decodeUnknownSync(GtdConfigSchema)({})
-    expect(result.sandboxBoundaries).toBeUndefined()
-  })
-
-  it("parses sandboxBoundaries with filesystem overrides", () => {
+  it("parses sandboxBoundaries with filesystem overrides only", () => {
     const input = {
       sandboxBoundaries: {
         filesystem: {
@@ -161,37 +95,81 @@ describe("GtdConfigSchema", () => {
       },
     }
     const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
-    expect(result.sandboxBoundaries!.filesystem).toEqual({
-      allowRead: ["/shared/libs"],
-      allowWrite: ["/shared/output"],
+    expect(result.sandboxBoundaries).toEqual({
+      filesystem: {
+        allowRead: ["/shared/libs"],
+        allowWrite: ["/shared/output"],
+      },
     })
   })
 
-  it("parses sandboxBoundaries with network overrides", () => {
+  it("parses sandboxBoundaries with network overrides only", () => {
     const input = {
       sandboxBoundaries: {
         network: {
-          allowedDomains: ["registry.npmjs.org", "internal.api.com"],
+          allowedDomains: ["registry.npmjs.org"],
         },
       },
     }
     const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
-    expect(result.sandboxBoundaries!.network).toEqual({
-      allowedDomains: ["registry.npmjs.org", "internal.api.com"],
+    expect(result.sandboxBoundaries).toEqual({
+      network: { allowedDomains: ["registry.npmjs.org"] },
     })
   })
 
-  it("parses sandboxBoundaries with both phase and filesystem/network overrides", () => {
+  it("rejects old phase-level boundary levels in sandboxBoundaries", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(GtdConfigSchema, { onExcessProperty: "error" })({
+        sandboxBoundaries: { plan: "restricted" },
+      }),
+    ).toThrow()
+  })
+
+  it("gracefully ignores old sandboxEscalationPolicy for backwards compatibility", () => {
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)({
+      sandboxEscalationPolicy: "auto",
+    })
+    expect((result as Record<string, unknown>).sandboxEscalationPolicy).toBeUndefined()
+  })
+
+  it("gracefully ignores old sandboxApprovedEscalations for backwards compatibility", () => {
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)({
+      sandboxApprovedEscalations: [{ from: "restricted", to: "standard" }],
+    })
+    expect((result as Record<string, unknown>).sandboxApprovedEscalations).toBeUndefined()
+  })
+
+  it("parses config with all sandbox fields together", () => {
     const input = {
+      file: "TODO.md",
+      sandboxEnabled: true,
       sandboxBoundaries: {
-        build: "elevated",
-        filesystem: { allowWrite: ["/tmp"] },
+        filesystem: { allowRead: ["/shared"] },
         network: { allowedDomains: ["npmjs.org"] },
       },
     }
     const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
-    expect(result.sandboxBoundaries!.build).toBe("elevated")
-    expect(result.sandboxBoundaries!.filesystem).toEqual({ allowWrite: ["/tmp"] })
+    expect(result.sandboxEnabled).toBe(true)
+    expect(result.sandboxBoundaries).toEqual({
+      filesystem: { allowRead: ["/shared"] },
+      network: { allowedDomains: ["npmjs.org"] },
+    })
+  })
+
+  it("sandbox fields default to undefined when omitted", () => {
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)({})
+    expect(result.sandboxBoundaries).toBeUndefined()
+  })
+
+  it("parses sandboxBoundaries with both filesystem and network overrides", () => {
+    const input = {
+      sandboxBoundaries: {
+        filesystem: { allowWrite: ["/tmp"], allowRead: ["/shared"] },
+        network: { allowedDomains: ["npmjs.org"] },
+      },
+    }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.sandboxBoundaries!.filesystem).toEqual({ allowWrite: ["/tmp"], allowRead: ["/shared"] })
     expect(result.sandboxBoundaries!.network).toEqual({ allowedDomains: ["npmjs.org"] })
   })
 

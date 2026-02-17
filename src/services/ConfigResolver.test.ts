@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { mkdtemp, writeFile, rm, mkdir, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { resolveAllConfigs, mergeConfigs, createExampleConfig, SCHEMA_URL, EXAMPLE_CONFIG } from "./ConfigResolver.js"
+import { GtdConfigSchema } from "./ConfigSchema.js"
 
 let tempDir: string
 
@@ -263,14 +264,20 @@ describe("mergeConfigs", () => {
   it("merges sandboxBoundaries from config", () => {
     const configs = [
       {
-        config: { sandboxBoundaries: { plan: "elevated", build: "elevated" } } as Record<string, unknown>,
+        config: {
+          sandboxBoundaries: {
+            filesystem: { allowRead: ["/extra"] },
+            network: { allowedDomains: ["custom.com"] },
+          },
+        } as Record<string, unknown>,
         filepath: "/a",
       },
     ]
 
     const result = mergeConfigs(configs)
 
-    expect(result.sandboxBoundaries).toEqual({ plan: "elevated", build: "elevated" })
+    expect(result.sandboxBoundaries.filesystem?.allowRead).toContain("/extra")
+    expect(result.sandboxBoundaries.network?.allowedDomains).toContain("custom.com")
   })
 
   it("ignores sandboxEscalationPolicy in config for backwards compatibility", () => {
@@ -298,22 +305,27 @@ describe("mergeConfigs", () => {
     expect((result as unknown as Record<string, unknown>).sandboxApprovedEscalations).toBeUndefined()
   })
 
-  it("higher priority sandboxBoundaries override lower", () => {
+  it("higher priority sandboxBoundaries filesystem/network merge with lower", () => {
     const configs = [
       {
-        config: { sandboxBoundaries: { plan: "elevated" } } as Record<string, unknown>,
+        config: {
+          sandboxBoundaries: { filesystem: { allowRead: ["/project/extra"] } },
+        } as Record<string, unknown>,
         filepath: "/project",
       },
       {
-        config: { sandboxBoundaries: { plan: "restricted", build: "standard" } } as Record<string, unknown>,
+        config: {
+          sandboxBoundaries: { filesystem: { allowRead: ["/shared"], allowWrite: ["/shared/out"] } },
+        } as Record<string, unknown>,
         filepath: "/user",
       },
     ]
 
     const result = mergeConfigs(configs)
 
-    expect(result.sandboxBoundaries.plan).toBe("elevated")
-    expect(result.sandboxBoundaries.build).toBe("standard")
+    expect(result.sandboxBoundaries.filesystem?.allowRead).toContain("/project/extra")
+    expect(result.sandboxBoundaries.filesystem?.allowRead).toContain("/shared")
+    expect(result.sandboxBoundaries.filesystem?.allowWrite).toEqual(["/shared/out"])
   })
 
   it("merges filesystem overrides from config", () => {
@@ -467,5 +479,19 @@ describe("createExampleConfig", () => {
     expect(EXAMPLE_CONFIG.testCmd).toBeDefined()
     expect(EXAMPLE_CONFIG.testRetries).toBeDefined()
     expect(EXAMPLE_CONFIG._comment).toBeDefined()
+  })
+
+  it("EXAMPLE_CONFIG shows how to extend default sandbox permissions", () => {
+    expect(EXAMPLE_CONFIG.sandboxBoundaries).toBeDefined()
+    expect(EXAMPLE_CONFIG.sandboxBoundaries.filesystem).toBeDefined()
+    expect(EXAMPLE_CONFIG.sandboxBoundaries.filesystem.allowWrite).toContain("/shared/output")
+    expect(EXAMPLE_CONFIG.sandboxBoundaries.network).toBeDefined()
+    expect(EXAMPLE_CONFIG.sandboxBoundaries.network.allowedDomains).toContain("registry.npmjs.org")
+  })
+
+  it("EXAMPLE_CONFIG validates against the schema", () => {
+    const { $schema, _comment, ...configOnly } = EXAMPLE_CONFIG
+    const result = Schema.decodeUnknownEither(GtdConfigSchema)(configOnly)
+    expect(result._tag).toBe("Right")
   })
 })

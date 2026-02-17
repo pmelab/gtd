@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$defs": {
+    "Int": {
+      "type": "integer",
+      "description": "an integer",
+      "title": "int"
+    }
+  },
+  "type": "object",
+  "required": [],
+  "properties": {
+    "file": {
+      "type": "string"
+    },
+    "agent": {
+      "type": "string"
+    },
+    "agentPlan": {
+      "type": "string"
+    },
+    "agentBuild": {
+      "type": "string"
+    },
+    "agentLearn": {
+      "type": "string"
+    },
+    "testCmd": {
+      "type": "string"
+    },
+    "testRetries": {
+      "$ref": "#/$defs/Int",
+      "description": "a non-negative number",
+      "title": "greaterThanOrEqualTo(0)",
+      "minimum": 0
+    },
+    "commitPrompt": {
+      "type": "string"
+    },
+    "agentInactivityTimeout": {
+      "$ref": "#/$defs/Int",
+      "description": "a non-negative number",
+      "title": "greaterThanOrEqualTo(0)",
+      "minimum": 0
+    },
+    "sandboxEnabled": {
+      "type": "boolean"
+    },
+    "sandboxBoundaries": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "filesystem": {
+          "type": "object",
+          "required": [],
+          "properties": {
+            "allowRead": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "allowWrite": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "network": {
+          "type": "object",
+          "required": [],
+          "properties": {
+            "allowedDomains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

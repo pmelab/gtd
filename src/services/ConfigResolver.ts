@@ -18,6 +18,14 @@ export const EXAMPLE_CONFIG = {
   testCmd: "npm test",
   testRetries: 10,
   agentInactivityTimeout: 300,
+  sandboxBoundaries: {
+    filesystem: {
+      allowWrite: ["/shared/output"],
+    },
+    network: {
+      allowedDomains: ["registry.npmjs.org"],
+    },
+  },
 }
 
 export const createExampleConfig = (
@@ -149,7 +157,6 @@ export const mergeConfigs = (
 ): GtdConfig => {
   const merged: Record<string, unknown> = {}
   const configSources: string[] = []
-  const mergedBoundaries: Record<string, unknown> = {}
   const mergedFilesystemAllowRead: string[] = []
   const mergedFilesystemAllowWrite: string[] = []
   const mergedNetworkAllowedDomains: string[] = []
@@ -157,7 +164,9 @@ export const mergeConfigs = (
   const validParsed: Array<{ parsed: Record<string, unknown>; filepath: string }> = []
 
   for (let i = 0; i < configs.length; i++) {
-    const result = decode(configs[i]!.config)
+    const raw = configs[i]!.config
+    const { sandboxEscalationPolicy: _sep, sandboxApprovedEscalations: _sae, approvedEscalations: _ae, ...cleaned } = raw
+    const result = decode(cleaned)
     if (result._tag === "Right") {
       validParsed.push({ parsed: result.right as Record<string, unknown>, filepath: configs[i]!.filepath })
     }
@@ -168,11 +177,9 @@ export const mergeConfigs = (
 
     if (parsed.sandboxBoundaries && typeof parsed.sandboxBoundaries === "object") {
       const boundaries = parsed.sandboxBoundaries as Record<string, unknown>
-      const { filesystem, network, ...phaseBoundaries } = boundaries
-      Object.assign(mergedBoundaries, phaseBoundaries)
 
-      if (filesystem && typeof filesystem === "object") {
-        const fs = filesystem as Record<string, unknown>
+      if (boundaries.filesystem && typeof boundaries.filesystem === "object") {
+        const fs = boundaries.filesystem as Record<string, unknown>
         if (Array.isArray(fs.allowRead)) {
           mergedFilesystemAllowRead.push(...(fs.allowRead as string[]))
         }
@@ -181,8 +188,8 @@ export const mergeConfigs = (
         }
       }
 
-      if (network && typeof network === "object") {
-        const net = network as Record<string, unknown>
+      if (boundaries.network && typeof boundaries.network === "object") {
+        const net = boundaries.network as Record<string, unknown>
         if (Array.isArray(net.allowedDomains)) {
           mergedNetworkAllowedDomains.push(...(net.allowedDomains as string[]))
         }
@@ -205,16 +212,13 @@ export const mergeConfigs = (
     : undefined
 
   const finalBoundaries = {
-    ...mergedBoundaries,
     ...(filesystemOverrides ? { filesystem: filesystemOverrides } : {}),
     ...(networkOverrides ? { network: networkOverrides } : {}),
   }
 
-  const { sandboxEscalationPolicy: _sep, sandboxApprovedEscalations: _sae, approvedEscalations: _ae, ...cleanMerged } = merged
-
   return {
     ...defaults,
-    ...cleanMerged,
+    ...merged,
     sandboxBoundaries: finalBoundaries,
     configSources,
   } as GtdConfig

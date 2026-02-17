@@ -237,7 +237,7 @@
     boundary levels are rejected, defaults apply when fields are omitted,
     approved escalations merge correctly across config levels
 
-- [ ] Update config schema for fail-stop model and strict defaults
+- [x] Update config schema for fail-stop model and strict defaults
   - Replace `sandboxBoundaries` with a more explicit structure:
     `{ filesystem: { allowRead?: string[], allowWrite?: string[] }, network: { allowedDomains?: string[] } }`
     where all arrays default to cwd-only / agent-essential-only

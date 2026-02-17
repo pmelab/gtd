@@ -2,12 +2,9 @@ import { Context, Effect, Layer } from "effect"
 import { homedir } from "node:os"
 import { resolveAllConfigs, mergeConfigs, type ResolveOptions } from "./ConfigResolver.js"
 
-import type { BoundaryLevel, FilesystemUserOverrides, NetworkUserOverrides } from "./SandboxBoundaries.js"
+import type { FilesystemUserOverrides, NetworkUserOverrides } from "./SandboxBoundaries.js"
 
 export interface SandboxBoundariesConfig {
-  readonly plan?: BoundaryLevel
-  readonly build?: BoundaryLevel
-  readonly learn?: BoundaryLevel
   readonly filesystem?: FilesystemUserOverrides
   readonly network?: NetworkUserOverrides
 }

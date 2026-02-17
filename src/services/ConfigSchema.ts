@@ -1,12 +1,5 @@
 import { Schema } from "effect"
 
-const BoundaryLevelSchema = Schema.Literal("restricted", "standard", "elevated")
-
-const EscalationRuleSchema = Schema.Struct({
-  from: BoundaryLevelSchema,
-  to: BoundaryLevelSchema,
-})
-
 const FilesystemOverridesSchema = Schema.Struct({
   allowRead: Schema.optional(Schema.Array(Schema.String)),
   allowWrite: Schema.optional(Schema.Array(Schema.String)),
@@ -17,14 +10,9 @@ const NetworkOverridesSchema = Schema.Struct({
 })
 
 const SandboxBoundariesSchema = Schema.Struct({
-  plan: Schema.optional(BoundaryLevelSchema),
-  build: Schema.optional(BoundaryLevelSchema),
-  learn: Schema.optional(BoundaryLevelSchema),
   filesystem: Schema.optional(FilesystemOverridesSchema),
   network: Schema.optional(NetworkOverridesSchema),
 })
-
-const EscalationPolicySchema = Schema.Literal("auto", "prompt")
 
 export const GtdConfigSchema = Schema.Struct({
   file: Schema.optional(Schema.String),
@@ -38,9 +26,6 @@ export const GtdConfigSchema = Schema.Struct({
   agentInactivityTimeout: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(0))),
   sandboxEnabled: Schema.optional(Schema.Boolean),
   sandboxBoundaries: Schema.optional(SandboxBoundariesSchema),
-  sandboxEscalationPolicy: Schema.optional(EscalationPolicySchema),
-  sandboxApprovedEscalations: Schema.optional(Schema.Array(EscalationRuleSchema)),
-  approvedEscalations: Schema.optional(Schema.Array(EscalationRuleSchema)),
 })
 
 export type GtdPartialConfig = typeof GtdConfigSchema.Type
