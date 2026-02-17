@@ -45,7 +45,6 @@ describe("GtdConfigService (file-based)", () => {
     expect(config.testRetries).toBe(10)
     expect(config.commitPrompt).toContain("{{diff}}")
     expect(config.agentInactivityTimeout).toBe(300)
-    expect(config.agentForbiddenTools).toEqual(["AskUserQuestion"])
   })
 
   // --- Single file override: .gtdrc.json ---
@@ -58,7 +57,6 @@ describe("GtdConfigService (file-based)", () => {
         file: "PLAN.md",
         agent: "claude",
         testRetries: 5,
-        agentForbiddenTools: ["ToolA", "ToolB"],
       }),
     )
 
@@ -66,7 +64,6 @@ describe("GtdConfigService (file-based)", () => {
     expect(config.file).toBe("PLAN.md")
     expect(config.agent).toBe("claude")
     expect(config.testRetries).toBe(5)
-    expect(config.agentForbiddenTools).toEqual(["ToolA", "ToolB"])
     // defaults still apply for unset keys
     expect(config.agentPlan).toBe("plan")
     expect(config.testCmd).toBe("npm test")
@@ -81,9 +78,6 @@ describe("GtdConfigService (file-based)", () => {
       `file: TASKS.md
 agent: opencode
 testRetries: 3
-agentForbiddenTools:
-  - ForbiddenA
-  - ForbiddenB
 `,
     )
 
@@ -91,7 +85,6 @@ agentForbiddenTools:
     expect(config.file).toBe("TASKS.md")
     expect(config.agent).toBe("opencode")
     expect(config.testRetries).toBe(3)
-    expect(config.agentForbiddenTools).toEqual(["ForbiddenA", "ForbiddenB"])
     // defaults still apply for unset keys
     expect(config.agentBuild).toBe("code")
     expect(config.commitPrompt).toContain("{{diff}}")
@@ -221,7 +214,6 @@ agentForbiddenTools:
       join(cwd, ".gtdrc.json"),
       JSON.stringify({
         testRetries: "not-a-number",
-        agentForbiddenTools: "not-an-array",
       }),
     )
 

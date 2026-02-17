@@ -19,6 +19,7 @@ export const withAgentGuards = (
 
   return {
     name: provider.name,
+    providerType: provider.providerType,
     isAvailable: () => provider.isAvailable(),
     invoke: (params) =>
       Effect.gen(function* () {

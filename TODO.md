@@ -51,7 +51,7 @@
 
 ### Internalize `agentForbiddenTools` (Remove from Config)
 
-- [ ] Replace `agentForbiddenTools` config field with internal per-agent
+- [x] Replace `agentForbiddenTools` config field with internal per-agent
       blocklists
 
   - Create a `FORBIDDEN_TOOLS` constant map in `src/services/AgentGuards.ts`
@@ -64,7 +64,7 @@
   - Tests: Unit test that guards reject interactive tools for each agent type
     using the internal blocklist; test that no config field is needed
 
-- [ ] Remove `agentForbiddenTools` from config schema and resolver
+- [x] Remove `agentForbiddenTools` from config schema and resolver
   - Remove `agentForbiddenTools` from `GtdConfigSchema` in `ConfigSchema.ts`
   - Remove `agentForbiddenTools` from defaults in `ConfigResolver.ts`
   - Remove `agentForbiddenTools` from `GtdConfig` type in `Config.ts`

@@ -10,7 +10,6 @@ export const GtdConfigSchema = Schema.Struct({
   testRetries: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(0))),
   commitPrompt: Schema.optional(Schema.String),
   agentInactivityTimeout: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(0))),
-  agentForbiddenTools: Schema.optional(Schema.Array(Schema.String)),
 })
 
 export type GtdPartialConfig = typeof GtdConfigSchema.Type

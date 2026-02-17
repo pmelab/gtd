@@ -8,6 +8,7 @@ const mockAgent = (textResponse: string) =>
   Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
     invoke: (params) =>
       Effect.sync(() => {
         if (params.onEvent) {
@@ -35,6 +36,7 @@ describe("generateCommitMessage", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) => {
           capturedPrompt = params.prompt
           return Effect.succeed({ sessionId: undefined })
@@ -76,6 +78,7 @@ describe("generateCommitMessage", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: () => Effect.fail(new AgentError("fail", undefined, "general")),
         isAvailable: () => Effect.succeed(true),
       })

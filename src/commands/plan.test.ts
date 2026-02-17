@@ -12,6 +12,7 @@ describe("planCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -33,6 +34,7 @@ describe("planCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -63,6 +65,7 @@ describe("planCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) => {
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "plan: update TODO.md" })
           return Effect.succeed<AgentResult>({ sessionId: undefined })
@@ -84,6 +87,7 @@ describe("planCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: "plan-ses-abc" }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -108,6 +112,7 @@ describe("planCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           if (params.mode === "plan") {
@@ -165,6 +170,7 @@ describe("planCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: "plan-ses-new" }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -196,6 +202,7 @@ describe("planCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -219,6 +226,7 @@ describe("planCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -242,6 +250,7 @@ describe("planCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -278,6 +287,7 @@ describe("planCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })

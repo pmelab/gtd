@@ -74,3 +74,78 @@ exports[`ForbiddenTools > snapshot: tool catalogs match expected sets > pi tool 
   "ls",
 ]
 `;
+
+exports[`ForbiddenTools snapshot: tool catalogs match expected sets claude forbidden tools snapshot 1`] = `
+[
+  "AskUserQuestion",
+]
+`;
+
+exports[`ForbiddenTools snapshot: tool catalogs match expected sets claude tool catalog snapshot 1`] = `
+[
+  "Agent",
+  "Bash",
+  "TaskOutput",
+  "ExitPlanMode",
+  "FileEdit",
+  "FileRead",
+  "FileWrite",
+  "Glob",
+  "Grep",
+  "TaskStop",
+  "ListMcpResources",
+  "Mcp",
+  "NotebookEdit",
+  "ReadMcpResource",
+  "TodoWrite",
+  "WebFetch",
+  "WebSearch",
+  "AskUserQuestion",
+  "Config",
+]
+`;
+
+exports[`ForbiddenTools snapshot: tool catalogs match expected sets opencode forbidden tools snapshot 1`] = `
+[
+  "question",
+]
+`;
+
+exports[`ForbiddenTools snapshot: tool catalogs match expected sets opencode tool catalog snapshot 1`] = `
+[
+  "bash",
+  "read",
+  "glob",
+  "grep",
+  "edit",
+  "write",
+  "task",
+  "webfetch",
+  "todowrite",
+  "todoread",
+  "websearch",
+  "codesearch",
+  "skill",
+  "apply_patch",
+  "lsp",
+  "batch",
+  "plan_enter",
+  "plan_exit",
+  "question",
+  "multiedit",
+]
+`;
+
+exports[`ForbiddenTools snapshot: tool catalogs match expected sets pi forbidden tools snapshot 1`] = `[]`;
+
+exports[`ForbiddenTools snapshot: tool catalogs match expected sets pi tool catalog snapshot 1`] = `
+[
+  "read",
+  "bash",
+  "edit",
+  "write",
+  "grep",
+  "find",
+  "ls",
+]
+`;

@@ -78,6 +78,7 @@ export const buildClaudeArgs = (params: {
 
 export const ClaudeAgent: AgentProvider = {
   name: "claude",
+  providerType: "claude",
   isAvailable: () =>
     Effect.try({
       try: () => findClaudeExecutable() !== undefined,

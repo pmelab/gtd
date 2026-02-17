@@ -137,6 +137,7 @@ describe("learnAction", () => {
     const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
       invoke: (params) => {
         calls.push(params)
         if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "learn: persist learnings" })
@@ -189,6 +190,7 @@ describe("learnAction", () => {
     const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
       invoke: (params) =>
         Effect.sync(() => {
           calls.push(params)
@@ -234,6 +236,7 @@ describe("learnAction", () => {
     const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
       invoke: (params) =>
         Effect.sync(() => {
           calls.push(params)

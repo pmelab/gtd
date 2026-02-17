@@ -18,7 +18,6 @@ export const EXAMPLE_CONFIG = {
   testCmd: "npm test",
   testRetries: 10,
   agentInactivityTimeout: 300,
-  agentForbiddenTools: ["AskUserQuestion"],
 }
 
 export const createExampleConfig = (
@@ -139,7 +138,6 @@ const defaults: Omit<GtdConfig, "configSources"> = {
   testRetries: 10,
   commitPrompt: defaultCommitPrompt,
   agentInactivityTimeout: 300,
-  agentForbiddenTools: ["AskUserQuestion"],
 }
 
 const decode = Schema.decodeUnknownEither(GtdConfigSchema)

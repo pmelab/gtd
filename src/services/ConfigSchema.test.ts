@@ -18,7 +18,6 @@ describe("GtdConfigSchema", () => {
     expect(result.testCmd).toBeUndefined()
     expect(result.commitPrompt).toBeUndefined()
     expect(result.agentInactivityTimeout).toBeUndefined()
-    expect(result.agentForbiddenTools).toBeUndefined()
   })
 
   it("parses a full config correctly", () => {
@@ -32,7 +31,6 @@ describe("GtdConfigSchema", () => {
       testRetries: 3,
       commitPrompt: "custom prompt",
       agentInactivityTimeout: 60,
-      agentForbiddenTools: ["AskUserQuestion", "UserInput"],
     }
     const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
     expect(result).toEqual(input)
@@ -55,13 +53,9 @@ describe("GtdConfigSchema", () => {
     expect(() =>
       Schema.decodeUnknownSync(GtdConfigSchema)({ agentInactivityTimeout: "bad" }),
     ).toThrow()
-
-    expect(() =>
-      Schema.decodeUnknownSync(GtdConfigSchema)({ agentForbiddenTools: "comma,separated" }),
-    ).toThrow()
   })
 
-  it("rejects unknown keys", () => {
+  it("rejects unknown keys with onExcessProperty error", () => {
     expect(() =>
       Schema.decodeUnknownSync(GtdConfigSchema, { onExcessProperty: "error" })({
         unknownKey: "value",
@@ -69,18 +63,25 @@ describe("GtdConfigSchema", () => {
     ).toThrow()
   })
 
-  it("agentForbiddenTools accepts a JSON array of strings", () => {
-    const result = Schema.decodeUnknownSync(GtdConfigSchema)({
-      agentForbiddenTools: ["ToolA", "ToolB", "ToolC"],
-    })
-    expect(result.agentForbiddenTools).toEqual(["ToolA", "ToolB", "ToolC"])
+  it("gracefully ignores old agentForbiddenTools field for backwards compatibility", () => {
+    const input = {
+      file: "TODO.md",
+      agentForbiddenTools: ["AskUserQuestion"],
+    }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.file).toBe("TODO.md")
+    expect((result as Record<string, unknown>).agentForbiddenTools).toBeUndefined()
   })
 
-  it("agentForbiddenTools rejects non-string array elements", () => {
-    expect(() =>
-      Schema.decodeUnknownSync(GtdConfigSchema)({
-        agentForbiddenTools: [1, 2, 3],
-      }),
-    ).toThrow()
+  it("config parsing works without agentForbiddenTools field", () => {
+    const input = {
+      file: "PLAN.md",
+      agent: "claude",
+      testRetries: 5,
+    }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.file).toBe("PLAN.md")
+    expect(result.agent).toBe("claude")
+    expect(result.testRetries).toBe(5)
   })
 })

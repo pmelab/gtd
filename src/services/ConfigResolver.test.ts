@@ -197,18 +197,6 @@ describe("mergeConfigs", () => {
     expect(result.file).toBe("PLAN.md")
     expect(result.agent).toBe("auto")
     expect(result.testRetries).toBe(10)
-    expect(result.agentForbiddenTools).toEqual(["AskUserQuestion"])
-  })
-
-  it("replaces arrays instead of concatenating", () => {
-    const configs = [
-      { config: { agentForbiddenTools: ["ToolA"] } as Record<string, unknown>, filepath: "/a" },
-      { config: { agentForbiddenTools: ["ToolB", "ToolC"] } as Record<string, unknown>, filepath: "/b" },
-    ]
-
-    const result = mergeConfigs(configs)
-
-    expect(result.agentForbiddenTools).toEqual(["ToolA"])
   })
 
   it("uses all defaults when no configs provided", () => {
@@ -223,7 +211,6 @@ describe("mergeConfigs", () => {
     expect(result.testRetries).toBe(10)
     expect(result.commitPrompt).toContain("{{diff}}")
     expect(result.agentInactivityTimeout).toBe(300)
-    expect(result.agentForbiddenTools).toEqual(["AskUserQuestion"])
   })
 
   it("returns source filepaths from all valid configs", () => {

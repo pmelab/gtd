@@ -5,8 +5,5 @@
   "agent": "auto",
   "testCmd": "npm test",
   "testRetries": 10,
-  "agentInactivityTimeout": 300,
-  "agentForbiddenTools": [
-    "AskUserQuestion"
-  ]
+  "agentInactivityTimeout": 300
 }

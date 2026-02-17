@@ -12,6 +12,7 @@ const makeSlowAgent = (
   opts?: { emitEvents?: AgentEvent[]; emitIntervalMs?: number },
 ): AgentProvider => ({
   name: "slow-mock",
+  providerType: "pi",
   invoke: (params) =>
     Effect.async<{ sessionId: string | undefined }, AgentError>((resume) => {
       const timers: ReturnType<typeof setTimeout>[] = []
@@ -37,6 +38,7 @@ const makeSlowAgent = (
 
 const makeInstantAgent = (events?: AgentEvent[]): AgentProvider => ({
   name: "instant-mock",
+  providerType: "pi",
   invoke: (params) =>
     Effect.sync(() => {
       if (events) {
@@ -179,6 +181,7 @@ describe("withAgentGuards", () => {
     Effect.gen(function* () {
       const agent: AgentProvider = {
         name: "test-mock",
+        providerType: "pi",
         invoke: () => Effect.succeed({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(false),
       }

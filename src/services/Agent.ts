@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from "effect"
 import { GtdConfigService } from "./Config.js"
 import { withAgentGuards } from "./AgentGuards.js"
+import { FORBIDDEN_TOOLS, type AgentProviderType } from "./ForbiddenTools.js"
 import type { AgentEvent } from "./AgentEvent.js"
 
 export interface AgentInvocation {
@@ -29,6 +30,7 @@ export class AgentError {
 
 export interface AgentProvider {
   readonly name: string
+  readonly providerType: AgentProviderType
   readonly invoke: (params: AgentInvocation) => Effect.Effect<AgentResult, AgentError>
   readonly isAvailable: () => Effect.Effect<boolean>
 }
@@ -46,11 +48,12 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
 
       const guardsConfig = {
         inactivityTimeoutSeconds: config.agentInactivityTimeout,
-        forbiddenTools: config.agentForbiddenTools,
+        forbiddenTools: FORBIDDEN_TOOLS[provider.providerType],
       }
 
       return {
         name: provider.name,
+        providerType: provider.providerType,
         resolvedName: provider.name,
         invoke: (params) =>
           Effect.gen(function* () {
@@ -122,6 +125,7 @@ export const resolveAgent = (agentId: string): Effect.Effect<AgentProvider, Agen
       if (available.length === 1) {
         const provider: AgentProvider = {
           name: autoName,
+          providerType: first.providerType,
           invoke: (params) => first.invoke(params),
           isAvailable: () => first.isAvailable(),
         }
@@ -130,6 +134,7 @@ export const resolveAgent = (agentId: string): Effect.Effect<AgentProvider, Agen
 
       const provider: AgentProvider = {
         name: autoName,
+        providerType: first.providerType,
         isAvailable: () => Effect.succeed(true),
         invoke: (params) =>
           available

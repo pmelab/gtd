@@ -37,6 +37,7 @@ describe("RunInfo type", () => {
     const agentLayer = Layer.succeed(AgentService, {
       name: "pi",
       resolvedName: "pi (auto)",
+      providerType: "pi",
       invoke: () => Effect.succeed({ sessionId: undefined }),
       isAvailable: () => Effect.succeed(true),
     })

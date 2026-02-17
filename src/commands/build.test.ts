@@ -24,6 +24,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -43,6 +44,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -77,6 +79,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -122,6 +125,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) => {
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Build Phase" })
           return Effect.succeed<AgentResult>({ sessionId: undefined })
@@ -155,6 +159,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Pkg2" })
@@ -207,6 +212,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
@@ -238,6 +244,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Error Handling" })
@@ -293,6 +300,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           return Effect.succeed<AgentResult>({ sessionId: undefined })
@@ -349,6 +357,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) => {
           const count = callCount++
           // Build returns "ses-build-1", retry1 returns "ses-retry-1", commit msg calls return undefined
@@ -407,6 +416,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           return Effect.succeed<AgentResult>({ sessionId: "build-ses" })
@@ -463,6 +473,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           if (params.mode === "build") {
@@ -537,6 +548,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           return Effect.succeed<AgentResult>({ sessionId: undefined })
@@ -588,6 +600,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
         isAvailable: () => Effect.succeed(true),
       })
@@ -623,6 +636,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: () =>
           Effect.fail(
             new AgentError("Agent timed out after 300s of inactivity", undefined, "inactivity_timeout"),
@@ -653,6 +667,7 @@ describe("buildCommand", () => {
       const agentLayer = Layer.succeed(AgentService, {
         name: "mock",
         resolvedName: "mock",
+        providerType: "pi",
         invoke: () =>
           Effect.fail(
             new AgentError("Agent invoked forbidden tool: AskUserQuestion", undefined, "input_requested"),

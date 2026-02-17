@@ -6,11 +6,12 @@ import { GtdConfigService } from "./Config.js"
 
 const mockAgent: AgentProvider = {
   name: "mock",
+  providerType: "pi",
   invoke: () => Effect.succeed({ sessionId: undefined }),
   isAvailable: () => Effect.succeed(true),
 }
 
-const mockAgentLayer = Layer.succeed(AgentService, { ...mockAgent, resolvedName: "mock" })
+const mockAgentLayer = Layer.succeed(AgentService, { ...mockAgent, resolvedName: "mock", providerType: "pi" as const })
 
 describe("AgentService", () => {
   it.effect("invoke calls the provider", () =>
@@ -105,7 +106,6 @@ describe("AgentService.Live", () => {
               testRetries: 0,
               commitPrompt: "",
               agentInactivityTimeout: 300,
-              agentForbiddenTools: [],
               configSources: [],
             }),
           ),

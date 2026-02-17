@@ -12,7 +12,6 @@ export interface GtdConfig {
   readonly testRetries: number
   readonly commitPrompt: string
   readonly agentInactivityTimeout: number
-  readonly agentForbiddenTools: ReadonlyArray<string>
   readonly configSources: ReadonlyArray<string>
 }
 

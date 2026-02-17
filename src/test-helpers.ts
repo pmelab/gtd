@@ -12,7 +12,6 @@ export const defaultTestConfig: GtdConfig = {
   testRetries: 10,
   commitPrompt: "{{diff}}",
   agentInactivityTimeout: 300,
-  agentForbiddenTools: [],
   configSources: [],
 }
 

@@ -217,11 +217,7 @@ Any format supported by cosmiconfig:
 
   // Seconds before the agent times out due to inactivity (must be >= 0)
   // Default: 300
-  "agentInactivityTimeout": 300,
-
-  // Agent tools to forbid (array of tool name strings)
-  // Default: ["AskUserQuestion"]
-  "agentForbiddenTools": ["AskUserQuestion"]
+  "agentInactivityTimeout": 300
 }
 ```
 
