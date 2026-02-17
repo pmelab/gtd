@@ -63,12 +63,6 @@
     fallback diff reading
   - Tests: Run full test suite (`bun test`) and verify all pass
 
-## Open Questions
-
-- Should the prefix priority order be configurable, or is the hardcoded 🌱 >
-  💬 > 🤦 > 👷 sufficient for all workflows?
-  > hardcoded is sufficient
-
 ## Learnings
 
 - When an automated pipeline chains commit → next-step, ensure the next step can
@@ -77,3 +71,6 @@
 - Prefer a single atomic commit for all human input to preserve full context for
   AI planning — granular commit splitting is only valuable when each commit is
   independently actionable
+- Prefer hardcoded priority orders for internal classification logic over
+  user-configurable options — the 🌱 > 💬 > 🤦 > 👷 prefix priority is a domain
+  invariant, not a user preference
