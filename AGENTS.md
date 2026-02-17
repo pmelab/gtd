@@ -23,6 +23,9 @@ It automates AI agent execution and git operations:
 - When chaining commit-feedback → plan, the plan step should read the last
   commit (`git diff HEAD~1`) rather than the working tree diff (which is empty
   after the commit)
+- Commit prefix semantics follow change intent: `🌱` for seeding plans, `💬` for
+  planning feedback (blockquotes), `🤦` for inline code TODOs, `👷` for actual
+  code fixes — keep these orthogonal to avoid ambiguous classification
 
 ## Guidelines
 
@@ -69,6 +72,12 @@ It automates AI agent execution and git operations:
 - default to least privilege: restrict filesystem to cwd and network to
   agent-essential domains only — users explicitly opt in to broader access via
   config rather than opting out of broad defaults
+
+### Commit Prefixes
+
+- When adding new commit prefixes, update all three layers: `CommitPrefix.ts`
+  (definition + parsing), `InferStep.ts` (next-step logic), and
+  `DecisionTree.ts` (display labels)
 
 ### Configuration Design
 
