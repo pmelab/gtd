@@ -284,7 +284,7 @@
 
 ### Bats-Based E2E Tests for Sandbox Boundaries
 
-- [ ] Create `tests/integration/sandbox-boundaries.bats` test file with shared
+- [x] Create `tests/integration/sandbox-boundaries.bats` test file with shared
       helpers
 
   - Create a new bats test file alongside `gtd-workflow.bats` using the same
@@ -298,7 +298,7 @@
     `bats tests/integration/sandbox-boundaries.bats` executes without load
     errors
 
-- [ ] Bats E2E test: network boundary fail-stop and config-driven escalation
+- [x] Bats E2E test: network boundary fail-stop and config-driven escalation
 
   - Test case: set up a sandbox-enabled gtd run where the agent task requires
     fetching from an untrusted domain (not in default `allowedDomains`)
@@ -311,7 +311,7 @@
   - Tests: `bats tests/integration/sandbox-boundaries.bats` — the network
     escalation test passes end-to-end
 
-- [ ] Bats E2E test: filesystem write boundary fail-stop and config-driven
+- [x] Bats E2E test: filesystem write boundary fail-stop and config-driven
       escalation
 
   - Test case: set up a sandbox-enabled gtd run where the agent task writes to a
@@ -325,7 +325,7 @@
   - Tests: `bats tests/integration/sandbox-boundaries.bats` — the write
     escalation test passes end-to-end
 
-- [ ] Bats E2E test: filesystem read boundary fail-stop and config-driven
+- [x] Bats E2E test: filesystem read boundary fail-stop and config-driven
       escalation
 
   - Test case: create a file outside cwd (e.g., `/tmp/gtd-test-data/data.txt`),
@@ -339,7 +339,7 @@
   - Tests: `bats tests/integration/sandbox-boundaries.bats` — the read
     escalation test passes end-to-end
 
-- [ ] Remove the vitest-based e2e test file
+- [x] Remove the vitest-based e2e test file
   - Delete `src/services/sandbox-escalation.e2e.test.ts` — the bats tests
     replace it as the authoritative e2e coverage for sandbox boundaries
   - Verify no other tests import from the deleted file

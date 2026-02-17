@@ -26,4 +26,4 @@ for arg in "$@"; do
   esac
 done
 
-exec bats "${PROJECT_ROOT}/tests/integration/gtd-workflow.bats" "${BATS_ARGS[@]}"
+exec bats "${PROJECT_ROOT}/tests/integration/gtd-workflow.bats" "${PROJECT_ROOT}/tests/integration/sandbox-boundaries.bats" "${BATS_ARGS[@]}"
