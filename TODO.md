@@ -1,5 +1,10 @@
 # Sandbox Runtime Integration with Dynamic Boundary Escalation
 
+> additions: e2e tests should also cover escalations of network and filesystem
+> boundaries. it should try to fetch data from an untrusted url, abort, then the
+> local config should be altered and when `gtd` is run again, it should work.
+> the same with writing and reading a file in the tmp directory
+
 ## Action Items
 
 ### Research & API Discovery
