@@ -4,7 +4,8 @@ import type { AgentProvider, AgentInvocation } from "../Agent.js"
 import { AgentError } from "../Agent.js"
 import type { AgentEvent } from "../AgentEvent.js"
 import { AgentEvents } from "../AgentEvent.js"
-import { SandboxAgent, isSandboxRuntimeAvailable } from "./Sandbox.js"
+import { SandboxAgent, isSandboxRuntimeAvailable, buildSandboxConfig } from "./Sandbox.js"
+import { AGENT_ESSENTIAL_DOMAINS } from "../SandboxBoundaries.js"
 
 const makeInvocation = (overrides?: Partial<AgentInvocation>): AgentInvocation => ({
   prompt: "test prompt",
@@ -121,6 +122,67 @@ describe("SandboxAgent", () => {
     const sandbox = SandboxAgent(inner)
     await Effect.runPromise(sandbox.invoke(makeInvocation({ resumeSessionId: "resume-456" })))
     expect(inner.getInvokedWith()!.resumeSessionId).toBe("resume-456")
+  })
+})
+
+describe("buildSandboxConfig", () => {
+  it("restricts filesystem to cwd by default", () => {
+    const invocation = makeInvocation({ cwd: "/my/project" })
+    const config = buildSandboxConfig(invocation, "claude")
+    expect(config.filesystem.allowRead).toEqual(["/my/project"])
+    expect(config.filesystem.allowWrite).toEqual(["/my/project"])
+  })
+
+  it("restricts network to agent-essential domains by default", () => {
+    const invocation = makeInvocation()
+    const config = buildSandboxConfig(invocation, "claude")
+    expect(config.network.allowedDomains).toEqual(AGENT_ESSENTIAL_DOMAINS.claude)
+  })
+
+  it("extends filesystem with user overrides", () => {
+    const invocation = makeInvocation({ cwd: "/my/project" })
+    const config = buildSandboxConfig(invocation, "claude", {
+      filesystem: { allowWrite: ["/shared/output"] },
+    })
+    expect(config.filesystem.allowWrite).toContain("/my/project")
+    expect(config.filesystem.allowWrite).toContain("/shared/output")
+  })
+
+  it("extends network with user overrides", () => {
+    const invocation = makeInvocation()
+    const config = buildSandboxConfig(invocation, "claude", {
+      network: { allowedDomains: ["registry.npmjs.org"] },
+    })
+    for (const domain of AGENT_ESSENTIAL_DOMAINS.claude) {
+      expect(config.network.allowedDomains).toContain(domain)
+    }
+    expect(config.network.allowedDomains).toContain("registry.npmjs.org")
+  })
+
+  it("paths outside cwd are denied by default", () => {
+    const invocation = makeInvocation({ cwd: "/my/project" })
+    const config = buildSandboxConfig(invocation, "claude")
+    expect(config.filesystem.allowRead).not.toContain("/other/path")
+    expect(config.filesystem.allowWrite).not.toContain("/other/path")
+  })
+
+  it("non-allowed domains are denied by default", () => {
+    const invocation = makeInvocation()
+    const config = buildSandboxConfig(invocation, "claude")
+    expect(config.network.allowedDomains).not.toContain("evil.com")
+  })
+})
+
+describe("SandboxAgent with overrides", () => {
+  it("passes overrides through to sandbox config", async () => {
+    const inner = makeMockProvider({ providerType: "claude" })
+    const sandbox = SandboxAgent(inner, {
+      filesystem: { allowWrite: ["/extra"] },
+      network: { allowedDomains: ["custom.com"] },
+    })
+    const events: AgentEvent[] = []
+    await Effect.runPromise(sandbox.invoke(makeInvocation({ cwd: "/project", onEvent: (e) => events.push(e) })))
+    expect(events.map((e) => e._tag)).toContain("SandboxStarted")
   })
 })
 

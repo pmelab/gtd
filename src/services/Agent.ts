@@ -47,6 +47,10 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
       const provider = yield* resolveAgent({
         agentId: config.agent,
         sandboxEnabled: config.sandboxEnabled,
+        sandboxOverrides: {
+          filesystem: config.sandboxBoundaries.filesystem,
+          network: config.sandboxBoundaries.network,
+        },
       })
 
       const guardsConfig = {
@@ -91,6 +95,7 @@ export const catchAgentError = <A, R>(
 export interface ResolveAgentOptions {
   readonly agentId: string
   readonly sandboxEnabled?: boolean
+  readonly sandboxOverrides?: import("./agents/Sandbox.js").SandboxOverrides
 }
 
 export const resolveAgent = (
@@ -110,7 +115,8 @@ export const resolveAgent = (
       )
       const available = yield* isSandboxRuntimeAvailable
       if (available) {
-        return SandboxAgent(baseProvider)
+        const sandboxOverrides = typeof agentIdOrOptions === "object" ? agentIdOrOptions.sandboxOverrides : undefined
+        return SandboxAgent(baseProvider, sandboxOverrides)
       }
     }
 

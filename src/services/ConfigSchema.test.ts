@@ -176,4 +176,64 @@ describe("GtdConfigSchema", () => {
     expect(result.sandboxEscalationPolicy).toBeUndefined()
     expect(result.sandboxApprovedEscalations).toBeUndefined()
   })
+
+  it("parses sandboxBoundaries with filesystem overrides", () => {
+    const input = {
+      sandboxBoundaries: {
+        filesystem: {
+          allowRead: ["/shared/libs"],
+          allowWrite: ["/shared/output"],
+        },
+      },
+    }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.sandboxBoundaries!.filesystem).toEqual({
+      allowRead: ["/shared/libs"],
+      allowWrite: ["/shared/output"],
+    })
+  })
+
+  it("parses sandboxBoundaries with network overrides", () => {
+    const input = {
+      sandboxBoundaries: {
+        network: {
+          allowedDomains: ["registry.npmjs.org", "internal.api.com"],
+        },
+      },
+    }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.sandboxBoundaries!.network).toEqual({
+      allowedDomains: ["registry.npmjs.org", "internal.api.com"],
+    })
+  })
+
+  it("parses sandboxBoundaries with both phase and filesystem/network overrides", () => {
+    const input = {
+      sandboxBoundaries: {
+        build: "elevated",
+        filesystem: { allowWrite: ["/tmp"] },
+        network: { allowedDomains: ["npmjs.org"] },
+      },
+    }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.sandboxBoundaries!.build).toBe("elevated")
+    expect(result.sandboxBoundaries!.filesystem).toEqual({ allowWrite: ["/tmp"] })
+    expect(result.sandboxBoundaries!.network).toEqual({ allowedDomains: ["npmjs.org"] })
+  })
+
+  it("rejects invalid types in filesystem overrides", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(GtdConfigSchema)({
+        sandboxBoundaries: { filesystem: { allowRead: "not-an-array" } },
+      }),
+    ).toThrow()
+  })
+
+  it("rejects invalid types in network overrides", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(GtdConfigSchema)({
+        sandboxBoundaries: { network: { allowedDomains: "not-an-array" } },
+      }),
+    ).toThrow()
+  })
 })

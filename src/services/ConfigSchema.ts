@@ -7,10 +7,21 @@ const EscalationRuleSchema = Schema.Struct({
   to: BoundaryLevelSchema,
 })
 
+const FilesystemOverridesSchema = Schema.Struct({
+  allowRead: Schema.optional(Schema.Array(Schema.String)),
+  allowWrite: Schema.optional(Schema.Array(Schema.String)),
+})
+
+const NetworkOverridesSchema = Schema.Struct({
+  allowedDomains: Schema.optional(Schema.Array(Schema.String)),
+})
+
 const SandboxBoundariesSchema = Schema.Struct({
   plan: Schema.optional(BoundaryLevelSchema),
   build: Schema.optional(BoundaryLevelSchema),
   learn: Schema.optional(BoundaryLevelSchema),
+  filesystem: Schema.optional(FilesystemOverridesSchema),
+  network: Schema.optional(NetworkOverridesSchema),
 })
 
 const EscalationPolicySchema = Schema.Literal("auto", "prompt")

@@ -150,7 +150,7 @@
 
 ### Strict Default Permissions
 
-- [ ] Default filesystem sandbox to current working directory only
+- [x] Default filesystem sandbox to current working directory only
 
   - Set `allowWrite` to `[cwd]` and deny reads outside `cwd` by default so
     agents can only read and write within the project directory
@@ -163,7 +163,7 @@
     test that config overrides extend the allowed paths; test that paths outside
     cwd are denied by default
 
-- [ ] Default network sandbox to agent-essential domains only
+- [x] Default network sandbox to agent-essential domains only
   - Build a per-agent-provider allowlist of domains required for the agent to
     function (e.g., API endpoints for Claude, OpenCode, Pi)
   - Set `network.allowedDomains` to only these essential domains by default;

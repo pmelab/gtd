@@ -152,7 +152,10 @@ export const mergeConfigs = (
   const merged: Record<string, unknown> = {}
   const configSources: string[] = []
   const allEscalations: Array<{ from: string; to: string }> = []
-  const mergedBoundaries: Record<string, string> = {}
+  const mergedBoundaries: Record<string, unknown> = {}
+  const mergedFilesystemAllowRead: string[] = []
+  const mergedFilesystemAllowWrite: string[] = []
+  const mergedNetworkAllowedDomains: string[] = []
 
   const validParsed: Array<{ parsed: Record<string, unknown>; filepath: string }> = []
 
@@ -167,7 +170,26 @@ export const mergeConfigs = (
     const { parsed, filepath } = validParsed[i]!
 
     if (parsed.sandboxBoundaries && typeof parsed.sandboxBoundaries === "object") {
-      Object.assign(mergedBoundaries, parsed.sandboxBoundaries)
+      const boundaries = parsed.sandboxBoundaries as Record<string, unknown>
+      const { filesystem, network, ...phaseBoundaries } = boundaries
+      Object.assign(mergedBoundaries, phaseBoundaries)
+
+      if (filesystem && typeof filesystem === "object") {
+        const fs = filesystem as Record<string, unknown>
+        if (Array.isArray(fs.allowRead)) {
+          mergedFilesystemAllowRead.push(...(fs.allowRead as string[]))
+        }
+        if (Array.isArray(fs.allowWrite)) {
+          mergedFilesystemAllowWrite.push(...(fs.allowWrite as string[]))
+        }
+      }
+
+      if (network && typeof network === "object") {
+        const net = network as Record<string, unknown>
+        if (Array.isArray(net.allowedDomains)) {
+          mergedNetworkAllowedDomains.push(...(net.allowedDomains as string[]))
+        }
+      }
     }
 
     Object.assign(merged, parsed)
@@ -188,10 +210,27 @@ export const mergeConfigs = (
     (e, i, arr) => arr.findIndex((x) => x.from === e.from && x.to === e.to) === i,
   )
 
+  const filesystemOverrides = mergedFilesystemAllowRead.length > 0 || mergedFilesystemAllowWrite.length > 0
+    ? {
+        ...(mergedFilesystemAllowRead.length > 0 ? { allowRead: [...new Set(mergedFilesystemAllowRead)] } : {}),
+        ...(mergedFilesystemAllowWrite.length > 0 ? { allowWrite: [...new Set(mergedFilesystemAllowWrite)] } : {}),
+      }
+    : undefined
+
+  const networkOverrides = mergedNetworkAllowedDomains.length > 0
+    ? { allowedDomains: [...new Set(mergedNetworkAllowedDomains)] }
+    : undefined
+
+  const finalBoundaries = {
+    ...mergedBoundaries,
+    ...(filesystemOverrides ? { filesystem: filesystemOverrides } : {}),
+    ...(networkOverrides ? { network: networkOverrides } : {}),
+  }
+
   return {
     ...defaults,
     ...merged,
-    sandboxBoundaries: mergedBoundaries,
+    sandboxBoundaries: finalBoundaries,
     sandboxApprovedEscalations: dedupedEscalations,
     configSources,
   } as GtdConfig

@@ -346,7 +346,98 @@ describe("mergeConfigs", () => {
 
     const result = mergeConfigs(configs)
 
-    expect(result.sandboxBoundaries).toEqual({ plan: "elevated", build: "standard" })
+    expect(result.sandboxBoundaries.plan).toBe("elevated")
+    expect(result.sandboxBoundaries.build).toBe("standard")
+  })
+
+  it("merges filesystem overrides from config", () => {
+    const configs = [
+      {
+        config: {
+          sandboxBoundaries: {
+            filesystem: { allowRead: ["/shared/libs"], allowWrite: ["/shared/output"] },
+          },
+        } as Record<string, unknown>,
+        filepath: "/a",
+      },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.sandboxBoundaries.filesystem?.allowRead).toEqual(["/shared/libs"])
+    expect(result.sandboxBoundaries.filesystem?.allowWrite).toEqual(["/shared/output"])
+  })
+
+  it("merges network overrides from config", () => {
+    const configs = [
+      {
+        config: {
+          sandboxBoundaries: {
+            network: { allowedDomains: ["registry.npmjs.org"] },
+          },
+        } as Record<string, unknown>,
+        filepath: "/a",
+      },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.sandboxBoundaries.network?.allowedDomains).toEqual(["registry.npmjs.org"])
+  })
+
+  it("merges filesystem overrides across config levels", () => {
+    const configs = [
+      {
+        config: {
+          sandboxBoundaries: { filesystem: { allowRead: ["/project/extra"] } },
+        } as Record<string, unknown>,
+        filepath: "/project",
+      },
+      {
+        config: {
+          sandboxBoundaries: { filesystem: { allowRead: ["/shared/libs"], allowWrite: ["/shared/out"] } },
+        } as Record<string, unknown>,
+        filepath: "/user",
+      },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.sandboxBoundaries.filesystem?.allowRead).toContain("/project/extra")
+    expect(result.sandboxBoundaries.filesystem?.allowRead).toContain("/shared/libs")
+    expect(result.sandboxBoundaries.filesystem?.allowWrite).toEqual(["/shared/out"])
+  })
+
+  it("merges network overrides across config levels with dedup", () => {
+    const configs = [
+      {
+        config: {
+          sandboxBoundaries: { network: { allowedDomains: ["api.example.com", "shared.com"] } },
+        } as Record<string, unknown>,
+        filepath: "/project",
+      },
+      {
+        config: {
+          sandboxBoundaries: { network: { allowedDomains: ["shared.com", "other.com"] } },
+        } as Record<string, unknown>,
+        filepath: "/user",
+      },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.sandboxBoundaries.network?.allowedDomains).toContain("api.example.com")
+    expect(result.sandboxBoundaries.network?.allowedDomains).toContain("shared.com")
+    expect(result.sandboxBoundaries.network?.allowedDomains).toContain("other.com")
+    const sharedCount = result.sandboxBoundaries.network!.allowedDomains!.filter((d) => d === "shared.com").length
+    expect(sharedCount).toBe(1)
+  })
+
+  it("defaults produce no filesystem or network overrides", () => {
+    const result = mergeConfigs([])
+
+    expect(result.sandboxBoundaries.filesystem).toBeUndefined()
+    expect(result.sandboxBoundaries.network).toBeUndefined()
   })
 })
 
