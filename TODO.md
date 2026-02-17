@@ -187,7 +187,7 @@
 
 ### Documentation & Examples
 
-- [ ] Update README.md with sandbox runtime section
+- [x] Update README.md with sandbox runtime section
   - Explain the wrapper architecture (sandbox wraps existing providers)
   - Explain the boundary escalation model and per-phase defaults
   - Document the approval flow and how to persist escalation approvals

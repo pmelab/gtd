@@ -88,6 +88,57 @@ describe("README.md", () => {
     expect(content).toMatch(/TODO\.md.*always.*feedback|all.*changes.*TODO\.md.*feedback/i)
   })
 
+  it("has a Sandbox Runtime section explaining wrapper architecture", () => {
+    const content = readmeContent()
+    expect(content).toMatch(/## Sandbox Runtime|## Sandbox/i)
+    expect(content).toMatch(/wrap/i)
+    expect(content).toMatch(/provider/i)
+  })
+
+  it("documents the boundary escalation model with per-phase defaults", () => {
+    const content = readmeContent()
+    expect(content).toContain("restricted")
+    expect(content).toContain("standard")
+    expect(content).toContain("elevated")
+    expect(content).toMatch(/plan.*restricted/i)
+    expect(content).toMatch(/build.*standard/i)
+    expect(content).toMatch(/learn.*restricted/i)
+  })
+
+  it("documents the approval flow and escalation persistence", () => {
+    const content = readmeContent()
+    expect(content).toMatch(/approv/i)
+    expect(content).toMatch(/persist|project|user/i)
+    expect(content).toMatch(/escalat/i)
+  })
+
+  it("clarifies forbidden tools and sandbox boundaries are orthogonal", () => {
+    const content = readmeContent()
+    expect(content).toMatch(/orthogonal|independent/i)
+    expect(content).toMatch(/forbidden.*tool/i)
+    expect(content).toMatch(/sandbox.*boundar|boundar.*sandbox/i)
+  })
+
+  it("notes forbidden tool blocklists are internal and not user-configurable", () => {
+    const content = readmeContent()
+    expect(content).toMatch(/internal|hardcoded|not.*user.configur|not.*configur.*user/i)
+    expect(content).toMatch(/forbidden.*tool|tool.*blocklist/i)
+  })
+
+  it("includes example config with sandbox configuration and approved escalations", () => {
+    const content = readmeContent()
+    expect(content).toContain("sandboxEnabled")
+    expect(content).toContain("sandboxBoundaries")
+    expect(content).toContain("sandboxApprovedEscalations")
+  })
+
+  it("mermaid flowchart includes escalation flow", () => {
+    const content = readmeContent()
+    const mermaidMatch = content.match(/```mermaid\n([\s\S]*?)```/)
+    const mermaid = mermaidMatch![1]!
+    expect(mermaid).toMatch(/escalat/i)
+  })
+
   it("section 5 Learn describes manual step between build completion and learn", () => {
     const content = readmeContent()
     const learnMatch = content.match(/### 5\. Learn\n([\s\S]*?)(?=\n### \d|$)/)

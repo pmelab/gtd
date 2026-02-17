@@ -27,7 +27,16 @@ flowchart TD
     CheckLast -->|🤦 other changes| Plan["🤖 Plan: refine TODO.md with agent"]
     Plan --> Build["🔨 Build: implement next unchecked item"]
     CheckLast -->|🤖| Build
-    Build --> ItemsLeft{Unchecked items remain?}
+    Build --> SandboxCheck{Sandbox enabled?}
+    SandboxCheck -->|No| RunAgent[Run agent]
+    SandboxCheck -->|Yes| BoundaryCheck{Escalation needed?}
+    BoundaryCheck -->|No| RunSandboxed[Run agent in sandbox]
+    BoundaryCheck -->|Yes| Approval{Escalation approved?}
+    Approval -->|Yes| RunSandboxed
+    Approval -->|No| Deny[Abort phase]
+    RunAgent --> ItemsLeft
+    RunSandboxed --> ItemsLeft
+    ItemsLeft{Unchecked items remain?}
     CheckLast -->|🔨| ItemsLeft
     ItemsLeft -->|Yes| Build
     ItemsLeft -->|No| Learn
@@ -152,6 +161,60 @@ feedback. All other hunks are classified as fixes.
 All changes in `TODO.md` are always treated as feedback, regardless of whether
 they contain marker prefixes.
 
+## Sandbox Runtime
+
+When `sandboxEnabled` is `true`, `gtd` wraps your chosen agent provider in a
+sandbox layer. The sandbox does not replace the agent — it wraps it, adding
+isolation and permission controls while delegating all agent logic (prompting,
+tool use) to the underlying provider.
+
+### Boundary Levels
+
+Each workflow phase runs at a default boundary level that controls what the
+sandboxed agent is allowed to do (file system access, network, etc.):
+
+| Phase | Default Boundary | Description |
+| ----- | ---------------- | ----------------------------------- |
+| plan | restricted | Read-only, no network |
+| build | standard | Read/write project files, network ok |
+| learn | restricted | Read-only, no network |
+
+You can override the boundary for any phase via `sandboxBoundaries` in your
+config. The three levels — `restricted`, `standard`, and `elevated` — form a
+strict ordering.
+
+### Boundary Escalation
+
+If a phase requires more permissions than its current boundary allows, `gtd`
+checks whether the escalation has been approved. The escalation policy
+(`sandboxEscalationPolicy`) controls behavior:
+
+- **`"auto"`** (default) — automatically approve escalations that are listed in
+  `sandboxApprovedEscalations` across any config level; deny unknown escalations
+- **`"prompt"`** — ask the user interactively and optionally persist the
+  approval to a project or user config file
+
+Approved escalations can be persisted at two levels:
+
+- **project** — saved to `.gtdrc.json` in the project directory, shared with
+  the team via version control
+- **user** — saved to `~/.config/gtd/.gtdrc.json`, private to the individual
+
+### Guards: Forbidden Tools vs. Sandbox Boundaries
+
+`gtd` applies two independent guard layers to every agent invocation. They are
+orthogonal — both are evaluated independently and neither overrides the other:
+
+1. **Forbidden tool blocklists (interactivity guard)** — prevent the agent from
+   calling tools that require interactive user input (e.g. `AskUserQuestion` in
+   Claude, `question` in OpenCode). These blocklists are internal and not
+   user-configurable; they are derived from each agent provider's tool catalog.
+   When a forbidden tool is detected, the invocation fails immediately.
+
+2. **Sandbox boundaries (isolation guard)** — control what the sandboxed agent
+   can access (file system, network). These are user-configurable via
+   `sandboxBoundaries` and `sandboxApprovedEscalations`.
+
 ## Configuration
 
 `gtd` uses file-based configuration via [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig).
@@ -185,6 +248,8 @@ Any format supported by cosmiconfig:
 
 ```jsonc
 {
+  "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
+
   // Planning file path (relative to project root)
   // Default: "TODO.md"
   "file": "TODO.md",
@@ -217,7 +282,27 @@ Any format supported by cosmiconfig:
 
   // Seconds before the agent times out due to inactivity (must be >= 0)
   // Default: 300
-  "agentInactivityTimeout": 300
+  "agentInactivityTimeout": 300,
+
+  // Enable sandbox runtime wrapping around the agent provider
+  // Default: false
+  "sandboxEnabled": true,
+
+  // Override default boundary levels per workflow phase
+  // Default: plan=restricted, build=standard, learn=restricted
+  "sandboxBoundaries": {
+    "build": "elevated"
+  },
+
+  // Escalation policy: "auto" (use approved list) or "prompt" (ask user)
+  // Default: "auto"
+  "sandboxEscalationPolicy": "auto",
+
+  // Pre-approved boundary escalations (merged across all config levels)
+  "sandboxApprovedEscalations": [
+    { "from": "restricted", "to": "standard" },
+    { "from": "standard", "to": "elevated" }
+  ]
 }
 ```
 
