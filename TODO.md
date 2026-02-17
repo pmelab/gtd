@@ -12,7 +12,7 @@
   - Confirm live permission change API (updating capabilities on a running
     sandbox without restart)
   - Map out which sandbox capabilities correspond to gtd's existing agent guards
-    (inactivity timeout, forbidden tools)
+    (inactivity timeout)
   - Tests: Create a spike script that boots a sandbox, runs a trivial command,
     changes permissions live, and tears it down
 
@@ -20,6 +20,7 @@
 
 - [ ] Create `src/services/agents/Sandbox.ts` as a wrapper around existing
       providers
+
   - Wrap an inner `AgentProvider` (pi, opencode, or claude) — the sandbox
     manages the execution environment while the inner provider drives the agent
   - Accept the inner provider via constructor/config so any existing provider
@@ -48,16 +49,18 @@
 
 - [ ] Define a `BoundaryLevel` type and escalation policy in
       `src/services/SandboxBoundaries.ts`
+
   - Design tiered permission levels (e.g., `readonly` → `readwrite` → `network`
     → `full`)
   - Each level maps to concrete sandbox capabilities: file system scope, network
-    access, allowed tools, allowed shell commands
+    access, allowed shell commands
   - Make the escalation policy configurable via `.gtdrc.json` (e.g.,
-    `sandboxBoundaries` field with per-level tool/path allowlists)
+    `sandboxBoundaries` field with per-level path/network allowlists)
   - Tests: Unit test that each boundary level produces the expected sandbox
     capability set; test config parsing with custom boundaries
 
 - [ ] Implement automatic escalation triggers tied to the gtd workflow phases
+
   - `plan` mode → `readonly` (agent only reads files and writes to TODO.md)
   - `build` mode → `readwrite` (agent can modify source files, run tests)
   - `learn` mode → `readonly` (agent only reads diff and writes to AGENTS.md)
@@ -69,19 +72,22 @@
     integration test that a build invocation starts restricted and logs
     escalation events
 
-- [ ] Integrate boundary escalation into `AgentGuards`
-  - When sandbox mode is active, the sandbox boundary level overrides
-    `agentForbiddenTools` — sandbox permissions are the single source of truth
-    > i think agentForbiddenTools are something completely different. those are
-    > tool calls the agent could emit that can't be handled in a non-interactive
-    > environment and therefore cause immediate error. this is orthogonal to the
-    > sandbox. correct me if i'm wrong.
+- [ ] Integrate boundary escalation events into `AgentGuards`
+  - Keep `agentForbiddenTools` independent — it handles tool calls that cannot
+    work in a non-interactive environment (e.g., user input prompts) and should
+    cause immediate errors regardless of sandbox state
+  - Sandbox boundaries control a separate concern: isolation permissions (file
+    system scope, network access, shell commands) enforced by the sandbox
+    runtime
+  - Both mechanisms apply simultaneously — a tool can be allowed by the sandbox
+    but still forbidden by `agentForbiddenTools` if it requires interactivity
   - On escalation, update the sandbox's live permissions via SDK API
   - Emit a new `AgentEvent` variant (e.g., `BoundaryEscalated`) so the TUI/logs
     reflect permission changes
-  - Tests: Unit test that sandbox boundary level overrides static
-    `agentForbiddenTools`; test that forbidden tool detection respects current
-    boundary level
+  - Tests: Unit test that `agentForbiddenTools` still rejects interactive tools
+    even when sandbox grants broad permissions; test that sandbox boundary
+    escalation emits the correct event; test that both guard layers are
+    evaluated independently
 
 ### Escalation Approval & Persistence
 
@@ -112,7 +118,8 @@
     approval)
   - Add `sandboxApprovedEscalations` array to persist user-approved escalation
     rules at project or user config level
-  - Document that sandbox boundaries override `agentForbiddenTools` when active
+  - Keep `agentForbiddenTools` as a separate, independent config field — it is
+    not affected by sandbox settings
   - Update JSON schema (`ConfigSchema.ts`) and keep `SCHEMA_URL` pointing to the
     GitHub-hosted version
   - Tests: Config parsing tests — valid configs parse correctly, invalid
@@ -125,7 +132,8 @@
   - Explain the wrapper architecture (sandbox wraps existing providers)
   - Explain the boundary escalation model and per-phase defaults
   - Document the approval flow and how to persist escalation approvals
-  - Document that sandbox boundaries override `agentForbiddenTools`
+  - Clarify that `agentForbiddenTools` (interactivity guard) and sandbox
+    boundaries (isolation guard) are orthogonal — both apply independently
   - Add example `.gtdrc.json` with sandbox configuration including approved
     escalations
   - Document the escalation flow in the mermaid diagram
@@ -138,9 +146,11 @@
   sandbox lifecycle to guarantee teardown on all exit paths
 - Prefer deriving permissions from workflow phase rather than requiring manual
   per-project configuration — sensible defaults reduce config burden
-- When two config mechanisms control the same concern (e.g.,
-  `agentForbiddenTools` vs sandbox boundaries), pick one as authoritative and
-  override rather than merging — avoids confusing interaction semantics
+- `agentForbiddenTools` and sandbox boundaries are orthogonal concerns —
+  forbidden tools guard against tool calls that require interactivity (immediate
+  error in non-interactive mode), while sandbox boundaries guard isolation
+  permissions (file system, network). Never merge or override one with the
+  other; evaluate both independently
 - Sandbox providers should wrap existing agent providers rather than
   reimplementing the agent protocol — keeps sandbox concerns (permissions,
   isolation) separate from agent concerns (prompting, tool use)
