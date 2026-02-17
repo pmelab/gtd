@@ -1,12 +1,13 @@
 # Sandbox Runtime Integration with Dynamic Boundary Escalation
 
+> thats wrong. i want the sandbox e2e test case in the pure bats based e2e test
+
 ## Action Items
 
 ### Research & API Discovery
 
 - [x] Investigate the `@anthropic-experimental/sandbox-runtime` package API
       surface
-
   - The package is actually `@anthropic-ai/sandbox-runtime` (v0.0.37)
   - Exports: `SandboxManager` (singleton), `SandboxViolationStore`, config
     schemas (`SandboxRuntimeConfigSchema`, `NetworkConfigSchema`,
