@@ -33,36 +33,11 @@ export const commitFeedbackCommand = () =>
         onEvent: renderer.onEvent,
       })
 
-      const parts: Array<{ prefix: string; diff: string; useStage: boolean }> = []
+      const prefix = seed ? "🌱" : feedback ? "💬" : humanTodos ? "🤦" : fixes ? "👷" : "🤦"
 
-      if (fixes) parts.push({ prefix: "👷", diff: fixes, useStage: true })
-      if (seed) parts.push({ prefix: "🌱", diff: seed, useStage: true })
-      if (feedback) parts.push({ prefix: "💬", diff: feedback, useStage: true })
-      if (humanTodos) parts.push({ prefix: "🤦", diff: humanTodos, useStage: true })
-
-      if (parts.length === 0) {
-        renderer.setText("Committing feedback…")
-        const msg = yield* generateCommitMessage("🤦", diff)
-        yield* git.atomicCommit("all", msg)
-      } else if (parts.length === 1) {
-        renderer.setText("Committing feedback…")
-        const part = parts[0]!
-        const msg = yield* generateCommitMessage(part.prefix, part.diff)
-        yield* git.atomicCommit("all", msg)
-      } else {
-        for (let i = 0; i < parts.length; i++) {
-          const part = parts[i]!
-          const isLast = i === parts.length - 1
-          renderer.setText(`Committing ${part.prefix}…`)
-          const msg = yield* generateCommitMessage(part.prefix, part.diff)
-          if (isLast) {
-            yield* git.atomicCommit("all", msg)
-          } else {
-            yield* git.stageByPatch(part.diff)
-            yield* git.commit(msg)
-          }
-        }
-      }
+      renderer.setText("Committing feedback…")
+      const msg = yield* generateCommitMessage(prefix, diff)
+      yield* git.atomicCommit("all", msg)
 
       renderer.succeed("Feedback committed.")
     }).pipe(

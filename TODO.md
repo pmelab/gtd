@@ -4,7 +4,7 @@
 
 ### Simplify commit-feedback to produce a single commit
 
-- [ ] Remove multi-commit logic from `commit-feedback.ts`
+- [x] Remove multi-commit logic from `commit-feedback.ts`
   - Replace the `parts` array and loop in `commitFeedbackCommand` with a single
     `atomicCommit("all", msg)` call
   - The diff classifier result is still useful for choosing the commit prefix,

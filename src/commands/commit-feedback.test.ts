@@ -401,21 +401,39 @@ describe("commitFeedbackCommand", () => {
     }),
   )
 
-  it.effect("fixes committed before feedback in two-phase", () =>
+  it.effect("mixed seed + code TODOs + fixes produces exactly one commit with 🌱 prefix", () =>
     Effect.gen(function* () {
-      const commitOrder: string[] = []
+      const seedAndMixedDiff = [
+        "diff --git a/TODO.md b/TODO.md",
+        "new file mode 100644",
+        "--- /dev/null",
+        "+++ b/TODO.md",
+        "@@ -0,0 +1,3 @@",
+        "+# Plan",
+        "+- [ ] Do something",
+        "+- [ ] Do another thing",
+        "diff --git a/src/app.ts b/src/app.ts",
+        "index abc1234..def5678 100644",
+        "--- a/src/app.ts",
+        "+++ b/src/app.ts",
+        "@@ -1,3 +1,4 @@",
+        " const x = 1",
+        "+const y = 2",
+        " const z = 3",
+        "@@ -10,3 +11,4 @@",
+        " const a = 1",
+        "+// TODO: refactor this",
+        " const b = 2",
+      ].join("\n")
+
+      const commits: Array<{ files: ReadonlyArray<string> | "all"; message: string }> = []
 
       const gitLayer = mockGit({
-        getDiff: () => Effect.succeed(mixedDiff),
+        getDiff: () => Effect.succeed(seedAndMixedDiff),
         hasUncommittedChanges: () => Effect.succeed(true),
-        stageByPatch: () => Effect.void,
-        commit: (message) =>
+        atomicCommit: (files, message) =>
           Effect.sync(() => {
-            commitOrder.push(message.slice(0, 2))
-          }),
-        atomicCommit: (_files, message) =>
-          Effect.sync(() => {
-            commitOrder.push(message.slice(0, 2))
+            commits.push({ files, message })
           }),
       })
 
@@ -431,8 +449,9 @@ describe("commitFeedbackCommand", () => {
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
-      expect(commitOrder[0]).toBe("👷")
-      expect(commitOrder[1]).toBe("🤦")
+      expect(commits.length).toBe(1)
+      expect(commits[0]!.files).toBe("all")
+      expect(commits[0]!.message.startsWith("🌱")).toBe(true)
     }),
   )
 })
