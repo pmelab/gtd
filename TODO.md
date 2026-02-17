@@ -19,7 +19,7 @@
 
 ### Update plan command to read combined diff from last commit
 
-- [ ] Make `plan.ts` read `git diff HEAD~1` when the working tree is clean
+- [x] Make `plan.ts` read `git diff HEAD~1` when the working tree is clean
   - After commit-feedback runs and plan is dispatched, `git.getDiff()` returns
     empty because everything is committed
   - Add a fallback: when `diff.trim() === ""`, read `git.show("HEAD")` or

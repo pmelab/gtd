@@ -24,9 +24,12 @@ export const planCommand = (fs: FileOps) =>
 
     const renderer = createSpinnerRenderer(isInteractive())
 
-    // 1. Get diff
+    // 1. Get diff (fall back to last commit when working tree is clean)
     renderer.setText("Reading diff...")
-    const diff = yield* git.getDiff()
+    let diff = yield* git.getDiff()
+    if (diff.trim() === "") {
+      diff = yield* git.show("HEAD")
+    }
 
     // 2. Read plan file if exists
     const fileExists = yield* fs.exists()

@@ -313,4 +313,30 @@ describe("planCommand", () => {
       expect(gitCalls.some((c) => c.startsWith("commit:"))).toBe(true)
     }),
   )
+
+  it.effect("falls back to last commit diff when working tree is clean", () =>
+    Effect.gen(function* () {
+      const calls: AgentInvocation[] = []
+      const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
+        providerType: "pi",
+        invoke: (params) =>
+          Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
+            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
+          ),
+        isAvailable: () => Effect.succeed(true),
+      })
+      const lastCommitDiff = "diff --git a/TODO.md b/TODO.md\n+> Fix the bug in parser"
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(""),
+        show: (_ref: string) => Effect.succeed(lastCommitDiff),
+      })
+      yield* planCommand(mockFs("")).pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+      expect(calls[0]!.prompt).toContain("Fix the bug in parser")
+      expect(calls[0]!.prompt).not.toContain("No diff available.")
+    }),
+  )
 })
