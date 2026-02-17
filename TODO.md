@@ -6,6 +6,7 @@
 
 - [x] Investigate the `@anthropic-experimental/sandbox-runtime` package API
       surface
+
   - The package is actually `@anthropic-ai/sandbox-runtime` (v0.0.37)
   - Exports: `SandboxManager` (singleton), `SandboxViolationStore`, config
     schemas (`SandboxRuntimeConfigSchema`, `NetworkConfigSchema`,
@@ -50,6 +51,7 @@
 
 - [x] Replace `agentForbiddenTools` config field with internal per-agent
       blocklists
+
   - Create a `FORBIDDEN_TOOLS` constant map in `src/services/AgentGuards.ts`
     keyed by agent provider type (e.g.,
     `{ pi: [...], opencode: [...], claude: ["AskUserQuestion", ...] }`)
@@ -77,6 +79,7 @@
 
 - [x] Create `src/services/agents/Sandbox.ts` as a wrapper around existing
       providers
+
   - Wrap an inner `AgentProvider` (pi, opencode, or claude) — the sandbox
     manages the execution environment while the inner provider drives the agent
   - Accept the inner provider via constructor/config so any existing provider
@@ -105,6 +108,7 @@
 
 - [x] Define a `BoundaryLevel` type and escalation policy in
       `src/services/SandboxBoundaries.ts`
+
   - Design tiered permission levels (e.g., `readonly` → `readwrite` → `network`
     → `full`)
   - Each level maps to concrete sandbox capabilities: file system scope, network
@@ -115,6 +119,7 @@
     capability set; test config parsing with custom boundaries
 
 - [x] Implement automatic escalation triggers tied to the gtd workflow phases
+
   - `plan` mode → `readonly` (agent only reads files and writes to TODO.md)
   - `build` mode → `readwrite` (agent can modify source files, run tests)
   - `learn` mode → `readonly` (agent only reads diff and writes to AGENTS.md)
@@ -143,26 +148,80 @@
     sandbox boundary escalation emits the correct event; test that both guard
     layers are evaluated independently
 
-### Escalation Approval & Persistence
+### Strict Default Permissions
 
-- [x] Implement human approval flow for boundary escalation
-  - On escalation trigger, prompt the user for approval (e.g., TUI dialog or CLI
-    confirmation)
-  - Offer three options: approve once, approve and save to project config, or
-    approve and save to user config
-  - "Save to project config" writes the escalation rule into the project-level
-    `.gtdrc.json` so it auto-approves next time
-  - "Save to user config" writes to the user-level config for cross-project
-    persistence
-  - When a saved approval exists at any config level, skip the prompt and
-    escalate automatically
-  - Tests: Unit test each approval path (once, project-persist, user-persist);
-    verify saved approvals bypass the prompt on subsequent runs; verify config
-    merging respects level priority
+- [ ] Default filesystem sandbox to current working directory only
+
+  - Set `allowWrite` to `[cwd]` and deny reads outside `cwd` by default so
+    agents can only read and write within the project directory
+  - Derive `cwd` from `AgentInvocation.cwd` when constructing the sandbox config
+  - Allow overrides via `sandboxBoundaries.filesystem.allowRead` and
+    `sandboxBoundaries.filesystem.allowWrite` arrays in `.gtdrc.json` for
+    projects that need access to paths outside cwd (e.g., shared libraries,
+    monorepo roots)
+  - Tests: Unit test that default sandbox config restricts filesystem to cwd;
+    test that config overrides extend the allowed paths; test that paths outside
+    cwd are denied by default
+
+- [ ] Default network sandbox to agent-essential domains only
+  - Build a per-agent-provider allowlist of domains required for the agent to
+    function (e.g., API endpoints for Claude, OpenCode, Pi)
+  - Set `network.allowedDomains` to only these essential domains by default;
+    deny all other outbound network requests
+  - Allow users to extend the allowlist via
+    `sandboxBoundaries.network.allowedDomains` in `.gtdrc.json` for projects
+    that need additional network access (e.g., package registries, internal
+    APIs)
+  - Tests: Unit test that default network config only allows agent-essential
+    domains; test that user config extends (not replaces) the essential
+    allowlist; test that requests to non-allowed domains are denied
+
+### Fail-Stop Escalation (Replace Prompt-Based Approval)
+
+- [ ] Replace interactive escalation prompts with fail-stop behavior
+
+  - When a sandbox violation occurs (filesystem access outside cwd, network
+    request to non-allowed domain), stop the agent process immediately with a
+    clear error message describing the violation
+  - The error message must include: what was attempted, what permission is
+    missing, and how to grant it (either adjust `sandboxBoundaries` in
+    `.gtdrc.json` or adjust the task requirements)
+  - Remove the `SandboxAskCallback` usage — never prompt the user during agent
+    execution
+  - Tests: Unit test that a filesystem violation stops the process with an
+    actionable error message; test that a network violation stops with the
+    correct domain and config hint; test that no interactive prompt is ever
+    triggered
+
+- [ ] Remove `sandboxEscalationPolicy` and `sandboxApprovedEscalations` from
+      config
+
+  - Remove `sandboxEscalationPolicy` field (no longer needed — policy is always
+    fail-stop)
+  - Remove `sandboxApprovedEscalations` array (no longer needed — users grant
+    permissions statically in config)
+  - Update `ConfigSchema.ts`, `ConfigResolver.ts`, and `Config.ts` to remove
+    these fields
+  - Keep backwards compatibility by ignoring these fields if present in existing
+    configs
+  - Tests: Config parsing tests — verify old configs with these fields still
+    parse without error; verify new configs without these fields parse correctly
+
+- [ ] Update `SandboxBoundaries.ts` to remove dynamic escalation logic
+  - Remove the escalation state machine (no more runtime transitions between
+    boundary levels)
+  - Permissions are fully determined at sandbox boot time from the workflow
+    phase + user config overrides
+  - The `BoundaryLevel` type still maps phases to capabilities, but transitions
+    are no longer triggered at runtime — if the agent needs more permissions,
+    the user must update config and re-run
+  - Tests: Unit test that boundary level is fixed at boot and does not change
+    during execution; test that violation triggers process stop, not escalation
 
 ### Configuration & Schema
 
 - [x] Extend `.gtdrc.json` schema and `ConfigResolver.ts` for sandbox settings
+
   - Add `sandboxEnabled: boolean` (default `false`) — opt-in to sandbox
     execution
   - Add `sandboxBoundaries` object with per-phase overrides (e.g.,
@@ -178,9 +237,24 @@
     boundary levels are rejected, defaults apply when fields are omitted,
     approved escalations merge correctly across config levels
 
+- [ ] Update config schema for fail-stop model and strict defaults
+  - Replace `sandboxBoundaries` with a more explicit structure:
+    `{ filesystem: { allowRead?: string[], allowWrite?: string[] }, network: { allowedDomains?: string[] } }`
+    where all arrays default to cwd-only / agent-essential-only
+  - Remove `sandboxEscalationPolicy` and `sandboxApprovedEscalations` from
+    schema (see fail-stop work package)
+  - Update example `.gtdrc.json` to show how to extend default permissions
+    (e.g., adding a package registry domain, allowing writes to a shared
+    directory)
+  - Update JSON schema and `SCHEMA_URL`
+  - Tests: Config parsing tests — defaults produce cwd-only + agent-essential
+    network; user overrides merge correctly; example config validates against
+    schema
+
 ### Documentation & Examples
 
 - [x] Update README.md with sandbox runtime section
+
   - Explain the wrapper architecture (sandbox wraps existing providers)
   - Explain the boundary escalation model and per-phase defaults
   - Document the approval flow and how to persist escalation approvals
@@ -194,13 +268,19 @@
   - Tests: README test (`readme.test.ts`) still passes; example config validates
     against schema
 
-> Additions:
->
-> - by default, read an write should only be allowed in the current directory
->   and all network requests except the ones necessary for the agent to work
-> - do not prompt the user on escalation, but stop the process with an according
->   message. users then can either adjust the permissions in config or adjust
->   the requirements
+- [ ] Update documentation for fail-stop model and strict defaults
+  - Rewrite the sandbox section to explain: strict defaults (cwd-only
+    filesystem, agent-essential-only network), fail-stop on violation (no
+    prompts), and how to extend permissions via config
+  - Add examples showing common permission extensions: adding npm registry
+    access, allowing reads from a parent monorepo directory, allowing writes to
+    a shared output directory
+  - Remove all references to interactive approval prompts, escalation policies,
+    and approved escalations
+  - Update the mermaid diagram to show the fail-stop flow: violation → error
+    message → user adjusts config → re-run
+  - Tests: README test (`readme.test.ts`) still passes; example configs validate
+    against schema
 
 ## Learnings
 
@@ -216,11 +296,15 @@
 - Sandbox providers should wrap existing agent providers rather than
   reimplementing the agent protocol — keeps sandbox concerns (permissions,
   isolation) separate from agent concerns (prompting, tool use)
-- Approval persistence should support multiple config levels (project, user) so
-  teams can share common escalation policies while individuals can customize
 - Prefer internal, hardcoded blocklists over user-facing config for safety
   invariants like forbidden tools — users should not be able to accidentally
   unblock interactive tools in non-interactive mode; derive blocklists from each
   agent provider's actual tool catalog
 - When removing a config field, keep backwards compatibility by ignoring (not
   rejecting) the old field in parsing so existing config files don't break
+- Default to least privilege: restrict filesystem to cwd and network to
+  agent-essential domains only — users explicitly opt in to broader access via
+  config rather than opting out of broad defaults
+- Prefer fail-stop over interactive prompts in automated pipelines — stopping
+  with an actionable error message is safer and more predictable than prompting
+  mid-execution; users adjust permissions in config and re-run
