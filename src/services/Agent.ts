@@ -44,7 +44,10 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
     AgentService,
     Effect.gen(function* () {
       const config = yield* GtdConfigService
-      const provider = yield* resolveAgent(config.agent)
+      const provider = yield* resolveAgent({
+        agentId: config.agent,
+        sandboxEnabled: config.sandboxEnabled,
+      })
 
       const guardsConfig = {
         inactivityTimeoutSeconds: config.agentInactivityTimeout,
@@ -85,7 +88,36 @@ export const catchAgentError = <A, R>(
     }),
   )
 
-export const resolveAgent = (agentId: string): Effect.Effect<AgentProvider, AgentError> =>
+export interface ResolveAgentOptions {
+  readonly agentId: string
+  readonly sandboxEnabled?: boolean
+}
+
+export const resolveAgent = (
+  agentIdOrOptions: string | ResolveAgentOptions,
+): Effect.Effect<AgentProvider, AgentError> =>
+  Effect.gen(function* () {
+    const { agentId, sandboxEnabled } =
+      typeof agentIdOrOptions === "string"
+        ? { agentId: agentIdOrOptions, sandboxEnabled: false }
+        : { agentId: agentIdOrOptions.agentId, sandboxEnabled: agentIdOrOptions.sandboxEnabled ?? false }
+
+    const baseProvider = yield* resolveBaseAgent(agentId)
+
+    if (sandboxEnabled) {
+      const { isSandboxRuntimeAvailable, SandboxAgent } = yield* Effect.promise(
+        () => import("./agents/Sandbox.js"),
+      )
+      const available = yield* isSandboxRuntimeAvailable
+      if (available) {
+        return SandboxAgent(baseProvider)
+      }
+    }
+
+    return baseProvider
+  })
+
+const resolveBaseAgent = (agentId: string): Effect.Effect<AgentProvider, AgentError> =>
   Effect.gen(function* () {
     if (agentId === "pi") {
       const { PiAgent } = yield* Effect.promise(() => import("./agents/Pi.js"))

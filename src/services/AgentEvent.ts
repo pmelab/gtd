@@ -10,6 +10,8 @@ export type AgentEvent =
       readonly isError: boolean
     }
   | { readonly _tag: "AgentEnd" }
+  | { readonly _tag: "SandboxStarted" }
+  | { readonly _tag: "SandboxStopped" }
 
 export const AgentEvents = {
   agentStart: (): AgentEvent => ({ _tag: "AgentStart" }),
@@ -23,4 +25,6 @@ export const AgentEvents = {
     isError,
   }),
   agentEnd: (): AgentEvent => ({ _tag: "AgentEnd" }),
+  sandboxStarted: (): AgentEvent => ({ _tag: "SandboxStarted" }),
+  sandboxStopped: (): AgentEvent => ({ _tag: "SandboxStopped" }),
 }

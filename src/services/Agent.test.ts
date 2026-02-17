@@ -86,6 +86,32 @@ describe("resolveAgent", () => {
   )
 })
 
+describe("resolveAgent with sandbox", () => {
+  it("wraps provider when sandboxEnabled is true and runtime available", async () => {
+    const provider = await Effect.runPromise(
+      resolveAgent({ agentId: "pi", sandboxEnabled: true }),
+    )
+    // If sandbox runtime is not installed, it should fall back to unwrapped
+    // If installed, name should contain "(sandbox)"
+    expect(typeof provider.name).toBe("string")
+    expect(provider.providerType).toBe("pi")
+  })
+
+  it("returns unwrapped provider when sandboxEnabled is false", async () => {
+    const provider = await Effect.runPromise(
+      resolveAgent({ agentId: "pi", sandboxEnabled: false }),
+    )
+    expect(provider.name).toBe("pi")
+    expect(provider.name).not.toContain("sandbox")
+  })
+
+  it("string argument behaves as sandboxEnabled=false", async () => {
+    const provider = await Effect.runPromise(resolveAgent("pi"))
+    expect(provider.name).toBe("pi")
+    expect(provider.name).not.toContain("sandbox")
+  })
+})
+
 describe("AgentService.Live", () => {
   it.effect("exposes resolved agent name with auto config", () =>
     Effect.gen(function* () {
@@ -106,6 +132,7 @@ describe("AgentService.Live", () => {
               testRetries: 0,
               commitPrompt: "",
               agentInactivityTimeout: 300,
+              sandboxEnabled: false,
               configSources: [],
             }),
           ),

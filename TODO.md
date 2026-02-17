@@ -79,7 +79,7 @@
 
 ### Sandbox Agent Provider (Wrapper Architecture)
 
-- [ ] Create `src/services/agents/Sandbox.ts` as a wrapper around existing
+- [x] Create `src/services/agents/Sandbox.ts` as a wrapper around existing
       providers
 
   - Wrap an inner `AgentProvider` (pi, opencode, or claude) — the sandbox
@@ -98,7 +98,7 @@
     lifecycle (create → delegate → destroy), event composition, and error
     teardown
 
-- [ ] Register the sandbox provider in `resolveAgent()` in `Agent.ts`
+- [x] Register the sandbox provider in `resolveAgent()` in `Agent.ts`
   - When `sandboxEnabled` is true, wrap the resolved provider
     (pi/opencode/claude) in the `Sandbox` provider rather than adding a separate
     agent ID
