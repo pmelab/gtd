@@ -39,3 +39,48 @@ It automates AI agent execution and git operations:
 - order CI steps from fastest/cheapest to slowest/most expensive so failures
   surface early and save runner time — prefer: typecheck → lint → format → unit
   → e2e
+- when removing a config field, keep backwards compatibility by ignoring (not
+  rejecting) the old field in parsing so existing config files don't break
+- prefer fail-stop over interactive prompts in automated pipelines — stopping
+  with an actionable error message is safer and more predictable than prompting
+  mid-execution; users adjust permissions in config and re-run
+
+## Architecture
+
+### Resource Management
+
+- always use Effect resource management (`acquireRelease` / `ensuring`) for
+  sandbox lifecycle to guarantee teardown on all exit paths
+
+### Sandbox & Permissions
+
+- sandbox providers should wrap existing agent providers rather than
+  reimplementing the agent protocol — keeps sandbox concerns (permissions,
+  isolation) separate from agent concerns (prompting, tool use)
+- `agentForbiddenTools` and sandbox boundaries are orthogonal concerns —
+  forbidden tools guard against tool calls that require interactivity (immediate
+  error in non-interactive mode), while sandbox boundaries guard isolation
+  permissions (file system, network). Never merge or override one with the
+  other; evaluate both independently
+- prefer internal, hardcoded blocklists over user-facing config for safety
+  invariants like forbidden tools — users should not be able to accidentally
+  unblock interactive tools in non-interactive mode; derive blocklists from each
+  agent provider's actual tool catalog
+- default to least privilege: restrict filesystem to cwd and network to
+  agent-essential domains only — users explicitly opt in to broader access via
+  config rather than opting out of broad defaults
+
+### Configuration Design
+
+- prefer deriving permissions from workflow phase rather than requiring manual
+  per-project configuration — sensible defaults reduce config burden
+
+## Testing
+
+- E2E tests should use the same test harness as existing integration tests
+  (bats + the actual built binary) rather than vitest with mocked internals —
+  true e2e tests must exercise the real CLI entry point to catch integration
+  issues
+- E2E tests for fail-stop boundaries should exercise the full user workflow: run
+  → violation → config adjustment → re-run → success — this validates both the
+  error messaging and the config-driven escalation path
