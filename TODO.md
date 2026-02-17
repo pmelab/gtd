@@ -152,7 +152,7 @@
 
 ### Escalation Approval & Persistence
 
-- [ ] Implement human approval flow for boundary escalation
+- [x] Implement human approval flow for boundary escalation
   - On escalation trigger, prompt the user for approval (e.g., TUI dialog or CLI
     confirmation)
   - Offer three options: approve once, approve and save to project config, or
