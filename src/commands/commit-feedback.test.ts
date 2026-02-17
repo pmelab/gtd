@@ -310,23 +310,14 @@ describe("commitFeedbackCommand", () => {
     " const z = 3",
   ].join("\n")
 
-  it.effect("two-phase: commits fixes then feedback when both exist", () =>
+  it.effect("single commit with 🤦 prefix when fixes and feedback both exist", () =>
     Effect.gen(function* () {
       const commits: Array<{ type: string; message: string }> = []
-      let stagedPatch: string | undefined
 
       const gitLayer = mockGit({
         getDiff: () => Effect.succeed(mixedDiff),
         hasUncommittedChanges: () => Effect.succeed(true),
-        stageByPatch: (patch) =>
-          Effect.sync(() => {
-            stagedPatch = patch
-          }),
-        commit: (message) =>
-          Effect.sync(() => {
-            commits.push({ type: "commit", message })
-          }),
-        atomicCommit: (files, message) =>
+        atomicCommit: (_files, message) =>
           Effect.sync(() => {
             commits.push({ type: "atomicCommit", message })
           }),
@@ -344,12 +335,9 @@ describe("commitFeedbackCommand", () => {
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
-      expect(commits.length).toBe(2)
-      expect(commits[0]!.message.startsWith("👷")).toBe(true)
-      expect(commits[0]!.type).toBe("commit")
-      expect(commits[1]!.message.startsWith("🤦")).toBe(true)
-      expect(commits[1]!.type).toBe("atomicCommit")
-      expect(stagedPatch).toBeDefined()
+      expect(commits.length).toBe(1)
+      expect(commits[0]!.type).toBe("atomicCommit")
+      expect(commits[0]!.message.startsWith("🤦")).toBe(true)
     }),
   )
 
