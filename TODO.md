@@ -17,7 +17,6 @@
 ### Sandbox Agent Provider
 
 - [ ] Create `src/services/agents/Sandbox.ts` implementing `AgentProvider`
-
   - Wrap sandbox-runtime SDK to manage sandbox lifecycle within `invoke()`
   - Map `AgentInvocation` fields (prompt, systemPrompt, mode, cwd) to sandbox
     API parameters
@@ -40,7 +39,6 @@
 
 - [ ] Define a `BoundaryLevel` type and escalation policy in
       `src/services/SandboxBoundaries.ts`
-
   - Design tiered permission levels (e.g., `readonly` → `readwrite` → `network`
     → `full`)
   - Each level maps to concrete sandbox capabilities: file system scope, network
@@ -51,7 +49,6 @@
     capability set; test config parsing with custom boundaries
 
 - [ ] Implement automatic escalation triggers tied to the gtd workflow phases
-
   - `plan` mode → `readonly` (agent only reads files and writes to TODO.md)
   - `build` mode → `readwrite` (agent can modify source files, run tests)
   - `learn` mode → `readonly` (agent only reads diff and writes to AGENTS.md)
