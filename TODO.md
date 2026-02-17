@@ -1,13 +1,12 @@
 # Sandbox Runtime Integration with Dynamic Boundary Escalation
 
-> thats wrong. i want the sandbox e2e test case in the pure bats based e2e test
-
 ## Action Items
 
 ### Research & API Discovery
 
 - [x] Investigate the `@anthropic-experimental/sandbox-runtime` package API
       surface
+
   - The package is actually `@anthropic-ai/sandbox-runtime` (v0.0.37)
   - Exports: `SandboxManager` (singleton), `SandboxViolationStore`, config
     schemas (`SandboxRuntimeConfigSchema`, `NetworkConfigSchema`,
@@ -52,6 +51,7 @@
 
 - [x] Replace `agentForbiddenTools` config field with internal per-agent
       blocklists
+
   - Create a `FORBIDDEN_TOOLS` constant map in `src/services/AgentGuards.ts`
     keyed by agent provider type (e.g.,
     `{ pi: [...], opencode: [...], claude: ["AskUserQuestion", ...] }`)
@@ -79,6 +79,7 @@
 
 - [x] Create `src/services/agents/Sandbox.ts` as a wrapper around existing
       providers
+
   - Wrap an inner `AgentProvider` (pi, opencode, or claude) — the sandbox
     manages the execution environment while the inner provider drives the agent
   - Accept the inner provider via constructor/config so any existing provider
@@ -107,6 +108,7 @@
 
 - [x] Define a `BoundaryLevel` type and escalation policy in
       `src/services/SandboxBoundaries.ts`
+
   - Design tiered permission levels (e.g., `readonly` → `readwrite` → `network`
     → `full`)
   - Each level maps to concrete sandbox capabilities: file system scope, network
@@ -117,6 +119,7 @@
     capability set; test config parsing with custom boundaries
 
 - [x] Implement automatic escalation triggers tied to the gtd workflow phases
+
   - `plan` mode → `readonly` (agent only reads files and writes to TODO.md)
   - `build` mode → `readwrite` (agent can modify source files, run tests)
   - `learn` mode → `readonly` (agent only reads diff and writes to AGENTS.md)
@@ -148,6 +151,7 @@
 ### Strict Default Permissions
 
 - [x] Default filesystem sandbox to current working directory only
+
   - Set `allowWrite` to `[cwd]` and deny reads outside `cwd` by default so
     agents can only read and write within the project directory
   - Derive `cwd` from `AgentInvocation.cwd` when constructing the sandbox config
@@ -175,6 +179,7 @@
 ### Fail-Stop Escalation (Replace Prompt-Based Approval)
 
 - [x] Replace interactive escalation prompts with fail-stop behavior
+
   - When a sandbox violation occurs (filesystem access outside cwd, network
     request to non-allowed domain), stop the agent process immediately with a
     clear error message describing the violation
@@ -190,6 +195,7 @@
 
 - [x] Remove `sandboxEscalationPolicy` and `sandboxApprovedEscalations` from
       config
+
   - Remove `sandboxEscalationPolicy` field (no longer needed — policy is always
     fail-stop)
   - Remove `sandboxApprovedEscalations` array (no longer needed — users grant
@@ -215,6 +221,7 @@
 ### Configuration & Schema
 
 - [x] Extend `.gtdrc.json` schema and `ConfigResolver.ts` for sandbox settings
+
   - Add `sandboxEnabled: boolean` (default `false`) — opt-in to sandbox
     execution
   - Add `sandboxBoundaries` object with per-phase overrides (e.g.,
@@ -247,6 +254,7 @@
 ### Documentation & Examples
 
 - [x] Update README.md with sandbox runtime section
+
   - Explain the wrapper architecture (sandbox wraps existing providers)
   - Explain the boundary escalation model and per-phase defaults
   - Document the approval flow and how to persist escalation approvals
@@ -274,34 +282,70 @@
   - Tests: README test (`readme.test.ts`) still passes; example configs validate
     against schema
 
-### E2E Tests for Boundary Escalation via Config Adjustment
+### Bats-Based E2E Tests for Sandbox Boundaries
 
-- [x] E2E test: network boundary fail-stop and config-driven escalation
-  - Set up a sandbox-enabled gtd run that attempts to fetch data from an
-    untrusted URL (not in the default `allowedDomains`)
-  - Verify the agent process stops with a fail-stop error identifying the
-    blocked domain and suggesting the config change
-  - Programmatically update the local `.gtdrc.json` to add the blocked domain to
+- [ ] Create `tests/integration/sandbox-boundaries.bats` test file with shared
+      helpers
+
+  - Create a new bats test file alongside `gtd-workflow.bats` using the same
+    test infrastructure (`helpers/setup.bash`, `bats-support`, `bats-assert`)
+  - Add sandbox-specific helpers to `helpers/setup.bash` (or a new
+    `helpers/sandbox.bash`): `write_gtdrc` to create `.gtdrc.json` with sandbox
+    config, `assert_sandbox_violation` to check fail-stop error output
+  - `setup_file` should call `build_gtd`, `create_test_project`, and write a
+    minimal `.gtdrc.json` with `sandboxEnabled: true`
+  - Tests: The bats file itself loads and runs;
+    `bats tests/integration/sandbox-boundaries.bats` executes without load
+    errors
+
+- [ ] Bats E2E test: network boundary fail-stop and config-driven escalation
+
+  - Test case: set up a sandbox-enabled gtd run where the agent task requires
+    fetching from an untrusted domain (not in default `allowedDomains`)
+  - Run `gtd` via `run_gtd` and assert failure with `assert_failure`
+  - Assert output contains the blocked domain name and a hint about
     `sandboxBoundaries.network.allowedDomains`
-  - Re-run gtd with the updated config and verify the fetch succeeds without
-    violation
-  - Tests: Single e2e test covering the full cycle — run → fail → adjust config
-    → re-run → success
+  - Programmatically update `.gtdrc.json` to add the blocked domain to
+    `sandboxBoundaries.network.allowedDomains` using `write_gtdrc`
+  - Re-run `gtd` via `run_gtd` and assert success with `assert_success`
+  - Tests: `bats tests/integration/sandbox-boundaries.bats` — the network
+    escalation test passes end-to-end
 
-- [x] E2E test: filesystem boundary fail-stop and config-driven escalation
-  - Set up a sandbox-enabled gtd run where the agent attempts to write a file to
-    a temporary directory outside cwd (e.g., `/tmp/gtd-test-output`)
-  - Verify the agent process stops with a fail-stop error identifying the denied
-    path and suggesting the config change
-  - Programmatically update the local `.gtdrc.json` to add
-    `/tmp/gtd-test-output` to `sandboxBoundaries.filesystem.allowWrite`
-  - Re-run gtd with the updated config and verify the file write succeeds
-  - Repeat the same pattern for reading a file from `/tmp` — first verify read
-    is denied, then add to `sandboxBoundaries.filesystem.allowRead`, then verify
-    read succeeds
-  - Tests: Single e2e test covering write escalation (run → fail → config →
-    re-run → success) and a second e2e test covering read escalation with the
-    same pattern
+- [ ] Bats E2E test: filesystem write boundary fail-stop and config-driven
+      escalation
+
+  - Test case: set up a sandbox-enabled gtd run where the agent task writes to a
+    path outside cwd (e.g., `/tmp/gtd-test-output`)
+  - Run `gtd` via `run_gtd` and assert failure with `assert_failure`
+  - Assert output contains the denied path and a hint about
+    `sandboxBoundaries.filesystem.allowWrite`
+  - Update `.gtdrc.json` to add the outside path to
+    `sandboxBoundaries.filesystem.allowWrite`
+  - Re-run `gtd` via `run_gtd` and assert success with `assert_success`
+  - Tests: `bats tests/integration/sandbox-boundaries.bats` — the write
+    escalation test passes end-to-end
+
+- [ ] Bats E2E test: filesystem read boundary fail-stop and config-driven
+      escalation
+
+  - Test case: create a file outside cwd (e.g., `/tmp/gtd-test-data/data.txt`),
+    then run a sandbox-enabled gtd task that requires reading it
+  - Run `gtd` via `run_gtd` and assert failure with `assert_failure`
+  - Assert output contains the denied path and a hint about
+    `sandboxBoundaries.filesystem.allowRead`
+  - Update `.gtdrc.json` to add the outside path to
+    `sandboxBoundaries.filesystem.allowRead`
+  - Re-run `gtd` via `run_gtd` and assert success with `assert_success`
+  - Tests: `bats tests/integration/sandbox-boundaries.bats` — the read
+    escalation test passes end-to-end
+
+- [ ] Remove the vitest-based e2e test file
+  - Delete `src/services/sandbox-escalation.e2e.test.ts` — the bats tests
+    replace it as the authoritative e2e coverage for sandbox boundaries
+  - Verify no other tests import from the deleted file
+  - Tests: `bun test` still passes with the file removed;
+    `bats tests/integration/sandbox-boundaries.bats` provides equivalent
+    coverage
 
 ## Learnings
 
@@ -332,3 +376,7 @@
 - E2E tests for fail-stop boundaries should exercise the full user workflow: run
   → violation → config adjustment → re-run → success — this validates both the
   error messaging and the config-driven escalation path
+- E2E tests should use the same test harness as existing integration tests
+  (bats + the actual built binary) rather than vitest with mocked internals —
+  true e2e tests must exercise the real CLI entry point to catch integration
+  issues
