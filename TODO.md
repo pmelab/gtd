@@ -78,6 +78,9 @@
     runtime
   - Both mechanisms apply simultaneously — a tool can be allowed by the sandbox
     but still forbidden by `agentForbiddenTools` if it requires interactivity
+    > agentForbiddenTools should not be a configration setting any more, but
+    > just an internal list of possible agent tool calls. investigate all
+    > possible tool calls for each agent and create that blocklist.
   - On escalation, update the sandbox's live permissions via SDK API
   - Emit a new `AgentEvent` variant (e.g., `BoundaryEscalated`) so the TUI/logs
     reflect permission changes
