@@ -4,7 +4,8 @@ import { AgentEvents } from "../AgentEvent.js"
 
 export const isSandboxRuntimeAvailable: Effect.Effect<boolean> = Effect.try({
   try: () => {
-    require.resolve("@anthropic-ai/sandbox-runtime")
+    const mod = "@anthropic-ai/sandbox-runtime"
+    require.resolve(mod)
     return true
   },
   catch: () => false,
