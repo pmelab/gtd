@@ -57,10 +57,14 @@
   - Tests: `gatherState` after a `🌱` commit correctly infers `plan` as next
     step; after a `💬` commit correctly infers `plan`
 
+> make sure to cover the new commit types in bats tests.
+
 ## Open Questions
 
 - Should `🤦` (HUMAN) be kept for mixed changes that include both code fixes and
   TODO edits, or should it be fully replaced by the new types?
+  > HUMAN should be used for TODO hunks in code. FEEDBACK for `>` feedback in
+  > TODO.md, human fix (👷‍♂️) for actual code changes in the diff
 
 ## Learnings
 
