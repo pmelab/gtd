@@ -4,7 +4,7 @@
 
 ### New Commit Prefixes
 
-- [ ] Add `SEED` and `FEEDBACK` commit prefixes in `CommitPrefix.ts`
+- [x] Add `SEED` and `FEEDBACK` commit prefixes in `CommitPrefix.ts`
   - Add `export const SEED = "🌱" as const` for initial TODO file
     creation/additions
   - Add `export const FEEDBACK = "💬" as const` for planning feedback

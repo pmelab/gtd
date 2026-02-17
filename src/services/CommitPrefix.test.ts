@@ -5,6 +5,8 @@ import {
   BUILD,
   LEARN,
   CLEANUP,
+  SEED,
+  FEEDBACK,
   parseCommitPrefix,
 } from "./CommitPrefix.js"
 
@@ -25,6 +27,12 @@ describe("CommitPrefix", () => {
     it("CLEANUP is 🧹", () => {
       expect(CLEANUP).toBe("🧹")
     })
+    it("SEED is 🌱", () => {
+      expect(SEED).toBe("🌱")
+    })
+    it("FEEDBACK is 💬", () => {
+      expect(FEEDBACK).toBe("💬")
+    })
   })
 
   describe("parseCommitPrefix", () => {
@@ -42,6 +50,12 @@ describe("CommitPrefix", () => {
     })
     it("parses CLEANUP prefix", () => {
       expect(parseCommitPrefix("🧹 cleanup something")).toBe(CLEANUP)
+    })
+    it("parses SEED prefix", () => {
+      expect(parseCommitPrefix("🌱 create TODO")).toBe(SEED)
+    })
+    it("parses FEEDBACK prefix", () => {
+      expect(parseCommitPrefix("💬 add review notes")).toBe(FEEDBACK)
     })
     it("returns undefined for unknown emoji", () => {
       expect(parseCommitPrefix("🚀 launch")).toBeUndefined()
