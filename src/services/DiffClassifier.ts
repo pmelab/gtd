@@ -1,9 +1,12 @@
 const FEEDBACK_MARKERS = /\b(TODO|FIX|FIXME|HACK|XXX):/i
 
+const BLOCKQUOTE_ADDITION = /^\+\s*> /
+
 interface ParsedFile {
   path: string
   headers: string[]
   hunks: Array<{ header: string; lines: string[] }>
+  isNew: boolean
 }
 
 const parseUnifiedDiff = (diff: string): ParsedFile[] => {
@@ -20,14 +23,29 @@ const parseUnifiedDiff = (diff: string): ParsedFile[] => {
       if (current) files.push(current)
 
       const match = line.match(/diff --git a\/(.+?) b\//)
-      current = { path: match?.[1] ?? "", headers: [line], hunks: [] }
+      current = { path: match?.[1] ?? "", headers: [line], hunks: [], isNew: false }
       currentHunk = null
       continue
     }
 
     if (!current) continue
 
-    if (line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ ")) {
+    if (line.startsWith("index ") || line.startsWith("new file mode ")) {
+      if (!currentHunk) current.headers.push(line)
+      continue
+    }
+
+    if (line.startsWith("--- ")) {
+      if (!currentHunk) {
+        current.headers.push(line)
+        if (line === "--- /dev/null") {
+          current.isNew = true
+        }
+      }
+      continue
+    }
+
+    if (line.startsWith("+++ ")) {
       if (!currentHunk) current.headers.push(line)
       continue
     }
@@ -57,6 +75,11 @@ const isTodoFeedbackHunk = (hunk: { lines: string[] }): boolean => {
   return hunk.lines.some((line) => line.startsWith("+"))
 }
 
+const isBlockquoteHunk = (hunk: { lines: string[] }): boolean => {
+  const addedLines = hunk.lines.filter((line) => line.startsWith("+"))
+  return addedLines.length > 0 && addedLines.every((line) => BLOCKQUOTE_ADDITION.test(line))
+}
+
 const reconstructDiff = (files: ParsedFile[]): string => {
   if (files.length === 0) return ""
 
@@ -73,37 +96,71 @@ const reconstructDiff = (files: ParsedFile[]): string => {
   return parts.length > 0 ? parts.join("\n") + "\n" : ""
 }
 
-export const classifyDiff = (diff: string, todoFile: string): { fixes: string; feedback: string } => {
-  if (diff.trim() === "") return { fixes: "", feedback: "" }
+export interface ClassifiedDiff {
+  fixes: string
+  seed: string
+  feedback: string
+  humanTodos: string
+}
+
+export const classifyDiff = (diff: string, todoFile: string): ClassifiedDiff => {
+  if (diff.trim() === "") return { fixes: "", seed: "", feedback: "", humanTodos: "" }
 
   const files = parseUnifiedDiff(diff)
   const fixFiles: ParsedFile[] = []
+  const seedFiles: ParsedFile[] = []
   const feedbackFiles: ParsedFile[] = []
+  const humanTodoFiles: ParsedFile[] = []
 
   for (const file of files) {
-    const fixHunks: ParsedFile["hunks"] = []
-    const feedbackHunks: ParsedFile["hunks"] = []
-
-    const classify = file.path === todoFile ? isTodoFeedbackHunk : isFeedbackHunk
-
-    for (const hunk of file.hunks) {
-      if (classify(hunk)) {
-        feedbackHunks.push(hunk)
+    if (file.path === todoFile) {
+      if (file.isNew) {
+        const seedHunks = file.hunks.filter(isTodoFeedbackHunk)
+        if (seedHunks.length > 0) {
+          seedFiles.push({ ...file, hunks: seedHunks })
+        }
       } else {
-        fixHunks.push(hunk)
-      }
-    }
+        const blockquoteHunks: ParsedFile["hunks"] = []
+        const otherFeedbackHunks: ParsedFile["hunks"] = []
 
-    if (fixHunks.length > 0) {
-      fixFiles.push({ ...file, hunks: fixHunks })
-    }
-    if (feedbackHunks.length > 0) {
-      feedbackFiles.push({ ...file, hunks: feedbackHunks })
+        for (const hunk of file.hunks) {
+          if (isBlockquoteHunk(hunk)) {
+            blockquoteHunks.push(hunk)
+          } else if (isTodoFeedbackHunk(hunk)) {
+            otherFeedbackHunks.push(hunk)
+          }
+        }
+
+        const allFeedbackHunks = [...blockquoteHunks, ...otherFeedbackHunks]
+        if (allFeedbackHunks.length > 0) {
+          feedbackFiles.push({ ...file, hunks: allFeedbackHunks })
+        }
+      }
+    } else {
+      const fixHunks: ParsedFile["hunks"] = []
+      const humanTodoHunks: ParsedFile["hunks"] = []
+
+      for (const hunk of file.hunks) {
+        if (isFeedbackHunk(hunk)) {
+          humanTodoHunks.push(hunk)
+        } else {
+          fixHunks.push(hunk)
+        }
+      }
+
+      if (fixHunks.length > 0) {
+        fixFiles.push({ ...file, hunks: fixHunks })
+      }
+      if (humanTodoHunks.length > 0) {
+        humanTodoFiles.push({ ...file, hunks: humanTodoHunks })
+      }
     }
   }
 
   return {
     fixes: reconstructDiff(fixFiles),
+    seed: reconstructDiff(seedFiles),
     feedback: reconstructDiff(feedbackFiles),
+    humanTodos: reconstructDiff(humanTodoFiles),
   }
 }

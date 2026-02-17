@@ -15,7 +15,7 @@
 
 ### Classify Feedback Commits by Intent
 
-- [ ] Refine `commit-feedback.ts` to use four distinct commit prefixes based on
+- [x] Refine `commit-feedback.ts` to use four distinct commit prefixes based on
       change type
 
   - Split the current two-way classification (fixes vs feedback) into a
@@ -33,7 +33,7 @@
     diff with TODO markers in code files only → commit uses `🤦`; mock a diff
     with only code changes → commit uses `👷`
 
-- [ ] Update `DiffClassifier.ts` to distinguish seed vs feedback vs
+- [x] Update `DiffClassifier.ts` to distinguish seed vs feedback vs
       human-code-todo hunks
   - Add a `seed` category for new-file TODO diffs (`--- /dev/null`)
   - Add a `feedback` category for blockquote additions in the TODO file (lines

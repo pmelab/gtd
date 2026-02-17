@@ -1,12 +1,20 @@
 import { describe, it, expect } from "@effect/vitest"
 import { classifyDiff } from "./DiffClassifier.js"
 
-const makeDiff = (files: Array<{ path: string; hunks: Array<{ header: string; lines: string[] }> }>) => {
+const makeDiff = (
+  files: Array<{ path: string; isNew?: boolean; hunks: Array<{ header: string; lines: string[] }> }>,
+) => {
   let result = ""
   for (const file of files) {
     result += `diff --git a/${file.path} b/${file.path}\n`
-    result += `index abc1234..def5678 100644\n`
-    result += `--- a/${file.path}\n`
+    if (file.isNew) {
+      result += `new file mode 100644\n`
+      result += `index 0000000..def5678\n`
+      result += `--- /dev/null\n`
+    } else {
+      result += `index abc1234..def5678 100644\n`
+      result += `--- a/${file.path}\n`
+    }
     result += `+++ b/${file.path}\n`
     for (const hunk of file.hunks) {
       result += `${hunk.header}\n`
@@ -36,13 +44,13 @@ describe("classifyDiff", () => {
 
     const result = classifyDiff(diff, "TODO.md")
 
-    expect(result.feedback).toContain("TODO: refactor this")
-    expect(result.feedback).not.toContain("const b = 2")
+    expect(result.humanTodos).toContain("TODO: refactor this")
+    expect(result.humanTodos).not.toContain("const b = 2")
     expect(result.fixes).toContain("const b = 2")
     expect(result.fixes).not.toContain("TODO: refactor this")
   })
 
-  it("classifies hunks with FIX: marker as feedback", () => {
+  it("classifies hunks with FIX: marker as humanTodos", () => {
     const diff = makeDiff([
       {
         path: "src/app.ts",
@@ -56,11 +64,11 @@ describe("classifyDiff", () => {
     ])
 
     const result = classifyDiff(diff, "TODO.md")
-    expect(result.feedback).toContain("FIX: broken logic")
+    expect(result.humanTodos).toContain("FIX: broken logic")
     expect(result.fixes).toBe("")
   })
 
-  it("classifies hunks with FIXME: marker as feedback", () => {
+  it("classifies hunks with FIXME: marker as humanTodos", () => {
     const diff = makeDiff([
       {
         path: "src/app.ts",
@@ -74,10 +82,10 @@ describe("classifyDiff", () => {
     ])
 
     const result = classifyDiff(diff, "TODO.md")
-    expect(result.feedback).toContain("FIXME: this is wrong")
+    expect(result.humanTodos).toContain("FIXME: this is wrong")
   })
 
-  it("classifies hunks with HACK: marker as feedback", () => {
+  it("classifies hunks with HACK: marker as humanTodos", () => {
     const diff = makeDiff([
       {
         path: "src/app.ts",
@@ -91,10 +99,10 @@ describe("classifyDiff", () => {
     ])
 
     const result = classifyDiff(diff, "TODO.md")
-    expect(result.feedback).toContain("HACK: workaround")
+    expect(result.humanTodos).toContain("HACK: workaround")
   })
 
-  it("classifies hunks with XXX: marker as feedback", () => {
+  it("classifies hunks with XXX: marker as humanTodos", () => {
     const diff = makeDiff([
       {
         path: "src/app.ts",
@@ -108,7 +116,7 @@ describe("classifyDiff", () => {
     ])
 
     const result = classifyDiff(diff, "TODO.md")
-    expect(result.feedback).toContain("XXX: needs attention")
+    expect(result.humanTodos).toContain("XXX: needs attention")
   })
 
   it("is case-insensitive for markers", () => {
@@ -125,10 +133,10 @@ describe("classifyDiff", () => {
     ])
 
     const result = classifyDiff(diff, "TODO.md")
-    expect(result.feedback).toContain("todo: lowercase marker")
+    expect(result.humanTodos).toContain("todo: lowercase marker")
   })
 
-  it("returns all-feedback for diff with only marker hunks", () => {
+  it("returns all-humanTodos for diff with only marker hunks", () => {
     const diff = makeDiff([
       {
         path: "src/app.ts",
@@ -146,8 +154,8 @@ describe("classifyDiff", () => {
     ])
 
     const result = classifyDiff(diff, "TODO.md")
-    expect(result.feedback).toContain("TODO: first")
-    expect(result.feedback).toContain("FIXME: second")
+    expect(result.humanTodos).toContain("TODO: first")
+    expect(result.humanTodos).toContain("FIXME: second")
     expect(result.fixes).toBe("")
   })
 
@@ -166,13 +174,15 @@ describe("classifyDiff", () => {
 
     const result = classifyDiff(diff, "TODO.md")
     expect(result.fixes).toContain("const newVar = 42")
-    expect(result.feedback).toBe("")
+    expect(result.humanTodos).toBe("")
   })
 
   it("returns empty strings for empty diff", () => {
     const result = classifyDiff("", "TODO.md")
     expect(result.fixes).toBe("")
     expect(result.feedback).toBe("")
+    expect(result.seed).toBe("")
+    expect(result.humanTodos).toBe("")
   })
 
   it("classifies TODO.md additions as feedback regardless of format", () => {
@@ -211,7 +221,7 @@ describe("classifyDiff", () => {
     expect(result.fixes).toBe("")
   })
 
-  it("classifies all TODO.md hunks with additions as feedback regardless of format", () => {
+  it("classifies mixed TODO.md hunks: blockquotes to feedback, non-blockquotes to feedback for existing file", () => {
     const diff = makeDiff([
       {
         path: "TODO.md",
@@ -261,6 +271,7 @@ describe("classifyDiff", () => {
     expect(result.feedback).toContain("New item")
     expect(result.fixes).toContain("const y = 2")
     expect(result.fixes).not.toContain("TODO.md")
+    expect(result.humanTodos).toBe("")
   })
 
   it("preserves file headers in reconstructed diffs", () => {
@@ -282,9 +293,9 @@ describe("classifyDiff", () => {
 
     const result = classifyDiff(diff, "TODO.md")
 
-    expect(result.feedback).toContain("diff --git a/src/app.ts b/src/app.ts")
-    expect(result.feedback).toContain("--- a/src/app.ts")
-    expect(result.feedback).toContain("+++ b/src/app.ts")
+    expect(result.humanTodos).toContain("diff --git a/src/app.ts b/src/app.ts")
+    expect(result.humanTodos).toContain("--- a/src/app.ts")
+    expect(result.humanTodos).toContain("+++ b/src/app.ts")
 
     expect(result.fixes).toContain("diff --git a/src/app.ts b/src/app.ts")
     expect(result.fixes).toContain("--- a/src/app.ts")
@@ -314,9 +325,105 @@ describe("classifyDiff", () => {
     ])
 
     const result = classifyDiff(diff, "TODO.md")
-    expect(result.feedback).toContain("src/foo.ts")
-    expect(result.feedback).not.toContain("src/bar.ts")
+    expect(result.humanTodos).toContain("src/foo.ts")
+    expect(result.humanTodos).not.toContain("src/bar.ts")
     expect(result.fixes).toContain("src/bar.ts")
     expect(result.fixes).not.toContain("src/foo.ts")
+  })
+
+  it("classifies new TODO file diff as seed", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        isNew: true,
+        hunks: [
+          {
+            header: "@@ -0,0 +1,3 @@",
+            lines: ["+# Plan", "+- [ ] First task", "+- [ ] Second task"],
+          },
+        ],
+      },
+    ])
+
+    const result = classifyDiff(diff, "TODO.md")
+    expect(result.seed).toContain("First task")
+    expect(result.seed).toContain("Second task")
+    expect(result.feedback).toBe("")
+    expect(result.humanTodos).toBe("")
+    expect(result.fixes).toBe("")
+  })
+
+  it("classifies blockquote additions in TODO file as feedback", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,5 @@",
+            lines: [" # Plan", "+> This approach is wrong", "+> Try a different strategy", " - [ ] Task"],
+          },
+        ],
+      },
+    ])
+
+    const result = classifyDiff(diff, "TODO.md")
+    expect(result.feedback).toContain("This approach is wrong")
+    expect(result.feedback).toContain("Try a different strategy")
+    expect(result.seed).toBe("")
+    expect(result.humanTodos).toBe("")
+  })
+
+  it("classifies indented blockquote additions in TODO file as feedback", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" # Plan", "+  > Nested blockquote feedback", " - [ ] Task"],
+          },
+        ],
+      },
+    ])
+
+    const result = classifyDiff(diff, "TODO.md")
+    expect(result.feedback).toContain("Nested blockquote feedback")
+  })
+
+  it("classifies code file TODO markers as humanTodos", () => {
+    const diff = makeDiff([
+      {
+        path: "src/app.ts",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" const x = 1", "+// TODO: refactor this", " const y = 2"],
+          },
+        ],
+      },
+    ])
+
+    const result = classifyDiff(diff, "TODO.md")
+    expect(result.humanTodos).toContain("TODO: refactor this")
+    expect(result.feedback).toBe("")
+    expect(result.seed).toBe("")
+  })
+
+  it("classifies non-blockquote TODO.md additions as feedback (not seed) for existing files", () => {
+    const diff = makeDiff([
+      {
+        path: "TODO.md",
+        hunks: [
+          {
+            header: "@@ -1,3 +1,4 @@",
+            lines: [" # Plan", "+- [ ] New task added", " "],
+          },
+        ],
+      },
+    ])
+
+    const result = classifyDiff(diff, "TODO.md")
+    expect(result.feedback).toContain("New task added")
+    expect(result.seed).toBe("")
   })
 })
