@@ -1,9 +1,8 @@
 import { describe, it, expect } from "@effect/vitest"
+import * as SandboxBoundaries from "./SandboxBoundaries.js"
 import {
   type BoundaryLevel,
   boundaryForPhase,
-  shouldEscalate,
-  escalateBoundary,
   BOUNDARY_LEVELS,
   AGENT_ESSENTIAL_DOMAINS,
   defaultFilesystemConfig,
@@ -40,39 +39,24 @@ describe("SandboxBoundaries", () => {
     it("learn phase maps to restricted", () => {
       expect(boundaryForPhase("learn")).toBe("restricted")
     })
-  })
 
-  describe("shouldEscalate", () => {
-    it("returns true when target is higher than current", () => {
-      expect(shouldEscalate("restricted", "standard")).toBe(true)
-      expect(shouldEscalate("restricted", "elevated")).toBe(true)
-      expect(shouldEscalate("standard", "elevated")).toBe(true)
-    })
-
-    it("returns false when target is same as current", () => {
-      expect(shouldEscalate("restricted", "restricted")).toBe(false)
-      expect(shouldEscalate("standard", "standard")).toBe(false)
-      expect(shouldEscalate("elevated", "elevated")).toBe(false)
-    })
-
-    it("returns false when target is lower than current", () => {
-      expect(shouldEscalate("standard", "restricted")).toBe(false)
-      expect(shouldEscalate("elevated", "restricted")).toBe(false)
-      expect(shouldEscalate("elevated", "standard")).toBe(false)
+    it("boundary level is fully determined by phase (no runtime transitions)", () => {
+      const planLevel = boundaryForPhase("plan")
+      const buildLevel = boundaryForPhase("build")
+      const learnLevel = boundaryForPhase("learn")
+      expect(planLevel).toBe("restricted")
+      expect(buildLevel).toBe("standard")
+      expect(learnLevel).toBe("restricted")
     })
   })
 
-  describe("escalateBoundary", () => {
-    it("escalates restricted to standard", () => {
-      expect(escalateBoundary("restricted")).toBe("standard")
+  describe("no dynamic escalation", () => {
+    it("module does not export shouldEscalate", () => {
+      expect("shouldEscalate" in SandboxBoundaries).toBe(false)
     })
 
-    it("escalates standard to elevated", () => {
-      expect(escalateBoundary("standard")).toBe("elevated")
-    })
-
-    it("returns elevated when already at elevated (ceiling)", () => {
-      expect(escalateBoundary("elevated")).toBe("elevated")
+    it("module does not export escalateBoundary", () => {
+      expect("escalateBoundary" in SandboxBoundaries).toBe(false)
     })
   })
 

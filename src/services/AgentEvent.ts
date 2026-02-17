@@ -1,5 +1,3 @@
-import type { BoundaryLevel } from "./SandboxBoundaries.js"
-
 export type AgentEvent =
   | { readonly _tag: "AgentStart" }
   | { readonly _tag: "TurnStart" }
@@ -14,11 +12,6 @@ export type AgentEvent =
   | { readonly _tag: "AgentEnd" }
   | { readonly _tag: "SandboxStarted" }
   | { readonly _tag: "SandboxStopped" }
-  | {
-      readonly _tag: "BoundaryEscalated"
-      readonly from: BoundaryLevel
-      readonly to: BoundaryLevel
-    }
 
 export const AgentEvents = {
   agentStart: (): AgentEvent => ({ _tag: "AgentStart" }),
@@ -34,9 +27,4 @@ export const AgentEvents = {
   agentEnd: (): AgentEvent => ({ _tag: "AgentEnd" }),
   sandboxStarted: (): AgentEvent => ({ _tag: "SandboxStarted" }),
   sandboxStopped: (): AgentEvent => ({ _tag: "SandboxStopped" }),
-  boundaryEscalated: (from: BoundaryLevel, to: BoundaryLevel): AgentEvent => ({
-    _tag: "BoundaryEscalated",
-    from,
-    to,
-  }),
 }

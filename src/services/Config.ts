@@ -2,12 +2,7 @@ import { Context, Effect, Layer } from "effect"
 import { homedir } from "node:os"
 import { resolveAllConfigs, mergeConfigs, type ResolveOptions } from "./ConfigResolver.js"
 
-import type { BoundaryLevel, WorkflowPhase, FilesystemUserOverrides, NetworkUserOverrides } from "./SandboxBoundaries.js"
-
-export interface EscalationRule {
-  readonly from: BoundaryLevel
-  readonly to: BoundaryLevel
-}
+import type { BoundaryLevel, FilesystemUserOverrides, NetworkUserOverrides } from "./SandboxBoundaries.js"
 
 export interface SandboxBoundariesConfig {
   readonly plan?: BoundaryLevel
@@ -29,8 +24,6 @@ export interface GtdConfig {
   readonly agentInactivityTimeout: number
   readonly sandboxEnabled: boolean
   readonly sandboxBoundaries: SandboxBoundariesConfig
-  readonly sandboxEscalationPolicy: "auto" | "prompt"
-  readonly sandboxApprovedEscalations: ReadonlyArray<EscalationRule>
   readonly configSources: ReadonlyArray<string>
 }
 

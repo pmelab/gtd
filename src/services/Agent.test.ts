@@ -134,8 +134,6 @@ describe("AgentService.Live", () => {
               agentInactivityTimeout: 300,
               sandboxEnabled: false,
               sandboxBoundaries: {},
-              sandboxEscalationPolicy: "auto",
-              sandboxApprovedEscalations: [],
               configSources: [],
             }),
           ),

@@ -14,8 +14,6 @@ export const defaultTestConfig: GtdConfig = {
   agentInactivityTimeout: 300,
   sandboxEnabled: false,
   sandboxBoundaries: {},
-  sandboxEscalationPolicy: "auto",
-  sandboxApprovedEscalations: [],
   configSources: [],
 }
 

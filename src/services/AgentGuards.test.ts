@@ -2,7 +2,8 @@ import { describe, it, expect } from "@effect/vitest"
 import { Effect } from "effect"
 import { AgentError } from "./Agent.js"
 import type { AgentProvider, AgentInvocation } from "./Agent.js"
-import { AgentEvents, type AgentEvent } from "./AgentEvent.js"
+import type { AgentEvent } from "./AgentEvent.js"
+import { AgentEvents } from "./AgentEvent.js"
 import { withAgentGuards } from "./AgentGuards.js"
 
 const noop = () => {}
@@ -195,7 +196,7 @@ describe("withAgentGuards", () => {
   )
 })
 
-describe("withAgentGuards — boundary escalation", () => {
+describe("withAgentGuards — boundary level is fixed", () => {
   it.effect(
     "forbidden tool blocklist still rejects interactive tools even when sandbox grants broad permissions",
     () =>
@@ -218,11 +219,23 @@ describe("withAgentGuards — boundary escalation", () => {
       }),
   )
 
-  it.effect("sandbox boundary escalation emits the correct event", () =>
+  it("guarded provider does not expose escalateBoundary", () => {
+    const agent = makeInstantAgent()
+    const guarded = withAgentGuards(agent, {
+      inactivityTimeoutSeconds: 0,
+      forbiddenTools: [],
+      boundaryLevel: "restricted",
+    })
+    expect((guarded as unknown as Record<string, unknown>).escalateBoundary).toBeUndefined()
+  })
+
+  it.effect("boundary level remains fixed throughout execution", () =>
     Effect.gen(function* () {
       const received: AgentEvent[] = []
       const agent = makeInstantAgent([
         AgentEvents.agentStart(),
+        AgentEvents.toolStart("Read"),
+        AgentEvents.toolEnd("Read", false),
         AgentEvents.agentEnd(),
       ])
       const guarded = withAgentGuards(agent, {
@@ -230,55 +243,12 @@ describe("withAgentGuards — boundary escalation", () => {
         forbiddenTools: [],
         boundaryLevel: "restricted",
       })
-      guarded.escalateBoundary!("standard")
-      const result = yield* guarded.invoke({
+      yield* guarded.invoke({
         ...baseParams,
         onEvent: (e) => received.push(e),
       })
-      expect(result.sessionId).toBeUndefined()
-      const escalationEvents = received.filter((e) => e._tag === "BoundaryEscalated")
-      expect(escalationEvents.length).toBe(1)
-      const ev = escalationEvents[0]!
-      if (ev._tag === "BoundaryEscalated") {
-        expect(ev.from).toBe("restricted")
-        expect(ev.to).toBe("standard")
-      }
-    }),
-  )
-
-  it.effect("both guard layers are evaluated independently", () =>
-    Effect.gen(function* () {
-      const received: AgentEvent[] = []
-      const agent = makeInstantAgent([
-        AgentEvents.agentStart(),
-        AgentEvents.toolStart("Read"),
-        AgentEvents.toolEnd("Read", false),
-        AgentEvents.toolStart("AskUserQuestion"),
-      ])
-      const guarded = withAgentGuards(agent, {
-        inactivityTimeoutSeconds: 0,
-        forbiddenTools: ["AskUserQuestion"],
-        boundaryLevel: "standard",
-      })
-      guarded.escalateBoundary!("elevated")
-      const result = yield* guarded
-        .invoke({
-          ...baseParams,
-          onEvent: (e) => received.push(e),
-        })
-        .pipe(Effect.either)
-
-      expect(result._tag).toBe("Left")
-      if (result._tag === "Left") {
-        expect(result.left.reason).toBe("input_requested")
-      }
-
-      const escalationEvents = received.filter((e) => e._tag === "BoundaryEscalated")
-      expect(escalationEvents.length).toBe(1)
-      if (escalationEvents[0]!._tag === "BoundaryEscalated") {
-        expect(escalationEvents[0]!.from).toBe("standard")
-        expect(escalationEvents[0]!.to).toBe("elevated")
-      }
+      const tags = received.map((e) => e._tag)
+      expect(tags).not.toContain("BoundaryEscalated")
     }),
   )
 })

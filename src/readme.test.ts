@@ -95,7 +95,7 @@ describe("README.md", () => {
     expect(content).toMatch(/provider/i)
   })
 
-  it("documents the boundary escalation model with per-phase defaults", () => {
+  it("documents the boundary levels with per-phase defaults", () => {
     const content = readmeContent()
     expect(content).toContain("restricted")
     expect(content).toContain("standard")
@@ -105,11 +105,11 @@ describe("README.md", () => {
     expect(content).toMatch(/learn.*restricted/i)
   })
 
-  it("documents the approval flow and escalation persistence", () => {
+  it("documents fail-stop behavior for permission violations", () => {
     const content = readmeContent()
-    expect(content).toMatch(/approv/i)
-    expect(content).toMatch(/persist|project|user/i)
-    expect(content).toMatch(/escalat/i)
+    expect(content).toMatch(/fail.stop/i)
+    expect(content).toMatch(/stop/i)
+    expect(content).toMatch(/re.run/i)
   })
 
   it("clarifies forbidden tools and sandbox boundaries are orthogonal", () => {
@@ -125,18 +125,17 @@ describe("README.md", () => {
     expect(content).toMatch(/forbidden.*tool|tool.*blocklist/i)
   })
 
-  it("includes example config with sandbox configuration and approved escalations", () => {
+  it("includes example config with sandbox configuration", () => {
     const content = readmeContent()
     expect(content).toContain("sandboxEnabled")
     expect(content).toContain("sandboxBoundaries")
-    expect(content).toContain("sandboxApprovedEscalations")
   })
 
-  it("mermaid flowchart includes escalation flow", () => {
+  it("mermaid flowchart includes sandbox flow", () => {
     const content = readmeContent()
     const mermaidMatch = content.match(/```mermaid\n([\s\S]*?)```/)
     const mermaid = mermaidMatch![1]!
-    expect(mermaid).toMatch(/escalat/i)
+    expect(mermaid).toMatch(/sandbox/i)
   })
 
   it("section 5 Learn describes manual step between build completion and learn", () => {

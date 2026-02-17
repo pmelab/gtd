@@ -258,8 +258,6 @@ describe("mergeConfigs", () => {
 
     expect(result.sandboxEnabled).toBe(false)
     expect(result.sandboxBoundaries).toEqual({})
-    expect(result.sandboxEscalationPolicy).toBe("auto")
-    expect(result.sandboxApprovedEscalations).toEqual([])
   })
 
   it("merges sandboxBoundaries from config", () => {
@@ -275,17 +273,17 @@ describe("mergeConfigs", () => {
     expect(result.sandboxBoundaries).toEqual({ plan: "elevated", build: "elevated" })
   })
 
-  it("merges sandboxEscalationPolicy from config", () => {
+  it("ignores sandboxEscalationPolicy in config for backwards compatibility", () => {
     const configs = [
       { config: { sandboxEscalationPolicy: "prompt" } as Record<string, unknown>, filepath: "/a" },
     ]
 
     const result = mergeConfigs(configs)
 
-    expect(result.sandboxEscalationPolicy).toBe("prompt")
+    expect((result as unknown as Record<string, unknown>).sandboxEscalationPolicy).toBeUndefined()
   })
 
-  it("merges sandboxApprovedEscalations across config levels", () => {
+  it("ignores sandboxApprovedEscalations in config for backwards compatibility", () => {
     const configs = [
       {
         config: {
@@ -293,43 +291,11 @@ describe("mergeConfigs", () => {
         } as Record<string, unknown>,
         filepath: "/project",
       },
-      {
-        config: {
-          sandboxApprovedEscalations: [{ from: "standard", to: "elevated" }],
-        } as Record<string, unknown>,
-        filepath: "/user",
-      },
     ]
 
     const result = mergeConfigs(configs)
 
-    expect(result.sandboxApprovedEscalations).toEqual([
-      { from: "restricted", to: "standard" },
-      { from: "standard", to: "elevated" },
-    ])
-  })
-
-  it("deduplicates sandboxApprovedEscalations when merging", () => {
-    const configs = [
-      {
-        config: {
-          sandboxApprovedEscalations: [{ from: "restricted", to: "standard" }],
-        } as Record<string, unknown>,
-        filepath: "/project",
-      },
-      {
-        config: {
-          sandboxApprovedEscalations: [{ from: "restricted", to: "standard" }],
-        } as Record<string, unknown>,
-        filepath: "/user",
-      },
-    ]
-
-    const result = mergeConfigs(configs)
-
-    expect(result.sandboxApprovedEscalations).toEqual([
-      { from: "restricted", to: "standard" },
-    ])
+    expect((result as unknown as Record<string, unknown>).sandboxApprovedEscalations).toBeUndefined()
   })
 
   it("higher priority sandboxBoundaries override lower", () => {

@@ -17,18 +17,6 @@ export const boundaryForPhase = (phase: WorkflowPhase): BoundaryLevel => {
   }
 }
 
-export const shouldEscalate = (current: BoundaryLevel, target: BoundaryLevel): boolean => {
-  const currentIndex = BOUNDARY_LEVELS.indexOf(current)
-  const targetIndex = BOUNDARY_LEVELS.indexOf(target)
-  return targetIndex > currentIndex
-}
-
-export const escalateBoundary = (current: BoundaryLevel): BoundaryLevel => {
-  const currentIndex = BOUNDARY_LEVELS.indexOf(current)
-  const nextIndex = Math.min(currentIndex + 1, BOUNDARY_LEVELS.length - 1)
-  return BOUNDARY_LEVELS[nextIndex]!
-}
-
 export const AGENT_ESSENTIAL_DOMAINS: Record<AgentProviderType, ReadonlyArray<string>> = {
   pi: ["api.anthropic.com"],
 

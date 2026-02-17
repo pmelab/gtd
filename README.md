@@ -29,11 +29,7 @@ flowchart TD
     CheckLast -->|🤖| Build
     Build --> SandboxCheck{Sandbox enabled?}
     SandboxCheck -->|No| RunAgent[Run agent]
-    SandboxCheck -->|Yes| BoundaryCheck{Escalation needed?}
-    BoundaryCheck -->|No| RunSandboxed[Run agent in sandbox]
-    BoundaryCheck -->|Yes| Approval{Escalation approved?}
-    Approval -->|Yes| RunSandboxed
-    Approval -->|No| Deny[Abort phase]
+    SandboxCheck -->|Yes| RunSandboxed[Run agent in sandbox]
     RunAgent --> ItemsLeft
     RunSandboxed --> ItemsLeft
     ItemsLeft{Unchecked items remain?}
@@ -183,22 +179,13 @@ You can override the boundary for any phase via `sandboxBoundaries` in your
 config. The three levels — `restricted`, `standard`, and `elevated` — form a
 strict ordering.
 
-### Boundary Escalation
+### Fail-Stop Permissions
 
-If a phase requires more permissions than its current boundary allows, `gtd`
-checks whether the escalation has been approved. The escalation policy
-(`sandboxEscalationPolicy`) controls behavior:
-
-- **`"auto"`** (default) — automatically approve escalations that are listed in
-  `sandboxApprovedEscalations` across any config level; deny unknown escalations
-- **`"prompt"`** — ask the user interactively and optionally persist the
-  approval to a project or user config file
-
-Approved escalations can be persisted at two levels:
-
-- **project** — saved to `.gtdrc.json` in the project directory, shared with
-  the team via version control
-- **user** — saved to `~/.config/gtd/.gtdrc.json`, private to the individual
+Sandbox permissions are fully determined at boot time from the workflow phase
+and any user config overrides. There is no runtime escalation — if the agent
+needs more permissions than the current boundary allows, the process stops with
+an actionable error message. To grant broader access, update your config (e.g.
+set `"build": "elevated"` in `sandboxBoundaries`) and re-run `gtd`.
 
 ### Guards: Forbidden Tools vs. Sandbox Boundaries
 
@@ -213,7 +200,8 @@ orthogonal — both are evaluated independently and neither overrides the other:
 
 2. **Sandbox boundaries (isolation guard)** — control what the sandboxed agent
    can access (file system, network). These are user-configurable via
-   `sandboxBoundaries` and `sandboxApprovedEscalations`.
+   `sandboxBoundaries`. Permissions are fixed at boot; violations stop the
+   process rather than prompting for escalation.
 
 ## Configuration
 
@@ -292,17 +280,7 @@ Any format supported by cosmiconfig:
   // Default: plan=restricted, build=standard, learn=restricted
   "sandboxBoundaries": {
     "build": "elevated"
-  },
-
-  // Escalation policy: "auto" (use approved list) or "prompt" (ask user)
-  // Default: "auto"
-  "sandboxEscalationPolicy": "auto",
-
-  // Pre-approved boundary escalations (merged across all config levels)
-  "sandboxApprovedEscalations": [
-    { "from": "restricted", "to": "standard" },
-    { "from": "standard", "to": "elevated" }
-  ]
+  }
 }
 ```
 

@@ -140,8 +140,6 @@ const defaults: Omit<GtdConfig, "configSources"> = {
   agentInactivityTimeout: 300,
   sandboxEnabled: false,
   sandboxBoundaries: {},
-  sandboxEscalationPolicy: "auto",
-  sandboxApprovedEscalations: [],
 }
 
 const decode = Schema.decodeUnknownEither(GtdConfigSchema)
@@ -151,7 +149,6 @@ export const mergeConfigs = (
 ): GtdConfig => {
   const merged: Record<string, unknown> = {}
   const configSources: string[] = []
-  const allEscalations: Array<{ from: string; to: string }> = []
   const mergedBoundaries: Record<string, unknown> = {}
   const mergedFilesystemAllowRead: string[] = []
   const mergedFilesystemAllowWrite: string[] = []
@@ -196,20 +193,6 @@ export const mergeConfigs = (
     configSources.unshift(filepath)
   }
 
-  for (const { parsed } of validParsed) {
-    if (Array.isArray(parsed.sandboxApprovedEscalations)) {
-      for (const e of parsed.sandboxApprovedEscalations) {
-        if (e && typeof e === "object" && "from" in e && "to" in e) {
-          allEscalations.push(e as { from: string; to: string })
-        }
-      }
-    }
-  }
-
-  const dedupedEscalations = allEscalations.filter(
-    (e, i, arr) => arr.findIndex((x) => x.from === e.from && x.to === e.to) === i,
-  )
-
   const filesystemOverrides = mergedFilesystemAllowRead.length > 0 || mergedFilesystemAllowWrite.length > 0
     ? {
         ...(mergedFilesystemAllowRead.length > 0 ? { allowRead: [...new Set(mergedFilesystemAllowRead)] } : {}),
@@ -227,11 +210,12 @@ export const mergeConfigs = (
     ...(networkOverrides ? { network: networkOverrides } : {}),
   }
 
+  const { sandboxEscalationPolicy: _sep, sandboxApprovedEscalations: _sae, approvedEscalations: _ae, ...cleanMerged } = merged
+
   return {
     ...defaults,
-    ...merged,
+    ...cleanMerged,
     sandboxBoundaries: finalBoundaries,
-    sandboxApprovedEscalations: dedupedEscalations,
     configSources,
   } as GtdConfig
 }

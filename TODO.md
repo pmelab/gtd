@@ -178,7 +178,7 @@
 
 ### Fail-Stop Escalation (Replace Prompt-Based Approval)
 
-- [ ] Replace interactive escalation prompts with fail-stop behavior
+- [x] Replace interactive escalation prompts with fail-stop behavior
 
   - When a sandbox violation occurs (filesystem access outside cwd, network
     request to non-allowed domain), stop the agent process immediately with a
@@ -193,7 +193,7 @@
     correct domain and config hint; test that no interactive prompt is ever
     triggered
 
-- [ ] Remove `sandboxEscalationPolicy` and `sandboxApprovedEscalations` from
+- [x] Remove `sandboxEscalationPolicy` and `sandboxApprovedEscalations` from
       config
 
   - Remove `sandboxEscalationPolicy` field (no longer needed — policy is always
@@ -207,7 +207,7 @@
   - Tests: Config parsing tests — verify old configs with these fields still
     parse without error; verify new configs without these fields parse correctly
 
-- [ ] Update `SandboxBoundaries.ts` to remove dynamic escalation logic
+- [x] Update `SandboxBoundaries.ts` to remove dynamic escalation logic
   - Remove the escalation state machine (no more runtime transitions between
     boundary levels)
   - Permissions are fully determined at sandbox boot time from the workflow

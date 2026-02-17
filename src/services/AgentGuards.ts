@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { AgentError } from "./Agent.js"
 import type { AgentProvider, AgentInvocation, AgentResult } from "./Agent.js"
-import { AgentEvents, type AgentEvent } from "./AgentEvent.js"
+import type { AgentEvent } from "./AgentEvent.js"
 import type { BoundaryLevel } from "./SandboxBoundaries.js"
 
 export interface AgentGuardsConfig {
@@ -10,35 +10,20 @@ export interface AgentGuardsConfig {
   readonly boundaryLevel?: BoundaryLevel
 }
 
-export interface GuardedAgentProvider extends AgentProvider {
-  readonly escalateBoundary?: ((to: BoundaryLevel) => void) | undefined
-}
-
 export const withAgentGuards = (
   provider: AgentProvider,
   config: AgentGuardsConfig,
-): GuardedAgentProvider => {
+): AgentProvider => {
   const hasTimeout = config.inactivityTimeoutSeconds > 0
   const hasForbidden = config.forbiddenTools.length > 0
   const hasBoundary = config.boundaryLevel !== undefined
 
-  let currentBoundaryLevel: BoundaryLevel | undefined = config.boundaryLevel
-  let pendingEscalation: { from: BoundaryLevel; to: BoundaryLevel } | undefined
-
   if (!hasTimeout && !hasForbidden && !hasBoundary) return provider
 
-  const guardedProvider: GuardedAgentProvider = {
+  const guardedProvider: AgentProvider = {
     name: provider.name,
     providerType: provider.providerType,
     isAvailable: () => provider.isAvailable(),
-    escalateBoundary: hasBoundary
-      ? (to: BoundaryLevel) => {
-          if (currentBoundaryLevel !== undefined && currentBoundaryLevel !== to) {
-            pendingEscalation = { from: currentBoundaryLevel, to }
-            currentBoundaryLevel = to
-          }
-        }
-      : undefined,
     invoke: (params) =>
       Effect.gen(function* () {
         let lastEventTime = Date.now()
@@ -54,12 +39,6 @@ export const withAgentGuards = (
             forbiddenToolDetected = event.toolName
           }
           params.onEvent?.(event)
-        }
-
-        if (pendingEscalation) {
-          const esc = pendingEscalation
-          pendingEscalation = undefined
-          params.onEvent?.(AgentEvents.boundaryEscalated(esc.from, esc.to))
         }
 
         const wrappedParams: AgentInvocation = {
