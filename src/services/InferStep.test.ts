@@ -255,4 +255,48 @@ describe("inferStep", () => {
     }
     expect(inferStep(input)).toBe("commit-feedback")
   })
+
+  it("returns plan for unified commit with SEED prefix (seed + fix bundled together)", () => {
+    const input: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: SEED,
+      hasUncheckedItems: false,
+      onlyLearningsModified: false,
+      todoFileIsNew: true,
+    }
+    expect(inferStep(input)).toBe("plan")
+  })
+
+  it("returns plan for unified commit with SEED prefix and unchecked items", () => {
+    const input: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: SEED,
+      hasUncheckedItems: true,
+      onlyLearningsModified: false,
+      todoFileIsNew: false,
+    }
+    expect(inferStep(input)).toBe("plan")
+  })
+
+  it("returns plan for unified commit with FEEDBACK prefix (feedback + fix bundled)", () => {
+    const input: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: FEEDBACK,
+      hasUncheckedItems: true,
+      onlyLearningsModified: false,
+      todoFileIsNew: false,
+    }
+    expect(inferStep(input)).toBe("plan")
+  })
+
+  it("returns plan for unified commit with HUMAN prefix (human edits + fix bundled)", () => {
+    const input: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: HUMAN,
+      hasUncheckedItems: true,
+      onlyLearningsModified: false,
+      todoFileIsNew: false,
+    }
+    expect(inferStep(input)).toBe("plan")
+  })
 })

@@ -44,7 +44,7 @@
 
 ### Update InferStep and gatherState for single-commit model
 
-- [ ] Verify `inferStep` handles the unified prefix correctly
+- [x] Verify `inferStep` handles the unified prefix correctly
   - With a single commit, `lastCommitPrefix` will be whichever prefix was chosen
     (e.g., 🌱 for new TODO.md with code changes)
   - Confirm that all chosen prefixes still route to `"plan"` as the next step:
