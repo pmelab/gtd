@@ -34,7 +34,6 @@
 ### Update Decision Tree for New Prefixes
 
 - [ ] Handle `SEED` and `FEEDBACK` in `InferStep.ts`
-
   - `SEED` → next step should be `"plan"` (user seeded a TODO, agent should plan
     from it)
   - `FEEDBACK` → next step should be `"plan"` (user gave feedback, agent should
