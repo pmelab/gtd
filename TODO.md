@@ -6,6 +6,7 @@
 
 - [ ] Investigate the `@anthropic-experimental/sandbox-runtime` package API
       surface
+
   - Clone or inspect https://github.com/anthropic-experimental/sandbox-runtime
   - Document the container/sandbox lifecycle: create → configure → run → destroy
   - Identify how tool permissions and file system access are controlled
@@ -16,10 +17,55 @@
   - Tests: Create a spike script that boots a sandbox, runs a trivial command,
     changes permissions live, and tears it down
 
+- [ ] Audit all agent provider tool calls and build per-agent forbidden tool
+      blocklists
+  - Investigate every tool name that each agent provider (pi, opencode, claude)
+    can emit via `ToolStart` events
+  - For pi: inspect the pi SDK/agent protocol to enumerate all possible tool
+    names
+  - For opencode: inspect the opencode SDK to enumerate all possible tool names
+  - For claude: inspect the Claude agent SDK (`@anthropic-ai/agent-sdk`) to
+    enumerate all possible tool names (e.g., `AskUserQuestion`, `UserInput`,
+    etc.)
+  - Classify each tool as interactive (requires user input — must be blocked in
+    non-interactive mode) or non-interactive
+  - Document the full list per agent in a code comment or constant map
+  - Tests: Unit test that verifies the blocklist for each agent contains the
+    expected interactive tools; snapshot test to catch new tools added upstream
+
+### Internalize `agentForbiddenTools` (Remove from Config)
+
+- [ ] Replace `agentForbiddenTools` config field with internal per-agent
+      blocklists
+
+  - Create a `FORBIDDEN_TOOLS` constant map in `src/services/AgentGuards.ts`
+    keyed by agent provider type (e.g.,
+    `{ pi: [...], opencode: [...], claude: ["AskUserQuestion", ...] }`)
+  - Update `GuardConfig` to accept agent provider type instead of
+    `forbiddenTools` array — the guard resolves the blocklist internally
+  - Update `Agent.ts` `resolveAgent()` to pass the agent type to guards instead
+    of reading `config.agentForbiddenTools`
+  - Tests: Unit test that guards reject interactive tools for each agent type
+    using the internal blocklist; test that no config field is needed
+
+- [ ] Remove `agentForbiddenTools` from config schema and resolver
+  - Remove `agentForbiddenTools` from `GtdConfigSchema` in `ConfigSchema.ts`
+  - Remove `agentForbiddenTools` from defaults in `ConfigResolver.ts`
+  - Remove `agentForbiddenTools` from `GtdConfig` type in `Config.ts`
+  - Remove from `test-helpers.ts` default test config
+  - Update all tests in `ConfigSchema.test.ts`, `ConfigResolver.test.ts`,
+    `Config.test.ts`, and `Agent.test.ts` to remove references to
+    `agentForbiddenTools`
+  - Update example `.gtdrc.json` files to remove the field
+  - Tests: Verify config parsing still works without the field; verify old
+    configs with the field are accepted gracefully (ignored, not rejected) for
+    backwards compatibility
+
 ### Sandbox Agent Provider (Wrapper Architecture)
 
 - [ ] Create `src/services/agents/Sandbox.ts` as a wrapper around existing
       providers
+
   - Wrap an inner `AgentProvider` (pi, opencode, or claude) — the sandbox
     manages the execution environment while the inner provider drives the agent
   - Accept the inner provider via constructor/config so any existing provider
@@ -48,6 +94,7 @@
 
 - [ ] Define a `BoundaryLevel` type and escalation policy in
       `src/services/SandboxBoundaries.ts`
+
   - Design tiered permission levels (e.g., `readonly` → `readwrite` → `network`
     → `full`)
   - Each level maps to concrete sandbox capabilities: file system scope, network
@@ -58,6 +105,7 @@
     capability set; test config parsing with custom boundaries
 
 - [ ] Implement automatic escalation triggers tied to the gtd workflow phases
+
   - `plan` mode → `readonly` (agent only reads files and writes to TODO.md)
   - `build` mode → `readwrite` (agent can modify source files, run tests)
   - `learn` mode → `readonly` (agent only reads diff and writes to AGENTS.md)
@@ -70,24 +118,21 @@
     escalation events
 
 - [ ] Integrate boundary escalation events into `AgentGuards`
-  - Keep `agentForbiddenTools` independent — it handles tool calls that cannot
-    work in a non-interactive environment (e.g., user input prompts) and should
-    cause immediate errors regardless of sandbox state
+  - Forbidden tools (internal blocklist) handles tool calls that cannot work in
+    a non-interactive environment (e.g., user input prompts) and causes
+    immediate errors regardless of sandbox state
   - Sandbox boundaries control a separate concern: isolation permissions (file
     system scope, network access, shell commands) enforced by the sandbox
     runtime
   - Both mechanisms apply simultaneously — a tool can be allowed by the sandbox
-    but still forbidden by `agentForbiddenTools` if it requires interactivity
-    > agentForbiddenTools should not be a configration setting any more, but
-    > just an internal list of possible agent tool calls. investigate all
-    > possible tool calls for each agent and create that blocklist.
+    but still forbidden by the internal blocklist if it requires interactivity
   - On escalation, update the sandbox's live permissions via SDK API
   - Emit a new `AgentEvent` variant (e.g., `BoundaryEscalated`) so the TUI/logs
     reflect permission changes
-  - Tests: Unit test that `agentForbiddenTools` still rejects interactive tools
-    even when sandbox grants broad permissions; test that sandbox boundary
-    escalation emits the correct event; test that both guard layers are
-    evaluated independently
+  - Tests: Unit test that internal forbidden tool blocklist still rejects
+    interactive tools even when sandbox grants broad permissions; test that
+    sandbox boundary escalation emits the correct event; test that both guard
+    layers are evaluated independently
 
 ### Escalation Approval & Persistence
 
@@ -118,8 +163,6 @@
     approval)
   - Add `sandboxApprovedEscalations` array to persist user-approved escalation
     rules at project or user config level
-  - Keep `agentForbiddenTools` as a separate, independent config field — it is
-    not affected by sandbox settings
   - Update JSON schema (`ConfigSchema.ts`) and keep `SCHEMA_URL` pointing to the
     GitHub-hosted version
   - Tests: Config parsing tests — valid configs parse correctly, invalid
@@ -132,8 +175,10 @@
   - Explain the wrapper architecture (sandbox wraps existing providers)
   - Explain the boundary escalation model and per-phase defaults
   - Document the approval flow and how to persist escalation approvals
-  - Clarify that `agentForbiddenTools` (interactivity guard) and sandbox
+  - Clarify that forbidden tool blocklists (interactivity guard) and sandbox
     boundaries (isolation guard) are orthogonal — both apply independently
+  - Note that forbidden tool blocklists are internal and not user-configurable —
+    they are derived from each agent provider's tool catalog
   - Add example `.gtdrc.json` with sandbox configuration including approved
     escalations
   - Document the escalation flow in the mermaid diagram
@@ -156,3 +201,9 @@
   isolation) separate from agent concerns (prompting, tool use)
 - Approval persistence should support multiple config levels (project, user) so
   teams can share common escalation policies while individuals can customize
+- Prefer internal, hardcoded blocklists over user-facing config for safety
+  invariants like forbidden tools — users should not be able to accidentally
+  unblock interactive tools in non-interactive mode; derive blocklists from each
+  agent provider's actual tool catalog
+- When removing a config field, keep backwards compatibility by ignoring (not
+  rejecting) the old field in parsing so existing config files don't break
