@@ -49,7 +49,7 @@
 
 ### Update Decision Tree for New Prefixes
 
-- [ ] Handle `SEED` and `FEEDBACK` in `InferStep.ts`
+- [x] Handle `SEED` and `FEEDBACK` in `InferStep.ts`
 
   - `SEED` → next step should be `"plan"` (user seeded a TODO, agent should plan
     from it)
@@ -58,7 +58,7 @@
   - Tests: `inferStep({ lastCommitPrefix: SEED, ... })` returns `"plan"`;
     `inferStep({ lastCommitPrefix: FEEDBACK, ... })` returns `"plan"`
 
-- [ ] Update `DecisionTree.ts` with labels for new prefixes
+- [x] Update `DecisionTree.ts` with labels for new prefixes
   - Add `case SEED: return "🌱 seed"` and `case FEEDBACK: return "💬 feedback"`
     to `prefixLabel`
   - Tests: `formatDecisionTrace` with `lastCommitPrefix: SEED` includes

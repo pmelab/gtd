@@ -5,6 +5,8 @@ import {
   FIX,
   LEARN,
   CLEANUP,
+  SEED,
+  FEEDBACK,
   type CommitPrefix,
 } from "./CommitPrefix.js"
 
@@ -42,6 +44,10 @@ export const inferStep = (input: InferStepInput): Step => {
       return "cleanup"
     case CLEANUP:
       return "idle"
+    case SEED:
+      return "plan"
+    case FEEDBACK:
+      return "plan"
     default:
       return input.todoFileIsNew ? "plan" : "idle"
   }

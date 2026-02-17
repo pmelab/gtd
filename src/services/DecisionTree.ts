@@ -9,6 +9,8 @@ import {
   FIX,
   LEARN,
   CLEANUP,
+  SEED,
+  FEEDBACK,
 } from "./CommitPrefix.js"
 
 const prefixLabel = (prefix: string | undefined): string => {
@@ -25,6 +27,10 @@ const prefixLabel = (prefix: string | undefined): string => {
       return "🎓 learn"
     case CLEANUP:
       return "🧹 cleanup"
+    case SEED:
+      return "🌱 seed"
+    case FEEDBACK:
+      return "💬 feedback"
     default:
       return "none"
   }
@@ -61,6 +67,10 @@ export const formatDecisionTrace = (state: InferStepInput, step: Step): string =
     case LEARN:
       break
     case CLEANUP:
+      break
+    case SEED:
+      break
+    case FEEDBACK:
       break
     default:
       if (state.todoFileIsNew) {

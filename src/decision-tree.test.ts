@@ -88,6 +88,30 @@ describe("decision tree logging", () => {
     expect(trace3).toContain("step=idle")
   })
 
+  it("formatDecisionTrace with lastCommitPrefix: SEED includes 🌱 seed", () => {
+    const state: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: "🌱",
+      hasUncheckedItems: true,
+      onlyLearningsModified: false,
+      todoFileIsNew: false,
+    }
+    const trace = formatDecisionTrace(state, "plan")
+    expect(trace).toContain("🌱 seed")
+  })
+
+  it("formatDecisionTrace with lastCommitPrefix: FEEDBACK includes 💬 feedback", () => {
+    const state: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: "💬",
+      hasUncheckedItems: true,
+      onlyLearningsModified: false,
+      todoFileIsNew: false,
+    }
+    const trace = formatDecisionTrace(state, "plan")
+    expect(trace).toContain("💬 feedback")
+  })
+
   it("trace includes decision chain arrows", () => {
     const state: InferStepInput = {
       hasUncommittedChanges: false,
