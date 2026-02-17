@@ -108,7 +108,7 @@
 
 ### Boundary Escalation Model
 
-- [ ] Define a `BoundaryLevel` type and escalation policy in
+- [x] Define a `BoundaryLevel` type and escalation policy in
       `src/services/SandboxBoundaries.ts`
 
   - Design tiered permission levels (e.g., `readonly` → `readwrite` → `network`
@@ -120,7 +120,7 @@
   - Tests: Unit test that each boundary level produces the expected sandbox
     capability set; test config parsing with custom boundaries
 
-- [ ] Implement automatic escalation triggers tied to the gtd workflow phases
+- [x] Implement automatic escalation triggers tied to the gtd workflow phases
 
   - `plan` mode → `readonly` (agent only reads files and writes to TODO.md)
   - `build` mode → `readwrite` (agent can modify source files, run tests)
@@ -133,7 +133,7 @@
     integration test that a build invocation starts restricted and logs
     escalation events
 
-- [ ] Integrate boundary escalation events into `AgentGuards`
+- [x] Integrate boundary escalation events into `AgentGuards`
   - Forbidden tools (internal blocklist) handles tool calls that cannot work in
     a non-interactive environment (e.g., user input prompts) and causes
     immediate errors regardless of sandbox state

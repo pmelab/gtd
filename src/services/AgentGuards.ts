@@ -1,26 +1,44 @@
 import { Effect } from "effect"
 import { AgentError } from "./Agent.js"
 import type { AgentProvider, AgentInvocation, AgentResult } from "./Agent.js"
-import type { AgentEvent } from "./AgentEvent.js"
+import { AgentEvents, type AgentEvent } from "./AgentEvent.js"
+import type { BoundaryLevel } from "./SandboxBoundaries.js"
 
 export interface AgentGuardsConfig {
   readonly inactivityTimeoutSeconds: number
   readonly forbiddenTools: ReadonlyArray<string>
+  readonly boundaryLevel?: BoundaryLevel
+}
+
+export interface GuardedAgentProvider extends AgentProvider {
+  readonly escalateBoundary?: ((to: BoundaryLevel) => void) | undefined
 }
 
 export const withAgentGuards = (
   provider: AgentProvider,
   config: AgentGuardsConfig,
-): AgentProvider => {
+): GuardedAgentProvider => {
   const hasTimeout = config.inactivityTimeoutSeconds > 0
   const hasForbidden = config.forbiddenTools.length > 0
+  const hasBoundary = config.boundaryLevel !== undefined
 
-  if (!hasTimeout && !hasForbidden) return provider
+  let currentBoundaryLevel: BoundaryLevel | undefined = config.boundaryLevel
+  let pendingEscalation: { from: BoundaryLevel; to: BoundaryLevel } | undefined
 
-  return {
+  if (!hasTimeout && !hasForbidden && !hasBoundary) return provider
+
+  const guardedProvider: GuardedAgentProvider = {
     name: provider.name,
     providerType: provider.providerType,
     isAvailable: () => provider.isAvailable(),
+    escalateBoundary: hasBoundary
+      ? (to: BoundaryLevel) => {
+          if (currentBoundaryLevel !== undefined && currentBoundaryLevel !== to) {
+            pendingEscalation = { from: currentBoundaryLevel, to }
+            currentBoundaryLevel = to
+          }
+        }
+      : undefined,
     invoke: (params) =>
       Effect.gen(function* () {
         let lastEventTime = Date.now()
@@ -38,13 +56,17 @@ export const withAgentGuards = (
           params.onEvent?.(event)
         }
 
+        if (pendingEscalation) {
+          const esc = pendingEscalation
+          pendingEscalation = undefined
+          params.onEvent?.(AgentEvents.boundaryEscalated(esc.from, esc.to))
+        }
+
         const wrappedParams: AgentInvocation = {
           ...params,
           onEvent: wrappedOnEvent,
         }
 
-        // Invocation with post-completion forbidden tool check
-        // (catches synchronous agents where polling can't intervene)
         const invocation = provider.invoke(wrappedParams).pipe(
           Effect.flatMap((result) => {
             if (forbiddenToolDetected) {
@@ -61,11 +83,9 @@ export const withAgentGuards = (
         )
 
         if (!hasTimeout) {
-          // No timeout — just run with the post-completion check
           return yield* invocation
         }
 
-        // Guard: polls for inactivity timeout and forbidden tools
         const guardEffect = Effect.async<AgentResult, AgentError>((resume) => {
           const pollIntervalMs = Math.min(config.inactivityTimeoutSeconds * 1000, 5000)
 
@@ -107,4 +127,6 @@ export const withAgentGuards = (
         return yield* Effect.raceFirst(invocation, guardEffect)
       }),
   }
+
+  return guardedProvider
 }

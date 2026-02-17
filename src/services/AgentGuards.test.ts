@@ -194,3 +194,91 @@ describe("withAgentGuards", () => {
     }),
   )
 })
+
+describe("withAgentGuards — boundary escalation", () => {
+  it.effect(
+    "forbidden tool blocklist still rejects interactive tools even when sandbox grants broad permissions",
+    () =>
+      Effect.gen(function* () {
+        const agent = makeInstantAgent([
+          AgentEvents.agentStart(),
+          AgentEvents.toolStart("AskUserQuestion"),
+        ])
+        const guarded = withAgentGuards(agent, {
+          inactivityTimeoutSeconds: 0,
+          forbiddenTools: ["AskUserQuestion"],
+          boundaryLevel: "elevated",
+        })
+        const result = yield* guarded.invoke(baseParams).pipe(Effect.either)
+        expect(result._tag).toBe("Left")
+        if (result._tag === "Left") {
+          expect(result.left.reason).toBe("input_requested")
+          expect(result.left.message).toContain("AskUserQuestion")
+        }
+      }),
+  )
+
+  it.effect("sandbox boundary escalation emits the correct event", () =>
+    Effect.gen(function* () {
+      const received: AgentEvent[] = []
+      const agent = makeInstantAgent([
+        AgentEvents.agentStart(),
+        AgentEvents.agentEnd(),
+      ])
+      const guarded = withAgentGuards(agent, {
+        inactivityTimeoutSeconds: 0,
+        forbiddenTools: [],
+        boundaryLevel: "restricted",
+      })
+      guarded.escalateBoundary!("standard")
+      const result = yield* guarded.invoke({
+        ...baseParams,
+        onEvent: (e) => received.push(e),
+      })
+      expect(result.sessionId).toBeUndefined()
+      const escalationEvents = received.filter((e) => e._tag === "BoundaryEscalated")
+      expect(escalationEvents.length).toBe(1)
+      const ev = escalationEvents[0]!
+      if (ev._tag === "BoundaryEscalated") {
+        expect(ev.from).toBe("restricted")
+        expect(ev.to).toBe("standard")
+      }
+    }),
+  )
+
+  it.effect("both guard layers are evaluated independently", () =>
+    Effect.gen(function* () {
+      const received: AgentEvent[] = []
+      const agent = makeInstantAgent([
+        AgentEvents.agentStart(),
+        AgentEvents.toolStart("Read"),
+        AgentEvents.toolEnd("Read", false),
+        AgentEvents.toolStart("AskUserQuestion"),
+      ])
+      const guarded = withAgentGuards(agent, {
+        inactivityTimeoutSeconds: 0,
+        forbiddenTools: ["AskUserQuestion"],
+        boundaryLevel: "standard",
+      })
+      guarded.escalateBoundary!("elevated")
+      const result = yield* guarded
+        .invoke({
+          ...baseParams,
+          onEvent: (e) => received.push(e),
+        })
+        .pipe(Effect.either)
+
+      expect(result._tag).toBe("Left")
+      if (result._tag === "Left") {
+        expect(result.left.reason).toBe("input_requested")
+      }
+
+      const escalationEvents = received.filter((e) => e._tag === "BoundaryEscalated")
+      expect(escalationEvents.length).toBe(1)
+      if (escalationEvents[0]!._tag === "BoundaryEscalated") {
+        expect(escalationEvents[0]!.from).toBe("standard")
+        expect(escalationEvents[0]!.to).toBe("elevated")
+      }
+    }),
+  )
+})
