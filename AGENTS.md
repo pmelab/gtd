@@ -26,6 +26,12 @@ It automates AI agent execution and git operations:
 - Commit prefix semantics follow change intent: `🌱` for seeding plans, `💬` for
   planning feedback (blockquotes), `🤦` for inline code TODOs, `👷` for actual
   code fixes — keep these orthogonal to avoid ambiguous classification
+- When chaining commit → next-step in an automated pipeline, ensure the next
+  step can access the full context of what was just committed — splitting into
+  multiple commits loses context for downstream steps that only inspect `HEAD~1`
+- Prefer a single atomic commit for all human input to preserve full context for
+  AI planning — granular commit splitting is only valuable when each commit is
+  independently actionable
 
 ## Guidelines
 
@@ -78,6 +84,9 @@ It automates AI agent execution and git operations:
 - When adding new commit prefixes, update all three layers: `CommitPrefix.ts`
   (definition + parsing), `InferStep.ts` (next-step logic), and
   `DecisionTree.ts` (display labels)
+- Prefer hardcoded priority orders for internal classification logic over
+  user-configurable options — the 🌱 > 💬 > 🤦 > 👷 prefix priority is a domain
+  invariant, not a user preference
 
 ### Configuration Design
 
