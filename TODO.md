@@ -284,7 +284,7 @@
 
 ### E2E Tests for Boundary Escalation via Config Adjustment
 
-- [ ] E2E test: network boundary fail-stop and config-driven escalation
+- [x] E2E test: network boundary fail-stop and config-driven escalation
 
   - Set up a sandbox-enabled gtd run that attempts to fetch data from an
     untrusted URL (not in the default `allowedDomains`)
@@ -297,7 +297,7 @@
   - Tests: Single e2e test covering the full cycle — run → fail → adjust config
     → re-run → success
 
-- [ ] E2E test: filesystem boundary fail-stop and config-driven escalation
+- [x] E2E test: filesystem boundary fail-stop and config-driven escalation
   - Set up a sandbox-enabled gtd run where the agent attempts to write a file to
     a temporary directory outside cwd (e.g., `/tmp/gtd-test-output`)
   - Verify the agent process stops with a fail-stop error identifying the denied
