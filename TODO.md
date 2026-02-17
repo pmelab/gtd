@@ -72,6 +72,10 @@
 - [ ] Integrate boundary escalation into `AgentGuards`
   - When sandbox mode is active, the sandbox boundary level overrides
     `agentForbiddenTools` — sandbox permissions are the single source of truth
+    > i think agentForbiddenTools are something completely different. those are
+    > tool calls the agent could emit that can't be handled in a non-interactive
+    > environment and therefore cause immediate error. this is orthogonal to the
+    > sandbox. correct me if i'm wrong.
   - On escalation, update the sandbox's live permissions via SDK API
   - Emit a new `AgentEvent` variant (e.g., `BoundaryEscalated`) so the TUI/logs
     reflect permission changes
