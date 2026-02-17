@@ -6,17 +6,14 @@
 
 - [x] Investigate the `@anthropic-experimental/sandbox-runtime` package API
       surface
-
   - The package is actually `@anthropic-ai/sandbox-runtime` (v0.0.37)
-  - Exports: `SandboxManager` (singleton), `SandboxViolationStore`,
-    config schemas (`SandboxRuntimeConfigSchema`, `NetworkConfigSchema`,
+  - Exports: `SandboxManager` (singleton), `SandboxViolationStore`, config
+    schemas (`SandboxRuntimeConfigSchema`, `NetworkConfigSchema`,
     `FilesystemConfigSchema`, `IgnoreViolationsConfigSchema`)
   - Lifecycle: `SandboxManager.initialize(config, askCallback?)` →
     `wrapWithSandbox(command)` → `cleanupAfterCommand()` → `reset()`
-  - Config structure: `{ network: { allowedDomains, deniedDomains,
-    allowUnixSockets, allowLocalBinding, httpProxyPort, socksProxyPort },
-    filesystem: { denyRead, allowWrite, denyWrite, allowGitConfig },
-    ignoreViolations?, enableWeakerNestedSandbox?, allowPty?, seccomp? }`
+  - Config structure:
+    `{ network: { allowedDomains, deniedDomains, allowUnixSockets, allowLocalBinding, httpProxyPort, socksProxyPort }, filesystem: { denyRead, allowWrite, denyWrite, allowGitConfig }, ignoreViolations?, enableWeakerNestedSandbox?, allowPty?, seccomp? }`
   - Live permission changes: `SandboxManager.updateConfig(newConfig)` allows
     updating capabilities on a running sandbox without restart
   - `wrapWithSandbox(command)` returns a modified command string that runs
@@ -25,35 +22,34 @@
   - `SandboxAskCallback` is called for network requests to unknown hosts
   - Maps to gtd: filesystem config → boundary levels, network config →
     escalation tiers, violation store → event monitoring
-  - Platform support: `isSupportedPlatform()`, `checkDependencies()`,
-    macOS (seatbelt/sandbox-exec) and Linux (bubblewrap + seccomp)
+  - Platform support: `isSupportedPlatform()`, `checkDependencies()`, macOS
+    (seatbelt/sandbox-exec) and Linux (bubblewrap + seccomp)
   - Tests: Spike deferred to implementation phase (sandbox wrapper work package)
 
 - [x] Audit all agent provider tool calls and build per-agent forbidden tool
       blocklists
   - Created `src/services/ForbiddenTools.ts` with `AGENT_TOOL_CATALOG` and
     `FORBIDDEN_TOOLS` constants keyed by `AgentProviderType`
-  - Pi tools (from pi-coding-agent README): read, bash, edit, write, grep,
-    find, ls — no built-in interactive tools
+  - Pi tools (from pi-coding-agent README): read, bash, edit, write, grep, find,
+    ls — no built-in interactive tools
   - OpenCode tools (from opencode source registry.ts): bash, read, glob, grep,
     edit, write, task, webfetch, todowrite, todoread, websearch, codesearch,
-    skill, apply_patch, lsp, batch, plan_enter, plan_exit, question, multiedit
-    — "question" is interactive
-  - Claude tools (from @anthropic-ai/claude-agent-sdk sdk-tools.d.ts):
-    Agent, Bash, TaskOutput, ExitPlanMode, FileEdit, FileRead, FileWrite,
-    Glob, Grep, TaskStop, ListMcpResources, Mcp, NotebookEdit,
-    ReadMcpResource, TodoWrite, WebFetch, WebSearch, AskUserQuestion, Config
-    — "AskUserQuestion" is interactive
+    skill, apply_patch, lsp, batch, plan_enter, plan_exit, question, multiedit —
+    "question" is interactive
+  - Claude tools (from @anthropic-ai/claude-agent-sdk sdk-tools.d.ts): Agent,
+    Bash, TaskOutput, ExitPlanMode, FileEdit, FileRead, FileWrite, Glob, Grep,
+    TaskStop, ListMcpResources, Mcp, NotebookEdit, ReadMcpResource, TodoWrite,
+    WebFetch, WebSearch, AskUserQuestion, Config — "AskUserQuestion" is
+    interactive
   - Forbidden tools: pi=[], opencode=["question"], claude=["AskUserQuestion"]
   - Tests: 15 tests in `ForbiddenTools.test.ts` — unit tests verify blocklist
-    contents, catalog completeness, forbidden-is-subset-of-catalog invariant;
-    6 snapshot tests catch upstream tool additions
+    contents, catalog completeness, forbidden-is-subset-of-catalog invariant; 6
+    snapshot tests catch upstream tool additions
 
 ### Internalize `agentForbiddenTools` (Remove from Config)
 
 - [x] Replace `agentForbiddenTools` config field with internal per-agent
       blocklists
-
   - Create a `FORBIDDEN_TOOLS` constant map in `src/services/AgentGuards.ts`
     keyed by agent provider type (e.g.,
     `{ pi: [...], opencode: [...], claude: ["AskUserQuestion", ...] }`)
@@ -197,6 +193,14 @@
   - Document the escalation flow in the mermaid diagram
   - Tests: README test (`readme.test.ts`) still passes; example config validates
     against schema
+
+> Additions:
+>
+> - by default, read an write should only be allowed in the current directory
+>   and all network requests except the ones necessary for the agent to work
+> - do not prompt the user on escalation, but stop the process with an according
+>   message. users then can either adjust the permissions in config or adjust
+>   the requirements
 
 ## Learnings
 
