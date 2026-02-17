@@ -8,7 +8,7 @@ import { initAction } from "./commands/init.js"
 import { GitService } from "./services/Git.js"
 import { GtdConfigService } from "./services/Config.js"
 import { AgentService, catchAgentError } from "./services/Agent.js"
-import { parseCommitPrefix, HUMAN } from "./services/CommitPrefix.js"
+import { parseCommitPrefix, HUMAN, SEED, FEEDBACK } from "./services/CommitPrefix.js"
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
 import { isOnlyLearningsModified } from "./services/LearningsDiff.js"
 import { extractLearnings, hasLearningsSection, hasUncheckedItems } from "./services/Markdown.js"
@@ -103,7 +103,7 @@ export const gatherState = (
         Effect.catchAll(() => Effect.succeed("")),
       )
       onlyLearningsModified = isOnlyLearningsModified(diff, committedContent)
-    } else if (lastPrefix === HUMAN) {
+    } else if (lastPrefix === HUMAN || lastPrefix === SEED || lastPrefix === FEEDBACK) {
       // For 🤦 commits, check if the committed diff only modified learnings
       const diff = yield* git.show("HEAD").pipe(
         Effect.catchAll(() => Effect.succeed("")),

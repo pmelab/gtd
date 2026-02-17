@@ -66,7 +66,7 @@
 
 ### Update CLI State Gathering
 
-- [ ] Ensure `gatherState` in `cli.ts` handles the new prefixes correctly
+- [x] Ensure `gatherState` in `cli.ts` handles the new prefixes correctly
   - `SEED` and `FEEDBACK` should be treated like `HUMAN` for
     `onlyLearningsModified` detection (check committed diff)
   - `todoFileIsNew` detection remains unchanged — it's used by `BUILD`/`FIX`
