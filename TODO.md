@@ -22,7 +22,6 @@
 ### Pass Model to AgentInvocation
 
 - [ ] Add `model` field to `AgentInvocation` interface
-
   - Add `readonly model?: string` to `AgentInvocation` in `Agent.ts`
   - Tests: existing `Agent.test.ts` still passes with `model` undefined
 
@@ -37,13 +36,11 @@
 ### Agent Providers Pass Model to CLI
 
 - [ ] Pi agent: pass `--model` flag when `params.model` is set
-
   - In `Pi.ts` `spawn`, conditionally add `["--model", params.model]` to args
   - Tests: `Pi.test.ts` — spawn args include `--model <value>` when model is
     provided, omit when undefined
 
 - [ ] OpenCode agent: pass `--model` flag when `params.model` is set
-
   - In `OpenCode.ts` `spawn`, conditionally add `["-m", params.model]` to args
   - Tests: `OpenCode.test.ts` — spawn args include `-m <value>` when model is
     provided, omit when undefined
@@ -75,8 +72,10 @@
 - Should there be a single `model` fallback field (used when mode-specific
   fields are unset), or should each mode default to the agent's own default
   model?
+  > the agent's own default model
 - Should `modelCommit` be added for the commit message generation step, or is
   that always a lightweight call that doesn't need model control?
+  > also add modelCommit
 
 ## Learnings
 
