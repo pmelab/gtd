@@ -30,6 +30,14 @@ export const parseOpenCodeEvent = (line: string): AgentEvent | undefined => {
   }
 }
 
+export const buildOpenCodeArgs = (params: { model?: string }): string[] => {
+  const args = ["opencode", "run", "--format", "json"]
+  if (params.model) {
+    args.push("--model", params.model)
+  }
+  return args
+}
+
 export const OpenCodeAgent: AgentProvider = {
   name: "opencode",
   providerType: "opencode",
@@ -49,7 +57,8 @@ export const OpenCodeAgent: AgentProvider = {
       const combinedPrompt = params.systemPrompt
         ? `${params.systemPrompt}\n\n${params.prompt}`
         : params.prompt
-      const proc = Bun.spawn(["opencode", "run", "--format", "json"], {
+      const args = buildOpenCodeArgs({ model: params.model })
+      const proc = Bun.spawn(args, {
         cwd: params.cwd,
         stdin: new Blob([combinedPrompt]),
         stdout: "pipe",

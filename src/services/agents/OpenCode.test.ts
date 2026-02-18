@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest"
 import { Effect } from "effect"
-import { OpenCodeAgent, parseOpenCodeEvent } from "./OpenCode.js"
+import { OpenCodeAgent, parseOpenCodeEvent, buildOpenCodeArgs } from "./OpenCode.js"
 
 describe("OpenCodeAgent", () => {
   it("exposes name as 'opencode'", () => {
@@ -85,6 +85,20 @@ describe("OpenCodeAgent", () => {
     it("returns undefined for malformed JSON", () => {
       const event = parseOpenCodeEvent("not json")
       expect(event).toBeUndefined()
+    })
+  })
+
+  describe("buildOpenCodeArgs", () => {
+    it("includes --model when model is provided", () => {
+      const args = buildOpenCodeArgs({ model: "gpt-4o" })
+      const idx = args.indexOf("--model")
+      expect(idx).toBeGreaterThan(-1)
+      expect(args[idx + 1]).toBe("gpt-4o")
+    })
+
+    it("omits --model when model is undefined", () => {
+      const args = buildOpenCodeArgs({})
+      expect(args).not.toContain("--model")
     })
   })
 })

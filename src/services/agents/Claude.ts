@@ -63,6 +63,7 @@ export const extractSessionId = (line: string): string | undefined => {
 export const buildClaudeArgs = (params: {
   systemPrompt: string
   resumeSessionId: string | undefined
+  model?: string
 }): string[] => {
   const args = ["claude"]
   if (params.resumeSessionId) {
@@ -71,6 +72,9 @@ export const buildClaudeArgs = (params: {
   args.push("-p", "--verbose", "--output-format", "stream-json", "--include-partial-messages")
   if (params.systemPrompt && !params.resumeSessionId) {
     args.push("--system-prompt", params.systemPrompt)
+  }
+  if (params.model) {
+    args.push("--model", params.model)
   }
   args.push("--dangerously-skip-permissions")
   return args
@@ -91,6 +95,7 @@ export const ClaudeAgent: AgentProvider = {
       const args = buildClaudeArgs({
         systemPrompt: params.systemPrompt,
         resumeSessionId: params.resumeSessionId,
+        model: params.model,
       })
 
       const proc = Bun.spawn(args, {

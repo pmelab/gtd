@@ -55,6 +55,24 @@ export const parsePiEvent = (line: string): AgentEvent | undefined => {
   }
 }
 
+export const buildPiArgs = (params: {
+  systemPrompt: string
+  prompt: string
+  model?: string
+}): string[] => {
+  const args = [
+    "pi",
+    "-p",
+    "--mode",
+    "json",
+    "--no-session",
+    ...(params.model ? ["--model", params.model] : []),
+    ...(params.systemPrompt ? ["--append-system-prompt", params.systemPrompt] : []),
+    params.prompt,
+  ]
+  return args
+}
+
 export const PiAgent: AgentProvider = {
   name: "pi",
   providerType: "pi",
@@ -68,15 +86,11 @@ export const PiAgent: AgentProvider = {
     agentName: "Pi",
     parseEvent: parsePiEvent,
     spawn: (params: AgentInvocation) => {
-      const args = [
-        "pi",
-        "-p",
-        "--mode",
-        "json",
-        "--no-session",
-        ...(params.systemPrompt ? ["--append-system-prompt", params.systemPrompt] : []),
-        params.prompt,
-      ]
+      const args = buildPiArgs({
+        systemPrompt: params.systemPrompt,
+        prompt: params.prompt,
+        model: params.model,
+      })
       const proc = Bun.spawn(args, {
         cwd: params.cwd,
         stdout: "pipe",

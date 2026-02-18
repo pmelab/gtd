@@ -189,5 +189,17 @@ describe("ClaudeAgent", () => {
       expect(args).not.toContain("--system-prompt")
       expect(args).toContain("--resume")
     })
+
+    it("includes --model when model is provided", () => {
+      const args = buildClaudeArgs({ systemPrompt: "", resumeSessionId: undefined, model: "claude-3-opus" })
+      const idx = args.indexOf("--model")
+      expect(idx).toBeGreaterThan(-1)
+      expect(args[idx + 1]).toBe("claude-3-opus")
+    })
+
+    it("omits --model when model is undefined", () => {
+      const args = buildClaudeArgs({ systemPrompt: "", resumeSessionId: undefined })
+      expect(args).not.toContain("--model")
+    })
   })
 })

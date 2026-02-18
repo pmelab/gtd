@@ -38,19 +38,19 @@
 
 ### Agent Providers Pass Model to CLI
 
-- [ ] Pi agent: pass `--model` flag when `params.model` is set
+- [x] Pi agent: pass `--model` flag when `params.model` is set
 
   - In `Pi.ts` `spawn`, conditionally add `["--model", params.model]` to args
   - Tests: `Pi.test.ts` — spawn args include `--model <value>` when model is
     provided, omit when undefined
 
-- [ ] OpenCode agent: pass `--model` flag when `params.model` is set
+- [x] OpenCode agent: pass `--model` flag when `params.model` is set
 
   - In `OpenCode.ts` `spawn`, conditionally add `["-m", params.model]` to args
   - Tests: `OpenCode.test.ts` — spawn args include `-m <value>` when model is
     provided, omit when undefined
 
-- [ ] Claude agent: pass `--model` flag when `params.model` is set
+- [x] Claude agent: pass `--model` flag when `params.model` is set
   - In `Claude.ts` `buildClaudeArgs`, conditionally add
     `["--model", params.model]` to args
   - Tests: `Claude.test.ts` — `buildClaudeArgs` includes `--model <value>` when

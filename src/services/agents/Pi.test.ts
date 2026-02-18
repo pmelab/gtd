@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest"
 import { Effect } from "effect"
-import { PiAgent, parsePiEvent } from "./Pi.js"
+import { PiAgent, parsePiEvent, buildPiArgs } from "./Pi.js"
 import type { AgentEvent } from "../AgentEvent.js"
 
 describe("PiAgent", () => {
@@ -122,6 +122,20 @@ describe("PiAgent", () => {
         }),
       )
       expect(event).toBeUndefined()
+    })
+  })
+
+  describe("buildPiArgs", () => {
+    it("includes --model when model is provided", () => {
+      const args = buildPiArgs({ systemPrompt: "", prompt: "hello", model: "some-model" })
+      const idx = args.indexOf("--model")
+      expect(idx).toBeGreaterThan(-1)
+      expect(args[idx + 1]).toBe("some-model")
+    })
+
+    it("omits --model when model is undefined", () => {
+      const args = buildPiArgs({ systemPrompt: "", prompt: "hello" })
+      expect(args).not.toContain("--model")
     })
   })
 })
