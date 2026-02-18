@@ -95,6 +95,7 @@ EOF
   # Last commit should be plan (🤖) since re-dispatch runs plan after feedback
   run last_commit_prefix
   assert_output "🤖"
+  # TODO: also assert that there is a new action item in TODO.md
 }
 
 # ── Step 3: gtd → build ─────────────────────────────────────────────────────

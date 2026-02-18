@@ -1,4 +1,6 @@
-# G*i*tting things done
+# _git_.things.**done**
+
+<!-- TODO: re-align this whole file with the current implementation. double-check everything -->
 
 A file-based, version-controlled, agent-agnostic development workflow.
 

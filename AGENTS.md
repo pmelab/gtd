@@ -10,28 +10,12 @@ Relevant base documentation:
 It automates AI agent execution and git operations:
 
 - Git: uses the users local git cli, respecting all configuration.
+<!-- TODO: information on agents is not up-to-date -->
 - OpenCode: uses the official opencode sdk (https://opencode.ai/docs/sdk/),
   respects standard project and user configuration
 - Claude code: uses the official agent sdk
   (https://platform.claude.com/docs/en/agent-sdk/overview.md), respects all
   project and user configuration
-
-## Blueprint Workflow
-
-- Cleanup commits (e.g., TODO removals) are trivial — use a fixed message like
-  "chore: remove TODO", no need for LLM-generated summaries
-- When chaining commit-feedback → plan, the plan step should read the last
-  commit (`git diff HEAD~1`) rather than the working tree diff (which is empty
-  after the commit)
-- Commit prefix semantics follow change intent: `🌱` for seeding plans, `💬` for
-  planning feedback (blockquotes), `🤦` for inline code TODOs, `👷` for actual
-  code fixes — keep these orthogonal to avoid ambiguous classification
-- When chaining commit → next-step in an automated pipeline, ensure the next
-  step can access the full context of what was just committed — splitting into
-  multiple commits loses context for downstream steps that only inspect `HEAD~1`
-- Prefer a single atomic commit for all human input to preserve full context for
-  AI planning — granular commit splitting is only valuable when each commit is
-  independently actionable
 
 ## Guidelines
 
