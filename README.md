@@ -427,5 +427,9 @@ The following agents are supported:
 - Opencode (id: `opencode`)
 - Claude Code (id: `claude`)
 
-When `agent` is set to `"auto"` (the default), `gtd` tries them in the order
-listed above and uses the first one available.
+When `agent` is set to `"auto"` (the default), `gtd` checks availability in
+the order Pi → Opencode → Claude and selects the first one found. If that agent
+fails during execution, `gtd` automatically falls back to the next available
+agent in the same order. This means a transient failure in one agent does not
+stop the run — `gtd` tries the next agent before giving up. If all available
+agents fail, the error from the last agent is reported.

@@ -320,6 +320,21 @@ describe("README.md", () => {
     expect(content).toMatch(/user.level|global.*config|user.*config/i)
   })
 
+  it("documents agent auto-detection fallback behavior", () => {
+    const content = readmeContent()
+    const agentsSection =
+      content.match(/### Agents\n([\s\S]*?)(?=\n## [^#]|\n### [^A]|$)/)?.[1] ?? ""
+
+    // Should mention detection order
+    expect(agentsSection).toMatch(/pi.*opencode.*claude/i)
+
+    // Should describe fallback on failure
+    expect(agentsSection).toMatch(/fallback|fails.*next|tries.*next|fall.*back/i)
+
+    // Should explain that the first available agent is tried, and on failure the next is used
+    expect(agentsSection).toMatch(/first.*fail|fail.*next|error.*next/i)
+  })
+
   it("section 5 Learn describes manual step between build completion and learn", () => {
     const content = readmeContent()
     const learnMatch = content.match(/### 5\. Learn\n([\s\S]*?)(?=\n### \d|$)/)

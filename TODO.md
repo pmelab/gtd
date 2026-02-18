@@ -104,7 +104,7 @@
 
 ### Agent Fallback Behavior
 
-- [ ] Document agent auto-detection fallback in the Agents section
+- [x] Document agent auto-detection fallback in the Agents section
   - When the first auto-detected agent fails, gtd tries the next agent in order
   - Describe the detection order and fallback logic so users understand which
     agent gets picked and what happens on failure
