@@ -131,6 +131,12 @@ describe("README.md", () => {
     expect(content).toContain("sandboxBoundaries")
   })
 
+  it("documents sandbox-on-by-default behavior", () => {
+    const content = readmeContent()
+    expect(content).toMatch(/sandbox.*enabled.*by default|enabled by default/i)
+    expect(content).toMatch(/opt.out|sandboxEnabled.*false/i)
+  })
+
   it("documents strict defaults: cwd-only filesystem and agent-essential-only network", () => {
     const content = readmeContent()
     expect(content).toMatch(/cwd|working directory/i)

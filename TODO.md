@@ -42,7 +42,7 @@
 
 ### Update Documentation
 
-- [ ] Update README/docs to reflect sandbox-on-by-default behavior
+- [x] Update README/docs to reflect sandbox-on-by-default behavior
   - Users who want to opt out should set `sandboxEnabled: false` in their config
   - Update `EXAMPLE_CONFIG` in `ConfigResolver.ts` to include
     `sandboxEnabled: true` to make the default explicit

@@ -163,10 +163,12 @@ they contain marker prefixes.
 
 ## Sandbox Runtime
 
-When `sandboxEnabled` is `true`, `gtd` wraps your chosen agent provider in a
-sandbox layer. The sandbox does not replace the agent — it wraps it, adding
-isolation and permission controls while delegating all agent logic (prompting,
-tool use) to the underlying provider.
+The sandbox is enabled by default. When `sandboxEnabled` is `true`, `gtd` wraps
+your chosen agent provider in a sandbox layer. The sandbox does not replace the
+agent — it wraps it, adding isolation and permission controls while delegating
+all agent logic (prompting, tool use) to the underlying provider.
+
+To opt out, set `sandboxEnabled` to `false` in your config.
 
 ### Strict Defaults
 
@@ -338,7 +340,7 @@ Any format supported by cosmiconfig:
   "agentInactivityTimeout": 300,
 
   // Enable sandbox runtime wrapping around the agent provider
-  // Default: false
+  // Default: true
   "sandboxEnabled": true,
 
   // Override default boundary levels per workflow phase

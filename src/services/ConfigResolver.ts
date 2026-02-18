@@ -18,6 +18,7 @@ export const EXAMPLE_CONFIG = {
   testCmd: "npm test",
   testRetries: 10,
   agentInactivityTimeout: 300,
+  sandboxEnabled: true,
   sandboxBoundaries: {
     filesystem: {
       allowWrite: ["/shared/output"],
