@@ -125,9 +125,10 @@ describe("AgentService.Live", () => {
             Layer.succeed(GtdConfigService, {
               file: "TODO.md",
               agent: "auto",
-              agentPlan: "auto",
-              agentBuild: "auto",
-              agentLearn: "auto",
+              modelPlan: undefined,
+              modelBuild: undefined,
+              modelLearn: undefined,
+              modelCommit: undefined,
               testCmd: "",
               testRetries: 0,
               commitPrompt: "",

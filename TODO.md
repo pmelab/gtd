@@ -4,7 +4,7 @@
 
 ### Rename Config Fields and Add Model Support
 
-- [ ] Rename `agentPlan`/`agentBuild`/`agentLearn` to
+- [x] Rename `agentPlan`/`agentBuild`/`agentLearn` to
       `modelPlan`/`modelBuild`/`modelLearn` and add `modelCommit` in config
   - Update `ConfigSchema.ts`: replace the three `agent*` fields with `model*`
     fields (type `Schema.optional(Schema.String)`), add `modelCommit` field

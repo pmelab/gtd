@@ -205,9 +205,10 @@ describe("mergeConfigs", () => {
 
     expect(result.file).toBe("TODO.md")
     expect(result.agent).toBe("auto")
-    expect(result.agentPlan).toBe("plan")
-    expect(result.agentBuild).toBe("code")
-    expect(result.agentLearn).toBe("plan")
+    expect(result.modelPlan).toBeUndefined()
+    expect(result.modelBuild).toBeUndefined()
+    expect(result.modelLearn).toBeUndefined()
+    expect(result.modelCommit).toBeUndefined()
     expect(result.testCmd).toBe("npm test")
     expect(result.testRetries).toBe(10)
     expect(result.commitPrompt).toContain("{{diff}}")
@@ -278,6 +279,39 @@ describe("mergeConfigs", () => {
 
     expect(result.sandboxBoundaries.filesystem?.allowRead).toContain("/extra")
     expect(result.sandboxBoundaries.network?.allowedDomains).toContain("custom.com")
+  })
+
+  it("ignores old agentPlan/agentBuild/agentLearn fields for backwards compatibility", () => {
+    const configs = [
+      {
+        config: {
+          agentPlan: "architect",
+          agentBuild: "coder",
+          agentLearn: "teacher",
+          file: "TODO.md",
+        } as Record<string, unknown>,
+        filepath: "/a",
+      },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect((result as unknown as Record<string, unknown>).agentPlan).toBeUndefined()
+    expect((result as unknown as Record<string, unknown>).agentBuild).toBeUndefined()
+    expect((result as unknown as Record<string, unknown>).agentLearn).toBeUndefined()
+    expect(result.modelPlan).toBeUndefined()
+    expect(result.modelBuild).toBeUndefined()
+    expect(result.modelLearn).toBeUndefined()
+  })
+
+  it("merges modelCommit from config", () => {
+    const configs = [
+      { config: { modelCommit: "gpt-4" } as Record<string, unknown>, filepath: "/a" },
+    ]
+
+    const result = mergeConfigs(configs)
+
+    expect(result.modelCommit).toBe("gpt-4")
   })
 
   it("ignores sandboxEscalationPolicy in config for backwards compatibility", () => {

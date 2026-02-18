@@ -12,9 +12,10 @@ export interface SandboxBoundariesConfig {
 export interface GtdConfig {
   readonly file: string
   readonly agent: string
-  readonly agentPlan: string
-  readonly agentBuild: string
-  readonly agentLearn: string
+  readonly modelPlan: string | undefined
+  readonly modelBuild: string | undefined
+  readonly modelLearn: string | undefined
+  readonly modelCommit: string | undefined
   readonly testCmd: string
   readonly testRetries: number
   readonly commitPrompt: string

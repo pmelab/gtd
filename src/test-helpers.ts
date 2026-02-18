@@ -5,9 +5,10 @@ import { GitService, type GitOperations } from "./services/Git.js"
 export const defaultTestConfig: GtdConfig = {
   file: "TODO.md",
   agent: "auto",
-  agentPlan: "plan",
-  agentBuild: "code",
-  agentLearn: "plan",
+  modelPlan: undefined,
+  modelBuild: undefined,
+  modelLearn: undefined,
+  modelCommit: undefined,
   testCmd: "",
   testRetries: 10,
   commitPrompt: "{{diff}}",

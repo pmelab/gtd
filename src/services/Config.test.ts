@@ -38,9 +38,10 @@ describe("GtdConfigService (file-based)", () => {
     const config = await Effect.runPromise(runWithDirs())
     expect(config.file).toBe("TODO.md")
     expect(config.agent).toBe("auto")
-    expect(config.agentPlan).toBe("plan")
-    expect(config.agentBuild).toBe("code")
-    expect(config.agentLearn).toBe("plan")
+    expect(config.modelPlan).toBeUndefined()
+    expect(config.modelBuild).toBeUndefined()
+    expect(config.modelLearn).toBeUndefined()
+    expect(config.modelCommit).toBeUndefined()
     expect(config.testCmd).toBe("npm test")
     expect(config.testRetries).toBe(10)
     expect(config.commitPrompt).toContain("{{diff}}")
@@ -65,7 +66,7 @@ describe("GtdConfigService (file-based)", () => {
     expect(config.agent).toBe("claude")
     expect(config.testRetries).toBe(5)
     // defaults still apply for unset keys
-    expect(config.agentPlan).toBe("plan")
+    expect(config.modelPlan).toBeUndefined()
     expect(config.testCmd).toBe("npm test")
   })
 
@@ -86,7 +87,7 @@ testRetries: 3
     expect(config.agent).toBe("opencode")
     expect(config.testRetries).toBe(3)
     // defaults still apply for unset keys
-    expect(config.agentBuild).toBe("code")
+    expect(config.modelBuild).toBeUndefined()
     expect(config.commitPrompt).toContain("{{diff}}")
   })
 

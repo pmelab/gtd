@@ -12,9 +12,10 @@ describe("GtdConfigSchema", () => {
     expect(result.file).toBe("PLAN.md")
     expect(result.testRetries).toBe(5)
     expect(result.agent).toBeUndefined()
-    expect(result.agentPlan).toBeUndefined()
-    expect(result.agentBuild).toBeUndefined()
-    expect(result.agentLearn).toBeUndefined()
+    expect(result.modelPlan).toBeUndefined()
+    expect(result.modelBuild).toBeUndefined()
+    expect(result.modelLearn).toBeUndefined()
+    expect(result.modelCommit).toBeUndefined()
     expect(result.testCmd).toBeUndefined()
     expect(result.commitPrompt).toBeUndefined()
     expect(result.agentInactivityTimeout).toBeUndefined()
@@ -24,9 +25,10 @@ describe("GtdConfigSchema", () => {
     const input = {
       file: "TODO.md",
       agent: "claude",
-      agentPlan: "architect",
-      agentBuild: "coder",
-      agentLearn: "teacher",
+      modelPlan: "architect",
+      modelBuild: "coder",
+      modelLearn: "teacher",
+      modelCommit: "summarizer",
       testCmd: "bun test",
       testRetries: 3,
       commitPrompt: "custom prompt",
@@ -61,6 +63,26 @@ describe("GtdConfigSchema", () => {
         unknownKey: "value",
       }),
     ).toThrow()
+  })
+
+  it("gracefully ignores old agentPlan/agentBuild/agentLearn fields for backwards compatibility", () => {
+    const input = {
+      file: "TODO.md",
+      agentPlan: "architect",
+      agentBuild: "coder",
+      agentLearn: "teacher",
+    }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.file).toBe("TODO.md")
+    expect((result as Record<string, unknown>).agentPlan).toBeUndefined()
+    expect((result as Record<string, unknown>).agentBuild).toBeUndefined()
+    expect((result as Record<string, unknown>).agentLearn).toBeUndefined()
+  })
+
+  it("parses modelCommit field correctly", () => {
+    const input = { modelCommit: "gpt-4" }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.modelCommit).toBe("gpt-4")
   })
 
   it("gracefully ignores old agentForbiddenTools field for backwards compatibility", () => {

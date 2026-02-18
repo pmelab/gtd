@@ -140,9 +140,10 @@ const defaultCommitPrompt = `Look at the following diff and create a concise com
 const defaults: Omit<GtdConfig, "configSources"> = {
   file: "TODO.md",
   agent: "auto",
-  agentPlan: "plan",
-  agentBuild: "code",
-  agentLearn: "plan",
+  modelPlan: undefined,
+  modelBuild: undefined,
+  modelLearn: undefined,
+  modelCommit: undefined,
   testCmd: "npm test",
   testRetries: 10,
   commitPrompt: defaultCommitPrompt,
@@ -166,7 +167,7 @@ export const mergeConfigs = (
 
   for (let i = 0; i < configs.length; i++) {
     const raw = configs[i]!.config
-    const { sandboxEscalationPolicy: _sep, sandboxApprovedEscalations: _sae, approvedEscalations: _ae, ...cleaned } = raw
+    const { sandboxEscalationPolicy: _sep, sandboxApprovedEscalations: _sae, approvedEscalations: _ae, agentPlan: _ap, agentBuild: _ab, agentLearn: _al, ...cleaned } = raw
     const result = decode(cleaned)
     if (result._tag === "Right") {
       validParsed.push({ parsed: result.right as Record<string, unknown>, filepath: configs[i]!.filepath })
