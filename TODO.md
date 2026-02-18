@@ -4,7 +4,7 @@
 
 ### Change Default Value
 
-- [ ] Change `sandboxEnabled` default from `false` to `true` in
+- [x] Change `sandboxEnabled` default from `false` to `true` in
       `ConfigResolver.ts`
   - In `src/services/ConfigResolver.ts`, change `sandboxEnabled: false` to
     `sandboxEnabled: true` in the `defaults` object (line 149)

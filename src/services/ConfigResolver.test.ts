@@ -257,7 +257,7 @@ describe("mergeConfigs", () => {
   it("applies sandbox defaults when fields are omitted", () => {
     const result = mergeConfigs([])
 
-    expect(result.sandboxEnabled).toBe(false)
+    expect(result.sandboxEnabled).toBe(true)
     expect(result.sandboxBoundaries).toEqual({})
   })
 

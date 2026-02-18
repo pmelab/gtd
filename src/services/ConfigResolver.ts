@@ -146,7 +146,7 @@ const defaults: Omit<GtdConfig, "configSources"> = {
   testRetries: 10,
   commitPrompt: defaultCommitPrompt,
   agentInactivityTimeout: 300,
-  sandboxEnabled: false,
+  sandboxEnabled: true,
   sandboxBoundaries: {},
 }
 

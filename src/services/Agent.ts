@@ -104,8 +104,8 @@ export const resolveAgent = (
   Effect.gen(function* () {
     const { agentId, sandboxEnabled } =
       typeof agentIdOrOptions === "string"
-        ? { agentId: agentIdOrOptions, sandboxEnabled: false }
-        : { agentId: agentIdOrOptions.agentId, sandboxEnabled: agentIdOrOptions.sandboxEnabled ?? false }
+        ? { agentId: agentIdOrOptions, sandboxEnabled: true }
+        : { agentId: agentIdOrOptions.agentId, sandboxEnabled: agentIdOrOptions.sandboxEnabled ?? true }
 
     const baseProvider = yield* resolveBaseAgent(agentId)
 
