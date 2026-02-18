@@ -84,6 +84,30 @@ describe("README.md", () => {
     }
   })
 
+  it("mermaid flowchart reflects the actual InferStep decision tree", () => {
+    const content = readmeContent()
+    const mermaidMatch = content.match(/```mermaid\n([\s\S]*?)```/)
+    const mermaid = mermaidMatch![1]!
+
+    // commit-feedback classifies into up to 4 separate commits
+    expect(mermaid).toMatch(/🌱.*seed/i)
+    expect(mermaid).toMatch(/💬.*feedback/i)
+    expect(mermaid).toMatch(/🤦.*human/i)
+    expect(mermaid).toMatch(/👷.*fix/i)
+
+    // SEED, FEEDBACK, and HUMAN all route the same way (learnings only → learn, else → plan)
+    expect(mermaid).toMatch(/🌱.*💬.*🤦/i)
+
+    // FIX routes the same as BUILD (todoFileIsNew decision)
+    expect(mermaid).toMatch(/🔨.*👷|👷.*🔨/i)
+
+    // todoFileIsNew decision branch after BUILD/FIX
+    expect(mermaid).toMatch(/todo.*new|new.*todo/i)
+
+    // Default/unknown with todoFileIsNew → plan
+    expect(mermaid).toMatch(/none.*unknown/i)
+  })
+
   it("has a How It Works section", () => {
     const content = readmeContent()
     expect(content).toContain("## How It Works")

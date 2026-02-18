@@ -21,15 +21,24 @@ picks the next step:
 ```mermaid
 flowchart TD
     Start([Run gtd]) --> Uncommitted{Uncommitted changes?}
-    Uncommitted -->|Yes| Feedback["🤦 Commit Feedback: commit your edits"]
     Uncommitted -->|No| CheckLast{Last commit prefix?}
-    Feedback --> ReDispatch{Re-dispatch}
-    ReDispatch --> CheckLast
-    CheckLast -->|🤦 learnings only| Learn["🎓 Learn: persist learnings to AGENTS.md"]
-    CheckLast -->|🤦 other changes| Plan["🤖 Plan: refine TODO.md with agent"]
-    Plan --> Build["🔨 Build: implement next unchecked item"]
+    Uncommitted -->|Yes| Classify["Classify diff into up to 4 commits"]
+    Classify --> SeedCommit["🌱 Seed: new TODO.md"]
+    Classify --> FeedbackCommit["💬 Feedback: edits to existing TODO.md"]
+    Classify --> HumanCommit["🤦 Human: code with feedback markers"]
+    Classify --> FixCommit["👷 Fix: non-feedback code changes"]
+    SeedCommit --> ReDispatch
+    FeedbackCommit --> ReDispatch
+    HumanCommit --> ReDispatch
+    FixCommit --> ReDispatch
+    ReDispatch{Re-dispatch} --> CheckLast
+    CheckLast -->|"🌱 / 💬 / 🤦 learnings only"| Learn["🎓 Learn: persist learnings to AGENTS.md"]
+    CheckLast -->|"🌱 / 💬 / 🤦 other changes"| Plan["🤖 Plan: refine TODO.md with agent"]
     CheckLast -->|🤖| Build
-    Build --> SandboxCheck{Sandbox enabled?}
+    CheckLast -->|"🔨 / 👷"| TodoNew{TODO.md is new?}
+    TodoNew -->|Yes| Plan
+    TodoNew -->|No| ItemsLeft
+    Build["🔨 Build: implement next unchecked item"] --> SandboxCheck{Sandbox enabled?}
     SandboxCheck -->|No| RunAgent[Run agent]
     SandboxCheck -->|Yes| RunSandboxed[Run agent in sandbox]
     RunSandboxed --> Violation{Permission violation?}
@@ -39,14 +48,15 @@ flowchart TD
     Violation -->|No| ItemsLeft
     RunAgent --> ItemsLeft
     ItemsLeft{Unchecked items remain?}
-    CheckLast -->|🔨| ItemsLeft
     ItemsLeft -->|Yes| Build
     ItemsLeft -->|No| Learn
+    Plan --> Build
     Learn --> Cleanup["🧹 Cleanup: remove TODO.md"]
     CheckLast -->|🎓| Cleanup
     Cleanup --> Idle([Idle: nothing to do])
     CheckLast -->|🧹| Idle
-    CheckLast -->|None / unknown| Idle
+    CheckLast -->|"None / unknown + TODO.md new"| Plan
+    CheckLast -->|"None / unknown + no TODO.md"| Idle
 ```
 
 ### Commit Prefixes

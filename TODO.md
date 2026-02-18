@@ -20,7 +20,7 @@
 
 ### Mermaid Flowchart
 
-- [ ] Update the main flowchart to reflect the actual decision tree from
+- [x] Update the main flowchart to reflect the actual decision tree from
       `InferStep.ts`
   - Current flowchart shows a simplified single-commit feedback path; actual
     implementation classifies diff into up to 4 separate commits (SEED, HUMAN,
