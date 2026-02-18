@@ -1,7 +1,5 @@
 # _git_.things.**done**
 
-<!-- TODO: re-align this whole file with the current implementation. double-check everything -->
-
 A file-based, version-controlled, agent-agnostic development workflow.
 
 Just run `gtd` — it figures out what to do next.

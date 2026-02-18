@@ -113,7 +113,7 @@
 
 ### Remove Stale TODO Comment
 
-- [ ] Remove the HTML comment `<!-- TODO: re-align this whole file ... -->` at
+- [x] Remove the HTML comment `<!-- TODO: re-align this whole file ... -->` at
       the top of README.md
   - This comment was the original trigger for this work and should be removed
     once alignment is complete
