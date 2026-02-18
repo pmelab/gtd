@@ -53,6 +53,9 @@ It automates AI agent execution and git operations:
 - prefer fail-stop over interactive prompts in automated pipelines — stopping
   with an actionable error message is safer and more predictable than prompting
   mid-execution; users adjust permissions in config and re-run
+- when changing a default value, update all three layers: the defaults object,
+  any hardcoded fallbacks in function signatures, and all test assertions that
+  reference the old default
 
 ## Architecture
 
@@ -78,6 +81,9 @@ It automates AI agent execution and git operations:
 - default to least privilege: restrict filesystem to cwd and network to
   agent-essential domains only — users explicitly opt in to broader access via
   config rather than opting out of broad defaults
+- prefer secure-by-default settings — sandbox should be enabled by default
+  following least-privilege principles, with users explicitly opting out rather
+  than opting in
 
 ### Commit Prefixes
 
