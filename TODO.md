@@ -4,7 +4,7 @@
 
 ### Commit Prefixes Table
 
-- [ ] Add missing commit prefixes 🌱 SEED, 💬 FEEDBACK, and 👷 FIX to the table
+- [x] Add missing commit prefixes 🌱 SEED, 💬 FEEDBACK, and 👷 FIX to the table
   - The table currently only documents 5 prefixes (🤦 🤖 🔨 🎓 🧹) but
     `CommitPrefix.ts` defines 8
   - 🌱 SEED: new TODO.md file committed (first plan seed)

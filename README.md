@@ -52,8 +52,11 @@ flowchart TD
 ### Commit Prefixes
 
 | Emoji | Step | Meaning |
-| ----- | -------- | ---------------------------------------- |
-| 🤦 | Feedback | Human edits committed for agent review |
+| ----- | -------- | -------------------------------------------------------- |
+| 🌱 | Seed | New TODO.md file committed (first plan seed) |
+| 💬 | Feedback | Changes to existing TODO.md (blockquotes, edits) |
+| 🤦 | Human | Code changes containing feedback markers (TODO:, FIX:, etc.) |
+| 👷 | Fix | Non-feedback code changes (regular fixes) |
 | 🤖 | Plan | Agent refined the plan in TODO.md |
 | 🔨 | Build | Agent implemented a TODO item |
 | 🎓 | Learn | Learnings persisted to AGENTS.md |

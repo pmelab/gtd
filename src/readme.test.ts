@@ -29,11 +29,26 @@ describe("README.md", () => {
 
   it("includes emoji-prefixed commit convention", () => {
     const content = readmeContent()
+    // All 8 prefixes from CommitPrefix.ts must appear in the table
     expect(content).toContain("🤦")
     expect(content).toContain("🤖")
     expect(content).toContain("🔨")
     expect(content).toContain("🎓")
     expect(content).toContain("🧹")
+    expect(content).toContain("🌱")
+    expect(content).toContain("💬")
+    expect(content).toContain("👷")
+
+    // Verify the commit prefixes table contains all 8 rows
+    const tableSection = content.match(/### Commit Prefixes\n\n([\s\S]*?)(?=\n##|\n$)/)?.[1] ?? ""
+    expect(tableSection).toContain("🌱")
+    expect(tableSection).toContain("💬")
+    expect(tableSection).toContain("👷")
+    expect(tableSection).toContain("🤦")
+    expect(tableSection).toContain("🤖")
+    expect(tableSection).toContain("🔨")
+    expect(tableSection).toContain("🎓")
+    expect(tableSection).toContain("🧹")
   })
 
   it("contains a valid mermaid flowchart", () => {
