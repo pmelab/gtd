@@ -13,7 +13,7 @@
 
 ### Update Agent Resolution Fallback
 
-- [ ] Change the fallback default in `resolveAgent` string overload from `false`
+- [x] Change the fallback default in `resolveAgent` string overload from `false`
       to `true`
   - In `src/services/Agent.ts`, the string argument path (line 107) hardcodes
     `sandboxEnabled: false` — change to `true`

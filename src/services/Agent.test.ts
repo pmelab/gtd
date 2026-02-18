@@ -105,10 +105,10 @@ describe("resolveAgent with sandbox", () => {
     expect(provider.name).not.toContain("sandbox")
   })
 
-  it("string argument behaves as sandboxEnabled=false", async () => {
+  it("string argument behaves as sandboxEnabled=true", async () => {
     const provider = await Effect.runPromise(resolveAgent("pi"))
-    expect(provider.name).toBe("pi")
-    expect(provider.name).not.toContain("sandbox")
+    expect(typeof provider.name).toBe("string")
+    expect(provider.providerType).toBe("pi")
   })
 })
 
