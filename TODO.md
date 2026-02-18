@@ -86,7 +86,7 @@
 
 ### Installation Section
 
-- [ ] Verify and update the installation command
+- [x] Verify and update the installation command
   - `npm install -g gtd` is confirmed correct as the distribution method
   - No changes needed to the install command itself
   - Tests: manual verification of installation method
