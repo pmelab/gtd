@@ -48,8 +48,9 @@ It automates AI agent execution and git operations:
 - order CI steps from fastest/cheapest to slowest/most expensive so failures
   surface early and save runner time — prefer: typecheck → lint → format → unit
   → e2e
-- when removing a config field, keep backwards compatibility by ignoring (not
-  rejecting) the old field in parsing so existing config files don't break
+- when removing or renaming a config field, keep backwards compatibility by
+  ignoring (not rejecting) the old field name in parsing so existing config
+  files don't break
 - prefer fail-stop over interactive prompts in automated pipelines — stopping
   with an actionable error message is safer and more predictable than prompting
   mid-execution; users adjust permissions in config and re-run
@@ -94,10 +95,19 @@ It automates AI agent execution and git operations:
   user-configurable options — the 🌱 > 💬 > 🤦 > 👷 prefix priority is a domain
   invariant, not a user preference
 
+### Agent Providers
+
+- agent providers should accept optional parameters and only pass CLI flags when
+  values are explicitly set — never pass empty strings or defaults that override
+  the agent's own configuration
+
 ### Configuration Design
 
 - prefer deriving permissions from workflow phase rather than requiring manual
   per-project configuration — sensible defaults reduce config burden
+- prefer per-mode defaults over a single fallback field — let each agent use its
+  own default model when no override is configured, rather than forcing a
+  universal fallback
 
 ## Testing
 
