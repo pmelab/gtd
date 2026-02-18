@@ -53,6 +53,7 @@
 ### Configuration Sample
 
 - [ ] Add the missing `modelLearn` field to the sample `.gtdrc.json`
+
   - `ConfigSchema.ts` and `Config.ts` both define `modelLearn` but the README
     sample omits it
   - Add between `modelBuild` and `modelCommit` with a comment like
@@ -86,11 +87,29 @@
 ### Installation Section
 
 - [ ] Verify and update the installation command
-  - Currently says `npm install -g gtd` but `package.json` uses bun for building
-    (`bun build ./src/main.ts --compile --outfile dist/gtd`)
-  - If distributed via npm, `npm install -g gtd` may still be correct; if
-    distributed as a compiled binary, update accordingly
+  - `npm install -g gtd` is confirmed correct as the distribution method
+  - No changes needed to the install command itself
   - Tests: manual verification of installation method
+
+### Init Subcommand Documentation
+
+- [ ] Document the `gtd init` / `gtd init --global` subcommand in README
+  - `cli.ts` defines an `init` subcommand that is not mentioned in the README
+  - Add a section or subsection explaining `gtd init` for project-local config
+    and `gtd init --global` for user-level config
+  - Place near the Configuration section so users discover it alongside config
+    file format
+  - Tests: `bun vitest run src/readme.test.ts` — add assertion that README
+    mentions the `init` subcommand
+
+### Agent Fallback Behavior
+
+- [ ] Document agent auto-detection fallback in the Agents section
+  - When the first auto-detected agent fails, gtd tries the next agent in order
+  - Describe the detection order and fallback logic so users understand which
+    agent gets picked and what happens on failure
+  - Tests: `bun vitest run src/readme.test.ts` — add assertion that README
+    mentions fallback behavior
 
 ### Remove Stale TODO Comment
 
@@ -100,14 +119,8 @@
     once alignment is complete
   - Tests: `grep -c 'TODO: re-align' README.md` should return 0
 
-## Open Questions
+## Learnings
 
-- Is `npm install -g gtd` still the correct installation method, or should it
-  reference `bun build` / compiled binary distribution?
-  > thats fine
-- Should the README document the `init` subcommand (`gtd init` /
-  `gtd init --global`) that exists in `cli.ts`?
-  > yes!
-- Should the Agents section mention the fallback behavior when the first
-  auto-detected agent fails (tries next in order)?
-  > yes
+- When open questions are resolved, convert answers into concrete action items
+  immediately rather than leaving them as annotations — answered questions that
+  don't produce action items become stale noise
