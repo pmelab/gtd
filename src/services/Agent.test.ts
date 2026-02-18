@@ -1,7 +1,7 @@
 import { describe, it, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import { AgentService, AgentError, resolveAgent } from "./Agent.js"
-import type { AgentProvider } from "./Agent.js"
+import { AgentService, AgentError, resolveAgent, resolveModelForMode } from "./Agent.js"
+import type { AgentProvider, AgentInvocation } from "./Agent.js"
 import { GtdConfigService } from "./Config.js"
 
 const mockAgent: AgentProvider = {
@@ -142,4 +142,44 @@ describe("AgentService.Live", () => {
       ),
     ),
   )
+})
+
+describe("resolveModelForMode", () => {
+  const configWithModels = {
+    modelPlan: "sonnet-4",
+    modelBuild: "opus",
+    modelLearn: "haiku",
+    modelCommit: "flash",
+  }
+
+  const configNoModels = {
+    modelPlan: undefined,
+    modelBuild: undefined,
+    modelLearn: undefined,
+    modelCommit: undefined,
+  }
+
+  it("returns modelPlan for plan mode", () => {
+    expect(resolveModelForMode("plan", configWithModels)).toBe("sonnet-4")
+  })
+
+  it("returns modelBuild for build mode", () => {
+    expect(resolveModelForMode("build", configWithModels)).toBe("opus")
+  })
+
+  it("returns modelLearn for learn mode", () => {
+    expect(resolveModelForMode("learn", configWithModels)).toBe("haiku")
+  })
+
+  it("returns modelCommit for commit mode", () => {
+    expect(resolveModelForMode("commit", configWithModels)).toBe("flash")
+  })
+
+  it("returns undefined when modelPlan is not set", () => {
+    expect(resolveModelForMode("plan", configNoModels)).toBeUndefined()
+  })
+
+  it("returns undefined when modelCommit is not set", () => {
+    expect(resolveModelForMode("commit", configNoModels)).toBeUndefined()
+  })
 })

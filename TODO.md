@@ -22,12 +22,12 @@
 
 ### Pass Model to AgentInvocation
 
-- [ ] Add `model` field to `AgentInvocation` interface
+- [x] Add `model` field to `AgentInvocation` interface
 
   - Add `readonly model?: string` to `AgentInvocation` in `Agent.ts`
   - Tests: existing `Agent.test.ts` still passes with `model` undefined
 
-- [ ] Wire `AgentService.Live` to resolve model per mode from config
+- [x] Wire `AgentService.Live` to resolve model per mode from config
   - In `AgentService.Live`, look up
     `config.modelPlan`/`modelBuild`/`modelLearn`/`modelCommit` based on
     `params.mode` and pass as `model` to the underlying provider

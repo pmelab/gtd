@@ -7,10 +7,34 @@ import type { AgentEvent } from "./AgentEvent.js"
 export interface AgentInvocation {
   readonly prompt: string
   readonly systemPrompt: string
-  readonly mode: "plan" | "build" | "learn"
+  readonly mode: "plan" | "build" | "learn" | "commit"
   readonly cwd: string
+  readonly model?: string
   readonly onEvent?: (event: AgentEvent) => void
   readonly resumeSessionId?: string
+}
+
+export interface ModelConfig {
+  readonly modelPlan: string | undefined
+  readonly modelBuild: string | undefined
+  readonly modelLearn: string | undefined
+  readonly modelCommit: string | undefined
+}
+
+export const resolveModelForMode = (
+  mode: AgentInvocation["mode"],
+  config: ModelConfig,
+): string | undefined => {
+  switch (mode) {
+    case "plan":
+      return config.modelPlan
+    case "build":
+      return config.modelBuild
+    case "learn":
+      return config.modelLearn
+    case "commit":
+      return config.modelCommit
+  }
 }
 
 export interface AgentResult {
@@ -64,8 +88,10 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
         resolvedName: provider.name,
         invoke: (params) =>
           Effect.gen(function* () {
+            const model = resolveModelForMode(params.mode, config)
+            const paramsWithModel = { ...params, model }
             const guarded = withAgentGuards(provider, guardsConfig)
-            return yield* guarded.invoke(params)
+            return yield* guarded.invoke(paramsWithModel)
           }),
         isAvailable: () => Effect.succeed(true),
       }
