@@ -40,6 +40,50 @@ describe("run info banner in CLI", () => {
     expect(output).toContain("file=TODO.md")
   })
 
+  it("prints banner with model info when configured", async () => {
+    const agentLayer = Layer.succeed(AgentService, {
+      name: "pi",
+      resolvedName: "pi (auto)",
+      providerType: "pi",
+      invoke: () => Effect.succeed({ sessionId: undefined }),
+      isAvailable: () => Effect.succeed(true),
+    })
+
+    const configLayer = mockConfig({ file: "TODO.md", modelPlan: "sonnet-4" })
+    const quietLayer = QuietMode.layer(false)
+
+    await Effect.runPromise(
+      printBanner("plan").pipe(
+        Effect.provide(Layer.mergeAll(agentLayer, configLayer, quietLayer)),
+      ),
+    )
+
+    const output = stderrSpy.mock.calls.map((c) => c[0]).join("")
+    expect(output).toContain("model=sonnet-4")
+  })
+
+  it("omits model from banner when not configured", async () => {
+    const agentLayer = Layer.succeed(AgentService, {
+      name: "pi",
+      resolvedName: "pi (auto)",
+      providerType: "pi",
+      invoke: () => Effect.succeed({ sessionId: undefined }),
+      isAvailable: () => Effect.succeed(true),
+    })
+
+    const configLayer = mockConfig({ file: "TODO.md" })
+    const quietLayer = QuietMode.layer(false)
+
+    await Effect.runPromise(
+      printBanner("plan").pipe(
+        Effect.provide(Layer.mergeAll(agentLayer, configLayer, quietLayer)),
+      ),
+    )
+
+    const output = stderrSpy.mock.calls.map((c) => c[0]).join("")
+    expect(output).not.toContain("model=")
+  })
+
   it("suppresses banner when --quiet is set", async () => {
     const agentLayer = Layer.succeed(AgentService, {
       name: "pi",

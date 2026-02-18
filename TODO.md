@@ -67,7 +67,7 @@
 
 ### Update RunInfo Banner
 
-- [ ] Display resolved model per mode in the run info banner
+- [x] Display resolved model per mode in the run info banner
   - Show which model will be used for the current command's mode
   - Tests: `RunInfo.test.ts` / `run-info-banner.test.ts` — banner includes model
     info when configured
