@@ -41,6 +41,9 @@ It automates AI agent execution and git operations:
 - when changing a default value, update all three layers: the defaults object,
   any hardcoded fallbacks in function signatures, and all test assertions that
   reference the old default
+- when open questions are resolved, convert answers into concrete action items
+  immediately rather than leaving them as annotations — answered questions that
+  don't produce action items become stale noise
 
 ## Architecture
 
