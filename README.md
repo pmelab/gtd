@@ -324,6 +324,25 @@ orthogonal — both are evaluated independently and neither overrides the other:
 `gtd` uses file-based configuration via [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig).
 Environment variables are **not** used for configuration.
 
+### Generating a Config File
+
+Use `gtd init` to scaffold a project-local `.gtdrc.json` in the current
+directory:
+
+```sh
+gtd init
+```
+
+For a user-level (global) config, use `gtd init --global` which creates the
+file under `$XDG_CONFIG_HOME/gtd/` (defaults to `~/.config/gtd/`):
+
+```sh
+gtd init --global
+```
+
+Both commands write an example `.gtdrc.json` with a `$schema` reference and
+skip creation if the file already exists.
+
 ### Config File Locations
 
 Config files are searched in the following order (highest priority first):

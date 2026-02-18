@@ -93,7 +93,7 @@
 
 ### Init Subcommand Documentation
 
-- [ ] Document the `gtd init` / `gtd init --global` subcommand in README
+- [x] Document the `gtd init` / `gtd init --global` subcommand in README
   - `cli.ts` defines an `init` subcommand that is not mentioned in the README
   - Add a section or subsection explaining `gtd init` for project-local config
     and `gtd init --global` for user-level config

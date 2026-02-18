@@ -312,6 +312,14 @@ describe("README.md", () => {
     expect(step3).toMatch(/re.dispatch|routes? accordingly|checks the last prefix/i)
   })
 
+  it("documents the gtd init subcommand", () => {
+    const content = readmeContent()
+    expect(content).toMatch(/`gtd init`/)
+    expect(content).toMatch(/`gtd init --global`/)
+    expect(content).toMatch(/project.local|project.level|local.*config/i)
+    expect(content).toMatch(/user.level|global.*config|user.*config/i)
+  })
+
   it("section 5 Learn describes manual step between build completion and learn", () => {
     const content = readmeContent()
     const learnMatch = content.match(/### 5\. Learn\n([\s\S]*?)(?=\n### \d|$)/)
