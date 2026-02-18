@@ -75,7 +75,7 @@
 
 ### Example Workflow Section
 
-- [ ] Update the workflow narrative to reflect multi-prefix commit behavior
+- [x] Update the workflow narrative to reflect multi-prefix commit behavior
   - Step 3 (Review and give feedback) should mention that `gtd` classifies
     changes into separate commits by type rather than a single 🤦 commit
   - Blockquote feedback in TODO.md → 💬 commit; code marker comments → 🤦

@@ -286,6 +286,32 @@ describe("README.md", () => {
     expect(feedbackSection).toMatch(/🌱.*💬.*🤦.*👷/)
   })
 
+  it("step 3 workflow narrative reflects multi-prefix commit behavior", () => {
+    const content = readmeContent()
+    const step3Match = content.match(/### 3\. Review and give feedback\n([\s\S]*?)(?=\n### \d)/)
+    expect(step3Match).not.toBeNull()
+    const step3 = step3Match![1]!
+
+    // Should mention classifying changes into separate commits by type
+    expect(step3).toMatch(/classif|separate.*commit|different.*commit/i)
+
+    // Should mention the three commit types for feedback
+    expect(step3).toMatch(/💬/)
+    expect(step3).toMatch(/🤦/)
+    expect(step3).toMatch(/👷/)
+
+    // Should explain what each type maps to
+    expect(step3).toMatch(/blockquote|TODO\.md.*💬|💬.*TODO\.md/i)
+    expect(step3).toMatch(/marker|🤦.*code|code.*🤦/i)
+    expect(step3).toMatch(/plain.*code.*👷|👷.*plain|fix.*👷|👷.*fix/i)
+
+    // Should NOT claim all feedback is a single 🤦 commit
+    expect(step3).not.toMatch(/commits your feedback as `🤦`/)
+
+    // Re-dispatch still works the same
+    expect(step3).toMatch(/re.dispatch|routes? accordingly|checks the last prefix/i)
+  })
+
   it("section 5 Learn describes manual step between build completion and learn", () => {
     const content = readmeContent()
     const learnMatch = content.match(/### 5\. Learn\n([\s\S]*?)(?=\n### \d|$)/)

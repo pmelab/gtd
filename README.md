@@ -133,9 +133,12 @@ Open `TODO.md` in your editor, answer questions, and add comments:
   > yes
 ```
 
-Run `gtd` again. It commits your feedback as `🤦`, then re-dispatches — since
-the last commit is now `🤦`, it immediately refines the plan (`🤖`). Repeat
-until the plan is ready.
+Run `gtd` again. It classifies your changes into separate commits by type:
+blockquote feedback and edits in TODO.md become a 💬 commit, code changes with
+marker comments (TODO:, FIX:, etc.) become a 🤦 commit, and plain code fixes
+become a 👷 commit. After committing, `gtd` checks the last prefix and routes
+accordingly — since 💬 and 🤦 both route to plan, it immediately refines the
+plan (`🤖`). Repeat until the plan is ready.
 
 ### 4. Build
 
