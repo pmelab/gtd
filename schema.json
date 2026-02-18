@@ -16,13 +16,16 @@
     "agent": {
       "type": "string"
     },
-    "agentPlan": {
+    "modelPlan": {
       "type": "string"
     },
-    "agentBuild": {
+    "modelBuild": {
       "type": "string"
     },
-    "agentLearn": {
+    "modelLearn": {
+      "type": "string"
+    },
+    "modelCommit": {
       "type": "string"
     },
     "testCmd": {

@@ -58,7 +58,7 @@
 
 ### Update Example Config and Schema
 
-- [ ] Update `EXAMPLE_CONFIG` in `ConfigResolver.ts` with
+- [x] Update `EXAMPLE_CONFIG` in `ConfigResolver.ts` with
       `modelPlan`/`modelBuild`/`modelLearn`/`modelCommit` examples
   - Add commented-out or explicit model entries like `"modelPlan": "sonnet"`,
     `"modelBuild": "opus"`, `"modelCommit": "haiku"`

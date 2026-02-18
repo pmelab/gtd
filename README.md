@@ -314,13 +314,11 @@ Any format supported by cosmiconfig:
   // Default: "auto"
   "agent": "auto",
 
-  // Agent mode overrides for each phase
-  // Default: "plan"
-  "agentPlan": "plan",
-  // Default: "code"
-  "agentBuild": "code",
-  // Default: "plan"
-  "agentLearn": "plan",
+  // Model overrides for each phase (optional — agents use their own defaults)
+  // e.g. "sonnet", "opus", "haiku", or any model identifier your agent supports
+  "modelPlan": "sonnet",
+  "modelBuild": "opus",
+  "modelCommit": "haiku",
 
   // Test command run after each build step
   // Default: "npm test"
