@@ -53,7 +53,6 @@
 ### Configuration Sample
 
 - [ ] Add the missing `modelLearn` field to the sample `.gtdrc.json`
-
   - `ConfigSchema.ts` and `Config.ts` both define `modelLearn` but the README
     sample omits it
   - Add between `modelBuild` and `modelCommit` with a comment like
@@ -105,7 +104,10 @@
 
 - Is `npm install -g gtd` still the correct installation method, or should it
   reference `bun build` / compiled binary distribution?
+  > thats fine
 - Should the README document the `init` subcommand (`gtd init` /
   `gtd init --global`) that exists in `cli.ts`?
+  > yes!
 - Should the Agents section mention the fallback behavior when the first
   auto-detected agent fails (tries next in order)?
+  > yes
