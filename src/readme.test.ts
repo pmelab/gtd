@@ -242,6 +242,49 @@ describe("README.md", () => {
     expect(mermaid).toMatch(/sandbox/i)
   })
 
+  it("documents the 4-way diff classification in the Feedback Classification section", () => {
+    const content = readmeContent()
+    const feedbackSection =
+      content.match(/## Feedback Classification\n([\s\S]*?)(?=\n## [^#])/)?.[1] ?? ""
+
+    expect(feedbackSection).toMatch(/seed/i)
+    expect(feedbackSection).toMatch(/feedback/i)
+    expect(feedbackSection).toMatch(/humanTodos|human.?todos/i)
+    expect(feedbackSection).toMatch(/fix(es)?/i)
+
+    expect(feedbackSection).toMatch(/new.*TODO\.md.*seed|seed.*new.*TODO\.md/i)
+    expect(feedbackSection).toMatch(/existing.*TODO\.md.*feedback|feedback.*existing.*TODO\.md/i)
+    expect(feedbackSection).toMatch(/marker.*human|human.*marker/i)
+    expect(feedbackSection).toMatch(/plain.*code.*fix|fix.*plain.*code|without.*marker.*fix/i)
+  })
+
+  it("documents multi-commit behavior when multiple categories are present", () => {
+    const content = readmeContent()
+    const feedbackSection =
+      content.match(/## Feedback Classification\n([\s\S]*?)(?=\n## [^#])/)?.[1] ?? ""
+
+    expect(feedbackSection).toMatch(/multiple.*categor|each.*own.*commit|separate.*commit/i)
+    expect(feedbackSection).toMatch(/stageByPatch|staged.*patch|patch/i)
+  })
+
+  it("documents blockquote detection in TODO.md", () => {
+    const content = readmeContent()
+    const feedbackSection =
+      content.match(/## Feedback Classification\n([\s\S]*?)(?=\n## [^#])/)?.[1] ?? ""
+
+    expect(feedbackSection).toMatch(/blockquote/i)
+    expect(feedbackSection).toMatch(/`>\s*`|>\s*lines|blockquote.*addition/i)
+  })
+
+  it("documents prefix classification priority order", () => {
+    const content = readmeContent()
+    const feedbackSection =
+      content.match(/## Feedback Classification\n([\s\S]*?)(?=\n## [^#])/)?.[1] ?? ""
+
+    expect(feedbackSection).toMatch(/priority/i)
+    expect(feedbackSection).toMatch(/🌱.*💬.*🤦.*👷/)
+  })
+
   it("section 5 Learn describes manual step between build completion and learn", () => {
     const content = readmeContent()
     const learnMatch = content.match(/### 5\. Learn\n([\s\S]*?)(?=\n### \d|$)/)

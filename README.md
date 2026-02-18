@@ -159,10 +159,23 @@ You're done — start a new feature by creating a fresh `TODO.md`.
 
 ## Feedback Classification
 
-When `commit-feedback` runs, it classifies each diff hunk independently as
-either a **fix** (regular code change) or **feedback** (human commentary for
-the agent). Classification uses marker prefixes found in added lines
-(case-insensitive):
+When `commit-feedback` runs, it splits the diff into 4 categories using
+`DiffClassifier.classifyDiff`: `seed`, `feedback`, `humanTodos`, and `fixes`.
+Each hunk is classified independently based on the file it belongs to and its
+content.
+
+### 4-Way Diff Classification
+
+| Category | Condition | Commit |
+| ----------- | ------------------------------------------------ | ------ |
+| `seed` | New TODO.md file (first plan seed) | 🌱 |
+| `feedback` | Changes to an existing TODO.md (edits, blockquote additions) | 💬 |
+| `humanTodos`| Code hunks containing feedback marker comments | 🤦 |
+| `fixes` | Plain code hunks without marker prefixes | 👷 |
+
+### Marker Prefixes
+
+Feedback markers are detected in added lines (case-insensitive):
 
 - `TODO:` — something that needs to be done
 - `FIX:` — a known issue to address
@@ -171,10 +184,28 @@ the agent). Classification uses marker prefixes found in added lines
 - `XXX:` — requires attention
 
 Any hunk containing an added line with one of these markers is classified as
-feedback. All other hunks are classified as fixes.
+human feedback. All other code hunks are classified as fixes.
 
-All changes in `TODO.md` are always treated as feedback, regardless of whether
-they contain marker prefixes.
+### Blockquote Detection
+
+Blockquote additions in TODO.md are detected via the `BLOCKQUOTE_ADDITION`
+regex (`/^\+\s*> /`). Hunks where every added line starts with `> ` are
+recognized as blockquote feedback and included in the `feedback` category.
+
+All changes in `TODO.md` are always treated as feedback (or seed if the file
+is new), regardless of whether they contain marker prefixes.
+
+### Multi-Commit Behavior
+
+When multiple categories are present in a single diff, each gets its own
+separate commit. Individual patches are staged via `git.stageByPatch` so that
+each commit contains only the hunks belonging to its category.
+
+### Prefix Classification Priority
+
+When determining the overall prefix for re-dispatch, `classifyPrefix` uses a
+fixed priority order: 🌱 > 💬 > 🤦 > 👷. The first non-empty category in
+this order wins.
 
 ## Sandbox Runtime
 

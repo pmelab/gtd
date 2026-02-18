@@ -36,7 +36,7 @@
 
 ### Feedback Classification Section
 
-- [ ] Document the 4-way diff classification and multi-commit behavior
+- [x] Document the 4-way diff classification and multi-commit behavior
   - `DiffClassifier.classifyDiff` splits the diff into 4 categories: `seed`,
     `feedback`, `humanTodos`, `fixes`
   - New TODO.md file → SEED commit; existing TODO.md changes → FEEDBACK commit;
