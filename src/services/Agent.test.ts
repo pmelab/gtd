@@ -132,7 +132,7 @@ describe("AgentService.Live", () => {
               testRetries: 0,
               commitPrompt: "",
               agentInactivityTimeout: 300,
-              sandboxEnabled: false,
+              sandboxEnabled: true,
               sandboxBoundaries: {},
               configSources: [],
             }),

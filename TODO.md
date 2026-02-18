@@ -25,17 +25,17 @@
 
 ### Update Tests
 
-- [ ] Update `ConfigResolver.test.ts` default assertion
+- [x] Update `ConfigResolver.test.ts` default assertion
   - Change `expect(result.sandboxEnabled).toBe(false)` to `toBe(true)`
     (line 260)
   - Tests: run `bun test src/services/ConfigResolver.test.ts`
-- [ ] Update `Agent.test.ts` sandbox resolution tests
+- [x] Update `Agent.test.ts` sandbox resolution tests
   - Update "string argument behaves as sandboxEnabled=false" test description
     and assertion — string argument now implies sandbox enabled
   - Update `AgentService.Live` test config to use `sandboxEnabled: true`
     (line 135)
   - Tests: run `bun test src/services/Agent.test.ts`
-- [ ] Update test helpers default config
+- [x] Update test helpers default config
   - In `src/test-helpers.ts` line 15, change `sandboxEnabled: false` to
     `sandboxEnabled: true`
   - Tests: run full test suite to verify no regressions
