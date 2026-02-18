@@ -220,7 +220,7 @@ describe("README.md", () => {
 
     for (const [, block] of jsonBlocks) {
       const cleaned = block!
-        .replace(/\/\/.*$/gm, "")
+        .replace(/^\s*\/\/.*$/gm, "")
         .replace(/,(\s*[}\]])/g, "$1")
       let parsed: unknown
       try {
@@ -229,7 +229,8 @@ describe("README.md", () => {
         continue
       }
       if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-        const valid = validate(parsed)
+        const { $schema, ...rest } = parsed as Record<string, unknown>
+        const valid = validate(rest)
         expect(valid, `Config block failed schema validation: ${JSON.stringify(validate.errors)}`).toBe(true)
       }
     }

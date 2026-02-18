@@ -364,6 +364,7 @@ Any format supported by cosmiconfig:
   // e.g. "sonnet", "opus", "haiku", or any model identifier your agent supports
   "modelPlan": "sonnet",
   "modelBuild": "opus",
+  "modelLearn": "sonnet",
   "modelCommit": "haiku",
 
   // Test command run after each build step
@@ -387,10 +388,11 @@ Any format supported by cosmiconfig:
   // Default: true
   "sandboxEnabled": true,
 
-  // Override default boundary levels per workflow phase
-  // Default: plan=restricted, build=standard, learn=restricted
+  // Extend sandbox permissions beyond the defaults
+  // See "Extending Permissions" section for details
   "sandboxBoundaries": {
-    "build": "elevated"
+    "filesystem": { "allowRead": ["/etc"], "allowWrite": [] },
+    "network": { "allowedDomains": ["registry.npmjs.org"] }
   }
 }
 ```

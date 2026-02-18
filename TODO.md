@@ -52,7 +52,7 @@
 
 ### Configuration Sample
 
-- [ ] Add the missing `modelLearn` field to the sample `.gtdrc.json`
+- [x] Add the missing `modelLearn` field to the sample `.gtdrc.json`
 
   - `ConfigSchema.ts` and `Config.ts` both define `modelLearn` but the README
     sample omits it
@@ -61,7 +61,7 @@
   - Tests: `bun vitest run src/readme.test.ts` — the "example configs validate
     against the JSON schema" test ensures sample configs validate
 
-- [ ] Fix the `sandboxBoundaries` example at the bottom of the config sample
+- [x] Fix the `sandboxBoundaries` example at the bottom of the config sample
   - Current README sample shows `"sandboxBoundaries": { "build": "elevated" }`
     which doesn't match the actual schema
   - The schema only supports
