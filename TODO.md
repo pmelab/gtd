@@ -14,7 +14,8 @@
   - The agent already has file-editing tools available in plan mode; the prompt
     just needs to direct it to use them for comment removal
   - Only remove comments that were part of the current diff (newly added
-    `// TODO:` lines), not pre-existing ones
+    `// TODO:` lines), not pre-existing ones — pre-existing comments may be
+    intentional and should be left untouched
   - Tests: Unit test in `src/commands/plan.test.ts` — verify the prompt passed
     to the agent contains the comment-removal instruction when the diff includes
     `// TODO:` markers
@@ -44,14 +45,10 @@
     unstaged comment removals left behind); verify with `git status --porcelain`
     outputting empty in the bats test
 
-## Open Questions
-
-- Should pre-existing TODO comments (not in the current diff) also be removed if
-  they match new action items, or strictly only newly added ones?
-  > just newly added, the other ones might be there intentional
-
 ## Learnings
 
 - Always verify that `git.atomicCommit` scopes match the actual set of files the
   agent modifies — when the agent edits files beyond the plan file, the commit
   scope must expand accordingly
+- Only remove TODO/FIXME comments that appear in the current diff (newly added
+  lines) — pre-existing comments may be intentional and must not be touched
