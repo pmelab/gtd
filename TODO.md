@@ -48,6 +48,7 @@
 
 - Should pre-existing TODO comments (not in the current diff) also be removed if
   they match new action items, or strictly only newly added ones?
+  > just newly added, the other ones might be there intentional
 
 ## Learnings
 
