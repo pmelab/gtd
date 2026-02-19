@@ -148,6 +148,11 @@ EOF
 
   assert_success
 
+  # In-code TODO comment should be removed from source file
+  run repo_file src/math.ts
+  assert_success
+  refute_output --partial "// TODO: never use magic numbers"
+
   # Blockquote should be removed
   run repo_file TODO.md
   assert_success
