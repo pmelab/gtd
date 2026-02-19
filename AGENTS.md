@@ -89,6 +89,12 @@ It automates AI agent execution and git operations:
 - Prefer hardcoded priority orders for internal classification logic over
   user-configurable options — the 🌱 > 💬 > 🤦 > 👷 prefix priority is a domain
   invariant, not a user preference
+- always ensure the last commit in a multi-commit sequence carries the prefix
+  that determines the correct next step — commit ordering is a control-flow
+  concern, not just a cosmetic one
+- never invoke the planning agent for categories that don't need plan-file
+  processing — agent side effects during FIX commits can corrupt the commit
+  sequence
 
 ### Agent Providers
 
