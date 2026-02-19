@@ -44,6 +44,8 @@ It automates AI agent execution and git operations:
 - when open questions are resolved, convert answers into concrete action items
   immediately rather than leaving them as annotations — answered questions that
   don't produce action items become stale noise
+- only remove TODO/FIXME comments that appear in the current diff (newly added
+  lines) — pre-existing comments may be intentional and must not be touched
 
 ## Architecture
 
@@ -72,6 +74,12 @@ It automates AI agent execution and git operations:
 - prefer secure-by-default settings — sandbox should be enabled by default
   following least-privilege principles, with users explicitly opting out rather
   than opting in
+
+### Atomic Commits
+
+- always verify that `git.atomicCommit` scopes match the actual set of files the
+  agent modifies — when the agent edits files beyond the plan file, the commit
+  scope must expand accordingly
 
 ### Commit Prefixes
 
