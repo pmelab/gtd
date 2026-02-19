@@ -3,7 +3,9 @@ import { Effect, Layer } from "effect"
 import { AgentService } from "../services/Agent.js"
 import type { AgentInvocation } from "../services/Agent.js"
 import { commitFeedbackCommand } from "./commit-feedback.js"
-import { mockConfig, mockGit } from "../test-helpers.js"
+import { gatherState } from "../cli.js"
+import { inferStep } from "../services/InferStep.js"
+import { mockConfig, mockGit, mockFs } from "../test-helpers.js"
 
 describe("commitFeedbackCommand", () => {
   it.effect("calls atomicCommit with 'all' and message starting with 🤦", () =>
@@ -592,5 +594,56 @@ describe("commitFeedbackCommand", () => {
       expect(commits[1]!.message.startsWith("🤦")).toBe(true)
       expect(commits[2]!.message.startsWith("👷")).toBe(true)
     }),
+  )
+
+  it.effect(
+    "end-to-end: after mixed FIX + FEEDBACK commits, gatherState → inferStep returns 'plan'",
+    () =>
+      Effect.gen(function* () {
+        let lastCommitMessage = ""
+
+        const gitLayer = mockGit({
+          getDiff: () => Effect.succeed(feedbackAndFixDiff),
+          hasUncommittedChanges: () => Effect.succeed(true),
+          stageByPatch: () => Effect.void,
+          commit: (message) =>
+            Effect.sync(() => {
+              lastCommitMessage = message
+            }),
+        })
+
+        const agentLayer = Layer.succeed(AgentService, {
+          name: "mock",
+          resolvedName: "mock",
+          providerType: "pi",
+          invoke: () => Effect.succeed({ sessionId: undefined }),
+          isAvailable: () => Effect.succeed(true),
+        })
+
+        const configLayer = mockConfig()
+
+        yield* commitFeedbackCommand().pipe(
+          Effect.provide(Layer.mergeAll(configLayer, gitLayer, agentLayer)),
+        )
+
+        expect(lastCommitMessage.startsWith("💬")).toBe(true)
+
+        const postCommitGitLayer = mockGit({
+          hasUncommittedChanges: () => Effect.succeed(false),
+          getLastCommitMessage: () => Effect.succeed(lastCommitMessage),
+          show: () => Effect.succeed(""),
+        })
+
+        const fileOps = mockFs("- [ ] New task from feedback\n- [x] Done task")
+
+        const state = yield* gatherState(fileOps).pipe(
+          Effect.provide(Layer.mergeAll(postCommitGitLayer, configLayer)),
+        )
+
+        expect(state.lastCommitPrefix).toBe("💬")
+
+        const step = inferStep(state)
+        expect(step).toBe("plan")
+      }),
   )
 })

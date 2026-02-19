@@ -43,7 +43,7 @@ causing `build` instead of `plan` — the plan step never processed the feedback
 
 ### Verify end-to-end step inference after mixed commits
 
-- [ ] Add a test that chains `commitFeedbackCommand` → `gatherState` →
+- [x] Add a test that chains `commitFeedbackCommand` → `gatherState` →
       `inferStep` with mixed feedback + fixes
   - After commit-feedback processes both FIX and FEEDBACK, `gatherState` should
     see the FEEDBACK prefix as the last commit
