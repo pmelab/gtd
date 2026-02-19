@@ -22,7 +22,7 @@
 
 ### Update E2E Test for Code TODO Removal
 
-- [ ] Extend the existing e2e test "gtd commits code TODOs with 🤦 prefix" in
+- [x] Extend the existing e2e test "gtd commits code TODOs with 🤦 prefix" in
       `tests/integration/gtd-workflow.bats` to assert that in-code TODO comments
       are removed from source files after the plan step
   - After `run_gtd` completes, assert that `src/math.ts` no longer contains the
@@ -34,7 +34,7 @@
 
 ### Verify Plan Commit Includes Source File Changes
 
-- [ ] Ensure the plan step's git commit (`🤖` prefix) includes the modified
+- [x] Ensure the plan step's git commit (`🤖` prefix) includes the modified
       source files (not just `TODO.md`) when comments are removed
   - Currently `git.atomicCommit([config.file], planCommitMessage)` in `plan.ts`
     only stages `config.file` — change this to stage all changes (`"all"`) or

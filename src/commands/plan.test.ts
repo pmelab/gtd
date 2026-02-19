@@ -53,9 +53,9 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       const gitCalls: string[] = []
       const gitLayer = mockGit({
-        add: (files) =>
+        addAll: () =>
           Effect.sync(() => {
-            gitCalls.push(`add:${files.join(",")}`)
+            gitCalls.push("addAll")
           }),
         commit: (msg) =>
           Effect.sync(() => {
@@ -75,7 +75,7 @@ describe("planCommand", () => {
       yield* planCommand(mockFs("")).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
-      expect(gitCalls).toContain("add:TODO.md")
+      expect(gitCalls).toContain("addAll")
       expect(gitCalls.some((c) => c.startsWith("commit:"))).toBe(true)
       expect(gitCalls).toContain("commit:🤖 plan: update TODO.md")
     }),
