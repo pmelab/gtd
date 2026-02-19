@@ -26,6 +26,12 @@ Analyze the diff and existing plan (if any) to determine what to do:
    - Resolve any `FIXME:` or `TODO:` comments from the diff
    - Add new action items as needed
    - Update the Learnings section with any new insights
+   - **Remove newly added in-code TODO/FIXME comments**: Scan the diff for
+     newly added lines (lines starting with `+`) containing `// TODO:`,
+     `// FIXME:`, `// HACK:`, or `// XXX:` markers. For each one, create a
+     corresponding action item in the plan, then delete that comment line from
+     the source file. Only remove comments that appear as newly added in the
+     current diff — pre-existing comments must not be touched
 
 ## Output Format
 

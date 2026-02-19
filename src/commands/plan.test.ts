@@ -314,6 +314,38 @@ describe("planCommand", () => {
     }),
   )
 
+  it.effect("prompt contains comment-removal instruction when diff includes TODO markers", () =>
+    Effect.gen(function* () {
+      const calls: AgentInvocation[] = []
+      const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
+        providerType: "pi",
+        invoke: (params) =>
+          Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
+            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
+          ),
+        isAvailable: () => Effect.succeed(true),
+      })
+      const diffWithTodo = [
+        "diff --git a/src/foo.ts b/src/foo.ts",
+        "+// TODO: refactor this later",
+        "+// FIXME: handle edge case",
+      ].join("\n")
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(diffWithTodo),
+      })
+      yield* planCommand(mockFs("")).pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+      const prompt = calls[0]!.prompt
+      expect(prompt).toContain("TODO:")
+      expect(prompt).toContain("FIXME:")
+      expect(prompt).toMatch(/remove.*comment/i)
+      expect(prompt).toMatch(/newly added/i)
+    }),
+  )
+
   it.effect("falls back to last commit diff when working tree is clean", () =>
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []

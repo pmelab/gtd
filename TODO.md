@@ -4,7 +4,7 @@
 
 ### Update Plan Prompt to Instruct Comment Removal
 
-- [ ] Extend the plan prompt (`src/prompts/plan.md`) to instruct the planning
+- [x] Extend the plan prompt (`src/prompts/plan.md`) to instruct the planning
       agent to remove in-code `// TODO:`, `// FIXME:`, `// HACK:`, `// XXX:`
       comments from source files after incorporating them into plan action items
   - Add a new instruction block in the `## Instructions` section (under case 3 —
