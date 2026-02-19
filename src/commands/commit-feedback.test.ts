@@ -402,6 +402,142 @@ describe("commitFeedbackCommand", () => {
     }),
   )
 
+  const feedbackAndFixDiff = [
+    "diff --git a/TODO.md b/TODO.md",
+    "index abc1234..def5678 100644",
+    "--- a/TODO.md",
+    "+++ b/TODO.md",
+    "@@ -1,3 +1,4 @@",
+    " # Plan",
+    "+- [ ] New task from feedback",
+    " - [x] Done task",
+    "diff --git a/src/app.ts b/src/app.ts",
+    "index abc1234..def5678 100644",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,3 +1,4 @@",
+    " const x = 1",
+    "+const y = 2",
+    " const z = 3",
+  ].join("\n")
+
+  it.effect("mixed feedback (💬) + fixes (👷): last commit is 💬 so inferStep routes to plan", () =>
+    Effect.gen(function* () {
+      const commits: Array<{ message: string }> = []
+
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(feedbackAndFixDiff),
+        hasUncommittedChanges: () => Effect.succeed(true),
+        stageByPatch: () => Effect.void,
+        commit: (message) =>
+          Effect.sync(() => {
+            commits.push({ message })
+          }),
+      })
+
+      const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
+        providerType: "pi",
+        invoke: () => Effect.succeed({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      expect(commits.length).toBe(2)
+      expect(commits[0]!.message.startsWith("👷")).toBe(true)
+      expect(commits[commits.length - 1]!.message.startsWith("💬")).toBe(true)
+    }),
+  )
+
+  it.effect("agent is NOT invoked for FIX category", () =>
+    Effect.gen(function* () {
+      const agentCalls: Array<{ mode: string; diff: string }> = []
+
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(feedbackAndFixDiff),
+        hasUncommittedChanges: () => Effect.succeed(true),
+        stageByPatch: () => Effect.void,
+        commit: () => Effect.void,
+      })
+
+      const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
+        providerType: "pi",
+        invoke: (params) => {
+          agentCalls.push({ mode: params.mode, diff: params.prompt })
+          return Effect.succeed({ sessionId: undefined })
+        },
+        isAvailable: () => Effect.succeed(true),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      const fixPatch = "const y = 2"
+      const commitPromptCalls = agentCalls.filter((c) => !c.diff.includes("commit message"))
+      for (const call of commitPromptCalls) {
+        expect(call.diff).not.toContain(fixPatch)
+      }
+    }),
+  )
+
+  it.effect("agent IS invoked for FEEDBACK, SEED, and HUMAN categories", () =>
+    Effect.gen(function* () {
+      const seedFeedbackHumanDiff = [
+        "diff --git a/TODO.md b/TODO.md",
+        "new file mode 100644",
+        "--- /dev/null",
+        "+++ b/TODO.md",
+        "@@ -0,0 +1,3 @@",
+        "+# Plan",
+        "+- [ ] Do something",
+        "+- [ ] Do another thing",
+        "diff --git a/src/app.ts b/src/app.ts",
+        "index abc1234..def5678 100644",
+        "--- a/src/app.ts",
+        "+++ b/src/app.ts",
+        "@@ -10,3 +11,4 @@",
+        " const a = 1",
+        "+// TODO: refactor this",
+        " const b = 2",
+      ].join("\n")
+
+      const commitPromptCalls: string[] = []
+
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(seedFeedbackHumanDiff),
+        hasUncommittedChanges: () => Effect.succeed(true),
+        stageByPatch: () => Effect.void,
+        commit: () => Effect.void,
+      })
+
+      const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
+        providerType: "pi",
+        invoke: (params) => {
+          if (!params.prompt.includes("commit message")) {
+            commitPromptCalls.push(params.prompt)
+          }
+          return Effect.succeed({ sessionId: undefined })
+        },
+        isAvailable: () => Effect.succeed(true),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      expect(commitPromptCalls.length).toBe(2)
+    }),
+  )
+
   it.effect("mixed seed + code TODOs + fixes produces separate commits in order 🌱 🤦 👷", () =>
     Effect.gen(function* () {
       const seedAndMixedDiff = [

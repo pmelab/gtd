@@ -10,7 +10,7 @@ When the last prefix is FEEDBACK (💬), the next step is `plan`. When it's FIX
 (👷), the next step is `build`. The user observed FIX committed after FEEDBACK,
 causing `build` instead of `plan` — the plan step never processed the feedback.
 
-- [ ] Add an integration test for mixed feedback + fixes commit ordering
+- [x] Add an integration test for mixed feedback + fixes commit ordering
 
   - Create a diff containing both plan-file edits (FEEDBACK) and code changes
     (FIX)
@@ -20,7 +20,7 @@ causing `build` instead of `plan` — the plan step never processed the feedback
     `TODO.md` edits and source file changes; verify
     `commits[commits.length - 1].message` starts with `💬`
 
-- [ ] Reorder categories in `commitFeedbackCommand` so FEEDBACK is always last
+- [x] Reorder categories in `commitFeedbackCommand` so FEEDBACK is always last
 
   - In `src/commands/commit-feedback.ts`, the `categories` array push order
     should be: SEED → HUMAN → FIX → FEEDBACK (current code already has this
@@ -31,7 +31,7 @@ causing `build` instead of `plan` — the plan step never processed the feedback
   - Tests: run the new integration test and existing `commit-feedback.test.ts`
     tests
 
-- [ ] Skip agent invocation for FIX-only categories
+- [x] Skip agent invocation for FIX-only categories
   - The `commitPrompt` agent invocation runs in mode `"plan"` for every
     category, including FIX — the agent might modify the plan file during a FIX
     commit, causing unexpected side effects

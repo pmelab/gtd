@@ -34,17 +34,19 @@ export const commitFeedbackCommand = () =>
       }
 
       for (const { prefix, patch } of categories) {
-        const prompt = interpolate(config.commitPrompt, { diff: patch })
+        if (prefix !== FIX) {
+          const prompt = interpolate(config.commitPrompt, { diff: patch })
 
-        renderer.setText("Generating feedback…")
+          renderer.setText("Generating feedback…")
 
-        yield* agent.invoke({
-          prompt,
-          systemPrompt: "",
-          mode: "plan",
-          cwd: process.cwd(),
-          onEvent: renderer.onEvent,
-        })
+          yield* agent.invoke({
+            prompt,
+            systemPrompt: "",
+            mode: "plan",
+            cwd: process.cwd(),
+            onEvent: renderer.onEvent,
+          })
+        }
 
         renderer.setText("Committing feedback…")
         const msg = yield* generateCommitMessage(prefix, patch)
