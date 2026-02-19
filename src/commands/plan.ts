@@ -113,7 +113,7 @@ export const planCommand = (fs: FileOps) =>
     // 7. Atomic git add + commit
     const planDiff = yield* git.getDiff()
     const planCommitMessage = yield* generateCommitMessage("🤖", planDiff)
-    yield* git.atomicCommit([config.file], planCommitMessage)
+    yield* git.atomicCommit("all", planCommitMessage)
     renderer.succeed("Plan committed.")
 
     // 8. Save session ID for build command

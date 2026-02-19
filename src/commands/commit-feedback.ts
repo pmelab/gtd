@@ -7,6 +7,7 @@ import { generateCommitMessage } from "../services/CommitMessage.js"
 import { classifyDiff } from "../services/DiffClassifier.js"
 import { SEED, FEEDBACK, HUMAN, FIX, type CommitPrefix } from "../services/CommitPrefix.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
+import { findNewlyAddedTodos, removeTodoLines } from "../services/TodoRemover.js"
 
 export const commitFeedbackCommand = () =>
   Effect.gen(function* () {
@@ -53,6 +54,17 @@ export const commitFeedbackCommand = () =>
         } else {
           yield* git.stageByPatch(patch)
           yield* git.commit(msg)
+        }
+      }
+
+      // Remove newly-added in-code TODO/FIXME comments from source files,
+      // leaving changes unstaged so the plan step picks them up
+      if (classified.humanTodos) {
+        const todos = findNewlyAddedTodos(classified.humanTodos, config.file)
+        if (todos.length > 0) {
+          yield* removeTodoLines(todos, process.cwd()).pipe(
+            Effect.catchAll(() => Effect.succeed(0)),
+          )
         }
       }
 
