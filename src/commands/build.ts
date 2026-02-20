@@ -14,7 +14,7 @@ import {
 import { buildPrompt, interpolate } from "../prompts/index.js"
 import { createBuildRenderer, isInteractive } from "../services/Renderer.js"
 import { notify } from "../services/Notify.js"
-import { bunFileOps, type FileOps } from "../services/FileOps.js"
+import { nodeFileOps, type FileOps } from "../services/FileOps.js"
 
 export interface TestResult {
   readonly exitCode: number
@@ -224,5 +224,5 @@ const runTests = (cmd: string): Effect.Effect<TestResult> =>
 
 export const makeBuildCommand = Effect.gen(function* () {
   const config = yield* GtdConfigService
-  return yield* buildCommand(bunFileOps(config.file))
+  return yield* buildCommand(yield* nodeFileOps(config.file))
 })

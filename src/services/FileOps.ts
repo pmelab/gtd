@@ -1,4 +1,4 @@
-import { Command } from "@effect/platform"
+import { Command, CommandExecutor, FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { GitService } from "./Git.js"
 
@@ -16,60 +16,49 @@ export interface FileOps {
 
 const sessionFilePath = (_planFilePath: string) => ".git/gtd-session"
 
-export const bunFileOps = (filePath: string): FileOps => ({
-  readFile: () =>
-    Effect.tryPromise({
-      try: () => Bun.file(filePath).text(),
-      catch: () => new Error(`Failed to read ${filePath}`),
-    }).pipe(Effect.catchAll(() => Effect.succeed(""))),
-  exists: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const f = Bun.file(filePath)
-        return f.size > 0
-      },
-      catch: () => false,
-    }).pipe(Effect.catchAll(() => Effect.succeed(false))),
-  getDiffContent: () =>
-    Effect.gen(function* () {
-      const git = yield* GitService
-      return yield* git.getDiff().pipe(Effect.catchAll(() => Effect.succeed("")))
-    }),
-  remove: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const fs = await import("node:fs/promises")
-        await fs.unlink(filePath)
-      },
-      catch: () => new Error(`Failed to remove ${filePath}`),
-    }).pipe(Effect.catchAll(() => Effect.void)),
-  readSessionId: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const f = Bun.file(sessionFilePath(filePath))
-        if (f.size === 0) return undefined
-        const content = await f.text()
-        return content.trim() || undefined
-      },
-      catch: () => undefined as string | undefined,
-    }).pipe(Effect.catchAll(() => Effect.succeed(undefined as string | undefined))),
-  writeSessionId: (sessionId: string) =>
-    Effect.tryPromise({
-      try: () => Bun.write(sessionFilePath(filePath), sessionId),
-      catch: () => new Error(`Failed to write session file`),
-    }).pipe(Effect.catchAll(() => Effect.void)),
-  deleteSessionFile: () =>
-    Effect.tryPromise({
-      try: async () => {
-        const fs = await import("node:fs/promises")
-        await fs.unlink(sessionFilePath(filePath))
-      },
-      catch: () => new Error(`Failed to delete session file`),
-    }).pipe(Effect.catchAll(() => Effect.void)),
-  formatFile: () =>
-    Command.make("prettier", "--write", filePath).pipe(
-      Command.string,
-      Effect.asVoid,
-      Effect.mapError((e) => new Error(String(e))),
-    ),
-})
+export const nodeFileOps = (
+  filePath: string,
+): Effect.Effect<FileOps, never, FileSystem.FileSystem | GitService | CommandExecutor.CommandExecutor> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const git = yield* GitService
+    const executor = yield* CommandExecutor.CommandExecutor
+    const sessionPath = sessionFilePath(filePath)
+    return {
+      readFile: () =>
+        fs.readFileString(filePath).pipe(Effect.catchAll(() => Effect.succeed(""))),
+      exists: () =>
+        fs
+          .stat(filePath)
+          .pipe(
+            Effect.map((stat) => stat.size > 0n),
+            Effect.catchAll(() => Effect.succeed(false)),
+          ),
+      getDiffContent: () => git.getDiff().pipe(Effect.catchAll(() => Effect.succeed(""))),
+      remove: () => fs.remove(filePath).pipe(Effect.catchAll(() => Effect.void)),
+      readSessionId: () =>
+        fs
+          .exists(sessionPath)
+          .pipe(
+            Effect.flatMap((exists) =>
+              exists
+                ? fs
+                    .readFileString(sessionPath)
+                    .pipe(Effect.map((content) => content.trim() || undefined))
+                : Effect.succeed(undefined),
+            ),
+            Effect.catchAll(() => Effect.succeed(undefined as string | undefined)),
+          ),
+      writeSessionId: (sessionId: string) =>
+        fs.writeFileString(sessionPath, sessionId).pipe(Effect.catchAll(() => Effect.void)),
+      deleteSessionFile: () =>
+        fs.remove(sessionPath).pipe(Effect.catchAll(() => Effect.void)),
+      formatFile: () =>
+        Command.make("prettier", "--write", filePath).pipe(
+          Command.string,
+          Effect.asVoid,
+          Effect.mapError((e) => new Error(String(e))),
+          Effect.provideService(CommandExecutor.CommandExecutor, executor),
+        ),
+    }
+  })

@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { GtdConfigService } from "../services/Config.js"
 import { GitService } from "../services/Git.js"
-import { bunFileOps, type FileOps } from "../services/FileOps.js"
+import { nodeFileOps, type FileOps } from "../services/FileOps.js"
 
 export interface CleanupInput {
   readonly fs: Pick<FileOps, "remove" | "exists">
@@ -23,5 +23,5 @@ export const cleanupCommand = (input: CleanupInput) =>
 
 export const makeCleanupCommand = Effect.gen(function* () {
   const config = yield* GtdConfigService
-  return yield* cleanupCommand({ fs: bunFileOps(config.file) })
+  return yield* cleanupCommand({ fs: yield* nodeFileOps(config.file) })
 })

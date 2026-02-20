@@ -9,7 +9,7 @@ import { planPrompt, interpolate } from "../prompts/index.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
 import { notify } from "../services/Notify.js"
-import { bunFileOps, type FileOps } from "../services/FileOps.js"
+import { nodeFileOps, type FileOps } from "../services/FileOps.js"
 
 const MAX_LINT_RETRIES = 3
 
@@ -126,5 +126,5 @@ export const planCommand = (fs: FileOps) =>
 
 export const makePlanCommand = Effect.gen(function* () {
   const config = yield* GtdConfigService
-  return yield* planCommand(bunFileOps(config.file))
+  return yield* planCommand(yield* nodeFileOps(config.file))
 })

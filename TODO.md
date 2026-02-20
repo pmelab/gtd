@@ -16,7 +16,7 @@
 
 ### File Operations
 
-- [ ] Replace all `Bun.file()` / `Bun.write()` calls in
+- [x] Replace all `Bun.file()` / `Bun.write()` calls in
       `src/services/FileOps.ts` with `@effect/platform` `FileSystem` service
   - Inject `FileSystem` from `@effect/platform` and use `fs.readFileString`,
     `fs.stat`, `fs.writeFileString` instead of `Bun.file()` / `Bun.write()`

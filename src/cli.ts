@@ -12,7 +12,7 @@ import { parseCommitPrefix, HUMAN, SEED, FEEDBACK } from "./services/CommitPrefi
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
 import { isOnlyLearningsModified } from "./services/LearningsDiff.js"
 import { extractLearnings, hasLearningsSection, hasUncheckedItems } from "./services/Markdown.js"
-import { bunFileOps, type FileOps } from "./services/FileOps.js"
+import { nodeFileOps, type FileOps } from "./services/FileOps.js"
 import { learnPrompt, interpolate } from "./prompts/index.js"
 import { generateCommitMessage } from "./services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "./services/Renderer.js"
@@ -177,7 +177,7 @@ const quietOption = Options.boolean("quiet").pipe(
 const rootCommand = Command.make("gtd", { quiet: quietOption }, ({ quiet }) =>
   Effect.gen(function* () {
     const config = yield* GtdConfigService
-    const fs = bunFileOps(config.file)
+    const fs = yield* nodeFileOps(config.file)
 
     const state = yield* gatherState(fs)
     const step = dispatch(state)
@@ -187,12 +187,12 @@ const rootCommand = Command.make("gtd", { quiet: quietOption }, ({ quiet }) =>
 
     if (step === "commit-feedback") {
       yield* commitFeedbackCommand()
-      const newState = yield* gatherState(bunFileOps(config.file))
+      const newState = yield* gatherState(yield* nodeFileOps(config.file))
       const newStep = dispatch({
         ...newState,
         onlyLearningsModified: state.onlyLearningsModified || newState.onlyLearningsModified,
       })
-      yield* runStep(newStep, bunFileOps(config.file))
+      yield* runStep(newStep, yield* nodeFileOps(config.file))
     } else {
       yield* runStep(step, fs)
     }
