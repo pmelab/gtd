@@ -1,4 +1,5 @@
-import { Effect } from "effect"
+import { Command, CommandExecutor } from "@effect/platform"
+import { Effect, Stream } from "effect"
 import { homedir } from "node:os"
 
 const relativePath = (): string => {
@@ -7,22 +8,28 @@ const relativePath = (): string => {
   return cwd.startsWith(home) ? "~" + cwd.slice(home.length) : cwd
 }
 
-export const notify = (title: string, body: string): Effect.Effect<void> =>
+export const notify = (
+  title: string,
+  body: string,
+): Effect.Effect<void, never, CommandExecutor.CommandExecutor> =>
   Effect.gen(function* () {
     const message = `${body}\n${relativePath()}`
-    let cmd: string[] | undefined
+    let args: string[] | undefined
     if (process.platform === "darwin") {
-      cmd = [
+      args = [
         "osascript",
         "-e",
         `display notification "${message}" with title "${title}" sound name "default"`,
       ]
     } else if (process.platform === "linux") {
-      cmd = ["notify-send", title, message]
+      args = ["notify-send", title, message]
     }
-    if (!cmd) return
-    yield* Effect.tryPromise({
-      try: () => Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" }).exited,
-      catch: () => undefined,
-    }).pipe(Effect.catchAll(() => Effect.void))
+    if (!args) return
+    const [cmd, ...rest] = args
+    yield* Effect.gen(function* () {
+      const proc = yield* Command.start(Command.make(cmd!, ...rest))
+      yield* proc.stdout.pipe(Stream.runDrain)
+      yield* proc.stderr.pipe(Stream.runDrain)
+      yield* proc.exitCode
+    }).pipe(Effect.scoped, Effect.ignore)
   })

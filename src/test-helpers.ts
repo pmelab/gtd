@@ -1,4 +1,5 @@
 import { Effect, Layer } from "effect"
+import { NodeContext } from "@effect/platform-node"
 import { GtdConfigService, type GtdConfig } from "./services/Config.js"
 import { GitService, type GitOperations } from "./services/Git.js"
 
@@ -50,3 +51,5 @@ export const mockFs = (content: string) => ({
   getDiffContent: () => Effect.succeed(""),
   remove: () => Effect.void,
 })
+
+export const nodeLayer = NodeContext.layer

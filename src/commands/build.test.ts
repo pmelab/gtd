@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect"
 import { AgentService, AgentError } from "../services/Agent.js"
 import type { AgentInvocation, AgentResult } from "../services/Agent.js"
 import { buildCommand, type TestResult } from "./build.js"
-import { mockConfig, mockGit, mockFs } from "../test-helpers.js"
+import { mockConfig, mockGit, mockFs, nodeLayer } from "../test-helpers.js"
 
 // Returns initial content for first 2 reads, then all-checked content
 const mockFsWithProgress = (initial: string) => {
@@ -32,7 +32,7 @@ describe("buildCommand", () => {
         isAvailable: () => Effect.succeed(true),
       })
       yield* buildCommand(mockFs("")).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       expect(calls.length).toBe(0)
     }),
@@ -64,7 +64,7 @@ describe("buildCommand", () => {
         "",
       ].join("\n")
       yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       const buildCalls = calls.filter((c) => c.mode === "build")
       expect(buildCalls.length).toBe(1)
@@ -103,7 +103,7 @@ describe("buildCommand", () => {
         "",
       ].join("\n")
       yield* buildCommand(mockFsWithProgress(withLearnings)).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       expect(calls[0]!.prompt).toContain("always use TDD")
     }),
@@ -145,7 +145,7 @@ describe("buildCommand", () => {
         "",
       ].join("\n")
       yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
       )
       expect(gitCalls).toContain("addAll")
       expect(gitCalls.some((c) => c === "commit:🔨 build: Build Phase")).toBe(true)
@@ -196,7 +196,7 @@ describe("buildCommand", () => {
         "",
       ].join("\n")
       yield* buildCommand(mockFsWithProgress(partiallyDone)).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
       )
       const buildCalls = calls.filter((c) => c.mode === "build")
       expect(buildCalls.length).toBe(1)
@@ -231,7 +231,7 @@ describe("buildCommand", () => {
         "",
       ].join("\n")
       yield* buildCommand(mockFs(allDone)).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       expect(calls.length).toBe(0)
     }),
@@ -284,7 +284,7 @@ describe("buildCommand", () => {
         "",
       ].join("\n")
       yield* buildCommand(mockFsWithProgress(packagedPlan)).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
       )
       const buildCalls = calls.filter((c) => c.mode === "build")
       expect(buildCalls.length).toBeGreaterThanOrEqual(1)
@@ -340,7 +340,7 @@ describe("buildCommand", () => {
         remove: () => Effect.void,
       }
       yield* buildCommand(fs).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       const buildCalls = calls.filter((c) => c.mode === "build")
       expect(buildCalls.length).toBe(2)
@@ -395,7 +395,7 @@ describe("buildCommand", () => {
 
       yield* buildCommand(fs).pipe(
         Effect.provide(
-          Layer.mergeAll(mockConfig({ testCmd: "npm test", testRetries: 3 }), mockGit(), agentLayer),
+          Layer.mergeAll(mockConfig({ testCmd: "npm test", testRetries: 3 }), mockGit(), agentLayer, nodeLayer),
         ),
       )
 
@@ -458,7 +458,7 @@ describe("buildCommand", () => {
         deleteSessionFile: () => Effect.void,
       }
       yield* buildCommand(fs).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       const buildCalls = calls.filter((c) => c.mode === "build")
       expect(buildCalls[0]!.resumeSessionId).toBe("plan-ses-xyz")
@@ -530,7 +530,7 @@ describe("buildCommand", () => {
       }
       yield* buildCommand(fs).pipe(
         Effect.provide(
-          Layer.mergeAll(mockConfig({ testCmd: "npm test", testRetries: 3 }), mockGit(), agentLayer),
+          Layer.mergeAll(mockConfig({ testCmd: "npm test", testRetries: 3 }), mockGit(), agentLayer, nodeLayer),
         ),
       )
       const buildCalls = calls.filter((c) => c.mode === "build")
@@ -583,7 +583,7 @@ describe("buildCommand", () => {
 
       yield* buildCommand(fs).pipe(
         Effect.provide(
-          Layer.mergeAll(mockConfig({ testCmd: "npm test", testRetries: 3 }), mockGit(), agentLayer),
+          Layer.mergeAll(mockConfig({ testCmd: "npm test", testRetries: 3 }), mockGit(), agentLayer, nodeLayer),
         ),
       )
 
@@ -625,7 +625,7 @@ describe("buildCommand", () => {
           }),
       }
       yield* buildCommand(fs).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       expect(sessionDeleted).toBe(true)
     }),
@@ -657,7 +657,7 @@ describe("buildCommand", () => {
       ].join("\n")
       // Should not throw — error is caught and logged
       yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
     }),
   )
@@ -687,7 +687,7 @@ describe("buildCommand", () => {
         "",
       ].join("\n")
       yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
     }),
   )

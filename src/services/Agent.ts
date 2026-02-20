@@ -1,4 +1,5 @@
 import { Context, Effect, Layer } from "effect"
+import { CommandExecutor } from "@effect/platform"
 import { GtdConfigService } from "./Config.js"
 import { withAgentGuards } from "./AgentGuards.js"
 import { FORBIDDEN_TOOLS, type AgentProviderType } from "./ForbiddenTools.js"
@@ -55,7 +56,9 @@ export class AgentError {
 export interface AgentProvider {
   readonly name: string
   readonly providerType: AgentProviderType
-  readonly invoke: (params: AgentInvocation) => Effect.Effect<AgentResult, AgentError>
+  readonly invoke: (
+    params: AgentInvocation,
+  ) => Effect.Effect<AgentResult, AgentError, CommandExecutor.CommandExecutor>
   readonly isAvailable: () => Effect.Effect<boolean>
 }
 

@@ -1,4 +1,5 @@
-import { Effect } from "effect"
+import { Command } from "@effect/platform"
+import { Effect, Stream } from "effect"
 import { execSync } from "node:child_process"
 import type { AgentProvider, AgentInvocation } from "../Agent.js"
 import { AgentEvents, type AgentEvent } from "../AgentEvent.js"
@@ -53,18 +54,17 @@ export const OpenCodeAgent: AgentProvider = {
   invoke: readJsonStream({
     agentName: "OpenCode",
     parseEvent: parseOpenCodeEvent,
-    spawn: (params: AgentInvocation) => {
+    buildCommand: (params: AgentInvocation) => {
       const combinedPrompt = params.systemPrompt
         ? `${params.systemPrompt}\n\n${params.prompt}`
         : params.prompt
-      const args = buildOpenCodeArgs({ model: params.model })
-      const proc = Bun.spawn(args, {
-        cwd: params.cwd,
-        stdin: new Blob([combinedPrompt]),
-        stdout: "pipe",
-        stderr: "inherit",
-      })
-      return { proc }
+      const args = buildOpenCodeArgs({ ...(params.model !== undefined ? { model: params.model } : {}) })
+      const [cmd, ...rest] = args
+      return Command.make(cmd!, ...rest).pipe(
+        Command.stdin(Stream.fromIterable([Buffer.from(combinedPrompt)])),
+        Command.stderr("inherit"),
+        Command.workingDirectory(params.cwd),
+      )
     },
   }),
 }

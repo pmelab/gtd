@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect"
 import { command, gatherState, dispatch, learnAction } from "./cli.js"
 import { AgentService } from "./services/Agent.js"
 import type { AgentInvocation } from "./services/Agent.js"
-import { mockConfig, mockGit, mockFs } from "./test-helpers.js"
+import { mockConfig, mockGit, mockFs, nodeLayer } from "./test-helpers.js"
 import { SEED, FEEDBACK } from "./services/CommitPrefix.js"
 
 describe("gtd unified command", () => {
@@ -25,7 +25,7 @@ describe("gtd unified command", () => {
       getDiffContent: () => Effect.succeed(""),
     }
 
-    const layer = Layer.mergeAll(gitLayer, mockConfig())
+    const layer = Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)
 
     const state = await Effect.runPromise(
       gatherState(fileOps).pipe(Effect.provide(layer)),
@@ -162,7 +162,7 @@ describe("learnAction", () => {
     await Effect.runPromise(
       learnAction({
         fs,
-      }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer))),
+      }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer))),
     )
     const learnCalls = calls.filter((c) => c.mode === "learn")
     expect(learnCalls.length).toBe(1)
@@ -214,7 +214,7 @@ describe("learnAction", () => {
     await Effect.runPromise(
       learnAction({
         fs,
-      }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer))),
+      }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer))),
     )
     expect(calls.length).toBe(0)
     expect(removed).toBe(true)
@@ -261,7 +261,7 @@ describe("learnAction", () => {
     await Effect.runPromise(
       learnAction({
         fs,
-      }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer))),
+      }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer))),
     )
     expect(calls.length).toBe(0)
     expect(removed).toBe(true)
@@ -320,7 +320,7 @@ describe("gatherState computes onlyLearningsModified", () => {
 
     const state = await Effect.runPromise(
       gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
       ),
     )
 
@@ -366,7 +366,7 @@ describe("gatherState computes onlyLearningsModified", () => {
 
     const state = await Effect.runPromise(
       gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
       ),
     )
 
@@ -417,7 +417,7 @@ describe("gatherState handles SEED and FEEDBACK for onlyLearningsModified", () =
 
     const state = await Effect.runPromise(
       gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
       ),
     )
 
@@ -465,7 +465,7 @@ describe("gatherState handles SEED and FEEDBACK for onlyLearningsModified", () =
 
     const state = await Effect.runPromise(
       gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
       ),
     )
 
@@ -513,7 +513,7 @@ describe("gatherState handles SEED and FEEDBACK for onlyLearningsModified", () =
 
     const state = await Effect.runPromise(
       gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
       ),
     )
 
@@ -560,7 +560,7 @@ describe("gatherState handles SEED and FEEDBACK for onlyLearningsModified", () =
 
     const state = await Effect.runPromise(
       gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
       ),
     )
 
@@ -588,7 +588,7 @@ describe("gatherState computes todoFileIsNew", () => {
 
     const state = await Effect.runPromise(
       gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
       ),
     )
 
@@ -613,7 +613,7 @@ describe("gatherState computes todoFileIsNew", () => {
 
     const state = await Effect.runPromise(
       gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
       ),
     )
 
@@ -638,7 +638,7 @@ describe("gatherState computes todoFileIsNew", () => {
 
     const state = await Effect.runPromise(
       gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
       ),
     )
 
@@ -662,7 +662,7 @@ describe("gatherState computes todoFileIsNew", () => {
 
     const state = await Effect.runPromise(
       gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig())),
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
       ),
     )
 

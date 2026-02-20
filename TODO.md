@@ -27,7 +27,7 @@
 
 ### Process Spawning
 
-- [ ] Replace all `Bun.spawn()` calls with `@effect/platform` `Command` service
+- [x] Replace all `Bun.spawn()` calls with `@effect/platform` `Command` service
   - Affected files: `src/services/agents/Claude.ts`, `OpenCode.ts`, `Pi.ts`,
     `src/commands/build.ts`, `src/services/Notify.ts`
   - Use `Command.make(...)` and `Command.stream` / `Command.string` from

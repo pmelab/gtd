@@ -1,4 +1,4 @@
-import { Duration, Effect, Option } from "effect"
+import { Effect, Option } from "effect"
 import { resolve } from "node:path"
 import { GtdConfigService } from "../services/Config.js"
 import { GitService } from "../services/Git.js"
@@ -89,8 +89,8 @@ export const buildCommand = (fs: FileOps) =>
       const buildSessionId = buildResult.sessionId
 
       // Test loop
-      const testFn = fs.runTests ?? runTests
-      if (config.testCmd.trim() !== "") {
+      const testFn = fs.runTests
+      if (config.testCmd.trim() !== "" && testFn) {
         let testPassed = false
         let retrySessionId: string | undefined
         renderer.setStatus(pkg.title, "testing", { current: 1, max: config.testRetries + 1 })
@@ -189,38 +189,6 @@ const formatPackagePrompt = (pkg: Package, planFilePath: string): string => {
   return `### ${pkg.title}\n\nPlan file: ${planFilePath}\n\n${itemsText}`
 }
 
-const runTests = (cmd: string): Effect.Effect<TestResult> =>
-  Effect.async<TestResult, Error>((resume) => {
-    const parts = cmd.split(" ")
-    const proc = Bun.spawn(parts, {
-      stdout: "pipe",
-      stderr: "pipe",
-      cwd: process.cwd(),
-    })
-
-    Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]).then(
-      ([exitCode, stdout, stderr]) => {
-        resume(Effect.succeed({ exitCode, output: stdout + stderr }))
-      },
-      (error) => {
-        resume(Effect.fail(new Error(String(error))))
-      },
-    )
-
-    return Effect.sync(() => {
-      proc.kill()
-    })
-  }).pipe(
-    Effect.timeout(Duration.minutes(5)),
-    Effect.catchTag("TimeoutException", () =>
-      Effect.succeed({ exitCode: 1, output: "Test process timed out after 5 minutes" }),
-    ),
-    Effect.catchAll((error) => Effect.succeed({ exitCode: 1, output: String(error) })),
-  )
 
 export const makeBuildCommand = Effect.gen(function* () {
   const config = yield* GtdConfigService

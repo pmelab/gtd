@@ -1,5 +1,5 @@
 import { Command, CommandExecutor, FileSystem } from "@effect/platform"
-import { Effect } from "effect"
+import { Duration, Effect, Stream } from "effect"
 import { GitService } from "./Git.js"
 
 export interface FileOps {
@@ -60,5 +60,28 @@ export const nodeFileOps = (
           Effect.mapError((e) => new Error(String(e))),
           Effect.provideService(CommandExecutor.CommandExecutor, executor),
         ),
+      runTests: (cmd: string) => {
+        const parts = cmd.split(" ")
+        const [bin, ...args] = parts
+        return Effect.gen(function* () {
+          const proc = yield* Command.start(
+            Command.make(bin!, ...args).pipe(Command.workingDirectory(process.cwd())),
+          )
+          const [exitCode, stdout, stderr] = yield* Effect.all([
+            proc.exitCode,
+            proc.stdout.pipe(Stream.decodeText(), Stream.mkString),
+            proc.stderr.pipe(Stream.decodeText(), Stream.mkString),
+          ], { concurrency: "unbounded" })
+          return { exitCode, output: stdout + stderr }
+        }).pipe(
+          Effect.scoped,
+          Effect.timeout(Duration.minutes(5)),
+          Effect.catchTag("TimeoutException", () =>
+            Effect.succeed({ exitCode: 1, output: "Test process timed out after 5 minutes" }),
+          ),
+          Effect.catchAll((error) => Effect.succeed({ exitCode: 1, output: String(error) })),
+          Effect.provideService(CommandExecutor.CommandExecutor, executor),
+        )
+      },
     }
   })

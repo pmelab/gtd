@@ -1,3 +1,4 @@
+import { Command } from "@effect/platform"
 import { Effect } from "effect"
 import { execSync } from "node:child_process"
 import type { AgentProvider, AgentInvocation } from "../Agent.js"
@@ -85,18 +86,17 @@ export const PiAgent: AgentProvider = {
   invoke: readJsonStream({
     agentName: "Pi",
     parseEvent: parsePiEvent,
-    spawn: (params: AgentInvocation) => {
+    buildCommand: (params: AgentInvocation) => {
       const args = buildPiArgs({
         systemPrompt: params.systemPrompt,
         prompt: params.prompt,
-        model: params.model,
+        ...(params.model !== undefined ? { model: params.model } : {}),
       })
-      const proc = Bun.spawn(args, {
-        cwd: params.cwd,
-        stdout: "pipe",
-        stderr: "inherit",
-      })
-      return { proc }
+      const [cmd, ...rest] = args
+      return Command.make(cmd!, ...rest).pipe(
+        Command.stderr("inherit"),
+        Command.workingDirectory(params.cwd),
+      )
     },
   }),
 }

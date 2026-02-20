@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect"
 import { AgentService } from "../services/Agent.js"
 import type { AgentInvocation, AgentResult } from "../services/Agent.js"
 import { planCommand } from "./plan.js"
-import { mockConfig, mockGit, mockFs } from "../test-helpers.js"
+import { mockConfig, mockGit, mockFs, nodeLayer } from "../test-helpers.js"
 
 describe("planCommand", () => {
   it.effect("invokes agent in plan mode with diff", () =>
@@ -20,7 +20,7 @@ describe("planCommand", () => {
         isAvailable: () => Effect.succeed(true),
       })
       yield* planCommand(mockFs("")).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       expect(calls.length).toBeGreaterThan(0)
       expect(calls[0]!.mode).toBe("plan")
@@ -43,7 +43,7 @@ describe("planCommand", () => {
       })
       const existingPlan = `# Feature\n\n## Action Items\n\n- [ ] Item\n  - Detail\n  - Tests: check\n`
       yield* planCommand(mockFs(existingPlan)).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       expect(calls[0]!.prompt).toContain("Feature")
     }),
@@ -73,7 +73,7 @@ describe("planCommand", () => {
         isAvailable: () => Effect.succeed(true),
       })
       yield* planCommand(mockFs("")).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
       )
       expect(gitCalls).toContain("addAll")
       expect(gitCalls.some((c) => c.startsWith("commit:"))).toBe(true)
@@ -99,7 +99,7 @@ describe("planCommand", () => {
           }),
       }
       yield* planCommand(fs).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       expect(savedSessionId).toBe("plan-ses-abc")
     }),
@@ -155,7 +155,7 @@ describe("planCommand", () => {
         exists: () => Effect.succeed(true),
       }
       yield* planCommand(fs).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       const planCalls = calls.filter((c) => c.mode === "plan" && !c.prompt.includes("commit message"))
       // 2 plan calls: initial plan + 1 lint fix
@@ -187,7 +187,7 @@ describe("planCommand", () => {
           }),
       }
       yield* planCommand(fs).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       // Should resume the previous session
       expect(calls[0]!.resumeSessionId).toBe("plan-ses-prev")
@@ -214,7 +214,7 @@ describe("planCommand", () => {
         readSessionId: () => Effect.succeed(undefined as string | undefined),
       }
       yield* planCommand(fs).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       expect(calls[0]!.resumeSessionId).toBeUndefined()
     }),
@@ -238,7 +238,7 @@ describe("planCommand", () => {
           }),
       }
       yield* planCommand(fs).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
       expect(writeSessionCalled).toBe(false)
     }),
@@ -273,7 +273,7 @@ describe("planCommand", () => {
           }),
       }
       yield* planCommand(fs).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
       )
       expect(formatCalled).toBe(true)
       // formatFile should be called before the commit
@@ -307,7 +307,7 @@ describe("planCommand", () => {
         formatFile: () => Effect.fail(new Error("prettier not found")),
       }
       yield* planCommand(fs).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
       )
       // Should still commit despite prettier failure
       expect(gitCalls.some((c) => c.startsWith("commit:"))).toBe(true)
@@ -336,7 +336,7 @@ describe("planCommand", () => {
         getDiff: () => Effect.succeed(diffWithTodo),
       })
       yield* planCommand(mockFs("")).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
       )
       const prompt = calls[0]!.prompt
       expect(prompt).toContain("TODO:")
@@ -365,7 +365,7 @@ describe("planCommand", () => {
         show: (_ref: string) => Effect.succeed(lastCommitDiff),
       })
       yield* planCommand(mockFs("")).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
       )
       expect(calls[0]!.prompt).toContain("Fix the bug in parser")
       expect(calls[0]!.prompt).not.toContain("No diff available.")
