@@ -29,7 +29,7 @@ export class GtdConfigService extends Context.Tag("GtdConfigService")<
   GtdConfigService,
   GtdConfig
 >() {
-  static make = (options: ResolveOptions): Layer.Layer<GtdConfigService> =>
+  static make = (options: ResolveOptions): Layer.Layer<GtdConfigService, Error> =>
     Layer.effect(
       GtdConfigService,
       Effect.gen(function* () {

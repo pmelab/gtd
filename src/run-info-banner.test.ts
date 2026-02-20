@@ -6,7 +6,7 @@ import { mockConfig, mockGit, mockFs } from "./test-helpers.js"
 import { printBanner } from "./services/RunInfo.js"
 
 describe("run info banner in CLI", () => {
-  let stderrSpy: ReturnType<typeof vi.spyOn>
+  let stderrSpy: { mock: { calls: unknown[][] }; mockRestore: () => void }
 
   beforeEach(() => {
     stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)

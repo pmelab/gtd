@@ -1,9 +1,9 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Sandbox boundary check helper for bats E2E tests.
  *
  * Usage:
- *   bun tests/integration/helpers/sandbox-check.ts <cwd> <configFile> <checkType> <target> [providerType]
+ *   npx tsx tests/integration/helpers/sandbox-check.ts <cwd> <configFile> <checkType> <target> [providerType]
  *
  * Where:
  *   checkType: "read" | "write" | "network"

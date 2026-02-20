@@ -5,12 +5,12 @@ _get_project_root() {
 }
 
 PROJECT_ROOT="$(_get_project_root)"
-GTD_BIN="${PROJECT_ROOT}/dist/gtd"
+GTD_BIN="${PROJECT_ROOT}/dist/gtd.js"
 
 # Build gtd before running tests
 build_gtd() {
   cd "$PROJECT_ROOT" || return 1
-  bun run build
+  npm run build
 }
 
 # Create a minimal test project in a temp directory
@@ -25,12 +25,16 @@ create_test_project() {
   git config user.name "Test"
   git config user.email "test@test.com"
 
-  # Minimal bun project
+  # Minimal node project
   cat >package.json <<'EOF'
 {
   "name": "test-project",
+  "type": "module",
   "scripts": {
-    "test": "bun test"
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
   }
 }
 EOF
@@ -44,13 +48,19 @@ EOF
   # Test file
   mkdir -p tests
   cat >tests/math.test.ts <<'EOF'
-import { expect, test } from "bun:test"
+import { expect, test } from "vitest"
 import { add } from "../src/math.js"
 
 test("add returns sum of two numbers", () => {
   expect(add(2, 3)).toBe(5)
 })
 EOF
+
+  # Ignore node_modules before installing
+  echo "node_modules" >.gitignore
+
+  # Install dependencies
+  npm install -q
 
   # Initial commit
   git add -A
@@ -63,12 +73,12 @@ run_gtd() {
   cd "$TEST_REPO" || return 1
   if [[ "${GTD_E2E_VERBOSE:-}" == "1" ]]; then
     echo "# ── Running: gtd $* ──" >&3
-    GTD_TEST_CMD="bun test" env -u CLAUDECODE "$GTD_BIN" "$@" >&3 2>&3
+    GTD_TEST_CMD="npm test" env -u CLAUDECODE "$GTD_BIN" "$@" >&3 2>&3
     status=$?
     output=""
     echo "# ── exit code: $status ──" >&3
   else
-    GTD_TEST_CMD="bun test" run env -u CLAUDECODE "$GTD_BIN" "$@"
+    GTD_TEST_CMD="npm test" run env -u CLAUDECODE "$GTD_BIN" "$@"
   fi
 }
 

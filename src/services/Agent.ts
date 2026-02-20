@@ -1,5 +1,4 @@
 import { Context, Effect, Layer } from "effect"
-import { CommandExecutor } from "@effect/platform"
 import { GtdConfigService } from "./Config.js"
 import { withAgentGuards } from "./AgentGuards.js"
 import { FORBIDDEN_TOOLS, type AgentProviderType } from "./ForbiddenTools.js"
@@ -58,7 +57,7 @@ export interface AgentProvider {
   readonly providerType: AgentProviderType
   readonly invoke: (
     params: AgentInvocation,
-  ) => Effect.Effect<AgentResult, AgentError, CommandExecutor.CommandExecutor>
+  ) => Effect.Effect<AgentResult, AgentError>
   readonly isAvailable: () => Effect.Effect<boolean>
 }
 
@@ -92,7 +91,7 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
         invoke: (params) =>
           Effect.gen(function* () {
             const model = resolveModelForMode(params.mode, config)
-            const paramsWithModel = { ...params, model }
+            const paramsWithModel = model !== undefined ? { ...params, model } : params
             const guarded = withAgentGuards(provider, guardsConfig)
             return yield* guarded.invoke(paramsWithModel)
           }),

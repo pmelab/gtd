@@ -20,7 +20,7 @@ run_sandbox_check() {
   local check_type="$3"
   local target="$4"
   local provider="${5:-pi}"
-  run bun "$SANDBOX_CHECK" "$cwd" "$config" "$check_type" "$target" "$provider"
+  run npx tsx "$SANDBOX_CHECK" "$cwd" "$config" "$check_type" "$target" "$provider"
 }
 
 assert_sandbox_violation() {

@@ -164,6 +164,15 @@ export const buildCommand = (fs: FileOps) =>
         if (!testPassed) return
       }
 
+      // Fail if agent made no changes — the item wasn't implemented
+      const hasChanges = yield* git.hasUncommittedChanges()
+      if (!hasChanges) {
+        renderer.setStatus(pkg.title, "failed")
+        renderer.finish(`Agent made no changes for "${pkg.title}". Stopping.`)
+        yield* notify("gtd", `Agent made no changes for "${pkg.title}".`)
+        return
+      }
+
       renderer.setStatus(pkg.title, "done")
       const buildDiff = yield* git.getDiff()
       const buildCommitMsg = yield* generateCommitMessage("🔨", buildDiff)

@@ -17,6 +17,7 @@ describe("gtd unified command", () => {
     const { gatherState } = await import("./cli.js")
 
     const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(false),
       getLastCommitMessage: () => Effect.succeed("🤖 plan: update TODO.md"),
     })
 
@@ -195,6 +196,7 @@ describe("learnAction", () => {
       invoke: (params) =>
         Effect.sync(() => {
           calls.push(params)
+          return { sessionId: undefined }
         }),
       isAvailable: () => Effect.succeed(true),
     })
@@ -223,6 +225,50 @@ describe("learnAction", () => {
     expect(commits[1]!).toContain("🧹")
   })
 
+  it("uses empty commit when agent makes no changes to learnings", async () => {
+    const calls: AgentInvocation[] = []
+    const commits: string[] = []
+    const emptyCommits: string[] = []
+    let removed = false
+    const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
+        providerType: "pi",
+      invoke: (params) => {
+        calls.push(params)
+        return Effect.succeed({ sessionId: undefined })
+      },
+      isAvailable: () => Effect.succeed(true),
+    })
+    const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(false),
+      commit: (msg) =>
+        Effect.sync(() => {
+          commits.push(msg)
+        }),
+      emptyCommit: (msg) =>
+        Effect.sync(() => {
+          emptyCommits.push(msg)
+        }),
+    })
+    const fs = {
+      ...mockFs(planWithLearnings),
+      remove: () =>
+        Effect.sync(() => {
+          removed = true
+        }),
+    }
+    await Effect.runPromise(
+      learnAction({
+        fs,
+      }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer))),
+    )
+    // Agent was invoked but made no changes
+    expect(calls.length).toBe(1)
+    expect(emptyCommits).toContain("🎓 learn: no changes")
+    expect(removed).toBe(true)
+  })
+
   it("skips to cleanup when Learnings section is missing", async () => {
     const calls: AgentInvocation[] = []
     const commits: string[] = []
@@ -242,6 +288,7 @@ describe("learnAction", () => {
       invoke: (params) =>
         Effect.sync(() => {
           calls.push(params)
+          return { sessionId: undefined }
         }),
       isAvailable: () => Effect.succeed(true),
     })

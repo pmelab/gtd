@@ -1,4 +1,5 @@
-import { Command, CommandExecutor } from "@effect/platform"
+import { Command } from "@effect/platform"
+import { NodeContext } from "@effect/platform-node"
 import { Effect, Stream } from "effect"
 import { execSync } from "node:child_process"
 import { AgentError, type AgentProvider, type AgentInvocation, type AgentResult } from "../Agent.js"
@@ -90,7 +91,7 @@ export const ClaudeAgent: AgentProvider = {
       catch: () => false,
     }).pipe(Effect.catchAll(() => Effect.succeed(false))),
 
-  invoke: (params: AgentInvocation): Effect.Effect<AgentResult, AgentError, CommandExecutor.CommandExecutor> => {
+  invoke: (params: AgentInvocation): Effect.Effect<AgentResult, AgentError> => {
     const args = buildClaudeArgs({
       systemPrompt: params.systemPrompt,
       resumeSessionId: params.resumeSessionId,
@@ -132,6 +133,7 @@ export const ClaudeAgent: AgentProvider = {
     }).pipe(
       Effect.scoped,
       Effect.mapError((e) => (e instanceof AgentError ? e : new AgentError(String(e)))),
+      Effect.provide(NodeContext.layer),
     )
   },
 }

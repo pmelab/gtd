@@ -7,24 +7,34 @@
     "type": "git",
     "url": "https://github.com/pmelab/gtd.git"
   },
-  "keywords": ["ai", "agent", "cli", "git", "automation", "effect", "claude"],
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "git",
+    "automation",
+    "effect",
+    "claude"
+  ],
   "bin": {
     "gtd": "dist/gtd.js"
   },
   "exports": {
     ".": "./dist/gtd.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=20"
   },
   "type": "module",
   "scripts": {
-    "dev": "bun run src/main.ts",
+    "dev": "tsx src/main.ts",
     "build": "tsup",
-    "test": "bun vitest run",
+    "test": "vitest run",
     "test:e2e": "./scripts/integration-test.sh",
-    "test:watch": "bun vitest",
+    "test:watch": "vitest",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -41,6 +51,7 @@
     "jiti": "^2.6.1",
     "prettier": "^3.8.1",
     "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
     "typescript-eslint": "^8.54.0",
     "vitest": "^3.2.0",
     "yaml": "^2.8.2"

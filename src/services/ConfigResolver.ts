@@ -137,6 +137,8 @@ export const resolveAllConfigs = (
 
 const defaultCommitPrompt = `Review the following diff of changes the user has made to the project. Process the feedback by updating project files as needed — for example, converting rough notes or blockquotes in the TODO file into structured action items, or capturing new insights in AGENTS.md. Do not run git commands or make commits; committing will be handled automatically.
 
+When converting rough notes into action items, always use unchecked \`- [ ]\` format — never \`- [x]\`.
+
 {{diff}}`
 
 const defaults: Omit<GtdConfig, "configSources"> = {

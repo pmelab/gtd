@@ -7,7 +7,7 @@ import { printDecisionTree, formatDecisionTrace } from "./services/DecisionTree.
 import type { InferStepInput } from "./services/InferStep.js"
 
 describe("decision tree logging", () => {
-  let stderrSpy: ReturnType<typeof vi.spyOn>
+  let stderrSpy: { mock: { calls: unknown[][] }; mockRestore: () => void }
 
   beforeEach(() => {
     stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true)

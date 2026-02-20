@@ -153,6 +153,8 @@ describe("planCommand", () => {
       const fs = {
         readFile: () => Effect.succeed(readCount++ < 2 ? planWithBlockquote : cleanPlan),
         exists: () => Effect.succeed(true),
+        getDiffContent: () => Effect.succeed(""),
+        remove: () => Effect.void,
       }
       yield* planCommand(fs).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
@@ -311,6 +313,39 @@ describe("planCommand", () => {
       )
       // Should still commit despite prettier failure
       expect(gitCalls.some((c) => c.startsWith("commit:"))).toBe(true)
+    }),
+  )
+
+  it.effect("uses empty commit when agent makes no changes", () =>
+    Effect.gen(function* () {
+      const gitCalls: string[] = []
+      const gitLayer = mockGit({
+        hasUncommittedChanges: () => Effect.succeed(false),
+        emptyCommit: (msg) =>
+          Effect.sync(() => {
+            gitCalls.push(`emptyCommit:${msg}`)
+          }),
+        addAll: () =>
+          Effect.sync(() => {
+            gitCalls.push("addAll")
+          }),
+        commit: (msg) =>
+          Effect.sync(() => {
+            gitCalls.push(`commit:${msg}`)
+          }),
+      })
+      const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
+        providerType: "pi",
+        invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+      yield* planCommand(mockFs("")).pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
+      )
+      expect(gitCalls).toContain("emptyCommit:🤖 plan: no changes")
+      expect(gitCalls).not.toContain("addAll")
     }),
   )
 

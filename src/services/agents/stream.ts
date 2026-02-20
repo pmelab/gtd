@@ -1,4 +1,5 @@
-import { Command, CommandExecutor } from "@effect/platform"
+import { Command } from "@effect/platform"
+import { NodeContext } from "@effect/platform-node"
 import { Effect, Stream } from "effect"
 import { AgentError, type AgentInvocation, type AgentResult } from "../Agent.js"
 
@@ -11,7 +12,7 @@ export interface StreamAgentOptions {
 
 export const readJsonStream =
   (options: StreamAgentOptions) =>
-  (params: AgentInvocation): Effect.Effect<AgentResult, AgentError, CommandExecutor.CommandExecutor> =>
+  (params: AgentInvocation): Effect.Effect<AgentResult, AgentError> =>
     Effect.gen(function* () {
       const command = options.buildCommand(params)
       const proc = yield* Command.start(command)
@@ -39,4 +40,5 @@ export const readJsonStream =
     }).pipe(
       Effect.scoped,
       Effect.mapError((e) => (e instanceof AgentError ? e : new AgentError(String(e)))),
+      Effect.provide(NodeContext.layer),
     )

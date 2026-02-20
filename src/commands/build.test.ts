@@ -631,6 +631,48 @@ describe("buildCommand", () => {
     }),
   )
 
+  it.effect("fails when agent makes no changes", () =>
+    Effect.gen(function* () {
+      const gitCalls: string[] = []
+      const gitLayer = mockGit({
+        hasUncommittedChanges: () => Effect.succeed(false),
+        addAll: () =>
+          Effect.sync(() => {
+            gitCalls.push("addAll")
+          }),
+        commit: (msg) =>
+          Effect.sync(() => {
+            gitCalls.push(`commit:${msg}`)
+          }),
+      })
+      const agentLayer = Layer.succeed(AgentService, {
+        name: "mock",
+        resolvedName: "mock",
+        providerType: "pi",
+        invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
+        isAvailable: () => Effect.succeed(true),
+      })
+      const singleItem = [
+        "# Feature",
+        "",
+        "## Action Items",
+        "",
+        "### Setup",
+        "",
+        "- [ ] Only item",
+        "  - Detail",
+        "  - Tests: check",
+        "",
+      ].join("\n")
+      yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
+      )
+      // Should NOT commit anything
+      expect(gitCalls).not.toContain("addAll")
+      expect(gitCalls.some((c) => c.startsWith("commit:"))).toBe(false)
+    }),
+  )
+
   it.effect("handles inactivity timeout error gracefully", () =>
     Effect.gen(function* () {
       const agentLayer = Layer.succeed(AgentService, {

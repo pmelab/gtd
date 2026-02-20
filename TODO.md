@@ -59,7 +59,7 @@
 
 ### Tooling & CI
 
-- [ ] Update `package.json` scripts and `tsconfig.json` for Node.js
+- [x] Update `package.json` scripts and `tsconfig.json` for Node.js
 
   - Scripts: replace `bun run` → `tsx` for `dev`; replace `bun vitest` →
     `vitest` for test scripts
@@ -68,7 +68,7 @@
   - Delete `bun.lock`; commit `package-lock.json`
   - Tests: `npm install && npm run typecheck && npm test` all pass
 
-- [ ] Update GitHub Actions workflow (`.github/workflows/test.yml`)
+- [x] Update GitHub Actions workflow (`.github/workflows/test.yml`)
   - Replace `oven-sh/setup-bun@v2` with `actions/setup-node@v4` (Node 20, LTS)
   - Replace all `bun install` / `bun run` / `bun test` invocations with `npm`
     equivalents

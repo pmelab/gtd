@@ -63,10 +63,16 @@ export const learnAction = (input: LearnInput) =>
           })
           .pipe(Effect.ensuring(Effect.sync(() => renderer.dispose())))
 
-        const learnDiff = yield* git.getDiff()
-        const learnCommitMsg = yield* generateCommitMessage("🎓", learnDiff)
-        yield* git.atomicCommit("all", learnCommitMsg)
-        renderer.succeed("Learnings persisted to AGENTS.md and committed.")
+        const hasChanges = yield* git.hasUncommittedChanges()
+        if (hasChanges) {
+          const learnDiff = yield* git.getDiff()
+          const learnCommitMsg = yield* generateCommitMessage("🎓", learnDiff)
+          yield* git.atomicCommit("all", learnCommitMsg)
+          renderer.succeed("Learnings persisted to AGENTS.md and committed.")
+        } else {
+          yield* git.emptyCommit("🎓 learn: no changes")
+          renderer.succeed("Agent made no changes. Learn phase complete.")
+        }
       } else {
         yield* git.emptyCommit(`🎓 review: no learnings to persist`)
         renderer.succeed("No learnings to persist. Learn phase complete.")

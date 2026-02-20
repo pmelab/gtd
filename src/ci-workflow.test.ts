@@ -20,7 +20,7 @@ describe("CI workflow step ordering", () => {
 
   it("has a format:check step", () => {
     const steps = getSteps()
-    expect(stepIndex(steps, "bun run format:check")).toBeGreaterThan(-1)
+    expect(stepIndex(steps, "format:check")).toBeGreaterThan(-1)
   })
 
   it("has a typecheck step", () => {
@@ -30,12 +30,12 @@ describe("CI workflow step ordering", () => {
 
   it("has a lint step", () => {
     const steps = getSteps()
-    expect(stepIndex(steps, "bun run lint")).toBeGreaterThan(-1)
+    expect(stepIndex(steps, "npm run lint")).toBeGreaterThan(-1)
   })
 
   it("has a unit test step", () => {
     const steps = getSteps()
-    expect(stepIndex(steps, "bun test")).toBeGreaterThan(-1)
+    expect(stepIndex(steps, "npm test")).toBeGreaterThan(-1)
   })
 
   it("has an e2e test step", () => {
@@ -46,9 +46,9 @@ describe("CI workflow step ordering", () => {
   it("runs steps in fail-early order: typecheck → lint → format → unit tests → e2e", () => {
     const steps = getSteps()
     const typecheckIdx = stepIndex(steps, "typecheck")
-    const lintIdx = stepIndex(steps, "bun run lint")
-    const formatIdx = stepIndex(steps, "bun run format:check")
-    const unitIdx = stepIndex(steps, "bun test")
+    const lintIdx = stepIndex(steps, "npm run lint")
+    const formatIdx = stepIndex(steps, "format:check")
+    const unitIdx = stepIndex(steps, "npm test")
     const e2eIdx = stepIndex(steps, "test:e2e")
 
     expect(typecheckIdx).toBeLessThan(lintIdx)

@@ -110,11 +110,17 @@ export const planCommand = (fs: FileOps) =>
       )
     }
 
-    // 7. Atomic git add + commit
-    const planDiff = yield* git.getDiff()
-    const planCommitMessage = yield* generateCommitMessage("🤖", planDiff)
-    yield* git.atomicCommit("all", planCommitMessage)
-    renderer.succeed("Plan committed.")
+    // 7. Atomic git add + commit (or empty commit if agent made no changes)
+    const hasChanges = yield* git.hasUncommittedChanges()
+    if (hasChanges) {
+      const planDiff = yield* git.getDiff()
+      const planCommitMessage = yield* generateCommitMessage("🤖", planDiff)
+      yield* git.atomicCommit("all", planCommitMessage)
+      renderer.succeed("Plan committed.")
+    } else {
+      yield* git.emptyCommit("🤖 plan: no changes")
+      renderer.succeed("Plan unchanged, empty commit to advance state.")
+    }
 
     // 8. Save session ID for build command
     if (sessionId && fs.writeSessionId) {

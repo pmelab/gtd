@@ -112,7 +112,7 @@ EOF
 
   # Tests should pass
   cd "$TEST_REPO"
-  run bun test
+  run npm test
   assert_success
 
   # Items should be checked off
@@ -183,7 +183,7 @@ EOF
 
   # Tests should still pass
   cd "$TEST_REPO"
-  run bun test
+  run npm test
   assert_success
 
   # Last commit should be build (🔨)
@@ -196,9 +196,9 @@ EOF
 @test "gtd learns and cleans up" {
   cd "$TEST_REPO"
 
-  # Only run learn flow if there's a Learnings section
+  # Inject a Learnings section if the agent didn't generate one
   if ! grep -qi "## Learnings" TODO.md 2>/dev/null; then
-    skip "no Learnings section in TODO.md"
+    printf '\n## Learnings\n\n- avoid magic numbers in business logic\n' >> TODO.md
   fi
 
   # Ensure at least one learning survives after sed removes "magic numbers"

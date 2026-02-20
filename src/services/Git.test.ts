@@ -16,6 +16,7 @@ const mockGit = (overrides: Partial<GitService["Type"]> = {}) =>
     add: () => Effect.void,
     addAll: () => Effect.void,
     commit: () => Effect.void,
+    emptyCommit: () => Effect.void,
     show: () => Effect.succeed("mock content"),
     stageByPatch: () => Effect.void,
     atomicCommit: (files, message) =>
