@@ -41,6 +41,7 @@
 
 - [ ] Replace `bun build --compile` with `tsup` to produce a fully
       self-contained publishable bundle
+
   - Add `tsup` as a dev dependency; create `tsup.config.ts` targeting Node.js
     ESM, inject `#!/usr/bin/env node` shebang, and set `noExternal: [/.*/]` to
     bundle all dependencies (no runtime installs for consumers)
@@ -59,6 +60,7 @@
 ### Tooling & CI
 
 - [ ] Update `package.json` scripts and `tsconfig.json` for Node.js
+
   - Scripts: replace `bun run` → `tsx` for `dev`; replace `bun vitest` →
     `vitest` for test scripts
   - `tsconfig.json`: change `moduleResolution` from `"bundler"` to `"node16"` or
