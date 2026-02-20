@@ -37,8 +37,8 @@ export const commitFeedbackCommand = () =>
         const { prefix, patch } = categories[i]!
         const isLast = i === categories.length - 1
 
-        // Invoke agent for HUMAN only — SEED/FEEDBACK are handled by plan, FIX needs no processing
-        if (prefix === HUMAN) {
+        // Invoke agent for all categories except FIX — FIX commits need no AI processing
+        if (prefix !== FIX) {
           const prompt = interpolate(config.commitPrompt, { diff: patch })
 
           renderer.setText("Generating feedback…")

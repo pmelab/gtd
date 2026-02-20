@@ -4,7 +4,7 @@
 
 ### Runtime & Platform
 
-- [ ] Replace `@effect/platform-bun` with `@effect/platform-node` throughout
+- [x] Replace `@effect/platform-bun` with `@effect/platform-node` throughout
   - In `src/main.ts`: swap `BunContext`/`BunRuntime` imports for
     `NodeContext`/`NodeRuntime` from `@effect/platform-node`
   - In `src/services/Git.test.ts`: replace `BunContext` import with

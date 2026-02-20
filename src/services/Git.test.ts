@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import { BunContext } from "@effect/platform-bun"
+import { NodeContext } from "@effect/platform-node"
 import { GitService } from "./Git.js"
 import { mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -198,7 +198,7 @@ describe("GitService.stageByPatch (integration)", () => {
         expect(stagedDiff).not.toContain("FEEDBACK_HUNK")
         expect(unstagedDiff).toContain("FEEDBACK_HUNK")
         expect(unstagedDiff).not.toContain("FIX_HUNK")
-      }).pipe(Effect.provide(GitService.Live.pipe(Layer.provide(BunContext.layer)))),
+      }).pipe(Effect.provide(GitService.Live.pipe(Layer.provide(NodeContext.layer)))),
     { timeout: 10000 },
   )
 })

@@ -1,5 +1,5 @@
 import { Command } from "@effect/cli"
-import { BunContext, BunRuntime } from "@effect/platform-bun"
+import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
 import { command } from "./cli.js"
 import { GtdConfigService } from "./services/Config.js"
@@ -17,6 +17,6 @@ const cli = Command.run(command, {
 
 cli(process.argv).pipe(
   Effect.provide(ServicesLayer),
-  Effect.provide(BunContext.layer),
-  BunRuntime.runMain,
+  Effect.provide(NodeContext.layer),
+  NodeRuntime.runMain,
 )
