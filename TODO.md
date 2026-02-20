@@ -17,7 +17,11 @@
 ### File Operations
 
 - [ ] Replace all `Bun.file()` / `Bun.write()` calls in
-      `src/services/FileOps.ts` with `fs.promises`
+
+  > shouldn't those use effect platform file operations in the first place?
+
+        `src/services/FileOps.ts` with `fs.promises`
+
   - `Bun.file(path).text()` → `fs.promises.readFile(path, 'utf-8')`
   - `Bun.file(path).size` → `(await fs.promises.stat(path)).size`
   - `Bun.write(path, data)` → `fs.promises.writeFile(path, data)`
@@ -27,6 +31,7 @@
 ### Process Spawning
 
 - [ ] Replace all `Bun.spawn()` calls with Node.js `child_process.spawn()`
+  > shouldn't those use effect platform process operations in the first place?
   - Affected files: `src/services/agents/Claude.ts`, `OpenCode.ts`, `Pi.ts`,
     `src/commands/build.ts`, `src/services/Notify.ts`
   - Bun's `proc.exited` → wrap in a `Promise` resolving on the `close` event
@@ -41,7 +46,6 @@
 
 - [ ] Replace `bun build --compile` with `tsup` to produce a publishable Node.js
       bundle
-
   - Add `tsup` as a dev dependency; create `tsup.config.ts` targeting Node.js
     ESM with a shebang injected into the entry point
   - Update `package.json` `build` script to `tsup`
@@ -60,7 +64,6 @@
 ### Tooling & CI
 
 - [ ] Update `package.json` scripts and `tsconfig.json` for Node.js
-
   - Scripts: replace `bun run` → `node --import tsx/esm` for `dev`; replace
     `bun vitest` → `vitest` for test scripts
   - `tsconfig.json`: change `moduleResolution` from `"bundler"` to `"node"` (or
@@ -78,7 +81,10 @@
 
 - Should the npm package ship a pre-built `dist/gtd.js` (committed to repo) or
   build on `npm install` via a `prepare` script?
+  > ship prebuilt
 - Should `tsup` bundle all dependencies into the output (fully self-contained)
   or keep them as peer/runtime deps that npm installs?
+  > bundle everything, no dev dependency installs on consumers
 - Does `stream.ts` need to support both Web `ReadableStream` and Node
   `Readable`, or can all call sites be migrated to Node streams?
+  > doesn't effect have an abstraction for that?
