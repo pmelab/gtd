@@ -15,10 +15,6 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      - uses: jdx/mise-action@v2
-        with:
-          install_args: bats@latest
-
       - name: Install dependencies
         run: npm install
 

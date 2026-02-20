@@ -9,21 +9,12 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 #   GTD_AGENT=pi ./scripts/integration-test.sh       # run with pi
 #   KEEP_TEST_REPO=1 ./scripts/integration-test.sh   # preserve temp repo
 #   ./scripts/integration-test.sh --verbose           # show agent output
-#   ./scripts/integration-test.sh --tap              # TAP output for CI
 
-eval "$(mise activate bash)"
-
-BATS_ARGS=()
 for arg in "$@"; do
   case "$arg" in
-    --verbose)
-      export GTD_E2E_VERBOSE=1
-      BATS_ARGS+=(--show-output-of-passing-tests)
-      ;;
-    *)
-      BATS_ARGS+=("$arg")
-      ;;
+    --verbose) export GTD_E2E_VERBOSE=1 ;;
   esac
 done
 
-exec bats "${PROJECT_ROOT}/tests/integration/gtd-workflow.bats" "${PROJECT_ROOT}/tests/integration/sandbox-boundaries.bats" "${BATS_ARGS[@]}"
+cd "$PROJECT_ROOT"
+exec npx cucumber-js --config tests/integration/cucumber.mjs "$@"
