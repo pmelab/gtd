@@ -30,6 +30,7 @@ export const mockGit = (overrides: Partial<GitOperations> = {}) => {
     add: (() => Effect.void) as GitOperations["add"],
     addAll: () => Effect.void,
     commit: (() => Effect.void) as GitOperations["commit"],
+    emptyCommit: (message) => base.commit(message),
     show: () => Effect.succeed(""),
     atomicCommit: ((files: ReadonlyArray<string> | "all", message: string) =>
       Effect.gen(function* () {
@@ -39,9 +40,6 @@ export const mockGit = (overrides: Partial<GitOperations> = {}) => {
       })) as GitOperations["atomicCommit"],
     stageByPatch: () => Effect.void,
     ...overrides,
-  }
-  if (overrides.atomicCommit) {
-    base.atomicCommit = overrides.atomicCommit
   }
   return Layer.succeed(GitService, base)
 }

@@ -33,8 +33,12 @@ export const commitFeedbackCommand = () =>
         categories.push({ prefix: HUMAN, patch: diff })
       }
 
-      for (const { prefix, patch } of categories) {
-        if (prefix !== FIX) {
+      for (let i = 0; i < categories.length; i++) {
+        const { prefix, patch } = categories[i]!
+        const isLast = i === categories.length - 1
+
+        // Invoke agent for HUMAN only — SEED/FEEDBACK are handled by plan, FIX needs no processing
+        if (prefix === HUMAN) {
           const prompt = interpolate(config.commitPrompt, { diff: patch })
 
           renderer.setText("Generating feedback…")
@@ -48,25 +52,26 @@ export const commitFeedbackCommand = () =>
           })
         }
 
+        // Remove newly-added in-code TODO/FIXME comments before committing so the
+        // removals are included in this or the final commit rather than left unstaged
+        if (prefix === HUMAN && classified.humanTodos) {
+          const todos = findNewlyAddedTodos(classified.humanTodos, config.file)
+          if (todos.length > 0) {
+            yield* removeTodoLines(todos, process.cwd()).pipe(
+              Effect.catchAll(() => Effect.succeed(0)),
+            )
+          }
+        }
+
         renderer.setText("Committing feedback…")
         const msg = yield* generateCommitMessage(prefix, patch)
 
-        if (categories.length === 1) {
+        if (isLast) {
+          // Last commit captures agent file modifications and removeTodoLines changes
           yield* git.atomicCommit("all", msg)
         } else {
           yield* git.stageByPatch(patch)
           yield* git.commit(msg)
-        }
-      }
-
-      // Remove newly-added in-code TODO/FIXME comments from source files,
-      // leaving changes unstaged so the plan step picks them up
-      if (classified.humanTodos) {
-        const todos = findNewlyAddedTodos(classified.humanTodos, config.file)
-        if (todos.length > 0) {
-          yield* removeTodoLines(todos, process.cwd()).pipe(
-            Effect.catchAll(() => Effect.succeed(0)),
-          )
         }
       }
 

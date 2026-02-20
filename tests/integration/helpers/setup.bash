@@ -63,12 +63,12 @@ run_gtd() {
   cd "$TEST_REPO" || return 1
   if [[ "${GTD_E2E_VERBOSE:-}" == "1" ]]; then
     echo "# ── Running: gtd $* ──" >&3
-    GTD_TEST_CMD="bun test" "$GTD_BIN" "$@" >&3 2>&3
+    GTD_TEST_CMD="bun test" env -u CLAUDECODE "$GTD_BIN" "$@" >&3 2>&3
     status=$?
     output=""
     echo "# ── exit code: $status ──" >&3
   else
-    GTD_TEST_CMD="bun test" run "$GTD_BIN" "$@"
+    GTD_TEST_CMD="bun test" run env -u CLAUDECODE "$GTD_BIN" "$@"
   fi
 }
 

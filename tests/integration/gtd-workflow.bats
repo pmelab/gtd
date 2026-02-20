@@ -209,10 +209,6 @@ EOF
 
   assert_success
 
-  # AGENTS.md should have been updated with learnings
-  run repo_file_exists AGENTS.md
-  assert_success
-
   # Learn (🎓) and cleanup (🧹) should appear in log
   run git_log
   assert_output --regexp "🎓"

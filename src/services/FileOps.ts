@@ -14,8 +14,7 @@ export interface FileOps {
   readonly runTests?: (cmd: string) => Effect.Effect<{ exitCode: number; output: string }>
 }
 
-const sessionFilePath = (planFilePath: string) =>
-  planFilePath.replace(/[^/]+$/, ".gtd-session")
+const sessionFilePath = (_planFilePath: string) => ".git/gtd-session"
 
 export const bunFileOps = (filePath: string): FileOps => ({
   readFile: () =>

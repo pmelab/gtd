@@ -174,7 +174,7 @@ describe("learnAction", () => {
     expect(removed).toBe(true)
   })
 
-  it("skips to cleanup when Learnings section is empty", async () => {
+  it("creates empty 🎓 commit then 🧹 when Learnings section is empty", async () => {
     const calls: AgentInvocation[] = []
     const commits: string[] = []
     let removed = false
@@ -218,8 +218,9 @@ describe("learnAction", () => {
     )
     expect(calls.length).toBe(0)
     expect(removed).toBe(true)
-    expect(commits.length).toBe(1)
-    expect(commits[0]!).toContain("🧹")
+    expect(commits.length).toBe(2)
+    expect(commits[0]!).toContain("🎓")
+    expect(commits[1]!).toContain("🧹")
   })
 
   it("skips to cleanup when Learnings section is missing", async () => {

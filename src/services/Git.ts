@@ -9,6 +9,7 @@ export interface GitOperations {
   readonly add: (files: ReadonlyArray<string>) => Effect.Effect<void, Error>
   readonly addAll: () => Effect.Effect<void, Error>
   readonly commit: (message: string) => Effect.Effect<void, Error>
+  readonly emptyCommit: (message: string) => Effect.Effect<void, Error>
   readonly show: (ref: string) => Effect.Effect<string, Error>
   readonly atomicCommit: (
     files: ReadonlyArray<string> | "all",
@@ -76,6 +77,9 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
         addAll: () => exec("git", "add", "-A").pipe(Effect.asVoid),
 
         commit: (message) => exec("git", "commit", "-m", message).pipe(Effect.asVoid),
+
+        emptyCommit: (message) =>
+          exec("git", "commit", "--allow-empty", "-m", message).pipe(Effect.asVoid),
 
         show: (ref) => exec("git", "show", ref),
 

@@ -45,28 +45,32 @@ export const learnAction = (input: LearnInput) =>
 
     const learnings = extractLearnings(content)
 
-    if (hasLearningsSection(content) && learnings.trim() !== "") {
+    if (hasLearningsSection(content)) {
+      if (learnings.trim() !== "") {
+        renderer.setText("Persisting learnings to AGENTS.md...")
 
-      renderer.setText("Persisting learnings to AGENTS.md...")
-
-      const prompt = interpolate(learnPrompt, {
-        learnings: learnings,
-      })
-
-      yield* agent
-        .invoke({
-          prompt,
-          systemPrompt: "",
-          mode: "learn",
-          cwd: process.cwd(),
-          onEvent: renderer.onEvent,
+        const prompt = interpolate(learnPrompt, {
+          learnings: learnings,
         })
-        .pipe(Effect.ensuring(Effect.sync(() => renderer.dispose())))
 
-      const learnDiff = yield* git.getDiff()
-      const learnCommitMsg = yield* generateCommitMessage("🎓", learnDiff)
-      yield* git.atomicCommit("all", learnCommitMsg)
-      renderer.succeed("Learnings persisted to AGENTS.md and committed.")
+        yield* agent
+          .invoke({
+            prompt,
+            systemPrompt: "",
+            mode: "learn",
+            cwd: process.cwd(),
+            onEvent: renderer.onEvent,
+          })
+          .pipe(Effect.ensuring(Effect.sync(() => renderer.dispose())))
+
+        const learnDiff = yield* git.getDiff()
+        const learnCommitMsg = yield* generateCommitMessage("🎓", learnDiff)
+        yield* git.atomicCommit("all", learnCommitMsg)
+        renderer.succeed("Learnings persisted to AGENTS.md and committed.")
+      } else {
+        yield* git.emptyCommit(`🎓 review: no learnings to persist`)
+        renderer.succeed("No learnings to persist. Learn phase complete.")
+      }
 
       yield* input.fs.remove()
       yield* git.atomicCommit("all", `🧹 cleanup: remove ${config.file}`)

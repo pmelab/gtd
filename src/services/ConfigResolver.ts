@@ -6,17 +6,16 @@ import { cosmiconfig } from "cosmiconfig"
 import type { GtdConfig } from "./Config.js"
 import { GtdConfigSchema } from "./ConfigSchema.js"
 
-export const SCHEMA_URL =
-  "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json"
+export const SCHEMA_URL = "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json"
 
 export const EXAMPLE_CONFIG = {
   $schema: SCHEMA_URL,
   _comment:
     "This is an example config. You can move this file to ~/.config/gtd/ or any other supported location.",
   file: "TODO.md",
-  agent: "auto",
+  agent: "claude",
   modelPlan: "sonnet",
-  modelBuild: "opus",
+  modelBuild: "sonnet",
   modelCommit: "haiku",
   testCmd: "npm test",
   testRetries: 10,
@@ -136,7 +135,7 @@ export const resolveAllConfigs = (
     return results
   })
 
-const defaultCommitPrompt = `Look at the following diff and create a concise commit message, following the conventional commit standards:
+const defaultCommitPrompt = `Review the following diff of changes the user has made to the project. Process the feedback by updating project files as needed — for example, converting rough notes or blockquotes in the TODO file into structured action items, or capturing new insights in AGENTS.md. Do not run git commands or make commits; committing will be handled automatically.
 
 {{diff}}`
 
@@ -157,9 +156,7 @@ const defaults: Omit<GtdConfig, "configSources"> = {
 
 const decode = Schema.decodeUnknownEither(GtdConfigSchema)
 
-export const mergeConfigs = (
-  configs: ReadonlyArray<ConfigResult>,
-): GtdConfig => {
+export const mergeConfigs = (configs: ReadonlyArray<ConfigResult>): GtdConfig => {
   const merged: Record<string, unknown> = {}
   const configSources: string[] = []
   const mergedFilesystemAllowRead: string[] = []
@@ -170,10 +167,21 @@ export const mergeConfigs = (
 
   for (let i = 0; i < configs.length; i++) {
     const raw = configs[i]!.config
-    const { sandboxEscalationPolicy: _sep, sandboxApprovedEscalations: _sae, approvedEscalations: _ae, agentPlan: _ap, agentBuild: _ab, agentLearn: _al, ...cleaned } = raw
+    const {
+      sandboxEscalationPolicy: _sep,
+      sandboxApprovedEscalations: _sae,
+      approvedEscalations: _ae,
+      agentPlan: _ap,
+      agentBuild: _ab,
+      agentLearn: _al,
+      ...cleaned
+    } = raw
     const result = decode(cleaned)
     if (result._tag === "Right") {
-      validParsed.push({ parsed: result.right as Record<string, unknown>, filepath: configs[i]!.filepath })
+      validParsed.push({
+        parsed: result.right as Record<string, unknown>,
+        filepath: configs[i]!.filepath,
+      })
     }
   }
 
@@ -205,16 +213,22 @@ export const mergeConfigs = (
     configSources.unshift(filepath)
   }
 
-  const filesystemOverrides = mergedFilesystemAllowRead.length > 0 || mergedFilesystemAllowWrite.length > 0
-    ? {
-        ...(mergedFilesystemAllowRead.length > 0 ? { allowRead: [...new Set(mergedFilesystemAllowRead)] } : {}),
-        ...(mergedFilesystemAllowWrite.length > 0 ? { allowWrite: [...new Set(mergedFilesystemAllowWrite)] } : {}),
-      }
-    : undefined
+  const filesystemOverrides =
+    mergedFilesystemAllowRead.length > 0 || mergedFilesystemAllowWrite.length > 0
+      ? {
+          ...(mergedFilesystemAllowRead.length > 0
+            ? { allowRead: [...new Set(mergedFilesystemAllowRead)] }
+            : {}),
+          ...(mergedFilesystemAllowWrite.length > 0
+            ? { allowWrite: [...new Set(mergedFilesystemAllowWrite)] }
+            : {}),
+        }
+      : undefined
 
-  const networkOverrides = mergedNetworkAllowedDomains.length > 0
-    ? { allowedDomains: [...new Set(mergedNetworkAllowedDomains)] }
-    : undefined
+  const networkOverrides =
+    mergedNetworkAllowedDomains.length > 0
+      ? { allowedDomains: [...new Set(mergedNetworkAllowedDomains)] }
+      : undefined
 
   const finalBoundaries = {
     ...(filesystemOverrides ? { filesystem: filesystemOverrides } : {}),
