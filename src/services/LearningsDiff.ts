@@ -7,7 +7,7 @@ const findLearningsRange = (
 
   const start = headerIdx + 1
 
-  let end = lines.length
+  let end = lines.length + 1
   for (let i = headerIdx + 1; i < lines.length; i++) {
     if (/^##\s+/.test(lines[i]!)) {
       end = i

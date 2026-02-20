@@ -88,6 +88,12 @@ describe("isOnlyLearningsModified", () => {
     expect(isOnlyLearningsModified(diff, todoContent)).toBe(true)
   })
 
+  it("returns true when a line is appended past EOF into the Learnings section", () => {
+    // printf '...' >> TODO.md creates a diff hunk at oldLine = lines.length + 1
+    const diff = makeDiff([{ oldStart: 12, lines: ["+- appended learning"] }])
+    expect(isOnlyLearningsModified(diff, todoContent)).toBe(true)
+  })
+
   it("handles file with content after Learnings section", () => {
     const contentWithMore = [
       "# Feature",                   // 1

@@ -201,12 +201,19 @@ EOF
     skip "no Learnings section in TODO.md"
   fi
 
+  # Ensure at least one learning survives after sed removes "magic numbers"
+  printf '\n- always validate inputs at system boundaries\n' >> TODO.md
+
   # Simulate human removing a learning line (leave uncommitted)
   # Scope to ## Learnings section only — "magic numbers" may also appear in action items
   sed -i '' '/^## Learnings$/,/^## /{ /magic numbers/d; }' TODO.md
 
   run_gtd
 
+  assert_success
+
+  # AGENTS.md should have been updated with learnings
+  run repo_file_exists AGENTS.md
   assert_success
 
   # Learn (🎓) and cleanup (🧹) should appear in log
