@@ -115,10 +115,12 @@ It automates AI agent execution and git operations:
 
 ## Testing
 
-- E2E tests should use the same test harness as existing integration tests
-  (bats + the actual built binary) rather than vitest with mocked internals —
-  true e2e tests must exercise the real CLI entry point to catch integration
-  issues
+- E2E tests use Cucumber (`tests/integration/features/`) with the actual built
+  binary — true e2e tests must exercise the real CLI entry point to catch
+  integration issues; do not use vitest with mocked internals for e2e scenarios
+- scenario state is set up via `tests/integration/helpers/project-setup.ts`
+  helper functions that build realistic git histories matching each workflow
+  stage — add new setup helpers there when adding new scenarios
 - E2E tests for fail-stop boundaries should exercise the full user workflow: run
   → violation → config adjustment → re-run → success — this validates both the
   error messaging and the config-driven escalation path
