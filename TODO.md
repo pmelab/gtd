@@ -17,57 +17,54 @@
 ### File Operations
 
 - [ ] Replace all `Bun.file()` / `Bun.write()` calls in
-
-  > shouldn't those use effect platform file operations in the first place?
-
-        `src/services/FileOps.ts` with `fs.promises`
-
-  - `Bun.file(path).text()` → `fs.promises.readFile(path, 'utf-8')`
-  - `Bun.file(path).size` → `(await fs.promises.stat(path)).size`
-  - `Bun.write(path, data)` → `fs.promises.writeFile(path, data)`
+      `src/services/FileOps.ts` with `@effect/platform` `FileSystem` service
+  - Inject `FileSystem` from `@effect/platform` and use `fs.readFileString`,
+    `fs.stat`, `fs.writeFileString` instead of `Bun.file()` / `Bun.write()`
   - Rename `bunFileOps` → `nodeFileOps` and update all call sites
+  - The Node.js implementation is provided automatically via `NodeContext.layer`
+    already added in the Runtime & Platform step
   - Tests: existing FileOps unit tests pass under Node.js
 
 ### Process Spawning
 
-- [ ] Replace all `Bun.spawn()` calls with Node.js `child_process.spawn()`
-  > shouldn't those use effect platform process operations in the first place?
+- [ ] Replace all `Bun.spawn()` calls with `@effect/platform` `Command` service
   - Affected files: `src/services/agents/Claude.ts`, `OpenCode.ts`, `Pi.ts`,
     `src/commands/build.ts`, `src/services/Notify.ts`
-  - Bun's `proc.exited` → wrap in a `Promise` resolving on the `close` event
-  - Bun's `proc.stdout` is a Web `ReadableStream` — Node's is a `Readable`;
-    update `src/services/agents/stream.ts` to accept Node `Readable` or adapt it
-  - `new Blob([data])` for stdin → pipe a `Readable` or use
-    `proc.stdin.write()`; replace `new Response(proc.stdout).text()` (build.ts)
-    with stream buffering via `fs.promises` or a helper
+  - Use `Command.make(...)` and `Command.stream` / `Command.string` from
+    `@effect/platform` — this also resolves the stdout stream abstraction, as
+    Effect's `Command` yields Effect `Stream`s natively
+  - Pass stdin via `Command.stdin` pipe rather than `new Blob()`
+  - The Node.js implementation is provided automatically via `NodeContext.layer`
   - Tests: agent spawning integration tests pass; `npm run test` green
 
 ### Build & Distribution
 
-- [ ] Replace `bun build --compile` with `tsup` to produce a publishable Node.js
-      bundle
+- [ ] Replace `bun build --compile` with `tsup` to produce a fully
+      self-contained publishable bundle
+
   - Add `tsup` as a dev dependency; create `tsup.config.ts` targeting Node.js
-    ESM with a shebang injected into the entry point
-  - Update `package.json` `build` script to `tsup`
-  - Add `bin`, `main`/`exports`, `files`, and `engines` fields to `package.json`
-    pointing at the `dist/` output
+    ESM, inject `#!/usr/bin/env node` shebang, and set `noExternal: [/.*/]` to
+    bundle all dependencies (no runtime installs for consumers)
+  - Update `package.json` `build` script to `tsup`; commit the built
+    `dist/gtd.js` to the repo (ship prebuilt)
+  - Add `bin`, `exports`, `files: ["dist"]`, and `engines: { node: ">=20" }`
+    fields to `package.json` pointing at `dist/gtd.js`
   - Tests: `npm run build` produces `dist/gtd.js` with correct shebang;
-    `node dist/gtd.js --help` works
+    `node dist/gtd.js --help` works; `npm pack --dry-run` lists only `dist/`
 
 - [ ] Set up npm publishing metadata in `package.json`
   - Add `name`, `version`, `description`, `license`, `repository`, `keywords`
     fields
-  - Add `files: ["dist"]` to exclude source from the published tarball
-  - Add `engines: { node: ">=20" }`
   - Tests: `npm pack --dry-run` lists only `dist/` files and `package.json`
 
 ### Tooling & CI
 
 - [ ] Update `package.json` scripts and `tsconfig.json` for Node.js
-  - Scripts: replace `bun run` → `node --import tsx/esm` for `dev`; replace
-    `bun vitest` → `vitest` for test scripts
-  - `tsconfig.json`: change `moduleResolution` from `"bundler"` to `"node"` (or
-    `"nodenext"`)
+
+  - Scripts: replace `bun run` → `tsx` for `dev`; replace `bun vitest` →
+    `vitest` for test scripts
+  - `tsconfig.json`: change `moduleResolution` from `"bundler"` to `"node16"` or
+    `"nodenext"`
   - Delete `bun.lock`; commit `package-lock.json`
   - Tests: `npm install && npm run typecheck && npm test` all pass
 
@@ -77,14 +74,8 @@
     equivalents
   - Tests: CI pipeline passes on a push to a test branch
 
-## Open Questions
+## Learnings
 
-- Should the npm package ship a pre-built `dist/gtd.js` (committed to repo) or
-  build on `npm install` via a `prepare` script?
-  > ship prebuilt
-- Should `tsup` bundle all dependencies into the output (fully self-contained)
-  or keep them as peer/runtime deps that npm installs?
-  > bundle everything, no dev dependency installs on consumers
-- Does `stream.ts` need to support both Web `ReadableStream` and Node
-  `Readable`, or can all call sites be migrated to Node streams?
-  > doesn't effect have an abstraction for that?
+- Prefer `@effect/platform` abstractions (`FileSystem`, `Command`) over raw
+  Node.js APIs — they keep code platform-agnostic and the correct runtime
+  implementation is injected automatically via the platform layer
