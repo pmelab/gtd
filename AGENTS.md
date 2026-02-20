@@ -20,6 +20,9 @@ It automates AI agent execution and git operations:
 ## Guidelines
 
 - use the effect library and it's ecosystem as much as possible
+- prefer `@effect/platform` abstractions (`FileSystem`, `Command`) over raw
+  Node.js APIs — they keep code platform-agnostic and the correct runtime
+  implementation is injected automatically via the platform layer
 - strict typing everywhere
 - example config files must include a `$schema` reference pointing to the
   GitHub-hosted JSON schema (`SCHEMA_URL` in `ConfigResolver.ts`) so users get
