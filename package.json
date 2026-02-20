@@ -1,10 +1,27 @@
 {
   "name": "gtd",
   "version": "0.1.0",
+  "description": "AI-assisted git task runner — automates agent execution and atomic commits for plan-driven development",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pmelab/gtd.git"
+  },
+  "keywords": ["ai", "agent", "cli", "git", "automation", "effect", "claude"],
+  "bin": {
+    "gtd": "dist/gtd.js"
+  },
+  "exports": {
+    ".": "./dist/gtd.js"
+  },
+  "files": ["dist"],
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "scripts": {
     "dev": "bun run src/main.ts",
-    "build": "bun build ./src/main.ts --compile --outfile dist/gtd",
+    "build": "tsup",
     "test": "bun vitest run",
     "test:e2e": "./scripts/integration-test.sh",
     "test:watch": "bun vitest",
@@ -23,6 +40,7 @@
     "eslint": "^9.39.2",
     "jiti": "^2.6.1",
     "prettier": "^3.8.1",
+    "tsup": "^8.5.1",
     "typescript-eslint": "^8.54.0",
     "vitest": "^3.2.0",
     "yaml": "^2.8.2"

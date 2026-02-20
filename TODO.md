@@ -39,7 +39,7 @@
 
 ### Build & Distribution
 
-- [ ] Replace `bun build --compile` with `tsup` to produce a fully
+- [x] Replace `bun build --compile` with `tsup` to produce a fully
       self-contained publishable bundle
 
   - Add `tsup` as a dev dependency; create `tsup.config.ts` targeting Node.js
@@ -52,7 +52,7 @@
   - Tests: `npm run build` produces `dist/gtd.js` with correct shebang;
     `node dist/gtd.js --help` works; `npm pack --dry-run` lists only `dist/`
 
-- [ ] Set up npm publishing metadata in `package.json`
+- [x] Set up npm publishing metadata in `package.json`
   - Add `name`, `version`, `description`, `license`, `repository`, `keywords`
     fields
   - Tests: `npm pack --dry-run` lists only `dist/` files and `package.json`

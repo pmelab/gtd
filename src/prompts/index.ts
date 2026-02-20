@@ -1,6 +1,6 @@
-import planPrompt from "./plan.md" with { type: "text" }
-import buildPrompt from "./build.md" with { type: "text" }
-import learnPrompt from "./learn.md" with { type: "text" }
+import planPrompt from "./plan.md"
+import buildPrompt from "./build.md"
+import learnPrompt from "./learn.md"
 
 export { planPrompt, buildPrompt, learnPrompt }
 
