@@ -717,7 +717,7 @@ describe("gatherState computes todoFileIsNew", () => {
   })
 })
 
-describe("gatherState resolves prevNonHumanPrefix", () => {
+describe("gatherState resolves prevPhasePrefix", () => {
   it("resolves EXPLORE when git log is EXPLORE → HUMAN → HUMAN", async () => {
     const gitLayer = mockGit({
       hasUncommittedChanges: () => Effect.succeed(false),
@@ -741,10 +741,10 @@ describe("gatherState resolves prevNonHumanPrefix", () => {
     )
 
     expect(state.lastCommitPrefix).toBe(HUMAN)
-    expect(state.prevNonHumanPrefix).toBe(EXPLORE)
+    expect(state.prevPhasePrefix).toBe(EXPLORE)
   })
 
-  it("resolves undefined prevNonHumanPrefix when no non-HUMAN commit found", async () => {
+  it("resolves undefined prevPhasePrefix when no non-HUMAN commit found", async () => {
     const gitLayer = mockGit({
       hasUncommittedChanges: () => Effect.succeed(false),
       getLastCommitMessage: () => Effect.succeed(`${HUMAN} edit: user feedback`),
@@ -762,7 +762,7 @@ describe("gatherState resolves prevNonHumanPrefix", () => {
     )
 
     expect(state.lastCommitPrefix).toBe(HUMAN)
-    expect(state.prevNonHumanPrefix).toBeUndefined()
+    expect(state.prevPhasePrefix).toBeUndefined()
   })
 
   it("HUMAN after EXPLORE routes to explore via dispatch", async () => {

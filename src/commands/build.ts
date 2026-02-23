@@ -13,7 +13,6 @@ import {
 } from "../services/Markdown.js"
 import { buildPrompt, interpolate } from "../prompts/index.js"
 import { createBuildRenderer, isInteractive } from "../services/Renderer.js"
-import { notify } from "../services/Notify.js"
 import { nodeFileOps, type FileOps } from "../services/FileOps.js"
 
 export interface TestResult {
@@ -106,7 +105,6 @@ export const buildCommand = (fs: FileOps) =>
           if (retry >= config.testRetries) {
             renderer.setStatus(pkg.title, "failed")
             renderer.finish(`Tests failed after ${config.testRetries} retries. Stopping.`)
-            yield* notify("gtd", `Tests failed after ${config.testRetries} retries.`)
             return
           }
 
@@ -169,7 +167,6 @@ export const buildCommand = (fs: FileOps) =>
       if (!hasChanges) {
         renderer.setStatus(pkg.title, "failed")
         renderer.finish(`Agent made no changes for "${pkg.title}". Stopping.`)
-        yield* notify("gtd", `Agent made no changes for "${pkg.title}".`)
         return
       }
 
@@ -187,7 +184,6 @@ export const buildCommand = (fs: FileOps) =>
 
     renderer.finish("All items built.")
     renderer.dispose()
-    yield* notify("gtd", "All items built.")
   }).pipe(catchAgentError)
 
 const formatPackagePrompt = (pkg: Package, planFilePath: string): string => {

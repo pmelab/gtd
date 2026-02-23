@@ -8,7 +8,6 @@ import { lint, type LintError } from "../services/Lint.js"
 import { planPrompt, interpolate } from "../prompts/index.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
-import { notify } from "../services/Notify.js"
 import { nodeFileOps, type FileOps } from "../services/FileOps.js"
 
 const MAX_LINT_RETRIES = 3
@@ -126,8 +125,6 @@ export const planCommand = (fs: FileOps) =>
     if (sessionId && fs.writeSessionId) {
       yield* fs.writeSessionId(sessionId)
     }
-
-    yield* notify("gtd", "Plan committed.")
   }).pipe(catchAgentError)
 
 export const makePlanCommand = Effect.gen(function* () {

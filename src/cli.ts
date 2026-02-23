@@ -9,7 +9,7 @@ import { initAction } from "./commands/init.js"
 import { GitService } from "./services/Git.js"
 import { GtdConfigService } from "./services/Config.js"
 import { AgentService, catchAgentError } from "./services/Agent.js"
-import { parseCommitPrefix, HUMAN, SEED, FEEDBACK, type CommitPrefix } from "./services/CommitPrefix.js"
+import { parseCommitPrefix, HUMAN, SEED, FEEDBACK, FIX, type CommitPrefix } from "./services/CommitPrefix.js"
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
 import { isOnlyLearningsModified } from "./services/LearningsDiff.js"
 import { extractLearnings, hasLearningsSection, hasUncheckedItems } from "./services/Markdown.js"
@@ -17,10 +17,8 @@ import { nodeFileOps, type FileOps } from "./services/FileOps.js"
 import { learnPrompt, interpolate } from "./prompts/index.js"
 import { generateCommitMessage } from "./services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "./services/Renderer.js"
-import { notify } from "./services/Notify.js"
 import { QuietMode } from "./services/QuietMode.js"
-import { printBanner } from "./services/RunInfo.js"
-import { printDecisionTree } from "./services/DecisionTree.js"
+import { printStartupMessage } from "./services/DecisionTree.js"
 
 export const idleMessage = "Nothing to do. Create a TODO.md or add in-code comments to start."
 
@@ -81,12 +79,10 @@ export const learnAction = (input: LearnInput) =>
 
       yield* input.fs.remove()
       yield* git.atomicCommit("all", `🧹 cleanup: remove ${config.file}`)
-      yield* notify("gtd", "Learnings committed and cleaned up.")
     } else {
       yield* input.fs.remove()
       yield* git.atomicCommit("all", `🧹 cleanup: remove ${config.file}`)
       renderer.succeed("No learnings to persist. Cleaned up.")
-      yield* notify("gtd", "Skipped learnings, cleaned up.")
     }
   }).pipe(catchAgentError)
 
@@ -138,15 +134,15 @@ export const gatherState = (
       todoFileIsNew = inHead && !inParent
     }
 
-    let prevNonHumanPrefix: CommitPrefix | undefined = undefined
-    if (lastPrefix === HUMAN) {
+    let prevPhasePrefix: CommitPrefix | undefined = undefined
+    if (lastPrefix === HUMAN || lastPrefix === FEEDBACK) {
       const messages = yield* git.getCommitMessages(20).pipe(
         Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),
       )
       for (const msg of messages.slice(1)) {
         const prefix = parseCommitPrefix(msg)
-        if (prefix !== undefined && prefix !== HUMAN) {
-          prevNonHumanPrefix = prefix
+        if (prefix !== undefined && prefix !== HUMAN && prefix !== FEEDBACK && prefix !== FIX) {
+          prevPhasePrefix = prefix
           break
         }
       }
@@ -158,7 +154,7 @@ export const gatherState = (
       hasUncheckedItems: unchecked,
       onlyLearningsModified,
       todoFileIsNew,
-      prevNonHumanPrefix,
+      prevPhasePrefix,
     }
   })
 
@@ -206,8 +202,7 @@ const rootCommand = Command.make("gtd", { quiet: quietOption }, ({ quiet }) =>
     const state = yield* gatherState(fs)
     const step = dispatch(state)
 
-    yield* printBanner(step)
-    yield* printDecisionTree(state, step)
+    yield* printStartupMessage(state, step)
 
     if (step === "commit-feedback") {
       yield* commitFeedbackCommand()

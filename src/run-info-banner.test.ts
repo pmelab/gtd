@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { Effect, Layer } from "effect"
 import { AgentService } from "./services/Agent.js"
 import { QuietMode } from "./services/QuietMode.js"
-import { mockConfig, mockGit, mockFs } from "./test-helpers.js"
-import { printBanner } from "./services/RunInfo.js"
+import { mockConfig } from "./test-helpers.js"
+import { printStartupMessage } from "./services/DecisionTree.js"
+import type { InferStepInput } from "./services/InferStep.js"
 
-describe("run info banner in CLI", () => {
+describe("startup message in CLI", () => {
   let stderrSpy: { mock: { calls: unknown[][] }; mockRestore: () => void }
 
   beforeEach(() => {
@@ -16,7 +17,15 @@ describe("run info banner in CLI", () => {
     stderrSpy.mockRestore()
   })
 
-  it("prints banner to stderr containing agent name, step, and file path", async () => {
+  const state: InferStepInput = {
+    hasUncommittedChanges: false,
+    lastCommitPrefix: "🤖",
+    hasUncheckedItems: true,
+    onlyLearningsModified: false,
+    todoFileIsNew: false,
+  }
+
+  it("prints startup message to stderr containing agent name and step", async () => {
     const agentLayer = Layer.succeed(AgentService, {
       name: "pi",
       resolvedName: "pi (auto)",
@@ -29,18 +38,17 @@ describe("run info banner in CLI", () => {
     const quietLayer = QuietMode.layer(false)
 
     await Effect.runPromise(
-      printBanner("build").pipe(
+      printStartupMessage(state, "build").pipe(
         Effect.provide(Layer.mergeAll(agentLayer, configLayer, quietLayer)),
       ),
     )
 
     const output = stderrSpy.mock.calls.map((c) => c[0]).join("")
-    expect(output).toContain("agent=pi (auto)")
-    expect(output).toContain("step=build")
-    expect(output).toContain("file=TODO.md")
+    expect(output).toContain("pi (auto)")
+    expect(output).toContain("build")
   })
 
-  it("prints banner with model info when configured", async () => {
+  it("prints startup message with model info when configured", async () => {
     const agentLayer = Layer.succeed(AgentService, {
       name: "pi",
       resolvedName: "pi (auto)",
@@ -53,16 +61,16 @@ describe("run info banner in CLI", () => {
     const quietLayer = QuietMode.layer(false)
 
     await Effect.runPromise(
-      printBanner("plan").pipe(
+      printStartupMessage(state, "plan").pipe(
         Effect.provide(Layer.mergeAll(agentLayer, configLayer, quietLayer)),
       ),
     )
 
     const output = stderrSpy.mock.calls.map((c) => c[0]).join("")
-    expect(output).toContain("model=sonnet-4")
+    expect(output).toContain("sonnet-4")
   })
 
-  it("omits model from banner when not configured", async () => {
+  it("omits model from message when not configured", async () => {
     const agentLayer = Layer.succeed(AgentService, {
       name: "pi",
       resolvedName: "pi (auto)",
@@ -75,16 +83,16 @@ describe("run info banner in CLI", () => {
     const quietLayer = QuietMode.layer(false)
 
     await Effect.runPromise(
-      printBanner("plan").pipe(
+      printStartupMessage(state, "plan").pipe(
         Effect.provide(Layer.mergeAll(agentLayer, configLayer, quietLayer)),
       ),
     )
 
     const output = stderrSpy.mock.calls.map((c) => c[0]).join("")
-    expect(output).not.toContain("model=")
+    expect(output).not.toContain("with model")
   })
 
-  it("suppresses banner when --quiet is set", async () => {
+  it("suppresses message when --quiet is set", async () => {
     const agentLayer = Layer.succeed(AgentService, {
       name: "pi",
       resolvedName: "pi (auto)",
@@ -97,7 +105,7 @@ describe("run info banner in CLI", () => {
     const quietLayer = QuietMode.layer(true)
 
     await Effect.runPromise(
-      printBanner("build").pipe(
+      printStartupMessage(state, "build").pipe(
         Effect.provide(Layer.mergeAll(agentLayer, configLayer, quietLayer)),
       ),
     )

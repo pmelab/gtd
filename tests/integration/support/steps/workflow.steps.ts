@@ -9,6 +9,7 @@ import {
   setupSeededWithConfig,
   setupSeededAndExplored,
   setupExploredWithHumanEdits,
+  setupExploredWithFeedback,
   setupSeededAndPlanned,
   setupPlannedWithFeedback,
   setupBuilt,
@@ -64,6 +65,11 @@ Given("an untracked TODO with multiply tasks", function (this: GtdWorld) {
 `,
   )
   // Intentionally NOT staging — tests that getDiff() picks up untracked files
+})
+
+Given("an explored project with feedback", function (this: GtdWorld) {
+  this.repoDir = createTestProject()
+  setupExploredWithFeedback(this.repoDir)
 })
 
 Given("a seeded and planned project", function (this: GtdWorld) {

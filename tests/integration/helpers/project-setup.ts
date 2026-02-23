@@ -351,6 +351,17 @@ export function setupExploredWithHumanEdits(dir: string) {
   commit(dir, "🤦 human: annotated explore options", ["TODO.md"])
 }
 
+/** 🌱 seed + 🧭 explore + 💬 feedback: user gave feedback after exploring */
+export function setupExploredWithFeedback(dir: string) {
+  setupSeededAndExplored(dir)
+  writeFile(
+    dir,
+    "TODO.md",
+    `# Approach Options\n\n## Option A\n\nDo it the simple way.\n\n## Option B\n\nDo it the advanced way.\n\n> I prefer Option A.\n`,
+  )
+  commit(dir, "💬 feedback: prefer Option A", ["TODO.md"])
+}
+
 /** Above + 🎓 + 🧹: commit AGENTS.md, remove TODO.md */
 export function setupFullyCompleted(dir: string) {
   setupTwiceBuilt(dir)

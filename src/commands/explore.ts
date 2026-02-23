@@ -5,7 +5,6 @@ import { AgentService, catchAgentError } from "../services/Agent.js"
 import { explorePrompt, interpolate } from "../prompts/index.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
-import { notify } from "../services/Notify.js"
 import { nodeFileOps, type FileOps } from "../services/FileOps.js"
 
 export const exploreCommand = (fs: Pick<FileOps, "exists" | "readFile" | "getDiffContent">) =>
@@ -56,8 +55,6 @@ export const exploreCommand = (fs: Pick<FileOps, "exists" | "readFile" | "getDif
       yield* git.emptyCommit("🧭 explore: no changes")
       renderer.succeed("Exploration unchanged, empty commit to advance state.")
     }
-
-    yield* notify("gtd", "Exploration committed.")
   }).pipe(catchAgentError)
 
 export const makeExploreCommand = Effect.gen(function* () {

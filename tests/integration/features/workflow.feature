@@ -1,11 +1,14 @@
 Feature: GTD workflow cycle
 
-  Scenario: Seed and plan
+  Scenario: Seed, explore, and plan
     Given a test project
     And a staged TODO with multiply tasks
     When I run gtd
     Then it succeeds
     And git log contains "🌱"
+    And last commit prefix is "🧭"
+    When I run gtd
+    Then it succeeds
     And last commit prefix is "🤖"
     And "TODO.md" contains "- [ ]"
 
@@ -76,7 +79,7 @@ Feature: GTD workflow cycle
     Given a seeded project
     When I run gtd
     Then it succeeds
-    And output contains "step=explore"
+    And output contains "to explore"
     And last commit prefix is "🧭"
     And "TODO.md" exists
 
@@ -84,15 +87,15 @@ Feature: GTD workflow cycle
     Given a seeded and explored project
     When I run gtd
     Then it succeeds
-    And output contains "🧭 explore"
-    And output contains "step=plan"
+    And output contains "explore step"
+    And output contains "to plan"
     And last commit prefix is "🤖"
 
   Scenario: Re-explore after human edits
     Given an explored project with human edits
     When I run gtd
     Then it succeeds
-    And output contains "step=explore"
+    And output contains "to explore"
     And last commit prefix is "🧭"
 
   Scenario: Re-explore flow leads to plan
@@ -104,8 +107,24 @@ Feature: GTD workflow cycle
     Then it succeeds
     And last commit prefix is "🤖"
 
+  Scenario: Re-explore after feedback
+    Given an explored project with feedback
+    When I run gtd
+    Then it succeeds
+    And output contains "to explore"
+    And last commit prefix is "🧭"
+
+  Scenario: Re-explore after feedback leads to plan
+    Given an explored project with feedback
+    When I run gtd
+    Then it succeeds
+    And last commit prefix is "🧭"
+    When I run gtd
+    Then it succeeds
+    And last commit prefix is "🤖"
+
   Scenario: modelExplore config resolves correct model
     Given a seeded project with modelExplore "claude-haiku-4-5"
     When I run gtd
     Then it succeeds
-    And output contains "model=claude-haiku-4-5"
+    And output contains "model claude-haiku-4-5"

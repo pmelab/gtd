@@ -1,4 +1,3 @@
-import ora, { type Ora } from "ora"
 import type { AgentEvent } from "./AgentEvent.js"
 
 // --- Types ---
@@ -72,7 +71,7 @@ export const formatDuration = (ms: number): string => {
   return `${minutes}m${seconds > 0 ? `${seconds}s` : ""}`
 }
 
-const ANSI = {
+export const ANSI = {
   dim: "\x1b[2m",
   strikethrough: "\x1b[9m",
   green: "\x1b[32m",
@@ -80,9 +79,13 @@ const ANSI = {
   yellow: "\x1b[33m",
   cyan: "\x1b[36m",
   reset: "\x1b[0m",
+  clearLine: "\x1b[2K",
+  cursorUp: (n: number) => `\x1b[${n}A`,
 } as const
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+const MAX_ACTIVITY_LINES = 5
 
 export const formatLine = (pkg: BuildPackageState, frame: number): string => {
   switch (pkg.status) {
@@ -122,6 +125,59 @@ export const formatSummary = (state: BuildState, now?: number): string => {
   return `${parts.join(", ")} in ${elapsed}`
 }
 
+// --- Activity buffer for agent events ---
+
+const createActivityBuffer = () => {
+  const lines: string[] = []
+  let textAccum = ""
+
+  const push = (line: string) => {
+    lines.push(line)
+    if (lines.length > MAX_ACTIVITY_LINES) lines.shift()
+  }
+
+  return {
+    get lines(): ReadonlyArray<string> {
+      return lines
+    },
+    handleEvent: (event: AgentEvent) => {
+      switch (event._tag) {
+        case "ToolStart":
+          push(event.toolName)
+          break
+        case "TextDelta":
+          textAccum += event.delta
+          // Show last line of accumulated text as preview
+          {
+            const lastNewline = textAccum.lastIndexOf("\n")
+            const lastLine = lastNewline >= 0 ? textAccum.slice(lastNewline + 1) : textAccum
+            if (lastLine.trim().length > 0) {
+              const truncated = lastLine.length > 60 ? lastLine.slice(0, 60) + "..." : lastLine
+              // Replace last text preview or add new one
+              const lastIdx = lines.length - 1
+              if (lastIdx >= 0 && lines[lastIdx]!.startsWith("> ")) {
+                lines[lastIdx] = `> ${truncated}`
+              } else {
+                push(`> ${truncated}`)
+              }
+            }
+          }
+          break
+        case "TurnStart":
+          lines.length = 0
+          textAccum = ""
+          break
+        default:
+          break
+      }
+    },
+    clear: () => {
+      lines.length = 0
+      textAccum = ""
+    },
+  }
+}
+
 // --- TTY detection ---
 
 export const isInteractive = (): boolean => process.stdout.isTTY === true
@@ -153,38 +209,81 @@ export const createSpinnerRenderer = (interactive: boolean): SpinnerRenderer => 
     }
   }
 
-  let spinner: Ora | undefined
+  // Interactive: custom ANSI spinner with activity lines
+  let text = ""
+  let frame = 0
+  let lineCount = 0
+  let timer: ReturnType<typeof setInterval> | undefined
+  const activity = createActivityBuffer()
+
+  const render = () => {
+    if (lineCount > 0) {
+      process.stdout.write(ANSI.cursorUp(lineCount))
+    }
+    const lines: string[] = []
+    const spinner = SPINNER_FRAMES[frame % SPINNER_FRAMES.length]!
+    lines.push(`${ANSI.clearLine}  ${ANSI.cyan}${spinner}${ANSI.reset} ${text}`)
+    for (const actLine of activity.lines) {
+      lines.push(`${ANSI.clearLine}    ${ANSI.dim}${actLine}${ANSI.reset}`)
+    }
+    process.stdout.write(lines.join("\n") + "\n")
+    lineCount = lines.length
+  }
+
+  const clearLines = () => {
+    if (lineCount > 0) {
+      process.stdout.write(ANSI.cursorUp(lineCount))
+      for (let i = 0; i < lineCount; i++) {
+        process.stdout.write(ANSI.clearLine + "\n")
+      }
+      process.stdout.write(ANSI.cursorUp(lineCount))
+      lineCount = 0
+    }
+  }
+
+  const startTimer = () => {
+    if (!timer) {
+      render()
+      timer = setInterval(() => {
+        frame++
+        render()
+      }, 80)
+    }
+  }
+
+  const stopTimer = () => {
+    if (timer) {
+      clearInterval(timer)
+      timer = undefined
+    }
+  }
 
   return {
-    onEvent: () => {},
-    setText: (text: string) => {
-      if (!spinner) {
-        spinner = ora({ text, spinner: "dots" }).start()
-      } else {
-        spinner.text = text
+    onEvent: (event: AgentEvent) => {
+      activity.handleEvent(event)
+    },
+    setText: (newText: string) => {
+      text = newText
+      if (!timer) {
+        startTimer()
       }
     },
-    succeed: (text: string) => {
-      if (spinner) {
-        spinner.succeed(text)
-        spinner = undefined
-      } else {
-        ora().succeed(text)
-      }
+    succeed: (msg: string) => {
+      stopTimer()
+      clearLines()
+      activity.clear()
+      process.stdout.write(`  ${ANSI.green}✓${ANSI.reset} ${msg}\n`)
     },
-    fail: (text: string) => {
-      if (spinner) {
-        spinner.fail(text)
-        spinner = undefined
-      } else {
-        ora().fail(text)
-      }
+    fail: (msg: string) => {
+      stopTimer()
+      clearLines()
+      activity.clear()
+      process.stderr.write(`  ${ANSI.red}✗${ANSI.reset} ${msg}\n`)
     },
     dispose: () => {
-      if (spinner) {
-        spinner.stop()
-        spinner = undefined
-      }
+      stopTimer()
+      clearLines()
+      activity.clear()
     },
   }
 }
@@ -240,22 +339,37 @@ export const createBuildRenderer = (
     }
   }
 
-  // Interactive ANSI renderer
+  // Interactive ANSI renderer with activity lines
   let frame = 0
   let timer: ReturnType<typeof setInterval> | undefined
   let lineCount = 0
+  const activity = createActivityBuffer()
 
   const render = () => {
     // Move cursor up to clear previous render
     if (lineCount > 0) {
-      process.stdout.write(`\x1b[${lineCount}A`)
+      process.stdout.write(ANSI.cursorUp(lineCount))
     }
     const lines: string[] = []
     for (const pkg of state.packages) {
-      lines.push(`\x1b[2K${formatLine(pkg, frame)}`)
+      lines.push(`${ANSI.clearLine}${formatLine(pkg, frame)}`)
+    }
+    for (const actLine of activity.lines) {
+      lines.push(`${ANSI.clearLine}    ${ANSI.dim}${actLine}${ANSI.reset}`)
     }
     process.stdout.write(lines.join("\n") + "\n")
     lineCount = lines.length
+  }
+
+  const clearActivityLines = () => {
+    if (lineCount > 0) {
+      process.stdout.write(ANSI.cursorUp(lineCount))
+      for (let i = 0; i < lineCount; i++) {
+        process.stdout.write(ANSI.clearLine + "\n")
+      }
+      process.stdout.write(ANSI.cursorUp(lineCount))
+      lineCount = 0
+    }
   }
 
   const startTimer = () => {
@@ -278,7 +392,9 @@ export const createBuildRenderer = (
   startTimer()
 
   return {
-    onEvent: () => {},
+    onEvent: (event: AgentEvent) => {
+      activity.handleEvent(event)
+    },
     setStatus: (
       title: string,
       status: BuildStatus,
@@ -289,12 +405,18 @@ export const createBuildRenderer = (
     },
     finish: (message: string) => {
       stopTimer()
-      render()
+      activity.clear()
+      clearActivityLines()
+      // Final render without activity
+      for (const pkg of state.packages) {
+        process.stdout.write(`${ANSI.clearLine}${formatLine(pkg, frame)}\n`)
+      }
       console.log(`\n${message}`)
       console.log(formatSummary(state))
     },
     dispose: () => {
       stopTimer()
+      activity.clear()
     },
   }
 }

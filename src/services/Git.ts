@@ -1,5 +1,14 @@
 import { Command, CommandExecutor } from "@effect/platform"
 import { Context, Effect, Layer } from "effect"
+import { isInteractive, ANSI } from "./Renderer.js"
+
+const logCommit = (message: string): void => {
+  if (isInteractive()) {
+    process.stderr.write(`  ${ANSI.dim}Committed:${ANSI.reset} ${message}\n`)
+  } else {
+    process.stderr.write(`[gtd] Committed: ${message}\n`)
+  }
+}
 
 export interface GitOperations {
   readonly getDiff: () => Effect.Effect<string, Error>
@@ -108,10 +117,17 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
 
         addAll: () => exec("git", "add", "-A").pipe(Effect.asVoid),
 
-        commit: (message) => exec("git", "commit", "-m", message).pipe(Effect.asVoid),
+        commit: (message) =>
+          exec("git", "commit", "-m", message).pipe(
+            Effect.asVoid,
+            Effect.tap(() => Effect.sync(() => logCommit(message))),
+          ),
 
         emptyCommit: (message) =>
-          exec("git", "commit", "--allow-empty", "-m", message).pipe(Effect.asVoid),
+          exec("git", "commit", "--allow-empty", "-m", message).pipe(
+            Effect.asVoid,
+            Effect.tap(() => Effect.sync(() => logCommit(message))),
+          ),
 
         show: (ref) => exec("git", "show", ref),
 
@@ -131,6 +147,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
                   ),
                 ),
               )
+              logCommit(message)
             }),
           ),
 

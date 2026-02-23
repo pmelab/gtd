@@ -26,7 +26,7 @@ export interface InferStepInput {
   readonly hasUncheckedItems: boolean
   readonly onlyLearningsModified: boolean
   readonly todoFileIsNew: boolean
-  readonly prevNonHumanPrefix?: CommitPrefix | undefined
+  readonly prevPhasePrefix?: CommitPrefix | undefined
 }
 
 export const inferStep = (input: InferStepInput): Step => {
@@ -39,11 +39,26 @@ export const inferStep = (input: InferStepInput): Step => {
       return "explore"
     case EXPLORE:
       return "plan"
-    case HUMAN:
-      if (input.prevNonHumanPrefix === EXPLORE) return "explore"
-      return input.onlyLearningsModified ? "learn" : "plan"
-    case FEEDBACK:
-      return input.onlyLearningsModified ? "learn" : "plan"
+    case HUMAN: {
+      switch (input.prevPhasePrefix) {
+        case SEED:
+        case EXPLORE: return "explore"
+        case PLAN: return "plan"
+        case BUILD:
+        case FIX:
+          if (input.todoFileIsNew) return "plan"
+          return input.hasUncheckedItems ? "build" : "learn"
+        case LEARN: return "learn"
+        default: return input.onlyLearningsModified ? "learn" : "plan"
+      }
+    }
+    case FEEDBACK: {
+      switch (input.prevPhasePrefix) {
+        case SEED:
+        case EXPLORE: return "explore"
+        default: return input.onlyLearningsModified ? "learn" : "plan"
+      }
+    }
     case PLAN:
       return "build"
     case BUILD:

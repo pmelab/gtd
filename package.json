@@ -64,7 +64,6 @@
     "@effect/platform": "^0.94.2",
     "@effect/platform-node": "^0.104.1",
     "cosmiconfig": "^9.0.0",
-    "effect": "^3.19.15",
-    "ora": "^9.3.0"
+    "effect": "^3.19.15"
   }
 }
