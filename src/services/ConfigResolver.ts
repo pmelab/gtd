@@ -148,6 +148,7 @@ const defaults: Omit<GtdConfig, "configSources"> = {
   modelBuild: undefined,
   modelLearn: undefined,
   modelCommit: undefined,
+  modelExplore: undefined,
   testCmd: "npm test",
   testRetries: 10,
   commitPrompt: defaultCommitPrompt,

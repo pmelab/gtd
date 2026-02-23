@@ -129,6 +129,7 @@ describe("AgentService.Live", () => {
               modelBuild: undefined,
               modelLearn: undefined,
               modelCommit: undefined,
+              modelExplore: undefined,
               testCmd: "",
               testRetries: 0,
               commitPrompt: "",
@@ -150,6 +151,7 @@ describe("resolveModelForMode", () => {
     modelBuild: "opus",
     modelLearn: "haiku",
     modelCommit: "flash",
+    modelExplore: "claude-opus-4-5",
   }
 
   const configNoModels = {
@@ -157,6 +159,7 @@ describe("resolveModelForMode", () => {
     modelBuild: undefined,
     modelLearn: undefined,
     modelCommit: undefined,
+    modelExplore: undefined,
   }
 
   it("returns modelPlan for plan mode", () => {
@@ -175,11 +178,19 @@ describe("resolveModelForMode", () => {
     expect(resolveModelForMode("commit", configWithModels)).toBe("flash")
   })
 
+  it("returns modelExplore for explore mode", () => {
+    expect(resolveModelForMode("explore", configWithModels)).toBe("claude-opus-4-5")
+  })
+
   it("returns undefined when modelPlan is not set", () => {
     expect(resolveModelForMode("plan", configNoModels)).toBeUndefined()
   })
 
   it("returns undefined when modelCommit is not set", () => {
     expect(resolveModelForMode("commit", configNoModels)).toBeUndefined()
+  })
+
+  it("returns undefined when modelExplore is not set", () => {
+    expect(resolveModelForMode("explore", configNoModels)).toBeUndefined()
   })
 })

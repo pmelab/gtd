@@ -21,6 +21,7 @@ export const GtdConfigSchema = Schema.Struct({
   modelBuild: Schema.optional(Schema.String),
   modelLearn: Schema.optional(Schema.String),
   modelCommit: Schema.optional(Schema.String),
+  modelExplore: Schema.optional(Schema.String),
   testCmd: Schema.optional(Schema.String),
   testRetries: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(0))),
   commitPrompt: Schema.optional(Schema.String),

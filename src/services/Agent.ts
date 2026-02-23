@@ -19,6 +19,7 @@ export interface ModelConfig {
   readonly modelBuild: string | undefined
   readonly modelLearn: string | undefined
   readonly modelCommit: string | undefined
+  readonly modelExplore: string | undefined
 }
 
 export const resolveModelForMode = (
@@ -35,7 +36,7 @@ export const resolveModelForMode = (
     case "commit":
       return config.modelCommit
     case "explore":
-      return undefined
+      return config.modelExplore
   }
 }
 

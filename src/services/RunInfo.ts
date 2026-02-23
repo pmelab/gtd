@@ -28,6 +28,7 @@ const resolveModelForStep = (step: Step, config: GtdConfig): string | undefined 
     case "learn":
       return config.modelLearn
     case "explore":
+      return config.modelExplore
     case "cleanup":
     case "idle":
       return undefined

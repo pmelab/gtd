@@ -85,6 +85,17 @@ describe("GtdConfigSchema", () => {
     expect(result.modelCommit).toBe("gpt-4")
   })
 
+  it("parses modelExplore field correctly", () => {
+    const input = { modelExplore: "claude-opus-4-5" }
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)(input)
+    expect(result.modelExplore).toBe("claude-opus-4-5")
+  })
+
+  it("modelExplore is undefined when omitted", () => {
+    const result = Schema.decodeUnknownSync(GtdConfigSchema)({})
+    expect((result as Record<string, unknown>).modelExplore).toBeUndefined()
+  })
+
   it("gracefully ignores old agentForbiddenTools field for backwards compatibility", () => {
     const input = {
       file: "TODO.md",

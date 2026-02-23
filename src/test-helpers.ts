@@ -10,6 +10,7 @@ export const defaultTestConfig: GtdConfig = {
   modelBuild: undefined,
   modelLearn: undefined,
   modelCommit: undefined,
+  modelExplore: undefined,
   testCmd: "",
   testRetries: 10,
   commitPrompt: "{{diff}}",

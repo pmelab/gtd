@@ -76,7 +76,7 @@
 
 ### Config: modelExplore
 
-- [ ] Add optional `modelExplore` field to `GtdConfig` and `AgentInvocation`
+- [x] Add optional `modelExplore` field to `GtdConfig` and `AgentInvocation`
       `mode` union
   - Follow the same pattern as `modelPlan`, `modelBuild`, etc.
   - Update JSON schema / config defaults
