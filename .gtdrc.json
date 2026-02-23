@@ -5,7 +5,7 @@
   "agent": "claude",
   "modelPlan": "sonnet",
   "modelBuild": "sonnet",
-  "modelCommit": "haiku",
+  "modelCommit": "sonnet",
   "testCmd": "npm test",
   "testRetries": 10,
   "agentInactivityTimeout": 300

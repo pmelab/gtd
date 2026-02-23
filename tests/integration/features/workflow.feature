@@ -9,6 +9,13 @@ Feature: GTD workflow cycle
     And last commit prefix is "🤖"
     And "TODO.md" contains "- [ ]"
 
+  Scenario: Seed from untracked TODO
+    Given a test project
+    And an untracked TODO with multiply tasks
+    When I run gtd
+    Then it succeeds
+    And git log contains "🌱"
+
   Scenario: Feedback and re-plan
     Given a seeded and planned project
     And "TODO.md" has appended blockquote "> please also add error handling for non-numeric inputs"

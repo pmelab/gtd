@@ -55,6 +55,17 @@ Given("a staged TODO with multiply tasks", function (this: GtdWorld) {
   execSync("git add TODO.md", { cwd: this.repoDir })
 })
 
+Given("an untracked TODO with multiply tasks", function (this: GtdWorld) {
+  const todoPath = join(this.repoDir, "TODO.md")
+  writeFileSync(
+    todoPath,
+    `- add a \`multiply\` function to \`src/math.ts\` that multiplies two numbers
+- add a test for the \`multiply\` function in \`tests/math.test.ts\`
+`,
+  )
+  // Intentionally NOT staging — tests that getDiff() picks up untracked files
+})
+
 Given("a seeded and planned project", function (this: GtdWorld) {
   this.repoDir = createTestProject()
   setupSeededAndPlanned(this.repoDir)

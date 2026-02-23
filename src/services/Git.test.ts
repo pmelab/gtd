@@ -13,6 +13,7 @@ const mockGit = (overrides: Partial<GitService["Type"]> = {}) =>
     hasUnstagedChanges: () => Effect.succeed(false),
     hasUncommittedChanges: () => Effect.succeed(false),
     getLastCommitMessage: () => Effect.succeed("mock message"),
+    getCommitMessages: () => Effect.succeed([]),
     add: () => Effect.void,
     addAll: () => Effect.void,
     commit: () => Effect.void,
@@ -151,6 +152,113 @@ describe("GitService", () => {
 
 const execInDir = (dir: string, cmd: string) =>
   Effect.sync(() => execSync(cmd, { cwd: dir, encoding: "utf-8" }))
+
+describe("GitService.getDiff (integration)", () => {
+  const setupRepo = (dir: string) =>
+    Effect.gen(function* () {
+      yield* execInDir(dir, "git init")
+      yield* execInDir(dir, "git config user.email test@test.com")
+      yield* execInDir(dir, "git config user.name Test")
+      yield* Effect.promise(() => writeFile(join(dir, "initial.txt"), "hello\n"))
+      yield* execInDir(dir, "git add -A && git commit -m 'initial'")
+    })
+
+  it.effect(
+    "includes untracked files with /dev/null header",
+    () =>
+      Effect.gen(function* () {
+        const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "git-diff-untracked-")))
+        yield* setupRepo(dir)
+
+        yield* Effect.promise(() => writeFile(join(dir, "TODO.md"), "- task one\n"))
+
+        const savedCwd = process.cwd()
+        process.chdir(dir)
+
+        const git = yield* GitService
+        const diff = yield* git.getDiff()
+
+        process.chdir(savedCwd)
+
+        expect(diff).toContain("--- /dev/null")
+        expect(diff).toContain("TODO.md")
+        expect(diff).toContain("task one")
+      }).pipe(Effect.provide(GitService.Live.pipe(Layer.provide(NodeContext.layer)))),
+    { timeout: 10000 },
+  )
+
+  it.effect(
+    "untracked file remains untracked after getDiff",
+    () =>
+      Effect.gen(function* () {
+        const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "git-diff-cleanup-")))
+        yield* setupRepo(dir)
+
+        yield* Effect.promise(() => writeFile(join(dir, "TODO.md"), "- task\n"))
+
+        const savedCwd = process.cwd()
+        process.chdir(dir)
+
+        const git = yield* GitService
+        yield* git.getDiff()
+
+        const status = yield* execInDir(dir, "git status --porcelain")
+
+        process.chdir(savedCwd)
+
+        expect(status).toContain("?? TODO.md")
+      }).pipe(Effect.provide(GitService.Live.pipe(Layer.provide(NodeContext.layer)))),
+    { timeout: 10000 },
+  )
+
+  it.effect(
+    "tracked file diff works when no untracked files exist",
+    () =>
+      Effect.gen(function* () {
+        const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "git-diff-tracked-")))
+        yield* setupRepo(dir)
+
+        yield* Effect.promise(() => writeFile(join(dir, "initial.txt"), "modified\n"))
+
+        const savedCwd = process.cwd()
+        process.chdir(dir)
+
+        const git = yield* GitService
+        const diff = yield* git.getDiff()
+
+        process.chdir(savedCwd)
+
+        expect(diff).toContain("initial.txt")
+        expect(diff).toContain("modified")
+      }).pipe(Effect.provide(GitService.Live.pipe(Layer.provide(NodeContext.layer)))),
+    { timeout: 10000 },
+  )
+
+  it.effect(
+    "includes staged-only changes in diff",
+    () =>
+      Effect.gen(function* () {
+        const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "git-diff-staged-")))
+        yield* setupRepo(dir)
+
+        yield* Effect.promise(() => writeFile(join(dir, "TODO.md"), "- staged task\n"))
+        yield* execInDir(dir, "git add TODO.md")
+
+        const savedCwd = process.cwd()
+        process.chdir(dir)
+
+        const git = yield* GitService
+        const diff = yield* git.getDiff()
+
+        process.chdir(savedCwd)
+
+        expect(diff).toContain("--- /dev/null")
+        expect(diff).toContain("TODO.md")
+        expect(diff).toContain("staged task")
+      }).pipe(Effect.provide(GitService.Live.pipe(Layer.provide(NodeContext.layer)))),
+    { timeout: 10000 },
+  )
+})
 
 describe("GitService.stageByPatch (integration)", () => {
   it.effect(
