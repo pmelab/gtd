@@ -322,6 +322,13 @@ export function setupSeeded(dir: string) {
   commit(dir, "🌱 seed: initial task", ["TODO.md"])
 }
 
+/** config commit then 🌱 seed: .gtdrc.json committed before seed so seed is last prefix */
+export function setupSeededWithConfig(dir: string, config: Record<string, unknown>) {
+  writeFile(dir, ".gtdrc.json", JSON.stringify(config))
+  commit(dir, "chore: add gtd config", [".gtdrc.json"])
+  setupSeeded(dir)
+}
+
 /** 🌱 seed + 🧭 explore: seed then explored options committed */
 export function setupSeededAndExplored(dir: string) {
   setupSeeded(dir)

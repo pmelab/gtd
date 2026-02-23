@@ -98,8 +98,7 @@ Feature: GTD workflow cycle
     And last commit prefix is "🤖"
 
   Scenario: modelExplore config resolves correct model
-    Given a seeded project
-    And the project config has modelExplore "claude-haiku-4-5"
+    Given a seeded project with modelExplore "claude-haiku-4-5"
     When I run gtd
     Then it succeeds
     And output contains "model=claude-haiku-4-5"

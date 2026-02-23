@@ -4,7 +4,7 @@
 
 ### E2E Tests: Cucumber Coverage
 
-- [ ] Add Cucumber e2e scenario for `EXPLORE` prefix parsing and display
+- [x] Add Cucumber e2e scenario for `EXPLORE` prefix parsing and display
 
   - Add scenario to `workflow.feature` verifying `🧭` emoji appears in git log
     after an explore step; verify `DecisionTree` banner output includes the
@@ -12,7 +12,7 @@
   - Tests: scenario asserts `git log contains "🧭"` and output contains the
     explore banner label
 
-- [ ] Add Cucumber e2e scenario for `inferStep` explore transitions
+- [x] Add Cucumber e2e scenario for `inferStep` explore transitions
       (`SEED→explore`, `EXPLORE→plan`, `EXPLORE→HUMAN→explore`)
 
   - Add `Given a seeded project` setup helper in `project-setup.ts` that commits
@@ -25,7 +25,7 @@
     "Exploring…") without actually invoking the agent (use `--dry-run` if
     available, or stub agent)
 
-- [ ] Add Cucumber e2e scenario for `prevNonHumanPrefix` resolution via git log
+- [x] Add Cucumber e2e scenario for `prevNonHumanPrefix` resolution via git log
 
   - Add `setupExploredWithHumanEdits` helper in `project-setup.ts` that builds
     history: 🌱 → 🧭 → 💬 (HUMAN edits TODO.md)
@@ -35,7 +35,7 @@
   - Tests: scenario asserts output step is "Exploring…" / banner contains
     EXPLORE, and git log shows 🧭 as last non-HUMAN prefix
 
-- [ ] Add Cucumber e2e scenario for the explore command (agent invoked, TODO.md
+- [x] Add Cucumber e2e scenario for the explore command (agent invoked, TODO.md
       updated, EXPLORE commit created)
 
   - Add `setupSeeded` helper (🌱 commit only) and a stubbed/real agent config
@@ -45,7 +45,7 @@
   - Tests: `"TODO.md" contains` some expected explore output;
     `last commit prefix is "🧭"`
 
-- [ ] Add Cucumber e2e scenario for re-explore flow
+- [x] Add Cucumber e2e scenario for re-explore flow
       (`EXPLORE→HUMAN→EXPLORE→plan`)
 
   - Add `setupExplored` helper; scenario makes HUMAN edit to TODO.md (append
@@ -53,7 +53,7 @@
   - Tests: after first run `last commit prefix is "🧭"`; after second run
     `last commit prefix is "🤖"`
 
-- [ ] Add Cucumber e2e scenario for `modelExplore` config field resolving
+- [x] Add Cucumber e2e scenario for `modelExplore` config field resolving
       correct model when mode is `"explore"`
   - Write a `.gtd.json` config with `modelExplore: "claude-haiku-4-5"` into the
     test project; run gtd from seeded state

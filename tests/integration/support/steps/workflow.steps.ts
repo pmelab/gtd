@@ -6,6 +6,7 @@ import type { GtdWorld } from "../world.js"
 import {
   createTestProject,
   setupSeeded,
+  setupSeededWithConfig,
   setupSeededAndExplored,
   setupExploredWithHumanEdits,
   setupSeededAndPlanned,
@@ -36,9 +37,10 @@ Given("an explored project with human edits", function (this: GtdWorld) {
 })
 
 Given(
-  "the project config has modelExplore {string}",
+  "a seeded project with modelExplore {string}",
   function (this: GtdWorld, model: string) {
-    writeFileSync(join(this.repoDir, ".gtdrc.json"), JSON.stringify({ modelExplore: model }))
+    this.repoDir = createTestProject()
+    setupSeededWithConfig(this.repoDir, { modelExplore: model })
   },
 )
 
