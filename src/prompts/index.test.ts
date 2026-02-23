@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@effect/vitest"
-import { interpolate, planPrompt, buildPrompt, learnPrompt } from "./index.js"
+import { interpolate, planPrompt, buildPrompt, learnPrompt, explorePrompt } from "./index.js"
 
 describe("prompts", () => {
   it("planPrompt is a non-empty string", () => {
@@ -15,6 +15,26 @@ describe("prompts", () => {
   it("learnPrompt is a non-empty string", () => {
     expect(typeof learnPrompt).toBe("string")
     expect(learnPrompt.length).toBeGreaterThan(0)
+  })
+
+  it("explorePrompt is a non-empty string", () => {
+    expect(typeof explorePrompt).toBe("string")
+    expect(explorePrompt.length).toBeGreaterThan(0)
+  })
+
+  it("explorePrompt renders with seed variable", () => {
+    const rendered = interpolate(explorePrompt, { seed: "build a CLI tool", diff: "" })
+    expect(rendered).toContain("build a CLI tool")
+    expect(rendered).not.toContain("{{seed}}")
+  })
+
+  it("explorePrompt renders with diff for re-explore", () => {
+    const rendered = interpolate(explorePrompt, {
+      seed: "build a CLI tool",
+      diff: "+user annotation here",
+    })
+    expect(rendered).toContain("user annotation here")
+    expect(rendered).not.toContain("{{diff}}")
   })
 })
 

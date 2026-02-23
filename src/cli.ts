@@ -3,6 +3,7 @@ import { Console, Effect } from "effect"
 import { makePlanCommand } from "./commands/plan.js"
 import { makeBuildCommand } from "./commands/build.js"
 import { makeCleanupCommand } from "./commands/cleanup.js"
+import { makeExploreCommand } from "./commands/explore.js"
 import { commitFeedbackCommand } from "./commands/commit-feedback.js"
 import { initAction } from "./commands/init.js"
 import { GitService } from "./services/Git.js"
@@ -165,6 +166,8 @@ export const dispatch = (state: InferStepInput) => inferStep(state)
 
 const runStep = (step: Step, fs: FileOps) => {
   switch (step) {
+    case "explore":
+      return makeExploreCommand
     case "plan":
       return makePlanCommand
     case "build":

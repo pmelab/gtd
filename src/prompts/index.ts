@@ -1,8 +1,9 @@
 import planPrompt from "./plan.md"
 import buildPrompt from "./build.md"
 import learnPrompt from "./learn.md"
+import explorePrompt from "./explore.md"
 
-export { planPrompt, buildPrompt, learnPrompt }
+export { planPrompt, buildPrompt, learnPrompt, explorePrompt }
 
 export const interpolate = (template: string, vars: Record<string, string>): string =>
   Object.entries(vars).reduce(

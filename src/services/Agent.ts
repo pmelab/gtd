@@ -7,7 +7,7 @@ import type { AgentEvent } from "./AgentEvent.js"
 export interface AgentInvocation {
   readonly prompt: string
   readonly systemPrompt: string
-  readonly mode: "plan" | "build" | "learn" | "commit"
+  readonly mode: "plan" | "build" | "learn" | "commit" | "explore"
   readonly cwd: string
   readonly model?: string
   readonly onEvent?: (event: AgentEvent) => void
@@ -34,6 +34,8 @@ export const resolveModelForMode = (
       return config.modelLearn
     case "commit":
       return config.modelCommit
+    case "explore":
+      return undefined
   }
 }
 

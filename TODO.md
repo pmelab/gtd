@@ -45,7 +45,7 @@
 
 ### Explore Command
 
-- [ ] Create `src/commands/explore.ts` implementing the explore phase
+- [x] Create `src/commands/explore.ts` implementing the explore phase
 
   - Read current TODO.md (the seed idea)
   - Invoke agent in `mode="explore"` with the explore prompt
@@ -55,7 +55,7 @@
   - Tests: mock agent returns options text; assert TODO.md updated and commit
     message has EXPLORE emoji
 
-- [ ] Add explore prompt at `src/prompts/explore.md`
+- [x] Add explore prompt at `src/prompts/explore.md`
 
   - Instruct agent to analyze the seed, propose 2–4 distinct approaches with
     tradeoffs
@@ -68,7 +68,7 @@
   - Tests: prompt template renders without placeholder errors given minimal seed
     content; re-explore variant includes diff in rendered prompt
 
-- [ ] Wire `"explore"` step in `runStep()` in `cli.ts` and `dispatch()` /
+- [x] Wire `"explore"` step in `runStep()` in `cli.ts` and `dispatch()` /
       `printBanner()`
   - Add `explore` case alongside `plan`, `build`, `learn`, `cleanup`
   - Tests: E2E scenario `seed → explore → (user edits TODO.md) → explore → plan`
