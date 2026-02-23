@@ -4,8 +4,9 @@
 
 ### CommitPrefix: Add EXPLORE
 
-- [ ] Add `EXPLORE` prefix (🧭) to `CommitPrefix.ts` with name, emoji,
-      and parsing support
+- [ ] Add `EXPLORE` prefix (🧭) to `CommitPrefix.ts` with name, emoji, and
+      parsing support
+
   - Add to the prefix map alongside SEED, HUMAN, PLAN, etc.
   - Tests: parse round-trip —
     `parseCommitPrefix(formatCommitPrefix(EXPLORE, "msg"))` returns `EXPLORE`
@@ -19,6 +20,7 @@
 
 - [ ] Extend `InferStepInput` with
       `prevNonHumanPrefix: CommitPrefix | undefined`
+
   - Walk git log from HEAD skipping HUMAN commits until a non-HUMAN commit is
     found
   - Tests: `prevNonHumanPrefix` resolves to EXPLORE when log is
@@ -44,6 +46,7 @@
 ### Explore Command
 
 - [ ] Create `src/commands/explore.ts` implementing the explore phase
+
   - Read current TODO.md (the seed idea)
   - Invoke agent in `mode="explore"` with the explore prompt
   - Write agent response back to TODO.md (replace content — agent owns the
@@ -53,12 +56,13 @@
     message has EXPLORE emoji
 
 - [ ] Add explore prompt at `src/prompts/explore.md`
+
   - Instruct agent to analyze the seed, propose 2–4 distinct approaches with
     tradeoffs
   - When re-exploring (EXPLORE→HUMAN→EXPLORE), pass both the current TODO.md
     content and the git diff of the user's edits so the agent sees annotations
-  - Output is free-form markdown (no required section structure) so the user
-    can annotate it before the next run
+  - Output is free-form markdown (no required section structure) so the user can
+    annotate it before the next run
   - Tests: prompt template renders without placeholder errors given minimal seed
     content; re-explore variant includes diff in rendered prompt
 
@@ -76,4 +80,3 @@
   - Update JSON schema / config defaults
   - Tests: config with `modelExplore: "claude-opus-4-5"` resolves correct model
     in `AgentService.invoke` when mode is `"explore"`
-
