@@ -1,0 +1,4 @@
+[post-create]
+mise = "mise trust -y"
+install = "npm install"
+
