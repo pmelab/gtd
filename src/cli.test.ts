@@ -4,7 +4,7 @@ import { command, gatherState, dispatch, learnAction } from "./cli.js"
 import { AgentService } from "./services/Agent.js"
 import type { AgentInvocation } from "./services/Agent.js"
 import { mockConfig, mockGit, mockFs, nodeLayer } from "./test-helpers.js"
-import { SEED, FEEDBACK } from "./services/CommitPrefix.js"
+import { SEED, FEEDBACK, EXPLORE, HUMAN } from "./services/CommitPrefix.js"
 
 describe("gtd unified command", () => {
   it.effect("command is defined with init subcommand", () =>
@@ -714,6 +714,78 @@ describe("gatherState computes todoFileIsNew", () => {
     )
 
     expect(state.todoFileIsNew).toBe(false)
+  })
+})
+
+describe("gatherState resolves prevNonHumanPrefix", () => {
+  it("resolves EXPLORE when git log is EXPLORE → HUMAN → HUMAN", async () => {
+    const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(false),
+      getLastCommitMessage: () => Effect.succeed(`${HUMAN} edit: user feedback`),
+      getCommitMessages: (n) =>
+        Effect.succeed([
+          `${HUMAN} edit: user feedback`,
+          `${HUMAN} edit: more feedback`,
+          `${EXPLORE} explore: propose options`,
+          "🌱 seed: initial idea",
+        ].slice(0, n)),
+      show: () => Effect.succeed(""),
+    })
+
+    const fileOps = { ...mockFs(""), getDiffContent: () => Effect.succeed("") }
+
+    const state = await Effect.runPromise(
+      gatherState(fileOps).pipe(
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
+      ),
+    )
+
+    expect(state.lastCommitPrefix).toBe(HUMAN)
+    expect(state.prevNonHumanPrefix).toBe(EXPLORE)
+  })
+
+  it("resolves undefined prevNonHumanPrefix when no non-HUMAN commit found", async () => {
+    const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(false),
+      getLastCommitMessage: () => Effect.succeed(`${HUMAN} edit: user feedback`),
+      getCommitMessages: (n) =>
+        Effect.succeed([`${HUMAN} one`, `${HUMAN} two`].slice(0, n)),
+      show: () => Effect.succeed(""),
+    })
+
+    const fileOps = { ...mockFs(""), getDiffContent: () => Effect.succeed("") }
+
+    const state = await Effect.runPromise(
+      gatherState(fileOps).pipe(
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
+      ),
+    )
+
+    expect(state.lastCommitPrefix).toBe(HUMAN)
+    expect(state.prevNonHumanPrefix).toBeUndefined()
+  })
+
+  it("HUMAN after EXPLORE routes to explore via dispatch", async () => {
+    const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(false),
+      getLastCommitMessage: () => Effect.succeed(`${HUMAN} edit: feedback`),
+      getCommitMessages: (n) =>
+        Effect.succeed([
+          `${HUMAN} edit: feedback`,
+          `${EXPLORE} explore: options`,
+        ].slice(0, n)),
+      show: () => Effect.succeed(""),
+    })
+
+    const fileOps = { ...mockFs(""), getDiffContent: () => Effect.succeed("") }
+
+    const state = await Effect.runPromise(
+      gatherState(fileOps).pipe(
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
+      ),
+    )
+
+    expect(dispatch(state)).toBe("explore")
   })
 })
 

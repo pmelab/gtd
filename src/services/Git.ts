@@ -6,6 +6,7 @@ export interface GitOperations {
   readonly hasUnstagedChanges: () => Effect.Effect<boolean, Error>
   readonly hasUncommittedChanges: () => Effect.Effect<boolean, Error>
   readonly getLastCommitMessage: () => Effect.Effect<string, Error>
+  readonly getCommitMessages: (n: number) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly add: (files: ReadonlyArray<string>) => Effect.Effect<void, Error>
   readonly addAll: () => Effect.Effect<void, Error>
   readonly commit: (message: string) => Effect.Effect<void, Error>
@@ -71,6 +72,11 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
 
         getLastCommitMessage: () =>
           exec("git", "log", "-1", "--pretty=%s"),
+
+        getCommitMessages: (n) =>
+          exec("git", "log", `-${n}`, "--pretty=%s").pipe(
+            Effect.map((out) => (out === "" ? [] : out.split("\n"))),
+          ),
 
         add: (files) => exec("git", "add", ...files).pipe(Effect.asVoid),
 

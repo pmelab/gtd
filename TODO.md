@@ -36,7 +36,7 @@
 
 ### State Gathering: prevNonHumanPrefix
 
-- [ ] In `gatherState()` in `cli.ts`, resolve `prevNonHumanPrefix` via git log
+- [x] In `gatherState()` in `cli.ts`, resolve `prevNonHumanPrefix` via git log
       walk and pass it into `InferStepInput`
   - Use `git log --format=%s` and iterate until a non-HUMAN prefix is found (max
     20 commits as guard)

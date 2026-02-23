@@ -8,7 +8,7 @@ import { initAction } from "./commands/init.js"
 import { GitService } from "./services/Git.js"
 import { GtdConfigService } from "./services/Config.js"
 import { AgentService, catchAgentError } from "./services/Agent.js"
-import { parseCommitPrefix, HUMAN, SEED, FEEDBACK } from "./services/CommitPrefix.js"
+import { parseCommitPrefix, HUMAN, SEED, FEEDBACK, type CommitPrefix } from "./services/CommitPrefix.js"
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
 import { isOnlyLearningsModified } from "./services/LearningsDiff.js"
 import { extractLearnings, hasLearningsSection, hasUncheckedItems } from "./services/Markdown.js"
@@ -137,12 +137,27 @@ export const gatherState = (
       todoFileIsNew = inHead && !inParent
     }
 
+    let prevNonHumanPrefix: CommitPrefix | undefined = undefined
+    if (lastPrefix === HUMAN) {
+      const messages = yield* git.getCommitMessages(20).pipe(
+        Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),
+      )
+      for (const msg of messages.slice(1)) {
+        const prefix = parseCommitPrefix(msg)
+        if (prefix !== undefined && prefix !== HUMAN) {
+          prevNonHumanPrefix = prefix
+          break
+        }
+      }
+    }
+
     return {
       hasUncommittedChanges: uncommitted,
       lastCommitPrefix: lastPrefix,
       hasUncheckedItems: unchecked,
       onlyLearningsModified,
       todoFileIsNew,
+      prevNonHumanPrefix,
     }
   })
 
