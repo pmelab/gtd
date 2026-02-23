@@ -5,6 +5,9 @@ import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
 import {
   createTestProject,
+  setupSeeded,
+  setupSeededAndExplored,
+  setupExploredWithHumanEdits,
   setupSeededAndPlanned,
   setupPlannedWithFeedback,
   setupBuilt,
@@ -16,6 +19,28 @@ import {
 Given("a test project", function (this: GtdWorld) {
   this.repoDir = createTestProject()
 })
+
+Given("a seeded project", function (this: GtdWorld) {
+  this.repoDir = createTestProject()
+  setupSeeded(this.repoDir)
+})
+
+Given("a seeded and explored project", function (this: GtdWorld) {
+  this.repoDir = createTestProject()
+  setupSeededAndExplored(this.repoDir)
+})
+
+Given("an explored project with human edits", function (this: GtdWorld) {
+  this.repoDir = createTestProject()
+  setupExploredWithHumanEdits(this.repoDir)
+})
+
+Given(
+  "the project config has modelExplore {string}",
+  function (this: GtdWorld, model: string) {
+    writeFileSync(join(this.repoDir, ".gtdrc.json"), JSON.stringify({ modelExplore: model }))
+  },
+)
 
 Given("a staged TODO with multiply tasks", function (this: GtdWorld) {
   const todoPath = join(this.repoDir, "TODO.md")

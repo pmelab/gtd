@@ -64,3 +64,42 @@ Feature: GTD workflow cycle
     When I run gtd
     Then it succeeds
     And output contains "Nothing to do"
+
+  Scenario: Explore from seed
+    Given a seeded project
+    When I run gtd
+    Then it succeeds
+    And output contains "step=explore"
+    And last commit prefix is "🧭"
+    And "TODO.md" exists
+
+  Scenario: EXPLORE prefix display and plan after explore
+    Given a seeded and explored project
+    When I run gtd
+    Then it succeeds
+    And output contains "🧭 explore"
+    And output contains "step=plan"
+    And last commit prefix is "🤖"
+
+  Scenario: Re-explore after human edits
+    Given an explored project with human edits
+    When I run gtd
+    Then it succeeds
+    And output contains "step=explore"
+    And last commit prefix is "🧭"
+
+  Scenario: Re-explore flow leads to plan
+    Given an explored project with human edits
+    When I run gtd
+    Then it succeeds
+    And last commit prefix is "🧭"
+    When I run gtd
+    Then it succeeds
+    And last commit prefix is "🤖"
+
+  Scenario: modelExplore config resolves correct model
+    Given a seeded project
+    And the project config has modelExplore "claude-haiku-4-5"
+    When I run gtd
+    Then it succeeds
+    And output contains "model=claude-haiku-4-5"

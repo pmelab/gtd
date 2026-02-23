@@ -1,5 +1,5 @@
 import { World, setWorldConstructor } from "@cucumber/cucumber"
-import { execSync } from "node:child_process"
+import { execSync, spawnSync } from "node:child_process"
 import { readFileSync, existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
@@ -17,30 +17,21 @@ export class GtdWorld extends World {
   }
 
   runGtd(...args: string[]) {
-    const cmd = [process.execPath, GTD_BIN, ...args].join(" ")
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
-    try {
-      const stdout = execSync(cmd, {
-        cwd: this.repoDir,
-        env: { ...process.env, GTD_TEST_CMD: "npm test", CLAUDECODE: "" },
-        encoding: "utf-8",
-        timeout: 300_000,
-        stdio: ["pipe", "pipe", "pipe"],
-      })
-      if (verbose) process.stderr.write(stdout)
-      this.lastResult = { exitCode: 0, stdout, stderr: "" }
-    } catch (err: unknown) {
-      const e = err as { status: number; stdout: string; stderr: string }
-      if (verbose) {
-        process.stderr.write(e.stdout ?? "")
-        process.stderr.write(e.stderr ?? "")
-      }
-      this.lastResult = {
-        exitCode: e.status ?? 1,
-        stdout: e.stdout ?? "",
-        stderr: e.stderr ?? "",
-      }
+    const result = spawnSync(process.execPath, [GTD_BIN, ...args], {
+      cwd: this.repoDir,
+      env: { ...process.env, GTD_TEST_CMD: "npm test", CLAUDECODE: "" },
+      encoding: "utf-8",
+      timeout: 300_000,
+    })
+    const stdout = result.stdout ?? ""
+    const stderr = result.stderr ?? ""
+    const exitCode = result.status ?? 1
+    if (verbose) {
+      process.stderr.write(stdout)
+      process.stderr.write(stderr)
     }
+    this.lastResult = { exitCode, stdout, stderr }
   }
 
   repoFile(path: string): string {

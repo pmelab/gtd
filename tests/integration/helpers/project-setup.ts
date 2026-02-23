@@ -316,6 +316,34 @@ test("subtract returns difference of two numbers", () => {
   commit(dir, "🔨 build: implement subtract function")
 }
 
+/** 🌱 seed only: committed TODO.md with seed prefix */
+export function setupSeeded(dir: string) {
+  writeFile(dir, "TODO.md", `- add a feature to the project\n`)
+  commit(dir, "🌱 seed: initial task", ["TODO.md"])
+}
+
+/** 🌱 seed + 🧭 explore: seed then explored options committed */
+export function setupSeededAndExplored(dir: string) {
+  setupSeeded(dir)
+  writeFile(
+    dir,
+    "TODO.md",
+    `# Approach Options\n\n## Option A\n\nDo it the simple way.\n\n## Option B\n\nDo it the advanced way.\n`,
+  )
+  commit(dir, "🧭 explore: two approaches identified", ["TODO.md"])
+}
+
+/** 🌱 seed + 🧭 explore + 🤦 human edit: user annotated TODO.md after exploring */
+export function setupExploredWithHumanEdits(dir: string) {
+  setupSeededAndExplored(dir)
+  writeFile(
+    dir,
+    "TODO.md",
+    `# Approach Options\n\n## Option A\n\nDo it the simple way.\n\n## Option B\n\nDo it the advanced way.\n\n> I prefer Option A.\n`,
+  )
+  commit(dir, "🤦 human: annotated explore options", ["TODO.md"])
+}
+
 /** Above + 🎓 + 🧹: commit AGENTS.md, remove TODO.md */
 export function setupFullyCompleted(dir: string) {
   setupTwiceBuilt(dir)
