@@ -1,0 +1,26 @@
+# Review: 8d9e14f
+<!-- base: 8d9e14f -->
+
+- [ ] M TODO.md
+- [ ] M src/cli.test.ts
+- [ ] M src/cli.ts
+- [ ] A src/commands/explore.test.ts
+- [ ] A src/commands/explore.ts
+- [ ] M src/decision-tree.test.ts
+- [ ] A src/prompts/explore.md
+- [ ] M src/prompts/index.test.ts
+- [ ] M src/prompts/index.ts
+- [ ] M src/services/Agent.test.ts
+- [ ] M src/services/Agent.ts
+- [ ] M src/services/CommitPrefix.test.ts
+- [ ] M src/services/CommitPrefix.ts
+- [ ] M src/services/Config.ts
+- [ ] M src/services/ConfigResolver.ts
+- [ ] M src/services/ConfigSchema.test.ts
+- [ ] M src/services/ConfigSchema.ts
+- [ ] M src/services/DecisionTree.ts
+- [ ] M src/services/Git.ts
+- [ ] M src/services/InferStep.test.ts
+- [ ] M src/services/InferStep.ts
+- [ ] M src/services/RunInfo.ts
+- [ ] M src/test-helpers.ts

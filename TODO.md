@@ -2,11 +2,22 @@
 
 ## Action Items
 
+### E2E Tests: Cucumber Coverage
+
+- [ ] Add Cucumber e2e scenario for `EXPLORE` prefix parsing and display
+- [ ] Add Cucumber e2e scenario for `inferStep` explore transitions
+  (`SEED→explore`, `EXPLORE→plan`, `EXPLORE→HUMAN→explore`)
+- [ ] Add Cucumber e2e scenario for `prevNonHumanPrefix` resolution via git log
+- [ ] Add Cucumber e2e scenario for the explore command (agent invoked, TODO.md
+      updated, EXPLORE commit created)
+- [ ] Add Cucumber e2e scenario for re-explore flow (EXPLORE→HUMAN→EXPLORE→plan)
+- [ ] Add Cucumber e2e scenario for `modelExplore` config field resolving correct
+      model when mode is `"explore"`
+
 ### CommitPrefix: Add EXPLORE
 
 - [x] Add `EXPLORE` prefix (🧭) to `CommitPrefix.ts` with name, emoji, and
       parsing support
-
   - Add to the prefix map alongside SEED, HUMAN, PLAN, etc.
   - Tests: parse round-trip —
     `parseCommitPrefix(formatCommitPrefix(EXPLORE, "msg"))` returns `EXPLORE`
@@ -20,7 +31,6 @@
 
 - [x] Extend `InferStepInput` with
       `prevNonHumanPrefix: CommitPrefix | undefined`
-
   - Walk git log from HEAD skipping HUMAN commits until a non-HUMAN commit is
     found
   - Tests: `prevNonHumanPrefix` resolves to EXPLORE when log is
@@ -46,7 +56,6 @@
 ### Explore Command
 
 - [x] Create `src/commands/explore.ts` implementing the explore phase
-
   - Read current TODO.md (the seed idea)
   - Invoke agent in `mode="explore"` with the explore prompt
   - Write agent response back to TODO.md (replace content — agent owns the
@@ -56,7 +65,6 @@
     message has EXPLORE emoji
 
 - [x] Add explore prompt at `src/prompts/explore.md`
-
   - Instruct agent to analyze the seed, propose 2–4 distinct approaches with
     tradeoffs
   - Instruct agent to perform web research on how to solve the task before
