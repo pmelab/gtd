@@ -18,7 +18,7 @@
 
 ### InferStep: Transition Logic
 
-- [ ] Extend `InferStepInput` with
+- [x] Extend `InferStepInput` with
       `prevNonHumanPrefix: CommitPrefix | undefined`
 
   - Walk git log from HEAD skipping HUMAN commits until a non-HUMAN commit is
@@ -26,7 +26,7 @@
   - Tests: `prevNonHumanPrefix` resolves to EXPLORE when log is
     `EXPLORE → HUMAN → HUMAN`
 
-- [ ] Update `inferStep` with explore transitions:
+- [x] Update `inferStep` with explore transitions:
   - `lastCommitPrefix === SEED` → `"explore"`
   - `lastCommitPrefix === EXPLORE` → `"plan"`
   - `lastCommitPrefix === HUMAN && prevNonHumanPrefix === EXPLORE` → `"explore"`

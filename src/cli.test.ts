@@ -470,7 +470,7 @@ describe("gatherState handles SEED and FEEDBACK for onlyLearningsModified", () =
 
     expect(state.lastCommitPrefix).toBe(SEED)
     expect(state.onlyLearningsModified).toBe(false)
-    expect(dispatch(state)).toBe("plan")
+    expect(dispatch(state)).toBe("explore")
   })
 
   it("after a 💬 commit correctly infers plan as next step", async () => {

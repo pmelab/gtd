@@ -7,11 +7,13 @@ import {
   CLEANUP,
   SEED,
   FEEDBACK,
+  EXPLORE,
   type CommitPrefix,
 } from "./CommitPrefix.js"
 
 export type Step =
   | "commit-feedback"
+  | "explore"
   | "plan"
   | "build"
   | "learn"
@@ -24,6 +26,7 @@ export interface InferStepInput {
   readonly hasUncheckedItems: boolean
   readonly onlyLearningsModified: boolean
   readonly todoFileIsNew: boolean
+  readonly prevNonHumanPrefix?: CommitPrefix | undefined
 }
 
 export const inferStep = (input: InferStepInput): Step => {
@@ -32,8 +35,13 @@ export const inferStep = (input: InferStepInput): Step => {
   }
 
   switch (input.lastCommitPrefix) {
-    case HUMAN:
     case SEED:
+      return "explore"
+    case EXPLORE:
+      return "plan"
+    case HUMAN:
+      if (input.prevNonHumanPrefix === EXPLORE) return "explore"
+      return input.onlyLearningsModified ? "learn" : "plan"
     case FEEDBACK:
       return input.onlyLearningsModified ? "learn" : "plan"
     case PLAN:
