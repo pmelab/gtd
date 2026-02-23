@@ -6,6 +6,7 @@
 
 - [ ] Add `EXPLORE` prefix (🧭) to `CommitPrefix.ts` with name, emoji, and
       parsing support
+
   - Add to the prefix map alongside SEED, HUMAN, PLAN, etc.
   - Tests: parse round-trip —
     `parseCommitPrefix(formatCommitPrefix(EXPLORE, "msg"))` returns `EXPLORE`
@@ -19,6 +20,7 @@
 
 - [ ] Extend `InferStepInput` with
       `prevNonHumanPrefix: CommitPrefix | undefined`
+
   - Walk git log from HEAD skipping HUMAN commits until a non-HUMAN commit is
     found
   - Tests: `prevNonHumanPrefix` resolves to EXPLORE when log is
@@ -44,6 +46,7 @@
 ### Explore Command
 
 - [ ] Create `src/commands/explore.ts` implementing the explore phase
+
   - Read current TODO.md (the seed idea)
   - Invoke agent in `mode="explore"` with the explore prompt
   - Write agent response back to TODO.md (replace content — agent owns the
@@ -53,6 +56,7 @@
     message has EXPLORE emoji
 
 - [ ] Add explore prompt at `src/prompts/explore.md`
+
   - Instruct agent to analyze the seed, propose 2–4 distinct approaches with
     tradeoffs
   - Instruct agent to perform web research on how to solve the task before
