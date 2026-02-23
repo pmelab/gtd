@@ -4,14 +4,14 @@
 
 ### CommitPrefix: Add EXPLORE
 
-- [ ] Add `EXPLORE` prefix (🧭) to `CommitPrefix.ts` with name, emoji, and
+- [x] Add `EXPLORE` prefix (🧭) to `CommitPrefix.ts` with name, emoji, and
       parsing support
 
   - Add to the prefix map alongside SEED, HUMAN, PLAN, etc.
   - Tests: parse round-trip —
     `parseCommitPrefix(formatCommitPrefix(EXPLORE, "msg"))` returns `EXPLORE`
 
-- [ ] Update `DecisionTree.ts` display labels to include EXPLORE
+- [x] Update `DecisionTree.ts` display labels to include EXPLORE
   - Add a human-readable label for the new prefix in `formatDecisionTrace`
   - Tests: `formatDecisionTrace` with `lastCommitPrefix=EXPLORE` renders without
     "unknown prefix" fallback

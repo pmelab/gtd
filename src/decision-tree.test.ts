@@ -112,6 +112,19 @@ describe("decision tree logging", () => {
     expect(trace).toContain("💬 feedback")
   })
 
+  it("formatDecisionTrace with lastCommitPrefix: EXPLORE includes 🧭 explore", () => {
+    const state: InferStepInput = {
+      hasUncommittedChanges: false,
+      lastCommitPrefix: "🧭",
+      hasUncheckedItems: false,
+      onlyLearningsModified: false,
+      todoFileIsNew: false,
+    }
+    const trace = formatDecisionTrace(state, "plan")
+    expect(trace).toContain("🧭 explore")
+    expect(trace).not.toContain("none")
+  })
+
   it("trace includes decision chain arrows", () => {
     const state: InferStepInput = {
       hasUncommittedChanges: false,

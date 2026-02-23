@@ -7,6 +7,7 @@ import {
   CLEANUP,
   SEED,
   FEEDBACK,
+  EXPLORE,
   parseCommitPrefix,
 } from "./CommitPrefix.js"
 
@@ -33,6 +34,9 @@ describe("CommitPrefix", () => {
     it("FEEDBACK is 💬", () => {
       expect(FEEDBACK).toBe("💬")
     })
+    it("EXPLORE is 🧭", () => {
+      expect(EXPLORE).toBe("🧭")
+    })
   })
 
   describe("parseCommitPrefix", () => {
@@ -56,6 +60,12 @@ describe("CommitPrefix", () => {
     })
     it("parses FEEDBACK prefix", () => {
       expect(parseCommitPrefix("💬 add review notes")).toBe(FEEDBACK)
+    })
+    it("parses EXPLORE prefix", () => {
+      expect(parseCommitPrefix("🧭 explore options")).toBe(EXPLORE)
+    })
+    it("parse round-trip for EXPLORE", () => {
+      expect(parseCommitPrefix(`${EXPLORE} some message`)).toBe(EXPLORE)
     })
     it("returns undefined for unknown emoji", () => {
       expect(parseCommitPrefix("🚀 launch")).toBeUndefined()
