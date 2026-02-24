@@ -1,8 +1,9 @@
+import chalk from "chalk"
 import type { AgentEvent } from "./AgentEvent.js"
 
 // --- Types ---
 
-export type BuildStatus = "pending" | "building" | "testing" | "done" | "failed"
+export type BuildStatus = "pending" | "building" | "fixing" | "testing" | "done" | "failed"
 
 export interface BuildPackageState {
   readonly title: string
@@ -71,122 +72,115 @@ export const formatDuration = (ms: number): string => {
   return `${minutes}m${seconds > 0 ? `${seconds}s` : ""}`
 }
 
-export const ANSI = {
-  dim: "\x1b[2m",
-  strikethrough: "\x1b[9m",
-  green: "\x1b[32m",
-  red: "\x1b[31m",
-  yellow: "\x1b[33m",
-  cyan: "\x1b[36m",
-  reset: "\x1b[0m",
-  clearLine: "\x1b[2K",
-  cursorUp: (n: number) => `\x1b[${n}A`,
-} as const
-
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-
-const MAX_ACTIVITY_LINES = 5
-
-export const formatLine = (pkg: BuildPackageState, frame: number): string => {
-  switch (pkg.status) {
-    case "pending":
-      return `  ${ANSI.dim}□${ANSI.reset} ${pkg.title}`
-    case "building": {
-      const spinner = SPINNER_FRAMES[frame % SPINNER_FRAMES.length]!
-      return `  ${ANSI.cyan}${spinner}${ANSI.reset} ${pkg.title} ${ANSI.cyan}building...${ANSI.reset}`
-    }
-    case "testing": {
-      const spinner = SPINNER_FRAMES[frame % SPINNER_FRAMES.length]!
-      const retryLabel = pkg.maxRetries > 1 ? ` (${pkg.retryCount}/${pkg.maxRetries})` : ""
-      return `  ${ANSI.yellow}${spinner}${ANSI.reset} ${pkg.title} ${ANSI.yellow}testing${retryLabel}...${ANSI.reset}`
-    }
-    case "done": {
-      const duration =
-        pkg.startedAt != null && pkg.finishedAt != null
-          ? ` ${ANSI.dim}(${formatDuration(pkg.finishedAt - pkg.startedAt)})${ANSI.reset}`
-          : ""
-      return `  ${ANSI.green}✓${ANSI.reset} ${ANSI.dim}${ANSI.strikethrough}${pkg.title}${ANSI.reset}${duration}`
-    }
-    case "failed":
-      return `  ${ANSI.red}✗${ANSI.reset} ${pkg.title} ${ANSI.red}failed${ANSI.reset}`
-  }
-}
-
-export const formatSummary = (state: BuildState, now?: number): string => {
-  const timestamp = now ?? Date.now()
-  const doneCount = state.packages.filter((p) => p.status === "done").length
-  const failedCount = state.packages.filter((p) => p.status === "failed").length
-  const elapsed = formatDuration(timestamp - state.startedAt)
-
-  const parts: string[] = []
-  if (doneCount > 0) parts.push(`${doneCount} done`)
-  if (failedCount > 0) parts.push(`${failedCount} failed`)
-
-  return `${parts.join(", ")} in ${elapsed}`
-}
-
-// --- Activity buffer for agent events ---
-
-const createActivityBuffer = () => {
-  const lines: string[] = []
-  let textAccum = ""
-
-  const push = (line: string) => {
-    lines.push(line)
-    if (lines.length > MAX_ACTIVITY_LINES) lines.shift()
-  }
-
-  return {
-    get lines(): ReadonlyArray<string> {
-      return lines
-    },
-    handleEvent: (event: AgentEvent) => {
-      switch (event._tag) {
-        case "ToolStart":
-          push(event.toolName)
-          break
-        case "TextDelta":
-          textAccum += event.delta
-          // Show last line of accumulated text as preview
-          {
-            const lastNewline = textAccum.lastIndexOf("\n")
-            const lastLine = lastNewline >= 0 ? textAccum.slice(lastNewline + 1) : textAccum
-            if (lastLine.trim().length > 0) {
-              const truncated = lastLine.length > 60 ? lastLine.slice(0, 60) + "..." : lastLine
-              // Replace last text preview or add new one
-              const lastIdx = lines.length - 1
-              if (lastIdx >= 0 && lines[lastIdx]!.startsWith("> ")) {
-                lines[lastIdx] = `> ${truncated}`
-              } else {
-                push(`> ${truncated}`)
-              }
-            }
-          }
-          break
-        case "TurnStart":
-          lines.length = 0
-          textAccum = ""
-          break
-        default:
-          break
-      }
-    },
-    clear: () => {
-      lines.length = 0
-      textAccum = ""
-    },
-  }
-}
-
 // --- TTY detection ---
 
 export const isInteractive = (): boolean => process.stdout.isTTY === true
+
+// --- Shared helpers ---
+
+const compactToolInput = (input: unknown): string => {
+  if (input == null) return ""
+  if (typeof input === "object") {
+    const obj = input as Record<string, unknown>
+    for (const val of Object.values(obj)) {
+      if (typeof val === "string" && val.length > 0) {
+        const oneLine = val.split("\n")[0]!
+        return oneLine.length > 80 ? oneLine.slice(0, 80) + "..." : oneLine
+      }
+    }
+  }
+  return ""
+}
+
+const CLEAR_CHAR = "\x1b[1D \x1b[1D"
+const HIDE_CURSOR = "\x1b[?25l"
+const SHOW_CURSOR = "\x1b[?25h"
+const BLOCK_CURSOR = "█"
+interface EventHandler {
+  readonly onEvent: (event: AgentEvent) => void
+  readonly ensureNewline: () => void
+}
+
+const createEventHandler = (): EventHandler => {
+  let thinking = false
+  let dirty = false
+  let cursorVisible = false
+  let spinnerTimer: ReturnType<typeof setInterval> | undefined
+
+  const stopSpinner = () => {
+    if (spinnerTimer != null) {
+      clearInterval(spinnerTimer)
+      spinnerTimer = undefined
+      if (cursorVisible) process.stdout.write(CLEAR_CHAR)
+      cursorVisible = false
+      process.stdout.write(SHOW_CURSOR)
+    }
+  }
+
+  const startSpinner = () => {
+    stopSpinner()
+    process.stdout.write(HIDE_CURSOR + BLOCK_CURSOR)
+    cursorVisible = true
+    dirty = true
+    spinnerTimer = setInterval(() => {
+      if (cursorVisible) {
+        process.stdout.write(CLEAR_CHAR)
+        cursorVisible = false
+      } else {
+        process.stdout.write(BLOCK_CURSOR)
+        cursorVisible = true
+      }
+    }, 530)
+  }
+
+  const endThinking = () => {
+    stopSpinner()
+    process.stdout.write("\n\n")
+    thinking = false
+    dirty = false
+  }
+
+  const ensureNewline = () => {
+    stopSpinner()
+    if (dirty) {
+      process.stdout.write("\n")
+      dirty = false
+    }
+  }
+
+  return {
+    onEvent: (event: AgentEvent) => {
+      if (event._tag === "ThinkingDelta") {
+        if (!thinking) {
+          process.stdout.write("\n")
+          thinking = true
+        }
+        stopSpinner()
+        process.stdout.write(chalk.dim(event.delta))
+        dirty = true
+        startSpinner()
+      } else {
+        if (thinking) endThinking()
+        if (event._tag === "ToolStart") {
+          const preview = compactToolInput(event.toolInput)
+          process.stdout.write(
+            `🔨 ${event.toolName}:` + (preview ? " " + chalk.dim(preview) : "") + "\n",
+          )
+          dirty = false
+        }
+      }
+    },
+    ensureNewline,
+  }
+}
 
 // --- SpinnerRenderer ---
 
 export interface SpinnerRenderer {
   readonly onEvent: (event: AgentEvent) => void
   readonly setText: (text: string) => void
+  readonly setTextWithCursor: (text: string) => void
+  readonly stopCursor: () => void
   readonly succeed: (text: string) => void
   readonly fail: (text: string) => void
   readonly dispose: () => void
@@ -203,87 +197,69 @@ export const createSpinnerRenderer = (interactive: boolean): SpinnerRenderer => 
           console.log(`[gtd] ${text}`)
         }
       },
+      setTextWithCursor: (text: string) => {
+        if (text !== lastText) {
+          lastText = text
+          console.log(`[gtd] ${text}`)
+        }
+      },
+      stopCursor: () => {},
       succeed: (text: string) => console.log(`[gtd] ${text}`),
       fail: (text: string) => console.error(`[gtd] ${text}`),
       dispose: () => {},
     }
   }
 
-  // Interactive: custom ANSI spinner with activity lines
-  let text = ""
-  let frame = 0
-  let lineCount = 0
-  let timer: ReturnType<typeof setInterval> | undefined
-  const activity = createActivityBuffer()
+  const handler = createEventHandler()
+  let cursorVisible = false
+  let cursorTimer: ReturnType<typeof setInterval> | undefined
 
-  const render = () => {
-    if (lineCount > 0) {
-      process.stdout.write(ANSI.cursorUp(lineCount))
-    }
-    const lines: string[] = []
-    const spinner = SPINNER_FRAMES[frame % SPINNER_FRAMES.length]!
-    lines.push(`${ANSI.clearLine}  ${ANSI.cyan}${spinner}${ANSI.reset} ${text}`)
-    for (const actLine of activity.lines) {
-      lines.push(`${ANSI.clearLine}    ${ANSI.dim}${actLine}${ANSI.reset}`)
-    }
-    process.stdout.write(lines.join("\n") + "\n")
-    lineCount = lines.length
-  }
-
-  const clearLines = () => {
-    if (lineCount > 0) {
-      process.stdout.write(ANSI.cursorUp(lineCount))
-      for (let i = 0; i < lineCount; i++) {
-        process.stdout.write(ANSI.clearLine + "\n")
-      }
-      process.stdout.write(ANSI.cursorUp(lineCount))
-      lineCount = 0
-    }
-  }
-
-  const startTimer = () => {
-    if (!timer) {
-      render()
-      timer = setInterval(() => {
-        frame++
-        render()
-      }, 80)
-    }
-  }
-
-  const stopTimer = () => {
-    if (timer) {
-      clearInterval(timer)
-      timer = undefined
+  const stopCursor = () => {
+    if (cursorTimer != null) {
+      clearInterval(cursorTimer)
+      cursorTimer = undefined
+      if (cursorVisible) process.stdout.write(CLEAR_CHAR)
+      cursorVisible = false
+      process.stdout.write(SHOW_CURSOR)
     }
   }
 
   return {
-    onEvent: (event: AgentEvent) => {
-      activity.handleEvent(event)
+    onEvent: handler.onEvent,
+    setText: (text: string) => {
+      stopCursor()
+      handler.ensureNewline()
+      process.stdout.write(chalk.cyan("◆") + " " + text + "\n")
     },
-    setText: (newText: string) => {
-      text = newText
-      if (!timer) {
-        startTimer()
-      }
+    setTextWithCursor: (text: string) => {
+      stopCursor()
+      handler.ensureNewline()
+      process.stdout.write(chalk.cyan("◆") + " " + text)
+      process.stdout.write(HIDE_CURSOR + BLOCK_CURSOR)
+      cursorVisible = true
+      cursorTimer = setInterval(() => {
+        if (cursorVisible) {
+          process.stdout.write(CLEAR_CHAR)
+          cursorVisible = false
+        } else {
+          process.stdout.write(BLOCK_CURSOR)
+          cursorVisible = true
+        }
+      }, 530)
     },
+    stopCursor,
     succeed: (msg: string) => {
-      stopTimer()
-      clearLines()
-      activity.clear()
-      process.stdout.write(`  ${ANSI.green}✓${ANSI.reset} ${msg}\n`)
+      stopCursor()
+      handler.ensureNewline()
+      process.stdout.write(chalk.green("✓") + " " + msg + "\n")
     },
     fail: (msg: string) => {
-      stopTimer()
-      clearLines()
-      activity.clear()
-      process.stderr.write(`  ${ANSI.red}✗${ANSI.reset} ${msg}\n`)
+      stopCursor()
+      handler.ensureNewline()
+      process.stderr.write(chalk.red("✗") + " " + msg + "\n")
     },
     dispose: () => {
-      stopTimer()
-      clearLines()
-      activity.clear()
+      stopCursor()
     },
   }
 }
@@ -292,6 +268,8 @@ export const createSpinnerRenderer = (interactive: boolean): SpinnerRenderer => 
 
 export interface BuildRenderer {
   readonly onEvent: (event: AgentEvent) => void
+  readonly setTextWithCursor: (text: string) => void
+  readonly stopCursor: () => void
   readonly setStatus: (
     packageTitle: string,
     status: BuildStatus,
@@ -313,6 +291,8 @@ export const createBuildRenderer = (
   if (!interactive) {
     return {
       onEvent: () => {},
+      setTextWithCursor: (text: string) => console.log(`[gtd] ${text}`),
+      stopCursor: () => {},
       setStatus: (
         title: string,
         status: BuildStatus,
@@ -329,7 +309,14 @@ export const createBuildRenderer = (
           status === "testing" && retryInfo && retryInfo.max > 1
             ? ` (${retryInfo.current}/${retryInfo.max})`
             : ""
-        console.log(`[gtd] ${icon} ${title}: ${status}${retryLabel}${duration}`)
+        const label =
+          status === "building" ? `Building "${title}"` :
+          status === "fixing" ? `Fixing "${title}"` :
+          status === "testing" ? `Testing "${title}"${retryLabel}` :
+          status === "done" ? `"${title}"${duration}` :
+          status === "failed" ? `"${title}" failed` :
+          `"${title}"`
+        console.log(`[gtd] ${icon} ${label}`)
       },
       finish: (message: string) => {
         console.log(`[gtd] ${message}`)
@@ -339,84 +326,106 @@ export const createBuildRenderer = (
     }
   }
 
-  // Interactive ANSI renderer with activity lines
-  let frame = 0
-  let timer: ReturnType<typeof setInterval> | undefined
-  let lineCount = 0
-  const activity = createActivityBuffer()
-
-  const render = () => {
-    // Move cursor up to clear previous render
-    if (lineCount > 0) {
-      process.stdout.write(ANSI.cursorUp(lineCount))
-    }
-    const lines: string[] = []
-    for (const pkg of state.packages) {
-      lines.push(`${ANSI.clearLine}${formatLine(pkg, frame)}`)
-    }
-    for (const actLine of activity.lines) {
-      lines.push(`${ANSI.clearLine}    ${ANSI.dim}${actLine}${ANSI.reset}`)
-    }
-    process.stdout.write(lines.join("\n") + "\n")
-    lineCount = lines.length
-  }
-
-  const clearActivityLines = () => {
-    if (lineCount > 0) {
-      process.stdout.write(ANSI.cursorUp(lineCount))
-      for (let i = 0; i < lineCount; i++) {
-        process.stdout.write(ANSI.clearLine + "\n")
+  const printStatus = (pkg: BuildPackageState) => {
+    switch (pkg.status) {
+      case "pending":
+        process.stdout.write(chalk.dim(`□ ${pkg.title}`) + "\n")
+        break
+      case "building":
+        process.stdout.write(chalk.cyan(`◆ Building "${pkg.title}"…`) + "\n")
+        break
+      case "fixing":
+        process.stdout.write(chalk.rgb(255, 165, 0)(`◆ Fixing "${pkg.title}"…`) + "\n")
+        break
+      case "testing": {
+        const retryLabel =
+          pkg.maxRetries > 1 ? ` (${pkg.retryCount}/${pkg.maxRetries})` : ""
+        process.stdout.write(chalk.yellow(`◆ Testing "${pkg.title}"${retryLabel}…`) + "\n")
+        break
       }
-      process.stdout.write(ANSI.cursorUp(lineCount))
-      lineCount = 0
+      case "done": {
+        const duration =
+          pkg.startedAt != null && pkg.finishedAt != null
+            ? ` (${formatDuration(pkg.finishedAt - pkg.startedAt)})`
+            : ""
+        process.stdout.write(
+          chalk.green("✓ ") + chalk.dim.strikethrough(pkg.title) + chalk.dim(duration) + "\n",
+        )
+        break
+      }
+      case "failed":
+        process.stdout.write(chalk.red(`✗ "${pkg.title}" failed`) + "\n")
+        break
     }
   }
 
-  const startTimer = () => {
-    if (!timer) {
-      render()
-      timer = setInterval(() => {
-        frame++
-        render()
-      }, 80)
+  const handler = createEventHandler()
+  let bCursorVisible = false
+  let bCursorTimer: ReturnType<typeof setInterval> | undefined
+
+  const stopBuildCursor = () => {
+    if (bCursorTimer != null) {
+      clearInterval(bCursorTimer)
+      bCursorTimer = undefined
+      if (bCursorVisible) process.stdout.write(CLEAR_CHAR)
+      bCursorVisible = false
+      process.stdout.write(SHOW_CURSOR)
     }
   }
-
-  const stopTimer = () => {
-    if (timer) {
-      clearInterval(timer)
-      timer = undefined
-    }
-  }
-
-  startTimer()
 
   return {
-    onEvent: (event: AgentEvent) => {
-      activity.handleEvent(event)
+    onEvent: handler.onEvent,
+    setTextWithCursor: (text: string) => {
+      stopBuildCursor()
+      handler.ensureNewline()
+      process.stdout.write(chalk.cyan("◆") + " " + text)
+      process.stdout.write(HIDE_CURSOR + BLOCK_CURSOR)
+      bCursorVisible = true
+      bCursorTimer = setInterval(() => {
+        if (bCursorVisible) {
+          process.stdout.write(CLEAR_CHAR)
+          bCursorVisible = false
+        } else {
+          process.stdout.write(BLOCK_CURSOR)
+          bCursorVisible = true
+        }
+      }, 530)
     },
+    stopCursor: stopBuildCursor,
     setStatus: (
       title: string,
       status: BuildStatus,
       retryInfo?: { current: number; max: number },
     ) => {
+      stopBuildCursor()
       state = updatePackageStatus(state, title, status, retryInfo)
-      render()
+      const pkg = state.packages.find((p) => p.title === title)
+      if (pkg) {
+        handler.ensureNewline()
+        printStatus(pkg)
+      }
     },
     finish: (message: string) => {
-      stopTimer()
-      activity.clear()
-      clearActivityLines()
-      // Final render without activity
-      for (const pkg of state.packages) {
-        process.stdout.write(`${ANSI.clearLine}${formatLine(pkg, frame)}\n`)
-      }
-      console.log(`\n${message}`)
-      console.log(formatSummary(state))
+      stopBuildCursor()
+      handler.ensureNewline()
+      process.stdout.write("\n" + message + "\n")
+      process.stdout.write(formatSummary(state) + "\n")
     },
     dispose: () => {
-      stopTimer()
-      activity.clear()
+      stopBuildCursor()
     },
   }
+}
+
+const formatSummary = (state: BuildState, now?: number): string => {
+  const timestamp = now ?? Date.now()
+  const doneCount = state.packages.filter((p) => p.status === "done").length
+  const failedCount = state.packages.filter((p) => p.status === "failed").length
+  const elapsed = formatDuration(timestamp - state.startedAt)
+
+  const parts: string[] = []
+  if (doneCount > 0) parts.push(`${doneCount} done`)
+  if (failedCount > 0) parts.push(`${failedCount} failed`)
+
+  return `${parts.join(", ")} in ${elapsed}`
 }

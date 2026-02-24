@@ -54,7 +54,7 @@ describe("resolveAllConfigs", () => {
       }),
     )
 
-    expect(results.some((r) => r.config.agent === "claude")).toBe(true)
+    expect(results.some((r) => (r.config as Record<string, unknown>).agent === "claude")).toBe(true)
   })
 
   it("discovers config from XDG_CONFIG_HOME/gtd/", async () => {
@@ -184,7 +184,6 @@ describe("mergeConfigs", () => {
     const result = mergeConfigs(configs)
 
     expect(result.file).toBe("PROJECT.md")
-    expect(result.agent).toBe("claude")
     expect(result.testCmd).toBe("bun test")
   })
 
@@ -196,7 +195,6 @@ describe("mergeConfigs", () => {
     const result = mergeConfigs(configs)
 
     expect(result.file).toBe("PLAN.md")
-    expect(result.agent).toBe("auto")
     expect(result.testRetries).toBe(10)
   })
 
@@ -204,7 +202,6 @@ describe("mergeConfigs", () => {
     const result = mergeConfigs([])
 
     expect(result.file).toBe("TODO.md")
-    expect(result.agent).toBe("auto")
     expect(result.modelPlan).toBeUndefined()
     expect(result.modelBuild).toBeUndefined()
     expect(result.modelLearn).toBeUndefined()
@@ -251,34 +248,7 @@ describe("mergeConfigs", () => {
 
     const result = mergeConfigs(configs)
 
-    expect(result.agent).toBe("opencode")
     expect(result.testCmd).toBe("pytest")
-  })
-
-  it("applies sandbox defaults when fields are omitted", () => {
-    const result = mergeConfigs([])
-
-    expect(result.sandboxEnabled).toBe(true)
-    expect(result.sandboxBoundaries).toEqual({})
-  })
-
-  it("merges sandboxBoundaries from config", () => {
-    const configs = [
-      {
-        config: {
-          sandboxBoundaries: {
-            filesystem: { allowRead: ["/extra"] },
-            network: { allowedDomains: ["custom.com"] },
-          },
-        } as Record<string, unknown>,
-        filepath: "/a",
-      },
-    ]
-
-    const result = mergeConfigs(configs)
-
-    expect(result.sandboxBoundaries.filesystem?.allowRead).toContain("/extra")
-    expect(result.sandboxBoundaries.network?.allowedDomains).toContain("custom.com")
   })
 
   it("ignores old agentPlan/agentBuild/agentLearn fields for backwards compatibility", () => {
@@ -314,143 +284,6 @@ describe("mergeConfigs", () => {
     expect(result.modelCommit).toBe("gpt-4")
   })
 
-  it("ignores sandboxEscalationPolicy in config for backwards compatibility", () => {
-    const configs = [
-      { config: { sandboxEscalationPolicy: "prompt" } as Record<string, unknown>, filepath: "/a" },
-    ]
-
-    const result = mergeConfigs(configs)
-
-    expect((result as unknown as Record<string, unknown>).sandboxEscalationPolicy).toBeUndefined()
-  })
-
-  it("ignores sandboxApprovedEscalations in config for backwards compatibility", () => {
-    const configs = [
-      {
-        config: {
-          sandboxApprovedEscalations: [{ from: "restricted", to: "standard" }],
-        } as Record<string, unknown>,
-        filepath: "/project",
-      },
-    ]
-
-    const result = mergeConfigs(configs)
-
-    expect((result as unknown as Record<string, unknown>).sandboxApprovedEscalations).toBeUndefined()
-  })
-
-  it("higher priority sandboxBoundaries filesystem/network merge with lower", () => {
-    const configs = [
-      {
-        config: {
-          sandboxBoundaries: { filesystem: { allowRead: ["/project/extra"] } },
-        } as Record<string, unknown>,
-        filepath: "/project",
-      },
-      {
-        config: {
-          sandboxBoundaries: { filesystem: { allowRead: ["/shared"], allowWrite: ["/shared/out"] } },
-        } as Record<string, unknown>,
-        filepath: "/user",
-      },
-    ]
-
-    const result = mergeConfigs(configs)
-
-    expect(result.sandboxBoundaries.filesystem?.allowRead).toContain("/project/extra")
-    expect(result.sandboxBoundaries.filesystem?.allowRead).toContain("/shared")
-    expect(result.sandboxBoundaries.filesystem?.allowWrite).toEqual(["/shared/out"])
-  })
-
-  it("merges filesystem overrides from config", () => {
-    const configs = [
-      {
-        config: {
-          sandboxBoundaries: {
-            filesystem: { allowRead: ["/shared/libs"], allowWrite: ["/shared/output"] },
-          },
-        } as Record<string, unknown>,
-        filepath: "/a",
-      },
-    ]
-
-    const result = mergeConfigs(configs)
-
-    expect(result.sandboxBoundaries.filesystem?.allowRead).toEqual(["/shared/libs"])
-    expect(result.sandboxBoundaries.filesystem?.allowWrite).toEqual(["/shared/output"])
-  })
-
-  it("merges network overrides from config", () => {
-    const configs = [
-      {
-        config: {
-          sandboxBoundaries: {
-            network: { allowedDomains: ["registry.npmjs.org"] },
-          },
-        } as Record<string, unknown>,
-        filepath: "/a",
-      },
-    ]
-
-    const result = mergeConfigs(configs)
-
-    expect(result.sandboxBoundaries.network?.allowedDomains).toEqual(["registry.npmjs.org"])
-  })
-
-  it("merges filesystem overrides across config levels", () => {
-    const configs = [
-      {
-        config: {
-          sandboxBoundaries: { filesystem: { allowRead: ["/project/extra"] } },
-        } as Record<string, unknown>,
-        filepath: "/project",
-      },
-      {
-        config: {
-          sandboxBoundaries: { filesystem: { allowRead: ["/shared/libs"], allowWrite: ["/shared/out"] } },
-        } as Record<string, unknown>,
-        filepath: "/user",
-      },
-    ]
-
-    const result = mergeConfigs(configs)
-
-    expect(result.sandboxBoundaries.filesystem?.allowRead).toContain("/project/extra")
-    expect(result.sandboxBoundaries.filesystem?.allowRead).toContain("/shared/libs")
-    expect(result.sandboxBoundaries.filesystem?.allowWrite).toEqual(["/shared/out"])
-  })
-
-  it("merges network overrides across config levels with dedup", () => {
-    const configs = [
-      {
-        config: {
-          sandboxBoundaries: { network: { allowedDomains: ["api.example.com", "shared.com"] } },
-        } as Record<string, unknown>,
-        filepath: "/project",
-      },
-      {
-        config: {
-          sandboxBoundaries: { network: { allowedDomains: ["shared.com", "other.com"] } },
-        } as Record<string, unknown>,
-        filepath: "/user",
-      },
-    ]
-
-    const result = mergeConfigs(configs)
-
-    expect(result.sandboxBoundaries.network?.allowedDomains).toContain("api.example.com")
-    expect(result.sandboxBoundaries.network?.allowedDomains).toContain("shared.com")
-    expect(result.sandboxBoundaries.network?.allowedDomains).toContain("other.com")
-    const sharedCount = result.sandboxBoundaries.network!.allowedDomains!.filter((d) => d === "shared.com").length
-    expect(sharedCount).toBe(1)
-  })
-
-  it("defaults produce no filesystem or network overrides", () => {
-    const result = mergeConfigs([])
-
-    expect(result.sandboxBoundaries.filesystem).toBeUndefined()
-    expect(result.sandboxBoundaries.network).toBeUndefined()
-  })
 })
 
 describe("createExampleConfig", () => {
@@ -466,7 +299,6 @@ describe("createExampleConfig", () => {
     const parsed = JSON.parse(content)
     expect(parsed.$schema).toBe(SCHEMA_URL)
     expect(parsed.file).toBeDefined()
-    expect(parsed.agent).toBeDefined()
     expect(parsed.testCmd).toBeDefined()
   })
 
@@ -509,21 +341,12 @@ describe("createExampleConfig", () => {
   it("EXAMPLE_CONFIG contains all expected default keys", () => {
     expect(EXAMPLE_CONFIG.$schema).toBe(SCHEMA_URL)
     expect(EXAMPLE_CONFIG.file).toBeDefined()
-    expect(EXAMPLE_CONFIG.agent).toBeDefined()
     expect(EXAMPLE_CONFIG.modelPlan).toBeDefined()
     expect(EXAMPLE_CONFIG.modelBuild).toBeDefined()
     expect(EXAMPLE_CONFIG.modelCommit).toBeDefined()
     expect(EXAMPLE_CONFIG.testCmd).toBeDefined()
     expect(EXAMPLE_CONFIG.testRetries).toBeDefined()
     expect(EXAMPLE_CONFIG._comment).toBeDefined()
-  })
-
-  it("EXAMPLE_CONFIG shows how to extend default sandbox permissions", () => {
-    expect(EXAMPLE_CONFIG.sandboxBoundaries).toBeDefined()
-    expect(EXAMPLE_CONFIG.sandboxBoundaries.filesystem).toBeDefined()
-    expect(EXAMPLE_CONFIG.sandboxBoundaries.filesystem.allowWrite).toContain("/shared/output")
-    expect(EXAMPLE_CONFIG.sandboxBoundaries.network).toBeDefined()
-    expect(EXAMPLE_CONFIG.sandboxBoundaries.network.allowedDomains).toContain("registry.npmjs.org")
   })
 
   it("EXAMPLE_CONFIG validates against the schema", () => {

@@ -1,9 +1,11 @@
 import { Command, CommandExecutor, FileSystem } from "@effect/platform"
 import { Duration, Effect, Stream } from "effect"
 import { GitService } from "./Git.js"
+import { formatMarkdown } from "./MarkdownFormat.js"
 
 export interface FileOps {
   readonly readFile: () => Effect.Effect<string>
+  readonly writeFile: (content: string) => Effect.Effect<void>
   readonly exists: () => Effect.Effect<boolean>
   readonly getDiffContent: () => Effect.Effect<string>
   readonly remove: () => Effect.Effect<void>
@@ -27,6 +29,8 @@ export const nodeFileOps = (
     return {
       readFile: () =>
         fs.readFileString(filePath).pipe(Effect.catchAll(() => Effect.succeed(""))),
+      writeFile: (content: string) =>
+        fs.writeFileString(filePath, content).pipe(Effect.catchAll(() => Effect.void)),
       exists: () =>
         fs
           .stat(filePath)
@@ -54,12 +58,11 @@ export const nodeFileOps = (
       deleteSessionFile: () =>
         fs.remove(sessionPath).pipe(Effect.catchAll(() => Effect.void)),
       formatFile: () =>
-        Command.make("prettier", "--write", filePath).pipe(
-          Command.string,
-          Effect.asVoid,
-          Effect.mapError((e) => new Error(String(e))),
-          Effect.provideService(CommandExecutor.CommandExecutor, executor),
-        ),
+        Effect.gen(function* () {
+          const content = yield* fs.readFileString(filePath)
+          const formatted = yield* Effect.promise(() => formatMarkdown(content, filePath))
+          yield* fs.writeFileString(filePath, formatted)
+        }).pipe(Effect.mapError((e) => new Error(String(e)))),
       runTests: (cmd: string) => {
         const parts = cmd.split(" ")
         const [bin, ...args] = parts

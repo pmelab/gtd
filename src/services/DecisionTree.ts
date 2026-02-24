@@ -4,7 +4,8 @@ import { AgentService } from "./Agent.js"
 import { QuietMode } from "./QuietMode.js"
 import type { InferStepInput } from "./InferStep.js"
 import type { Step } from "./InferStep.js"
-import { isInteractive, ANSI } from "./Renderer.js"
+import chalk from "chalk"
+import { isInteractive } from "./Renderer.js"
 import {
   HUMAN,
   PLAN,
@@ -14,7 +15,6 @@ import {
   CLEANUP,
   SEED,
   FEEDBACK,
-  EXPLORE,
 } from "./CommitPrefix.js"
 
 const prefixLabel = (prefix: string | undefined): string => {
@@ -35,8 +35,6 @@ const prefixLabel = (prefix: string | undefined): string => {
       return "seed"
     case FEEDBACK:
       return "feedback"
-    case EXPLORE:
-      return "explore"
     default:
       return "none"
   }
@@ -51,8 +49,6 @@ const resolveModelForStep = (step: Step, config: GtdConfig): string | undefined 
       return config.modelBuild
     case "learn":
       return config.modelLearn
-    case "explore":
-      return config.modelExplore
     case "cleanup":
     case "idle":
       return undefined
@@ -100,7 +96,6 @@ const describeReason = (state: InferStepInput, step: Step): string => {
       if (state.onlyLearningsModified) return `Last commit was ${last} (learnings only), so proceeding to ${step}.`
       return `Last commit was ${last}, so proceeding to ${step}.`
     case SEED:
-    case EXPLORE:
     case LEARN:
     case CLEANUP:
       return `Last commit was a ${last} step, so proceeding to ${step}.`
@@ -115,20 +110,20 @@ export const formatStartupMessage = (info: StartupInfo, interactive: boolean): s
 
   if (step === "idle") {
     if (interactive) {
-      return `  ${ANSI.dim}Nothing to do. Create a TODO.md or add in-code comments to start.${ANSI.reset}`
+      return chalk.dim("Nothing to do. Create a TODO.md or add in-code comments to start.")
     }
     return `[gtd] Nothing to do. Create a TODO.md or add in-code comments to start.`
   }
 
-  const modelPart = model ? ` with model ${interactive ? ANSI.cyan + model + ANSI.reset : model}` : ""
-  const agentPart = interactive ? ANSI.cyan + agent + ANSI.reset : agent
-  const stepPart = interactive ? ANSI.cyan + step + ANSI.reset : step
+  const modelPart = model ? ` with model ${interactive ? chalk.cyan(model) : model}` : ""
+  const agentPart = interactive ? chalk.cyan(agent) : agent
+  const stepPart = interactive ? chalk.cyan(step) : step
 
   const line1 = `Using ${agentPart} to ${stepPart}${modelPart}.`
   const reason = describeReason(state, step)
 
   if (interactive) {
-    return `  ${ANSI.dim}${line1}${ANSI.reset}\n  ${ANSI.dim}${reason}${ANSI.reset}`
+    return `${chalk.dim(line1)}\n${chalk.dim(reason)}`
   }
   return `[gtd] ${line1}\n[gtd] ${reason}`
 }

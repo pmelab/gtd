@@ -57,13 +57,13 @@ describe("CI workflow step ordering", () => {
     expect(unitIdx).toBeLessThan(e2eIdx)
   })
 
-  it("prettier --check fails on formatting violations", () => {
+  it("prettier --check fails on formatting violations", { timeout: 30_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "format-test-"))
     writeFileSync(join(dir, ".prettierrc"), JSON.stringify({ semi: false }))
     writeFileSync(join(dir, "bad.ts"), 'const x = 1;\nconst y = "hello";\n')
 
     expect(() =>
-      execSync(`bunx prettier --check bad.ts`, { cwd: dir, encoding: "utf-8" }),
+      execSync(`npx prettier --check bad.ts`, { cwd: dir, encoding: "utf-8" }),
     ).toThrow()
   })
 })

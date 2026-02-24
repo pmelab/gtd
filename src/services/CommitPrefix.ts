@@ -6,8 +6,6 @@ export const CLEANUP = "🧹" as const
 export const FIX = "👷" as const
 export const SEED = "🌱" as const
 export const FEEDBACK = "💬" as const
-export const EXPLORE = "🧭" as const
-
 export type CommitPrefix =
   | typeof HUMAN
   | typeof PLAN
@@ -17,7 +15,6 @@ export type CommitPrefix =
   | typeof FIX
   | typeof SEED
   | typeof FEEDBACK
-  | typeof EXPLORE
 
 const ALL_PREFIXES: ReadonlyArray<CommitPrefix> = [
   HUMAN,
@@ -28,7 +25,6 @@ const ALL_PREFIXES: ReadonlyArray<CommitPrefix> = [
   FIX,
   SEED,
   FEEDBACK,
-  EXPLORE,
 ]
 
 export const parseCommitPrefix = (

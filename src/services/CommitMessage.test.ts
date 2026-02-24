@@ -6,9 +6,7 @@ import { generateCommitMessage } from "./CommitMessage.js"
 
 const mockAgent = (textResponse: string) =>
   Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
     invoke: (params) =>
       Effect.sync(() => {
         if (params.onEvent) {
@@ -16,7 +14,6 @@ const mockAgent = (textResponse: string) =>
         }
         return { sessionId: undefined }
       }),
-    isAvailable: () => Effect.succeed(true),
   })
 
 describe("generateCommitMessage", () => {
@@ -34,14 +31,11 @@ describe("generateCommitMessage", () => {
     Effect.gen(function* () {
       let capturedPrompt = ""
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) => {
           capturedPrompt = params.prompt
           return Effect.succeed({ sessionId: undefined })
         },
-        isAvailable: () => Effect.succeed(true),
       })
 
       yield* generateCommitMessage("🔨", "diff --git a/bar.ts\n+export const bar = true").pipe(
@@ -76,11 +70,8 @@ describe("generateCommitMessage", () => {
   it.effect("falls back to default message when agent fails", () =>
     Effect.gen(function* () {
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: () => Effect.fail(new AgentError("fail", undefined, "general")),
-        isAvailable: () => Effect.succeed(true),
       })
 
       const result = yield* generateCommitMessage("🔨", "some diff").pipe(
@@ -121,6 +112,35 @@ describe("generateCommitMessage", () => {
       )
 
       expect(result).toBe("🔨 fix bug in parser")
+    }),
+  )
+
+  it.effect("calls onStart and onStop callbacks", () =>
+    Effect.gen(function* () {
+      const calls: string[] = []
+      yield* generateCommitMessage("🤖", "some diff", {
+        onStart: () => calls.push("start"),
+        onStop: () => calls.push("stop"),
+      }).pipe(Effect.provide(mockAgent("update readme")))
+
+      expect(calls).toEqual(["start", "stop"])
+    }),
+  )
+
+  it.effect("calls onStop even when agent fails", () =>
+    Effect.gen(function* () {
+      const calls: string[] = []
+      const agentLayer = Layer.succeed(AgentService, {
+        resolvedName: "mock",
+        invoke: () => Effect.fail(new AgentError("fail", undefined, "general")),
+      })
+
+      yield* generateCommitMessage("🔨", "some diff", {
+        onStart: () => calls.push("start"),
+        onStop: () => calls.push("stop"),
+      }).pipe(Effect.provide(agentLayer))
+
+      expect(calls).toEqual(["start", "stop"])
     }),
   )
 })

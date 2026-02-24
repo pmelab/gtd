@@ -1,3 +1,4 @@
+import chalk from "chalk"
 import { Effect, Option } from "effect"
 import { resolve } from "node:path"
 import { GtdConfigService } from "../services/Config.js"
@@ -5,6 +6,7 @@ import { GitService } from "../services/Git.js"
 import { AgentService, catchAgentError } from "../services/Agent.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
 import {
+  checkOffPackage,
   getNextUncheckedPackage,
   hasUncheckedItems,
   extractLearnings,
@@ -102,13 +104,15 @@ export const buildCommand = (fs: FileOps) =>
             break
           }
 
+          process.stderr.write(chalk.red(testResult.output) + "\n")
+
           if (retry >= config.testRetries) {
             renderer.setStatus(pkg.title, "failed")
-            renderer.finish(`Tests failed after ${config.testRetries} retries. Stopping.`)
+            renderer.finish(`Tests failed after ${config.testRetries + 1} attempts. Stopping.`)
             return
           }
 
-          renderer.setStatus(pkg.title, "building")
+          renderer.setStatus(pkg.title, "fixing")
 
           const currentSessionId = retrySessionId ?? buildSessionId
           if (currentSessionId) {
@@ -170,10 +174,26 @@ export const buildCommand = (fs: FileOps) =>
         return
       }
 
-      renderer.setStatus(pkg.title, "done")
+      // 1. Commit agent's code changes (before checking off items so the
+      //    commit message is generated from the actual implementation diff)
+      if (fs.formatFile) {
+        yield* fs.formatFile().pipe(Effect.catchAll(() => Effect.void))
+      }
       const buildDiff = yield* git.getDiff()
-      const buildCommitMsg = yield* generateCommitMessage("🔨", buildDiff)
+      renderer.setTextWithCursor("Generating commit message…")
+      const buildCommitMsg = yield* generateCommitMessage("🔨", buildDiff, {
+        onStop: () => renderer.stopCursor(),
+      })
+      renderer.setStatus(pkg.title, "done")
       yield* git.atomicCommit("all", buildCommitMsg)
+
+      // 2. Check off items and amend into the build commit
+      const currentContent = yield* fs.readFile()
+      const checkedContent = checkOffPackage(currentContent, pkg)
+      if (checkedContent !== currentContent) {
+        yield* fs.writeFile(checkedContent)
+        yield* git.amendFiles([config.file])
+      }
       completedSummaries.push(`- ${pkg.title}: implemented and tests passing`)
     }
 

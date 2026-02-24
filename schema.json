@@ -13,9 +13,6 @@
     "file": {
       "type": "string"
     },
-    "agent": {
-      "type": "string"
-    },
     "modelPlan": {
       "type": "string"
     },
@@ -45,48 +42,6 @@
       "description": "a non-negative number",
       "title": "greaterThanOrEqualTo(0)",
       "minimum": 0
-    },
-    "sandboxEnabled": {
-      "type": "boolean"
-    },
-    "sandboxBoundaries": {
-      "type": "object",
-      "required": [],
-      "properties": {
-        "filesystem": {
-          "type": "object",
-          "required": [],
-          "properties": {
-            "allowRead": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "allowWrite": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          "additionalProperties": false
-        },
-        "network": {
-          "type": "object",
-          "required": [],
-          "properties": {
-            "allowedDomains": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
     }
   },
   "additionalProperties": false

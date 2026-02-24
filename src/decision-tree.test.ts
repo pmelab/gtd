@@ -26,11 +26,8 @@ describe("startup message", () => {
 
   it("prints startup message to stderr", async () => {
     const agentLayer = Layer.succeed(AgentService, {
-      name: "claude",
       resolvedName: "claude",
-      providerType: "claude",
       invoke: () => Effect.succeed({ sessionId: undefined }),
-      isAvailable: () => Effect.succeed(true),
     })
     const quietLayer = QuietMode.layer(false)
     const configLayer = mockConfig({ file: "TODO.md" })
@@ -56,11 +53,8 @@ describe("startup message", () => {
 
   it("suppresses message when --quiet is set", async () => {
     const agentLayer = Layer.succeed(AgentService, {
-      name: "claude",
       resolvedName: "claude",
-      providerType: "claude",
       invoke: () => Effect.succeed({ sessionId: undefined }),
-      isAvailable: () => Effect.succeed(true),
     })
     const quietLayer = QuietMode.layer(true)
     const configLayer = mockConfig({ file: "TODO.md" })
@@ -116,7 +110,7 @@ describe("startup message", () => {
       onlyLearningsModified: false,
       todoFileIsNew: false,
     }
-    const msg = formatStartupMessage(makeInfo(state, "explore"), false)
+    const msg = formatStartupMessage(makeInfo(state, "plan"), false)
     expect(msg).toContain("seed")
   })
 
@@ -130,18 +124,6 @@ describe("startup message", () => {
     }
     const msg = formatStartupMessage(makeInfo(state, "plan"), false)
     expect(msg).toContain("feedback")
-  })
-
-  it("includes explore prefix in message", () => {
-    const state: InferStepInput = {
-      hasUncommittedChanges: false,
-      lastCommitPrefix: "🧭",
-      hasUncheckedItems: false,
-      onlyLearningsModified: false,
-      todoFileIsNew: false,
-    }
-    const msg = formatStartupMessage(makeInfo(state, "plan"), false)
-    expect(msg).toContain("explore")
   })
 
   it("shows model when provided", () => {

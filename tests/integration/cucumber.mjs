@@ -3,4 +3,5 @@ export default {
   import: ["tests/integration/support/**/*.ts"],
   requireModule: ["tsx"],
   format: ["progress"],
+  tags: "not @skip",
 }

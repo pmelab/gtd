@@ -100,6 +100,18 @@ export const parsePackages = (content: string): ReadonlyArray<Package> => {
   return packages
 }
 
+export const checkOffPackage = (content: string, pkg: Package): string => {
+  const lines = content.split("\n")
+  for (const item of pkg.items) {
+    if (!item.checked) {
+      // item.line is 1-based
+      const idx = item.line - 1
+      lines[idx] = lines[idx]!.replace("- [ ]", "- [x]")
+    }
+  }
+  return lines.join("\n")
+}
+
 export const getNextUncheckedPackage = (content: string): Option.Option<Package> => {
   const packages = parsePackages(content)
   const pkg = packages.find((p) => p.items.some((item) => !item.checked))

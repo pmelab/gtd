@@ -1,17 +1,11 @@
 import { describe, it, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
-import { AgentService, AgentError, resolveAgent, resolveModelForMode } from "./Agent.js"
-import type { AgentProvider, AgentInvocation } from "./Agent.js"
-import { GtdConfigService } from "./Config.js"
+import { AgentService, AgentError, resolveModelForMode } from "./Agent.js"
 
-const mockAgent: AgentProvider = {
-  name: "mock",
-  providerType: "pi",
+const mockAgentLayer = Layer.succeed(AgentService, {
+  resolvedName: "mock",
   invoke: () => Effect.succeed({ sessionId: undefined }),
-  isAvailable: () => Effect.succeed(true),
-}
-
-const mockAgentLayer = Layer.succeed(AgentService, { ...mockAgent, resolvedName: "mock", providerType: "pi" as const })
+})
 
 describe("AgentService", () => {
   it.effect("invoke calls the provider", () =>
@@ -23,14 +17,6 @@ describe("AgentService", () => {
         mode: "plan",
         cwd: "/tmp",
       })
-    }).pipe(Effect.provide(mockAgentLayer)),
-  )
-
-  it.effect("isAvailable returns true for mock", () =>
-    Effect.gen(function* () {
-      const agent = yield* AgentService
-      const available = yield* agent.isAvailable()
-      expect(available).toBe(true)
     }).pipe(Effect.provide(mockAgentLayer)),
   )
 
@@ -56,102 +42,12 @@ describe("AgentService", () => {
   })
 })
 
-describe("resolveAgent", () => {
-  it.effect("auto resolution sets name with (auto) suffix", () =>
-    Effect.gen(function* () {
-      const provider = yield* resolveAgent("auto")
-      expect(provider.name).toContain("(auto)")
-    }),
-  )
-
-  it.effect("pi resolution sets name to 'pi'", () =>
-    Effect.gen(function* () {
-      const provider = yield* resolveAgent("pi")
-      expect(provider.name).toBe("pi")
-    }),
-  )
-
-  it.effect("opencode resolution sets name to 'opencode'", () =>
-    Effect.gen(function* () {
-      const provider = yield* resolveAgent("opencode")
-      expect(provider.name).toBe("opencode")
-    }),
-  )
-
-  it.effect("claude resolution sets name to 'claude'", () =>
-    Effect.gen(function* () {
-      const provider = yield* resolveAgent("claude")
-      expect(provider.name).toBe("claude")
-    }),
-  )
-})
-
-describe("resolveAgent with sandbox", () => {
-  it("wraps provider when sandboxEnabled is true and runtime available", async () => {
-    const provider = await Effect.runPromise(
-      resolveAgent({ agentId: "pi", sandboxEnabled: true }),
-    )
-    // If sandbox runtime is not installed, it should fall back to unwrapped
-    // If installed, name should contain "(sandbox)"
-    expect(typeof provider.name).toBe("string")
-    expect(provider.providerType).toBe("pi")
-  })
-
-  it("returns unwrapped provider when sandboxEnabled is false", async () => {
-    const provider = await Effect.runPromise(
-      resolveAgent({ agentId: "pi", sandboxEnabled: false }),
-    )
-    expect(provider.name).toBe("pi")
-    expect(provider.name).not.toContain("sandbox")
-  })
-
-  it("string argument behaves as sandboxEnabled=true", async () => {
-    const provider = await Effect.runPromise(resolveAgent("pi"))
-    expect(typeof provider.name).toBe("string")
-    expect(provider.providerType).toBe("pi")
-  })
-})
-
-describe("AgentService.Live", () => {
-  it.effect("exposes resolved agent name with auto config", () =>
-    Effect.gen(function* () {
-      const agent = yield* AgentService
-      expect(typeof agent.resolvedName).toBe("string")
-      expect(agent.resolvedName.length).toBeGreaterThan(0)
-    }).pipe(
-      Effect.provide(
-        AgentService.Live.pipe(
-          Layer.provide(
-            Layer.succeed(GtdConfigService, {
-              file: "TODO.md",
-              agent: "auto",
-              modelPlan: undefined,
-              modelBuild: undefined,
-              modelLearn: undefined,
-              modelCommit: undefined,
-              modelExplore: undefined,
-              testCmd: "",
-              testRetries: 0,
-              commitPrompt: "",
-              agentInactivityTimeout: 300,
-              sandboxEnabled: true,
-              sandboxBoundaries: {},
-              configSources: [],
-            }),
-          ),
-        ),
-      ),
-    ),
-  )
-})
-
 describe("resolveModelForMode", () => {
   const configWithModels = {
     modelPlan: "sonnet-4",
     modelBuild: "opus",
     modelLearn: "haiku",
     modelCommit: "flash",
-    modelExplore: "claude-opus-4-5",
   }
 
   const configNoModels = {
@@ -159,7 +55,6 @@ describe("resolveModelForMode", () => {
     modelBuild: undefined,
     modelLearn: undefined,
     modelCommit: undefined,
-    modelExplore: undefined,
   }
 
   it("returns modelPlan for plan mode", () => {
@@ -178,19 +73,11 @@ describe("resolveModelForMode", () => {
     expect(resolveModelForMode("commit", configWithModels)).toBe("flash")
   })
 
-  it("returns modelExplore for explore mode", () => {
-    expect(resolveModelForMode("explore", configWithModels)).toBe("claude-opus-4-5")
-  })
-
   it("returns undefined when modelPlan is not set", () => {
     expect(resolveModelForMode("plan", configNoModels)).toBeUndefined()
   })
 
   it("returns undefined when modelCommit is not set", () => {
     expect(resolveModelForMode("commit", configNoModels)).toBeUndefined()
-  })
-
-  it("returns undefined when modelExplore is not set", () => {
-    expect(resolveModelForMode("explore", configNoModels)).toBeUndefined()
   })
 })

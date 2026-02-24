@@ -26,7 +26,9 @@ from the plan.
 5. Do NOT implement items from other work packages — focus only on the current
    one
 6. Keep changes minimal and focused
-7. After each item is implemented, mark it as done by changing `- [ ]` to
-   `- [x]` in the plan file
+7. Do NOT mark items as done in the plan file — the orchestrator checks off
+   items automatically after tests pass
+8. Do NOT run any git commands (add, commit, push, etc.) — the orchestrator
+   handles version control automatically
 
 {{testOutput}}

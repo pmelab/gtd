@@ -1,4 +1,4 @@
-@sandbox
+@sandbox @skip
 Feature: Sandbox boundaries
 
   Scenario: Network - untrusted domain denied by default

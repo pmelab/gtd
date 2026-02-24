@@ -56,7 +56,7 @@ export const planCommand = (fs: FileOps) =>
     }
 
     // 5. Invoke agent
-    renderer.setText(`Planning (state: ${state})...`)
+    renderer.setText("Planning...")
     const planResult = yield* agent
       .invoke({
         prompt,
@@ -103,7 +103,7 @@ export const planCommand = (fs: FileOps) =>
     if (fs.formatFile) {
       yield* fs.formatFile().pipe(
         Effect.catchAll((err) => {
-          renderer.setText(`Prettier warning: ${err.message}`)
+          renderer.setText(`Format warning: ${err.message}`)
           return Effect.void
         }),
       )
@@ -113,12 +113,14 @@ export const planCommand = (fs: FileOps) =>
     const hasChanges = yield* git.hasUncommittedChanges()
     if (hasChanges) {
       const planDiff = yield* git.getDiff()
-      const planCommitMessage = yield* generateCommitMessage("🤖", planDiff)
+      renderer.setTextWithCursor("Generating commit message…")
+      const planCommitMessage = yield* generateCommitMessage("🤖", planDiff, {
+        onStop: () => renderer.stopCursor(),
+      })
+      renderer.setText("Committing…")
       yield* git.atomicCommit("all", planCommitMessage)
-      renderer.succeed("Plan committed.")
     } else {
       yield* git.emptyCommit("🤖 plan: no changes")
-      renderer.succeed("Plan unchanged, empty commit to advance state.")
     }
 
     // 8. Save session ID for build command

@@ -5,18 +5,14 @@ import { GitService, type GitOperations } from "./services/Git.js"
 
 export const defaultTestConfig: GtdConfig = {
   file: "TODO.md",
-  agent: "auto",
   modelPlan: undefined,
   modelBuild: undefined,
   modelLearn: undefined,
   modelCommit: undefined,
-  modelExplore: undefined,
   testCmd: "",
   testRetries: 10,
   commitPrompt: "{{diff}}",
   agentInactivityTimeout: 300,
-  sandboxEnabled: true,
-  sandboxBoundaries: {},
   configSources: [],
 }
 
@@ -41,6 +37,7 @@ export const mockGit = (overrides: Partial<GitOperations> = {}) => {
         else yield* base.add(files)
         yield* base.commit(message)
       })) as GitOperations["atomicCommit"],
+    amendFiles: () => Effect.void,
     stageByPatch: () => Effect.void,
     ...overrides,
   }
@@ -49,6 +46,7 @@ export const mockGit = (overrides: Partial<GitOperations> = {}) => {
 
 export const mockFs = (content: string) => ({
   readFile: () => Effect.succeed(content),
+  writeFile: () => Effect.void,
   exists: () => Effect.succeed(content !== ""),
   getDiffContent: () => Effect.succeed(""),
   remove: () => Effect.void,

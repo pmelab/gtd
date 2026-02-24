@@ -13,22 +13,12 @@ export const EXAMPLE_CONFIG = {
   _comment:
     "This is an example config. You can move this file to ~/.config/gtd/ or any other supported location.",
   file: "TODO.md",
-  agent: "claude",
-  modelPlan: "sonnet",
-  modelBuild: "sonnet",
-  modelCommit: "haiku",
+  modelPlan: "anthropic/claude-sonnet-4-20250514",
+  modelBuild: "anthropic/claude-sonnet-4-20250514",
+  modelCommit: "anthropic/claude-haiku-4-5-20251001",
   testCmd: "npm test",
   testRetries: 10,
   agentInactivityTimeout: 300,
-  sandboxEnabled: true,
-  sandboxBoundaries: {
-    filesystem: {
-      allowWrite: ["/shared/output"],
-    },
-    network: {
-      allowedDomains: ["registry.npmjs.org"],
-    },
-  },
 }
 
 export const createExampleConfig = (
@@ -143,18 +133,14 @@ When converting rough notes into action items, always use unchecked \`- [ ]\` fo
 
 const defaults: Omit<GtdConfig, "configSources"> = {
   file: "TODO.md",
-  agent: "auto",
   modelPlan: undefined,
   modelBuild: undefined,
   modelLearn: undefined,
   modelCommit: undefined,
-  modelExplore: undefined,
   testCmd: "npm test",
   testRetries: 10,
   commitPrompt: defaultCommitPrompt,
   agentInactivityTimeout: 300,
-  sandboxEnabled: true,
-  sandboxBoundaries: {},
 }
 
 const decode = Schema.decodeUnknownEither(GtdConfigSchema)
@@ -162,15 +148,16 @@ const decode = Schema.decodeUnknownEither(GtdConfigSchema)
 export const mergeConfigs = (configs: ReadonlyArray<ConfigResult>): GtdConfig => {
   const merged: Record<string, unknown> = {}
   const configSources: string[] = []
-  const mergedFilesystemAllowRead: string[] = []
-  const mergedFilesystemAllowWrite: string[] = []
-  const mergedNetworkAllowedDomains: string[] = []
 
   const validParsed: Array<{ parsed: Record<string, unknown>; filepath: string }> = []
 
   for (let i = 0; i < configs.length; i++) {
     const raw = configs[i]!.config
+    // Strip deprecated fields that old configs might still have
     const {
+      agent: _agent,
+      sandboxEnabled: _se,
+      sandboxBoundaries: _sb,
       sandboxEscalationPolicy: _sep,
       sandboxApprovedEscalations: _sae,
       approvedEscalations: _ae,
@@ -190,58 +177,13 @@ export const mergeConfigs = (configs: ReadonlyArray<ConfigResult>): GtdConfig =>
 
   for (let i = validParsed.length - 1; i >= 0; i--) {
     const { parsed, filepath } = validParsed[i]!
-
-    if (parsed.sandboxBoundaries && typeof parsed.sandboxBoundaries === "object") {
-      const boundaries = parsed.sandboxBoundaries as Record<string, unknown>
-
-      if (boundaries.filesystem && typeof boundaries.filesystem === "object") {
-        const fs = boundaries.filesystem as Record<string, unknown>
-        if (Array.isArray(fs.allowRead)) {
-          mergedFilesystemAllowRead.push(...(fs.allowRead as string[]))
-        }
-        if (Array.isArray(fs.allowWrite)) {
-          mergedFilesystemAllowWrite.push(...(fs.allowWrite as string[]))
-        }
-      }
-
-      if (boundaries.network && typeof boundaries.network === "object") {
-        const net = boundaries.network as Record<string, unknown>
-        if (Array.isArray(net.allowedDomains)) {
-          mergedNetworkAllowedDomains.push(...(net.allowedDomains as string[]))
-        }
-      }
-    }
-
     Object.assign(merged, parsed)
     configSources.unshift(filepath)
-  }
-
-  const filesystemOverrides =
-    mergedFilesystemAllowRead.length > 0 || mergedFilesystemAllowWrite.length > 0
-      ? {
-          ...(mergedFilesystemAllowRead.length > 0
-            ? { allowRead: [...new Set(mergedFilesystemAllowRead)] }
-            : {}),
-          ...(mergedFilesystemAllowWrite.length > 0
-            ? { allowWrite: [...new Set(mergedFilesystemAllowWrite)] }
-            : {}),
-        }
-      : undefined
-
-  const networkOverrides =
-    mergedNetworkAllowedDomains.length > 0
-      ? { allowedDomains: [...new Set(mergedNetworkAllowedDomains)] }
-      : undefined
-
-  const finalBoundaries = {
-    ...(filesystemOverrides ? { filesystem: filesystemOverrides } : {}),
-    ...(networkOverrides ? { network: networkOverrides } : {}),
   }
 
   return {
     ...defaults,
     ...merged,
-    sandboxBoundaries: finalBoundaries,
     configSources,
   } as GtdConfig
 }

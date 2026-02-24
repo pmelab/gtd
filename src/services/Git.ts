@@ -1,10 +1,11 @@
 import { Command, CommandExecutor } from "@effect/platform"
 import { Context, Effect, Layer } from "effect"
-import { isInteractive, ANSI } from "./Renderer.js"
+import chalk from "chalk"
+import { isInteractive } from "./Renderer.js"
 
 const logCommit = (message: string): void => {
   if (isInteractive()) {
-    process.stderr.write(`  ${ANSI.dim}Committed:${ANSI.reset} ${message}\n`)
+    process.stderr.write(chalk.bold.green("✓ Committed: ") + message + "\n")
   } else {
     process.stderr.write(`[gtd] Committed: ${message}\n`)
   }
@@ -25,6 +26,7 @@ export interface GitOperations {
     files: ReadonlyArray<string> | "all",
     message: string,
   ) => Effect.Effect<void, Error>
+  readonly amendFiles: (files: ReadonlyArray<string>) => Effect.Effect<void, Error>
   readonly stageByPatch: (patch: string) => Effect.Effect<void, Error>
 }
 
@@ -148,6 +150,14 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
                 ),
               )
               logCommit(message)
+            }),
+          ),
+
+        amendFiles: (files) =>
+          Effect.uninterruptible(
+            Effect.gen(function* () {
+              yield* exec("git", "add", ...files)
+              yield* exec("git", "commit", "--amend", "--no-edit")
             }),
           ),
 

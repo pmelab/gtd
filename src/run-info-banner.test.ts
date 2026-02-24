@@ -27,11 +27,8 @@ describe("startup message in CLI", () => {
 
   it("prints startup message to stderr containing agent name and step", async () => {
     const agentLayer = Layer.succeed(AgentService, {
-      name: "pi",
       resolvedName: "pi (auto)",
-      providerType: "pi",
       invoke: () => Effect.succeed({ sessionId: undefined }),
-      isAvailable: () => Effect.succeed(true),
     })
 
     const configLayer = mockConfig({ file: "TODO.md" })
@@ -50,11 +47,8 @@ describe("startup message in CLI", () => {
 
   it("prints startup message with model info when configured", async () => {
     const agentLayer = Layer.succeed(AgentService, {
-      name: "pi",
       resolvedName: "pi (auto)",
-      providerType: "pi",
       invoke: () => Effect.succeed({ sessionId: undefined }),
-      isAvailable: () => Effect.succeed(true),
     })
 
     const configLayer = mockConfig({ file: "TODO.md", modelPlan: "sonnet-4" })
@@ -72,11 +66,8 @@ describe("startup message in CLI", () => {
 
   it("omits model from message when not configured", async () => {
     const agentLayer = Layer.succeed(AgentService, {
-      name: "pi",
       resolvedName: "pi (auto)",
-      providerType: "pi",
       invoke: () => Effect.succeed({ sessionId: undefined }),
-      isAvailable: () => Effect.succeed(true),
     })
 
     const configLayer = mockConfig({ file: "TODO.md" })
@@ -94,11 +85,8 @@ describe("startup message in CLI", () => {
 
   it("suppresses message when --quiet is set", async () => {
     const agentLayer = Layer.succeed(AgentService, {
-      name: "pi",
       resolvedName: "pi (auto)",
-      providerType: "pi",
       invoke: () => Effect.succeed({ sessionId: undefined }),
-      isAvailable: () => Effect.succeed(true),
     })
 
     const configLayer = mockConfig({ file: "TODO.md" })

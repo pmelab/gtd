@@ -1,105 +1,12 @@
 import { Given, When } from "@cucumber/cucumber"
-import { writeFileSync, readFileSync } from "node:fs"
-import { execSync } from "node:child_process"
+import { writeFileSync, readFileSync, mkdirSync } from "node:fs"
+import { execFileSync } from "node:child_process"
 import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
-import {
-  createTestProject,
-  setupSeeded,
-  setupSeededWithConfig,
-  setupSeededAndExplored,
-  setupExploredWithHumanEdits,
-  setupExploredWithFeedback,
-  setupSeededAndPlanned,
-  setupPlannedWithFeedback,
-  setupBuilt,
-  setupCodeTodosProcessed,
-  setupTwiceBuilt,
-  setupFullyCompleted,
-} from "../../helpers/project-setup.js"
+import { createTestProject } from "../../helpers/project-setup.js"
 
 Given("a test project", function (this: GtdWorld) {
   this.repoDir = createTestProject()
-})
-
-Given("a seeded project", function (this: GtdWorld) {
-  this.repoDir = createTestProject()
-  setupSeeded(this.repoDir)
-})
-
-Given("a seeded and explored project", function (this: GtdWorld) {
-  this.repoDir = createTestProject()
-  setupSeededAndExplored(this.repoDir)
-})
-
-Given("an explored project with human edits", function (this: GtdWorld) {
-  this.repoDir = createTestProject()
-  setupExploredWithHumanEdits(this.repoDir)
-})
-
-Given(
-  "a seeded project with modelExplore {string}",
-  function (this: GtdWorld, model: string) {
-    this.repoDir = createTestProject()
-    setupSeededWithConfig(this.repoDir, { modelExplore: model })
-  },
-)
-
-Given("a staged TODO with multiply tasks", function (this: GtdWorld) {
-  const todoPath = join(this.repoDir, "TODO.md")
-  writeFileSync(
-    todoPath,
-    `- add a \`multiply\` function to \`src/math.ts\` that multiplies two numbers
-- add a test for the \`multiply\` function in \`tests/math.test.ts\`
-`,
-  )
-  execSync("git add TODO.md", { cwd: this.repoDir })
-})
-
-Given("an untracked TODO with multiply tasks", function (this: GtdWorld) {
-  const todoPath = join(this.repoDir, "TODO.md")
-  writeFileSync(
-    todoPath,
-    `- add a \`multiply\` function to \`src/math.ts\` that multiplies two numbers
-- add a test for the \`multiply\` function in \`tests/math.test.ts\`
-`,
-  )
-  // Intentionally NOT staging — tests that getDiff() picks up untracked files
-})
-
-Given("an explored project with feedback", function (this: GtdWorld) {
-  this.repoDir = createTestProject()
-  setupExploredWithFeedback(this.repoDir)
-})
-
-Given("a seeded and planned project", function (this: GtdWorld) {
-  this.repoDir = createTestProject()
-  setupSeededAndPlanned(this.repoDir)
-})
-
-Given("a planned project with feedback", function (this: GtdWorld) {
-  this.repoDir = createTestProject()
-  setupPlannedWithFeedback(this.repoDir)
-})
-
-Given("a built project", function (this: GtdWorld) {
-  this.repoDir = createTestProject()
-  setupBuilt(this.repoDir)
-})
-
-Given("a project with code TODOs processed", function (this: GtdWorld) {
-  this.repoDir = createTestProject()
-  setupCodeTodosProcessed(this.repoDir)
-})
-
-Given("a twice-built project", function (this: GtdWorld) {
-  this.repoDir = createTestProject()
-  setupTwiceBuilt(this.repoDir)
-})
-
-Given("a fully completed project", function (this: GtdWorld) {
-  this.repoDir = createTestProject()
-  setupFullyCompleted(this.repoDir)
 })
 
 // File mutation steps
@@ -164,6 +71,69 @@ Given(
     writeFileSync(filePath, filtered.join("\n"))
   },
 )
+
+// Generic git commit steps
+
+Given(
+  "a commit {string} that adds {string} with:",
+  function (this: GtdWorld, message: string, filePath: string, content: string) {
+    const fullPath = join(this.repoDir, filePath)
+    mkdirSync(join(fullPath, ".."), { recursive: true })
+    writeFileSync(fullPath, content.endsWith("\n") ? content : content + "\n")
+    execFileSync("git", ["add", filePath], { cwd: this.repoDir, stdio: "pipe" })
+    execFileSync("git", ["commit", "-q", "-m", message], { cwd: this.repoDir, stdio: "pipe" })
+  },
+)
+
+Given(
+  "a commit {string} that updates {string} with:",
+  function (this: GtdWorld, message: string, filePath: string, content: string) {
+    const fullPath = join(this.repoDir, filePath)
+    writeFileSync(fullPath, content.endsWith("\n") ? content : content + "\n")
+    execFileSync("git", ["add", filePath], { cwd: this.repoDir, stdio: "pipe" })
+    execFileSync("git", ["commit", "-q", "-m", message], { cwd: this.repoDir, stdio: "pipe" })
+  },
+)
+
+Given(
+  "a commit {string} that removes {string}",
+  function (this: GtdWorld, message: string, filePath: string) {
+    execFileSync("git", ["rm", "-q", filePath], { cwd: this.repoDir, stdio: "pipe" })
+    execFileSync("git", ["commit", "-q", "-m", message], { cwd: this.repoDir, stdio: "pipe" })
+  },
+)
+
+Given(
+  "a staged file {string} with:",
+  function (this: GtdWorld, filePath: string, content: string) {
+    const fullPath = join(this.repoDir, filePath)
+    mkdirSync(join(fullPath, ".."), { recursive: true })
+    writeFileSync(fullPath, content.endsWith("\n") ? content : content + "\n")
+    execFileSync("git", ["add", filePath], { cwd: this.repoDir, stdio: "pipe" })
+  },
+)
+
+Given(
+  "an untracked file {string} with:",
+  function (this: GtdWorld, filePath: string, content: string) {
+    const fullPath = join(this.repoDir, filePath)
+    mkdirSync(join(fullPath, ".."), { recursive: true })
+    writeFileSync(fullPath, content.endsWith("\n") ? content : content + "\n")
+    // Intentionally NOT staging — file remains untracked
+  },
+)
+
+Given("a commit {string}", function (this: GtdWorld, message: string) {
+  const status = execFileSync("git", ["status", "--porcelain"], {
+    cwd: this.repoDir,
+    encoding: "utf-8",
+    stdio: "pipe",
+  })
+  if (!status.trim()) {
+    throw new Error(`Nothing staged to commit for "${message}"`)
+  }
+  execFileSync("git", ["commit", "-q", "-m", message], { cwd: this.repoDir, stdio: "pipe" })
+})
 
 When("I run gtd", function (this: GtdWorld) {
   this.runGtd()

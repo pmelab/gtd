@@ -37,7 +37,6 @@ describe("GtdConfigService (file-based)", () => {
   it("provides all default values when no config files exist", async () => {
     const config = await Effect.runPromise(runWithDirs())
     expect(config.file).toBe("TODO.md")
-    expect(config.agent).toBe("auto")
     expect(config.modelPlan).toBeUndefined()
     expect(config.modelBuild).toBeUndefined()
     expect(config.modelLearn).toBeUndefined()
@@ -63,7 +62,6 @@ describe("GtdConfigService (file-based)", () => {
 
     const config = await Effect.runPromise(runWithDirs({ cwd }))
     expect(config.file).toBe("PLAN.md")
-    expect(config.agent).toBe("claude")
     expect(config.testRetries).toBe(5)
     // defaults still apply for unset keys
     expect(config.modelPlan).toBeUndefined()
@@ -84,7 +82,6 @@ testRetries: 3
 
     const config = await Effect.runPromise(runWithDirs({ cwd }))
     expect(config.file).toBe("TASKS.md")
-    expect(config.agent).toBe("opencode")
     expect(config.testRetries).toBe(3)
     // defaults still apply for unset keys
     expect(config.modelBuild).toBeUndefined()
@@ -128,7 +125,6 @@ testRetries: 3
     expect(config.file).toBe("XDG_GTD.md")
     expect(config.testRetries).toBe(7)
     // defaults still apply
-    expect(config.agent).toBe("auto")
   })
 
   // --- XDG config locations: $XDG_CONFIG_HOME/.gtdrc.json ---
@@ -137,11 +133,10 @@ testRetries: 3
     await mkdir(xdg, { recursive: true })
     await writeFile(
       join(xdg, ".gtdrc.json"),
-      JSON.stringify({ agent: "opencode", agentInactivityTimeout: 600 }),
+      JSON.stringify({ agentInactivityTimeout: 600 }),
     )
 
     const config = await Effect.runPromise(runWithDirs({ xdgConfigHome: xdg }))
-    expect(config.agent).toBe("opencode")
     expect(config.agentInactivityTimeout).toBe(600)
     // defaults still apply
     expect(config.file).toBe("TODO.md")
@@ -179,13 +174,12 @@ testRetries: 3
     await mkdir(gtdDir, { recursive: true })
 
     await writeFile(join(cwd, ".gtdrc.json"), JSON.stringify({ file: "CWD.md" }))
-    await writeFile(join(gtdDir, ".gtdrc.json"), JSON.stringify({ file: "XDG_GTD.md", agent: "xdg-gtd" }))
-    await writeFile(join(xdg, ".gtdrc.json"), JSON.stringify({ file: "XDG.md", agent: "xdg", testCmd: "xdg-test" }))
-    await writeFile(join(home, ".gtdrc.json"), JSON.stringify({ file: "HOME.md", agent: "home", testCmd: "home-test", testRetries: 99 }))
+    await writeFile(join(gtdDir, ".gtdrc.json"), JSON.stringify({ file: "XDG_GTD.md" }))
+    await writeFile(join(xdg, ".gtdrc.json"), JSON.stringify({ file: "XDG.md", testCmd: "xdg-test" }))
+    await writeFile(join(home, ".gtdrc.json"), JSON.stringify({ file: "HOME.md", testCmd: "home-test", testRetries: 99 }))
 
     const config = await Effect.runPromise(runWithDirs({ cwd, home, xdgConfigHome: xdg }))
     expect(config.file).toBe("CWD.md")           // from cwd
-    expect(config.agent).toBe("xdg-gtd")          // from xdg/gtd
     expect(config.testCmd).toBe("xdg-test")        // from xdg root
     expect(config.testRetries).toBe(99)            // from home
   })
@@ -283,6 +277,5 @@ testRetries: 3
       }).pipe(Effect.provide(GtdConfigService.Live)),
     )
     expect(config.file).toBeDefined()
-    expect(config.agent).toBeDefined()
   })
 })

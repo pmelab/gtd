@@ -3,7 +3,6 @@ import { Console, Effect } from "effect"
 import { makePlanCommand } from "./commands/plan.js"
 import { makeBuildCommand } from "./commands/build.js"
 import { makeCleanupCommand } from "./commands/cleanup.js"
-import { makeExploreCommand } from "./commands/explore.js"
 import { commitFeedbackCommand } from "./commands/commit-feedback.js"
 import { initAction } from "./commands/init.js"
 import { GitService } from "./services/Git.js"
@@ -65,7 +64,11 @@ export const learnAction = (input: LearnInput) =>
         const hasChanges = yield* git.hasUncommittedChanges()
         if (hasChanges) {
           const learnDiff = yield* git.getDiff()
-          const learnCommitMsg = yield* generateCommitMessage("🎓", learnDiff)
+          renderer.setTextWithCursor("Generating commit message…")
+          const learnCommitMsg = yield* generateCommitMessage("🎓", learnDiff, {
+            onStop: () => renderer.stopCursor(),
+          })
+          renderer.setText("Committing…")
           yield* git.atomicCommit("all", learnCommitMsg)
           renderer.succeed("Learnings persisted to AGENTS.md and committed.")
         } else {
@@ -162,8 +165,6 @@ export const dispatch = (state: InferStepInput) => inferStep(state)
 
 const runStep = (step: Step, fs: FileOps) => {
   switch (step) {
-    case "explore":
-      return makeExploreCommand
     case "plan":
       return makePlanCommand
     case "build":
@@ -205,7 +206,7 @@ const rootCommand = Command.make("gtd", { quiet: quietOption }, ({ quiet }) =>
     yield* printStartupMessage(state, step)
 
     if (step === "commit-feedback") {
-      yield* commitFeedbackCommand()
+      yield* commitFeedbackCommand(fs)
       const newState = yield* gatherState(yield* nodeFileOps(config.file))
       const newStep = dispatch({
         ...newState,

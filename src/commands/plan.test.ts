@@ -10,14 +10,11 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       yield* planCommand(mockFs("")).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
@@ -32,14 +29,11 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       const existingPlan = `# Feature\n\n## Action Items\n\n- [ ] Item\n  - Detail\n  - Tests: check\n`
       yield* planCommand(mockFs(existingPlan)).pipe(
@@ -63,14 +57,11 @@ describe("planCommand", () => {
           }),
       })
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) => {
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "plan: update TODO.md" })
           return Effect.succeed<AgentResult>({ sessionId: undefined })
         },
-        isAvailable: () => Effect.succeed(true),
       })
       yield* planCommand(mockFs("")).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
@@ -85,11 +76,8 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       let savedSessionId: string | undefined
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: "plan-ses-abc" }),
-        isAvailable: () => Effect.succeed(true),
       })
       const fs = {
         ...mockFs(""),
@@ -110,9 +98,7 @@ describe("planCommand", () => {
       const calls: AgentInvocation[] = []
       let planCallCount = 0
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           if (params.mode === "plan") {
@@ -121,7 +107,6 @@ describe("planCommand", () => {
           }
           return Effect.succeed<AgentResult>({ sessionId: undefined })
         },
-        isAvailable: () => Effect.succeed(true),
       })
       const planWithBlockquote = [
         "# Feature",
@@ -152,6 +137,7 @@ describe("planCommand", () => {
       let readCount = 0
       const fs = {
         readFile: () => Effect.succeed(readCount++ < 2 ? planWithBlockquote : cleanPlan),
+        writeFile: () => Effect.void,
         exists: () => Effect.succeed(true),
         getDiffContent: () => Effect.succeed(""),
         remove: () => Effect.void,
@@ -170,14 +156,11 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: "plan-ses-new" }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       let savedSessionId: string | undefined
       const fs = {
@@ -202,14 +185,11 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       const fs = {
         ...mockFs(""),
@@ -226,11 +206,8 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       let writeSessionCalled = false
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
       })
       const fs = {
         ...mockFs(""),
@@ -250,11 +227,8 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       let formatCalled = false
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
       })
       const gitCalls: string[] = []
       const gitLayer = mockGit({
@@ -287,11 +261,8 @@ describe("planCommand", () => {
   it.effect("still commits when formatFile fails", () =>
     Effect.gen(function* () {
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
       })
       const gitCalls: string[] = []
       const gitLayer = mockGit({
@@ -335,11 +306,8 @@ describe("planCommand", () => {
           }),
       })
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
       })
       yield* planCommand(mockFs("")).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
@@ -353,14 +321,11 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       const diffWithTodo = [
         "diff --git a/src/foo.ts b/src/foo.ts",
@@ -385,14 +350,11 @@ describe("planCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       const lastCommitDiff = "diff --git a/TODO.md b/TODO.md\n+> Fix the bug in parser"
       const gitLayer = mockGit({

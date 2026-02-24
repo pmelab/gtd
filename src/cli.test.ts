@@ -4,7 +4,7 @@ import { command, gatherState, dispatch, learnAction } from "./cli.js"
 import { AgentService } from "./services/Agent.js"
 import type { AgentInvocation } from "./services/Agent.js"
 import { mockConfig, mockGit, mockFs, nodeLayer } from "./test-helpers.js"
-import { SEED, FEEDBACK, EXPLORE, HUMAN } from "./services/CommitPrefix.js"
+import { SEED, FEEDBACK, HUMAN } from "./services/CommitPrefix.js"
 
 describe("gtd unified command", () => {
   it.effect("command is defined with init subcommand", () =>
@@ -137,15 +137,12 @@ describe("learnAction", () => {
     const commits: string[] = []
     let removed = false
     const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
       invoke: (params) => {
         calls.push(params)
         if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "learn: persist learnings" })
         return Effect.succeed({ sessionId: undefined })
       },
-      isAvailable: () => Effect.succeed(true),
     })
     const gitLayer = mockGit({
       commit: (msg) =>
@@ -190,15 +187,12 @@ describe("learnAction", () => {
       "",
     ].join("\n")
     const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
       invoke: (params) =>
         Effect.sync(() => {
           calls.push(params)
           return { sessionId: undefined }
         }),
-      isAvailable: () => Effect.succeed(true),
     })
     const gitLayer = mockGit({
       commit: (msg) =>
@@ -231,14 +225,11 @@ describe("learnAction", () => {
     const emptyCommits: string[] = []
     let removed = false
     const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
       invoke: (params) => {
         calls.push(params)
         return Effect.succeed({ sessionId: undefined })
       },
-      isAvailable: () => Effect.succeed(true),
     })
     const gitLayer = mockGit({
       hasUncommittedChanges: () => Effect.succeed(false),
@@ -282,15 +273,12 @@ describe("learnAction", () => {
       "",
     ].join("\n")
     const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
       invoke: (params) =>
         Effect.sync(() => {
           calls.push(params)
           return { sessionId: undefined }
         }),
-      isAvailable: () => Effect.succeed(true),
     })
     const gitLayer = mockGit({
       commit: (msg) =>
@@ -362,6 +350,7 @@ describe("gatherState computes onlyLearningsModified", () => {
       readFile: () => Effect.succeed(currentContent),
       exists: () => Effect.succeed(true),
       getDiffContent: () => Effect.succeed(diff),
+      writeFile: () => Effect.void,
       remove: () => Effect.void,
     }
 
@@ -408,6 +397,7 @@ describe("gatherState computes onlyLearningsModified", () => {
       readFile: () => Effect.succeed(preCommitContent + "- new learning\n"),
       exists: () => Effect.succeed(true),
       getDiffContent: () => Effect.succeed(""),
+      writeFile: () => Effect.void,
       remove: () => Effect.void,
     }
 
@@ -459,6 +449,7 @@ describe("gatherState handles SEED and FEEDBACK for onlyLearningsModified", () =
       readFile: () => Effect.succeed(preCommitContent),
       exists: () => Effect.succeed(true),
       getDiffContent: () => Effect.succeed(""),
+      writeFile: () => Effect.void,
       remove: () => Effect.void,
     }
 
@@ -470,7 +461,7 @@ describe("gatherState handles SEED and FEEDBACK for onlyLearningsModified", () =
 
     expect(state.lastCommitPrefix).toBe(SEED)
     expect(state.onlyLearningsModified).toBe(false)
-    expect(dispatch(state)).toBe("explore")
+    expect(dispatch(state)).toBe("plan")
   })
 
   it("after a 💬 commit correctly infers plan as next step", async () => {
@@ -507,6 +498,7 @@ describe("gatherState handles SEED and FEEDBACK for onlyLearningsModified", () =
       readFile: () => Effect.succeed(preCommitContent + "\n> Please reconsider this approach\n"),
       exists: () => Effect.succeed(true),
       getDiffContent: () => Effect.succeed(""),
+      writeFile: () => Effect.void,
       remove: () => Effect.void,
     }
 
@@ -555,6 +547,7 @@ describe("gatherState handles SEED and FEEDBACK for onlyLearningsModified", () =
       readFile: () => Effect.succeed(preCommitContent + "- new learning\n"),
       exists: () => Effect.succeed(true),
       getDiffContent: () => Effect.succeed(""),
+      writeFile: () => Effect.void,
       remove: () => Effect.void,
     }
 
@@ -602,6 +595,7 @@ describe("gatherState handles SEED and FEEDBACK for onlyLearningsModified", () =
       readFile: () => Effect.succeed(preCommitContent + "- new learning\n"),
       exists: () => Effect.succeed(true),
       getDiffContent: () => Effect.succeed(""),
+      writeFile: () => Effect.void,
       remove: () => Effect.void,
     }
 
@@ -718,32 +712,6 @@ describe("gatherState computes todoFileIsNew", () => {
 })
 
 describe("gatherState resolves prevPhasePrefix", () => {
-  it("resolves EXPLORE when git log is EXPLORE → HUMAN → HUMAN", async () => {
-    const gitLayer = mockGit({
-      hasUncommittedChanges: () => Effect.succeed(false),
-      getLastCommitMessage: () => Effect.succeed(`${HUMAN} edit: user feedback`),
-      getCommitMessages: (n) =>
-        Effect.succeed([
-          `${HUMAN} edit: user feedback`,
-          `${HUMAN} edit: more feedback`,
-          `${EXPLORE} explore: propose options`,
-          "🌱 seed: initial idea",
-        ].slice(0, n)),
-      show: () => Effect.succeed(""),
-    })
-
-    const fileOps = { ...mockFs(""), getDiffContent: () => Effect.succeed("") }
-
-    const state = await Effect.runPromise(
-      gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
-      ),
-    )
-
-    expect(state.lastCommitPrefix).toBe(HUMAN)
-    expect(state.prevPhasePrefix).toBe(EXPLORE)
-  })
-
   it("resolves undefined prevPhasePrefix when no non-HUMAN commit found", async () => {
     const gitLayer = mockGit({
       hasUncommittedChanges: () => Effect.succeed(false),
@@ -765,28 +733,6 @@ describe("gatherState resolves prevPhasePrefix", () => {
     expect(state.prevPhasePrefix).toBeUndefined()
   })
 
-  it("HUMAN after EXPLORE routes to explore via dispatch", async () => {
-    const gitLayer = mockGit({
-      hasUncommittedChanges: () => Effect.succeed(false),
-      getLastCommitMessage: () => Effect.succeed(`${HUMAN} edit: feedback`),
-      getCommitMessages: (n) =>
-        Effect.succeed([
-          `${HUMAN} edit: feedback`,
-          `${EXPLORE} explore: options`,
-        ].slice(0, n)),
-      show: () => Effect.succeed(""),
-    })
-
-    const fileOps = { ...mockFs(""), getDiffContent: () => Effect.succeed("") }
-
-    const state = await Effect.runPromise(
-      gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
-      ),
-    )
-
-    expect(dispatch(state)).toBe("explore")
-  })
 })
 
 describe("gtd subcommands", () => {

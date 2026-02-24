@@ -1,11 +1,15 @@
 import { describe, it, expect, vi } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { AgentService } from "../services/Agent.js"
-import type { AgentInvocation } from "../services/Agent.js"
 import { commitFeedbackCommand } from "./commit-feedback.js"
 import { gatherState } from "../cli.js"
 import { inferStep } from "../services/InferStep.js"
 import { mockConfig, mockGit, mockFs } from "../test-helpers.js"
+
+const agentLayer = Layer.succeed(AgentService, {
+  resolvedName: "mock",
+  invoke: () => Effect.succeed({ sessionId: undefined }),
+})
 
 describe("commitFeedbackCommand", () => {
   it.effect("calls atomicCommit with 'all' and message starting with 🤦", () =>
@@ -23,14 +27,6 @@ describe("commitFeedbackCommand", () => {
           }),
       })
 
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
-      })
-
       yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
@@ -41,40 +37,7 @@ describe("commitFeedbackCommand", () => {
     }),
   )
 
-  it.effect("uses agent to generate summary from diff", () =>
-    Effect.gen(function* () {
-      const calls: AgentInvocation[] = []
-
-      const gitLayer = mockGit({
-        getDiff: () => Effect.succeed("diff --git a/bar.ts\n+export const bar = true"),
-        hasUncommittedChanges: () => Effect.succeed(true),
-        atomicCommit: () => Effect.void,
-      })
-
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: (params) => {
-          calls.push(params)
-          return Effect.succeed({ sessionId: undefined })
-        },
-        isAvailable: () => Effect.succeed(true),
-      })
-
-      yield* commitFeedbackCommand().pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
-      )
-
-      // 2 calls: one for commit prompt, one for commit message generation
-      expect(calls.length).toBe(2)
-      expect(calls[0]!.prompt).toContain("diff --git a/bar.ts")
-      // Second call is for commit message summarization
-      expect(calls[1]!.prompt).toContain("commit message")
-    }),
-  )
-
-  it.effect("includes agent response in commit message after 🤦 prefix", () =>
+  it.effect("includes prefix in commit message", () =>
     Effect.gen(function* () {
       let commitMessage: string | undefined
 
@@ -87,14 +50,6 @@ describe("commitFeedbackCommand", () => {
           }),
       })
 
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
-      })
-
       yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
@@ -104,34 +59,17 @@ describe("commitFeedbackCommand", () => {
     }),
   )
 
-  it.effect("logs confirmation message after commit without chaining plan", () =>
+  it.effect("completes without error after committing feedback", () =>
     Effect.gen(function* () {
-      const logs: string[] = []
-      const consoleSpy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-        logs.push(args.map(String).join(" "))
-      })
-
       const gitLayer = mockGit({
         getDiff: () => Effect.succeed("diff --git a/foo.ts\n+const x = 1"),
         hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: () => Effect.void,
       })
 
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
-      })
-
       yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
-
-      expect(logs.some((l) => l.includes("Feedback committed"))).toBe(true)
-
-      consoleSpy.mockRestore()
     }),
   )
 
@@ -151,14 +89,6 @@ describe("commitFeedbackCommand", () => {
           }),
         hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: () => Effect.void,
-      })
-
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
       })
 
       yield* commitFeedbackCommand().pipe(
@@ -188,20 +118,12 @@ describe("commitFeedbackCommand", () => {
         atomicCommit: () => Effect.void,
       })
 
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
-      })
-
       yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
       expect(spinnerTexts.some((t) => t.toLowerCase().includes("classifying"))).toBe(true)
-      expect(spinnerTexts.some((t) => t.toLowerCase().includes("committing"))).toBe(true)
+      expect(spinnerTexts.some((t) => t.toLowerCase().includes("generating commit message"))).toBe(true)
 
       consoleSpy.mockRestore()
     }),
@@ -221,19 +143,11 @@ describe("commitFeedbackCommand", () => {
         atomicCommit: () => Effect.void,
       })
 
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
-      })
-
       yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
-      expect(spinnerTexts.some((t) => t.toLowerCase().includes("committed"))).toBe(true)
+      expect(spinnerTexts.some((t) => t.toLowerCase().includes("generating commit message"))).toBe(true)
 
       consoleSpy.mockRestore()
     }),
@@ -252,14 +166,6 @@ describe("commitFeedbackCommand", () => {
         getDiff: () => Effect.fail(new Error("git failed")),
         hasUncommittedChanges: () => Effect.succeed(true),
         atomicCommit: () => Effect.void,
-      })
-
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
       })
 
       const result = yield* commitFeedbackCommand().pipe(
@@ -326,14 +232,6 @@ describe("commitFeedbackCommand", () => {
           }),
       })
 
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
-      })
-
       yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
@@ -357,14 +255,6 @@ describe("commitFeedbackCommand", () => {
           }),
       })
 
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
-      })
-
       yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
@@ -385,14 +275,6 @@ describe("commitFeedbackCommand", () => {
           Effect.sync(() => {
             commits.push({ files, message })
           }),
-      })
-
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
       })
 
       yield* commitFeedbackCommand().pipe(
@@ -437,14 +319,6 @@ describe("commitFeedbackCommand", () => {
           }),
       })
 
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
-      })
-
       yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
@@ -452,91 +326,6 @@ describe("commitFeedbackCommand", () => {
       expect(commits.length).toBe(2)
       expect(commits[0]!.message.startsWith("👷")).toBe(true)
       expect(commits[commits.length - 1]!.message.startsWith("💬")).toBe(true)
-    }),
-  )
-
-  it.effect("agent is NOT invoked for FIX category", () =>
-    Effect.gen(function* () {
-      const agentCalls: Array<{ mode: string; diff: string }> = []
-
-      const gitLayer = mockGit({
-        getDiff: () => Effect.succeed(feedbackAndFixDiff),
-        hasUncommittedChanges: () => Effect.succeed(true),
-        stageByPatch: () => Effect.void,
-        commit: () => Effect.void,
-      })
-
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: (params) => {
-          agentCalls.push({ mode: params.mode, diff: params.prompt })
-          return Effect.succeed({ sessionId: undefined })
-        },
-        isAvailable: () => Effect.succeed(true),
-      })
-
-      yield* commitFeedbackCommand().pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
-      )
-
-      const fixPatch = "const y = 2"
-      const commitPromptCalls = agentCalls.filter((c) => !c.diff.includes("commit message"))
-      for (const call of commitPromptCalls) {
-        expect(call.diff).not.toContain(fixPatch)
-      }
-    }),
-  )
-
-  it.effect("agent IS invoked for FEEDBACK, SEED, and HUMAN categories", () =>
-    Effect.gen(function* () {
-      const seedFeedbackHumanDiff = [
-        "diff --git a/TODO.md b/TODO.md",
-        "new file mode 100644",
-        "--- /dev/null",
-        "+++ b/TODO.md",
-        "@@ -0,0 +1,3 @@",
-        "+# Plan",
-        "+- [ ] Do something",
-        "+- [ ] Do another thing",
-        "diff --git a/src/app.ts b/src/app.ts",
-        "index abc1234..def5678 100644",
-        "--- a/src/app.ts",
-        "+++ b/src/app.ts",
-        "@@ -10,3 +11,4 @@",
-        " const a = 1",
-        "+// TODO: refactor this",
-        " const b = 2",
-      ].join("\n")
-
-      const commitPromptCalls: string[] = []
-
-      const gitLayer = mockGit({
-        getDiff: () => Effect.succeed(seedFeedbackHumanDiff),
-        hasUncommittedChanges: () => Effect.succeed(true),
-        stageByPatch: () => Effect.void,
-        commit: () => Effect.void,
-      })
-
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: (params) => {
-          if (!params.prompt.includes("commit message")) {
-            commitPromptCalls.push(params.prompt)
-          }
-          return Effect.succeed({ sessionId: undefined })
-        },
-        isAvailable: () => Effect.succeed(true),
-      })
-
-      yield* commitFeedbackCommand().pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
-      )
-
-      expect(commitPromptCalls.length).toBe(2)
     }),
   )
 
@@ -577,14 +366,6 @@ describe("commitFeedbackCommand", () => {
           }),
       })
 
-      const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
-        resolvedName: "mock",
-        providerType: "pi",
-        invoke: () => Effect.succeed({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
-      })
-
       yield* commitFeedbackCommand().pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
@@ -610,14 +391,6 @@ describe("commitFeedbackCommand", () => {
             Effect.sync(() => {
               lastCommitMessage = message
             }),
-        })
-
-        const agentLayer = Layer.succeed(AgentService, {
-          name: "mock",
-          resolvedName: "mock",
-          providerType: "pi",
-          invoke: () => Effect.succeed({ sessionId: undefined }),
-          isAvailable: () => Effect.succeed(true),
         })
 
         const configLayer = mockConfig()

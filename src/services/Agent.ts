@@ -1,13 +1,19 @@
 import { Context, Effect, Layer } from "effect"
 import { GtdConfigService } from "./Config.js"
-import { withAgentGuards } from "./AgentGuards.js"
-import { FORBIDDEN_TOOLS, type AgentProviderType } from "./ForbiddenTools.js"
-import type { AgentEvent } from "./AgentEvent.js"
+import { AgentEvents, type AgentEvent } from "./AgentEvent.js"
+import {
+  createAgentSession,
+  SessionManager,
+  AuthStorage,
+  ModelRegistry,
+  createCodingTools,
+} from "@mariozechner/pi-coding-agent"
+import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
 
 export interface AgentInvocation {
   readonly prompt: string
   readonly systemPrompt: string
-  readonly mode: "plan" | "build" | "learn" | "commit" | "explore"
+  readonly mode: "plan" | "build" | "learn" | "commit"
   readonly cwd: string
   readonly model?: string
   readonly onEvent?: (event: AgentEvent) => void
@@ -19,7 +25,6 @@ export interface ModelConfig {
   readonly modelBuild: string | undefined
   readonly modelLearn: string | undefined
   readonly modelCommit: string | undefined
-  readonly modelExplore: string | undefined
 }
 
 export const resolveModelForMode = (
@@ -35,8 +40,6 @@ export const resolveModelForMode = (
       return config.modelLearn
     case "commit":
       return config.modelCommit
-    case "explore":
-      return config.modelExplore
   }
 }
 
@@ -55,17 +58,11 @@ export class AgentError {
   ) {}
 }
 
-export interface AgentProvider {
-  readonly name: string
-  readonly providerType: AgentProviderType
+export interface AgentServiceShape {
+  readonly resolvedName: string
   readonly invoke: (
     params: AgentInvocation,
   ) => Effect.Effect<AgentResult, AgentError>
-  readonly isAvailable: () => Effect.Effect<boolean>
-}
-
-export interface AgentServiceShape extends AgentProvider {
-  readonly resolvedName: string
 }
 
 export class AgentService extends Context.Tag("AgentService")<AgentService, AgentServiceShape>() {
@@ -73,32 +70,159 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
     AgentService,
     Effect.gen(function* () {
       const config = yield* GtdConfigService
-      const provider = yield* resolveAgent({
-        agentId: config.agent,
-        sandboxEnabled: config.sandboxEnabled,
-        sandboxOverrides: {
-          filesystem: config.sandboxBoundaries.filesystem,
-          network: config.sandboxBoundaries.network,
-        },
-      })
-
-      const guardsConfig = {
-        inactivityTimeoutSeconds: config.agentInactivityTimeout,
-        forbiddenTools: FORBIDDEN_TOOLS[provider.providerType],
-      }
+      const authStorage = AuthStorage.create()
+      const modelRegistry = new ModelRegistry(authStorage)
 
       return {
-        name: provider.name,
-        providerType: provider.providerType,
-        resolvedName: provider.name,
+        resolvedName: "pi",
         invoke: (params) =>
           Effect.gen(function* () {
             const model = resolveModelForMode(params.mode, config)
-            const paramsWithModel = model !== undefined ? { ...params, model } : params
-            const guarded = withAgentGuards(provider, guardsConfig)
-            return yield* guarded.invoke(paramsWithModel)
+            const modelStr = params.model ?? model
+
+            // Resolve model from registry
+            let resolvedModel = undefined
+            if (modelStr) {
+              const parts = modelStr.split("/")
+              if (parts.length === 2) {
+                resolvedModel = modelRegistry.find(parts[0]!, parts[1]!)
+              } else {
+                // Try common providers
+                resolvedModel =
+                  modelRegistry.find("anthropic", modelStr) ??
+                  modelRegistry.find("openai", modelStr) ??
+                  modelRegistry.find("google", modelStr)
+              }
+            }
+
+            // Session management
+            const sessionManager = params.resumeSessionId
+              ? SessionManager.open(params.resumeSessionId)
+              : SessionManager.inMemory(params.cwd)
+
+            const tools = createCodingTools(params.cwd)
+
+            const sessionOpts: Parameters<typeof createAgentSession>[0] = {
+              cwd: params.cwd,
+              authStorage,
+              modelRegistry,
+              tools,
+              sessionManager,
+            }
+            if (resolvedModel) sessionOpts.model = resolvedModel
+
+            const { session } = yield* Effect.tryPromise({
+              try: () => createAgentSession(sessionOpts),
+              catch: (err) => new AgentError("Failed to create agent session", err),
+            })
+
+            // Override system prompt
+            if (params.systemPrompt) {
+              session.agent.state.systemPrompt = params.systemPrompt
+            }
+
+            // Event mapping
+            const mapEvent = (event: AgentSessionEvent): AgentEvent | undefined => {
+              switch (event.type) {
+                case "agent_start":
+                  return AgentEvents.agentStart()
+                case "agent_end":
+                  return AgentEvents.agentEnd()
+                case "turn_start":
+                  return AgentEvents.turnStart()
+                case "turn_end": {
+                  const msg = event.message
+                  let text = ""
+                  if (msg && "content" in msg && Array.isArray(msg.content)) {
+                    for (const c of msg.content) {
+                      if ("type" in c && c.type === "text" && "text" in c) {
+                        text += (c as { text: string }).text
+                      }
+                    }
+                  }
+                  return AgentEvents.turnEnd(text)
+                }
+                case "message_update": {
+                  const ame = event.assistantMessageEvent
+                  if (ame.type === "text_delta") {
+                    return AgentEvents.textDelta(ame.delta)
+                  }
+                  if (ame.type === "thinking_delta") {
+                    return AgentEvents.thinkingDelta(ame.delta)
+                  }
+                  return undefined
+                }
+                case "tool_execution_start":
+                  return AgentEvents.toolStart(event.toolName, event.args)
+                case "tool_execution_end": {
+                  const output =
+                    typeof event.result === "string"
+                      ? event.result
+                      : event.result != null
+                        ? JSON.stringify(event.result)
+                        : undefined
+                  return AgentEvents.toolEnd(event.toolName, event.isError, output)
+                }
+                default:
+                  return undefined
+              }
+            }
+
+            // Subscribe to events with inactivity timeout
+            let lastEventTime = Date.now()
+            const timeoutSeconds = config.agentInactivityTimeout
+
+            session.subscribe((event: AgentSessionEvent) => {
+              lastEventTime = Date.now()
+              const mapped = mapEvent(event)
+              if (mapped) {
+                params.onEvent?.(mapped)
+              }
+            })
+
+            // Run prompt with inactivity timeout
+            const promptEffect = Effect.tryPromise({
+              try: () => session.prompt(params.prompt, { source: "noninteractive" as any }),
+              catch: (err) => new AgentError("Agent prompt failed", err),
+            })
+
+            const timeoutEffect =
+              timeoutSeconds > 0
+                ? Effect.async<AgentResult, AgentError>((resume) => {
+                    const pollMs = Math.min(timeoutSeconds * 1000, 5000)
+                    const timer = setInterval(() => {
+                      const elapsed = (Date.now() - lastEventTime) / 1000
+                      if (elapsed >= timeoutSeconds) {
+                        clearInterval(timer)
+                        session.abort().catch(() => {})
+                        resume(
+                          Effect.fail(
+                            new AgentError(
+                              `Agent timed out after ${timeoutSeconds}s of inactivity`,
+                              undefined,
+                              "inactivity_timeout",
+                            ),
+                          ),
+                        )
+                      }
+                    }, pollMs)
+                    return Effect.sync(() => clearInterval(timer))
+                  })
+                : undefined
+
+            if (timeoutEffect) {
+              yield* Effect.raceFirst(
+                promptEffect.pipe(Effect.map(() => ({ sessionId: session.sessionFile }))),
+                timeoutEffect,
+              )
+            } else {
+              yield* promptEffect
+            }
+
+            session.dispose()
+
+            return { sessionId: session.sessionFile }
           }),
-        isAvailable: () => Effect.succeed(true),
       }
     }),
   )
@@ -122,98 +246,3 @@ export const catchAgentError = <A, R>(
       return Effect.fail(err as Error)
     }),
   )
-
-export interface ResolveAgentOptions {
-  readonly agentId: string
-  readonly sandboxEnabled?: boolean
-  readonly sandboxOverrides?: import("./agents/Sandbox.js").SandboxOverrides
-}
-
-export const resolveAgent = (
-  agentIdOrOptions: string | ResolveAgentOptions,
-): Effect.Effect<AgentProvider, AgentError> =>
-  Effect.gen(function* () {
-    const { agentId, sandboxEnabled } =
-      typeof agentIdOrOptions === "string"
-        ? { agentId: agentIdOrOptions, sandboxEnabled: true }
-        : { agentId: agentIdOrOptions.agentId, sandboxEnabled: agentIdOrOptions.sandboxEnabled ?? true }
-
-    const baseProvider = yield* resolveBaseAgent(agentId)
-
-    if (sandboxEnabled) {
-      const { isSandboxRuntimeAvailable, SandboxAgent } = yield* Effect.promise(
-        () => import("./agents/Sandbox.js"),
-      )
-      const available = yield* isSandboxRuntimeAvailable
-      if (available) {
-        const sandboxOverrides = typeof agentIdOrOptions === "object" ? agentIdOrOptions.sandboxOverrides : undefined
-        return SandboxAgent(baseProvider, sandboxOverrides)
-      }
-    }
-
-    return baseProvider
-  })
-
-const resolveBaseAgent = (agentId: string): Effect.Effect<AgentProvider, AgentError> =>
-  Effect.gen(function* () {
-    if (agentId === "pi") {
-      const { PiAgent } = yield* Effect.promise(() => import("./agents/Pi.js"))
-      return PiAgent
-    }
-    if (agentId === "opencode") {
-      const { OpenCodeAgent } = yield* Effect.promise(() => import("./agents/OpenCode.js"))
-      return OpenCodeAgent
-    }
-    if (agentId === "claude") {
-      const { ClaudeAgent } = yield* Effect.promise(() => import("./agents/Claude.js"))
-      return ClaudeAgent
-    }
-    if (agentId === "auto") {
-      const { PiAgent } = yield* Effect.promise(() => import("./agents/Pi.js"))
-      const { OpenCodeAgent } = yield* Effect.promise(() => import("./agents/OpenCode.js"))
-      const { ClaudeAgent } = yield* Effect.promise(() => import("./agents/Claude.js"))
-      const piAvailable = yield* PiAgent.isAvailable()
-      const openCodeAvailable = yield* OpenCodeAgent.isAvailable()
-      const claudeAvailable = yield* ClaudeAgent.isAvailable()
-
-      const available: AgentProvider[] = []
-      if (piAvailable) available.push(PiAgent)
-      if (openCodeAvailable) available.push(OpenCodeAgent)
-      if (claudeAvailable) available.push(ClaudeAgent)
-
-      if (available.length === 0) {
-        return yield* Effect.fail(
-          new AgentError("No agent available. Install pi, opencode, or claude."),
-        )
-      }
-
-      const first = available[0]!
-      const firstName = first.name
-      const autoName = `${firstName} (auto)`
-
-      if (available.length === 1) {
-        const provider: AgentProvider = {
-          name: autoName,
-          providerType: first.providerType,
-          invoke: (params) => first.invoke(params),
-          isAvailable: () => first.isAvailable(),
-        }
-        return provider
-      }
-
-      const provider: AgentProvider = {
-        name: autoName,
-        providerType: first.providerType,
-        isAvailable: () => Effect.succeed(true),
-        invoke: (params) =>
-          available
-            .slice(1)
-            .reduce(
-              (eff, agent) => eff.pipe(Effect.catchAll(() => agent.invoke(params))),
-              first.invoke(params),
-            ),
-      }
-      return provider
-    }
-    return yield* Effect.fail(new AgentError(`Unknown agent: ${agentId}`))
-  })

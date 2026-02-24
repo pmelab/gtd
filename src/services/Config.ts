@@ -2,27 +2,16 @@ import { Context, Effect, Layer } from "effect"
 import { homedir } from "node:os"
 import { resolveAllConfigs, mergeConfigs, type ResolveOptions } from "./ConfigResolver.js"
 
-import type { FilesystemUserOverrides, NetworkUserOverrides } from "./SandboxBoundaries.js"
-
-export interface SandboxBoundariesConfig {
-  readonly filesystem?: FilesystemUserOverrides
-  readonly network?: NetworkUserOverrides
-}
-
 export interface GtdConfig {
   readonly file: string
-  readonly agent: string
   readonly modelPlan: string | undefined
   readonly modelBuild: string | undefined
   readonly modelLearn: string | undefined
   readonly modelCommit: string | undefined
-  readonly modelExplore: string | undefined
   readonly testCmd: string
   readonly testRetries: number
   readonly commitPrompt: string
   readonly agentInactivityTimeout: number
-  readonly sandboxEnabled: boolean
-  readonly sandboxBoundaries: SandboxBoundariesConfig
   readonly configSources: ReadonlyArray<string>
 }
 

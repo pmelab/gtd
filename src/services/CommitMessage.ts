@@ -9,16 +9,18 @@ const PROMPT = (diff: string) =>
 export const generateCommitMessage = (
   emoji: string,
   diff: string,
+  callbacks?: { onStart?: () => void; onStop?: () => void },
 ): Effect.Effect<string, never, AgentService> =>
   Effect.gen(function* () {
     const agent = yield* AgentService
 
     let text = ""
+    callbacks?.onStart?.()
     yield* agent
       .invoke({
         prompt: PROMPT(diff),
         systemPrompt: "",
-        mode: "plan",
+        mode: "commit",
         cwd: process.cwd(),
         onEvent: (event) => {
           if (event._tag === "TextDelta") {
@@ -26,7 +28,10 @@ export const generateCommitMessage = (
           }
         },
       })
-      .pipe(Effect.catchAll(() => Effect.succeed({ sessionId: undefined })))
+      .pipe(
+        Effect.ensuring(Effect.sync(() => callbacks?.onStop?.())),
+        Effect.catchAll(() => Effect.succeed({ sessionId: undefined })),
+      )
 
     const summary = text
       .trim()

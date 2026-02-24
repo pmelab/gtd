@@ -127,85 +127,6 @@ describe("README.md", () => {
     expect(content).toMatch(/TODO\.md.*always.*feedback|all.*changes.*TODO\.md.*feedback/i)
   })
 
-  it("has a Sandbox Runtime section explaining wrapper architecture", () => {
-    const content = readmeContent()
-    expect(content).toMatch(/## Sandbox Runtime|## Sandbox/i)
-    expect(content).toMatch(/wrap/i)
-    expect(content).toMatch(/provider/i)
-  })
-
-  it("documents the boundary levels with per-phase defaults", () => {
-    const content = readmeContent()
-    expect(content).toContain("restricted")
-    expect(content).toContain("standard")
-    expect(content).toContain("elevated")
-    expect(content).toMatch(/plan.*restricted/i)
-    expect(content).toMatch(/build.*standard/i)
-    expect(content).toMatch(/learn.*restricted/i)
-  })
-
-  it("documents fail-stop behavior for permission violations", () => {
-    const content = readmeContent()
-    expect(content).toMatch(/fail.stop/i)
-    expect(content).toMatch(/stop/i)
-    expect(content).toMatch(/re.run/i)
-  })
-
-  it("clarifies forbidden tools and sandbox boundaries are orthogonal", () => {
-    const content = readmeContent()
-    expect(content).toMatch(/orthogonal|independent/i)
-    expect(content).toMatch(/forbidden.*tool/i)
-    expect(content).toMatch(/sandbox.*boundar|boundar.*sandbox/i)
-  })
-
-  it("notes forbidden tool blocklists are internal and not user-configurable", () => {
-    const content = readmeContent()
-    expect(content).toMatch(/internal|hardcoded|not.*user.configur|not.*configur.*user/i)
-    expect(content).toMatch(/forbidden.*tool|tool.*blocklist/i)
-  })
-
-  it("includes example config with sandbox configuration", () => {
-    const content = readmeContent()
-    expect(content).toContain("sandboxEnabled")
-    expect(content).toContain("sandboxBoundaries")
-  })
-
-  it("documents sandbox-on-by-default behavior", () => {
-    const content = readmeContent()
-    expect(content).toMatch(/sandbox.*enabled.*by default|enabled by default/i)
-    expect(content).toMatch(/opt.out|sandboxEnabled.*false/i)
-  })
-
-  it("documents strict defaults: cwd-only filesystem and agent-essential-only network", () => {
-    const content = readmeContent()
-    expect(content).toMatch(/cwd|working directory/i)
-    expect(content).toMatch(/agent.essential/i)
-  })
-
-  it("does not reference interactive approval prompts or escalation policies", () => {
-    const content = readmeContent()
-    expect(content).not.toMatch(/approval prompt/i)
-    expect(content).not.toMatch(/escalation polic/i)
-    expect(content).not.toMatch(/approved escalation/i)
-    expect(content).not.toMatch(/prompting for escalation/i)
-  })
-
-  it("shows permission extension examples for npm registry, parent dir reads, and shared output", () => {
-    const content = readmeContent()
-    expect(content).toContain("registry.npmjs.org")
-    expect(content).toMatch(/allowRead/i)
-    expect(content).toMatch(/allowWrite/i)
-  })
-
-  it("mermaid diagram shows fail-stop flow with violation and error", () => {
-    const content = readmeContent()
-    const mermaidMatch = content.match(/```mermaid\n([\s\S]*?)```/)
-    const mermaid = mermaidMatch![1]!
-    expect(mermaid).toMatch(/violation|denied/i)
-    expect(mermaid).toMatch(/error/i)
-    expect(mermaid).toMatch(/config/i)
-  })
-
   it("example configs validate against the JSON schema", () => {
     const content = readmeContent()
     const jsonBlocks = [...content.matchAll(/```jsonc?\n([\s\S]*?)```/g)]
@@ -234,13 +155,6 @@ describe("README.md", () => {
         expect(valid, `Config block failed schema validation: ${JSON.stringify(validate.errors)}`).toBe(true)
       }
     }
-  })
-
-  it("mermaid flowchart includes sandbox flow", () => {
-    const content = readmeContent()
-    const mermaidMatch = content.match(/```mermaid\n([\s\S]*?)```/)
-    const mermaid = mermaidMatch![1]!
-    expect(mermaid).toMatch(/sandbox/i)
   })
 
   it("documents the 4-way diff classification in the Feedback Classification section", () => {
@@ -318,21 +232,6 @@ describe("README.md", () => {
     expect(content).toMatch(/`gtd init --global`/)
     expect(content).toMatch(/project.local|project.level|local.*config/i)
     expect(content).toMatch(/user.level|global.*config|user.*config/i)
-  })
-
-  it("documents agent auto-detection fallback behavior", () => {
-    const content = readmeContent()
-    const agentsSection =
-      content.match(/### Agents\n([\s\S]*?)(?=\n## [^#]|\n### [^A]|$)/)?.[1] ?? ""
-
-    // Should mention detection order
-    expect(agentsSection).toMatch(/pi.*opencode.*claude/i)
-
-    // Should describe fallback on failure
-    expect(agentsSection).toMatch(/fallback|fails.*next|tries.*next|fall.*back/i)
-
-    // Should explain that the first available agent is tried, and on failure the next is used
-    expect(agentsSection).toMatch(/first.*fail|fail.*next|error.*next/i)
   })
 
   it("section 5 Learn describes manual step between build completion and learn", () => {

@@ -3,14 +3,15 @@ import { Effect, Layer } from "effect"
 import { AgentService, AgentError } from "../services/Agent.js"
 import type { AgentInvocation, AgentResult } from "../services/Agent.js"
 import { buildCommand, type TestResult } from "./build.js"
+import type { GitOperations } from "../services/Git.js"
 import { mockConfig, mockGit, mockFs, nodeLayer } from "../test-helpers.js"
 
-// Returns initial content for first 2 reads, then all-checked content
+// Stateful mock: writeFile updates what readFile returns
 const mockFsWithProgress = (initial: string) => {
-  let readCount = 0
-  const checkedContent = initial.replace(/- \[ \]/g, "- [x]")
+  let current = initial
   return {
-    readFile: () => Effect.succeed(readCount++ < 2 ? initial : checkedContent),
+    readFile: () => Effect.succeed(current),
+    writeFile: (content: string) => Effect.sync(() => { current = content }),
     exists: () => Effect.succeed(initial !== ""),
     getDiffContent: () => Effect.succeed(""),
     remove: () => Effect.void,
@@ -22,14 +23,11 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       yield* buildCommand(mockFs("")).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
@@ -42,14 +40,11 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       const singleItem = [
         "# Feature",
@@ -77,14 +72,11 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       const withLearnings = [
         "# Feature",
@@ -111,26 +103,31 @@ describe("buildCommand", () => {
 
   it.effect("commits after item with 🔨 prefix", () =>
     Effect.gen(function* () {
-      const gitCalls: string[] = []
+      const gitCalls: { type: string; files?: ReadonlyArray<string> | "all"; msg?: string }[] = []
       const gitLayer = mockGit({
         addAll: () =>
           Effect.sync(() => {
-            gitCalls.push("addAll")
+            gitCalls.push({ type: "addAll" })
           }),
+        add: ((files: ReadonlyArray<string>) =>
+          Effect.sync(() => {
+            gitCalls.push({ type: "add", files })
+          })) as GitOperations["add"],
         commit: (msg) =>
           Effect.sync(() => {
-            gitCalls.push(`commit:${msg}`)
+            gitCalls.push({ type: "commit", msg })
           }),
+        amendFiles: ((files: ReadonlyArray<string>) =>
+          Effect.sync(() => {
+            gitCalls.push({ type: "amendFiles", files })
+          })) as GitOperations["amendFiles"],
       })
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) => {
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Build Phase" })
           return Effect.succeed<AgentResult>({ sessionId: undefined })
         },
-        isAvailable: () => Effect.succeed(true),
       })
       const singleItem = [
         "# Feature",
@@ -147,8 +144,11 @@ describe("buildCommand", () => {
       yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
       )
-      expect(gitCalls).toContain("addAll")
-      expect(gitCalls.some((c) => c === "commit:🔨 build: Build Phase")).toBe(true)
+      // First commit: code changes with 🔨 prefix
+      expect(gitCalls.some((c) => c.type === "addAll")).toBe(true)
+      expect(gitCalls.some((c) => c.type === "commit" && c.msg === "🔨 build: Build Phase")).toBe(true)
+      // Checkbox update amended into build commit
+      expect(gitCalls.some((c) => c.type === "amendFiles" && c.files?.includes("TODO.md"))).toBe(true)
     }),
   )
 
@@ -157,15 +157,12 @@ describe("buildCommand", () => {
       const calls: AgentInvocation[] = []
       const gitCalls: string[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Pkg2" })
           return Effect.succeed<AgentResult>({ sessionId: undefined })
         },
-        isAvailable: () => Effect.succeed(true),
       })
       const gitLayer = mockGit({
         addAll: () =>
@@ -176,6 +173,10 @@ describe("buildCommand", () => {
           Effect.sync(() => {
             gitCalls.push(`commit:${msg}`)
           }),
+        amendFiles: ((files: ReadonlyArray<string>) =>
+          Effect.sync(() => {
+            gitCalls.push(`amendFiles:${files.join(",")}`)
+          })) as GitOperations["amendFiles"],
       })
       const partiallyDone = [
         "# Feature",
@@ -203,6 +204,7 @@ describe("buildCommand", () => {
       expect(buildCalls[0]!.prompt).toContain("Item 2")
       expect(buildCalls[0]!.prompt).not.toContain("Item 1")
       expect(gitCalls.some((c) => c === "commit:🔨 build: Pkg2")).toBe(true)
+      expect(gitCalls.some((c) => c === "amendFiles:TODO.md")).toBe(true)
     }),
   )
 
@@ -210,14 +212,11 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
             Effect.tap(() => Effect.sync(() => { calls.push(params) })),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       const allDone = [
         "# Feature",
@@ -242,15 +241,12 @@ describe("buildCommand", () => {
       const calls: AgentInvocation[] = []
       const gitCalls: string[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Error Handling" })
           return Effect.succeed<AgentResult>({ sessionId: undefined })
         },
-        isAvailable: () => Effect.succeed(true),
       })
       const gitLayer = mockGit({
         addAll: () =>
@@ -261,6 +257,10 @@ describe("buildCommand", () => {
           Effect.sync(() => {
             gitCalls.push(`commit:${msg}`)
           }),
+        amendFiles: ((files: ReadonlyArray<string>) =>
+          Effect.sync(() => {
+            gitCalls.push(`amendFiles:${files.join(",")}`)
+          })) as GitOperations["amendFiles"],
       })
       const packagedPlan = [
         "# Feature",
@@ -291,6 +291,7 @@ describe("buildCommand", () => {
       expect(buildCalls[0]!.prompt).toContain("Capture stderr")
       expect(buildCalls[0]!.prompt).toContain("Include stderr in error")
       expect(gitCalls.some((c) => c === "commit:🔨 build: Error Handling")).toBe(true)
+      expect(gitCalls.some((c) => c === "amendFiles:TODO.md")).toBe(true)
     }),
   )
 
@@ -298,16 +299,12 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           return Effect.succeed<AgentResult>({ sessionId: undefined })
         },
-        isAvailable: () => Effect.succeed(true),
       })
-      let readCount = 0
       const initial = [
         "# Feature",
         "",
@@ -326,19 +323,7 @@ describe("buildCommand", () => {
         "  - Tests: verify spawning",
         "",
       ].join("\n")
-      const pkg1Done = initial.replace("- [ ] Capture stderr", "- [x] Capture stderr")
-      const allDone = initial.replace(/- \[ \]/g, "- [x]")
-      const fs = {
-        readFile: () => {
-          const count = readCount++
-          if (count <= 1) return Effect.succeed(initial)
-          if (count === 2) return Effect.succeed(pkg1Done)
-          return Effect.succeed(allDone)
-        },
-        exists: () => Effect.succeed(true),
-        getDiffContent: () => Effect.succeed(""),
-        remove: () => Effect.void,
-      }
+      const fs = mockFsWithProgress(initial)
       yield* buildCommand(fs).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
@@ -355,9 +340,7 @@ describe("buildCommand", () => {
       const calls: AgentInvocation[] = []
       let callCount = 0
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) => {
           const count = callCount++
           // Build returns "ses-build-1", retry1 returns "ses-retry-1", commit msg calls return undefined
@@ -365,7 +348,6 @@ describe("buildCommand", () => {
           calls.push(params)
           return Effect.succeed<AgentResult>({ sessionId })
         },
-        isAvailable: () => Effect.succeed(true),
       })
 
       let testRunCount = 0
@@ -414,16 +396,12 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           return Effect.succeed<AgentResult>({ sessionId: "build-ses" })
         },
-        isAvailable: () => Effect.succeed(true),
       })
-      let readCount = 0
       const initial = [
         "# Feature",
         "",
@@ -442,18 +420,8 @@ describe("buildCommand", () => {
         "  - Tests: check",
         "",
       ].join("\n")
-      const pkg1Done = initial.replace("- [ ] Item 1", "- [x] Item 1")
-      const allDone = initial.replace(/- \[ \]/g, "- [x]")
       const fs = {
-        readFile: () => {
-          const count = readCount++
-          if (count <= 1) return Effect.succeed(initial)
-          if (count <= 3) return Effect.succeed(pkg1Done)
-          return Effect.succeed(allDone)
-        },
-        exists: () => Effect.succeed(true),
-        getDiffContent: () => Effect.succeed(""),
-        remove: () => Effect.void,
+        ...mockFsWithProgress(initial),
         readSessionId: () => Effect.succeed("plan-ses-xyz" as string | undefined),
         deleteSessionFile: () => Effect.void,
       }
@@ -471,9 +439,7 @@ describe("buildCommand", () => {
       const calls: AgentInvocation[] = []
       let buildCallCount = 0
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           if (params.mode === "build") {
@@ -483,7 +449,6 @@ describe("buildCommand", () => {
           }
           return Effect.succeed<AgentResult>({ sessionId: undefined })
         },
-        isAvailable: () => Effect.succeed(true),
       })
 
       let testRunCount = 0
@@ -493,7 +458,6 @@ describe("buildCommand", () => {
           output: "FAIL: some test",
         })
 
-      let readCount = 0
       const initial = [
         "# Feature",
         "",
@@ -512,18 +476,8 @@ describe("buildCommand", () => {
         "  - Tests: check",
         "",
       ].join("\n")
-      const pkg1Done = initial.replace("- [ ] Item 1", "- [x] Item 1")
-      const allDone = initial.replace(/- \[ \]/g, "- [x]")
       const fs = {
-        readFile: () => {
-          const count = readCount++
-          if (count <= 1) return Effect.succeed(initial)
-          if (count === 2) return Effect.succeed(pkg1Done)
-          return Effect.succeed(allDone)
-        },
-        exists: () => Effect.succeed(true),
-        getDiffContent: () => Effect.succeed(""),
-        remove: () => Effect.void,
+        ...mockFsWithProgress(initial),
         readSessionId: () => Effect.succeed("plan-ses-xyz" as string | undefined),
         deleteSessionFile: () => Effect.void,
         runTests: mockTestRunner,
@@ -546,14 +500,11 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       const calls: AgentInvocation[] = []
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: (params) => {
           calls.push(params)
           return Effect.succeed<AgentResult>({ sessionId: undefined })
         },
-        isAvailable: () => Effect.succeed(true),
       })
 
       let testRunCount = 0
@@ -598,11 +549,8 @@ describe("buildCommand", () => {
     Effect.gen(function* () {
       let sessionDeleted = false
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
       })
       const singleItem = [
         "# Feature",
@@ -646,11 +594,8 @@ describe("buildCommand", () => {
           }),
       })
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
-        isAvailable: () => Effect.succeed(true),
       })
       const singleItem = [
         "# Feature",
@@ -676,14 +621,11 @@ describe("buildCommand", () => {
   it.effect("handles inactivity timeout error gracefully", () =>
     Effect.gen(function* () {
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: () =>
           Effect.fail(
             new AgentError("Agent timed out after 300s of inactivity", undefined, "inactivity_timeout"),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       const singleItem = [
         "# Feature",
@@ -707,14 +649,11 @@ describe("buildCommand", () => {
   it.effect("handles input_requested error gracefully", () =>
     Effect.gen(function* () {
       const agentLayer = Layer.succeed(AgentService, {
-        name: "mock",
         resolvedName: "mock",
-        providerType: "pi",
         invoke: () =>
           Effect.fail(
             new AgentError("Agent invoked forbidden tool: AskUserQuestion", undefined, "input_requested"),
           ),
-        isAvailable: () => Effect.succeed(true),
       })
       const singleItem = [
         "# Feature",

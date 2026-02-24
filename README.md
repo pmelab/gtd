@@ -36,15 +36,7 @@ flowchart TD
     CheckLast -->|"🔨 / 👷"| TodoNew{TODO.md is new?}
     TodoNew -->|Yes| Plan
     TodoNew -->|No| ItemsLeft
-    Build["🔨 Build: implement next unchecked item"] --> SandboxCheck{Sandbox enabled?}
-    SandboxCheck -->|No| RunAgent[Run agent]
-    SandboxCheck -->|Yes| RunSandboxed[Run agent in sandbox]
-    RunSandboxed --> Violation{Permission violation?}
-    Violation -->|Yes| ErrorMsg[Error: permission denied]
-    ErrorMsg --> AdjustConfig[User adjusts config]
-    AdjustConfig --> Rerun([Re-run gtd])
-    Violation -->|No| ItemsLeft
-    RunAgent --> ItemsLeft
+    Build["🔨 Build: implement next unchecked item"] --> ItemsLeft
     ItemsLeft{Unchecked items remain?}
     ItemsLeft -->|Yes| Build
     ItemsLeft -->|No| Learn
@@ -208,115 +200,6 @@ When determining the overall prefix for re-dispatch, `classifyPrefix` uses a
 fixed priority order: 🌱 > 💬 > 🤦 > 👷. The first non-empty category in
 this order wins.
 
-## Sandbox Runtime
-
-The sandbox is enabled by default. When `sandboxEnabled` is `true`, `gtd` wraps
-your chosen agent provider in a sandbox layer. The sandbox does not replace the
-agent — it wraps it, adding isolation and permission controls while delegating
-all agent logic (prompting, tool use) to the underlying provider.
-
-To opt out, set `sandboxEnabled` to `false` in your config.
-
-### Strict Defaults
-
-Out of the box, the sandbox applies least-privilege defaults:
-
-- **Filesystem** — read and write access is restricted to the current working
-  directory only. Paths outside cwd are denied.
-- **Network** — only agent-essential domains are allowed (e.g. `api.anthropic.com`
-  for Claude). All other outbound requests are denied.
-
-These defaults ensure the agent cannot access files or services beyond what is
-strictly necessary to operate within your project.
-
-### Boundary Levels
-
-Each workflow phase runs at a default boundary level that controls what the
-sandboxed agent is allowed to do (file system access, network, etc.):
-
-| Phase | Default Boundary | Description |
-| ----- | ---------------- | ----------------------------------- |
-| plan | restricted | Read-only, no network |
-| build | standard | Read/write project files, network ok |
-| learn | restricted | Read-only, no network |
-
-The three levels — `restricted`, `standard`, and `elevated` — form a strict
-ordering.
-
-### Fail-Stop on Violation
-
-Sandbox permissions are fully determined at boot time from the workflow phase
-and any user config overrides. If the agent attempts an operation that exceeds
-the current permissions, the process stops immediately with an actionable error
-message — there are no interactive prompts or runtime permission changes.
-
-To fix a permission violation: read the error, add the needed permission to
-your config, and re-run `gtd`.
-
-```mermaid
-flowchart LR
-    Violation[Permission denied] --> Error[Error message]
-    Error --> Config[User adjusts config]
-    Config --> Rerun[Re-run gtd]
-```
-
-### Extending Permissions via Config
-
-Use `sandboxBoundaries` in your config to grant additional access beyond the
-defaults. User overrides extend (not replace) the built-in defaults.
-
-**Allow npm registry access** (e.g. for `npm install` during build):
-
-```jsonc
-{
-  "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
-  "sandboxEnabled": true,
-  "sandboxBoundaries": {
-    "network": { "allowedDomains": ["registry.npmjs.org"] }
-  }
-}
-```
-
-**Allow reads from a parent monorepo directory:**
-
-```jsonc
-{
-  "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
-  "sandboxEnabled": true,
-  "sandboxBoundaries": {
-    "filesystem": { "allowRead": ["/home/user/monorepo"] }
-  }
-}
-```
-
-**Allow writes to a shared output directory:**
-
-```jsonc
-{
-  "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
-  "sandboxEnabled": true,
-  "sandboxBoundaries": {
-    "filesystem": { "allowWrite": ["/shared/output"] }
-  }
-}
-```
-
-### Guards: Forbidden Tools vs. Sandbox Boundaries
-
-`gtd` applies two independent guard layers to every agent invocation. They are
-orthogonal — both are evaluated independently and neither overrides the other:
-
-1. **Forbidden tool blocklists (interactivity guard)** — prevent the agent from
-   calling tools that require interactive user input (e.g. `AskUserQuestion` in
-   Claude, `question` in OpenCode). These blocklists are internal and not
-   user-configurable; they are derived from each agent provider's tool catalog.
-   When a forbidden tool is detected, the invocation fails immediately.
-
-2. **Sandbox boundaries (isolation guard)** — control what the sandboxed agent
-   can access (file system, network). These are user-configurable via
-   `sandboxBoundaries`. Permissions are fixed at boot; violations stop the
-   process with an error.
-
 ## Configuration
 
 `gtd` uses file-based configuration via [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig).
@@ -375,17 +258,12 @@ Any format supported by cosmiconfig:
   // Default: "TODO.md"
   "file": "TODO.md",
 
-  // Agent selection: "auto", "pi", "opencode", or "claude"
-  // "auto" tries pi → opencode → claude in order
-  // Default: "auto"
-  "agent": "auto",
-
-  // Model overrides for each phase (optional — agents use their own defaults)
-  // e.g. "sonnet", "opus", "haiku", or any model identifier your agent supports
-  "modelPlan": "sonnet",
-  "modelBuild": "opus",
-  "modelLearn": "sonnet",
-  "modelCommit": "haiku",
+  // Model overrides for each phase (optional)
+  // Format: "provider/modelId" e.g. "anthropic/claude-sonnet-4-20250514"
+  "modelPlan": "anthropic/claude-sonnet-4-20250514",
+  "modelBuild": "anthropic/claude-sonnet-4-20250514",
+  "modelLearn": "anthropic/claude-sonnet-4-20250514",
+  "modelCommit": "anthropic/claude-haiku-4-5-20251001",
 
   // Test command run after each build step
   // Default: "npm test"
@@ -397,37 +275,10 @@ Any format supported by cosmiconfig:
 
   // Prompt template for generating commit messages
   // Use {{diff}} as a placeholder for the staged diff
-  // Default: "Look at the following diff and create a concise commit message, following the conventional commit standards:\n\n{{diff}}"
   "commitPrompt": "Look at the following diff and create a concise commit message, following the conventional commit standards:\n\n{{diff}}",
 
   // Seconds before the agent times out due to inactivity (must be >= 0)
   // Default: 300
-  "agentInactivityTimeout": 300,
-
-  // Enable sandbox runtime wrapping around the agent provider
-  // Default: true
-  "sandboxEnabled": true,
-
-  // Extend sandbox permissions beyond the defaults
-  // See "Extending Permissions" section for details
-  "sandboxBoundaries": {
-    "filesystem": { "allowRead": ["/etc"], "allowWrite": [] },
-    "network": { "allowedDomains": ["registry.npmjs.org"] }
-  }
+  "agentInactivityTimeout": 300
 }
 ```
-
-### Agents
-
-The following agents are supported:
-
-- Pi (id: `pi`)
-- Opencode (id: `opencode`)
-- Claude Code (id: `claude`)
-
-When `agent` is set to `"auto"` (the default), `gtd` checks availability in
-the order Pi → Opencode → Claude and selects the first one found. If that agent
-fails during execution, `gtd` automatically falls back to the next available
-agent in the same order. This means a transient failure in one agent does not
-stop the run — `gtd` tries the next agent before giving up. If all available
-agents fail, the error from the last agent is reported.

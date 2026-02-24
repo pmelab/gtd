@@ -1,23 +1,25 @@
 import { Effect } from "effect"
 import { GtdConfigService } from "../services/Config.js"
 import { GitService } from "../services/Git.js"
-import { AgentService } from "../services/Agent.js"
-import { interpolate } from "../prompts/index.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
 import { classifyDiff } from "../services/DiffClassifier.js"
 import { SEED, FEEDBACK, HUMAN, FIX, type CommitPrefix } from "../services/CommitPrefix.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
 import { findNewlyAddedTodos, removeTodoLines } from "../services/TodoRemover.js"
+import type { FileOps } from "../services/FileOps.js"
 
-export const commitFeedbackCommand = () =>
+export const commitFeedbackCommand = (fs?: Pick<FileOps, "formatFile">) =>
   Effect.gen(function* () {
     const config = yield* GtdConfigService
     const git = yield* GitService
-    const agent = yield* AgentService
 
     const renderer = createSpinnerRenderer(isInteractive())
 
     yield* Effect.gen(function* () {
+      if (fs?.formatFile) {
+        yield* fs.formatFile().pipe(Effect.catchAll(() => Effect.void))
+      }
+
       renderer.setText("Classifying changes…")
 
       const diff = yield* git.getDiff()
@@ -37,21 +39,6 @@ export const commitFeedbackCommand = () =>
         const { prefix, patch } = categories[i]!
         const isLast = i === categories.length - 1
 
-        // Invoke agent for all categories except FIX — FIX commits need no AI processing
-        if (prefix !== FIX) {
-          const prompt = interpolate(config.commitPrompt, { diff: patch })
-
-          renderer.setText("Generating feedback…")
-
-          yield* agent.invoke({
-            prompt,
-            systemPrompt: "",
-            mode: "plan",
-            cwd: process.cwd(),
-            onEvent: renderer.onEvent,
-          })
-        }
-
         // Remove newly-added in-code TODO/FIXME comments before committing so the
         // removals are included in this or the final commit rather than left unstaged
         if (prefix === HUMAN && classified.humanTodos) {
@@ -63,11 +50,13 @@ export const commitFeedbackCommand = () =>
           }
         }
 
-        renderer.setText("Committing feedback…")
-        const msg = yield* generateCommitMessage(prefix, patch)
+        renderer.setTextWithCursor("Generating commit message…")
+        const msg = yield* generateCommitMessage(prefix, patch, {
+          onStop: () => renderer.stopCursor(),
+        })
 
+        renderer.setText("Committing…")
         if (isLast) {
-          // Last commit captures agent file modifications and removeTodoLines changes
           yield* git.atomicCommit("all", msg)
         } else {
           yield* git.stageByPatch(patch)
@@ -75,7 +64,7 @@ export const commitFeedbackCommand = () =>
         }
       }
 
-      renderer.succeed("Feedback committed.")
+      renderer.dispose()
     }).pipe(
       Effect.tapError(() =>
         Effect.sync(() => {
