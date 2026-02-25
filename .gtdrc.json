@@ -2,10 +2,9 @@
   "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
   "_comment": "This is an example config. You can move this file to ~/.config/gtd/ or any other supported location.",
   "file": "TODO.md",
-  "agent": "claude",
-  "modelPlan": "sonnet",
-  "modelBuild": "sonnet",
-  "modelCommit": "haiku",
+  "modelPlan": "anthropic/claude-sonnet-4-6",
+  "modelBuild": "anthropic/claude-sonnet-4-6",
+  "modelCommit": "anthropic/claude-haiku-4-5",
   "testCmd": "npm test",
   "testRetries": 10,
   "agentInactivityTimeout": 300
