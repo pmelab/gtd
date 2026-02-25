@@ -10,6 +10,21 @@
 
 ## Architecture
 
+### Removing a Workflow Step
+
+When removing a step from a linear workflow (e.g. plan → build → learn → cleanup), trace **every** reference before deleting:
+
+- Step type definition
+- `inferStep` logic
+- `gatherState` inputs
+- CLI `runStep` dispatch
+- Commit prefix mapping
+- Config schema
+- Prompts / decision tree labels
+- All test files
+
+When a commit prefix maps to a removed step, keep it recognized in the type system for backward compatibility but route it to `"idle"` — removing it entirely risks breaking existing repos that have those commits in history.
+
 ### Mode Flags (Effect Dependency Graph)
 
 - Follow the `QuietMode` pattern (Context tag + `static layer`) for any new
