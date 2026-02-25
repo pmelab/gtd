@@ -195,8 +195,11 @@ const quietOption = Options.boolean("quiet").pipe(
   Options.withDefault(false),
 )
 
-const rootCommand = Command.make("gtd", { quiet: quietOption }, ({ quiet }) =>
+const debugOption = Options.boolean("debug").pipe(Options.withDefault(false))
+
+const rootCommand = Command.make("gtd", { quiet: quietOption, debug: debugOption }, ({ quiet, debug }) =>
   Effect.gen(function* () {
+    if (debug) process.env.GTD_DEBUG = "1"
     const config = yield* GtdConfigService
     const fs = yield* nodeFileOps(config.file)
 

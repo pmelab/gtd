@@ -1,2 +1,5 @@
 [tools]
 bun = "latest"
+
+[env]
+_.path = ["dist"]

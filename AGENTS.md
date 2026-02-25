@@ -1,5 +1,9 @@
+## Testing
+
 - create cucumber.js scenarios for each new feature
-- use composable "Given" steps (small, reusable steps) instead of one-off setup steps
-- make Given steps generic and expose actual file content/changes in scenario text — don't hide setup behind abstract step names
-- inline setup logic into step definitions rather than chaining helpers; each step maps to one commit
-- apply to both workflow.feature and sandbox.feature
+- use composable "Given" steps (small, reusable steps) instead of one-off setup
+  steps
+- make Given steps generic and expose actual file content/changes in scenario
+  text — don't hide setup behind abstract step names
+- inline setup logic into step definitions rather than chaining helpers; each
+  step maps to one commit

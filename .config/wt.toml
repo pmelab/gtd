@@ -1,4 +1,9 @@
 [post-create]
 mise = "mise trust -y"
 install = "npm install"
+build = "npm run build"
+test-project = "bash scripts/setup-test-project.sh"
+
+[post-start]
+watch = "npx tsup --watch"
 

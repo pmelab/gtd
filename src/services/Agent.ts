@@ -6,9 +6,66 @@ import {
   SessionManager,
   AuthStorage,
   ModelRegistry,
-  createCodingTools,
+  getAgentDir,
 } from "@mariozechner/pi-coding-agent"
-import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent"
+import { join } from "node:path"
+import type {
+  AgentSessionEvent,
+  AgentSession,
+  LoadExtensionsResult,
+} from "@mariozechner/pi-coding-agent"
+import chalk from "chalk"
+
+const logDiscoveredResources = (
+  session: AgentSession,
+  extensionsResult: LoadExtensionsResult,
+  mode: string,
+  modelLabel: string,
+) => {
+  const loader = session.resourceLoader
+  const lines: string[] = []
+
+  lines.push(chalk.dim(`  Model: ${modelLabel} (${mode})`))
+
+  // AGENTS.md files
+  const { agentsFiles } = loader.getAgentsFiles()
+  if (agentsFiles.length > 0) {
+    lines.push(chalk.dim("  AGENTS.md:"))
+    for (const f of agentsFiles) lines.push(chalk.dim(`    ${f.path}`))
+  }
+
+  // Skills
+  const { skills } = loader.getSkills()
+  if (skills.length > 0) {
+    lines.push(chalk.dim("  Skills:"))
+    for (const s of skills) lines.push(chalk.dim(`    ${s.name} — ${s.description ?? ""}`))
+  }
+
+  // Extension tools (from extensions + MCP servers)
+  const extToolNames = new Map<string, string>()
+  for (const ext of extensionsResult.extensions) {
+    ext.tools.forEach((_tool, name) => {
+      extToolNames.set(name, ext.path)
+    })
+  }
+
+  // All registered tools (built-in + extension/MCP)
+  const BUILTIN_TOOLS = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"])
+  const registeredTools = session.getAllTools().filter((t) => !BUILTIN_TOOLS.has(t.name))
+  if (registeredTools.length > 0) {
+    lines.push(chalk.dim("  Tools:"))
+    for (const t of registeredTools) {
+      const source = extToolNames.get(t.name)
+      const suffix = source ? ` (${source})` : ""
+      lines.push(chalk.dim(`    ${t.name}${suffix}`))
+    }
+  }
+
+  if (lines.length > 0 && process.env.GTD_DEBUG === "1") {
+    process.stderr.write(chalk.dim("\n[gtd] Discovered resources:\n"))
+    for (const line of lines) process.stderr.write(line + "\n")
+  }
+}
 
 export interface AgentInvocation {
   readonly prompt: string
@@ -71,7 +128,8 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
     Effect.gen(function* () {
       const config = yield* GtdConfigService
       const authStorage = AuthStorage.create()
-      const modelRegistry = new ModelRegistry(authStorage)
+      const agentDir = getAgentDir()
+      const modelRegistry = new ModelRegistry(authStorage, join(agentDir, "models.json"))
 
       return {
         resolvedName: "pi",
@@ -84,14 +142,28 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
             let resolvedModel = undefined
             if (modelStr) {
               const parts = modelStr.split("/")
-              if (parts.length === 2) {
-                resolvedModel = modelRegistry.find(parts[0]!, parts[1]!)
-              } else {
-                // Try common providers
-                resolvedModel =
-                  modelRegistry.find("anthropic", modelStr) ??
-                  modelRegistry.find("openai", modelStr) ??
-                  modelRegistry.find("google", modelStr)
+              const provider = parts.length === 2 ? parts[0]! : undefined
+              const modelId = parts.length === 2 ? parts[1]! : modelStr
+
+              // Exact match first
+              const providers = provider ? [provider] : ["anthropic", "openai", "google"]
+              for (const p of providers) {
+                resolvedModel = modelRegistry.find(p, modelId)
+                if (resolvedModel) break
+              }
+
+              // Prefix match: "sonnet" → "claude-sonnet-4-6", "haiku" → "claude-haiku-4-5"
+              if (!resolvedModel) {
+                const prefix = `claude-${modelId}`
+                const candidates = modelRegistry
+                  .getAll()
+                  .filter(
+                    (m: { provider: string; id: string }) =>
+                      (!provider || m.provider === provider) &&
+                      m.id.startsWith(prefix),
+                  )
+                  .sort((a: { id: string }, b: { id: string }) => b.id.localeCompare(a.id))
+                resolvedModel = candidates[0]
               }
             }
 
@@ -100,21 +172,25 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
               ? SessionManager.open(params.resumeSessionId)
               : SessionManager.inMemory(params.cwd)
 
-            const tools = createCodingTools(params.cwd)
-
             const sessionOpts: Parameters<typeof createAgentSession>[0] = {
               cwd: params.cwd,
               authStorage,
               modelRegistry,
-              tools,
               sessionManager,
             }
             if (resolvedModel) sessionOpts.model = resolvedModel
 
-            const { session } = yield* Effect.tryPromise({
+            const { session, extensionsResult } = yield* Effect.tryPromise({
               try: () => createAgentSession(sessionOpts),
               catch: (err) => new AgentError("Failed to create agent session", err),
             })
+
+            // Debug: log discovered resources and model
+            const activeModel = session.model
+            const modelLabel = activeModel
+              ? `${activeModel.provider}/${activeModel.id}`
+              : "none"
+            logDiscoveredResources(session, extensionsResult, params.mode, modelLabel)
 
             // Override system prompt
             if (params.systemPrompt) {
