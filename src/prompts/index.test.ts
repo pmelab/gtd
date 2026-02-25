@@ -7,6 +7,10 @@ describe("prompts", () => {
     expect(planPrompt.length).toBeGreaterThan(0)
   })
 
+  it("plan prompt contains web research instruction", () => {
+    expect(planPrompt).toMatch(/brave.search|web research/i)
+  })
+
   it("buildPrompt is a non-empty string", () => {
     expect(typeof buildPrompt).toBe("string")
     expect(buildPrompt.length).toBeGreaterThan(0)

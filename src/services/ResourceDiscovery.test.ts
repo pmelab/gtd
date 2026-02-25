@@ -27,6 +27,10 @@ describe("PI resource discovery", () => {
       cwd,
       agentDir: join(cwd, ".pi-agent-fake"),
       noExtensions: true,
+      skillsOverride: (base) => ({
+        ...base,
+        skills: base.skills.filter((s) => s.filePath.startsWith(cwd)),
+      }),
     })
     await loader.reload()
 

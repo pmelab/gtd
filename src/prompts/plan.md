@@ -7,6 +7,15 @@ action plan in a markdown file.
 
 {{plan}}
 
+## Web Research
+
+Before planning, perform web research when the diff introduces unfamiliar
+libraries, APIs, or technologies that require external context to plan
+accurately. Use the brave-search tool (or equivalent web-search skill) to look
+up relevant documentation, changelogs, or usage examples. Incorporate findings
+as concrete implementation details in the action items. Only invoke web
+research when you determine it is needed — do not search on every run.
+
 ## Instructions
 
 Analyze the diff and existing plan (if any) to determine what to do:
