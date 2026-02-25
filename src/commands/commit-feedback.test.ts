@@ -5,11 +5,15 @@ import { commitFeedbackCommand } from "./commit-feedback.js"
 import { gatherState } from "../cli.js"
 import { inferStep } from "../services/InferStep.js"
 import { mockConfig, mockGit, mockFs } from "../test-helpers.js"
+import { VerboseMode } from "../services/VerboseMode.js"
 
-const agentLayer = Layer.succeed(AgentService, {
-  resolvedName: "mock",
-  invoke: () => Effect.succeed({ sessionId: undefined }),
-})
+const agentLayer = Layer.mergeAll(
+  Layer.succeed(AgentService, {
+    resolvedName: "mock",
+    invoke: () => Effect.succeed({ sessionId: undefined }),
+  }),
+  VerboseMode.layer(false),
+)
 
 describe("commitFeedbackCommand", () => {
   it.effect("calls atomicCommit with 'all' and message starting with 🤦", () =>

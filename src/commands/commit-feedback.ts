@@ -7,13 +7,15 @@ import { SEED, FEEDBACK, HUMAN, FIX, type CommitPrefix } from "../services/Commi
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
 import { findNewlyAddedTodos, removeTodoLines } from "../services/TodoRemover.js"
 import type { FileOps } from "../services/FileOps.js"
+import { VerboseMode } from "../services/VerboseMode.js"
 
 export const commitFeedbackCommand = (fs?: Pick<FileOps, "formatFile">) =>
   Effect.gen(function* () {
     const config = yield* GtdConfigService
     const git = yield* GitService
 
-    const renderer = createSpinnerRenderer(isInteractive())
+    const { isVerbose } = yield* VerboseMode
+    const renderer = createSpinnerRenderer(isInteractive(), isVerbose)
 
     yield* Effect.gen(function* () {
       if (fs?.formatFile) {

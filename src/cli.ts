@@ -17,6 +17,7 @@ import { learnPrompt, interpolate } from "./prompts/index.js"
 import { generateCommitMessage } from "./services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "./services/Renderer.js"
 import { QuietMode } from "./services/QuietMode.js"
+import { VerboseMode } from "./services/VerboseMode.js"
 import { printStartupMessage } from "./services/DecisionTree.js"
 
 export const idleMessage = "Nothing to do. Create a TODO.md or add in-code comments to start."
@@ -31,7 +32,8 @@ export const learnAction = (input: LearnInput) =>
     const git = yield* GitService
     const agent = yield* AgentService
 
-    const renderer = createSpinnerRenderer(isInteractive())
+    const { isVerbose } = yield* VerboseMode
+    const renderer = createSpinnerRenderer(isInteractive(), isVerbose)
 
     const exists = yield* input.fs.exists()
     if (!exists) {
@@ -197,7 +199,12 @@ const quietOption = Options.boolean("quiet").pipe(
 
 const debugOption = Options.boolean("debug").pipe(Options.withDefault(false))
 
-const rootCommand = Command.make("gtd", { quiet: quietOption, debug: debugOption }, ({ quiet, debug }) =>
+const verboseOption = Options.boolean("verbose").pipe(
+  Options.withAlias("v"),
+  Options.withDefault(false),
+)
+
+const rootCommand = Command.make("gtd", { quiet: quietOption, debug: debugOption, verbose: verboseOption }, ({ quiet, debug, verbose }) =>
   Effect.gen(function* () {
     if (debug) process.env.GTD_DEBUG = "1"
     const config = yield* GtdConfigService
@@ -219,7 +226,10 @@ const rootCommand = Command.make("gtd", { quiet: quietOption, debug: debugOption
     } else {
       yield* runStep(step, fs)
     }
-  }).pipe(Effect.provide(QuietMode.layer(quiet))),
+  }).pipe(
+    Effect.provide(QuietMode.layer(quiet)),
+    Effect.provide(VerboseMode.layer(verbose)),
+  ),
 )
 
 export const command = rootCommand.pipe(Command.withSubcommands([initCommand]))

@@ -1,3 +1,4 @@
+import chalk from "chalk"
 import { Effect } from "effect"
 import { resolve } from "node:path"
 import { GtdConfigService } from "../services/Config.js"
@@ -9,6 +10,7 @@ import { planPrompt, interpolate } from "../prompts/index.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
 import { nodeFileOps, type FileOps } from "../services/FileOps.js"
+import { VerboseMode } from "../services/VerboseMode.js"
 
 const MAX_LINT_RETRIES = 3
 
@@ -21,7 +23,8 @@ export const planCommand = (fs: FileOps) =>
     const git = yield* GitService
     const agent = yield* AgentService
 
-    const renderer = createSpinnerRenderer(isInteractive())
+    const { isVerbose } = yield* VerboseMode
+    const renderer = createSpinnerRenderer(isInteractive(), isVerbose)
 
     // 1. Get diff (fall back to last commit when working tree is clean)
     renderer.setText("Reading diff...")
@@ -56,7 +59,7 @@ export const planCommand = (fs: FileOps) =>
     }
 
     // 5. Invoke agent
-    renderer.setText("Planning...")
+    renderer.setTextWithCursor(chalk.cyan("Planning..."))
     const planResult = yield* agent
       .invoke({
         prompt,

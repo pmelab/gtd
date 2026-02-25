@@ -76,6 +76,11 @@ export const formatDuration = (ms: number): string => {
 
 export const isInteractive = (): boolean => process.stdout.isTTY === true
 
+// --- Cursor symbol stripping ---
+
+export const stripCursorSymbols = (text: string): string =>
+  text.replace(/\u2588|\x1b\[\?25[lh]|\x1b\[1D/g, "")
+
 // --- Shared helpers ---
 
 const compactToolInput = (input: unknown): string => {
@@ -92,56 +97,25 @@ const compactToolInput = (input: unknown): string => {
   return ""
 }
 
-const CLEAR_CHAR = "\x1b[1D \x1b[1D"
-const HIDE_CURSOR = "\x1b[?25l"
-const SHOW_CURSOR = "\x1b[?25h"
-const BLOCK_CURSOR = "█"
 interface EventHandler {
   readonly onEvent: (event: AgentEvent) => void
   readonly ensureNewline: () => void
+  readonly markDirty: () => void
 }
 
-const createEventHandler = (): EventHandler => {
+export const createEventHandler = (verbose: boolean): EventHandler => {
   let thinking = false
   let dirty = false
-  let cursorVisible = false
-  let spinnerTimer: ReturnType<typeof setInterval> | undefined
-
-  const stopSpinner = () => {
-    if (spinnerTimer != null) {
-      clearInterval(spinnerTimer)
-      spinnerTimer = undefined
-      if (cursorVisible) process.stdout.write(CLEAR_CHAR)
-      cursorVisible = false
-      process.stdout.write(SHOW_CURSOR)
-    }
-  }
-
-  const startSpinner = () => {
-    stopSpinner()
-    process.stdout.write(HIDE_CURSOR + BLOCK_CURSOR)
-    cursorVisible = true
-    dirty = true
-    spinnerTimer = setInterval(() => {
-      if (cursorVisible) {
-        process.stdout.write(CLEAR_CHAR)
-        cursorVisible = false
-      } else {
-        process.stdout.write(BLOCK_CURSOR)
-        cursorVisible = true
-      }
-    }, 530)
-  }
 
   const endThinking = () => {
-    stopSpinner()
-    process.stdout.write("\n\n")
+    if (verbose) {
+      process.stdout.write("\n\n")
+      dirty = false
+    }
     thinking = false
-    dirty = false
   }
 
   const ensureNewline = () => {
-    stopSpinner()
     if (dirty) {
       process.stdout.write("\n")
       dirty = false
@@ -149,19 +123,24 @@ const createEventHandler = (): EventHandler => {
   }
 
   return {
+    markDirty: () => {
+      dirty = true
+    },
     onEvent: (event: AgentEvent) => {
       if (event._tag === "ThinkingDelta") {
-        if (!thinking) {
-          process.stdout.write("\n")
+        if (verbose) {
+          if (!thinking) {
+            process.stdout.write("\n")
+            thinking = true
+          }
+          process.stdout.write(chalk.dim(event.delta))
+          dirty = true
+        } else {
           thinking = true
         }
-        stopSpinner()
-        process.stdout.write(chalk.dim(event.delta))
-        dirty = true
-        startSpinner()
       } else {
         if (thinking) endThinking()
-        if (event._tag === "ToolStart") {
+        if (event._tag === "ToolStart" && verbose) {
           const preview = compactToolInput(event.toolInput)
           process.stdout.write(
             `🔨 ${event.toolName}:` + (preview ? " " + chalk.dim(preview) : "") + "\n",
@@ -186,81 +165,56 @@ export interface SpinnerRenderer {
   readonly dispose: () => void
 }
 
-export const createSpinnerRenderer = (interactive: boolean): SpinnerRenderer => {
+export const createSpinnerRenderer = (interactive: boolean, verbose: boolean): SpinnerRenderer => {
   if (!interactive) {
     let lastText = ""
     return {
       onEvent: () => {},
       setText: (text: string) => {
-        if (text !== lastText) {
-          lastText = text
-          console.log(`[gtd] ${text}`)
+        const clean = stripCursorSymbols(text)
+        if (clean !== lastText) {
+          lastText = clean
+          console.log(`[gtd] ${clean}`)
         }
       },
       setTextWithCursor: (text: string) => {
-        if (text !== lastText) {
-          lastText = text
-          console.log(`[gtd] ${text}`)
+        const clean = stripCursorSymbols(text)
+        if (clean !== lastText) {
+          lastText = clean
+          console.log(`[gtd] ${clean}`)
         }
       },
       stopCursor: () => {},
-      succeed: (text: string) => console.log(`[gtd] ${text}`),
-      fail: (text: string) => console.error(`[gtd] ${text}`),
+      succeed: (text: string) => console.log(`[gtd] ${stripCursorSymbols(text)}`),
+      fail: (text: string) => console.error(`[gtd] ${stripCursorSymbols(text)}`),
       dispose: () => {},
     }
   }
 
-  const handler = createEventHandler()
-  let cursorVisible = false
-  let cursorTimer: ReturnType<typeof setInterval> | undefined
+  const handler = createEventHandler(verbose)
 
-  const stopCursor = () => {
-    if (cursorTimer != null) {
-      clearInterval(cursorTimer)
-      cursorTimer = undefined
-      if (cursorVisible) process.stdout.write(CLEAR_CHAR)
-      cursorVisible = false
-      process.stdout.write(SHOW_CURSOR)
-    }
-  }
+  const stopCursor = () => {}
 
   return {
     onEvent: handler.onEvent,
     setText: (text: string) => {
-      stopCursor()
       handler.ensureNewline()
       process.stdout.write(chalk.cyan("◆") + " " + text + "\n")
     },
     setTextWithCursor: (text: string) => {
-      stopCursor()
       handler.ensureNewline()
-      process.stdout.write(chalk.cyan("◆") + " " + text)
-      process.stdout.write(HIDE_CURSOR + BLOCK_CURSOR)
-      cursorVisible = true
-      cursorTimer = setInterval(() => {
-        if (cursorVisible) {
-          process.stdout.write(CLEAR_CHAR)
-          cursorVisible = false
-        } else {
-          process.stdout.write(BLOCK_CURSOR)
-          cursorVisible = true
-        }
-      }, 530)
+      process.stdout.write(chalk.cyan("◆") + " " + text + "\n")
     },
     stopCursor,
     succeed: (msg: string) => {
-      stopCursor()
       handler.ensureNewline()
       process.stdout.write(chalk.green("✓") + " " + msg + "\n")
     },
     fail: (msg: string) => {
-      stopCursor()
       handler.ensureNewline()
       process.stderr.write(chalk.red("✗") + " " + msg + "\n")
     },
-    dispose: () => {
-      stopCursor()
-    },
+    dispose: () => {},
   }
 }
 
@@ -285,6 +239,7 @@ export const createBuildRenderer = (
     readonly items: ReadonlyArray<{ readonly checked: boolean }>
   }>,
   interactive: boolean,
+  verbose: boolean,
 ): BuildRenderer => {
   let state = initBuildState(packages)
 
@@ -359,37 +314,15 @@ export const createBuildRenderer = (
     }
   }
 
-  const handler = createEventHandler()
-  let bCursorVisible = false
-  let bCursorTimer: ReturnType<typeof setInterval> | undefined
+  const handler = createEventHandler(verbose)
 
-  const stopBuildCursor = () => {
-    if (bCursorTimer != null) {
-      clearInterval(bCursorTimer)
-      bCursorTimer = undefined
-      if (bCursorVisible) process.stdout.write(CLEAR_CHAR)
-      bCursorVisible = false
-      process.stdout.write(SHOW_CURSOR)
-    }
-  }
+  const stopBuildCursor = () => {}
 
   return {
     onEvent: handler.onEvent,
     setTextWithCursor: (text: string) => {
-      stopBuildCursor()
       handler.ensureNewline()
-      process.stdout.write(chalk.cyan("◆") + " " + text)
-      process.stdout.write(HIDE_CURSOR + BLOCK_CURSOR)
-      bCursorVisible = true
-      bCursorTimer = setInterval(() => {
-        if (bCursorVisible) {
-          process.stdout.write(CLEAR_CHAR)
-          bCursorVisible = false
-        } else {
-          process.stdout.write(BLOCK_CURSOR)
-          bCursorVisible = true
-        }
-      }, 530)
+      process.stdout.write(chalk.cyan("◆") + " " + text + "\n")
     },
     stopCursor: stopBuildCursor,
     setStatus: (
@@ -397,7 +330,6 @@ export const createBuildRenderer = (
       status: BuildStatus,
       retryInfo?: { current: number; max: number },
     ) => {
-      stopBuildCursor()
       state = updatePackageStatus(state, title, status, retryInfo)
       const pkg = state.packages.find((p) => p.title === title)
       if (pkg) {
@@ -406,14 +338,11 @@ export const createBuildRenderer = (
       }
     },
     finish: (message: string) => {
-      stopBuildCursor()
       handler.ensureNewline()
       process.stdout.write("\n" + message + "\n")
       process.stdout.write(formatSummary(state) + "\n")
     },
-    dispose: () => {
-      stopBuildCursor()
-    },
+    dispose: () => {},
   }
 }
 

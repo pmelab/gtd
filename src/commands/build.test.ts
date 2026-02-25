@@ -1,10 +1,12 @@
-import { describe, it, expect } from "@effect/vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { AgentService, AgentError } from "../services/Agent.js"
 import type { AgentInvocation, AgentResult } from "../services/Agent.js"
 import { buildCommand, type TestResult } from "./build.js"
 import type { GitOperations } from "../services/Git.js"
 import { mockConfig, mockGit, mockFs, nodeLayer } from "../test-helpers.js"
+
+const HIDE_CURSOR = "\x1b[?25l"
 
 // Stateful mock: writeFile updates what readFile returns
 const mockFsWithProgress = (initial: string) => {
@@ -673,4 +675,89 @@ describe("buildCommand", () => {
     }),
   )
 
+})
+
+describe("buildCommand silent progress indicator", () => {
+  let writeSpy: ReturnType<typeof vi.spyOn>
+  let originalIsTTY: boolean | undefined
+
+  beforeEach(() => {
+    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    originalIsTTY = process.stdout.isTTY
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true })
+  })
+
+  afterEach(() => {
+    writeSpy.mockRestore()
+    vi.useRealTimers()
+    Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true })
+  })
+
+  it.effect("shows Building... via setTextWithCursor before agent invocation (no blinking cursor)", () =>
+    Effect.gen(function* () {
+      const singleItem = [
+        "# Feature",
+        "",
+        "## Action Items",
+        "",
+        "### Setup",
+        "",
+        "- [ ] Only item",
+        "  - Detail",
+        "  - Tests: check",
+        "",
+      ].join("\n")
+      let agentStarted = false
+      const agentLayer = Layer.succeed(AgentService, {
+        resolvedName: "mock",
+        invoke: (params) => {
+          if (params.mode === "build") agentStarted = true
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
+      })
+      yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
+      )
+      const allOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("")
+      expect(allOutput).toContain("Building...")
+      const buildingIdx = allOutput.indexOf("Building...")
+      const afterBuilding = allOutput.slice(buildingIdx + "Building...".length)
+      expect(afterBuilding.startsWith("\n")).toBe(true)
+      expect(allOutput).not.toContain(HIDE_CURSOR)
+      expect(agentStarted).toBe(true)
+    }),
+  )
+
+  it.effect("ThinkingDelta events do not write thinking text to stdout in non-verbose mode", () =>
+    Effect.gen(function* () {
+      vi.useFakeTimers()
+      const thinkingText = "secret-build-thinking-xyz"
+      const singleItem = [
+        "# Feature",
+        "",
+        "## Action Items",
+        "",
+        "### Setup",
+        "",
+        "- [ ] Only item",
+        "  - Detail",
+        "  - Tests: check",
+        "",
+      ].join("\n")
+      const agentLayer = Layer.succeed(AgentService, {
+        resolvedName: "mock",
+        invoke: (params) => {
+          if (params.onEvent && params.mode === "build") {
+            params.onEvent({ _tag: "ThinkingDelta", delta: thinkingText })
+          }
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
+      })
+      yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
+      )
+      const allOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("")
+      expect(allOutput).not.toContain(thinkingText)
+    }),
+  )
 })

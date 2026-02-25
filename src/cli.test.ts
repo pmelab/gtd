@@ -5,6 +5,7 @@ import { AgentService } from "./services/Agent.js"
 import type { AgentInvocation } from "./services/Agent.js"
 import { mockConfig, mockGit, mockFs, nodeLayer } from "./test-helpers.js"
 import { SEED, FEEDBACK, HUMAN } from "./services/CommitPrefix.js"
+import { VerboseMode } from "./services/VerboseMode.js"
 
 describe("gtd unified command", () => {
   it.effect("command is defined with init subcommand", () =>
@@ -740,5 +741,30 @@ describe("gtd subcommands", () => {
     const mod = await import("./cli.js")
     expect(mod.command).toBeDefined()
     expect(mod.initCommand).toBeDefined()
+  })
+})
+
+describe("--verbose flag", () => {
+  it("VerboseMode defaults to false", async () => {
+    const result = await Effect.runPromise(
+      VerboseMode.pipe(Effect.provide(VerboseMode.layer(false))),
+    )
+    expect(result.isVerbose).toBe(false)
+  })
+
+  it("VerboseMode is true when --verbose is passed", async () => {
+    const result = await Effect.runPromise(
+      VerboseMode.pipe(Effect.provide(VerboseMode.layer(true))),
+    )
+    expect(result.isVerbose).toBe(true)
+  })
+
+  it("--verbose and --debug are orthogonal flags", async () => {
+    const verboseResult = await Effect.runPromise(
+      VerboseMode.pipe(Effect.provide(VerboseMode.layer(true))),
+    )
+    expect(verboseResult.isVerbose).toBe(true)
+    // command is defined independently of debug mode
+    expect(command).toBeDefined()
   })
 })

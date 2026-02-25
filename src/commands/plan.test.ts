@@ -1,9 +1,12 @@
-import { describe, it, expect } from "@effect/vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { AgentService } from "../services/Agent.js"
 import type { AgentInvocation, AgentResult } from "../services/Agent.js"
 import { planCommand } from "./plan.js"
 import { mockConfig, mockGit, mockFs, nodeLayer } from "../test-helpers.js"
+
+const HIDE_CURSOR = "\x1b[?25l"
+const BLOCK_CURSOR = "█"
 
 describe("planCommand", () => {
   it.effect("invokes agent in plan mode with diff", () =>
@@ -366,6 +369,67 @@ describe("planCommand", () => {
       )
       expect(calls[0]!.prompt).toContain("Fix the bug in parser")
       expect(calls[0]!.prompt).not.toContain("No diff available.")
+    }),
+  )
+})
+
+describe("planCommand silent progress indicator", () => {
+  let writeSpy: ReturnType<typeof vi.spyOn>
+  let originalIsTTY: boolean | undefined
+
+  beforeEach(() => {
+    writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
+    originalIsTTY = process.stdout.isTTY
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true })
+  })
+
+  afterEach(() => {
+    writeSpy.mockRestore()
+    vi.useRealTimers()
+    Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true })
+  })
+
+  it.effect("shows Planning... via setTextWithCursor before agent invocation (no blinking cursor)", () =>
+    Effect.gen(function* () {
+      let agentStarted = false
+      const agentLayer = Layer.succeed(AgentService, {
+        resolvedName: "mock",
+        invoke: (params) => {
+          agentStarted = true
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
+      })
+      yield* planCommand(mockFs("")).pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
+      )
+      const allOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("")
+      expect(allOutput).toContain("Planning...")
+      const planningIdx = allOutput.indexOf("Planning...")
+      const afterPlanning = allOutput.slice(planningIdx + "Planning...".length)
+      expect(afterPlanning.startsWith("\n")).toBe(true)
+      expect(allOutput).not.toContain(HIDE_CURSOR)
+      expect(agentStarted).toBe(true)
+    }),
+  )
+
+  it.effect("ThinkingDelta events do not write thinking text to stdout in non-verbose mode", () =>
+    Effect.gen(function* () {
+      vi.useFakeTimers()
+      const thinkingText = "secret-thinking-content-xyz"
+      const agentLayer = Layer.succeed(AgentService, {
+        resolvedName: "mock",
+        invoke: (params) => {
+          if (params.onEvent) {
+            params.onEvent({ _tag: "ThinkingDelta", delta: thinkingText })
+          }
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
+      })
+      yield* planCommand(mockFs("")).pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
+      )
+      const allOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("")
+      expect(allOutput).not.toContain(thinkingText)
     }),
   )
 })

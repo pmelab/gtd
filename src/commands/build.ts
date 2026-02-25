@@ -16,6 +16,7 @@ import {
 import { buildPrompt, interpolate } from "../prompts/index.js"
 import { createBuildRenderer, isInteractive } from "../services/Renderer.js"
 import { nodeFileOps, type FileOps } from "../services/FileOps.js"
+import { VerboseMode } from "../services/VerboseMode.js"
 
 export interface TestResult {
   readonly exitCode: number
@@ -42,7 +43,8 @@ export const buildCommand = (fs: FileOps) =>
 
     // Parse packages upfront for renderer
     const allPackages = parsePackages(content)
-    const renderer = createBuildRenderer(allPackages, isInteractive())
+    const { isVerbose } = yield* VerboseMode
+    const renderer = createBuildRenderer(allPackages, isInteractive(), isVerbose)
 
     const completedSummaries: string[] = []
 
@@ -77,6 +79,7 @@ export const buildCommand = (fs: FileOps) =>
         testOutput: "",
       })
 
+      renderer.setTextWithCursor(chalk.rgb(255, 165, 0)("Building..."))
       const buildResult = yield* agent
         .invoke({
           prompt,
