@@ -14,7 +14,6 @@ export type Step =
   | "commit-feedback"
   | "plan"
   | "build"
-  | "learn"
   | "cleanup"
   | "idle"
 
@@ -22,7 +21,6 @@ export interface InferStepInput {
   readonly hasUncommittedChanges: boolean
   readonly lastCommitPrefix: CommitPrefix | undefined
   readonly hasUncheckedItems: boolean
-  readonly onlyLearningsModified: boolean
   readonly todoFileIsNew: boolean
   readonly prevPhasePrefix?: CommitPrefix | undefined
 }
@@ -42,22 +40,22 @@ export const inferStep = (input: InferStepInput): Step => {
         case BUILD:
         case FIX:
           if (input.todoFileIsNew) return "plan"
-          return input.hasUncheckedItems ? "build" : "learn"
-        case LEARN: return "learn"
-        default: return input.onlyLearningsModified ? "learn" : "plan"
+          return input.hasUncheckedItems ? "build" : "cleanup"
+        case LEARN: return "cleanup"
+        default: return "plan"
       }
     }
     case FEEDBACK: {
-      return input.onlyLearningsModified ? "learn" : "plan"
+      return "plan"
     }
     case PLAN:
       return "build"
     case BUILD:
     case FIX:
       if (input.todoFileIsNew) return "plan"
-      return input.hasUncheckedItems ? "build" : "learn"
+      return input.hasUncheckedItems ? "build" : "cleanup"
     case LEARN:
-      return "cleanup"
+      return "idle"
     case CLEANUP:
       return "idle"
     default:

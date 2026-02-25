@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@effect/vitest"
-import { interpolate, planPrompt, buildPrompt, learnPrompt } from "./index.js"
+import { interpolate, planPrompt, buildPrompt } from "./index.js"
 
 describe("prompts", () => {
   it("planPrompt is a non-empty string", () => {
@@ -14,11 +14,6 @@ describe("prompts", () => {
   it("buildPrompt is a non-empty string", () => {
     expect(typeof buildPrompt).toBe("string")
     expect(buildPrompt.length).toBeGreaterThan(0)
-  })
-
-  it("learnPrompt is a non-empty string", () => {
-    expect(typeof learnPrompt).toBe("string")
-    expect(learnPrompt.length).toBeGreaterThan(0)
   })
 })
 

@@ -13,7 +13,6 @@ describe("GtdConfigSchema", () => {
     expect(result.testRetries).toBe(5)
     expect(result.modelPlan).toBeUndefined()
     expect(result.modelBuild).toBeUndefined()
-    expect(result.modelLearn).toBeUndefined()
     expect(result.modelCommit).toBeUndefined()
     expect(result.testCmd).toBeUndefined()
     expect(result.commitPrompt).toBeUndefined()
@@ -25,7 +24,6 @@ describe("GtdConfigSchema", () => {
       file: "TODO.md",
       modelPlan: "anthropic/claude-sonnet-4-20250514",
       modelBuild: "anthropic/claude-sonnet-4-20250514",
-      modelLearn: "anthropic/claude-haiku-4-5-20251001",
       modelCommit: "anthropic/claude-haiku-4-5-20251001",
       testCmd: "bun test",
       testRetries: 3,

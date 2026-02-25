@@ -6,7 +6,6 @@ export interface GtdConfig {
   readonly file: string
   readonly modelPlan: string | undefined
   readonly modelBuild: string | undefined
-  readonly modelLearn: string | undefined
   readonly modelCommit: string | undefined
   readonly testCmd: string
   readonly testRetries: number

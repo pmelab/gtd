@@ -118,18 +118,3 @@ export const getNextUncheckedPackage = (content: string): Option.Option<Package>
   return pkg ? Option.some(pkg) : Option.none()
 }
 
-export const extractLearnings = (content: string): string => {
-  const lines = content.split("\n")
-  const sectionIdx = lines.findIndex((l) => /^##\s+Learnings\s*$/.test(l))
-  if (sectionIdx === -1) return ""
-
-  const bodyLines: Array<string> = []
-  for (let i = sectionIdx + 1; i < lines.length; i++) {
-    if (/^##\s+/.test(lines[i]!)) break
-    bodyLines.push(lines[i]!)
-  }
-  return bodyLines.join("\n").trim()
-}
-
-export const hasLearningsSection = (content: string): boolean =>
-  /^##\s+Learnings\s*$/m.test(content)

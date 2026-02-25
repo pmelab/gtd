@@ -11,7 +11,6 @@ import {
   PLAN,
   BUILD,
   FIX,
-  LEARN,
   CLEANUP,
   SEED,
   FEEDBACK,
@@ -27,8 +26,6 @@ const prefixLabel = (prefix: string | undefined): string => {
       return "build"
     case FIX:
       return "fix"
-    case LEARN:
-      return "learn"
     case CLEANUP:
       return "cleanup"
     case SEED:
@@ -47,8 +44,6 @@ const resolveModelForStep = (step: Step, config: GtdConfig): string | undefined 
       return config.modelPlan
     case "build":
       return config.modelBuild
-    case "learn":
-      return config.modelLearn
     case "cleanup":
     case "idle":
       return undefined
@@ -90,13 +85,10 @@ const describeReason = (state: InferStepInput, step: Step): string => {
       if (state.hasUncheckedItems) return `Last commit was a ${last} step with unchecked items, so proceeding to ${step}.`
       return `Last commit was a ${last} step with all items checked, so proceeding to ${step}.`
     case HUMAN:
-      if (state.onlyLearningsModified) return `Last commit was a ${last} (learnings only), so proceeding to ${step}.`
       return `Last commit was a ${last}, so proceeding to ${step}.`
     case FEEDBACK:
-      if (state.onlyLearningsModified) return `Last commit was ${last} (learnings only), so proceeding to ${step}.`
       return `Last commit was ${last}, so proceeding to ${step}.`
     case SEED:
-    case LEARN:
     case CLEANUP:
       return `Last commit was a ${last} step, so proceeding to ${step}.`
     default:

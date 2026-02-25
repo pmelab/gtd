@@ -38,40 +38,6 @@ Given("{string} has appended {string}", function (this: GtdWorld, file: string, 
   writeFileSync(filePath, content + text + "\n")
 })
 
-Given("{string} has a learnings section", function (this: GtdWorld, file: string) {
-  const filePath = join(this.repoDir, file)
-  const content = readFileSync(filePath, "utf-8")
-  if (!content.toLowerCase().includes("## learnings")) {
-    writeFileSync(
-      filePath,
-      content + "\n## Learnings\n\n- avoid magic numbers in business logic\n",
-    )
-  }
-  // Ensure at least one learning survives after removing "magic numbers"
-  const updated = readFileSync(filePath, "utf-8")
-  if (!updated.includes("always validate inputs")) {
-    writeFileSync(filePath, updated + "- always validate inputs at system boundaries\n")
-  }
-})
-
-Given(
-  "the {string} learning is removed from {string}",
-  function (this: GtdWorld, pattern: string, file: string) {
-    const filePath = join(this.repoDir, file)
-    const content = readFileSync(filePath, "utf-8")
-    // Remove lines containing the pattern within the Learnings section
-    const lines = content.split("\n")
-    let inLearnings = false
-    const filtered = lines.filter((line) => {
-      if (line.match(/^## Learnings/i)) inLearnings = true
-      else if (line.match(/^## /) && inLearnings) inLearnings = false
-      if (inLearnings && line.includes(pattern)) return false
-      return true
-    })
-    writeFileSync(filePath, filtered.join("\n"))
-  },
-)
-
 // Generic git commit steps
 
 Given(

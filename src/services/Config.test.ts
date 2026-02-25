@@ -39,7 +39,6 @@ describe("GtdConfigService (file-based)", () => {
     expect(config.file).toBe("TODO.md")
     expect(config.modelPlan).toBeUndefined()
     expect(config.modelBuild).toBeUndefined()
-    expect(config.modelLearn).toBeUndefined()
     expect(config.modelCommit).toBeUndefined()
     expect(config.testCmd).toBe("npm test")
     expect(config.testRetries).toBe(10)

@@ -7,89 +7,15 @@ import { commitFeedbackCommand } from "./commands/commit-feedback.js"
 import { initAction } from "./commands/init.js"
 import { GitService } from "./services/Git.js"
 import { GtdConfigService } from "./services/Config.js"
-import { AgentService, catchAgentError } from "./services/Agent.js"
 import { parseCommitPrefix, HUMAN, SEED, FEEDBACK, FIX, type CommitPrefix } from "./services/CommitPrefix.js"
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
-import { isOnlyLearningsModified } from "./services/LearningsDiff.js"
-import { extractLearnings, hasLearningsSection, hasUncheckedItems } from "./services/Markdown.js"
+import { hasUncheckedItems } from "./services/Markdown.js"
 import { nodeFileOps, type FileOps } from "./services/FileOps.js"
-import { learnPrompt, interpolate } from "./prompts/index.js"
-import { generateCommitMessage } from "./services/CommitMessage.js"
-import { createSpinnerRenderer, isInteractive } from "./services/Renderer.js"
 import { QuietMode } from "./services/QuietMode.js"
 import { VerboseMode } from "./services/VerboseMode.js"
 import { printStartupMessage } from "./services/DecisionTree.js"
 
 export const idleMessage = "Nothing to do. Create a TODO.md or add in-code comments to start."
-
-export interface LearnInput {
-  readonly fs: Pick<FileOps, "readFile" | "exists" | "remove">
-}
-
-export const learnAction = (input: LearnInput) =>
-  Effect.gen(function* () {
-    const config = yield* GtdConfigService
-    const git = yield* GitService
-    const agent = yield* AgentService
-
-    const { isVerbose } = yield* VerboseMode
-    const renderer = createSpinnerRenderer(isInteractive(), isVerbose)
-
-    const exists = yield* input.fs.exists()
-    if (!exists) {
-      renderer.fail(`Plan file ${config.file} not found. Nothing to learn from.`)
-      return
-    }
-
-    const content = yield* input.fs.readFile()
-
-    const learnings = extractLearnings(content)
-
-    if (hasLearningsSection(content)) {
-      if (learnings.trim() !== "") {
-        renderer.setText("Persisting learnings to AGENTS.md...")
-
-        const prompt = interpolate(learnPrompt, {
-          learnings: learnings,
-        })
-
-        yield* agent
-          .invoke({
-            prompt,
-            systemPrompt: "",
-            mode: "learn",
-            cwd: process.cwd(),
-            onEvent: renderer.onEvent,
-          })
-          .pipe(Effect.ensuring(Effect.sync(() => renderer.dispose())))
-
-        const hasChanges = yield* git.hasUncommittedChanges()
-        if (hasChanges) {
-          const learnDiff = yield* git.getDiff()
-          renderer.setTextWithCursor("Generating commit message…")
-          const learnCommitMsg = yield* generateCommitMessage("🎓", learnDiff, {
-            onStop: () => renderer.stopCursor(),
-          })
-          renderer.setText("Committing…")
-          yield* git.atomicCommit("all", learnCommitMsg)
-          renderer.succeed("Learnings persisted to AGENTS.md and committed.")
-        } else {
-          yield* git.emptyCommit("🎓 learn: no changes")
-          renderer.succeed("Agent made no changes. Learn phase complete.")
-        }
-      } else {
-        yield* git.emptyCommit(`🎓 review: no learnings to persist`)
-        renderer.succeed("No learnings to persist. Learn phase complete.")
-      }
-
-      yield* input.fs.remove()
-      yield* git.atomicCommit("all", `🧹 cleanup: remove ${config.file}`)
-    } else {
-      yield* input.fs.remove()
-      yield* git.atomicCommit("all", `🧹 cleanup: remove ${config.file}`)
-      renderer.succeed("No learnings to persist. Cleaned up.")
-    }
-  }).pipe(catchAgentError)
 
 export const gatherState = (
   fs: FileOps,
@@ -107,24 +33,6 @@ export const gatherState = (
     const fileExists = yield* fs.exists()
     const content = fileExists ? yield* fs.readFile() : ""
     const unchecked = hasUncheckedItems(content)
-
-    let onlyLearningsModified = false
-    if (uncommitted) {
-      const diff = yield* fs.getDiffContent()
-      const committedContent = yield* git.show(`HEAD:${config.file}`).pipe(
-        Effect.catchAll(() => Effect.succeed("")),
-      )
-      onlyLearningsModified = isOnlyLearningsModified(diff, committedContent)
-    } else if (lastPrefix === HUMAN || lastPrefix === SEED || lastPrefix === FEEDBACK) {
-      // For 🤦 commits, check if the committed diff only modified learnings
-      const diff = yield* git.show("HEAD").pipe(
-        Effect.catchAll(() => Effect.succeed("")),
-      )
-      const preCommitContent = yield* git.show(`HEAD~1:${config.file}`).pipe(
-        Effect.catchAll(() => Effect.succeed("")),
-      )
-      onlyLearningsModified = isOnlyLearningsModified(diff, preCommitContent)
-    }
 
     let todoFileIsNew = false
     if (!uncommitted) {
@@ -157,7 +65,6 @@ export const gatherState = (
       hasUncommittedChanges: uncommitted,
       lastCommitPrefix: lastPrefix,
       hasUncheckedItems: unchecked,
-      onlyLearningsModified,
       todoFileIsNew,
       prevPhasePrefix,
     }
@@ -171,8 +78,6 @@ const runStep = (step: Step, fs: FileOps) => {
       return makePlanCommand
     case "build":
       return makeBuildCommand
-    case "learn":
-      return learnAction({ fs })
     case "cleanup":
       return makeCleanupCommand
     case "idle":
@@ -218,10 +123,7 @@ const rootCommand = Command.make("gtd", { quiet: quietOption, debug: debugOption
     if (step === "commit-feedback") {
       yield* commitFeedbackCommand(fs)
       const newState = yield* gatherState(yield* nodeFileOps(config.file))
-      const newStep = dispatch({
-        ...newState,
-        onlyLearningsModified: state.onlyLearningsModified || newState.onlyLearningsModified,
-      })
+      const newStep = dispatch(newState)
       yield* runStep(newStep, yield* nodeFileOps(config.file))
     } else {
       yield* runStep(step, fs)

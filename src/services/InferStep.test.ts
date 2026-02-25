@@ -8,19 +8,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: true,
       lastCommitPrefix: undefined,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
-      todoFileIsNew: false,
-      prevPhasePrefix: undefined,
-    }
-    expect(inferStep(input)).toBe("commit-feedback")
-  })
-
-  it("returns commit-feedback when uncommitted changes are only in Learnings section", () => {
-    const input: InferStepInput = {
-      hasUncommittedChanges: true,
-      lastCommitPrefix: undefined,
-      hasUncheckedItems: false,
-      onlyLearningsModified: true,
       todoFileIsNew: false,
       prevPhasePrefix: undefined,
     }
@@ -32,32 +19,19 @@ describe("inferStep", () => {
       hasUncommittedChanges: true,
       lastCommitPrefix: BUILD,
       hasUncheckedItems: true,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("commit-feedback")
   })
 
-  it("returns plan when last commit prefix is HUMAN and not only learnings", () => {
+  it("returns plan when last commit prefix is HUMAN and no prevPhasePrefix", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: false,
       lastCommitPrefix: HUMAN,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("plan")
-  })
-
-  it("returns learn when last commit prefix is HUMAN and only learnings modified", () => {
-    const input: InferStepInput = {
-      hasUncommittedChanges: false,
-      lastCommitPrefix: HUMAN,
-      hasUncheckedItems: false,
-      onlyLearningsModified: true,
-      todoFileIsNew: false,
-    }
-    expect(inferStep(input)).toBe("learn")
   })
 
   it("returns build when last commit prefix is PLAN", () => {
@@ -65,7 +39,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: PLAN,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("build")
@@ -76,32 +49,29 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: BUILD,
       hasUncheckedItems: true,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("build")
   })
 
-  it("returns learn when last commit prefix is BUILD and all items checked", () => {
+  it("returns cleanup when last commit prefix is BUILD and all items checked", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: false,
       lastCommitPrefix: BUILD,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
-    expect(inferStep(input)).toBe("learn")
+    expect(inferStep(input)).toBe("cleanup")
   })
 
-  it("returns cleanup when last commit prefix is LEARN", () => {
+  it("returns idle when last commit prefix is LEARN (backward compat)", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: false,
       lastCommitPrefix: LEARN,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
-    expect(inferStep(input)).toBe("cleanup")
+    expect(inferStep(input)).toBe("idle")
   })
 
   it("returns idle when last commit prefix is CLEANUP", () => {
@@ -109,7 +79,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: CLEANUP,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("idle")
@@ -120,7 +89,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: undefined,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("idle")
@@ -131,7 +99,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: undefined,
       hasUncheckedItems: true,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("idle")
@@ -142,7 +109,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: true,
       lastCommitPrefix: PLAN,
       hasUncheckedItems: true,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("commit-feedback")
@@ -153,21 +119,19 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: FIX,
       hasUncheckedItems: true,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("build")
   })
 
-  it("returns learn when last commit prefix is FIX and all items checked", () => {
+  it("returns cleanup when last commit prefix is FIX and all items checked", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: false,
       lastCommitPrefix: FIX,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
-    expect(inferStep(input)).toBe("learn")
+    expect(inferStep(input)).toBe("cleanup")
   })
 
   it("returns plan when FIX + todoFileIsNew", () => {
@@ -175,7 +139,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: FIX,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: true,
     }
     expect(inferStep(input)).toBe("plan")
@@ -186,7 +149,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: BUILD,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: true,
     }
     expect(inferStep(input)).toBe("plan")
@@ -197,7 +159,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: undefined,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: true,
     }
     expect(inferStep(input)).toBe("plan")
@@ -208,7 +169,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: SEED,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
       prevPhasePrefix: undefined,
     }
@@ -220,32 +180,9 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: FEEDBACK,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("plan")
-  })
-
-  it("returns learn when last commit prefix is FEEDBACK and only learnings modified", () => {
-    const input: InferStepInput = {
-      hasUncommittedChanges: false,
-      lastCommitPrefix: FEEDBACK,
-      hasUncheckedItems: false,
-      onlyLearningsModified: true,
-      todoFileIsNew: false,
-    }
-    expect(inferStep(input)).toBe("learn")
-  })
-
-  it("uncommitted + onlyLearnings still returns commit-feedback", () => {
-    const input: InferStepInput = {
-      hasUncommittedChanges: true,
-      lastCommitPrefix: BUILD,
-      hasUncheckedItems: true,
-      onlyLearningsModified: true,
-      todoFileIsNew: false,
-    }
-    expect(inferStep(input)).toBe("commit-feedback")
   })
 
   it("returns plan for unified commit with SEED prefix (seed + fix bundled together)", () => {
@@ -253,7 +190,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: SEED,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: true,
       prevPhasePrefix: undefined,
     }
@@ -265,7 +201,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: SEED,
       hasUncheckedItems: true,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
       prevPhasePrefix: undefined,
     }
@@ -277,7 +212,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: HUMAN,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
       prevPhasePrefix: SEED,
     }
@@ -289,7 +223,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: HUMAN,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
       prevPhasePrefix: PLAN,
     }
@@ -301,7 +234,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: FEEDBACK,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
       prevPhasePrefix: PLAN,
     }
@@ -313,23 +245,21 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: HUMAN,
       hasUncheckedItems: true,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
       prevPhasePrefix: BUILD,
     }
     expect(inferStep(input)).toBe("build")
   })
 
-  it("returns learn when HUMAN and prevPhasePrefix is BUILD with all checked", () => {
+  it("returns cleanup when HUMAN and prevPhasePrefix is BUILD with all checked", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: false,
       lastCommitPrefix: HUMAN,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
       prevPhasePrefix: BUILD,
     }
-    expect(inferStep(input)).toBe("learn")
+    expect(inferStep(input)).toBe("cleanup")
   })
 
   it("returns plan when HUMAN and prevPhasePrefix is BUILD with todoFileIsNew", () => {
@@ -337,7 +267,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: HUMAN,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: true,
       prevPhasePrefix: BUILD,
     }
@@ -349,23 +278,21 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: FEEDBACK,
       hasUncheckedItems: true,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
       prevPhasePrefix: BUILD,
     }
     expect(inferStep(input)).toBe("plan")
   })
 
-  it("returns learn when HUMAN and prevPhasePrefix is LEARN", () => {
+  it("returns cleanup when HUMAN and prevPhasePrefix is LEARN", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: false,
       lastCommitPrefix: HUMAN,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
       prevPhasePrefix: LEARN,
     }
-    expect(inferStep(input)).toBe("learn")
+    expect(inferStep(input)).toBe("cleanup")
   })
 
   it("returns plan when FEEDBACK and prevPhasePrefix is LEARN", () => {
@@ -373,7 +300,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: FEEDBACK,
       hasUncheckedItems: false,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
       prevPhasePrefix: LEARN,
     }
@@ -385,7 +311,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: FEEDBACK,
       hasUncheckedItems: true,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("plan")
@@ -396,7 +321,6 @@ describe("inferStep", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: HUMAN,
       hasUncheckedItems: true,
-      onlyLearningsModified: false,
       todoFileIsNew: false,
     }
     expect(inferStep(input)).toBe("plan")

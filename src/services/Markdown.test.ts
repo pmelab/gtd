@@ -3,8 +3,6 @@ import { Option } from "effect"
 import {
   detectState,
   hasUncheckedItems,
-  extractLearnings,
-  hasLearningsSection,
   parsePackages,
   getNextUncheckedPackage,
 } from "./Markdown.js"
@@ -73,43 +71,6 @@ describe("hasUncheckedItems", () => {
 
   it("returns false for empty content", () => {
     expect(hasUncheckedItems("")).toBe(false)
-  })
-})
-
-describe("extractLearnings", () => {
-  it("extracts learnings section content", () => {
-    const result = extractLearnings(validPlan)
-    expect(result).toContain("Some learning")
-  })
-
-  it("returns empty string when no learnings section", () => {
-    expect(extractLearnings(minimalValid)).toBe("")
-  })
-
-  it("stops at next section", () => {
-    const content = `## Learnings
-
-- learning 1
-- learning 2
-
-## Next Section
-
-- not a learning
-`
-    const result = extractLearnings(content)
-    expect(result).toContain("learning 1")
-    expect(result).toContain("learning 2")
-    expect(result).not.toContain("not a learning")
-  })
-})
-
-describe("hasLearningsSection", () => {
-  it("returns true when learnings section exists", () => {
-    expect(hasLearningsSection(validPlan)).toBe(true)
-  })
-
-  it("returns false when no learnings section", () => {
-    expect(hasLearningsSection(minimalValid)).toBe(false)
   })
 })
 

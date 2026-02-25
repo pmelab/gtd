@@ -21,7 +21,6 @@ describe("startup message in CLI", () => {
     hasUncommittedChanges: false,
     lastCommitPrefix: "🤖",
     hasUncheckedItems: true,
-    onlyLearningsModified: false,
     todoFileIsNew: false,
   }
 

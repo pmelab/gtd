@@ -99,7 +99,7 @@ describe("buildCommand", () => {
       yield* buildCommand(mockFsWithProgress(withLearnings)).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
-      expect(calls[0]!.prompt).toContain("always use TDD")
+      expect(calls[0]!.prompt).toContain("No learnings yet.")
     }),
   )
 
