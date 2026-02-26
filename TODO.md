@@ -4,7 +4,7 @@
 
 ### Create `src/prompts/commit.md`
 
-- [ ] Add `src/prompts/commit.md` with the commit summarization prompt
+- [x] Add `src/prompts/commit.md` with the commit summarization prompt
   - Move the inline `PROMPT` template from `src/services/CommitMessage.ts` into
     a markdown file
   - Replace the `${diff}` string interpolation with a `{{diff}}` placeholder to

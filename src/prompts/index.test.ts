@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@effect/vitest"
-import { interpolate, planPrompt, buildPrompt } from "./index.js"
+import { interpolate, planPrompt, buildPrompt, commitPrompt } from "./index.js"
 
 describe("prompts", () => {
   it("planPrompt is a non-empty string", () => {
@@ -18,6 +18,19 @@ describe("prompts", () => {
   it("buildPrompt is a non-empty string", () => {
     expect(typeof buildPrompt).toBe("string")
     expect(buildPrompt.length).toBeGreaterThan(0)
+  })
+
+  it("commitPrompt is a non-empty string", () => {
+    expect(typeof commitPrompt).toBe("string")
+    expect(commitPrompt.length).toBeGreaterThan(0)
+  })
+
+  it("commitPrompt contains {{diff}} placeholder", () => {
+    expect(commitPrompt).toContain("{{diff}}")
+  })
+
+  it("commitPrompt contains summarization instruction", () => {
+    expect(commitPrompt).toMatch(/summarize this diff as a git commit message/i)
   })
 })
 
