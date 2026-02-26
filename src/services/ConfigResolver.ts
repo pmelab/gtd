@@ -155,10 +155,6 @@ export const mergeConfigs = (configs: ReadonlyArray<ConfigResult>): GtdConfig =>
     // Strip deprecated fields that old configs might still have
     const {
       agent: _agent,
-      sandboxEnabled: _se,
-      sandboxBoundaries: _sb,
-      sandboxEscalationPolicy: _sep,
-      sandboxApprovedEscalations: _sae,
       approvedEscalations: _ae,
       agentPlan: _ap,
       agentBuild: _ab,

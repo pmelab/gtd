@@ -49,15 +49,6 @@ Then("{string} does not exist", function (this: GtdWorld, file: string) {
   assert.ok(!this.repoFileExists(file), `Expected "${file}" to NOT exist`)
 })
 
-Then("it is a sandbox violation", function (this: GtdWorld) {
-  assert.notStrictEqual(this.lastResult.exitCode, 0, "Expected non-zero exit code for violation")
-  const combined = this.lastResult.stdout + this.lastResult.stderr
-  assert.ok(
-    combined.includes("Sandbox violation"),
-    `Expected "Sandbox violation" in output:\n${combined}`,
-  )
-})
-
 Then("npm test passes", function (this: GtdWorld) {
   const result = this.execInRepo("npm", ["test"])
   assert.ok(result !== undefined, "npm test should complete")

@@ -8,8 +8,6 @@ const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.js")
 
 export class GtdWorld extends World {
   repoDir!: string
-  sandboxDir?: string
-  outsideDir?: string
   lastResult: { exitCode: number; stdout: string; stderr: string } = {
     exitCode: 0,
     stdout: "",

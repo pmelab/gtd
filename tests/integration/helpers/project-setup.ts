@@ -52,6 +52,20 @@ test("add returns sum of two numbers", () => {
 
   writeFile(dir, ".gitignore", "node_modules\n")
 
+  writeFile(
+    dir,
+    ".gtdrc.json",
+    JSON.stringify(
+      {
+        modelPlan: "anthropic/claude-sonnet-4-5",
+        modelBuild: "anthropic/claude-sonnet-4-5",
+        modelCommit: "anthropic/claude-haiku-4-5",
+      },
+      null,
+      2,
+    ) + "\n",
+  )
+
   execSync("npm install -q", { cwd: dir, stdio: "pipe" })
 
   git(dir, "add", "-A")

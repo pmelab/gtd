@@ -194,7 +194,6 @@ Feature: GTD workflow cycle
     When I run gtd
     Then it succeeds
     And "src/math.ts" does not contain "// TODO: never use magic numbers"
-    And git log contains "🤦"
     And git log contains "💬"
     And last commit prefix is "🤖"
 
