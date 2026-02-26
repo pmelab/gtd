@@ -23,10 +23,6 @@ const validPlan = `# Feature
 ## Open Questions
 
 - Some question?
-
-## Learnings
-
-- Some learning
 `
 
 const minimalValid = `# Feature

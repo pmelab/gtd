@@ -59,13 +59,10 @@ export const buildCommand = (fs: FileOps) =>
       if (Option.isNone(nextPkg)) break
 
       const pkg = nextPkg.value
-      const learnings = ""
       renderer.setStatus(pkg.title, "building")
 
       const planFilePath = resolve(process.cwd(), config.file)
       const itemSection = formatPackagePrompt(pkg, planFilePath)
-      const learningsSection =
-        learnings.trim() !== "" ? `### Learnings\n\n${learnings}` : "No learnings yet."
       const completedSection =
         completedSummaries.length > 0
           ? completedSummaries.join("\n")
@@ -73,7 +70,6 @@ export const buildCommand = (fs: FileOps) =>
 
       const prompt = interpolate(buildPrompt, {
         item: itemSection,
-        learnings: learningsSection,
         completed: completedSection,
         testOutput: "",
       })
@@ -138,15 +134,8 @@ export const buildCommand = (fs: FileOps) =>
             const currentItems = Option.isSome(currentPkg)
               ? formatPackagePrompt(currentPkg.value, planFilePath)
               : itemSection
-            const currentLearnings = ""
-            const currentLearningsSection =
-              currentLearnings.trim() !== ""
-                ? `### Learnings\n\n${currentLearnings}`
-                : "No learnings yet."
-
             const fixPrompt = interpolate(buildPrompt, {
               item: currentItems,
-              learnings: currentLearningsSection,
               completed: completedSection,
               testOutput: `### Test Failure (attempt ${retry + 1})\n\n\`\`\`\n${testResult.output}\n\`\`\`\n\nFix the test failures above.`,
             })
@@ -168,12 +157,18 @@ export const buildCommand = (fs: FileOps) =>
         if (!testPassed) return
       }
 
-      // Fail if agent made no changes — the item wasn't implemented
+      // Skip if agent made no changes — item already done (e.g. previous step covered it)
       const hasChanges = yield* git.hasUncommittedChanges()
       if (!hasChanges) {
-        renderer.setStatus(pkg.title, "failed")
-        renderer.finish(`Agent made no changes for "${pkg.title}". Stopping.`)
-        return
+        renderer.setStatus(pkg.title, "skipped")
+        const currentContent = yield* fs.readFile()
+        const checkedContent = checkOffPackage(currentContent, pkg)
+        if (checkedContent !== currentContent) {
+          yield* fs.writeFile(checkedContent)
+          yield* git.atomicCommit("all", `🔨 skip: ${pkg.title} (already done)`)
+        }
+        completedSummaries.push(`- ${pkg.title}: skipped (no changes needed)`)
+        continue
       }
 
       // 1. Commit agent's code changes (before checking off items so the

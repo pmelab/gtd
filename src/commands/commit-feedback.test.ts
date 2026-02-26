@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "@effect/vitest"
+import { describe, it, expect, afterEach } from "@effect/vitest"
+import { vi } from "vitest"
 import { Effect, Layer } from "effect"
 import { AgentService } from "../services/Agent.js"
 import { commitFeedbackCommand } from "./commit-feedback.js"
@@ -6,6 +7,15 @@ import { gatherState } from "../cli.js"
 import { inferStep } from "../services/InferStep.js"
 import { mockConfig, mockGit, mockFs } from "../test-helpers.js"
 import { VerboseMode } from "../services/VerboseMode.js"
+import * as TodoRemover from "../services/TodoRemover.js"
+
+vi.mock("../services/TodoRemover.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../services/TodoRemover.js")>()
+  return {
+    ...original,
+    removeTodoLines: vi.fn(() => Effect.succeed(0)),
+  }
+})
 
 const agentLayer = Layer.mergeAll(
   Layer.succeed(AgentService, {
@@ -14,6 +24,10 @@ const agentLayer = Layer.mergeAll(
   }),
   VerboseMode.layer(false),
 )
+
+afterEach(() => {
+  vi.clearAllMocks()
+})
 
 describe("commitFeedbackCommand", () => {
   it.effect("calls atomicCommit with 'all' and message starting with 🤦", () =>
@@ -241,8 +255,8 @@ describe("commitFeedbackCommand", () => {
       )
 
       expect(commits.length).toBe(2)
-      expect(commits[0]!.message.startsWith("🤦")).toBe(true)
-      expect(commits[1]!.message.startsWith("👷")).toBe(true)
+      expect(commits[0]!.message.startsWith("👷")).toBe(true)
+      expect(commits[1]!.message.startsWith("🤦")).toBe(true)
     }),
   )
 
@@ -333,7 +347,7 @@ describe("commitFeedbackCommand", () => {
     }),
   )
 
-  it.effect("mixed seed + code TODOs + fixes produces separate commits in order 🌱 🤦 👷", () =>
+  it.effect("mixed seed + code TODOs + fixes produces separate commits in order 🌱 👷 🤦", () =>
     Effect.gen(function* () {
       const seedAndMixedDiff = [
         "diff --git a/TODO.md b/TODO.md",
@@ -376,8 +390,55 @@ describe("commitFeedbackCommand", () => {
 
       expect(commits.length).toBe(3)
       expect(commits[0]!.message.startsWith("🌱")).toBe(true)
-      expect(commits[1]!.message.startsWith("🤦")).toBe(true)
-      expect(commits[2]!.message.startsWith("👷")).toBe(true)
+      expect(commits[1]!.message.startsWith("👷")).toBe(true)
+      expect(commits[2]!.message.startsWith("🤦")).toBe(true)
+    }),
+  )
+
+  const fixesHumanAndFeedbackDiff = [
+    "diff --git a/TODO.md b/TODO.md",
+    "index abc1234..def5678 100644",
+    "--- a/TODO.md",
+    "+++ b/TODO.md",
+    "@@ -1,3 +1,4 @@",
+    " # Plan",
+    "+- [ ] New task from feedback",
+    " - [x] Done task",
+    "diff --git a/src/app.ts b/src/app.ts",
+    "index abc1234..def5678 100644",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,3 +1,4 @@",
+    " const x = 1",
+    "+const y = 2",
+    " const z = 3",
+    "@@ -10,3 +11,4 @@",
+    " const a = 1",
+    "+// TODO: refactor this",
+    " const b = 2",
+  ].join("\n")
+
+  it.effect("HUMAN + FEEDBACK combined into single 💬 commit, preceded by 👷", () =>
+    Effect.gen(function* () {
+      const commits: Array<{ message: string }> = []
+
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(fixesHumanAndFeedbackDiff),
+        hasUncommittedChanges: () => Effect.succeed(true),
+        stageByPatch: () => Effect.void,
+        commit: (message) =>
+          Effect.sync(() => {
+            commits.push({ message })
+          }),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      expect(commits.length).toBe(2)
+      expect(commits[0]!.message.startsWith("👷")).toBe(true)
+      expect(commits[1]!.message.startsWith("💬")).toBe(true)
     }),
   )
 
@@ -422,5 +483,38 @@ describe("commitFeedbackCommand", () => {
         const step = inferStep(state)
         expect(step).toBe("plan")
       }),
+  )
+
+  it.effect("HUMAN + FEEDBACK combined commit preserves in-code TODO lines", () =>
+    Effect.gen(function* () {
+      const stageByPatchCalls: string[] = []
+      const lastCommitMessages: string[] = []
+
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(fixesHumanAndFeedbackDiff),
+        hasUncommittedChanges: () => Effect.succeed(true),
+        stageByPatch: (patch) =>
+          Effect.sync(() => {
+            stageByPatchCalls.push(patch)
+          }),
+        commit: (message) =>
+          Effect.sync(() => {
+            lastCommitMessages.push(message)
+          }),
+        atomicCommit: (_files, message) =>
+          Effect.sync(() => {
+            lastCommitMessages.push(message)
+          }),
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      const fixesPatch = stageByPatchCalls[0] ?? ""
+      expect(fixesPatch).not.toContain("// TODO: refactor this")
+
+      expect(vi.mocked(TodoRemover.removeTodoLines)).not.toHaveBeenCalled()
+    }),
   )
 })

@@ -135,7 +135,6 @@ const defaults: Omit<GtdConfig, "configSources"> = {
   file: "TODO.md",
   modelPlan: undefined,
   modelBuild: undefined,
-  modelLearn: undefined,
   modelCommit: undefined,
   testCmd: "npm test",
   testRetries: 10,

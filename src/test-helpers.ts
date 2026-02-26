@@ -8,7 +8,6 @@ export const defaultTestConfig: GtdConfig = {
   file: "TODO.md",
   modelPlan: undefined,
   modelBuild: undefined,
-  modelLearn: undefined,
   modelCommit: undefined,
   testCmd: "",
   testRetries: 10,

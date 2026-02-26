@@ -204,7 +204,6 @@ describe("mergeConfigs", () => {
     expect(result.file).toBe("TODO.md")
     expect(result.modelPlan).toBeUndefined()
     expect(result.modelBuild).toBeUndefined()
-    expect(result.modelLearn).toBeUndefined()
     expect(result.modelCommit).toBeUndefined()
     expect(result.testCmd).toBe("npm test")
     expect(result.testRetries).toBe(10)
@@ -271,7 +270,6 @@ describe("mergeConfigs", () => {
     expect((result as unknown as Record<string, unknown>).agentLearn).toBeUndefined()
     expect(result.modelPlan).toBeUndefined()
     expect(result.modelBuild).toBeUndefined()
-    expect(result.modelLearn).toBeUndefined()
   })
 
   it("merges modelCommit from config", () => {

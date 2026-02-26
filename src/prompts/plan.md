@@ -34,7 +34,6 @@ Analyze the diff and existing plan (if any) to determine what to do:
      then remove the blockquotes
    - Resolve any `FIXME:` or `TODO:` comments from the diff
    - Add new action items as needed
-   - Update the Learnings section with any new insights
    - **Remove newly added in-code TODO/FIXME comments**: Scan the diff for
      newly added lines (lines starting with `+`) containing `// TODO:`,
      `// FIXME:`, `// HACK:`, or `// XXX:` markers. For each one, create a
@@ -69,10 +68,6 @@ Write the plan file with this structure:
 ## Open Questions
 
 - <Question that needs human input>
-
-## Learnings
-
-- <Actionable guideline extracted from feedback>
 ```
 
 ### Rules
@@ -87,13 +82,7 @@ Write the plan file with this structure:
   verification
 - Checked `- [x]` items should NOT have `<!-- TODO: -->` markers
 - Do NOT leave any `>` blockquote lines — incorporate and remove them
-- Sections must appear in order: Action Items → Open Questions → Learnings
-- Open Questions and Learnings sections are optional but if present must follow
-  the order
+- Sections must appear in order: Action Items → Open Questions
+- Open Questions section is optional but if present must follow the order
 - Keep items actionable and specific
 - Preserve any existing `- [x]` checked items unchanged
-- Learnings must only contain actionable coding guidelines — reusable rules,
-  patterns to follow/avoid, or mistakes to prevent (e.g., "always do X",
-  "never do Y", "prefer X over Y")
-- Do NOT add learnings that merely describe current project state (e.g.,
-  "X currently does Y", "Z is already configured") — these go stale

@@ -70,7 +70,7 @@ const logDiscoveredResources = (
 export interface AgentInvocation {
   readonly prompt: string
   readonly systemPrompt: string
-  readonly mode: "plan" | "build" | "learn" | "commit"
+  readonly mode: "plan" | "build" | "commit"
   readonly cwd: string
   readonly model?: string
   readonly onEvent?: (event: AgentEvent) => void
@@ -80,7 +80,6 @@ export interface AgentInvocation {
 export interface ModelConfig {
   readonly modelPlan: string | undefined
   readonly modelBuild: string | undefined
-  readonly modelLearn: string | undefined
   readonly modelCommit: string | undefined
 }
 
@@ -93,8 +92,6 @@ export const resolveModelForMode = (
       return config.modelPlan
     case "build":
       return config.modelBuild
-    case "learn":
-      return config.modelLearn
     case "commit":
       return config.modelCommit
   }

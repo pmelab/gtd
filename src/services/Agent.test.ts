@@ -46,14 +46,12 @@ describe("resolveModelForMode", () => {
   const configWithModels = {
     modelPlan: "sonnet-4",
     modelBuild: "opus",
-    modelLearn: "haiku",
     modelCommit: "flash",
   }
 
   const configNoModels = {
     modelPlan: undefined,
     modelBuild: undefined,
-    modelLearn: undefined,
     modelCommit: undefined,
   }
 
@@ -63,10 +61,6 @@ describe("resolveModelForMode", () => {
 
   it("returns modelBuild for build mode", () => {
     expect(resolveModelForMode("build", configWithModels)).toBe("opus")
-  })
-
-  it("returns modelLearn for learn mode", () => {
-    expect(resolveModelForMode("learn", configWithModels)).toBe("haiku")
   })
 
   it("returns modelCommit for commit mode", () => {

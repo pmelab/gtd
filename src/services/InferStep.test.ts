@@ -306,23 +306,4 @@ describe("inferStep", () => {
     expect(inferStep(input)).toBe("plan")
   })
 
-  it("returns plan when FEEDBACK with no prevPhasePrefix and not only learnings", () => {
-    const input: InferStepInput = {
-      hasUncommittedChanges: false,
-      lastCommitPrefix: FEEDBACK,
-      hasUncheckedItems: true,
-      todoFileIsNew: false,
-    }
-    expect(inferStep(input)).toBe("plan")
-  })
-
-  it("returns plan when HUMAN with no prevPhasePrefix and not only learnings", () => {
-    const input: InferStepInput = {
-      hasUncommittedChanges: false,
-      lastCommitPrefix: HUMAN,
-      hasUncheckedItems: true,
-      todoFileIsNew: false,
-    }
-    expect(inferStep(input)).toBe("plan")
-  })
 })

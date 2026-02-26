@@ -70,39 +70,6 @@ describe("buildCommand", () => {
     }),
   )
 
-  it.effect("includes learnings in prompt", () =>
-    Effect.gen(function* () {
-      const calls: AgentInvocation[] = []
-      const agentLayer = Layer.succeed(AgentService, {
-        resolvedName: "mock",
-        invoke: (params) =>
-          Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
-          ),
-      })
-      const withLearnings = [
-        "# Feature",
-        "",
-        "## Action Items",
-        "",
-        "### Setup",
-        "",
-        "- [ ] Item",
-        "  - Detail",
-        "  - Tests: check",
-        "",
-        "## Learnings",
-        "",
-        "- always use TDD",
-        "",
-      ].join("\n")
-      yield* buildCommand(mockFsWithProgress(withLearnings)).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
-      )
-      expect(calls[0]!.prompt).toContain("No learnings yet.")
-    }),
-  )
-
   it.effect("commits after item with 🔨 prefix", () =>
     Effect.gen(function* () {
       const gitCalls: { type: string; files?: ReadonlyArray<string> | "all"; msg?: string }[] = []
@@ -581,7 +548,7 @@ describe("buildCommand", () => {
     }),
   )
 
-  it.effect("fails when agent makes no changes", () =>
+  it.effect("skips item when agent makes no changes", () =>
     Effect.gen(function* () {
       const gitCalls: string[] = []
       const gitLayer = mockGit({
@@ -611,12 +578,81 @@ describe("buildCommand", () => {
         "  - Tests: check",
         "",
       ].join("\n")
-      yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
+      const fs = mockFsWithProgress(singleItem)
+      yield* buildCommand(fs).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
       )
-      // Should NOT commit anything
-      expect(gitCalls).not.toContain("addAll")
-      expect(gitCalls.some((c) => c.startsWith("commit:"))).toBe(false)
+      // Should commit a skip message (checkbox update)
+      expect(gitCalls.some((c) => c.startsWith("commit:") && c.includes("skip"))).toBe(true)
+      // Item should be checked off
+      const finalContent = yield* fs.readFile()
+      expect(finalContent).toContain("- [x] Only item")
+    }),
+  )
+
+  it.effect("skips first package and continues to build second", () =>
+    Effect.gen(function* () {
+      const calls: AgentInvocation[] = []
+      const gitCalls: string[] = []
+      let callCount = 0
+      const agentLayer = Layer.succeed(AgentService, {
+        resolvedName: "mock",
+        invoke: (params) => {
+          calls.push(params)
+          if (params.onEvent) params.onEvent({ _tag: "TextDelta", delta: "build: Pkg2" })
+          return Effect.succeed<AgentResult>({ sessionId: undefined })
+        },
+      })
+      const gitLayer = mockGit({
+        hasUncommittedChanges: () => {
+          // First package: no changes, second package: has changes
+          return Effect.succeed(callCount++ > 0)
+        },
+        addAll: () =>
+          Effect.sync(() => {
+            gitCalls.push("addAll")
+          }),
+        commit: (msg) =>
+          Effect.sync(() => {
+            gitCalls.push(`commit:${msg}`)
+          }),
+        amendFiles: ((files: ReadonlyArray<string>) =>
+          Effect.sync(() => {
+            gitCalls.push(`amendFiles:${files.join(",")}`)
+          })) as GitOperations["amendFiles"],
+      })
+      const twoPackages = [
+        "# Feature",
+        "",
+        "## Action Items",
+        "",
+        "### Pkg1",
+        "",
+        "- [ ] Item 1",
+        "  - Detail",
+        "  - Tests: check",
+        "",
+        "### Pkg2",
+        "",
+        "- [ ] Item 2",
+        "  - Detail",
+        "  - Tests: check",
+        "",
+      ].join("\n")
+      const fs = mockFsWithProgress(twoPackages)
+      yield* buildCommand(fs).pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
+      )
+      // Agent invoked for both packages
+      const buildCalls = calls.filter((c) => c.mode === "build")
+      expect(buildCalls.length).toBe(2)
+      // First package skipped, second built
+      expect(gitCalls.some((c) => c.includes("skip") && c.includes("Pkg1"))).toBe(true)
+      expect(gitCalls.some((c) => c.startsWith("commit:🔨 build:"))).toBe(true)
+      // Both items checked off
+      const finalContent = yield* fs.readFile()
+      expect(finalContent).toContain("- [x] Item 1")
+      expect(finalContent).toContain("- [x] Item 2")
     }),
   )
 

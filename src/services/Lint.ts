@@ -6,7 +6,7 @@ export interface LintError {
   readonly message: string
 }
 
-const knownSections = ["Action Items", "Open Questions", "Learnings"] as const
+const knownSections = ["Action Items", "Open Questions"] as const
 
 const parseActionItems = (content: string): ReadonlyArray<ActionItem> => {
   const lines = content.split("\n")

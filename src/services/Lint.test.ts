@@ -49,9 +49,9 @@ describe("lint", () => {
   it("detects wrong section order", () => {
     const content = `# Title
 
-## Learnings
+## Open Questions
 
-- learning
+- question
 
 ## Action Items
 
@@ -61,6 +61,22 @@ describe("lint", () => {
 `
     const errors = lint(content)
     expect(errors.some((e: LintError) => e.rule === "sections-order")).toBe(true)
+  })
+
+  it("does not raise an error for a plan that omits the Learnings section", () => {
+    const content = `# Feature
+
+## Action Items
+
+- [ ] Only item
+  - Detail
+  - Tests: check it
+
+## Open Questions
+
+- Some question?
+`
+    expect(lint(content)).toEqual([])
   })
 
   it("detects blockquotes", () => {
