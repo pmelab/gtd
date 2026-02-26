@@ -16,7 +16,7 @@
 
 ### Export `commitPrompt` from `src/prompts/index.ts`
 
-- [ ] Import `commit.md` and re-export it as `commitPrompt`
+- [x] Import `commit.md` and re-export it as `commitPrompt`
   - Add `import commitPrompt from "./commit.md"` alongside the existing
     `plan.md` and `build.md` imports
   - Add `commitPrompt` to the named exports
