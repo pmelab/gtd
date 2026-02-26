@@ -25,7 +25,7 @@
 
 ### Update `CommitMessage.ts` to use the prompt file
 
-- [ ] Replace the inline `PROMPT` function with `commitPrompt` + `interpolate`
+- [x] Replace the inline `PROMPT` function with `commitPrompt` + `interpolate`
   - Remove the `PROMPT` arrow function from `src/services/CommitMessage.ts`
   - Import `{ commitPrompt, interpolate }` from `"../prompts/index.js"`
   - Replace the call `PROMPT(diff)` with `interpolate(commitPrompt, { diff })`

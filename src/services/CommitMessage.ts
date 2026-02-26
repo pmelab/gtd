@@ -1,10 +1,8 @@
 import { Effect } from "effect"
+import { commitPrompt, interpolate } from "../prompts/index.js"
 import { AgentService } from "./Agent.js"
 
 const MAX_LENGTH = 72
-
-const PROMPT = (diff: string) =>
-  `Summarize this diff as a git commit message (max 60 chars, no emoji, no prefix, lowercase start, imperative mood). Reply with ONLY the commit message, nothing else.\n\n\`\`\`diff\n${diff}\n\`\`\``
 
 export const generateCommitMessage = (
   emoji: string,
@@ -18,7 +16,7 @@ export const generateCommitMessage = (
     callbacks?.onStart?.()
     yield* agent
       .invoke({
-        prompt: PROMPT(diff),
+        prompt: interpolate(commitPrompt, { diff }),
         systemPrompt: "",
         mode: "commit",
         cwd: process.cwd(),
