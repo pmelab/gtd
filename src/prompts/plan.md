@@ -13,8 +13,8 @@ Before planning, perform web research when the diff introduces unfamiliar
 libraries, APIs, or technologies that require external context to plan
 accurately. Use the brave-search tool (or equivalent web-search skill) to look
 up relevant documentation, changelogs, or usage examples. Incorporate findings
-as concrete implementation details in the action items. Only invoke web
-research when you determine it is needed — do not search on every run.
+as concrete implementation details in the action items. Only invoke web research
+when you determine it is needed — do not search on every run.
 
 ## Instructions
 
@@ -53,17 +53,14 @@ Write the plan file with this structure:
 ### <Work Package Name>
 
 - [ ] <Item description>
-              - <Implementation detail>
-              - Tests: <How to verify this item>
+          - <Implementation detail>
 - [ ] <Next item>
-              - <Detail>
-              - Tests: <Verification>
+          - <Detail>
 
 ### <Another Work Package>
 
 - [ ] <Item>
-              - <Detail>
-              - Tests: <Verification>
+          - <Detail>
 
 ## Open Questions
 
@@ -78,8 +75,6 @@ Write the plan file with this structure:
   together
 - Every `- [ ]` item MUST have at least one sub-bullet with implementation
   details
-- Every unchecked `- [ ]` item MUST have a `Tests:` sub-bullet describing
-  verification
 - Checked `- [x]` items should NOT have `<!-- TODO: -->` markers
 - Do NOT leave any `>` blockquote lines — incorporate and remove them
 - Sections must appear in order: Action Items → Open Questions
