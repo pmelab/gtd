@@ -109,17 +109,6 @@ describe("startup message", () => {
     expect(msg).toContain("seed")
   })
 
-  it("includes feedback prefix in message", () => {
-    const state: InferStepInput = {
-      hasUncommittedChanges: false,
-      lastCommitPrefix: "💬",
-      hasUncheckedItems: true,
-      todoFileIsNew: false,
-    }
-    const msg = formatStartupMessage(makeInfo(state, "plan"), false)
-    expect(msg).toContain("feedback")
-  })
-
   it("shows model when provided", () => {
     const state: InferStepInput = {
       hasUncommittedChanges: false,

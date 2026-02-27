@@ -446,7 +446,7 @@ describe("classifyPrefix", () => {
     expect(classifyPrefix(diff, "TODO.md")).toBe("🌱")
   })
 
-  it("returns 💬 for feedback on existing TODO file", () => {
+  it("returns 🤦 for feedback on existing TODO file", () => {
     const diff = makeDiff([
       {
         path: "TODO.md",
@@ -459,7 +459,7 @@ describe("classifyPrefix", () => {
       },
     ])
 
-    expect(classifyPrefix(diff, "TODO.md")).toBe("💬")
+    expect(classifyPrefix(diff, "TODO.md")).toBe("🤦")
   })
 
   it("returns 🤦 for code file with TODO markers", () => {
@@ -546,7 +546,7 @@ describe("classifyPrefix", () => {
     expect(classifyPrefix(diff, "TODO.md")).toBe("🌱")
   })
 
-  it("returns 💬 when feedback is mixed with humanTodos (💬 > 🤦)", () => {
+  it("returns 🤦 when feedback is mixed with humanTodos", () => {
     const diff = makeDiff([
       {
         path: "TODO.md",
@@ -568,10 +568,10 @@ describe("classifyPrefix", () => {
       },
     ])
 
-    expect(classifyPrefix(diff, "TODO.md")).toBe("💬")
+    expect(classifyPrefix(diff, "TODO.md")).toBe("🤦")
   })
 
-  it("returns 💬 when feedback is mixed with fixes (💬 > 👷)", () => {
+  it("returns 🤦 when feedback is mixed with fixes", () => {
     const diff = makeDiff([
       {
         path: "TODO.md",
@@ -593,7 +593,7 @@ describe("classifyPrefix", () => {
       },
     ])
 
-    expect(classifyPrefix(diff, "TODO.md")).toBe("💬")
+    expect(classifyPrefix(diff, "TODO.md")).toBe("🤦")
   })
 
   it("returns 🤦 when humanTodos are mixed with fixes (🤦 > 👷)", () => {

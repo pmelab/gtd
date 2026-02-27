@@ -172,7 +172,7 @@ import { SEED, FEEDBACK, HUMAN, FIX } from "./CommitPrefix.js"
 export const classifyPrefix = (diff: string, todoFile: string): CommitPrefix => {
   const { seed, feedback, humanTodos, fixes } = classifyDiff(diff, todoFile)
   if (seed) return SEED
-  if (feedback) return FEEDBACK
+  if (feedback) return HUMAN
   if (humanTodos) return HUMAN
   if (fixes) return FIX
   return HUMAN

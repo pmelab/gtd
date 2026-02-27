@@ -5,6 +5,7 @@ export const LEARN = "🎓" as const
 export const CLEANUP = "🧹" as const
 export const FIX = "👷" as const
 export const SEED = "🌱" as const
+/** @deprecated kept for backward compatibility with existing repos; not in ALL_PREFIXES */
 export const FEEDBACK = "💬" as const
 export type CommitPrefix =
   | typeof HUMAN
@@ -16,7 +17,7 @@ export type CommitPrefix =
   | typeof SEED
   | typeof FEEDBACK
 
-const ALL_PREFIXES: ReadonlyArray<CommitPrefix> = [
+export const ALL_PREFIXES: ReadonlyArray<CommitPrefix> = [
   HUMAN,
   PLAN,
   BUILD,
@@ -24,7 +25,6 @@ const ALL_PREFIXES: ReadonlyArray<CommitPrefix> = [
   CLEANUP,
   FIX,
   SEED,
-  FEEDBACK,
 ]
 
 export const parseCommitPrefix = (

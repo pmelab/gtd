@@ -11,6 +11,7 @@ import { generateCommitMessage } from "../services/CommitMessage.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
 import { nodeFileOps, type FileOps } from "../services/FileOps.js"
 import { VerboseMode } from "../services/VerboseMode.js"
+import { findNewlyAddedTodos } from "../services/TodoRemover.js"
 
 const MAX_LINT_RETRIES = 3
 
@@ -47,10 +48,31 @@ export const planCommand = (fs: FileOps) =>
         ? `### Current Plan File (${filePath})\n\n\`\`\`markdown\n${existingPlan}\n\`\`\``
         : `No plan file exists yet. Create ${filePath} from scratch.`
 
+    // Detect newly-added TODO/FIXME/HACK/XXX comment lines in the diff
+    const newlyAddedTodos = findNewlyAddedTodos(diff, config.file)
+    const todoInstructionBlock =
+      newlyAddedTodos.length > 0
+        ? [
+            "",
+            "## Newly Added TODO Comments (Remove These)",
+            "",
+            "The following TODO/FIXME/HACK/XXX comment lines were newly added in this diff.",
+            "For each one: convert it into a new action item in the plan file, then remove the",
+            "comment line from the source file.",
+            "",
+            ...newlyAddedTodos.map((t) => `- \`${t.file}\`: \`${t.lineContent.trim()}\``),
+          ].join("\n")
+        : ""
+
     const prompt = interpolate(planPrompt, {
       diff: diffSection,
       plan: planSection,
-    })
+    }) + todoInstructionBlock
+
+    // Remove TODO comment lines from source files so the removals are staged in the plan commit
+    if (fs.removeTodosFromDiff && newlyAddedTodos.length > 0) {
+      yield* fs.removeTodosFromDiff(diff).pipe(Effect.catchAll(() => Effect.succeed(0)))
+    }
 
     // 4. Load existing session ID for continuity across plan invocations
     let previousSessionId: string | undefined

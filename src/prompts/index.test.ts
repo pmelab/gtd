@@ -15,6 +15,19 @@ describe("prompts", () => {
     expect(planPrompt).not.toContain("Learnings")
   })
 
+  it("plan prompt references 🤦 HUMAN for feedback commits", () => {
+    expect(planPrompt).toContain("🤦")
+  })
+
+  it("plan prompt does not mention 💬 feedback type", () => {
+    expect(planPrompt).not.toContain("💬")
+  })
+
+  it("plan prompt clarifies cleaned plan is committed as 🤖 PLAN after 🤦 HUMAN", () => {
+    expect(planPrompt).toMatch(/🤦.*HUMAN|HUMAN.*🤦/s)
+    expect(planPrompt).toMatch(/🤖.*PLAN|PLAN.*🤖/s)
+  })
+
   it("buildPrompt is a non-empty string", () => {
     expect(typeof buildPrompt).toBe("string")
     expect(buildPrompt.length).toBeGreaterThan(0)

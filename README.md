@@ -40,15 +40,13 @@ flowchart TD
     Uncommitted -->|No| CheckLast{Last commit prefix?}
     Uncommitted -->|Yes| Classify["Classify diff into up to 4 commits"]
     Classify --> SeedCommit["🌱 Seed: new TODO.md"]
-    Classify --> FeedbackCommit["💬 Feedback: edits to existing TODO.md"]
-    Classify --> HumanCommit["🤦 Human: code with feedback markers"]
+    Classify --> HumanCommit["🤦 Human: TODO.md edits or code with feedback markers"]
     Classify --> FixCommit["👷 Fix: non-feedback code changes"]
     SeedCommit --> ReDispatch
-    FeedbackCommit --> ReDispatch
     HumanCommit --> ReDispatch
     FixCommit --> ReDispatch
     ReDispatch{Re-dispatch} --> CheckLast
-    CheckLast -->|"🌱 / 💬 / 🤦"| Plan["🤖 Plan: refine TODO.md with agent"]
+    CheckLast -->|"🌱 / 🤦"| Plan["🤖 Plan: refine TODO.md with agent"]
     CheckLast -->|🤖| Build
     CheckLast -->|"🔨 / 👷"| TodoNew{TODO.md is new?}
     TodoNew -->|Yes| Plan
@@ -68,12 +66,12 @@ flowchart TD
 
 | Emoji | Step     | Meaning                                                      |
 | ----- | -------- | ------------------------------------------------------------ |
-| 🌱    | Seed     | New TODO.md file committed (first plan seed)                 |
-| 💬    | Feedback | Changes to existing TODO.md (blockquotes, edits)             |
-| 🤦    | Human    | Code changes containing feedback markers (TODO:, FIX:, etc.) |
+| 🌱    | Seed     | New TODO.md file committed (first plan seed)                        |
+| 🤦    | Human    | TODO.md edits/blockquotes or code with feedback markers (TODO:, FIX:, etc.) |
 | 👷    | Fix      | Non-feedback code changes (regular fixes)                    |
 | 🤖    | Plan     | Agent refined the plan in TODO.md                            |
 | 🔨    | Build    | Agent implemented a TODO item                                |
+| 🎓    | Learn    | Agent extracted learnings from completed work                |
 | 🧹    | Cleanup  | TODO.md removed, feature complete                            |
 
 ## Example Workflow
@@ -138,11 +136,11 @@ Open `TODO.md` in your editor, answer questions, and add comments:
 ```
 
 Run `gtd` again. It classifies your changes into separate commits by type:
-blockquote feedback and edits in TODO.md become a 💬 commit, code changes with
-marker comments (TODO:, FIX:, etc.) become a 🤦 commit, and plain code fixes
-become a 👷 commit. After committing, `gtd` checks the last prefix and routes
-accordingly — since 💬 and 🤦 both route to plan, it immediately refines the
-plan (`🤖`). Repeat until the plan is ready.
+blockquote feedback and edits in TODO.md become a 🤦 HUMAN commit, code changes
+with marker comments (TODO:, FIX:, etc.) also become a 🤦 HUMAN commit, and
+plain code fixes become a 👷 commit. After committing, `gtd` checks the last
+prefix and routes accordingly — since 🤦 routes to plan, it immediately refines
+the plan (`🤖`). Repeat until the plan is ready.
 
 ### 4. Build
 
@@ -168,7 +166,7 @@ content.
 | Category     | Condition                                                    | Commit |
 | ------------ | ------------------------------------------------------------ | ------ |
 | `seed`       | New TODO.md file (first plan seed)                           | 🌱     |
-| `feedback`   | Changes to an existing TODO.md (edits, blockquote additions) | 💬     |
+| `feedback`   | Changes to an existing TODO.md (edits, blockquote additions) | 🤦     |
 | `humanTodos` | Code hunks containing feedback marker comments               | 🤦     |
 | `fixes`      | Plain code hunks without marker prefixes                     | 👷     |
 
@@ -203,7 +201,7 @@ each commit contains only the hunks belonging to its category.
 ### Prefix Classification Priority
 
 When determining the overall prefix for re-dispatch, `classifyPrefix` uses a
-fixed priority order: 🌱 > 💬 > 🤦 > 👷. The first non-empty category in this
+fixed priority order: 🌱 > 🤦 > 👷. The first non-empty category in this
 order wins.
 
 ## Configuration

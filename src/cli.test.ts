@@ -2,7 +2,7 @@ import { describe, it, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { command, gatherState, dispatch } from "./cli.js"
 import { mockConfig, mockGit, mockFs, nodeLayer } from "./test-helpers.js"
-import { SEED, FEEDBACK, HUMAN } from "./services/CommitPrefix.js"
+import { SEED, HUMAN } from "./services/CommitPrefix.js"
 import { VerboseMode } from "./services/VerboseMode.js"
 
 describe("gtd unified command", () => {
@@ -219,6 +219,51 @@ describe("gatherState resolves prevPhasePrefix", () => {
 
     expect(state.lastCommitPrefix).toBe(HUMAN)
     expect(state.prevPhasePrefix).toBeUndefined()
+  })
+
+  it("HUMAN triggers prevPhasePrefix lookup and finds previous phase prefix", async () => {
+    const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(false),
+      getLastCommitMessage: () => Effect.succeed(`${HUMAN} edit: user feedback`),
+      getCommitMessages: (n) =>
+        Effect.succeed([`${HUMAN} feedback`, `🤖 plan: setup`].slice(0, n)),
+      show: () => Effect.succeed(""),
+    })
+
+    const fileOps = { ...mockFs(""), getDiffContent: () => Effect.succeed("") }
+
+    const state = await Effect.runPromise(
+      gatherState(fileOps).pipe(
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
+      ),
+    )
+
+    expect(state.lastCommitPrefix).toBe(HUMAN)
+    expect(state.prevPhasePrefix).toBe("🤖")
+  })
+
+  it("legacy 💬 commit does not trigger prevPhasePrefix lookup", async () => {
+    let commitMessagesCallCount = 0
+    const gitLayer = mockGit({
+      hasUncommittedChanges: () => Effect.succeed(false),
+      getLastCommitMessage: () => Effect.succeed("💬 legacy feedback"),
+      getCommitMessages: (n) => {
+        commitMessagesCallCount++
+        return Effect.succeed([`💬 legacy feedback`, `🤖 plan: setup`].slice(0, n))
+      },
+      show: () => Effect.succeed(""),
+    })
+
+    const fileOps = { ...mockFs(""), getDiffContent: () => Effect.succeed("") }
+
+    const state = await Effect.runPromise(
+      gatherState(fileOps).pipe(
+        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
+      ),
+    )
+
+    expect(state.prevPhasePrefix).toBeUndefined()
+    expect(commitMessagesCallCount).toBe(0)
   })
 
 })

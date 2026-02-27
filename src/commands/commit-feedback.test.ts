@@ -236,7 +236,7 @@ describe("commitFeedbackCommand", () => {
     " const z = 3",
   ].join("\n")
 
-  it.effect("separate commits for fixes (👷) and feedback (🤦) when both exist", () =>
+  it.effect("separate commits for fixes (👷) and human todos (🤦) when both exist", () =>
     Effect.gen(function* () {
       const commits: Array<{ message: string }> = []
 
@@ -304,6 +304,22 @@ describe("commitFeedbackCommand", () => {
     }),
   )
 
+  it.effect("removeTodoLines is never called during the 🤦 commit flow", () =>
+    Effect.gen(function* () {
+      const gitLayer = mockGit({
+        getDiff: () => Effect.succeed(feedbackOnlyDiff),
+        hasUncommittedChanges: () => Effect.succeed(true),
+        atomicCommit: () => Effect.void,
+      })
+
+      yield* commitFeedbackCommand().pipe(
+        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
+      )
+
+      expect(vi.mocked(TodoRemover.removeTodoLines)).not.toHaveBeenCalled()
+    }),
+  )
+
   const feedbackAndFixDiff = [
     "diff --git a/TODO.md b/TODO.md",
     "index abc1234..def5678 100644",
@@ -323,7 +339,7 @@ describe("commitFeedbackCommand", () => {
     " const z = 3",
   ].join("\n")
 
-  it.effect("mixed feedback (💬) + fixes (👷): last commit is 💬 so inferStep routes to plan", () =>
+  it.effect("mixed feedback (🤦) + fixes (👷): last commit is 🤦 so inferStep routes to plan", () =>
     Effect.gen(function* () {
       const commits: Array<{ message: string }> = []
 
@@ -343,7 +359,7 @@ describe("commitFeedbackCommand", () => {
 
       expect(commits.length).toBe(2)
       expect(commits[0]!.message.startsWith("👷")).toBe(true)
-      expect(commits[commits.length - 1]!.message.startsWith("💬")).toBe(true)
+      expect(commits[commits.length - 1]!.message.startsWith("🤦")).toBe(true)
     }),
   )
 
@@ -418,7 +434,7 @@ describe("commitFeedbackCommand", () => {
     " const b = 2",
   ].join("\n")
 
-  it.effect("HUMAN + FEEDBACK combined into single 💬 commit, preceded by 👷", () =>
+  it.effect("HUMAN + FEEDBACK combined into single 🤦 commit, preceded by 👷", () =>
     Effect.gen(function* () {
       const commits: Array<{ message: string }> = []
 
@@ -438,7 +454,7 @@ describe("commitFeedbackCommand", () => {
 
       expect(commits.length).toBe(2)
       expect(commits[0]!.message.startsWith("👷")).toBe(true)
-      expect(commits[1]!.message.startsWith("💬")).toBe(true)
+      expect(commits[1]!.message.startsWith("🤦")).toBe(true)
     }),
   )
 
@@ -464,7 +480,7 @@ describe("commitFeedbackCommand", () => {
           Effect.provide(Layer.mergeAll(configLayer, gitLayer, agentLayer)),
         )
 
-        expect(lastCommitMessage.startsWith("💬")).toBe(true)
+        expect(lastCommitMessage.startsWith("🤦")).toBe(true)
 
         const postCommitGitLayer = mockGit({
           hasUncommittedChanges: () => Effect.succeed(false),
@@ -478,7 +494,7 @@ describe("commitFeedbackCommand", () => {
           Effect.provide(Layer.mergeAll(postCommitGitLayer, configLayer)),
         )
 
-        expect(state.lastCommitPrefix).toBe("💬")
+        expect(state.lastCommitPrefix).toBe("🤦")
 
         const step = inferStep(state)
         expect(step).toBe("plan")

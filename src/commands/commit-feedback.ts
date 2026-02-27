@@ -3,9 +3,8 @@ import { GtdConfigService } from "../services/Config.js"
 import { GitService } from "../services/Git.js"
 import { generateCommitMessage } from "../services/CommitMessage.js"
 import { classifyDiff } from "../services/DiffClassifier.js"
-import { SEED, FEEDBACK, HUMAN, FIX, type CommitPrefix } from "../services/CommitPrefix.js"
+import { SEED, HUMAN, FIX, type CommitPrefix } from "../services/CommitPrefix.js"
 import { createSpinnerRenderer, isInteractive } from "../services/Renderer.js"
-import { findNewlyAddedTodos, removeTodoLines } from "../services/TodoRemover.js"
 import type { FileOps } from "../services/FileOps.js"
 import { VerboseMode } from "../services/VerboseMode.js"
 
@@ -31,10 +30,10 @@ export const commitFeedbackCommand = (fs?: Pick<FileOps, "formatFile">) =>
       if (classified.seed) categories.push({ prefix: SEED, patch: classified.seed })
       if (classified.fixes) categories.push({ prefix: FIX, patch: classified.fixes })
       if (classified.humanTodos && classified.feedback) {
-        categories.push({ prefix: FEEDBACK, patch: classified.humanTodos + "\n" + classified.feedback })
+        categories.push({ prefix: HUMAN, patch: classified.humanTodos + "\n" + classified.feedback })
       } else {
         if (classified.humanTodos) categories.push({ prefix: HUMAN, patch: classified.humanTodos })
-        if (classified.feedback) categories.push({ prefix: FEEDBACK, patch: classified.feedback })
+        if (classified.feedback) categories.push({ prefix: HUMAN, patch: classified.feedback })
       }
 
       if (categories.length === 0) {
@@ -44,17 +43,6 @@ export const commitFeedbackCommand = (fs?: Pick<FileOps, "formatFile">) =>
       for (let i = 0; i < categories.length; i++) {
         const { prefix, patch } = categories[i]!
         const isLast = i === categories.length - 1
-
-        // Remove newly-added in-code TODO/FIXME comments before committing so the
-        // removals are included in this or the final commit rather than left unstaged
-        if (prefix === HUMAN && classified.humanTodos) {
-          const todos = findNewlyAddedTodos(classified.humanTodos, config.file)
-          if (todos.length > 0) {
-            yield* removeTodoLines(todos, process.cwd()).pipe(
-              Effect.catchAll(() => Effect.succeed(0)),
-            )
-          }
-        }
 
         renderer.setTextWithCursor("Generating commit message…")
         const msg = yield* generateCommitMessage(prefix, patch, {

@@ -13,7 +13,6 @@ import {
   FIX,
   CLEANUP,
   SEED,
-  FEEDBACK,
 } from "./CommitPrefix.js"
 
 const prefixLabel = (prefix: string | undefined): string => {
@@ -30,8 +29,6 @@ const prefixLabel = (prefix: string | undefined): string => {
       return "cleanup"
     case SEED:
       return "seed"
-    case FEEDBACK:
-      return "feedback"
     default:
       return "none"
   }
@@ -86,8 +83,6 @@ const describeReason = (state: InferStepInput, step: Step): string => {
       return `Last commit was a ${last} step with all items checked, so proceeding to ${step}.`
     case HUMAN:
       return `Last commit was a ${last}, so proceeding to ${step}.`
-    case FEEDBACK:
-      return `Last commit was ${last}, so proceeding to ${step}.`
     case SEED:
     case CLEANUP:
       return `Last commit was a ${last} step, so proceeding to ${step}.`

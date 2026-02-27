@@ -27,26 +27,27 @@ describe("README.md", () => {
 
   it("includes emoji-prefixed commit convention", () => {
     const content = readmeContent()
-    // All 8 prefixes from CommitPrefix.ts must appear in the table
+    // All 7 active prefixes from CommitPrefix.ts must appear in the table
     expect(content).toContain("🤦")
     expect(content).toContain("🤖")
     expect(content).toContain("🔨")
     expect(content).toContain("🎓")
     expect(content).toContain("🧹")
     expect(content).toContain("🌱")
-    expect(content).toContain("💬")
     expect(content).toContain("👷")
 
-    // Verify the commit prefixes table contains all 8 rows
+    // Verify the commit prefixes table contains all active rows
     const tableSection = content.match(/### Commit Prefixes\n\n([\s\S]*?)(?=\n##|\n$)/)?.[1] ?? ""
     expect(tableSection).toContain("🌱")
-    expect(tableSection).toContain("💬")
     expect(tableSection).toContain("👷")
     expect(tableSection).toContain("🤦")
     expect(tableSection).toContain("🤖")
     expect(tableSection).toContain("🔨")
     expect(tableSection).toContain("🎓")
     expect(tableSection).toContain("🧹")
+
+    // 💬 FEEDBACK is removed; the table must not contain it
+    expect(tableSection).not.toContain("💬")
   })
 
   it("contains a valid mermaid flowchart", () => {
@@ -79,6 +80,10 @@ describe("README.md", () => {
     for (const concept of requiredConcepts) {
       expect(mermaid).toMatch(concept)
     }
+
+    // 💬 FEEDBACK node is removed; 🤦 covers all human feedback
+    expect(mermaid).not.toContain("💬")
+    expect(mermaid).toMatch(/🤦.*human/i)
   })
 
   it("mermaid flowchart reflects the actual InferStep decision tree", () => {
@@ -88,12 +93,11 @@ describe("README.md", () => {
 
     // commit-feedback classifies into up to 4 separate commits
     expect(mermaid).toMatch(/🌱.*seed/i)
-    expect(mermaid).toMatch(/💬.*feedback/i)
     expect(mermaid).toMatch(/🤦.*human/i)
     expect(mermaid).toMatch(/👷.*fix/i)
 
-    // SEED, FEEDBACK, and HUMAN all route the same way (learnings only → learn, else → plan)
-    expect(mermaid).toMatch(/🌱.*💬.*🤦/i)
+    // SEED and HUMAN both route the same way (to plan)
+    expect(mermaid).toMatch(/🌱.*🤦/i)
 
     // FIX routes the same as BUILD (todoFileIsNew decision)
     expect(mermaid).toMatch(/🔨.*👷|👷.*🔨/i)
@@ -194,7 +198,7 @@ describe("README.md", () => {
       content.match(/## Feedback Classification\n([\s\S]*?)(?=\n## [^#])/)?.[1] ?? ""
 
     expect(feedbackSection).toMatch(/priority/i)
-    expect(feedbackSection).toMatch(/🌱.*💬.*🤦.*👷/)
+    expect(feedbackSection).toMatch(/🌱.*🤦.*👷/)
   })
 
   it("step 3 workflow narrative reflects multi-prefix commit behavior", () => {
@@ -206,18 +210,23 @@ describe("README.md", () => {
     // Should mention classifying changes into separate commits by type
     expect(step3).toMatch(/classif|separate.*commit|different.*commit/i)
 
-    // Should mention the three commit types for feedback
-    expect(step3).toMatch(/💬/)
+    // Should mention the commit types for feedback
     expect(step3).toMatch(/🤦/)
     expect(step3).toMatch(/👷/)
 
     // Should explain what each type maps to
-    expect(step3).toMatch(/blockquote|TODO\.md.*💬|💬.*TODO\.md/i)
+    expect(step3).toMatch(/blockquote|TODO\.md/i)
     expect(step3).toMatch(/marker|🤦.*code|code.*🤦/i)
     expect(step3).toMatch(/plain.*code.*👷|👷.*plain|fix.*👷|👷.*fix/i)
 
     // Should NOT claim all feedback is a single 🤦 commit
     expect(step3).not.toMatch(/commits your feedback as `🤦`/)
+
+    // 💬 must not appear as a produced prefix in this narrative
+    expect(step3).not.toContain("💬")
+
+    // 🤦 HUMAN must be mentioned (blockquote/TODO.md feedback uses 🤦 now)
+    expect(step3).toMatch(/🤦.*HUMAN|🤦 human/i)
 
     // Re-dispatch still works the same
     expect(step3).toMatch(/re.dispatch|routes? accordingly|checks the last prefix/i)

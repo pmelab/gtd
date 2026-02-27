@@ -7,7 +7,7 @@ import { commitFeedbackCommand } from "./commands/commit-feedback.js"
 import { initAction } from "./commands/init.js"
 import { GitService } from "./services/Git.js"
 import { GtdConfigService } from "./services/Config.js"
-import { parseCommitPrefix, HUMAN, SEED, FEEDBACK, FIX, type CommitPrefix } from "./services/CommitPrefix.js"
+import { parseCommitPrefix, HUMAN, SEED, FIX, type CommitPrefix } from "./services/CommitPrefix.js"
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
 import { hasUncheckedItems } from "./services/Markdown.js"
 import { nodeFileOps, type FileOps } from "./services/FileOps.js"
@@ -48,13 +48,13 @@ export const gatherState = (
     }
 
     let prevPhasePrefix: CommitPrefix | undefined = undefined
-    if (lastPrefix === HUMAN || lastPrefix === FEEDBACK) {
+    if (lastPrefix === HUMAN) {
       const messages = yield* git.getCommitMessages(20).pipe(
         Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),
       )
       for (const msg of messages.slice(1)) {
         const prefix = parseCommitPrefix(msg)
-        if (prefix !== undefined && prefix !== HUMAN && prefix !== FEEDBACK && prefix !== FIX) {
+        if (prefix !== undefined && prefix !== HUMAN && prefix !== FIX) {
           prevPhasePrefix = prefix
           break
         }

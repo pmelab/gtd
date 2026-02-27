@@ -28,8 +28,9 @@ Analyze the diff and existing plan (if any) to determine what to do:
    notes. Transform them into a structured plan.
 
 3. **If the plan file has action items and the diff contains feedback**: The
-   diff contains user comments (blockquotes `>`, `FIXME:`, `TODO:` comments in
-   code, or direct edits). Incorporate this feedback:
+   diff comes from a `🤦 HUMAN` commit and contains user comments (blockquotes
+   `>`, `FIXME:`, `TODO:` comments in code, or direct edits). Incorporate this
+   feedback:
    - Address all blockquote comments — integrate feedback into action items,
      then remove the blockquotes
    - Resolve any `FIXME:` or `TODO:` comments from the diff
@@ -40,6 +41,8 @@ Analyze the diff and existing plan (if any) to determine what to do:
      corresponding action item in the plan, then delete that comment line from
      the source file. Only remove comments that appear as newly added in the
      current diff — pre-existing comments must not be touched
+   - After processing all feedback, write the updated `TODO.md` with all
+     blockquotes removed and commit it as a new `🤖 PLAN` commit
 
 ## Output Format
 

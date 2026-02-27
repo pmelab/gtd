@@ -2,6 +2,7 @@ import { Command, CommandExecutor, FileSystem } from "@effect/platform"
 import { Duration, Effect, Stream } from "effect"
 import { GitService } from "./Git.js"
 import { formatMarkdown } from "./MarkdownFormat.js"
+import { findNewlyAddedTodos, removeTodoLines } from "./TodoRemover.js"
 
 export interface FileOps {
   readonly readFile: () => Effect.Effect<string>
@@ -13,6 +14,7 @@ export interface FileOps {
   readonly writeSessionId?: (sessionId: string) => Effect.Effect<void>
   readonly deleteSessionFile?: () => Effect.Effect<void>
   readonly formatFile?: () => Effect.Effect<void, Error>
+  readonly removeTodosFromDiff?: (diff: string) => Effect.Effect<number, Error>
   readonly runTests?: (cmd: string) => Effect.Effect<{ exitCode: number; output: string }>
 }
 
@@ -63,6 +65,8 @@ export const nodeFileOps = (
           const formatted = yield* Effect.promise(() => formatMarkdown(content, filePath))
           yield* fs.writeFileString(filePath, formatted)
         }).pipe(Effect.mapError((e) => new Error(String(e)))),
+      removeTodosFromDiff: (diff: string) =>
+        removeTodoLines(findNewlyAddedTodos(diff, filePath), process.cwd()),
       runTests: (cmd: string) => {
         const parts = cmd.split(" ")
         const [bin, ...args] = parts
