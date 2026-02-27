@@ -1,5 +1,5 @@
 {
-  "name": "gtd",
+  "name": "githingsdone",
   "version": "0.1.0",
   "description": "AI-assisted git task runner — automates agent execution and atomic commits for plan-driven development",
   "license": "MIT",
@@ -27,6 +27,9 @@
   ],
   "engines": {
     "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "type": "module",
   "scripts": {

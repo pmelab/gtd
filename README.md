@@ -1,14 +1,32 @@
-# _git_.things.**done**
+# gi\_[t]\_hings.**done**
 
-A file-based, version-controlled, agent-agnostic development workflow.
+> [!WARNING] This project is an experiment in unapologetic vibe coding. Code
+> might be terrible, I don't even know 🤷‍♂️ But otherwise I wouldn't have built it
+> in the first place. Now I have something that actually helps me.
 
-Just run `gtd` — it figures out what to do next.
+A file-based, version-controlled, agentic development workflow.
+
+Create a `TODO.md` and run `gtd` — it figures out what to do next.
 
 ## Installation
 
 ```bash
 npm install -g gtd
 ```
+
+## Usage
+
+```bash
+gtd              # run the workflow
+gtd init         # scaffold a project-local .gtdrc.json
+gtd init --global # scaffold a user-level config in ~/.config/gtd/
+```
+
+Flags:
+
+- `--quiet` / `-q` — suppress agent output, show only commits
+- `--verbose` / `-v` — show thinking deltas and tool invocations
+- `--debug` — print internal state transitions
 
 ## How It Works
 
@@ -30,8 +48,7 @@ flowchart TD
     HumanCommit --> ReDispatch
     FixCommit --> ReDispatch
     ReDispatch{Re-dispatch} --> CheckLast
-    CheckLast -->|"🌱 / 💬 / 🤦 learnings only"| Learn["🎓 Learn: persist learnings to AGENTS.md"]
-    CheckLast -->|"🌱 / 💬 / 🤦 other changes"| Plan["🤖 Plan: refine TODO.md with agent"]
+    CheckLast -->|"🌱 / 💬 / 🤦"| Plan["🤖 Plan: refine TODO.md with agent"]
     CheckLast -->|🤖| Build
     CheckLast -->|"🔨 / 👷"| TodoNew{TODO.md is new?}
     TodoNew -->|Yes| Plan
@@ -39,28 +56,25 @@ flowchart TD
     Build["🔨 Build: implement next unchecked item"] --> ItemsLeft
     ItemsLeft{Unchecked items remain?}
     ItemsLeft -->|Yes| Build
-    ItemsLeft -->|No| Learn
+    ItemsLeft -->|No| Cleanup["🧹 Cleanup: remove TODO.md"]
     Plan --> Build
-    Learn --> Cleanup["🧹 Cleanup: remove TODO.md"]
-    CheckLast -->|🎓| Cleanup
     Cleanup --> Idle([Idle: nothing to do])
-    CheckLast -->|🧹| Idle
+    CheckLast -->|"🧹 / 🎓"| Idle
     CheckLast -->|"None / unknown + TODO.md new"| Plan
     CheckLast -->|"None / unknown + no TODO.md"| Idle
 ```
 
 ### Commit Prefixes
 
-| Emoji | Step | Meaning |
-| ----- | -------- | -------------------------------------------------------- |
-| 🌱 | Seed | New TODO.md file committed (first plan seed) |
-| 💬 | Feedback | Changes to existing TODO.md (blockquotes, edits) |
-| 🤦 | Human | Code changes containing feedback markers (TODO:, FIX:, etc.) |
-| 👷 | Fix | Non-feedback code changes (regular fixes) |
-| 🤖 | Plan | Agent refined the plan in TODO.md |
-| 🔨 | Build | Agent implemented a TODO item |
-| 🎓 | Learn | Learnings persisted to AGENTS.md |
-| 🧹 | Cleanup | TODO.md removed, feature complete |
+| Emoji | Step     | Meaning                                                      |
+| ----- | -------- | ------------------------------------------------------------ |
+| 🌱    | Seed     | New TODO.md file committed (first plan seed)                 |
+| 💬    | Feedback | Changes to existing TODO.md (blockquotes, edits)             |
+| 🤦    | Human    | Code changes containing feedback markers (TODO:, FIX:, etc.) |
+| 👷    | Fix      | Non-feedback code changes (regular fixes)                    |
+| 🤖    | Plan     | Agent refined the plan in TODO.md                            |
+| 🔨    | Build    | Agent implemented a TODO item                                |
+| 🧹    | Cleanup  | TODO.md removed, feature complete                            |
 
 ## Example Workflow
 
@@ -79,8 +93,8 @@ Create a `TODO.md` file in your repository root and commit it:
 ### 2. Run `gtd`
 
 `gtd` sees uncommitted changes (or a fresh commit without a known prefix) and
-starts the planning phase. It invokes your coding agent to turn `TODO.md` into
-a detailed action plan:
+starts the planning phase. It invokes your coding agent to turn `TODO.md` into a
+detailed action plan:
 
 ```md
 # Team management
@@ -137,18 +151,10 @@ your agent in build mode, runs tests, checks the item off, and commits as `🔨`
 It then automatically continues to the next unchecked item, repeating the cycle
 until all items are done — no need to re-run `gtd` between items.
 
-### 5. Learn
+### 5. Cleanup
 
-When all items are checked, `gtd` stops — the build phase is complete. This is
-your chance to review the results and add feedback or learnings to the
-`## Learnings` section of `TODO.md`. When you're ready, run `gtd` again. It
-commits your edits as `🤦`, detects that only learnings were modified, and
-writes them to `AGENTS.md` (committed as `🎓`), followed by cleanup.
-
-### 6. Cleanup
-
-After learnings are committed, `gtd` removes `TODO.md` and commits as `🧹`.
-You're done — start a new feature by creating a fresh `TODO.md`.
+When all items are checked, `gtd` automatically removes `TODO.md` and commits as
+`🧹`. You're done — start a new feature by creating a fresh `TODO.md`.
 
 ## Feedback Classification
 
@@ -159,12 +165,12 @@ content.
 
 ### 4-Way Diff Classification
 
-| Category | Condition | Commit |
-| ----------- | ------------------------------------------------ | ------ |
-| `seed` | New TODO.md file (first plan seed) | 🌱 |
-| `feedback` | Changes to an existing TODO.md (edits, blockquote additions) | 💬 |
-| `humanTodos`| Code hunks containing feedback marker comments | 🤦 |
-| `fixes` | Plain code hunks without marker prefixes | 👷 |
+| Category     | Condition                                                    | Commit |
+| ------------ | ------------------------------------------------------------ | ------ |
+| `seed`       | New TODO.md file (first plan seed)                           | 🌱     |
+| `feedback`   | Changes to an existing TODO.md (edits, blockquote additions) | 💬     |
+| `humanTodos` | Code hunks containing feedback marker comments               | 🤦     |
+| `fixes`      | Plain code hunks without marker prefixes                     | 👷     |
 
 ### Marker Prefixes
 
@@ -181,12 +187,12 @@ human feedback. All other code hunks are classified as fixes.
 
 ### Blockquote Detection
 
-Blockquote additions in TODO.md are detected via the `BLOCKQUOTE_ADDITION`
-regex (`/^\+\s*> /`). Hunks where every added line starts with `> ` are
-recognized as blockquote feedback and included in the `feedback` category.
+Blockquote additions in TODO.md are detected via the `BLOCKQUOTE_ADDITION` regex
+(`/^\+\s*> /`). Hunks where every added line starts with `> ` are recognized as
+blockquote feedback and included in the `feedback` category.
 
-All changes in `TODO.md` are always treated as feedback (or seed if the file
-is new), regardless of whether they contain marker prefixes.
+All changes in `TODO.md` are always treated as feedback (or seed if the file is
+new), regardless of whether they contain marker prefixes.
 
 ### Multi-Commit Behavior
 
@@ -197,13 +203,14 @@ each commit contains only the hunks belonging to its category.
 ### Prefix Classification Priority
 
 When determining the overall prefix for re-dispatch, `classifyPrefix` uses a
-fixed priority order: 🌱 > 💬 > 🤦 > 👷. The first non-empty category in
-this order wins.
+fixed priority order: 🌱 > 💬 > 🤦 > 👷. The first non-empty category in this
+order wins.
 
 ## Configuration
 
-`gtd` uses file-based configuration via [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig).
-Environment variables are **not** used for configuration.
+`gtd` uses file-based configuration via
+[cosmiconfig](https://github.com/cosmiconfig/cosmiconfig). Environment variables
+are **not** used for configuration.
 
 ### Generating a Config File
 
@@ -214,15 +221,15 @@ directory:
 gtd init
 ```
 
-For a user-level (global) config, use `gtd init --global` which creates the
-file under `$XDG_CONFIG_HOME/gtd/` (defaults to `~/.config/gtd/`):
+For a user-level (global) config, use `gtd init --global` which creates the file
+under `$XDG_CONFIG_HOME/gtd/` (defaults to `~/.config/gtd/`):
 
 ```sh
 gtd init --global
 ```
 
-Both commands write an example `.gtdrc.json` with a `$schema` reference and
-skip creation if the file already exists.
+Both commands write an example `.gtdrc.json` with a `$schema` reference and skip
+creation if the file already exists.
 
 ### Config File Locations
 
@@ -233,8 +240,8 @@ Config files are searched in the following order (highest priority first):
 3. **`$XDG_CONFIG_HOME/`** — e.g. `~/.config/.gtdrc.json`
 4. **`$HOME/`** — e.g. `~/.gtdrc.json`
 
-When multiple config files are found, they are merged with higher-priority
-files overriding lower-priority ones (shallow merge).
+When multiple config files are found, they are merged with higher-priority files
+overriding lower-priority ones (shallow merge).
 
 ### Supported File Formats
 
@@ -262,7 +269,6 @@ Any format supported by cosmiconfig:
   // Format: "provider/modelId" e.g. "anthropic/claude-sonnet-4-20250514"
   "modelPlan": "anthropic/claude-sonnet-4-20250514",
   "modelBuild": "anthropic/claude-sonnet-4-20250514",
-  "modelLearn": "anthropic/claude-sonnet-4-20250514",
   "modelCommit": "anthropic/claude-haiku-4-5-20251001",
 
   // Test command run after each build step
@@ -279,6 +285,6 @@ Any format supported by cosmiconfig:
 
   // Seconds before the agent times out due to inactivity (must be >= 0)
   // Default: 300
-  "agentInactivityTimeout": 300
+  "agentInactivityTimeout": 300,
 }
 ```
