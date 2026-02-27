@@ -1,8 +1,9 @@
-# gi\_[t]\_hings.**done**
+# gi[t]hings.**done**
 
-> [!WARNING] This project is an experiment in unapologetic vibe coding. Code
-> might be terrible, I don't even know 🤷‍♂️ But otherwise I wouldn't have built it
-> in the first place. Now I have something that actually helps me.
+> [!WARNING]  
+> This project is an experiment in unapologetic vibe coding. Code might be
+> terrible, I don't even know 🤷‍♂️ But otherwise I wouldn't have built it in the
+> first place. Now I have something that actually helps me.
 
 A file-based, version-controlled, agentic development workflow.
 
@@ -64,15 +65,15 @@ flowchart TD
 
 ### Commit Prefixes
 
-| Emoji | Step     | Meaning                                                      |
-| ----- | -------- | ------------------------------------------------------------ |
-| 🌱    | Seed     | New TODO.md file committed (first plan seed)                        |
-| 🤦    | Human    | TODO.md edits/blockquotes or code with feedback markers (TODO:, FIX:, etc.) |
-| 👷    | Fix      | Non-feedback code changes (regular fixes)                    |
-| 🤖    | Plan     | Agent refined the plan in TODO.md                            |
-| 🔨    | Build    | Agent implemented a TODO item                                |
-| 🎓    | Learn    | Agent extracted learnings from completed work                |
-| 🧹    | Cleanup  | TODO.md removed, feature complete                            |
+| Emoji | Step    | Meaning                                                                     |
+| ----- | ------- | --------------------------------------------------------------------------- |
+| 🌱    | Seed    | New TODO.md file committed (first plan seed)                                |
+| 🤦    | Human   | TODO.md edits/blockquotes or code with feedback markers (TODO:, FIX:, etc.) |
+| 👷    | Fix     | Non-feedback code changes (regular fixes)                                   |
+| 🤖    | Plan    | Agent refined the plan in TODO.md                                           |
+| 🔨    | Build   | Agent implemented a TODO item                                               |
+| 🎓    | Learn   | Agent extracted learnings from completed work                               |
+| 🧹    | Cleanup | TODO.md removed, feature complete                                           |
 
 ## Example Workflow
 
@@ -201,8 +202,8 @@ each commit contains only the hunks belonging to its category.
 ### Prefix Classification Priority
 
 When determining the overall prefix for re-dispatch, `classifyPrefix` uses a
-fixed priority order: 🌱 > 🤦 > 👷. The first non-empty category in this
-order wins.
+fixed priority order: 🌱 > 🤦 > 👷. The first non-empty category in this order
+wins.
 
 ## Configuration
 
