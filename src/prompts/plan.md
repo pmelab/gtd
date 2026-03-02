@@ -42,7 +42,7 @@ Analyze the diff and existing plan (if any) to determine what to do:
      the source file. Only remove comments that appear as newly added in the
      current diff — pre-existing comments must not be touched
    - After processing all feedback, write the updated `TODO.md` with all
-     blockquotes removed and commit it as a new `🤖 PLAN` commit
+     blockquotes removed
 
 ## Output Format
 
