@@ -137,6 +137,7 @@ describe("README.md", () => {
     const schema = JSON.parse(
       readFileSync(join(import.meta.dirname, "..", "schema.json"), "utf-8"),
     )
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Ajv = require("ajv")
     const ajv = new Ajv({ strict: false })
     const validate = ajv.compile(schema)
@@ -152,7 +153,7 @@ describe("README.md", () => {
         continue
       }
       if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-        const { $schema, ...rest } = parsed as Record<string, unknown>
+        const { $schema: _, ...rest } = parsed as Record<string, unknown>
         const valid = validate(rest)
         expect(valid, `Config block failed schema validation: ${JSON.stringify(validate.errors)}`).toBe(true)
       }

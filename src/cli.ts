@@ -7,7 +7,7 @@ import { commitFeedbackCommand } from "./commands/commit-feedback.js"
 import { initAction } from "./commands/init.js"
 import { GitService } from "./services/Git.js"
 import { GtdConfigService } from "./services/Config.js"
-import { parseCommitPrefix, HUMAN, SEED, FIX, type CommitPrefix } from "./services/CommitPrefix.js"
+import { parseCommitPrefix, HUMAN, FIX, type CommitPrefix } from "./services/CommitPrefix.js"
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
 import { hasUncheckedItems } from "./services/Markdown.js"
 import { nodeFileOps, type FileOps } from "./services/FileOps.js"
@@ -72,7 +72,7 @@ export const gatherState = (
 
 export const dispatch = (state: InferStepInput) => inferStep(state)
 
-const runStep = (step: Step, fs: FileOps) => {
+const runStep = (step: Step, _fs: FileOps) => {
   switch (step) {
     case "plan":
       return makePlanCommand

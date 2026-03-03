@@ -348,7 +348,7 @@ describe("createExampleConfig", () => {
   })
 
   it("EXAMPLE_CONFIG validates against the schema", () => {
-    const { $schema, _comment, ...configOnly } = EXAMPLE_CONFIG
+    const { $schema: _s, _comment, ...configOnly } = EXAMPLE_CONFIG
     const result = Schema.decodeUnknownEither(GtdConfigSchema)(configOnly)
     expect(result._tag).toBe("Right")
   })

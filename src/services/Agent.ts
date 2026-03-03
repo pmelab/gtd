@@ -255,6 +255,7 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
 
             // Run prompt with inactivity timeout
             const promptEffect = Effect.tryPromise({
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               try: () => session.prompt(params.prompt, { source: "noninteractive" as any }),
               catch: (err) => new AgentError("Agent prompt failed", err),
             })

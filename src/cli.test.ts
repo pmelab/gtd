@@ -2,7 +2,7 @@ import { describe, it, expect } from "@effect/vitest"
 import { Effect, Layer } from "effect"
 import { command, gatherState, dispatch } from "./cli.js"
 import { mockConfig, mockGit, mockFs, nodeLayer } from "./test-helpers.js"
-import { SEED, HUMAN } from "./services/CommitPrefix.js"
+import { HUMAN } from "./services/CommitPrefix.js"
 import { VerboseMode } from "./services/VerboseMode.js"
 
 describe("gtd unified command", () => {

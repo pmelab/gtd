@@ -79,6 +79,7 @@ export const isInteractive = (): boolean => process.stdout.isTTY === true
 // --- Cursor symbol stripping ---
 
 export const stripCursorSymbols = (text: string): string =>
+  // eslint-disable-next-line no-control-regex
   text.replace(/\u2588|\x1b\[\?25[lh]|\x1b\[1D/g, "")
 
 // --- Shared helpers ---

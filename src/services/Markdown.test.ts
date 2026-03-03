@@ -25,7 +25,7 @@ const validPlan = `# Feature
 - Some question?
 `
 
-const minimalValid = `# Feature
+const _minimalValid = `# Feature
 
 ## Action Items
 

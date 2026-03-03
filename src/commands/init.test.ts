@@ -5,7 +5,6 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { initAction } from "./init.js"
 import { SCHEMA_URL } from "../services/ConfigResolver.js"
-import { Command } from "@effect/cli"
 
 describe("initAction", () => {
   let tempDir: string

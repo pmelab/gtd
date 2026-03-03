@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { Effect, Layer } from "effect"
+import { Effect } from "effect"
 import { QuietMode } from "./QuietMode.js"
 
 describe("QuietMode", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { Effect, Layer } from "effect"
+import { Effect } from "effect"
 import { VerboseMode } from "./services/VerboseMode.js"
 
 describe("--verbose flag", () => {

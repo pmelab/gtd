@@ -167,7 +167,7 @@ export const classifyDiff = (diff: string, todoFile: string): ClassifiedDiff => 
 }
 
 import type { CommitPrefix } from "./CommitPrefix.js"
-import { SEED, FEEDBACK, HUMAN, FIX } from "./CommitPrefix.js"
+import { SEED, HUMAN, FIX } from "./CommitPrefix.js"
 
 export const classifyPrefix = (diff: string, todoFile: string): CommitPrefix => {
   const { seed, feedback, humanTodos, fixes } = classifyDiff(diff, todoFile)

@@ -9,6 +9,14 @@ export default tseslint.config(
     plugins: { "@effect": effect },
   },
   {
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
+  {
     files: ["**/*.test.ts"],
     rules: { "require-yield": "off" },
   },

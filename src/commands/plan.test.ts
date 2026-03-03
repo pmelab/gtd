@@ -7,7 +7,6 @@ import { planCommand } from "./plan.js"
 import { mockConfig, mockGit, mockFs, nodeLayer } from "../test-helpers.js"
 
 const HIDE_CURSOR = "\x1b[?25l"
-const BLOCK_CURSOR = "█"
 
 describe("planCommand", () => {
   it.effect("invokes agent in plan mode with diff", () =>
@@ -459,7 +458,7 @@ describe("planCommand silent progress indicator", () => {
       let agentStarted = false
       const agentLayer = Layer.succeed(AgentService, {
         resolvedName: "mock",
-        invoke: (params) => {
+        invoke: (_params) => {
           agentStarted = true
           return Effect.succeed<AgentResult>({ sessionId: undefined })
         },

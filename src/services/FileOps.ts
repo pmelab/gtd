@@ -18,7 +18,7 @@ export interface FileOps {
   readonly runTests?: (cmd: string) => Effect.Effect<{ exitCode: number; output: string }>
 }
 
-const sessionFilePath = (_planFilePath: string) => ".git/gtd-session"
+const sessionFilePath = () => ".git/gtd-session"
 
 export const nodeFileOps = (
   filePath: string,
@@ -27,7 +27,7 @@ export const nodeFileOps = (
     const fs = yield* FileSystem.FileSystem
     const git = yield* GitService
     const executor = yield* CommandExecutor.CommandExecutor
-    const sessionPath = sessionFilePath(filePath)
+    const sessionPath = sessionFilePath()
     return {
       readFile: () =>
         fs.readFileString(filePath).pipe(Effect.catchAll(() => Effect.succeed(""))),
