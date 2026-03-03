@@ -48,7 +48,7 @@ Analyze the diff and existing plan (if any) to determine what to do:
 
 Write the plan file with this structure:
 
-```markdown
+```text
 # <Title>
 
 ## Action Items
