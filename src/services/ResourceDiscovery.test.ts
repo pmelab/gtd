@@ -13,15 +13,18 @@ describe("PI resource discovery", () => {
   it("discovers skills from .pi/skills/", async () => {
     const cwd = makeTempProject()
     mkdirSync(join(cwd, ".pi/skills/greet"), { recursive: true })
-    writeFileSync(join(cwd, ".pi/skills/greet/SKILL.md"), [
-      "---",
-      "name: greet",
-      "description: Say hello",
-      "---",
-      "",
-      "# Greet",
-      "Always say hello first.",
-    ].join("\n"))
+    writeFileSync(
+      join(cwd, ".pi/skills/greet/SKILL.md"),
+      [
+        "---",
+        "name: greet",
+        "description: Say hello",
+        "---",
+        "",
+        "# Greet",
+        "Always say hello first.",
+      ].join("\n"),
+    )
 
     const loader = new DefaultResourceLoader({
       cwd,
@@ -53,7 +56,7 @@ describe("PI resource discovery", () => {
 
     const { agentsFiles } = loader.getAgentsFiles()
     expect(agentsFiles.length).toBeGreaterThanOrEqual(1)
-    const match = agentsFiles.find(f => f.path.endsWith("AGENTS.md"))
+    const match = agentsFiles.find((f) => f.path.endsWith("AGENTS.md"))
     expect(match).toBeDefined()
     expect(match!.content).toContain("always test first")
   })
@@ -61,14 +64,12 @@ describe("PI resource discovery", () => {
   it("discovers both skills and AGENTS.md together", async () => {
     const cwd = makeTempProject()
     mkdirSync(join(cwd, ".pi/skills/lint"), { recursive: true })
-    writeFileSync(join(cwd, ".pi/skills/lint/SKILL.md"), [
-      "---",
-      "name: lint",
-      "description: Run linter",
-      "---",
-      "",
-      "Run eslint on all files.",
-    ].join("\n"))
+    writeFileSync(
+      join(cwd, ".pi/skills/lint/SKILL.md"),
+      ["---", "name: lint", "description: Run linter", "---", "", "Run eslint on all files."].join(
+        "\n",
+      ),
+    )
     writeFileSync(join(cwd, "AGENTS.md"), "# Guidelines\n\nuse strict mode\n")
 
     const loader = new DefaultResourceLoader({
@@ -79,9 +80,9 @@ describe("PI resource discovery", () => {
     await loader.reload()
 
     const { skills } = loader.getSkills()
-    expect(skills.some(s => s.name === "lint")).toBe(true)
+    expect(skills.some((s) => s.name === "lint")).toBe(true)
 
     const { agentsFiles } = loader.getAgentsFiles()
-    expect(agentsFiles.some(f => f.content.includes("use strict mode"))).toBe(true)
+    expect(agentsFiles.some((f) => f.content.includes("use strict mode"))).toBe(true)
   })
 })

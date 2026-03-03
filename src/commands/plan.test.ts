@@ -16,7 +16,11 @@ describe("planCommand", () => {
         resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                calls.push(params)
+              }),
+            ),
           ),
       })
       yield* planCommand(mockFs("")).pipe(
@@ -35,7 +39,11 @@ describe("planCommand", () => {
         resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                calls.push(params)
+              }),
+            ),
           ),
       })
       const existingPlan = `# Feature\n\n## Action Items\n\n- [ ] Item\n  - Detail\n  - Tests: check\n`
@@ -148,7 +156,9 @@ describe("planCommand", () => {
       yield* planCommand(fs).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
-      const planCalls = calls.filter((c) => c.mode === "plan" && !c.prompt.includes("commit message"))
+      const planCalls = calls.filter(
+        (c) => c.mode === "plan" && !c.prompt.includes("commit message"),
+      )
       // 2 plan calls: initial plan + 1 lint fix
       expect(planCalls.length).toBe(2)
       expect(planCalls[1]!.resumeSessionId).toBe("plan-ses-1")
@@ -162,7 +172,11 @@ describe("planCommand", () => {
         resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: "plan-ses-new" }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                calls.push(params)
+              }),
+            ),
           ),
       })
       let savedSessionId: string | undefined
@@ -191,7 +205,11 @@ describe("planCommand", () => {
         resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                calls.push(params)
+              }),
+            ),
           ),
       })
       const fs = {
@@ -327,7 +345,11 @@ describe("planCommand", () => {
         resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                calls.push(params)
+              }),
+            ),
           ),
       })
       const diffWithTodo = [
@@ -419,7 +441,11 @@ describe("planCommand", () => {
         resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                calls.push(params)
+              }),
+            ),
           ),
       })
       const lastCommitDiff = "diff --git a/TODO.md b/TODO.md\n+> Fix the bug in parser"
@@ -453,27 +479,29 @@ describe("planCommand silent progress indicator", () => {
     Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true })
   })
 
-  it.effect("shows Planning... via setTextWithCursor before agent invocation (no blinking cursor)", () =>
-    Effect.gen(function* () {
-      let agentStarted = false
-      const agentLayer = Layer.succeed(AgentService, {
-        resolvedName: "mock",
-        invoke: (_params) => {
-          agentStarted = true
-          return Effect.succeed<AgentResult>({ sessionId: undefined })
-        },
-      })
-      yield* planCommand(mockFs("")).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
-      )
-      const allOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("")
-      expect(allOutput).toContain("Planning...")
-      const planningIdx = allOutput.indexOf("Planning...")
-      const afterPlanning = allOutput.slice(planningIdx + "Planning...".length)
-      expect(afterPlanning.startsWith("\n")).toBe(true)
-      expect(allOutput).not.toContain(HIDE_CURSOR)
-      expect(agentStarted).toBe(true)
-    }),
+  it.effect(
+    "shows Planning... via setTextWithCursor before agent invocation (no blinking cursor)",
+    () =>
+      Effect.gen(function* () {
+        let agentStarted = false
+        const agentLayer = Layer.succeed(AgentService, {
+          resolvedName: "mock",
+          invoke: (_params) => {
+            agentStarted = true
+            return Effect.succeed<AgentResult>({ sessionId: undefined })
+          },
+        })
+        yield* planCommand(mockFs("")).pipe(
+          Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
+        )
+        const allOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("")
+        expect(allOutput).toContain("Planning...")
+        const planningIdx = allOutput.indexOf("Planning...")
+        const afterPlanning = allOutput.slice(planningIdx + "Planning...".length)
+        expect(afterPlanning.startsWith("\n")).toBe(true)
+        expect(allOutput).not.toContain(HIDE_CURSOR)
+        expect(agentStarted).toBe(true)
+      }),
   )
 
   it.effect("ThinkingDelta events do not write thinking text to stdout in non-verbose mode", () =>

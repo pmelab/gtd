@@ -23,9 +23,7 @@ describe("--verbose flag", () => {
       return isVerbose
     })
 
-    const verbose = await Effect.runPromise(
-      program.pipe(Effect.provide(VerboseMode.layer(true))),
-    )
+    const verbose = await Effect.runPromise(program.pipe(Effect.provide(VerboseMode.layer(true))))
     expect(verbose).toBe(true)
 
     const notVerbose = await Effect.runPromise(

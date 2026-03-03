@@ -69,15 +69,12 @@ Given(
   },
 )
 
-Given(
-  "a staged file {string} with:",
-  function (this: GtdWorld, filePath: string, content: string) {
-    const fullPath = join(this.repoDir, filePath)
-    mkdirSync(join(fullPath, ".."), { recursive: true })
-    writeFileSync(fullPath, content.endsWith("\n") ? content : content + "\n")
-    execFileSync("git", ["add", filePath], { cwd: this.repoDir, stdio: "pipe" })
-  },
-)
+Given("a staged file {string} with:", function (this: GtdWorld, filePath: string, content: string) {
+  const fullPath = join(this.repoDir, filePath)
+  mkdirSync(join(fullPath, ".."), { recursive: true })
+  writeFileSync(fullPath, content.endsWith("\n") ? content : content + "\n")
+  execFileSync("git", ["add", filePath], { cwd: this.repoDir, stdio: "pipe" })
+})
 
 Given(
   "an untracked file {string} with:",

@@ -2,7 +2,11 @@ import { describe, it, expect } from "@effect/vitest"
 import { classifyDiff, classifyPrefix } from "./DiffClassifier.js"
 
 const makeDiff = (
-  files: Array<{ path: string; isNew?: boolean; hunks: Array<{ header: string; lines: string[] }> }>,
+  files: Array<{
+    path: string
+    isNew?: boolean
+    hunks: Array<{ header: string; lines: string[] }>
+  }>,
 ) => {
   let result = ""
   for (const file of files) {
@@ -360,7 +364,12 @@ describe("classifyDiff", () => {
         hunks: [
           {
             header: "@@ -1,3 +1,5 @@",
-            lines: [" # Plan", "+> This approach is wrong", "+> Try a different strategy", " - [ ] Task"],
+            lines: [
+              " # Plan",
+              "+> This approach is wrong",
+              "+> Try a different strategy",
+              " - [ ] Task",
+            ],
           },
         ],
       },

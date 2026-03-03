@@ -114,9 +114,7 @@ export class AgentError {
 
 export interface AgentServiceShape {
   readonly resolvedName: string
-  readonly invoke: (
-    params: AgentInvocation,
-  ) => Effect.Effect<AgentResult, AgentError>
+  readonly invoke: (params: AgentInvocation) => Effect.Effect<AgentResult, AgentError>
 }
 
 export class AgentService extends Context.Tag("AgentService")<AgentService, AgentServiceShape>() {
@@ -156,8 +154,7 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
                   .getAll()
                   .filter(
                     (m: { provider: string; id: string }) =>
-                      (!provider || m.provider === provider) &&
-                      m.id.startsWith(prefix),
+                      (!provider || m.provider === provider) && m.id.startsWith(prefix),
                   )
                   .sort((a: { id: string }, b: { id: string }) => b.id.localeCompare(a.id))
                 resolvedModel = candidates[0]
@@ -184,9 +181,7 @@ export class AgentService extends Context.Tag("AgentService")<AgentService, Agen
 
             // Debug: log discovered resources and model
             const activeModel = session.model
-            const modelLabel = activeModel
-              ? `${activeModel.provider}/${activeModel.id}`
-              : "none"
+            const modelLabel = activeModel ? `${activeModel.provider}/${activeModel.id}` : "none"
             logDiscoveredResources(session, extensionsResult, params.mode, modelLabel)
 
             // Override system prompt

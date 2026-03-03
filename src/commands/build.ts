@@ -151,7 +151,10 @@ export const buildCommand = (fs: FileOps) =>
               .pipe(Effect.ensuring(Effect.sync(() => {})))
           }
 
-          renderer.setStatus(pkg.title, "testing", { current: retry + 2, max: config.testRetries + 1 })
+          renderer.setStatus(pkg.title, "testing", {
+            current: retry + 2,
+            max: config.testRetries + 1,
+          })
         }
 
         if (!testPassed) return
@@ -205,12 +208,9 @@ export const buildCommand = (fs: FileOps) =>
 
 const formatPackagePrompt = (pkg: Package, planFilePath: string): string => {
   const unchecked = pkg.items.filter((i) => !i.checked)
-  const itemsText = unchecked
-    .map((item) => `- [ ] ${item.title}\n${item.body}`)
-    .join("\n")
+  const itemsText = unchecked.map((item) => `- [ ] ${item.title}\n${item.body}`).join("\n")
   return `### ${pkg.title}\n\nPlan file: ${planFilePath}\n\n${itemsText}`
 }
-
 
 export const makeBuildCommand = Effect.gen(function* () {
   const config = yield* GtdConfigService

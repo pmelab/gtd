@@ -131,11 +131,7 @@ describe("GitService", () => {
       const git = yield* GitService
       const result = yield* git.hasUncommittedChanges()
       expect(result).toBe(true)
-    }).pipe(
-      Effect.provide(
-        mockGit({ hasUncommittedChanges: () => Effect.succeed(true) }),
-      ),
-    ),
+    }).pipe(Effect.provide(mockGit({ hasUncommittedChanges: () => Effect.succeed(true) }))),
   )
 
   it.effect("hasUncommittedChanges returns false when clean", () =>
@@ -143,11 +139,7 @@ describe("GitService", () => {
       const git = yield* GitService
       const result = yield* git.hasUncommittedChanges()
       expect(result).toBe(false)
-    }).pipe(
-      Effect.provide(
-        mockGit({ hasUncommittedChanges: () => Effect.succeed(false) }),
-      ),
-    ),
+    }).pipe(Effect.provide(mockGit({ hasUncommittedChanges: () => Effect.succeed(false) }))),
   )
 })
 
@@ -272,7 +264,8 @@ describe("GitService.stageByPatch (integration)", () => {
         yield* execInDir(dir, "git config user.email test@test.com")
         yield* execInDir(dir, "git config user.name Test")
 
-        const initialContent = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\n"
+        const initialContent =
+          "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\n"
         yield* Effect.promise(() => writeFile(join(dir, "file.ts"), initialContent))
         yield* execInDir(dir, "git add -A && git commit -m 'initial'")
 

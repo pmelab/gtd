@@ -56,14 +56,14 @@ Write the plan file with this structure:
 ### <Work Package Name>
 
 - [ ] <Item description>
-          - <Implementation detail>
+              - <Implementation detail>
 - [ ] <Next item>
-          - <Detail>
+              - <Detail>
 
 ### <Another Work Package>
 
 - [ ] <Item>
-          - <Detail>
+              - <Detail>
 
 ## Open Questions
 

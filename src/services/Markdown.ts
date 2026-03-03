@@ -54,7 +54,9 @@ const parseActionItems = (content: string): ReadonlyArray<ActionItem> =>
 export const hasUncheckedItems = (content: string): boolean =>
   parseActionItems(content).some((item) => !item.checked)
 
-const findActionItemsSection = (lines: ReadonlyArray<string>): { start: number; end: number } | null => {
+const findActionItemsSection = (
+  lines: ReadonlyArray<string>,
+): { start: number; end: number } | null => {
   const sectionIdx = lines.findIndex((l) => /^##\s+Action Items\s*$/.test(l))
   if (sectionIdx === -1) return null
 
@@ -117,4 +119,3 @@ export const getNextUncheckedPackage = (content: string): Option.Option<Package>
   const pkg = packages.find((p) => p.items.some((item) => !item.checked))
   return pkg ? Option.some(pkg) : Option.none()
 }
-

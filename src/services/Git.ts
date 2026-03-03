@@ -66,16 +66,9 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
         getDiff: () =>
           Effect.gen(function* () {
             // Find untracked files so they appear in the diff
-            const untrackedRaw = yield* exec(
-              "git",
-              "ls-files",
-              "--others",
-              "--exclude-standard",
-            )
+            const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard")
             const untrackedFiles =
-              untrackedRaw === ""
-                ? []
-                : untrackedRaw.split("\n").filter((f) => f !== "")
+              untrackedRaw === "" ? [] : untrackedRaw.split("\n").filter((f) => f !== "")
 
             const getUnstagedDiff = () =>
               untrackedFiles.length === 0
@@ -103,12 +96,9 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
           ),
 
         hasUncommittedChanges: () =>
-          exec("git", "status", "--porcelain").pipe(
-            Effect.map((output) => output !== ""),
-          ),
+          exec("git", "status", "--porcelain").pipe(Effect.map((output) => output !== "")),
 
-        getLastCommitMessage: () =>
-          exec("git", "log", "-1", "--pretty=%s"),
+        getLastCommitMessage: () => exec("git", "log", "-1", "--pretty=%s"),
 
         getCommitMessages: (n) =>
           exec("git", "log", `-${n}`, "--pretty=%s").pipe(

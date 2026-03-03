@@ -57,7 +57,7 @@ export const initAction = (options: InitOptions): Effect.Effect<void, never> =>
       options.log(`Created example config at ${filepath}`)
     } else {
       options.log(`Error: Failed to create config at ${filepath}`)
-      yield* Effect.sync(() => process.exitCode = 1)
+      yield* Effect.sync(() => (process.exitCode = 1))
     }
   })
 

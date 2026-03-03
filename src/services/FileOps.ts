@@ -22,43 +22,41 @@ const sessionFilePath = () => ".git/gtd-session"
 
 export const nodeFileOps = (
   filePath: string,
-): Effect.Effect<FileOps, never, FileSystem.FileSystem | GitService | CommandExecutor.CommandExecutor> =>
+): Effect.Effect<
+  FileOps,
+  never,
+  FileSystem.FileSystem | GitService | CommandExecutor.CommandExecutor
+> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const git = yield* GitService
     const executor = yield* CommandExecutor.CommandExecutor
     const sessionPath = sessionFilePath()
     return {
-      readFile: () =>
-        fs.readFileString(filePath).pipe(Effect.catchAll(() => Effect.succeed(""))),
+      readFile: () => fs.readFileString(filePath).pipe(Effect.catchAll(() => Effect.succeed(""))),
       writeFile: (content: string) =>
         fs.writeFileString(filePath, content).pipe(Effect.catchAll(() => Effect.void)),
       exists: () =>
-        fs
-          .stat(filePath)
-          .pipe(
-            Effect.map((stat) => stat.size > 0n),
-            Effect.catchAll(() => Effect.succeed(false)),
-          ),
+        fs.stat(filePath).pipe(
+          Effect.map((stat) => stat.size > 0n),
+          Effect.catchAll(() => Effect.succeed(false)),
+        ),
       getDiffContent: () => git.getDiff().pipe(Effect.catchAll(() => Effect.succeed(""))),
       remove: () => fs.remove(filePath).pipe(Effect.catchAll(() => Effect.void)),
       readSessionId: () =>
-        fs
-          .exists(sessionPath)
-          .pipe(
-            Effect.flatMap((exists) =>
-              exists
-                ? fs
-                    .readFileString(sessionPath)
-                    .pipe(Effect.map((content) => content.trim() || undefined))
-                : Effect.succeed(undefined),
-            ),
-            Effect.catchAll(() => Effect.succeed(undefined as string | undefined)),
+        fs.exists(sessionPath).pipe(
+          Effect.flatMap((exists) =>
+            exists
+              ? fs
+                  .readFileString(sessionPath)
+                  .pipe(Effect.map((content) => content.trim() || undefined))
+              : Effect.succeed(undefined),
           ),
+          Effect.catchAll(() => Effect.succeed(undefined as string | undefined)),
+        ),
       writeSessionId: (sessionId: string) =>
         fs.writeFileString(sessionPath, sessionId).pipe(Effect.catchAll(() => Effect.void)),
-      deleteSessionFile: () =>
-        fs.remove(sessionPath).pipe(Effect.catchAll(() => Effect.void)),
+      deleteSessionFile: () => fs.remove(sessionPath).pipe(Effect.catchAll(() => Effect.void)),
       formatFile: () =>
         Effect.gen(function* () {
           const content = yield* fs.readFileString(filePath)
@@ -74,11 +72,14 @@ export const nodeFileOps = (
           const proc = yield* Command.start(
             Command.make(bin!, ...args).pipe(Command.workingDirectory(process.cwd())),
           )
-          const [exitCode, stdout, stderr] = yield* Effect.all([
-            proc.exitCode,
-            proc.stdout.pipe(Stream.decodeText(), Stream.mkString),
-            proc.stderr.pipe(Stream.decodeText(), Stream.mkString),
-          ], { concurrency: "unbounded" })
+          const [exitCode, stdout, stderr] = yield* Effect.all(
+            [
+              proc.exitCode,
+              proc.stdout.pipe(Stream.decodeText(), Stream.mkString),
+              proc.stderr.pipe(Stream.decodeText(), Stream.mkString),
+            ],
+            { concurrency: "unbounded" },
+          )
           return { exitCode, output: stdout + stderr }
         }).pipe(
           Effect.scoped,

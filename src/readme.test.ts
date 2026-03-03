@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
-const readmeContent = () =>
-  readFileSync(join(import.meta.dirname, "..", "README.md"), "utf-8")
+const readmeContent = () => readFileSync(join(import.meta.dirname, "..", "README.md"), "utf-8")
 
 describe("README.md", () => {
   it("contains no references to old subcommands", () => {
@@ -134,18 +133,14 @@ describe("README.md", () => {
     const jsonBlocks = [...content.matchAll(/```jsonc?\n([\s\S]*?)```/g)]
     expect(jsonBlocks.length).toBeGreaterThan(0)
 
-    const schema = JSON.parse(
-      readFileSync(join(import.meta.dirname, "..", "schema.json"), "utf-8"),
-    )
+    const schema = JSON.parse(readFileSync(join(import.meta.dirname, "..", "schema.json"), "utf-8"))
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Ajv = require("ajv")
     const ajv = new Ajv({ strict: false })
     const validate = ajv.compile(schema)
 
     for (const [, block] of jsonBlocks) {
-      const cleaned = block!
-        .replace(/^\s*\/\/.*$/gm, "")
-        .replace(/,(\s*[}\]])/g, "$1")
+      const cleaned = block!.replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1")
       let parsed: unknown
       try {
         parsed = JSON.parse(cleaned)
@@ -155,7 +150,10 @@ describe("README.md", () => {
       if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
         const { $schema: _, ...rest } = parsed as Record<string, unknown>
         const valid = validate(rest)
-        expect(valid, `Config block failed schema validation: ${JSON.stringify(validate.errors)}`).toBe(true)
+        expect(
+          valid,
+          `Config block failed schema validation: ${JSON.stringify(validate.errors)}`,
+        ).toBe(true)
       }
     }
   })
@@ -241,5 +239,4 @@ describe("README.md", () => {
     expect(content).toMatch(/project.local|project.level|local.*config/i)
     expect(content).toMatch(/user.level|global.*config|user.*config/i)
   })
-
 })

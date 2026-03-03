@@ -4,16 +4,12 @@ import { QuietMode } from "./services/QuietMode.js"
 
 describe("--quiet flag", () => {
   it("QuietMode layer provides isQuiet=false by default", async () => {
-    const result = await Effect.runPromise(
-      QuietMode.pipe(Effect.provide(QuietMode.layer(false))),
-    )
+    const result = await Effect.runPromise(QuietMode.pipe(Effect.provide(QuietMode.layer(false))))
     expect(result.isQuiet).toBe(false)
   })
 
   it("QuietMode layer provides isQuiet=true when quiet", async () => {
-    const result = await Effect.runPromise(
-      QuietMode.pipe(Effect.provide(QuietMode.layer(true))),
-    )
+    const result = await Effect.runPromise(QuietMode.pipe(Effect.provide(QuietMode.layer(true))))
     expect(result.isQuiet).toBe(true)
   })
 
@@ -23,14 +19,10 @@ describe("--quiet flag", () => {
       return isQuiet
     })
 
-    const quiet = await Effect.runPromise(
-      program.pipe(Effect.provide(QuietMode.layer(true))),
-    )
+    const quiet = await Effect.runPromise(program.pipe(Effect.provide(QuietMode.layer(true))))
     expect(quiet).toBe(true)
 
-    const notQuiet = await Effect.runPromise(
-      program.pipe(Effect.provide(QuietMode.layer(false))),
-    )
+    const notQuiet = await Effect.runPromise(program.pipe(Effect.provide(QuietMode.layer(false))))
     expect(notQuiet).toBe(false)
   })
 })

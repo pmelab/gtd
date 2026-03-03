@@ -3,10 +3,18 @@ import { Effect, Layer } from "effect"
 import { AgentService } from "./services/Agent.js"
 import { QuietMode } from "./services/QuietMode.js"
 import { mockConfig } from "./test-helpers.js"
-import { printStartupMessage, formatStartupMessage, type StartupInfo } from "./services/DecisionTree.js"
+import {
+  printStartupMessage,
+  formatStartupMessage,
+  type StartupInfo,
+} from "./services/DecisionTree.js"
 import type { InferStepInput } from "./services/InferStep.js"
 
-const makeInfo = (state: InferStepInput, step: InferStepInput extends never ? never : string, agent = "claude"): StartupInfo => ({
+const makeInfo = (
+  state: InferStepInput,
+  step: InferStepInput extends never ? never : string,
+  agent = "claude",
+): StartupInfo => ({
   agent,
   step: step as StartupInfo["step"],
   model: undefined,

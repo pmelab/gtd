@@ -14,7 +14,10 @@ const mockFsWithProgress = (initial: string) => {
   let current = initial
   return {
     readFile: () => Effect.succeed(current),
-    writeFile: (content: string) => Effect.sync(() => { current = content }),
+    writeFile: (content: string) =>
+      Effect.sync(() => {
+        current = content
+      }),
     exists: () => Effect.succeed(initial !== ""),
     getDiffContent: () => Effect.succeed(""),
     remove: () => Effect.void,
@@ -29,7 +32,11 @@ describe("buildCommand", () => {
         resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                calls.push(params)
+              }),
+            ),
           ),
       })
       yield* buildCommand(mockFs("")).pipe(
@@ -46,7 +53,11 @@ describe("buildCommand", () => {
         resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                calls.push(params)
+              }),
+            ),
           ),
       })
       const singleItem = [
@@ -116,9 +127,13 @@ describe("buildCommand", () => {
       )
       // First commit: code changes with 🔨 prefix
       expect(gitCalls.some((c) => c.type === "addAll")).toBe(true)
-      expect(gitCalls.some((c) => c.type === "commit" && c.msg === "🔨 build: Build Phase")).toBe(true)
+      expect(gitCalls.some((c) => c.type === "commit" && c.msg === "🔨 build: Build Phase")).toBe(
+        true,
+      )
       // Checkbox update amended into build commit
-      expect(gitCalls.some((c) => c.type === "amendFiles" && c.files?.includes("TODO.md"))).toBe(true)
+      expect(gitCalls.some((c) => c.type === "amendFiles" && c.files?.includes("TODO.md"))).toBe(
+        true,
+      )
     }),
   )
 
@@ -185,7 +200,11 @@ describe("buildCommand", () => {
         resolvedName: "mock",
         invoke: (params) =>
           Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
-            Effect.tap(() => Effect.sync(() => { calls.push(params) })),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                calls.push(params)
+              }),
+            ),
           ),
       })
       const allDone = [
@@ -347,7 +366,12 @@ describe("buildCommand", () => {
 
       yield* buildCommand(fs).pipe(
         Effect.provide(
-          Layer.mergeAll(mockConfig({ testCmd: "npm test", testRetries: 3 }), mockGit(), agentLayer, nodeLayer),
+          Layer.mergeAll(
+            mockConfig({ testCmd: "npm test", testRetries: 3 }),
+            mockGit(),
+            agentLayer,
+            nodeLayer,
+          ),
         ),
       )
 
@@ -414,7 +438,8 @@ describe("buildCommand", () => {
           calls.push(params)
           if (params.mode === "build") {
             const count = buildCallCount++
-            const sessionId = count === 0 ? "ses-build-1" : count === 1 ? "ses-retry-1" : "ses-build-2"
+            const sessionId =
+              count === 0 ? "ses-build-1" : count === 1 ? "ses-retry-1" : "ses-build-2"
             return Effect.succeed<AgentResult>({ sessionId })
           }
           return Effect.succeed<AgentResult>({ sessionId: undefined })
@@ -454,7 +479,12 @@ describe("buildCommand", () => {
       }
       yield* buildCommand(fs).pipe(
         Effect.provide(
-          Layer.mergeAll(mockConfig({ testCmd: "npm test", testRetries: 3 }), mockGit(), agentLayer, nodeLayer),
+          Layer.mergeAll(
+            mockConfig({ testCmd: "npm test", testRetries: 3 }),
+            mockGit(),
+            agentLayer,
+            nodeLayer,
+          ),
         ),
       )
       const buildCalls = calls.filter((c) => c.mode === "build")
@@ -504,7 +534,12 @@ describe("buildCommand", () => {
 
       yield* buildCommand(fs).pipe(
         Effect.provide(
-          Layer.mergeAll(mockConfig({ testCmd: "npm test", testRetries: 3 }), mockGit(), agentLayer, nodeLayer),
+          Layer.mergeAll(
+            mockConfig({ testCmd: "npm test", testRetries: 3 }),
+            mockGit(),
+            agentLayer,
+            nodeLayer,
+          ),
         ),
       )
 
@@ -663,7 +698,11 @@ describe("buildCommand", () => {
         resolvedName: "mock",
         invoke: () =>
           Effect.fail(
-            new AgentError("Agent timed out after 300s of inactivity", undefined, "inactivity_timeout"),
+            new AgentError(
+              "Agent timed out after 300s of inactivity",
+              undefined,
+              "inactivity_timeout",
+            ),
           ),
       })
       const singleItem = [
@@ -691,7 +730,11 @@ describe("buildCommand", () => {
         resolvedName: "mock",
         invoke: () =>
           Effect.fail(
-            new AgentError("Agent invoked forbidden tool: AskUserQuestion", undefined, "input_requested"),
+            new AgentError(
+              "Agent invoked forbidden tool: AskUserQuestion",
+              undefined,
+              "input_requested",
+            ),
           ),
       })
       const singleItem = [
@@ -711,7 +754,6 @@ describe("buildCommand", () => {
       )
     }),
   )
-
 })
 
 describe("buildCommand silent progress indicator", () => {
@@ -731,39 +773,41 @@ describe("buildCommand silent progress indicator", () => {
     Object.defineProperty(process.stdout, "isTTY", { value: originalIsTTY, configurable: true })
   })
 
-  it.effect("shows Building... via setTextWithCursor before agent invocation (no blinking cursor)", () =>
-    Effect.gen(function* () {
-      const singleItem = [
-        "# Feature",
-        "",
-        "## Action Items",
-        "",
-        "### Setup",
-        "",
-        "- [ ] Only item",
-        "  - Detail",
-        "  - Tests: check",
-        "",
-      ].join("\n")
-      let agentStarted = false
-      const agentLayer = Layer.succeed(AgentService, {
-        resolvedName: "mock",
-        invoke: (params) => {
-          if (params.mode === "build") agentStarted = true
-          return Effect.succeed<AgentResult>({ sessionId: undefined })
-        },
-      })
-      yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
-      )
-      const allOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("")
-      expect(allOutput).toContain("Building...")
-      const buildingIdx = allOutput.indexOf("Building...")
-      const afterBuilding = allOutput.slice(buildingIdx + "Building...".length)
-      expect(afterBuilding.startsWith("\n")).toBe(true)
-      expect(allOutput).not.toContain(HIDE_CURSOR)
-      expect(agentStarted).toBe(true)
-    }),
+  it.effect(
+    "shows Building... via setTextWithCursor before agent invocation (no blinking cursor)",
+    () =>
+      Effect.gen(function* () {
+        const singleItem = [
+          "# Feature",
+          "",
+          "## Action Items",
+          "",
+          "### Setup",
+          "",
+          "- [ ] Only item",
+          "  - Detail",
+          "  - Tests: check",
+          "",
+        ].join("\n")
+        let agentStarted = false
+        const agentLayer = Layer.succeed(AgentService, {
+          resolvedName: "mock",
+          invoke: (params) => {
+            if (params.mode === "build") agentStarted = true
+            return Effect.succeed<AgentResult>({ sessionId: undefined })
+          },
+        })
+        yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
+          Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
+        )
+        const allOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("")
+        expect(allOutput).toContain("Building...")
+        const buildingIdx = allOutput.indexOf("Building...")
+        const afterBuilding = allOutput.slice(buildingIdx + "Building...".length)
+        expect(afterBuilding.startsWith("\n")).toBe(true)
+        expect(allOutput).not.toContain(HIDE_CURSOR)
+        expect(agentStarted).toBe(true)
+      }),
   )
 
   it.effect("ThinkingDelta events do not write thinking text to stdout in non-verbose mode", () =>

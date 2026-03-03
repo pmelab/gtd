@@ -58,7 +58,9 @@ export const removeTodoLines = (
       const filteredLines: string[] = []
 
       for (const fileLine of fileLines) {
-        const shouldRemove = linesToRemove.some((todoLine) => fileLine.trimEnd() === todoLine.trimEnd())
+        const shouldRemove = linesToRemove.some(
+          (todoLine) => fileLine.trimEnd() === todoLine.trimEnd(),
+        )
         if (shouldRemove) {
           removedCount++
           const idx = linesToRemove.indexOf(

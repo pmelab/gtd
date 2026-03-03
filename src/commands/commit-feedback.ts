@@ -30,7 +30,10 @@ export const commitFeedbackCommand = (fs?: Pick<FileOps, "formatFile">) =>
       if (classified.seed) categories.push({ prefix: SEED, patch: classified.seed })
       if (classified.fixes) categories.push({ prefix: FIX, patch: classified.fixes })
       if (classified.humanTodos && classified.feedback) {
-        categories.push({ prefix: HUMAN, patch: classified.humanTodos + "\n" + classified.feedback })
+        categories.push({
+          prefix: HUMAN,
+          patch: classified.humanTodos + "\n" + classified.feedback,
+        })
       } else {
         if (classified.humanTodos) categories.push({ prefix: HUMAN, patch: classified.humanTodos })
         if (classified.feedback) categories.push({ prefix: HUMAN, patch: classified.feedback })

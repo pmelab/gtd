@@ -15,11 +15,7 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true })
 })
 
-const runWithDirs = (opts?: {
-  cwd?: string
-  home?: string
-  xdgConfigHome?: string
-}) =>
+const runWithDirs = (opts?: { cwd?: string; home?: string; xdgConfigHome?: string }) =>
   Effect.gen(function* () {
     return yield* GtdConfigService
   }).pipe(
@@ -94,10 +90,7 @@ testRetries: 3
     await mkdir(cwd, { recursive: true })
     await mkdir(home, { recursive: true })
 
-    await writeFile(
-      join(cwd, ".gtdrc.json"),
-      JSON.stringify({ file: "PROJECT.md" }),
-    )
+    await writeFile(join(cwd, ".gtdrc.json"), JSON.stringify({ file: "PROJECT.md" }))
     await writeFile(
       join(home, ".gtdrc.json"),
       JSON.stringify({ file: "HOME.md", testCmd: "bun test" }),
@@ -130,10 +123,7 @@ testRetries: 3
   it("reads config from $XDG_CONFIG_HOME/.gtdrc.json", async () => {
     const xdg = join(tempDir, "xdg")
     await mkdir(xdg, { recursive: true })
-    await writeFile(
-      join(xdg, ".gtdrc.json"),
-      JSON.stringify({ agentInactivityTimeout: 600 }),
-    )
+    await writeFile(join(xdg, ".gtdrc.json"), JSON.stringify({ agentInactivityTimeout: 600 }))
 
     const config = await Effect.runPromise(runWithDirs({ xdgConfigHome: xdg }))
     expect(config.agentInactivityTimeout).toBe(600)
@@ -146,10 +136,7 @@ testRetries: 3
     const xdg = join(tempDir, "xdg")
     const gtdDir = join(xdg, "gtd")
     await mkdir(gtdDir, { recursive: true })
-    await writeFile(
-      join(gtdDir, ".gtdrc.json"),
-      JSON.stringify({ file: "XDG_GTD_DIR.md" }),
-    )
+    await writeFile(join(gtdDir, ".gtdrc.json"), JSON.stringify({ file: "XDG_GTD_DIR.md" }))
     await writeFile(
       join(xdg, ".gtdrc.json"),
       JSON.stringify({ file: "XDG_ROOT.md", testCmd: "pnpm test" }),
@@ -174,13 +161,19 @@ testRetries: 3
 
     await writeFile(join(cwd, ".gtdrc.json"), JSON.stringify({ file: "CWD.md" }))
     await writeFile(join(gtdDir, ".gtdrc.json"), JSON.stringify({ file: "XDG_GTD.md" }))
-    await writeFile(join(xdg, ".gtdrc.json"), JSON.stringify({ file: "XDG.md", testCmd: "xdg-test" }))
-    await writeFile(join(home, ".gtdrc.json"), JSON.stringify({ file: "HOME.md", testCmd: "home-test", testRetries: 99 }))
+    await writeFile(
+      join(xdg, ".gtdrc.json"),
+      JSON.stringify({ file: "XDG.md", testCmd: "xdg-test" }),
+    )
+    await writeFile(
+      join(home, ".gtdrc.json"),
+      JSON.stringify({ file: "HOME.md", testCmd: "home-test", testRetries: 99 }),
+    )
 
     const config = await Effect.runPromise(runWithDirs({ cwd, home, xdgConfigHome: xdg }))
-    expect(config.file).toBe("CWD.md")           // from cwd
-    expect(config.testCmd).toBe("xdg-test")        // from xdg root
-    expect(config.testRetries).toBe(99)            // from home
+    expect(config.file).toBe("CWD.md") // from cwd
+    expect(config.testCmd).toBe("xdg-test") // from xdg root
+    expect(config.testRetries).toBe(99) // from home
   })
 
   // --- Invalid file handling: malformed JSON ---
@@ -234,10 +227,7 @@ testRetries: 3
   it("does not create example config when a config already exists", async () => {
     const cwd = join(tempDir, "has-config")
     await mkdir(cwd, { recursive: true })
-    await writeFile(
-      join(cwd, ".gtdrc.json"),
-      JSON.stringify({ file: "EXISTING.md" }),
-    )
+    await writeFile(join(cwd, ".gtdrc.json"), JSON.stringify({ file: "EXISTING.md" }))
 
     await Effect.runPromise(runWithDirs({ cwd }))
 
@@ -257,10 +247,7 @@ testRetries: 3
     await writeFile(join(home, ".gtdrc.json"), JSON.stringify({ agent: "claude" }))
 
     const config = await Effect.runPromise(runWithDirs({ cwd, home }))
-    expect(config.configSources).toEqual([
-      join(cwd, ".gtdrc.json"),
-      join(home, ".gtdrc.json"),
-    ])
+    expect(config.configSources).toEqual([join(cwd, ".gtdrc.json"), join(home, ".gtdrc.json")])
   })
 
   it("exposes empty configSources when no config files exist", async () => {

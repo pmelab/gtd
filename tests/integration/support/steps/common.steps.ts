@@ -26,13 +26,10 @@ Then("{string} contains {string}", function (this: GtdWorld, file: string, text:
   assert.ok(content.includes(text), `Expected "${file}" to contain "${text}":\n${content}`)
 })
 
-Then(
-  "{string} does not contain {string}",
-  function (this: GtdWorld, file: string, text: string) {
-    const content = this.repoFile(file)
-    assert.ok(!content.includes(text), `Expected "${file}" to NOT contain "${text}":\n${content}`)
-  },
-)
+Then("{string} does not contain {string}", function (this: GtdWorld, file: string, text: string) {
+  const content = this.repoFile(file)
+  assert.ok(!content.includes(text), `Expected "${file}" to NOT contain "${text}":\n${content}`)
+})
 
 Then("output contains {string}", function (this: GtdWorld, text: string) {
   const combined = this.lastResult.stdout + this.lastResult.stderr
@@ -65,6 +62,9 @@ Then(
       ?.split(" ")[0]
     assert.ok(hash, `Expected a commit with "${prefix}" in its message:\n${log}`)
     const diff = execSync(`git show ${hash}`, { cwd: this.repoDir, encoding: "utf-8" })
-    assert.ok(diff.includes(text), `Expected commit ${hash} diff to contain "${text}":\n${diff.slice(0, 1000)}`)
+    assert.ok(
+      diff.includes(text),
+      `Expected commit ${hash} diff to contain "${text}":\n${diff.slice(0, 1000)}`,
+    )
   },
 )

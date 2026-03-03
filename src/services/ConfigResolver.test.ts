@@ -4,7 +4,13 @@ import { mkdtemp, writeFile, rm, mkdir, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { resolveAllConfigs, mergeConfigs, createExampleConfig, SCHEMA_URL, EXAMPLE_CONFIG } from "./ConfigResolver.js"
+import {
+  resolveAllConfigs,
+  mergeConfigs,
+  createExampleConfig,
+  SCHEMA_URL,
+  EXAMPLE_CONFIG,
+} from "./ConfigResolver.js"
 import { GtdConfigSchema } from "./ConfigSchema.js"
 
 let tempDir: string
@@ -21,10 +27,7 @@ describe("resolveAllConfigs", () => {
   it("discovers config from PWD search", async () => {
     const projectDir = join(tempDir, "project")
     await mkdir(projectDir, { recursive: true })
-    await writeFile(
-      join(projectDir, ".gtdrc.json"),
-      JSON.stringify({ file: "PROJECT.md" }),
-    )
+    await writeFile(join(projectDir, ".gtdrc.json"), JSON.stringify({ file: "PROJECT.md" }))
 
     const results = await Effect.runPromise(
       resolveAllConfigs({
@@ -41,10 +44,7 @@ describe("resolveAllConfigs", () => {
   it("discovers config from HOME", async () => {
     const home = join(tempDir, "home")
     await mkdir(home, { recursive: true })
-    await writeFile(
-      join(home, ".gtdrc.json"),
-      JSON.stringify({ agent: "claude" }),
-    )
+    await writeFile(join(home, ".gtdrc.json"), JSON.stringify({ agent: "claude" }))
 
     const results = await Effect.runPromise(
       resolveAllConfigs({
@@ -61,10 +61,7 @@ describe("resolveAllConfigs", () => {
     const xdg = join(tempDir, "xdg")
     const xdgGtd = join(xdg, "gtd")
     await mkdir(xdgGtd, { recursive: true })
-    await writeFile(
-      join(xdgGtd, ".gtdrc.json"),
-      JSON.stringify({ testCmd: "bun test" }),
-    )
+    await writeFile(join(xdgGtd, ".gtdrc.json"), JSON.stringify({ testCmd: "bun test" }))
 
     const results = await Effect.runPromise(
       resolveAllConfigs({
@@ -80,10 +77,7 @@ describe("resolveAllConfigs", () => {
   it("discovers config from XDG_CONFIG_HOME/.gtdrc.json", async () => {
     const xdg = join(tempDir, "xdg")
     await mkdir(xdg, { recursive: true })
-    await writeFile(
-      join(xdg, ".gtdrc.json"),
-      JSON.stringify({ testRetries: 7 }),
-    )
+    await writeFile(join(xdg, ".gtdrc.json"), JSON.stringify({ testRetries: 7 }))
 
     const results = await Effect.runPromise(
       resolveAllConfigs({
@@ -106,22 +100,10 @@ describe("resolveAllConfigs", () => {
     await mkdir(home, { recursive: true })
     await mkdir(xdgGtd, { recursive: true })
 
-    await writeFile(
-      join(projectDir, ".gtdrc.json"),
-      JSON.stringify({ file: "pwd" }),
-    )
-    await writeFile(
-      join(xdgGtd, ".gtdrc.json"),
-      JSON.stringify({ file: "xdg-gtd" }),
-    )
-    await writeFile(
-      join(xdg, ".gtdrc.json"),
-      JSON.stringify({ file: "xdg" }),
-    )
-    await writeFile(
-      join(home, ".gtdrc.json"),
-      JSON.stringify({ file: "home" }),
-    )
+    await writeFile(join(projectDir, ".gtdrc.json"), JSON.stringify({ file: "pwd" }))
+    await writeFile(join(xdgGtd, ".gtdrc.json"), JSON.stringify({ file: "xdg-gtd" }))
+    await writeFile(join(xdg, ".gtdrc.json"), JSON.stringify({ file: "xdg" }))
+    await writeFile(join(home, ".gtdrc.json"), JSON.stringify({ file: "home" }))
 
     const results = await Effect.runPromise(
       resolveAllConfigs({
@@ -142,10 +124,7 @@ describe("resolveAllConfigs", () => {
     // When HOME and cosmiconfig search overlap, don't include twice
     const home = join(tempDir, "home")
     await mkdir(home, { recursive: true })
-    await writeFile(
-      join(home, ".gtdrc.json"),
-      JSON.stringify({ agent: "claude" }),
-    )
+    await writeFile(join(home, ".gtdrc.json"), JSON.stringify({ agent: "claude" }))
 
     // Search from home itself - cosmiconfig search will find it, and HOME check will too
     const results = await Effect.runPromise(
@@ -177,8 +156,14 @@ describe("resolveAllConfigs", () => {
 describe("mergeConfigs", () => {
   it("merges configs with higher priority winning", () => {
     const configs = [
-      { config: { file: "PROJECT.md", agent: "claude" } as Record<string, unknown>, filepath: "/a" },
-      { config: { file: "HOME.md", testCmd: "bun test" } as Record<string, unknown>, filepath: "/b" },
+      {
+        config: { file: "PROJECT.md", agent: "claude" } as Record<string, unknown>,
+        filepath: "/a",
+      },
+      {
+        config: { file: "HOME.md", testCmd: "bun test" } as Record<string, unknown>,
+        filepath: "/b",
+      },
     ]
 
     const result = mergeConfigs(configs)
@@ -188,9 +173,7 @@ describe("mergeConfigs", () => {
   })
 
   it("applies defaults for missing keys", () => {
-    const configs = [
-      { config: { file: "PLAN.md" } as Record<string, unknown>, filepath: "/a" },
-    ]
+    const configs = [{ config: { file: "PLAN.md" } as Record<string, unknown>, filepath: "/a" }]
 
     const result = mergeConfigs(configs)
 
@@ -231,7 +214,10 @@ describe("mergeConfigs", () => {
   it("excludes filepaths of configs that fail validation", () => {
     const configs = [
       { config: { file: "A.md" } as Record<string, unknown>, filepath: "/valid.json" },
-      { config: { testRetries: "not-a-number" } as Record<string, unknown>, filepath: "/invalid.json" },
+      {
+        config: { testRetries: "not-a-number" } as Record<string, unknown>,
+        filepath: "/invalid.json",
+      },
     ]
 
     const result = mergeConfigs(configs)
@@ -242,7 +228,10 @@ describe("mergeConfigs", () => {
   it("higher priority overrides lower for overlapping keys", () => {
     const configs = [
       { config: { agent: "opencode" } as Record<string, unknown>, filepath: "/pwd" },
-      { config: { agent: "claude", testCmd: "pytest" } as Record<string, unknown>, filepath: "/home" },
+      {
+        config: { agent: "claude", testCmd: "pytest" } as Record<string, unknown>,
+        filepath: "/home",
+      },
     ]
 
     const result = mergeConfigs(configs)
@@ -281,7 +270,6 @@ describe("mergeConfigs", () => {
 
     expect(result.modelCommit).toBe("gpt-4")
   })
-
 })
 
 describe("createExampleConfig", () => {

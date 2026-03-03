@@ -251,5 +251,4 @@ describe("inferStep", () => {
     }
     expect(inferStep(input)).toBe("cleanup")
   })
-
 })

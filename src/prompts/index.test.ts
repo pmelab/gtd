@@ -23,7 +23,6 @@ describe("prompts", () => {
     expect(planPrompt).not.toContain("💬")
   })
 
-
   it("buildPrompt is a non-empty string", () => {
     expect(typeof buildPrompt).toBe("string")
     expect(buildPrompt.length).toBeGreaterThan(0)

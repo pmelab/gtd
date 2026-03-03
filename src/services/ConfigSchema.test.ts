@@ -40,9 +40,7 @@ describe("GtdConfigSchema", () => {
   })
 
   it("rejects invalid types", () => {
-    expect(() =>
-      Schema.decodeUnknownSync(GtdConfigSchema)({ file: 123 }),
-    ).toThrow()
+    expect(() => Schema.decodeUnknownSync(GtdConfigSchema)({ file: 123 })).toThrow()
 
     expect(() =>
       Schema.decodeUnknownSync(GtdConfigSchema)({ testRetries: "not a number" }),

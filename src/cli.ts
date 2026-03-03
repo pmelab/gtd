@@ -25,9 +25,9 @@ export const gatherState = (
     const config = yield* GtdConfigService
 
     const uncommitted = yield* git.hasUncommittedChanges()
-    const lastMsg = yield* git.getLastCommitMessage().pipe(
-      Effect.catchAll(() => Effect.succeed("")),
-    )
+    const lastMsg = yield* git
+      .getLastCommitMessage()
+      .pipe(Effect.catchAll(() => Effect.succeed("")))
     const lastPrefix = parseCommitPrefix(lastMsg)
 
     const fileExists = yield* fs.exists()
@@ -49,9 +49,9 @@ export const gatherState = (
 
     let prevPhasePrefix: CommitPrefix | undefined = undefined
     if (lastPrefix === HUMAN) {
-      const messages = yield* git.getCommitMessages(20).pipe(
-        Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),
-      )
+      const messages = yield* git
+        .getCommitMessages(20)
+        .pipe(Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)))
       for (const msg of messages.slice(1)) {
         const prefix = parseCommitPrefix(msg)
         if (prefix !== undefined && prefix !== HUMAN && prefix !== FIX) {
@@ -109,29 +109,29 @@ const verboseOption = Options.boolean("verbose").pipe(
   Options.withDefault(false),
 )
 
-const rootCommand = Command.make("gtd", { quiet: quietOption, debug: debugOption, verbose: verboseOption }, ({ quiet, debug, verbose }) =>
-  Effect.gen(function* () {
-    if (debug) process.env.GTD_DEBUG = "1"
-    const config = yield* GtdConfigService
-    const fs = yield* nodeFileOps(config.file)
+const rootCommand = Command.make(
+  "gtd",
+  { quiet: quietOption, debug: debugOption, verbose: verboseOption },
+  ({ quiet, debug, verbose }) =>
+    Effect.gen(function* () {
+      if (debug) process.env.GTD_DEBUG = "1"
+      const config = yield* GtdConfigService
+      const fs = yield* nodeFileOps(config.file)
 
-    const state = yield* gatherState(fs)
-    const step = dispatch(state)
+      const state = yield* gatherState(fs)
+      const step = dispatch(state)
 
-    yield* printStartupMessage(state, step)
+      yield* printStartupMessage(state, step)
 
-    if (step === "commit-feedback") {
-      yield* commitFeedbackCommand(fs)
-      const newState = yield* gatherState(yield* nodeFileOps(config.file))
-      const newStep = dispatch(newState)
-      yield* runStep(newStep, yield* nodeFileOps(config.file))
-    } else {
-      yield* runStep(step, fs)
-    }
-  }).pipe(
-    Effect.provide(QuietMode.layer(quiet)),
-    Effect.provide(VerboseMode.layer(verbose)),
-  ),
+      if (step === "commit-feedback") {
+        yield* commitFeedbackCommand(fs)
+        const newState = yield* gatherState(yield* nodeFileOps(config.file))
+        const newStep = dispatch(newState)
+        yield* runStep(newStep, yield* nodeFileOps(config.file))
+      } else {
+        yield* runStep(step, fs)
+      }
+    }).pipe(Effect.provide(QuietMode.layer(quiet)), Effect.provide(VerboseMode.layer(verbose))),
 )
 
 export const command = rootCommand.pipe(Command.withSubcommands([initCommand]))

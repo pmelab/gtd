@@ -6,7 +6,7 @@ import { generateCommitMessage } from "./CommitMessage.js"
 
 const mockAgent = (textResponse: string) =>
   Layer.succeed(AgentService, {
-        resolvedName: "mock",
+    resolvedName: "mock",
     invoke: (params) =>
       Effect.sync(() => {
         if (params.onEvent) {

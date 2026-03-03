@@ -141,7 +141,9 @@ describe("commitFeedbackCommand", () => {
       )
 
       expect(spinnerTexts.some((t) => t.toLowerCase().includes("classifying"))).toBe(true)
-      expect(spinnerTexts.some((t) => t.toLowerCase().includes("generating commit message"))).toBe(true)
+      expect(spinnerTexts.some((t) => t.toLowerCase().includes("generating commit message"))).toBe(
+        true,
+      )
 
       consoleSpy.mockRestore()
     }),
@@ -165,7 +167,9 @@ describe("commitFeedbackCommand", () => {
         Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer)),
       )
 
-      expect(spinnerTexts.some((t) => t.toLowerCase().includes("generating commit message"))).toBe(true)
+      expect(spinnerTexts.some((t) => t.toLowerCase().includes("generating commit message"))).toBe(
+        true,
+      )
 
       consoleSpy.mockRestore()
     }),

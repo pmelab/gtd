@@ -62,8 +62,6 @@ describe("CI workflow step ordering", () => {
     writeFileSync(join(dir, ".prettierrc"), JSON.stringify({ semi: false }))
     writeFileSync(join(dir, "bad.ts"), 'const x = 1;\nconst y = "hello";\n')
 
-    expect(() =>
-      execSync(`npx prettier --check bad.ts`, { cwd: dir, encoding: "utf-8" }),
-    ).toThrow()
+    expect(() => execSync(`npx prettier --check bad.ts`, { cwd: dir, encoding: "utf-8" })).toThrow()
   })
 })

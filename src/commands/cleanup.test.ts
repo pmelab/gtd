@@ -14,9 +14,7 @@ describe("cleanupCommand", () => {
           }),
         exists: () => Effect.succeed(true),
       }
-      yield* cleanupCommand({ fs }).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), mockGit())),
-      )
+      yield* cleanupCommand({ fs }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), mockGit())))
       expect(removed).toBe(true)
     }),
   )
@@ -34,9 +32,7 @@ describe("cleanupCommand", () => {
             commits.push(msg)
           }),
       })
-      yield* cleanupCommand({ fs }).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer)),
-      )
+      yield* cleanupCommand({ fs }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer)))
       expect(commits.length).toBe(1)
       expect(commits[0]).toBe("🧹 cleanup: remove TODO.md")
     }),
@@ -59,9 +55,7 @@ describe("cleanupCommand", () => {
             commits.push(msg)
           }),
       })
-      yield* cleanupCommand({ fs }).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer)),
-      )
+      yield* cleanupCommand({ fs }).pipe(Effect.provide(Layer.mergeAll(mockConfig(), gitLayer)))
       expect(removed).toBe(false)
       expect(commits.length).toBe(0)
     }),

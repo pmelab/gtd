@@ -1,20 +1,6 @@
-import {
-  HUMAN,
-  PLAN,
-  BUILD,
-  FIX,
-  LEARN,
-  CLEANUP,
-  SEED,
-  type CommitPrefix,
-} from "./CommitPrefix.js"
+import { HUMAN, PLAN, BUILD, FIX, LEARN, CLEANUP, SEED, type CommitPrefix } from "./CommitPrefix.js"
 
-export type Step =
-  | "commit-feedback"
-  | "plan"
-  | "build"
-  | "cleanup"
-  | "idle"
+export type Step = "commit-feedback" | "plan" | "build" | "cleanup" | "idle"
 
 export interface InferStepInput {
   readonly hasUncommittedChanges: boolean
@@ -34,13 +20,17 @@ export const inferStep = (input: InferStepInput): Step => {
       return "plan"
     case HUMAN: {
       switch (input.prevPhasePrefix) {
-        case SEED: return "plan"
-        case PLAN: return "plan"
+        case SEED:
+          return "plan"
+        case PLAN:
+          return "plan"
         case BUILD:
         case FIX:
           return input.hasUncheckedItems ? "build" : "plan"
-        case LEARN: return "cleanup"
-        default: return "plan"
+        case LEARN:
+          return "cleanup"
+        default:
+          return "plan"
       }
     }
     case PLAN:

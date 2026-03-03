@@ -6,14 +6,7 @@ import type { InferStepInput } from "./InferStep.js"
 import type { Step } from "./InferStep.js"
 import chalk from "chalk"
 import { isInteractive } from "./Renderer.js"
-import {
-  HUMAN,
-  PLAN,
-  BUILD,
-  FIX,
-  CLEANUP,
-  SEED,
-} from "./CommitPrefix.js"
+import { HUMAN, PLAN, BUILD, FIX, CLEANUP, SEED } from "./CommitPrefix.js"
 
 const prefixLabel = (prefix: string | undefined): string => {
   switch (prefix) {
@@ -78,8 +71,10 @@ const describeReason = (state: InferStepInput, step: Step): string => {
       return `Last commit was a ${last} step, so proceeding to ${step}.`
     case BUILD:
     case FIX:
-      if (state.todoFileIsNew) return `Last commit was a ${last} step with a new todo file, so proceeding to ${step}.`
-      if (state.hasUncheckedItems) return `Last commit was a ${last} step with unchecked items, so proceeding to ${step}.`
+      if (state.todoFileIsNew)
+        return `Last commit was a ${last} step with a new todo file, so proceeding to ${step}.`
+      if (state.hasUncheckedItems)
+        return `Last commit was a ${last} step with unchecked items, so proceeding to ${step}.`
       return `Last commit was a ${last} step with all items checked, so proceeding to ${step}.`
     case HUMAN:
       return `Last commit was a ${last}, so proceeding to ${step}.`

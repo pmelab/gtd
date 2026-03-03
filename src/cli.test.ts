@@ -27,9 +27,7 @@ describe("gtd unified command", () => {
 
     const layer = Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)
 
-    const state = await Effect.runPromise(
-      gatherState(fileOps).pipe(Effect.provide(layer)),
-    )
+    const state = await Effect.runPromise(gatherState(fileOps).pipe(Effect.provide(layer)))
 
     expect(state).toEqual({
       hasUncommittedChanges: false,
@@ -53,42 +51,52 @@ describe("gtd unified command", () => {
   it("dispatch returns correct step for each inferred state", async () => {
     const { dispatch } = await import("./cli.js")
 
-    expect(dispatch({
-      hasUncommittedChanges: false,
-      lastCommitPrefix: "🤦",
-      hasUncheckedItems: false,
-      todoFileIsNew: false,
-    })).toBe("plan")
+    expect(
+      dispatch({
+        hasUncommittedChanges: false,
+        lastCommitPrefix: "🤦",
+        hasUncheckedItems: false,
+        todoFileIsNew: false,
+      }),
+    ).toBe("plan")
 
-    expect(dispatch({
-      hasUncommittedChanges: false,
-      lastCommitPrefix: "🤖",
-      hasUncheckedItems: true,
-      todoFileIsNew: false,
-    })).toBe("build")
+    expect(
+      dispatch({
+        hasUncommittedChanges: false,
+        lastCommitPrefix: "🤖",
+        hasUncheckedItems: true,
+        todoFileIsNew: false,
+      }),
+    ).toBe("build")
 
-    expect(dispatch({
-      hasUncommittedChanges: false,
-      lastCommitPrefix: "🧹",
-      hasUncheckedItems: false,
-      todoFileIsNew: false,
-    })).toBe("idle")
+    expect(
+      dispatch({
+        hasUncommittedChanges: false,
+        lastCommitPrefix: "🧹",
+        hasUncheckedItems: false,
+        todoFileIsNew: false,
+      }),
+    ).toBe("idle")
 
-    expect(dispatch({
-      hasUncommittedChanges: true,
-      lastCommitPrefix: undefined,
-      hasUncheckedItems: false,
-      todoFileIsNew: false,
-    })).toBe("commit-feedback")
+    expect(
+      dispatch({
+        hasUncommittedChanges: true,
+        lastCommitPrefix: undefined,
+        hasUncheckedItems: false,
+        todoFileIsNew: false,
+      }),
+    ).toBe("commit-feedback")
   })
 
   it("idle state is reached when last commit is 🧹 and no uncommitted changes", () => {
-    expect(dispatch({
-      hasUncommittedChanges: false,
-      lastCommitPrefix: "🧹",
-      hasUncheckedItems: false,
-      todoFileIsNew: false,
-    })).toBe("idle")
+    expect(
+      dispatch({
+        hasUncommittedChanges: false,
+        lastCommitPrefix: "🧹",
+        hasUncheckedItems: false,
+        todoFileIsNew: false,
+      }),
+    ).toBe("idle")
   })
 
   it("idle message matches expected text", async () => {
@@ -96,7 +104,6 @@ describe("gtd unified command", () => {
     expect(idleMessage).toBe("Nothing to do. Create a TODO.md or add in-code comments to start.")
   })
 })
-
 
 describe("gatherState computes todoFileIsNew", () => {
   it("todoFileIsNew is true when TODO exists in HEAD but not HEAD~1", async () => {
@@ -116,9 +123,7 @@ describe("gatherState computes todoFileIsNew", () => {
     }
 
     const state = await Effect.runPromise(
-      gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
-      ),
+      gatherState(fileOps).pipe(Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer))),
     )
 
     expect(state.todoFileIsNew).toBe(true)
@@ -141,9 +146,7 @@ describe("gatherState computes todoFileIsNew", () => {
     }
 
     const state = await Effect.runPromise(
-      gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
-      ),
+      gatherState(fileOps).pipe(Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer))),
     )
 
     expect(state.todoFileIsNew).toBe(false)
@@ -166,9 +169,7 @@ describe("gatherState computes todoFileIsNew", () => {
     }
 
     const state = await Effect.runPromise(
-      gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
-      ),
+      gatherState(fileOps).pipe(Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer))),
     )
 
     expect(state.todoFileIsNew).toBe(true)
@@ -190,9 +191,7 @@ describe("gatherState computes todoFileIsNew", () => {
     }
 
     const state = await Effect.runPromise(
-      gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
-      ),
+      gatherState(fileOps).pipe(Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer))),
     )
 
     expect(state.todoFileIsNew).toBe(false)
@@ -204,17 +203,14 @@ describe("gatherState resolves prevPhasePrefix", () => {
     const gitLayer = mockGit({
       hasUncommittedChanges: () => Effect.succeed(false),
       getLastCommitMessage: () => Effect.succeed(`${HUMAN} edit: user feedback`),
-      getCommitMessages: (n) =>
-        Effect.succeed([`${HUMAN} one`, `${HUMAN} two`].slice(0, n)),
+      getCommitMessages: (n) => Effect.succeed([`${HUMAN} one`, `${HUMAN} two`].slice(0, n)),
       show: () => Effect.succeed(""),
     })
 
     const fileOps = { ...mockFs(""), getDiffContent: () => Effect.succeed("") }
 
     const state = await Effect.runPromise(
-      gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
-      ),
+      gatherState(fileOps).pipe(Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer))),
     )
 
     expect(state.lastCommitPrefix).toBe(HUMAN)
@@ -225,17 +221,14 @@ describe("gatherState resolves prevPhasePrefix", () => {
     const gitLayer = mockGit({
       hasUncommittedChanges: () => Effect.succeed(false),
       getLastCommitMessage: () => Effect.succeed(`${HUMAN} edit: user feedback`),
-      getCommitMessages: (n) =>
-        Effect.succeed([`${HUMAN} feedback`, `🤖 plan: setup`].slice(0, n)),
+      getCommitMessages: (n) => Effect.succeed([`${HUMAN} feedback`, `🤖 plan: setup`].slice(0, n)),
       show: () => Effect.succeed(""),
     })
 
     const fileOps = { ...mockFs(""), getDiffContent: () => Effect.succeed("") }
 
     const state = await Effect.runPromise(
-      gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
-      ),
+      gatherState(fileOps).pipe(Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer))),
     )
 
     expect(state.lastCommitPrefix).toBe(HUMAN)
@@ -257,15 +250,12 @@ describe("gatherState resolves prevPhasePrefix", () => {
     const fileOps = { ...mockFs(""), getDiffContent: () => Effect.succeed("") }
 
     const state = await Effect.runPromise(
-      gatherState(fileOps).pipe(
-        Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer)),
-      ),
+      gatherState(fileOps).pipe(Effect.provide(Layer.mergeAll(gitLayer, mockConfig(), nodeLayer))),
     )
 
     expect(state.prevPhasePrefix).toBeUndefined()
     expect(commitMessagesCallCount).toBe(0)
   })
-
 })
 
 describe("gtd subcommands", () => {

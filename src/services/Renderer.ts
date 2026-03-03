@@ -3,7 +3,14 @@ import type { AgentEvent } from "./AgentEvent.js"
 
 // --- Types ---
 
-export type BuildStatus = "pending" | "building" | "fixing" | "testing" | "done" | "failed" | "skipped"
+export type BuildStatus =
+  | "pending"
+  | "building"
+  | "fixing"
+  | "testing"
+  | "done"
+  | "failed"
+  | "skipped"
 
 export interface BuildPackageState {
   readonly title: string
@@ -54,7 +61,10 @@ export const updatePackageStatus = (
       ...pkg,
       status,
       startedAt: pkg.startedAt ?? (status !== "pending" ? timestamp : undefined),
-      finishedAt: status === "done" || status === "failed" || status === "skipped" ? timestamp : pkg.finishedAt,
+      finishedAt:
+        status === "done" || status === "failed" || status === "skipped"
+          ? timestamp
+          : pkg.finishedAt,
       retryCount: retryInfo?.current ?? pkg.retryCount,
       maxRetries: retryInfo?.max ?? pkg.maxRetries,
     }
@@ -256,7 +266,8 @@ export const createBuildRenderer = (
       ) => {
         state = updatePackageStatus(state, title, status, retryInfo)
         const pkg = state.packages.find((p) => p.title === title)
-        const icon = status === "done" ? "✓" : status === "failed" ? "✗" : status === "skipped" ? "⊘" : "⠋"
+        const icon =
+          status === "done" ? "✓" : status === "failed" ? "✗" : status === "skipped" ? "⊘" : "⠋"
         const duration =
           pkg?.startedAt != null && pkg?.finishedAt != null
             ? ` (${formatDuration(pkg.finishedAt - pkg.startedAt)})`
@@ -266,13 +277,19 @@ export const createBuildRenderer = (
             ? ` (${retryInfo.current}/${retryInfo.max})`
             : ""
         const label =
-          status === "building" ? `Building "${title}"` :
-          status === "fixing" ? `Fixing "${title}"` :
-          status === "testing" ? `Testing "${title}"${retryLabel}` :
-          status === "done" ? `"${title}"${duration}` :
-          status === "skipped" ? `"${title}" skipped (no changes needed)` :
-          status === "failed" ? `"${title}" failed` :
-          `"${title}"`
+          status === "building"
+            ? `Building "${title}"`
+            : status === "fixing"
+              ? `Fixing "${title}"`
+              : status === "testing"
+                ? `Testing "${title}"${retryLabel}`
+                : status === "done"
+                  ? `"${title}"${duration}`
+                  : status === "skipped"
+                    ? `"${title}" skipped (no changes needed)`
+                    : status === "failed"
+                      ? `"${title}" failed`
+                      : `"${title}"`
         console.log(`[gtd] ${icon} ${label}`)
       },
       finish: (message: string) => {
@@ -295,8 +312,7 @@ export const createBuildRenderer = (
         process.stdout.write(chalk.rgb(255, 165, 0)(`◆ Fixing "${pkg.title}"…`) + "\n")
         break
       case "testing": {
-        const retryLabel =
-          pkg.maxRetries > 1 ? ` (${pkg.retryCount}/${pkg.maxRetries})` : ""
+        const retryLabel = pkg.maxRetries > 1 ? ` (${pkg.retryCount}/${pkg.maxRetries})` : ""
         process.stdout.write(chalk.yellow(`◆ Testing "${pkg.title}"${retryLabel}…`) + "\n")
         break
       }

@@ -64,10 +64,11 @@ export const planCommand = (fs: FileOps) =>
           ].join("\n")
         : ""
 
-    const prompt = interpolate(planPrompt, {
-      diff: diffSection,
-      plan: planSection,
-    }) + todoInstructionBlock
+    const prompt =
+      interpolate(planPrompt, {
+        diff: diffSection,
+        plan: planSection,
+      }) + todoInstructionBlock
 
     // Remove TODO comment lines from source files so the removals are staged in the plan commit
     if (fs.removeTodosFromDiff && newlyAddedTodos.length > 0) {
@@ -106,7 +107,9 @@ export const planCommand = (fs: FileOps) =>
 
       retries++
       if (retries >= MAX_LINT_RETRIES) {
-        renderer.fail(`Lint errors remain after ${MAX_LINT_RETRIES} retries:\n${formatLintErrors(errors)}`)
+        renderer.fail(
+          `Lint errors remain after ${MAX_LINT_RETRIES} retries:\n${formatLintErrors(errors)}`,
+        )
         break
       }
 

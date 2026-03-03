@@ -27,9 +27,7 @@ export const ALL_PREFIXES: ReadonlyArray<CommitPrefix> = [
   SEED,
 ]
 
-export const parseCommitPrefix = (
-  message: string,
-): CommitPrefix | undefined => {
+export const parseCommitPrefix = (message: string): CommitPrefix | undefined => {
   for (const prefix of ALL_PREFIXES) {
     if (message.startsWith(prefix)) {
       return prefix
