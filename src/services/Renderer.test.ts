@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest"
 import {
   initBuildState,
   updatePackageStatus,
@@ -171,7 +171,8 @@ describe("Renderer", () => {
   })
 
   describe("createEventHandler", () => {
-    let writeSpy: ReturnType<typeof vi.spyOn>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let writeSpy: MockInstance<any>
 
     beforeEach(() => {
       writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
@@ -279,7 +280,8 @@ describe("Renderer", () => {
   })
 
   describe("createSpinnerRenderer", () => {
-    let writeSpy: ReturnType<typeof vi.spyOn>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let writeSpy: MockInstance<any>
 
     beforeEach(() => {
       writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)
@@ -605,7 +607,8 @@ describe("Renderer", () => {
   })
 
   describe("createBuildRenderer", () => {
-    let writeSpy: ReturnType<typeof vi.spyOn>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let writeSpy: MockInstance<any>
 
     beforeEach(() => {
       writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true)

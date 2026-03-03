@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "@effect/vitest"
+import type { MockInstance } from "vitest"
 import { Effect, Layer } from "effect"
 import { AgentService, AgentError } from "../services/Agent.js"
 import type { AgentInvocation, AgentResult } from "../services/Agent.js"
@@ -714,7 +715,8 @@ describe("buildCommand", () => {
 })
 
 describe("buildCommand silent progress indicator", () => {
-  let writeSpy: ReturnType<typeof vi.spyOn>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let writeSpy: MockInstance<any>
   let originalIsTTY: boolean | undefined
 
   beforeEach(() => {
