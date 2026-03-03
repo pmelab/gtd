@@ -27,11 +27,10 @@ describe("README.md", () => {
 
   it("includes emoji-prefixed commit convention", () => {
     const content = readmeContent()
-    // All 7 active prefixes from CommitPrefix.ts must appear in the table
+    // All 6 active prefixes from CommitPrefix.ts must appear in the table
     expect(content).toContain("🤦")
     expect(content).toContain("🤖")
     expect(content).toContain("🔨")
-    expect(content).toContain("🎓")
     expect(content).toContain("🧹")
     expect(content).toContain("🌱")
     expect(content).toContain("👷")
@@ -43,7 +42,6 @@ describe("README.md", () => {
     expect(tableSection).toContain("🤦")
     expect(tableSection).toContain("🤖")
     expect(tableSection).toContain("🔨")
-    expect(tableSection).toContain("🎓")
     expect(tableSection).toContain("🧹")
 
     // 💬 FEEDBACK is removed; the table must not contain it
@@ -96,8 +94,11 @@ describe("README.md", () => {
     expect(mermaid).toMatch(/🤦.*human/i)
     expect(mermaid).toMatch(/👷.*fix/i)
 
-    // SEED and HUMAN both route the same way (to plan)
-    expect(mermaid).toMatch(/🌱.*🤦/i)
+    // SEED routes to plan
+    expect(mermaid).toMatch(/🌱.*Plan/i)
+
+    // HUMAN routes through a "Previous phase?" decision node
+    expect(mermaid).toMatch(/🤦.*HumanRoute/i)
 
     // FIX routes the same as BUILD (todoFileIsNew decision)
     expect(mermaid).toMatch(/🔨.*👷|👷.*🔨/i)

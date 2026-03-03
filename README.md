@@ -47,7 +47,11 @@ flowchart TD
     HumanCommit --> ReDispatch
     FixCommit --> ReDispatch
     ReDispatch{Re-dispatch} --> CheckLast
-    CheckLast -->|"🌱 / 🤦"| Plan["🤖 Plan: refine TODO.md with agent"]
+    CheckLast -->|🌱| Plan["🤖 Plan: refine TODO.md with agent"]
+    CheckLast -->|🤦| HumanRoute{Previous phase?}
+    HumanRoute -->|"🌱 / 🤖 / default"| Plan
+    HumanRoute -->|"🔨 / 👷 + unchecked"| Build
+    HumanRoute -->|"🔨 / 👷 + no unchecked"| Plan
     CheckLast -->|🤖| Build
     CheckLast -->|"🔨 / 👷"| TodoNew{TODO.md is new?}
     TodoNew -->|Yes| Plan
@@ -58,7 +62,7 @@ flowchart TD
     ItemsLeft -->|No| Cleanup["🧹 Cleanup: remove TODO.md"]
     Plan --> Build
     Cleanup --> Idle([Idle: nothing to do])
-    CheckLast -->|"🧹 / 🎓"| Idle
+    CheckLast -->|🧹| Idle
     CheckLast -->|"None / unknown + TODO.md new"| Plan
     CheckLast -->|"None / unknown + no TODO.md"| Idle
 ```
@@ -72,7 +76,6 @@ flowchart TD
 | 👷    | Fix     | Non-feedback code changes (regular fixes)                                   |
 | 🤖    | Plan    | Agent refined the plan in TODO.md                                           |
 | 🔨    | Build   | Agent implemented a TODO item                                               |
-| 🎓    | Learn   | Agent extracted learnings from completed work                               |
 | 🧹    | Cleanup | TODO.md removed, feature complete                                           |
 
 ## Example Workflow
