@@ -37,7 +37,7 @@
     "build": "tsup",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "bun run cucumber-js --config tests/integration/cucumber.mjs",
+    "test:e2e": "npx cucumber-js --config tests/integration/cucumber.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
