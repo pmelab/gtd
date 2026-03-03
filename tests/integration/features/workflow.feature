@@ -47,7 +47,7 @@ Feature: GTD workflow cycle
     When I run gtd
     Then it succeeds
     And "TODO.md" does not contain "> please also add"
-    And git log contains "💬"
+    And git log contains "🤦"
     And git log contains "👷"
     And last commit prefix is "🤖"
 

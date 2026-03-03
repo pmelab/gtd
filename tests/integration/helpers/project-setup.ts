@@ -28,8 +28,8 @@ export function createTestProject(): string {
       {
         name: "test-project",
         type: "module",
-        scripts: { test: "vitest run" },
-        devDependencies: { vitest: "^3.0.0" },
+        scripts: { test: "node --import tsx --test tests/*.test.ts" },
+        devDependencies: { tsx: "^4.0.0" },
       },
       null,
       2,
@@ -41,11 +41,12 @@ export function createTestProject(): string {
   writeFile(
     dir,
     "tests/math.test.ts",
-    `import { expect, test } from "vitest"
+    `import { test } from "node:test"
+import assert from "node:assert/strict"
 import { add } from "../src/math.js"
 
 test("add returns sum of two numbers", () => {
-  expect(add(2, 3)).toBe(5)
+  assert.strictEqual(add(2, 3), 5)
 })
 `,
   )

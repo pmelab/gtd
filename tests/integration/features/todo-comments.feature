@@ -17,8 +17,8 @@ Feature: Code TODO comments in feedback workflow
       """
     When I run gtd
     Then it succeeds
-    And git log contains "💬"
-    And the "💬" commit diff contains "// TODO:"
+    And git log contains "🤦"
+    And the "🤦" commit diff contains "// TODO:"
     And last commit prefix is "🤖"
     And "src/math.ts" does not contain "// TODO:"
     And "TODO.md" contains "unit tests"
