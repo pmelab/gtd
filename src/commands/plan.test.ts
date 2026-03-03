@@ -402,36 +402,46 @@ describe("planCommand", () => {
     }),
   )
 
-  it.effect("produces atomic commit (not empty commit) when only removeTodosFromDiff makes changes", () =>
-    Effect.gen(function* () {
-      const gitCalls: string[] = []
-      const agentLayer = Layer.succeed(AgentService, {
-        resolvedName: "mock",
-        invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
-      })
-      const diffWithTodo = [
-        "diff --git a/src/foo.ts b/src/foo.ts",
-        "+// TODO: refactor this later",
-      ].join("\n")
-      const gitLayer = mockGit({
-        getDiff: () => Effect.succeed(diffWithTodo),
-        hasUncommittedChanges: () => Effect.succeed(true),
-        addAll: () => Effect.sync(() => { gitCalls.push("addAll") }),
-        emptyCommit: (msg) => Effect.sync(() => { gitCalls.push(`emptyCommit:${msg}`) }),
-        commit: (msg) => Effect.sync(() => { gitCalls.push(`commit:${msg}`) }),
-      })
-      const fs = {
-        ...mockFs(""),
-        removeTodosFromDiff: (_diff: string) =>
-          Effect.sync(() => 1),
-      }
-      yield* planCommand(fs).pipe(
-        Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
-      )
-      expect(gitCalls).toContain("addAll")
-      expect(gitCalls.some((c) => c.startsWith("commit:"))).toBe(true)
-      expect(gitCalls.every((c) => !c.startsWith("emptyCommit:"))).toBe(true)
-    }),
+  it.effect(
+    "produces atomic commit (not empty commit) when only removeTodosFromDiff makes changes",
+    () =>
+      Effect.gen(function* () {
+        const gitCalls: string[] = []
+        const agentLayer = Layer.succeed(AgentService, {
+          resolvedName: "mock",
+          invoke: () => Effect.succeed<AgentResult>({ sessionId: undefined }),
+        })
+        const diffWithTodo = [
+          "diff --git a/src/foo.ts b/src/foo.ts",
+          "+// TODO: refactor this later",
+        ].join("\n")
+        const gitLayer = mockGit({
+          getDiff: () => Effect.succeed(diffWithTodo),
+          hasUncommittedChanges: () => Effect.succeed(true),
+          addAll: () =>
+            Effect.sync(() => {
+              gitCalls.push("addAll")
+            }),
+          emptyCommit: (msg) =>
+            Effect.sync(() => {
+              gitCalls.push(`emptyCommit:${msg}`)
+            }),
+          commit: (msg) =>
+            Effect.sync(() => {
+              gitCalls.push(`commit:${msg}`)
+            }),
+        })
+        const fs = {
+          ...mockFs(""),
+          removeTodosFromDiff: (_diff: string) => Effect.sync(() => 1),
+        }
+        yield* planCommand(fs).pipe(
+          Effect.provide(Layer.mergeAll(mockConfig(), gitLayer, agentLayer, nodeLayer)),
+        )
+        expect(gitCalls).toContain("addAll")
+        expect(gitCalls.some((c) => c.startsWith("commit:"))).toBe(true)
+        expect(gitCalls.every((c) => !c.startsWith("emptyCommit:"))).toBe(true)
+      }),
   )
 
   it.effect("falls back to last commit diff when working tree is clean", () =>
