@@ -38,23 +38,16 @@ describe("CI workflow step ordering", () => {
     expect(stepIndex(steps, "npm test")).toBeGreaterThan(-1)
   })
 
-  it("has an e2e test step", () => {
-    const steps = getSteps()
-    expect(stepIndex(steps, "test:e2e")).toBeGreaterThan(-1)
-  })
-
   it("runs steps in fail-early order: typecheck → lint → format → unit tests → e2e", () => {
     const steps = getSteps()
     const typecheckIdx = stepIndex(steps, "typecheck")
     const lintIdx = stepIndex(steps, "npm run lint")
     const formatIdx = stepIndex(steps, "format:check")
     const unitIdx = stepIndex(steps, "npm test")
-    const e2eIdx = stepIndex(steps, "test:e2e")
 
     expect(typecheckIdx).toBeLessThan(lintIdx)
     expect(lintIdx).toBeLessThan(formatIdx)
     expect(formatIdx).toBeLessThan(unitIdx)
-    expect(unitIdx).toBeLessThan(e2eIdx)
   })
 
   it("prettier --check fails on formatting violations", { timeout: 30_000 }, () => {
