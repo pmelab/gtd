@@ -571,3 +571,52 @@ Feature: GTD workflow cycle
     Then git log contains "add docs"
     And "TODO.md" contains "task one"
     And "README.md" contains "# Project"
+
+  Scenario: --single stops build after one package
+    Given a test project
+    And a commit "🌱 seed: initial task list" that adds "TODO.md" with:
+      """
+      - add a multiply function to src/math.ts
+      """
+    And a commit "🤖 plan: two packages" that updates "TODO.md" with:
+      """
+      # Math library
+
+      ## Action Items
+
+      ### Multiply
+
+      - [ ] add a `multiply` function to `src/math.ts`
+
+      ### Divide
+
+      - [ ] add a `divide` function to `src/math.ts`
+      """
+    When I run gtd with "--single"
+    Then it succeeds
+    And last commit prefix is "🔨"
+    And "TODO.md" contains "- [ ]"
+
+  Scenario: --single stops after commit-feedback without chaining to next step
+    Given a test project
+    And a commit "🌱 seed: initial task list" that adds "TODO.md" with:
+      """
+      - add a multiply function to src/math.ts
+      """
+    And a commit "🤖 plan: structured action items" that updates "TODO.md" with:
+      """
+      # Math library
+
+      ## Action Items
+
+      ### Multiply
+
+      - [ ] add a `multiply` function to `src/math.ts` that multiplies two numbers
+      - [ ] add a test for the `multiply` function in `tests/math.test.ts`
+      """
+    And "TODO.md" has appended blockquote "> please also add error handling for non-numeric inputs"
+    And "src/math.ts" has an appended newline
+    When I run gtd with "--single"
+    Then it succeeds
+    And git log contains "🤦"
+    And last commit prefix is "🤦"

@@ -16,6 +16,7 @@ import { buildPrompt, interpolate } from "../prompts/index.js"
 import { createBuildRenderer, isInteractive } from "../services/Renderer.js"
 import { nodeFileOps, type FileOps } from "../services/FileOps.js"
 import { VerboseMode } from "../services/VerboseMode.js"
+import { SingleMode } from "../services/SingleMode.js"
 
 export interface TestResult {
   readonly exitCode: number
@@ -43,6 +44,7 @@ export const buildCommand = (fs: FileOps) =>
     // Parse packages upfront for renderer
     const allPackages = parsePackages(content)
     const { isVerbose } = yield* VerboseMode
+    const { isSingle } = yield* SingleMode
     const renderer = createBuildRenderer(allPackages, isInteractive(), isVerbose)
 
     const completedSummaries: string[] = []
@@ -171,6 +173,7 @@ export const buildCommand = (fs: FileOps) =>
           yield* git.atomicCommit("all", `🔨 skip: ${pkg.title} (already done)`)
         }
         completedSummaries.push(`- ${pkg.title}: skipped (no changes needed)`)
+        if (isSingle) break
         continue
       }
 
@@ -195,6 +198,8 @@ export const buildCommand = (fs: FileOps) =>
         yield* git.amendFiles([config.file])
       }
       completedSummaries.push(`- ${pkg.title}: implemented and tests passing`)
+
+      if (isSingle) break
     }
 
     // Clear session file so next plan starts fresh
