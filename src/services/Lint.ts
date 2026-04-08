@@ -86,7 +86,7 @@ export const lint = (content: string): ReadonlyArray<LintError> => {
     }
   }
 
-  // action-item-format + action-item-tests + no-todo-comments
+  // action-item-format + no-todo-comments
   const items = parseActionItems(content)
   for (const item of items) {
     const subBullets = item.body.split("\n").filter((l) => l.match(/^\s+-/))
@@ -97,17 +97,6 @@ export const lint = (content: string): ReadonlyArray<LintError> => {
         rule: "action-item-format",
         message: `Action item "${item.title}" must have at least one sub-bullet`,
       })
-    }
-
-    if (!item.checked) {
-      const hasTests = item.body.split("\n").some((l) => /^\s+-\s+Tests:/.test(l))
-      if (!hasTests) {
-        errors.push({
-          line: item.line,
-          rule: "action-item-tests",
-          message: `Unchecked item "${item.title}" must have a "Tests:" sub-bullet`,
-        })
-      }
     }
 
     if (item.checked) {
