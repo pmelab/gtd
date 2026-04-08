@@ -49,6 +49,19 @@ export const buildCommand = (fs: FileOps) =>
 
     const completedSummaries: string[] = []
 
+    // Baseline test check: ensure tests pass before building anything
+    const baselineTestFn = fs.runTests
+    if (config.testCmd.trim() !== "" && baselineTestFn) {
+      renderer.setTextWithCursor(chalk.rgb(255, 165, 0)("Running baseline tests…"))
+      const baselineResult = yield* baselineTestFn(config.testCmd)
+      if (baselineResult.exitCode !== 0) {
+        process.stderr.write(chalk.red(baselineResult.output) + "\n")
+        renderer.finish("Baseline tests failed. Ensure your test suite is passing before running gtd.")
+        yield* Effect.sync(() => (process.exitCode = 1))
+        return
+      }
+    }
+
     // Load plan session ID for first package continuity
     let planSessionId: string | undefined
     if (fs.readSessionId) {

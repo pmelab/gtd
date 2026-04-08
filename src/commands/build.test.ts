@@ -340,11 +340,13 @@ describe("buildCommand", () => {
       })
 
       let testRunCount = 0
-      const mockTestRunner = (_cmd: string): Effect.Effect<TestResult> =>
-        Effect.succeed({
-          exitCode: testRunCount++ < 2 ? 1 : 0,
+      const mockTestRunner = (_cmd: string): Effect.Effect<TestResult> => {
+        const n = testRunCount++
+        return Effect.succeed({
+          exitCode: n === 0 ? 0 : n < 3 ? 1 : 0,
           output: "FAIL: some test",
         })
+      }
 
       const singleItem = [
         "# Feature",
@@ -447,11 +449,10 @@ describe("buildCommand", () => {
       })
 
       let testRunCount = 0
-      const mockTestRunner = (_cmd: string): Effect.Effect<TestResult> =>
-        Effect.succeed({
-          exitCode: testRunCount++ === 0 ? 1 : 0,
-          output: "FAIL: some test",
-        })
+      const mockTestRunner = (_cmd: string): Effect.Effect<TestResult> => {
+        const n = testRunCount++
+        return Effect.succeed({ exitCode: n === 1 ? 1 : 0, output: "FAIL: some test" })
+      }
 
       const initial = [
         "# Feature",
@@ -508,11 +509,10 @@ describe("buildCommand", () => {
       })
 
       let testRunCount = 0
-      const mockTestRunner = (_cmd: string): Effect.Effect<TestResult> =>
-        Effect.succeed({
-          exitCode: testRunCount++ === 0 ? 1 : 0,
-          output: "FAIL: some test",
-        })
+      const mockTestRunner = (_cmd: string): Effect.Effect<TestResult> => {
+        const n = testRunCount++
+        return Effect.succeed({ exitCode: n === 1 ? 1 : 0, output: "FAIL: some test" })
+      }
 
       const singleItem = [
         "# Feature",
@@ -752,6 +752,43 @@ describe("buildCommand", () => {
       yield* buildCommand(mockFsWithProgress(singleItem)).pipe(
         Effect.provide(Layer.mergeAll(mockConfig(), mockGit(), agentLayer, nodeLayer)),
       )
+    }),
+  )
+
+  it.effect("exits with code 1 when baseline tests fail", () =>
+    Effect.gen(function* () {
+      const calls: AgentInvocation[] = []
+      const agentLayer = Layer.succeed(AgentService, {
+        resolvedName: "mock",
+        invoke: (params) =>
+          Effect.succeed<AgentResult>({ sessionId: undefined }).pipe(
+            Effect.tap(() => Effect.sync(() => calls.push(params))),
+          ),
+      })
+      const singleItem = [
+        "# Feature",
+        "",
+        "## Action Items",
+        "",
+        "### Setup",
+        "",
+        "- [ ] Only item",
+        "  - Detail",
+        "  - Tests: check",
+        "",
+      ].join("\n")
+      const mockTestRunner = (_cmd: string): Effect.Effect<TestResult> =>
+        Effect.succeed({ exitCode: 1, output: "FAIL: baseline broken" })
+      const fs = { ...mockFsWithProgress(singleItem), runTests: mockTestRunner }
+      const originalExitCode = process.exitCode
+      yield* buildCommand(fs).pipe(
+        Effect.provide(
+          Layer.mergeAll(mockConfig({ testCmd: "npm test" }), mockGit(), agentLayer, nodeLayer),
+        ),
+      )
+      expect(calls.length).toBe(0)
+      expect(process.exitCode).toBe(1)
+      process.exitCode = originalExitCode
     }),
   )
 })
