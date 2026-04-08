@@ -7,10 +7,8 @@ const validPlan = `# Feature
 
 - [ ] First item
   - Implementation detail
-  - Tests: verify first item works
 - [ ] Second item
   - Detail
-  - Tests: verify second item
 - [x] Done item
   - Was implemented
 
@@ -29,7 +27,6 @@ const minimalValid = `# Feature
 
 - [ ] Only item
   - Detail
-  - Tests: check it
 `
 
 describe("lint", () => {
@@ -57,7 +54,6 @@ describe("lint", () => {
 
 - [ ] Item
   - Detail
-  - Tests: check
 `
     const errors = lint(content)
     expect(errors.some((e: LintError) => e.rule === "sections-order")).toBe(true)
@@ -70,7 +66,6 @@ describe("lint", () => {
 
 - [ ] Only item
   - Detail
-  - Tests: check it
 
 ## Open Questions
 
@@ -86,7 +81,6 @@ describe("lint", () => {
 
 - [ ] Item
   - Detail
-  - Tests: check
   > This should not be here
 `
     const errors = lint(content)
@@ -102,32 +96,6 @@ describe("lint", () => {
 `
     const errors = lint(content)
     expect(errors.some((e: LintError) => e.rule === "action-item-format")).toBe(true)
-  })
-
-  it("detects unchecked items without Tests sub-bullet", () => {
-    const content = `# Title
-
-## Action Items
-
-- [ ] Item
-  - Detail but no tests
-`
-    const errors = lint(content)
-    expect(errors.some((e: LintError) => e.rule === "action-item-tests")).toBe(true)
-  })
-
-  it("does not require Tests for checked items", () => {
-    const content = `# Title
-
-## Action Items
-
-- [x] Done item
-  - Detail
-- [ ] Pending item
-  - Detail
-  - Tests: check it
-`
-    expect(lint(content)).toEqual([])
   })
 
   it("detects TODO comments in checked items", () => {
@@ -151,7 +119,6 @@ describe("lint", () => {
 - [ ] Pending item
   - <!-- TODO: implement this -->
   - Detail
-  - Tests: check
 `
     expect(lint(content)).toEqual([])
   })
