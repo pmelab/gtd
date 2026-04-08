@@ -11,9 +11,22 @@ Then("it succeeds", function (this: GtdWorld) {
   )
 })
 
+Then("it exits with code {int}", function (this: GtdWorld, code: number) {
+  assert.strictEqual(
+    this.lastResult.exitCode,
+    code,
+    `Expected exit code ${code} but got ${this.lastResult.exitCode}\nstdout: ${this.lastResult.stdout}\nstderr: ${this.lastResult.stderr}`,
+  )
+})
+
 Then("git log contains {string}", function (this: GtdWorld, text: string) {
   const log = this.gitLog()
   assert.ok(log.includes(text), `Expected git log to contain "${text}":\n${log}`)
+})
+
+Then("git log does not contain {string}", function (this: GtdWorld, text: string) {
+  const log = this.gitLog()
+  assert.ok(!log.includes(text), `Expected git log to NOT contain "${text}":\n${log}`)
 })
 
 Then("last commit prefix is {string}", function (this: GtdWorld, prefix: string) {
