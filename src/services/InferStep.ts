@@ -1,6 +1,6 @@
 import { HUMAN, PLAN, BUILD, FIX, LEARN, CLEANUP, SEED, type CommitPrefix } from "./CommitPrefix.js"
 
-export type Step = "commit-feedback" | "plan" | "build" | "cleanup" | "idle"
+export type Step = "commit-feedback" | "plan" | "build" | "cleanup" | "idle" | "test-fix"
 
 export interface InferStepInput {
   readonly hasUncommittedChanges: boolean
@@ -36,14 +36,16 @@ export const inferStep = (input: InferStepInput): Step => {
     case PLAN:
       return "build"
     case BUILD:
-    case FIX:
       if (input.todoFileIsNew) return "plan"
       return input.hasUncheckedItems ? "build" : "cleanup"
+    case FIX:
+      if (input.todoFileIsNew) return "plan"
+      return "test-fix"
     case LEARN:
       return "idle"
     case CLEANUP:
       return "idle"
     default:
-      return input.todoFileIsNew ? "plan" : "idle"
+      return input.todoFileIsNew ? "plan" : "test-fix"
   }
 }

@@ -17,7 +17,7 @@ const prefixLabel = (prefix: string | undefined): string => {
     case BUILD:
       return "build"
     case FIX:
-      return "fix"
+      return "human fix"
     case CLEANUP:
       return "cleanup"
     case SEED:
@@ -33,6 +33,7 @@ const resolveModelForStep = (step: Step, config: GtdConfig): string | undefined 
     case "commit-feedback":
       return config.modelPlan
     case "build":
+    case "test-fix":
       return config.modelBuild
     case "cleanup":
     case "idle":
@@ -76,6 +77,8 @@ const describeReason = (state: InferStepInput, step: Step): string => {
       if (state.hasUncheckedItems)
         return `Last commit was a ${last} step with unchecked items, so proceeding to ${step}.`
       return `Last commit was a ${last} step with all items checked, so proceeding to ${step}.`
+    case FIX:
+      return `Last commit was a ${last}, verifying tests still pass.`
     case HUMAN:
       return `Last commit was a ${last}, so proceeding to ${step}.`
     case SEED:
@@ -83,7 +86,7 @@ const describeReason = (state: InferStepInput, step: Step): string => {
       return `Last commit was a ${last} step, so proceeding to ${step}.`
     default:
       if (state.todoFileIsNew) return `New todo file detected, so proceeding to ${step}.`
-      return `No recognized commit prefix. Next step: ${step}.`
+      return `No recognized commit prefix, verifying tests pass.`
   }
 }
 
@@ -95,6 +98,17 @@ export const formatStartupMessage = (info: StartupInfo, interactive: boolean): s
       return chalk.dim("Nothing to do. Create a TODO.md or add in-code comments to start.")
     }
     return `[gtd] Nothing to do. Create a TODO.md or add in-code comments to start.`
+  }
+
+  if (step === "test-fix") {
+    const modelPart = model ? ` with model ${interactive ? chalk.cyan(model) : model}` : ""
+    const agentPart = interactive ? chalk.cyan(agent) : agent
+    const line1 = `Using ${agentPart} to verify and fix tests${modelPart}.`
+    const reason = describeReason(state, step)
+    if (interactive) {
+      return `${chalk.dim(line1)}\n${chalk.dim(reason)}`
+    }
+    return `[gtd] ${line1}\n[gtd] ${reason}`
   }
 
   const modelPart = model ? ` with model ${interactive ? chalk.cyan(model) : model}` : ""
