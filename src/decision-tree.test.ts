@@ -44,6 +44,7 @@ describe("startup message", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: "🤖",
       hasUncheckedItems: true,
+      hasOpenQuestions: false,
       todoFileIsNew: false,
     }
 
@@ -70,6 +71,7 @@ describe("startup message", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: "🤖",
       hasUncheckedItems: true,
+      hasOpenQuestions: false,
       todoFileIsNew: false,
     }
 
@@ -87,6 +89,7 @@ describe("startup message", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: "🤖",
       hasUncheckedItems: true,
+      hasOpenQuestions: false,
       todoFileIsNew: false,
     }
     const msg = formatStartupMessage(makeInfo(state, "build"), false)
@@ -99,6 +102,7 @@ describe("startup message", () => {
       hasUncommittedChanges: true,
       lastCommitPrefix: undefined,
       hasUncheckedItems: false,
+      hasOpenQuestions: false,
       todoFileIsNew: false,
     }
     const msg = formatStartupMessage(makeInfo(state, "commit-feedback"), false)
@@ -111,6 +115,7 @@ describe("startup message", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: "🌱",
       hasUncheckedItems: true,
+      hasOpenQuestions: false,
       todoFileIsNew: false,
     }
     const msg = formatStartupMessage(makeInfo(state, "plan"), false)
@@ -122,6 +127,7 @@ describe("startup message", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: "🤖",
       hasUncheckedItems: true,
+      hasOpenQuestions: false,
       todoFileIsNew: false,
     }
     const info: StartupInfo = { agent: "claude", step: "build", model: "sonnet-4", state }
@@ -134,6 +140,7 @@ describe("startup message", () => {
       hasUncommittedChanges: false,
       lastCommitPrefix: "🧹",
       hasUncheckedItems: false,
+      hasOpenQuestions: false,
       todoFileIsNew: false,
     }
     const msg = formatStartupMessage(makeInfo(state, "idle"), false)

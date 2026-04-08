@@ -1,23 +1,29 @@
-import { HUMAN, PLAN, BUILD, FIX, LEARN, CLEANUP, SEED, type CommitPrefix } from "./CommitPrefix.js"
+import { HUMAN, PLAN, BUILD, FIX, LEARN, CLEANUP, SEED, GRILL, GRILL_ANSWER, type CommitPrefix } from "./CommitPrefix.js"
 
-export type Step = "commit-feedback" | "plan" | "build" | "cleanup" | "idle" | "test-fix"
+export type Step = "commit-feedback" | "grill" | "plan" | "build" | "cleanup" | "idle" | "test-fix"
 
 export interface InferStepInput {
   readonly hasUncommittedChanges: boolean
   readonly lastCommitPrefix: CommitPrefix | undefined
   readonly hasUncheckedItems: boolean
+  readonly hasOpenQuestions: boolean
   readonly todoFileIsNew: boolean
   readonly prevPhasePrefix?: CommitPrefix | undefined
 }
 
 export const inferStep = (input: InferStepInput): Step => {
   if (input.hasUncommittedChanges) {
+    if (input.lastCommitPrefix === GRILL) return "grill"
     return "commit-feedback"
   }
 
   switch (input.lastCommitPrefix) {
     case SEED:
-      return "plan"
+      return "grill"
+    case GRILL:
+      return input.hasOpenQuestions ? "grill" : "plan"
+    case GRILL_ANSWER:
+      return input.hasOpenQuestions ? "grill" : "plan"
     case HUMAN: {
       switch (input.prevPhasePrefix) {
         case SEED:

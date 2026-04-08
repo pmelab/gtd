@@ -6,7 +6,7 @@ import type { InferStepInput } from "./InferStep.js"
 import type { Step } from "./InferStep.js"
 import chalk from "chalk"
 import { isInteractive } from "./Renderer.js"
-import { HUMAN, PLAN, BUILD, FIX, CLEANUP, SEED } from "./CommitPrefix.js"
+import { HUMAN, PLAN, BUILD, FIX, CLEANUP, SEED, GRILL, GRILL_ANSWER } from "./CommitPrefix.js"
 
 const prefixLabel = (prefix: string | undefined): string => {
   switch (prefix) {
@@ -22,6 +22,10 @@ const prefixLabel = (prefix: string | undefined): string => {
       return "cleanup"
     case SEED:
       return "seed"
+    case GRILL:
+      return "grill"
+    case GRILL_ANSWER:
+      return "answers"
     default:
       return "none"
   }
@@ -29,6 +33,7 @@ const prefixLabel = (prefix: string | undefined): string => {
 
 const resolveModelForStep = (step: Step, config: GtdConfig): string | undefined => {
   switch (step) {
+    case "grill":
     case "plan":
     case "commit-feedback":
       return config.modelPlan
@@ -82,6 +87,8 @@ const describeReason = (state: InferStepInput, step: Step): string => {
     case HUMAN:
       return `Last commit was a ${last}, so proceeding to ${step}.`
     case SEED:
+    case GRILL:
+    case GRILL_ANSWER:
     case CLEANUP:
       return `Last commit was a ${last} step, so proceeding to ${step}.`
     default:

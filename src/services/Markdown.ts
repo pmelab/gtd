@@ -54,6 +54,20 @@ const parseActionItems = (content: string): ReadonlyArray<ActionItem> =>
 export const hasUncheckedItems = (content: string): boolean =>
   parseActionItems(content).some((item) => !item.checked)
 
+export const hasOpenQuestions = (content: string): boolean => {
+  const lines = content.split("\n")
+  let inSection = false
+  for (const line of lines) {
+    if (/^##\s+Open Questions\s*$/.test(line)) {
+      inSection = true
+      continue
+    }
+    if (inSection && /^##\s+/.test(line)) break
+    if (inSection && /^-\s+/.test(line)) return true
+  }
+  return false
+}
+
 const findActionItemsSection = (
   lines: ReadonlyArray<string>,
 ): { start: number; end: number } | null => {
