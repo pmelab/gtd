@@ -101,3 +101,7 @@ Given("a commit {string}", function (this: GtdWorld, message: string) {
 When("I run gtd", function (this: GtdWorld) {
   this.runGtd()
 })
+
+When("I run gtd with {string}", function (this: GtdWorld, flag: string) {
+  this.runGtd(flag)
+})

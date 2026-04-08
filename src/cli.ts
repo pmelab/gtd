@@ -13,6 +13,7 @@ import { hasUncheckedItems } from "./services/Markdown.js"
 import { nodeFileOps, type FileOps } from "./services/FileOps.js"
 import { QuietMode } from "./services/QuietMode.js"
 import { VerboseMode } from "./services/VerboseMode.js"
+import { SingleMode } from "./services/SingleMode.js"
 import { printStartupMessage } from "./services/DecisionTree.js"
 
 export const idleMessage = "Nothing to do. Create a TODO.md or add in-code comments to start."
@@ -109,10 +110,15 @@ const verboseOption = Options.boolean("verbose").pipe(
   Options.withDefault(false),
 )
 
+const singleOption = Options.boolean("single").pipe(
+  Options.withAlias("s"),
+  Options.withDefault(false),
+)
+
 const rootCommand = Command.make(
   "gtd",
-  { quiet: quietOption, debug: debugOption, verbose: verboseOption },
-  ({ quiet, debug, verbose }) =>
+  { quiet: quietOption, debug: debugOption, verbose: verboseOption, single: singleOption },
+  ({ quiet, debug, verbose, single }) =>
     Effect.gen(function* () {
       if (debug) process.env.GTD_DEBUG = "1"
       const config = yield* GtdConfigService
@@ -125,13 +131,19 @@ const rootCommand = Command.make(
 
       if (step === "commit-feedback") {
         yield* commitFeedbackCommand(fs)
-        const newState = yield* gatherState(yield* nodeFileOps(config.file))
-        const newStep = dispatch(newState)
-        yield* runStep(newStep, yield* nodeFileOps(config.file))
+        if (!single) {
+          const newState = yield* gatherState(yield* nodeFileOps(config.file))
+          const newStep = dispatch(newState)
+          yield* runStep(newStep, yield* nodeFileOps(config.file))
+        }
       } else {
         yield* runStep(step, fs)
       }
-    }).pipe(Effect.provide(QuietMode.layer(quiet)), Effect.provide(VerboseMode.layer(verbose))),
+    }).pipe(
+      Effect.provide(QuietMode.layer(quiet)),
+      Effect.provide(VerboseMode.layer(verbose)),
+      Effect.provide(SingleMode.layer(single)),
+    ),
 )
 
 export const command = rootCommand.pipe(Command.withSubcommands([initCommand]))

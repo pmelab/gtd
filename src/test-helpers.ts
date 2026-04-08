@@ -3,6 +3,7 @@ import { NodeContext } from "@effect/platform-node"
 import { GtdConfigService, type GtdConfig } from "./services/Config.js"
 import { GitService, type GitOperations } from "./services/Git.js"
 import { VerboseMode } from "./services/VerboseMode.js"
+import { SingleMode } from "./services/SingleMode.js"
 
 export const defaultTestConfig: GtdConfig = {
   file: "TODO.md",
@@ -52,4 +53,4 @@ export const mockFs = (content: string) => ({
   remove: () => Effect.void,
 })
 
-export const nodeLayer = Layer.mergeAll(NodeContext.layer, VerboseMode.layer(false))
+export const nodeLayer = Layer.mergeAll(NodeContext.layer, VerboseMode.layer(false), SingleMode.layer(false))
