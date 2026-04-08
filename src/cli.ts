@@ -1,5 +1,6 @@
 import { Command, Options } from "@effect/cli"
 import { Console, Effect } from "effect"
+import { makeGrillCommand } from "./commands/grill.js"
 import { makePlanCommand } from "./commands/plan.js"
 import { makeBuildCommand } from "./commands/build.js"
 import { makeCleanupCommand } from "./commands/cleanup.js"
@@ -10,7 +11,7 @@ import { GitService } from "./services/Git.js"
 import { GtdConfigService } from "./services/Config.js"
 import { parseCommitPrefix, HUMAN, FIX, type CommitPrefix } from "./services/CommitPrefix.js"
 import { inferStep, type InferStepInput, type Step } from "./services/InferStep.js"
-import { hasUncheckedItems } from "./services/Markdown.js"
+import { hasUncheckedItems, hasOpenQuestions } from "./services/Markdown.js"
 import { nodeFileOps, type FileOps } from "./services/FileOps.js"
 import { QuietMode } from "./services/QuietMode.js"
 import { VerboseMode } from "./services/VerboseMode.js"
@@ -35,6 +36,7 @@ export const gatherState = (
     const fileExists = yield* fs.exists()
     const content = fileExists ? yield* fs.readFile() : ""
     const unchecked = hasUncheckedItems(content)
+    const openQuestions = hasOpenQuestions(content)
 
     let todoFileIsNew = false
     if (!uncommitted) {
@@ -67,6 +69,7 @@ export const gatherState = (
       hasUncommittedChanges: uncommitted,
       lastCommitPrefix: lastPrefix,
       hasUncheckedItems: unchecked,
+      hasOpenQuestions: openQuestions,
       todoFileIsNew,
       prevPhasePrefix,
     }
@@ -76,6 +79,8 @@ export const dispatch = (state: InferStepInput) => inferStep(state)
 
 const runStep = (step: Step, _fs: FileOps) => {
   switch (step) {
+    case "grill":
+      return makeGrillCommand
     case "plan":
       return makePlanCommand
     case "build":

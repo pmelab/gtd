@@ -60,6 +60,44 @@ Then("{string} does not exist", function (this: GtdWorld, file: string) {
   assert.ok(!this.repoFileExists(file), `Expected "${file}" to NOT exist`)
 })
 
+Then(
+  "the last commit message body contains {string}",
+  function (this: GtdWorld, text: string) {
+    const body = this.lastCommitBody()
+    assert.ok(body.includes(text), `Expected last commit body to contain "${text}":\n${body}`)
+  },
+)
+
+Then(
+  "the last commit message body does not contain {string}",
+  function (this: GtdWorld, text: string) {
+    const body = this.lastCommitBody()
+    assert.ok(!body.includes(text), `Expected last commit body to NOT contain "${text}":\n${body}`)
+  },
+)
+
+Then("the last commit message subject is {string}", function (this: GtdWorld, expected: string) {
+  const subject = this.lastCommitSubject()
+  assert.strictEqual(subject, expected, `Expected subject "${expected}" but got "${subject}"`)
+})
+
+Then(
+  "the last commit message subject does not contain {string}",
+  function (this: GtdWorld, text: string) {
+    const subject = this.lastCommitSubject()
+    assert.ok(!subject.includes(text), `Expected subject to NOT contain "${text}":\n${subject}`)
+  },
+)
+
+Then(
+  "the last commit message subject matches {string}",
+  function (this: GtdWorld, pattern: string) {
+    const subject = this.lastCommitSubject()
+    const re = new RegExp(pattern)
+    assert.ok(re.test(subject), `Expected subject to match /${pattern}/:\n${subject}`)
+  },
+)
+
 Then("npm test passes", function (this: GtdWorld) {
   const result = this.execInRepo("npm", ["test"])
   assert.ok(result !== undefined, "npm test should complete")

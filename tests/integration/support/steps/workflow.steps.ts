@@ -105,3 +105,5 @@ When("I run gtd", function (this: GtdWorld) {
 When("I run gtd with {string}", function (this: GtdWorld, flag: string) {
   this.runGtd(flag)
 })
+
+

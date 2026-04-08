@@ -5,6 +5,8 @@ export const LEARN = "🎓" as const
 export const CLEANUP = "🧹" as const
 export const FIX = "👷" as const
 export const SEED = "🌱" as const
+export const GRILL = "🔍" as const
+export const GRILL_ANSWER = "🤓" as const
 /** @deprecated kept for backward compatibility with existing repos; not in ALL_PREFIXES */
 export const FEEDBACK = "💬" as const
 export type CommitPrefix =
@@ -15,6 +17,8 @@ export type CommitPrefix =
   | typeof CLEANUP
   | typeof FIX
   | typeof SEED
+  | typeof GRILL
+  | typeof GRILL_ANSWER
   | typeof FEEDBACK
 
 export const ALL_PREFIXES: ReadonlyArray<CommitPrefix> = [
@@ -25,6 +29,8 @@ export const ALL_PREFIXES: ReadonlyArray<CommitPrefix> = [
   CLEANUP,
   FIX,
   SEED,
+  GRILL,
+  GRILL_ANSWER,
 ]
 
 export const parseCommitPrefix = (message: string): CommitPrefix | undefined => {

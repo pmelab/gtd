@@ -27,6 +27,7 @@ export const mockGit = (overrides: Partial<GitOperations> = {}) => {
     hasUncommittedChanges: () => Effect.succeed(true),
     getLastCommitMessage: () => Effect.succeed(""),
     getCommitMessages: () => Effect.succeed([]),
+    getCommitLog: () => Effect.succeed([]),
     add: (() => Effect.void) as GitOperations["add"],
     addAll: () => Effect.void,
     commit: (() => Effect.void) as GitOperations["commit"],

@@ -56,6 +56,20 @@ export class GtdWorld extends World {
       .slice(0, 2)
   }
 
+  lastCommitSubject(): string {
+    return execSync('git log -1 --format="%s"', {
+      cwd: this.repoDir,
+      encoding: "utf-8",
+    }).trim()
+  }
+
+  lastCommitBody(): string {
+    return execSync('git log -1 --format="%b"', {
+      cwd: this.repoDir,
+      encoding: "utf-8",
+    }).trim()
+  }
+
   execInRepo(cmd: string, args: string[] = []): string {
     return execSync([cmd, ...args].join(" "), {
       cwd: this.repoDir,

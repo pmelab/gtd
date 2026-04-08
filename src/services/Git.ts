@@ -11,12 +11,18 @@ const logCommit = (message: string): void => {
   }
 }
 
+export interface CommitEntry {
+  readonly hash: string
+  readonly subject: string
+}
+
 export interface GitOperations {
   readonly getDiff: () => Effect.Effect<string, Error>
   readonly hasUnstagedChanges: () => Effect.Effect<boolean, Error>
   readonly hasUncommittedChanges: () => Effect.Effect<boolean, Error>
   readonly getLastCommitMessage: () => Effect.Effect<string, Error>
   readonly getCommitMessages: (n: number) => Effect.Effect<ReadonlyArray<string>, Error>
+  readonly getCommitLog: (n: number) => Effect.Effect<ReadonlyArray<CommitEntry>, Error>
   readonly add: (files: ReadonlyArray<string>) => Effect.Effect<void, Error>
   readonly addAll: () => Effect.Effect<void, Error>
   readonly commit: (message: string) => Effect.Effect<void, Error>
@@ -103,6 +109,20 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
         getCommitMessages: (n) =>
           exec("git", "log", `-${n}`, "--pretty=%s").pipe(
             Effect.map((out) => (out === "" ? [] : out.split("\n"))),
+          ),
+
+        getCommitLog: (n) =>
+          exec("git", "log", `-${n}`, "--format=%H|%s").pipe(
+            Effect.map((out) => {
+              if (out === "") return []
+              return out.split("\n").map((line) => {
+                const pipeIdx = line.indexOf("|")
+                return {
+                  hash: line.slice(0, pipeIdx),
+                  subject: line.slice(pipeIdx + 1),
+                }
+              })
+            }),
           ),
 
         add: (files) => exec("git", "add", ...files).pipe(Effect.asVoid),
