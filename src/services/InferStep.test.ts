@@ -84,24 +84,24 @@ describe("inferStep", () => {
     expect(inferStep(input)).toBe("idle")
   })
 
-  it("returns idle when prefix is unknown (undefined)", () => {
+  it("returns test-fix when prefix is unknown (undefined)", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: false,
       lastCommitPrefix: undefined,
       hasUncheckedItems: false,
       todoFileIsNew: false,
     }
-    expect(inferStep(input)).toBe("idle")
+    expect(inferStep(input)).toBe("test-fix")
   })
 
-  it("returns idle when no commits exist (undefined prefix)", () => {
+  it("returns test-fix when no commits exist (undefined prefix)", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: false,
       lastCommitPrefix: undefined,
       hasUncheckedItems: true,
       todoFileIsNew: false,
     }
-    expect(inferStep(input)).toBe("idle")
+    expect(inferStep(input)).toBe("test-fix")
   })
 
   it("uncommitted changes take priority over prefix", () => {
@@ -114,24 +114,24 @@ describe("inferStep", () => {
     expect(inferStep(input)).toBe("commit-feedback")
   })
 
-  it("returns build when last commit prefix is FIX and unchecked items remain", () => {
+  it("returns test-fix when last commit prefix is FIX and unchecked items remain", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: false,
       lastCommitPrefix: FIX,
       hasUncheckedItems: true,
       todoFileIsNew: false,
     }
-    expect(inferStep(input)).toBe("build")
+    expect(inferStep(input)).toBe("test-fix")
   })
 
-  it("returns cleanup when last commit prefix is FIX and all items checked", () => {
+  it("returns test-fix when last commit prefix is FIX and all items checked", () => {
     const input: InferStepInput = {
       hasUncommittedChanges: false,
       lastCommitPrefix: FIX,
       hasUncheckedItems: false,
       todoFileIsNew: false,
     }
-    expect(inferStep(input)).toBe("cleanup")
+    expect(inferStep(input)).toBe("test-fix")
   })
 
   it("returns plan when FIX + todoFileIsNew", () => {

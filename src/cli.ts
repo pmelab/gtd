@@ -4,6 +4,7 @@ import { makePlanCommand } from "./commands/plan.js"
 import { makeBuildCommand } from "./commands/build.js"
 import { makeCleanupCommand } from "./commands/cleanup.js"
 import { commitFeedbackCommand } from "./commands/commit-feedback.js"
+import { testFixCommand } from "./commands/test-fix.js"
 import { initAction } from "./commands/init.js"
 import { GitService } from "./services/Git.js"
 import { GtdConfigService } from "./services/Config.js"
@@ -84,6 +85,7 @@ const runStep = (step: Step, _fs: FileOps) => {
     case "idle":
       return Console.log(idleMessage)
     case "commit-feedback":
+    case "test-fix":
       return Effect.void
   }
 }
@@ -135,6 +137,25 @@ const rootCommand = Command.make(
           const newState = yield* gatherState(yield* nodeFileOps(config.file))
           const newStep = dispatch(newState)
           yield* runStep(newStep, yield* nodeFileOps(config.file))
+        }
+      } else if (step === "test-fix") {
+        const madeCommits = yield* testFixCommand(fs)
+        if (!single) {
+          if (madeCommits) {
+            // Agent fixed tests and committed with 🔨 — re-dispatch normally
+            const newState = yield* gatherState(yield* nodeFileOps(config.file))
+            const newStep = dispatch(newState)
+            yield* runStep(newStep, yield* nodeFileOps(config.file))
+          } else {
+            // Tests already passed (or no testCmd) — run natural continuation
+            const continuation: Step =
+              state.lastCommitPrefix === FIX
+                ? state.hasUncheckedItems
+                  ? "build"
+                  : "cleanup"
+                : "idle"
+            yield* runStep(continuation, yield* nodeFileOps(config.file))
+          }
         }
       } else {
         yield* runStep(step, fs)
