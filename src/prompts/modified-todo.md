@@ -9,10 +9,10 @@ placeholder), plus any free-form changes to the plan.
 2. For each answered question:
    - Integrate the answer into the body of the plan above `## Open Questions`.
    - Remove the question from `## Open Questions`.
-3. Continue the grill-with-docs session: every new piece of information opens
-   new branches. Generate fresh questions for any ambiguity the answers
-   surfaced, and append them to `## Open Questions` in the same format as
-   before:
+3. Continue grilling with the `grill-with-docs` skill: every new piece of
+   information opens new branches. Generate fresh questions for any ambiguity
+   the answers surfaced, and append them to `## Open Questions` in the same
+   format as before:
 
    ```markdown
    ### <one-line question>
