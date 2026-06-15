@@ -23,6 +23,15 @@ gtd > prompt.md
 npm install -g githingsdone
 ```
 
+Once, before piping plans, install the agent skills `gtd` relies on:
+
+```bash
+gtd setup | claude
+```
+
+This emits a prompt that tells the agent to install required skills via
+[skills.sh](https://www.skills.sh/). Re-run any time the skill list changes.
+
 ## Usage
 
 ```bash
@@ -52,9 +61,8 @@ Every prompt also includes:
 - A header with the Conventional Commits convention and the rule to always run
   the project's test suite after touching code.
 - The current `git diff HEAD` (untracked files included) inline.
-- For planning sections, an appendix with the
-  [grill-with-docs](https://github.com/mattpocock/skills/tree/main/skills/engineering/grill-with-docs)
-  methodology vendored inline.
+- For planning sections, a reference to the `grill-with-docs` agent skill
+  (install it once with `gtd setup`).
 
 ## Workflow
 
