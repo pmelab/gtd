@@ -48,6 +48,25 @@ When("I run gtd", function (this: GtdWorld) {
   this.runGtd()
 })
 
+When("I run gtd {string}", function (this: GtdWorld, args: string) {
+  this.runGtd(...args.split(" ").filter((s) => s.length > 0))
+})
+
+Then("it fails", function (this: GtdWorld) {
+  assert.notStrictEqual(
+    this.lastResult.exitCode,
+    0,
+    `expected non-zero exit\nstdout: ${this.lastResult.stdout}`,
+  )
+})
+
+Then("stderr contains {string}", function (this: GtdWorld, text: string) {
+  assert.ok(
+    this.lastResult.stderr.includes(text),
+    `Expected stderr to contain "${text}". Got:\n${this.lastResult.stderr}`,
+  )
+})
+
 Then("it succeeds", function (this: GtdWorld) {
   assert.strictEqual(
     this.lastResult.exitCode,
