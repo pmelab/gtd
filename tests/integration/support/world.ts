@@ -18,9 +18,9 @@ export class GtdWorld extends World {
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
     const result = spawnSync(process.execPath, [GTD_BIN, ...args], {
       cwd: this.repoDir,
-      env: { ...process.env, GTD_TEST_CMD: "npm test", CLAUDECODE: "" },
+      env: { ...process.env },
       encoding: "utf-8",
-      timeout: 300_000,
+      timeout: 30_000,
     })
     const stdout = result.stdout ?? ""
     const stderr = result.stderr ?? ""

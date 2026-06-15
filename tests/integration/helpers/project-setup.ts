@@ -1,4 +1,4 @@
-import { execFileSync, execSync } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import { writeFileSync, mkdirSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -13,67 +13,23 @@ function writeFile(dir: string, path: string, content: string) {
   writeFileSync(full, content)
 }
 
-/** Base: git init, package.json, src/math.ts, tests/math.test.ts, npm install, initial commit, empty second commit */
+/**
+ * Bare-bones git repo with one initial commit. Tests build on top using the
+ * `Given …` steps.
+ */
 export function createTestProject(): string {
   const dir = mkdtempSync(join(tmpdir(), "gtd-test-"))
 
   git(dir, "init", "-q")
   git(dir, "config", "user.name", "Test")
   git(dir, "config", "user.email", "test@test.com")
-
-  writeFile(
-    dir,
-    "package.json",
-    JSON.stringify(
-      {
-        name: "test-project",
-        type: "module",
-        scripts: { test: "node --import tsx --test tests/*.test.ts" },
-        devDependencies: { tsx: "^4.0.0" },
-      },
-      null,
-      2,
-    ),
-  )
-
-  writeFile(dir, "src/math.ts", "export const add = (a: number, b: number): number => a + b\n")
-
-  writeFile(
-    dir,
-    "tests/math.test.ts",
-    `import { test } from "node:test"
-import assert from "node:assert/strict"
-import { add } from "../src/math.js"
-
-test("add returns sum of two numbers", () => {
-  assert.strictEqual(add(2, 3), 5)
-})
-`,
-  )
+  git(dir, "config", "commit.gpgsign", "false")
 
   writeFile(dir, ".gitignore", "node_modules\n")
-
-  writeFile(
-    dir,
-    ".gtdrc.json",
-    JSON.stringify(
-      {
-        modelPlan: "anthropic/claude-sonnet-4-5",
-        modelBuild: "anthropic/claude-sonnet-4-5",
-        modelCommit: "anthropic/claude-haiku-4-5",
-      },
-      null,
-      2,
-    ) + "\n",
-  )
-
-  execSync("npm install -q", { cwd: dir, stdio: "pipe" })
+  writeFile(dir, "README.md", "# test project\n")
 
   git(dir, "add", "-A")
-  git(dir, "commit", "-q", "-m", "initial commit")
-
-  // Empty second commit so HEAD~1 exists (needed for getDiff fallback)
-  git(dir, "commit", "--allow-empty", "-q", "-m", "chore: setup")
+  git(dir, "commit", "-q", "-m", "chore: initial commit")
 
   return dir
 }

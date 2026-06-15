@@ -1,7 +1,7 @@
 {
   "name": "githingsdone",
   "version": "0.1.0",
-  "description": "AI-assisted git task runner — automates agent execution and atomic commits for plan-driven development",
+  "description": "Generate a single autonomous-agent prompt from the current git state — plan, build, commit, or run tests, depending on what your working tree looks like",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -35,6 +35,7 @@
   "scripts": {
     "dev": "tsx src/main.ts",
     "build": "tsup",
+    "watch": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npx cucumber-js --config tests/integration/cucumber.mjs",
@@ -62,12 +63,8 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "^0.54.2",
-    "@effect/cli": "^0.73.1",
     "@effect/platform": "^0.94.2",
     "@effect/platform-node": "^0.104.1",
-    "chalk": "^5.4.1",
-    "cosmiconfig": "^9.0.0",
     "effect": "^3.19.15"
   }
 }

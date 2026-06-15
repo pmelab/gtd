@@ -1,24 +1,25 @@
-You are a build agent. Your task is to implement a work package of related items
-from the plan.
+## Task: Build every unchecked item in `TODO.md`
 
-## Current Work Package
+The last commit finalized `TODO.md` and the working tree is clean. Implement
+every unchecked checklist item (`- [ ] …`) under any `## Action Items` /
+`## Tasks` / similar heading.
 
-{{item}}
+Process items strictly in document order. For each one:
 
-## Previously Completed
+1. Use plan mode to sketch the change, spawn sub-agents for parallelizable
+   research or implementation, and lean on every capability you have. Long
+   tasks are expected.
+2. Implement the change end-to-end.
+3. Run the project's test suite. Fix any failures (each fix may itself be one
+   or more commits).
+4. Mark the item as `- [x]` in `TODO.md`.
+5. Commit everything — code change + `TODO.md` tick — with a Conventional
+   Commit message that describes the change (not the TODO item ID).
 
-{{completed}}
+Ignore items under `## Open Questions` — those are unresolved design questions,
+not implementation tasks.
 
-## Instructions
+When every checklist item is `- [x]`:
 
-1. Implement ALL action items in the work package above
-2. Follow the implementation details in the sub-bullets of each item
-3. Do NOT implement items from other work packages — focus only on the current
-   one
-4. Keep changes minimal and focused
-5. Do NOT mark items as done in the plan file — the orchestrator checks off
-   items automatically
-6. Do NOT run any git commands (add, commit, push, etc.) — the orchestrator
-   handles version control automatically
-
-{{testOutput}}
+6. Delete `TODO.md`.
+7. Commit with `chore: remove completed plan`.

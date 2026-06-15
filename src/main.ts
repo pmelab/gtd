@@ -1,22 +1,23 @@
-import { Command } from "@effect/cli"
 import { NodeContext, NodeRuntime } from "@effect/platform-node"
-import { Effect, Layer } from "effect"
-import { command } from "./cli.js"
-import { GtdConfigService } from "./services/Config.js"
-import { GitService } from "./services/Git.js"
-import { AgentService } from "./services/Agent.js"
+import { Effect } from "effect"
+import { GitService } from "./Git.js"
+import { detect } from "./State.js"
+import { buildPrompt } from "./Prompt.js"
 
-const AgentLive = AgentService.Live.pipe(Layer.provide(GtdConfigService.Live))
-
-const ServicesLayer = Layer.mergeAll(GtdConfigService.Live, GitService.Live, AgentLive)
-
-const cli = Command.run(command, {
-  name: "gtd",
-  version: "0.1.0",
+const program = Effect.gen(function* () {
+  const state = yield* detect()
+  const prompt = buildPrompt(state)
+  yield* Effect.sync(() => process.stdout.write(prompt))
 })
 
-cli(process.argv).pipe(
-  Effect.provide(ServicesLayer),
+program.pipe(
+  Effect.provide(GitService.Live),
   Effect.provide(NodeContext.layer),
+  Effect.catchAll((error) =>
+    Effect.sync(() => {
+      process.stderr.write(`gtd: ${error.message ?? String(error)}\n`)
+      process.exit(1)
+    }),
+  ),
   NodeRuntime.runMain,
 )

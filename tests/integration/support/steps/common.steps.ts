@@ -1,121 +1,71 @@
-import { Then } from "@cucumber/cucumber"
+import { Given, Then, When } from "@cucumber/cucumber"
+import { execFileSync } from "node:child_process"
+import { writeFileSync, mkdirSync, readFileSync } from "node:fs"
+import { join } from "node:path"
 import assert from "node:assert"
-import { execSync } from "node:child_process"
 import type { GtdWorld } from "../world.js"
+import { createTestProject } from "../../helpers/project-setup.js"
+
+Given("a test project", function (this: GtdWorld) {
+  this.repoDir = createTestProject()
+})
+
+Given("a file {string} with:", function (this: GtdWorld, path: string, content: string) {
+  const full = join(this.repoDir, path)
+  mkdirSync(join(full, ".."), { recursive: true })
+  writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
+})
+
+Given(
+  "a commit {string} that adds {string} with:",
+  function (this: GtdWorld, message: string, path: string, content: string) {
+    const full = join(this.repoDir, path)
+    mkdirSync(join(full, ".."), { recursive: true })
+    writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
+    execFileSync("git", ["add", path], { cwd: this.repoDir, stdio: "pipe" })
+    execFileSync("git", ["commit", "-q", "-m", message], { cwd: this.repoDir, stdio: "pipe" })
+  },
+)
+
+Given(
+  "{string} is modified to:",
+  function (this: GtdWorld, path: string, content: string) {
+    const full = join(this.repoDir, path)
+    writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
+  },
+)
+
+Given(
+  "{string} has appended {string}",
+  function (this: GtdWorld, path: string, text: string) {
+    const full = join(this.repoDir, path)
+    const existing = readFileSync(full, "utf-8")
+    writeFileSync(full, existing + text + "\n")
+  },
+)
+
+When("I run gtd", function (this: GtdWorld) {
+  this.runGtd()
+})
 
 Then("it succeeds", function (this: GtdWorld) {
   assert.strictEqual(
     this.lastResult.exitCode,
     0,
-    `Expected exit code 0 but got ${this.lastResult.exitCode}\nstdout: ${this.lastResult.stdout}\nstderr: ${this.lastResult.stderr}`,
+    `exit ${this.lastResult.exitCode}\nstderr: ${this.lastResult.stderr}`,
   )
 })
 
-Then("it exits with code {int}", function (this: GtdWorld, code: number) {
-  assert.strictEqual(
-    this.lastResult.exitCode,
-    code,
-    `Expected exit code ${code} but got ${this.lastResult.exitCode}\nstdout: ${this.lastResult.stdout}\nstderr: ${this.lastResult.stderr}`,
-  )
-})
-
-Then("git log contains {string}", function (this: GtdWorld, text: string) {
-  const log = this.gitLog()
-  assert.ok(log.includes(text), `Expected git log to contain "${text}":\n${log}`)
-})
-
-Then("git log does not contain {string}", function (this: GtdWorld, text: string) {
-  const log = this.gitLog()
-  assert.ok(!log.includes(text), `Expected git log to NOT contain "${text}":\n${log}`)
-})
-
-Then("last commit prefix is {string}", function (this: GtdWorld, prefix: string) {
-  const actual = this.lastCommitPrefix()
-  assert.strictEqual(actual, prefix, `Expected last commit prefix "${prefix}" but got "${actual}"`)
-})
-
-Then("{string} contains {string}", function (this: GtdWorld, file: string, text: string) {
-  const content = this.repoFile(file)
-  assert.ok(content.includes(text), `Expected "${file}" to contain "${text}":\n${content}`)
-})
-
-Then("{string} does not contain {string}", function (this: GtdWorld, file: string, text: string) {
-  const content = this.repoFile(file)
-  assert.ok(!content.includes(text), `Expected "${file}" to NOT contain "${text}":\n${content}`)
-})
-
-Then("output contains {string}", function (this: GtdWorld, text: string) {
-  const combined = this.lastResult.stdout + this.lastResult.stderr
+Then("stdout contains {string}", function (this: GtdWorld, text: string) {
   assert.ok(
-    combined.includes(text),
-    `Expected output to contain "${text}":\nstdout: ${this.lastResult.stdout}\nstderr: ${this.lastResult.stderr}`,
+    this.lastResult.stdout.includes(text),
+    `Expected stdout to contain "${text}". Got:\n${this.lastResult.stdout}`,
   )
 })
 
-Then("{string} exists", function (this: GtdWorld, file: string) {
-  assert.ok(this.repoFileExists(file), `Expected "${file}" to exist`)
+Then("stdout does not contain {string}", function (this: GtdWorld, text: string) {
+  assert.ok(
+    !this.lastResult.stdout.includes(text),
+    `Expected stdout NOT to contain "${text}". Got:\n${this.lastResult.stdout}`,
+  )
 })
-
-Then("{string} does not exist", function (this: GtdWorld, file: string) {
-  assert.ok(!this.repoFileExists(file), `Expected "${file}" to NOT exist`)
-})
-
-Then(
-  "the last commit message body contains {string}",
-  function (this: GtdWorld, text: string) {
-    const body = this.lastCommitBody()
-    assert.ok(body.includes(text), `Expected last commit body to contain "${text}":\n${body}`)
-  },
-)
-
-Then(
-  "the last commit message body does not contain {string}",
-  function (this: GtdWorld, text: string) {
-    const body = this.lastCommitBody()
-    assert.ok(!body.includes(text), `Expected last commit body to NOT contain "${text}":\n${body}`)
-  },
-)
-
-Then("the last commit message subject is {string}", function (this: GtdWorld, expected: string) {
-  const subject = this.lastCommitSubject()
-  assert.strictEqual(subject, expected, `Expected subject "${expected}" but got "${subject}"`)
-})
-
-Then(
-  "the last commit message subject does not contain {string}",
-  function (this: GtdWorld, text: string) {
-    const subject = this.lastCommitSubject()
-    assert.ok(!subject.includes(text), `Expected subject to NOT contain "${text}":\n${subject}`)
-  },
-)
-
-Then(
-  "the last commit message subject matches {string}",
-  function (this: GtdWorld, pattern: string) {
-    const subject = this.lastCommitSubject()
-    const re = new RegExp(pattern)
-    assert.ok(re.test(subject), `Expected subject to match /${pattern}/:\n${subject}`)
-  },
-)
-
-Then("npm test passes", function (this: GtdWorld) {
-  const result = this.execInRepo("npm", ["test"])
-  assert.ok(result !== undefined, "npm test should complete")
-})
-
-Then(
-  "the {string} commit diff contains {string}",
-  function (this: GtdWorld, prefix: string, text: string) {
-    const log = execSync("git log --oneline", { cwd: this.repoDir, encoding: "utf-8" })
-    const hash = log
-      .split("\n")
-      .find((line) => line.includes(prefix))
-      ?.split(" ")[0]
-    assert.ok(hash, `Expected a commit with "${prefix}" in its message:\n${log}`)
-    const diff = execSync(`git show ${hash}`, { cwd: this.repoDir, encoding: "utf-8" })
-    assert.ok(
-      diff.includes(text),
-      `Expected commit ${hash} diff to contain "${text}":\n${diff.slice(0, 1000)}`,
-    )
-  },
-)
