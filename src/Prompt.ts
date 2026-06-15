@@ -5,7 +5,6 @@ import build from "./prompts/build.md"
 import codeChanges from "./prompts/code-changes.md"
 import todoMarkers from "./prompts/todo-markers.md"
 import runTests from "./prompts/run-tests.md"
-import grillWithDocs from "./prompts/grill-with-docs.md"
 import type { Branch, State } from "./State.js"
 
 const SECTIONS: Record<Branch, string> = {
@@ -16,9 +15,6 @@ const SECTIONS: Record<Branch, string> = {
   "todo-markers": todoMarkers,
   "run-tests": runTests,
 }
-
-const branchesNeedGrillAppendix = (branches: ReadonlyArray<Branch>): boolean =>
-  branches.includes("new-todo") || branches.includes("modified-todo")
 
 const buildContext = (state: State): string => {
   const lines: Array<string> = ["## Context", ""]
@@ -43,6 +39,5 @@ const buildContext = (state: State): string => {
 export const buildPrompt = (state: State): string => {
   const parts: Array<string> = [header, "", buildContext(state)]
   for (const branch of state.branches) parts.push(SECTIONS[branch], "")
-  if (branchesNeedGrillAppendix(state.branches)) parts.push(grillWithDocs, "")
   return parts.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n"
 }
