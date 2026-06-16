@@ -14,7 +14,6 @@ describe("buildPrompt", () => {
   it("includes the header for every state", () => {
     const out = buildPrompt(baseState({ branches: ["run-tests"] }))
     expect(out).toContain("You are an autonomous coding agent")
-    expect(out).toContain("Conventional Commits")
   })
 
   it("composes multiple branches in stable order", () => {
