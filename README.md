@@ -6,8 +6,8 @@
 > first place. Now I have something that actually helps me.
 
 A git-aware agent skill that emits the next prompt for an autonomous coding
-agent based on the current working-tree state — plan, refine the plan, build,
-commit, or run the test suite.
+agent based on the current working-tree state — plan, refine the plan,
+execute it, commit, or verify the working tree is healthy.
 
 `gtd` ships as an [Agent Skills Spec](https://agentskills.io/specification)
 compliant skill installable via [skills.sh](https://www.skills.sh/). The
@@ -40,20 +40,22 @@ acts on the emitted prompt.
 task sections. Multiple sections can fire in the same run — for example, new
 `TODO:` markers in code compose with the "group and commit" task.
 
-| State                                                  | Section emitted                                                    |
-| ------------------------------------------------------ | ------------------------------------------------------------------ |
-| New (untracked / added) `TODO.md`                      | Seed the plan and grill the design                                 |
-| Modified `TODO.md`                                     | Integrate user answers, continue grilling                          |
-| Clean tree, last commit touched only `TODO.md`         | Build every unchecked item, one commit each, then delete `TODO.md` |
-| Uncommitted code changes outside `TODO.md`             | Run tests, then group and commit semantically                      |
-| Added/modified lines containing `TODO:` markers        | Extract markers into `TODO.md`, strip from source                  |
-| Clean tree, last commit was not a `TODO.md` checkpoint | Run the full test suite, fix anything broken                       |
+| State                                                  | Section emitted                              |
+| ------------------------------------------------------ | -------------------------------------------- |
+| New (untracked / added) `TODO.md`                      | Develop the plan                             |
+| Modified `TODO.md`                                     | Incorporate edits and keep developing        |
+| Clean tree, last commit touched only `TODO.md`         | Execute the plan, then delete `TODO.md`      |
+| Uncommitted code changes outside `TODO.md`             | Commit the uncommitted changes               |
+| Added/modified lines containing `TODO:` markers        | Move `TODO:` markers into `TODO.md`          |
+| Clean tree, last commit was not a `TODO.md` checkpoint | Verify the working tree is healthy           |
 
-Every prompt also includes:
+gtd coordinates phases — it doesn't dictate strategy. How to grill, how to
+commit, how to build, how to verify: those are left to other skills (or the
+agent's own judgement). The prompts only describe **intent**, plus the
+`TODO.md` plumbing that lets phases bridge across runs.
 
-- A header with the Conventional Commits convention and the rule to always run
-  the project's test suite after touching code.
-- The current `git diff HEAD` (untracked files included) inline.
+Every prompt also includes the current `git diff HEAD` (untracked files
+included) inline.
 
 ## Workflow
 
@@ -61,30 +63,29 @@ Every prompt also includes:
 flowchart TD
     Start([Invoke /gtd]) --> Dirty{Working tree dirty?}
     Dirty -->|No| Last{Last commit only<br/>changed TODO.md?}
-    Last -->|Yes| Build[Section: Build]
-    Last -->|No| Verify[Section: Verify tests]
+    Last -->|Yes| Build[Section: Execute plan]
+    Last -->|No| Verify[Section: Verify]
     Dirty -->|Yes| Todo{TODO.md in diff?}
-    Todo -->|new| Seed[Section: Seed plan]
-    Todo -->|modified| Refine[Section: Refine plan]
+    Todo -->|new| Seed[Section: Develop plan]
+    Todo -->|modified| Refine[Section: Incorporate edits]
     Dirty -->|Yes| Other{Other files<br/>changed?}
-    Other -->|with TODO: markers| Markers[Section: Extract markers]
-    Other -->|yes| Commit[Section: Group & commit]
+    Other -->|with TODO: markers| Markers[Section: Move TODO: markers]
+    Other -->|yes| Commit[Section: Commit changes]
     Markers --> Commit
 ```
 
 A typical feature:
 
 1. Create a `TODO.md` with a sketch of what you want.
-2. `/gtd` — the agent fleshes it out and adds an `## Open Questions` section,
-   then commits `docs: seed plan`.
+2. `/gtd` — the agent fleshes it out, appends an `## Open Questions`
+   section, and commits `TODO.md`.
 3. Open `TODO.md`, write inline answers under each question.
 4. `/gtd` again — the agent integrates your answers, removes resolved
-   questions, generates new ones, commits `docs: refine plan`. Repeat until
-   you're happy.
-5. `/gtd` once more — agent sees a clean tree + `TODO.md`-only last commit
-   and builds every unchecked item, one commit per item, runs tests after
-   each, deletes `TODO.md` when done.
-6. On a clean tree afterwards, `/gtd` runs the test suite as a sanity check.
+   questions, raises new ones, and commits. Repeat until `## Open
+   Questions` is empty.
+5. `/gtd` once more — agent sees a clean tree with a `TODO.md`-only last
+   commit, executes the plan, and deletes `TODO.md` when done.
+6. On a clean tree afterwards, `/gtd` verifies the working tree is healthy.
 
 ## Q&A format inside TODO.md
 
