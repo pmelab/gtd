@@ -5,41 +5,34 @@
 > terrible, I don't even know 🤷‍♂️ But otherwise I wouldn't have built it in the
 > first place. Now I have something that actually helps me.
 
-A git-aware prompt generator for autonomous coding agents.
+A git-aware agent skill that emits the next prompt for an autonomous coding
+agent based on the current working-tree state — plan, refine the plan, build,
+commit, or run the test suite.
 
-`gtd` looks at your working tree and prints a single, self-contained prompt
-that tells an agent exactly what to do next — plan, refine the plan, build,
-commit, or run the test suite. It never spawns the agent itself; you pipe the
-prompt wherever you want.
-
-```bash
-gtd | claude
-gtd > prompt.md
-```
+`gtd` ships as an [Agent Skills Spec](https://agentskills.io/specification)
+compliant skill installable via [skills.sh](https://www.skills.sh/). The
+agent runs the bundled script, reads the emitted prompt, and follows it
+verbatim.
 
 ## Installation
 
 ```bash
-npm install -g githingsdone
+npx skills add pmelab/gtd -g -y
 ```
 
-Once, before piping plans, install the agent skills `gtd` relies on:
-
-```bash
-gtd setup | claude
-```
-
-This emits a prompt that tells the agent to install required skills via
-[skills.sh](https://www.skills.sh/). Re-run any time the skill list changes.
+That's it. No npm install, no config file, no setup subcommand. The skill
+bundles its own prebuilt script.
 
 ## Usage
 
-```bash
-gtd
-```
+Inside the agent (Claude Code, Codex, etc.), either:
 
-That's it. No flags, no config file, no init step. Run it inside a git
-repository; it inspects the state and writes a markdown prompt to stdout.
+- Type `/gtd` to invoke the skill directly, **or**
+- Say something like "take the next step", "what's next", or "gtd" — the
+  skill's description matcher picks it up.
+
+The agent runs `node scripts/gtd.js` in your current working directory and
+acts on the emitted prompt.
 
 ## What it does
 
@@ -47,28 +40,26 @@ repository; it inspects the state and writes a markdown prompt to stdout.
 task sections. Multiple sections can fire in the same run — for example, new
 `TODO:` markers in code compose with the "group and commit" task.
 
-| State                                                 | Section emitted                          |
-| ----------------------------------------------------- | ---------------------------------------- |
-| New (untracked / added) `TODO.md`                     | Seed the plan and grill the design       |
-| Modified `TODO.md`                                    | Integrate user answers, continue grilling |
-| Clean tree, last commit touched only `TODO.md`        | Build every unchecked item, one commit each, then delete `TODO.md` |
-| Uncommitted code changes outside `TODO.md`            | Run tests, then group and commit semantically |
-| Added/modified lines containing `TODO:` markers       | Extract markers into `TODO.md`, strip from source |
-| Clean tree, last commit was not a `TODO.md` checkpoint | Run the full test suite, fix anything broken |
+| State                                                  | Section emitted                                                    |
+| ------------------------------------------------------ | ------------------------------------------------------------------ |
+| New (untracked / added) `TODO.md`                      | Seed the plan and grill the design                                 |
+| Modified `TODO.md`                                     | Integrate user answers, continue grilling                          |
+| Clean tree, last commit touched only `TODO.md`         | Build every unchecked item, one commit each, then delete `TODO.md` |
+| Uncommitted code changes outside `TODO.md`             | Run tests, then group and commit semantically                      |
+| Added/modified lines containing `TODO:` markers        | Extract markers into `TODO.md`, strip from source                  |
+| Clean tree, last commit was not a `TODO.md` checkpoint | Run the full test suite, fix anything broken                       |
 
 Every prompt also includes:
 
 - A header with the Conventional Commits convention and the rule to always run
   the project's test suite after touching code.
 - The current `git diff HEAD` (untracked files included) inline.
-- For planning sections, a reference to the `grill-with-docs` agent skill
-  (install it once with `gtd setup`).
 
 ## Workflow
 
 ```mermaid
 flowchart TD
-    Start([Run gtd]) --> Dirty{Working tree dirty?}
+    Start([Invoke /gtd]) --> Dirty{Working tree dirty?}
     Dirty -->|No| Last{Last commit only<br/>changed TODO.md?}
     Last -->|Yes| Build[Section: Build]
     Last -->|No| Verify[Section: Verify tests]
@@ -84,17 +75,16 @@ flowchart TD
 A typical feature:
 
 1. Create a `TODO.md` with a sketch of what you want.
-2. `gtd | claude` — the agent fleshes it out and adds an `## Open Questions`
-   section, then commits `docs: seed plan`.
+2. `/gtd` — the agent fleshes it out and adds an `## Open Questions` section,
+   then commits `docs: seed plan`.
 3. Open `TODO.md`, write inline answers under each question.
-4. `gtd | claude` again — the agent integrates your answers, removes resolved
+4. `/gtd` again — the agent integrates your answers, removes resolved
    questions, generates new ones, commits `docs: refine plan`. Repeat until
    you're happy.
-5. `gtd | claude` once more — agent sees a clean tree + `TODO.md`-only last
-   commit and builds every unchecked item, one commit per item, runs tests
-   after each, deletes `TODO.md` when done.
-6. On a clean tree afterwards, `gtd | claude` runs the test suite as a
-   sanity check.
+5. `/gtd` once more — agent sees a clean tree + `TODO.md`-only last commit
+   and builds every unchecked item, one commit per item, runs tests after
+   each, deletes `TODO.md` when done.
+6. On a clean tree afterwards, `/gtd` runs the test suite as a sanity check.
 
 ## Q&A format inside TODO.md
 
@@ -125,12 +115,15 @@ the question from `## Open Questions`.
 
 ```bash
 npm install
-npm run build        # tsup → dist/gtd.js
+npm run build        # tsup → scripts/gtd.js (checked in)
 npm test             # vitest
 npm run test:e2e     # cucumber integration tests
 npm run typecheck
 npm run lint
 ```
+
+`scripts/gtd.js` is committed to the repo so the skill installs zero-step.
+Rebuild it before tagging a release.
 
 ## License
 
