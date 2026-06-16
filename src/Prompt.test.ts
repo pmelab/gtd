@@ -17,11 +17,6 @@ describe("buildPrompt", () => {
     expect(out).toContain("Conventional Commits")
   })
 
-  it("does not vendor the grill methodology in planning branches", () => {
-    const planning = buildPrompt(baseState({ branches: ["new-todo"], workingTreeClean: false }))
-    expect(planning).not.toContain("grill-with-docs methodology")
-  })
-
   it("composes multiple branches in stable order", () => {
     const out = buildPrompt(
       baseState({

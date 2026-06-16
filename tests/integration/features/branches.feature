@@ -9,8 +9,6 @@ Feature: gtd prints a structured prompt for the agent based on git state
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Seed the plan from a fresh `TODO.md`"
-    And stdout contains "`grill-with-docs` skill"
-    And stdout does not contain "## Appendix: grill-with-docs methodology"
     And stdout contains "- build a math library"
     And stdout does not contain "## Task: Build every unchecked item"
 
@@ -43,8 +41,6 @@ Feature: gtd prints a structured prompt for the agent based on git state
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Incorporate edits to `TODO.md`"
-    And stdout contains "`grill-with-docs` skill"
-    And stdout does not contain "## Appendix: grill-with-docs methodology"
 
   Scenario: Clean tree after a TODO.md-only commit triggers the build task
     Given a test project
@@ -55,7 +51,6 @@ Feature: gtd prints a structured prompt for the agent based on git state
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Build every unchecked item in `TODO.md`"
-    And stdout does not contain "## Appendix: grill-with-docs methodology"
 
   Scenario: Clean tree after a non-TODO commit triggers the run-tests task
     Given a test project

@@ -1,7 +1,9 @@
 ## Task: Seed the plan from a fresh `TODO.md`
 
-A new `TODO.md` was created. Treat its contents as the user's first sketch of a
-plan. Run a thorough grilling session using the `grill-with-docs` skill.
+A new `TODO.md` was created. Treat its contents as the user's first sketch of
+a plan. Run a thorough grilling session: interview the plan relentlessly, walk
+every branch of the design tree, sharpen terminology, and challenge each
+decision against the existing domain model and documentation.
 
 Do this entirely by editing `TODO.md` — you cannot talk to the user.
 
