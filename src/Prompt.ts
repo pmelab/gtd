@@ -4,7 +4,7 @@ import modifiedTodo from "./prompts/modified-todo.md"
 import build from "./prompts/build.md"
 import codeChanges from "./prompts/code-changes.md"
 import todoMarkers from "./prompts/todo-markers.md"
-import runTests from "./prompts/run-tests.md"
+import verify from "./prompts/verify.md"
 import type { Branch, State } from "./State.js"
 
 const SECTIONS: Record<Branch, string> = {
@@ -13,7 +13,7 @@ const SECTIONS: Record<Branch, string> = {
   build,
   "code-changes": codeChanges,
   "todo-markers": todoMarkers,
-  "run-tests": runTests,
+  verify,
 }
 
 const buildContext = (state: State): string => {

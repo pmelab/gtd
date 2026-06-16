@@ -7,7 +7,7 @@ export type Branch =
   | "build"
   | "code-changes"
   | "todo-markers"
-  | "run-tests"
+  | "verify"
 
 export interface State {
   readonly branches: ReadonlyArray<Branch>
@@ -52,7 +52,7 @@ export const detect = (): Effect.Effect<State, Error, GitService> =>
 
     if (clean) {
       if (lastCommitIsTodoOnly) branches.push("build")
-      else branches.push("run-tests")
+      else branches.push("verify")
     } else {
       if (todoEntry) {
         const isNew = todoEntry.status.includes("?") || todoEntry.status.includes("A")

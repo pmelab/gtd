@@ -12,7 +12,7 @@ const baseState = (overrides: Partial<State>): State => ({
 
 describe("buildPrompt", () => {
   it("includes the header for every state", () => {
-    const out = buildPrompt(baseState({ branches: ["run-tests"] }))
+    const out = buildPrompt(baseState({ branches: ["verify"] }))
     expect(out).toContain("You are an autonomous coding agent")
   })
 
@@ -43,7 +43,7 @@ describe("buildPrompt", () => {
   })
 
   it("omits the diff block when the tree is clean", () => {
-    const out = buildPrompt(baseState({ branches: ["run-tests"] }))
+    const out = buildPrompt(baseState({ branches: ["verify"] }))
     expect(out).not.toContain("```diff")
   })
 })
