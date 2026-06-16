@@ -1,6 +1,6 @@
 Feature: gtd prints a structured prompt for the agent based on git state
 
-  Scenario: New TODO.md triggers the seeding/grilling task
+  Scenario: New TODO.md triggers the planning task
     Given a test project
     And a file "TODO.md" with:
       """
@@ -8,9 +8,9 @@ Feature: gtd prints a structured prompt for the agent based on git state
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Seed the plan from a fresh `TODO.md`"
+    And stdout contains "## Task: Develop the plan in `TODO.md`"
     And stdout contains "- build a math library"
-    And stdout does not contain "## Task: Build every unchecked item"
+    And stdout does not contain "## Task: Execute the plan"
 
   Scenario: Modified TODO.md triggers the refinement task
     Given a test project
@@ -46,13 +46,13 @@ Feature: gtd prints a structured prompt for the agent based on git state
     Given a test project
     And a commit "docs: seed plan" that adds "TODO.md" with:
       """
-      - [ ] add the multiply function
+      - build the multiply function
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Build every unchecked item in `TODO.md`"
+    And stdout contains "## Task: Execute the plan in `TODO.md`"
 
-  Scenario: Clean tree after a non-TODO commit triggers the run-tests task
+  Scenario: Clean tree after a non-TODO commit triggers the verify task
     Given a test project
     When I run gtd
     Then it succeeds
@@ -71,8 +71,8 @@ Feature: gtd prints a structured prompt for the agent based on git state
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit uncommitted code changes"
-    And stdout does not contain "## Task: Extract `TODO:` markers"
+    And stdout contains "## Task: Commit the uncommitted changes"
+    And stdout does not contain "## Task: Move `TODO:` markers"
 
   Scenario: New TODO: markers in code compose with the commit task
     Given a test project
@@ -87,5 +87,5 @@ Feature: gtd prints a structured prompt for the agent based on git state
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Extract `TODO:` markers into `TODO.md`"
-    And stdout contains "## Task: Commit uncommitted code changes"
+    And stdout contains "## Task: Move `TODO:` markers into `TODO.md`"
+    And stdout contains "## Task: Commit the uncommitted changes"
