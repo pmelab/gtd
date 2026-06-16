@@ -71,16 +71,25 @@ capability that knows when to invoke the script and follow the emitted prompt.
 - Drop the `Prompt.test.ts` assertion `does not vendor the grill methodology`
   — that assertion was tied to the now-defunct appendix concept and is no
   longer load-bearing.
-- Put the built artifact at `scripts/gtd.js` (spec's `scripts/` directory).
-  Update `tsup.config.ts` to emit there directly; remove `dist/` from the
-  build. Commit `scripts/gtd.js` so `npx skills add pmelab/gtd` is
-  zero-step.
+- Drop the cucumber assertion `stdout contains "`grill-with-docs` skill"`
+  in `tests/integration/features/branches.feature` outright (no
+  replacement). Asserting on specific organic-trigger vocabulary would
+  bake brittle wording into tests; better to leave the planning
+  scenarios verifying only the structural pieces.
+- Put the built artifact at `scripts/gtd.js` (spec's `scripts/`
+  directory). Update `tsup.config.ts` to emit there directly; remove
+  `dist/` from the build. Commit `scripts/gtd.js` so
+  `npx skills add pmelab/gtd` is zero-step.
+- Update `tests/integration/support/world.ts` to point at
+  `scripts/gtd.js` (was `dist/gtd.js`) in the same commit that moves the
+  build target.
 - Leave sources in `src/` — the skill spec doesn't care about
   unreferenced directories.
 - Delete the now-redundant pieces:
   - `src/Setup.ts`, `src/Setup.test.ts`, `src/prompts/setup.md`.
   - The `setup` subcommand dispatch + unknown-subcommand error path in
-    `src/main.ts` (no subcommands remain).
+    `src/main.ts` (no subcommands remain — `main.ts` returns to the
+    simple "build prompt from git state and print" shape).
   - `tests/integration/features/setup.feature`.
 - Drop the npm-package distribution entirely: set `"private": true` in
   `package.json` and remove `bin`, `exports`, `publishConfig`, `files`.
@@ -92,34 +101,3 @@ capability that knows when to invoke the script and follow the emitted prompt.
   `linguist-generated` so GitHub diffs collapse it.
 - Add a contributor-doc note: rebuild `scripts/gtd.js` before tagging,
   since it's checked in.
-
-## Open Questions
-
-### Does the cucumber suite's existing assertion `stdout contains "`grill-with-docs` skill"` survive the reword?
-
-**Recommendation:** No — that assertion currently exists in
-`tests/integration/features/branches.feature` (added when we briefly
-referenced the skill by name in planning prompts). It should be replaced
-with an assertion on the organic trigger vocabulary instead, e.g.
-`stdout contains "grilling session"` or `stdout contains "walk every
-branch of the design tree"`. Pick whichever phrase ends up in the
-reworded prompts.
-
-<!-- user answers here -->
-
-### Should the e2e tests still build into a `dist/` path, or follow the new `scripts/` location?
-
-**Recommendation:** Follow `scripts/`. `tests/integration/support/world.ts`
-currently points at `dist/gtd.js`; update it to `scripts/gtd.js` in the
-same commit that moves the build target. One source of truth.
-
-<!-- user answers here -->
-
-### Does removing the `setup` subcommand require any other adjustments to `src/main.ts` — e.g. argv-handling that becomes dead code?
-
-**Recommendation:** Yes — without subcommands, the `process.argv[2]`
-dispatch block and the unknown-subcommand error path both go away.
-`src/main.ts` returns to the simple "build prompt from git state and
-print" shape it had two commits ago, minus the subcommand layer.
-
-<!-- user answers here -->
