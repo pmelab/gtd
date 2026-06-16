@@ -5,7 +5,7 @@ export default defineConfig({
   format: ["esm"],
   platform: "node",
   target: "node20",
-  outDir: "dist",
+  outDir: "scripts",
   noExternal: [/.*/],
   splitting: false,
   loader: { ".md": "text" },

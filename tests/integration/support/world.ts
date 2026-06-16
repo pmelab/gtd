@@ -4,7 +4,7 @@ import { readFileSync, existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
-const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.js")
+const GTD_BIN = join(PROJECT_ROOT, "scripts/gtd.js")
 
 export class GtdWorld extends World {
   repoDir!: string
