@@ -1,27 +1,26 @@
-## Task: Incorporate edits to `TODO.md` and continue grilling
+## Task: Incorporate edits to `TODO.md` and keep developing the plan
 
-`TODO.md` exists in `HEAD` and the user has edited it. The edits are the user's
-answers to questions in the `## Open Questions` section (written inline below
-each `### <question>` heading, replacing the `<!-- user answers here -->`
-placeholder), plus any free-form changes to the plan.
+`TODO.md` exists in `HEAD` and the user has edited it. The edits are the
+user's answers to questions in the `## Open Questions` section (written
+inline below each `### <question>` heading, replacing the
+`<!-- user answers here -->` placeholder), plus any free-form changes to the
+plan.
 
-1. Inspect the diff for `TODO.md` to find which questions were answered.
-2. For each answered question:
-   - Integrate the answer into the body of the plan above `## Open Questions`.
-   - Remove the question from `## Open Questions`.
-3. Continue the grilling session: every new piece of information opens new
-   branches of the design tree. Generate fresh questions for any ambiguity the
-   answers surfaced — sharpening terminology and challenging decisions against
-   the existing domain model — and append them to `## Open Questions` in the
-   same format as before:
+For each answered question, integrate the answer into the body of the plan
+above `## Open Questions` and remove the question from `## Open Questions`.
 
-   ```markdown
-   ### <one-line question>
+Continue the grilling session: every new piece of information opens new
+branches of the design tree. Generate fresh questions for any ambiguity the
+answers surfaced — sharpening terminology and challenging decisions against
+the existing domain model — and append them to `## Open Questions` in the
+same format as before:
 
-   **Recommendation:** <your answer + reasoning>
+```markdown
+### <one-line question>
 
-   <!-- user answers here -->
-   ```
+**Recommendation:** <your answer + reasoning>
 
-4. If `## Open Questions` is now empty, delete the heading.
-5. Stage `TODO.md` and commit with `docs: refine plan`.
+<!-- user answers here -->
+```
+
+If `## Open Questions` is now empty, delete the heading. Commit `TODO.md`.

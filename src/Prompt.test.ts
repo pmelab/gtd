@@ -24,8 +24,8 @@ describe("buildPrompt", () => {
         diff: "diff --git a/x b/x\n",
       }),
     )
-    const markersIdx = out.indexOf("Extract `TODO:` markers")
-    const commitIdx = out.indexOf("Commit uncommitted code changes")
+    const markersIdx = out.indexOf("Move `TODO:` markers")
+    const commitIdx = out.indexOf("Commit the uncommitted changes")
     expect(markersIdx).toBeGreaterThan(-1)
     expect(commitIdx).toBeGreaterThan(markersIdx)
   })
