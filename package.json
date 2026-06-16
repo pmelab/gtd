@@ -1,35 +1,15 @@
 {
-  "name": "githingsdone",
+  "name": "gtd",
   "version": "0.1.0",
-  "description": "Generate a single autonomous-agent prompt from the current git state — plan, build, commit, or run tests, depending on what your working tree looks like",
+  "private": true,
+  "description": "Agent skill that emits the next prompt for an autonomous coding agent based on the current git state",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/pmelab/gtd.git"
   },
-  "keywords": [
-    "ai",
-    "agent",
-    "cli",
-    "git",
-    "automation",
-    "effect",
-    "claude"
-  ],
-  "bin": {
-    "gtd": "dist/gtd.js"
-  },
-  "exports": {
-    ".": "./dist/gtd.js"
-  },
-  "files": [
-    "dist"
-  ],
   "engines": {
     "node": ">=20"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "type": "module",
   "scripts": {
