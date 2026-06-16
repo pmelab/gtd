@@ -37,114 +37,89 @@ capability that knows when to invoke the script and follow the emitted prompt.
     e.g. `Bash(node:*)`. Skips approval prompts in supporting agents.
 - Body guidance: keep `SKILL.md` under ~500 lines / ~5000 tokens; move
   detailed material into `references/`.
-- No explicit skill-dependency mechanism. Per the user's direction, we do
-  **not** bootstrap `grill-with-docs` ourselves — we just use wording in
-  the SKILL.md and the emitted prompts that should trigger the
-  grill-with-docs skill if it's installed.
+- No skill-dependency mechanism, no inline bootstrap. The script's emitted
+  prompts must **organically** trigger the `grill-with-docs` skill if
+  installed — by reusing the keywords from grill-with-docs's own
+  description (e.g. "grilling session", "walk the design tree",
+  "sharpens terminology") — without naming the skill. The grill-with-docs
+  description matcher does the rest.
 
 ## High-level changes
 
 - Add a root-level `SKILL.md`:
   - Frontmatter:
     - `name: gtd`
-    - `description`: trigger phrasing covering "take the next step",
-      "what's next", "gtd", `/gtd`, plus a sentence about the workflow
-      (git-aware conventional-commits planning/build/commit/test loop).
+    - `description` (no mention of grill-with-docs):
+
+      > Use when the user wants to take the next git-aware,
+      > conventional-commits step on the current repo — planning with
+      > `TODO.md`, refining a plan, committing pending changes, or
+      > running the test suite. Also triggers on "gtd", "what's next",
+      > "take the next step", or `/gtd`.
     - `compatibility: Requires Node 20+`
-    - `allowed-tools: Bash(node:*)` (experimental, but cheap to add).
-  - Body:
-    1. State the contract: run the bundled script and follow its emitted
-       prompt verbatim.
-    2. Show the exact invocation as a relative path: `node scripts/gtd.js`
-       (run with the user's git repo as CWD).
-    3. Note that the emitted prompt may reference grilling/methodology
-       wording that aligns with the `grill-with-docs` skill — leave the
-       wording in place so that skill engages if installed; do not try to
-       install it ourselves.
-- Put the built artifact at `scripts/gtd.js` (per the spec's `scripts/`
-  convention) instead of `dist/`. Update `tsup.config.ts` accordingly and
-  commit `scripts/gtd.js` so `npx skills add pmelab/gtd` works zero-step.
-- Restructure the repo:
-  ```
-  SKILL.md          ← skill manifest + body (new)
-  scripts/gtd.js    ← prebuilt CLI artifact, checked in (was dist/gtd.js)
-  cli/              ← TypeScript sources (was src/)
-  cli-tests/        ← vitest specs (was src/*.test.ts) [or keep alongside cli/]
-  tests/integration ← cucumber e2e (unchanged in spirit; setup feature removed)
-  ```
+    - `allowed-tools: Bash(node:*)`
+  - Body (terse, ~10-20 lines): contract = run the bundled script via
+    `node scripts/gtd.js` from the user's git repo CWD and follow the
+    emitted prompt verbatim. No mention of grill-with-docs.
+- Reword the planning prompts (`src/prompts/new-todo.md`,
+  `src/prompts/modified-todo.md`) so the wording **organically** triggers
+  grill-with-docs without naming it. Replace phrases like "using the
+  `grill-with-docs` skill" with the skill's own description vocabulary —
+  "grilling session", "interview the plan", "walk every branch of the
+  design tree", "sharpen terminology". The grill-with-docs description
+  matcher then engages from the prompt content alone.
+- Drop the `Prompt.test.ts` assertion `does not vendor the grill methodology`
+  — that assertion was tied to the now-defunct appendix concept and is no
+  longer load-bearing.
+- Put the built artifact at `scripts/gtd.js` (spec's `scripts/` directory).
+  Update `tsup.config.ts` to emit there directly; remove `dist/` from the
+  build. Commit `scripts/gtd.js` so `npx skills add pmelab/gtd` is
+  zero-step.
+- Leave sources in `src/` — the skill spec doesn't care about
+  unreferenced directories.
 - Delete the now-redundant pieces:
   - `src/Setup.ts`, `src/Setup.test.ts`, `src/prompts/setup.md`.
-  - The `setup` subcommand dispatch in `src/main.ts` (and unknown-subcommand
-    error path, since no subcommands remain).
+  - The `setup` subcommand dispatch + unknown-subcommand error path in
+    `src/main.ts` (no subcommands remain).
   - `tests/integration/features/setup.feature`.
 - Drop the npm-package distribution entirely: set `"private": true` in
   `package.json` and remove `bin`, `exports`, `publishConfig`, `files`.
 - Rewrite README:
   - Lead: `npx skills add pmelab/gtd -g -y`.
   - How invocation works (`/gtd` or trigger phrase).
-  - Mention that the `grill-with-docs` skill — if installed — engages for
-    the planning phases; no auto-install.
+  - No mention of grill-with-docs (organic trigger only).
 - Add a `.gitattributes` line marking `scripts/gtd.js` as
   `linguist-generated` so GitHub diffs collapse it.
-- Add CI / contributor-doc note: rebuild `scripts/gtd.js` before tagging,
+- Add a contributor-doc note: rebuild `scripts/gtd.js` before tagging,
   since it's checked in.
 
 ## Open Questions
 
-### Should we keep `dist/` as the tsup build target and copy to `scripts/`, or change tsup to emit directly to `scripts/`?
+### Does the cucumber suite's existing assertion `stdout contains "`grill-with-docs` skill"` survive the reword?
 
-**Recommendation:** Change tsup's target to `scripts/`. One artifact in
-one place; no copy step. The `scripts/` name is dictated by the skill
-spec; `dist/` becomes a vestigial intermediate, so we just remove it.
-
-<!-- user answers here -->
-
-### Should we keep the `cli/`-style source-directory rename, or leave sources in `src/`?
-
-**Recommendation:** Leave them in `src/`. The skill spec doesn't care
-where unreferenced source files live — only `SKILL.md` and the directories
-it references matter. Renaming `src/` to `cli/` is churn with no payoff.
+**Recommendation:** No — that assertion currently exists in
+`tests/integration/features/branches.feature` (added when we briefly
+referenced the skill by name in planning prompts). It should be replaced
+with an assertion on the organic trigger vocabulary instead, e.g.
+`stdout contains "grilling session"` or `stdout contains "walk every
+branch of the design tree"`. Pick whichever phrase ends up in the
+reworded prompts.
 
 <!-- user answers here -->
 
-### What exactly should the `description` field say?
+### Should the e2e tests still build into a `dist/` path, or follow the new `scripts/` location?
 
-**Recommendation:** Draft:
-
-> Use when the user wants to take the next git-aware,
-> conventional-commits step on the current repo — planning with `TODO.md`,
-> refining a plan, committing pending changes, running the test suite, or
-> when they type "gtd", "what's next", or "/gtd". Composes with the
-> grill-with-docs skill during planning phases.
-
-Concrete enough for trigger matching, mentions grill-with-docs by name so
-that skill's description matcher can also engage when relevant. Cap at
-1024 chars per spec; this is well under.
+**Recommendation:** Follow `scripts/`. `tests/integration/support/world.ts`
+currently points at `dist/gtd.js`; update it to `scripts/gtd.js` in the
+same commit that moves the build target. One source of truth.
 
 <!-- user answers here -->
 
-### Should we declare `allowed-tools: Bash(node:*)` even though it's experimental?
+### Does removing the `setup` subcommand require any other adjustments to `src/main.ts` — e.g. argv-handling that becomes dead code?
 
-**Recommendation:** Yes. The cost is zero in agents that don't
-recognize the field, and a real UX win (no approval prompt) in those
-that do. Pre-approve only the narrowest pattern needed.
-
-<!-- user answers here -->
-
-### Should the SKILL.md body inline the description of the gtd workflow (state machine), or stay terse and let the script's output do the talking?
-
-**Recommendation:** Stay terse. The script's output is already a
-self-contained prompt with full conventions and task sections. Duplicating
-that in SKILL.md would double the maintenance surface and risk drift.
-Body should be ~10-20 lines: contract, command, brief note about the
-grill-with-docs interaction.
-
-<!-- user answers here -->
-
-### What happens to the `Prompt.test.ts` "does not vendor the grill methodology" assertion — does it still apply?
-
-**Recommendation:** Yes, keep it. The assertion remains correct (no
-appendix in emitted prompts). Skill-spec changes are orthogonal to what
-the script emits.
+**Recommendation:** Yes — without subcommands, the `process.argv[2]`
+dispatch block and the unknown-subcommand error path both go away.
+`src/main.ts` returns to the simple "build prompt from git state and
+print" shape it had two commits ago, minus the subcommand layer.
 
 <!-- user answers here -->
