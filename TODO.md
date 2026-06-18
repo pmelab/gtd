@@ -31,13 +31,13 @@ Modify `src/prompts/execute.md` to instruct the agent to loop through ALL
 packages sequentially in a single run.
 
 **New behavior:**
-1. For each package in `.gtd/` (in numeric order):
+1. For each package in `.gtd/` (in numeric order), **without pausing between packages**:
    - Execute all tasks in parallel (Step 1)
    - Run tests (Step 2)
    - Handle results and commit (Step 3)
-   - **Continue to the next package** (instead of stopping)
-2. After all packages complete, delete `.gtd/` (cleanup happens inline)
-3. Verify the working tree is healthy
+   - Delete package dir, continue immediately to the next
+2. Cleanup (empty `.gtd/` removal) remains a separate branch — handles edge case of manually-emptied `.gtd/`
+3. The existing "Abort / Skip / Commit WIP" prompt handles mid-execution test failures
 
 ## Implementation Details
 
@@ -104,27 +104,3 @@ Scenario: Execute prompt mentions all packages, not just the first
   And stdout contains "02-bar"
 ```
 
-## Open Questions
-
-### Should the agent pause between packages for user confirmation?
-
-**Recommendation:** No — execute all packages without pausing.
-
-The decomposition phase already validated the plan. Pausing defeats the purpose
-of autonomous execution. Users who want incremental control can decompose into
-single-package plans.
-
-If failure occurs mid-execution (tests fail after max retries), the existing
-"Abort / Skip / Commit WIP" prompt handles it.
-
-<!-- user answers here -->
-
-### Should cleanup remain a separate branch, or be absorbed into execute?
-
-**Recommendation:** Keep cleanup as a separate branch.
-
-Edge case: user manually deletes package contents but leaves empty `.gtd/`.
-The cleanup branch handles this gracefully. Cost is minimal (one small prompt
-file).
-
-<!-- user answers here -->
