@@ -10,7 +10,7 @@ Feature: gtd prints a structured prompt for the agent based on git state
     Then it succeeds
     And stdout contains "## Task: Develop the plan in `TODO.md`"
     And stdout contains "- build a math library"
-    And stdout does not contain "## Task: Execute the plan"
+    And stdout does not contain "## Task: Decompose"
 
   Scenario: Modified TODO.md triggers the refinement task
     Given a test project
@@ -42,7 +42,7 @@ Feature: gtd prints a structured prompt for the agent based on git state
     Then it succeeds
     And stdout contains "## Task: Incorporate edits to `TODO.md`"
 
-  Scenario: Clean tree after a TODO.md-only commit triggers the build task
+  Scenario: Clean tree after a TODO.md-only commit triggers decompose
     Given a test project
     And a commit "docs: seed plan" that adds "TODO.md" with:
       """
@@ -50,7 +50,31 @@ Feature: gtd prints a structured prompt for the agent based on git state
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Execute the plan in `TODO.md`"
+    And stdout contains "## Task: Decompose `TODO.md` into work packages"
+    And stdout contains "planning model"
+
+  Scenario: Existing .gtd with packages triggers execute
+    Given a test project
+    And a commit "plan(gtd): decompose" that adds ".gtd/01-math/01-add.md" with:
+      """
+      Implement the add function
+      """
+    And a commit "plan(gtd): decompose" that adds ".gtd/01-math/COMMIT_MSG.md" with:
+      """
+      feat(math): implement addition
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Execute the next work package"
+    And stdout contains "01-math"
+    And stdout contains "01-add.md"
+
+  Scenario: Empty .gtd directory triggers cleanup
+    Given a test project
+    And a directory ".gtd"
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Clean up after build completion"
 
   Scenario: Clean tree after a non-TODO commit triggers the verify task
     Given a test project

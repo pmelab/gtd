@@ -44,6 +44,11 @@ Given(
   },
 )
 
+Given("a directory {string}", function (this: GtdWorld, path: string) {
+  const full = join(this.repoDir, path)
+  mkdirSync(full, { recursive: true })
+})
+
 When("I run gtd", function (this: GtdWorld) {
   this.runGtd()
 })

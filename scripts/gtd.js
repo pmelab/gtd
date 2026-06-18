@@ -41973,6 +41973,7 @@ var collectAllLoop = (acc) => readWithCause({
   onDone: () => succeed11(acc)
 });
 var drain2 = /* @__PURE__ */ new SinkImpl(/* @__PURE__ */ drain(/* @__PURE__ */ identityChannel()));
+var fail12 = (e) => new SinkImpl(fail11(e));
 var foldChunks = (s, contFn, f) => suspend7(() => new SinkImpl(foldChunksReader(s, contFn, f)));
 var foldChunksReader = (s, contFn, f) => {
   if (!contFn(s)) {
@@ -42172,6 +42173,7 @@ var bufferSignal = (scoped6, bufferChannel) => {
   };
   return unwrapScoped3(pipe(scoped6, flatMap10((queue) => pipe(make40(), tap3((start5) => succeed6(start5, void 0)), flatMap10((start5) => pipe(make25(start5), flatMap10((ref) => pipe(bufferChannel, pipeTo(producer(queue, ref)), runScoped, forkScoped2)), as4(consumer(queue))))))));
 };
+var fail13 = (error) => fromEffectOption(fail9(some2(error)));
 var flatMap14 = /* @__PURE__ */ dual((args2) => isStream(args2[0]), (self, f, options) => {
   const bufferSize = options?.bufferSize ?? 16;
   if (options?.switch) {
@@ -42288,6 +42290,7 @@ var unwrapScoped5 = (effect3) => flatten11(scoped5(effect3));
 // node_modules/effect/dist/esm/Stream.js
 var asyncScoped2 = asyncScoped;
 var bufferChunks2 = bufferChunks;
+var fail14 = fail13;
 var flatMap15 = flatMap14;
 var fromChannel3 = fromChannel2;
 var fromChunk2 = fromChunk;
@@ -43820,7 +43823,7 @@ var parseError = (issue) => new ParseError({
   issue
 });
 var succeed13 = right2;
-var fail14 = left2;
+var fail15 = left2;
 var isEither3 = isEither2;
 var flatMap16 = /* @__PURE__ */ dual(2, (self, f) => {
   return isEither3(self) ? match(self, {
@@ -44874,7 +44877,7 @@ function Literal2(...literals) {
 }
 var declareConstructor = (typeParameters, options, annotations2) => makeDeclareClass(typeParameters, new Declaration(typeParameters.map((tp) => tp.ast), (...typeParameters2) => options.decode(...typeParameters2.map(make48)), (...typeParameters2) => options.encode(...typeParameters2.map(make48)), toASTAnnotations(annotations2)));
 var declarePrimitive = (is2, annotations2) => {
-  const decodeUnknown2 = () => (input, _, ast) => is2(input) ? succeed13(input) : fail14(new Type2(ast, input));
+  const decodeUnknown2 = () => (input, _, ast) => is2(input) ? succeed13(input) : fail15(new Type2(ast, input));
   const encodeUnknown2 = decodeUnknown2;
   return makeDeclareClass([], new Declaration([], decodeUnknown2, encodeUnknown2, toASTAnnotations(annotations2)));
 };
@@ -45556,7 +45559,7 @@ var makeClass = ({
         return out;
       }
       const declaration = declare([schema], {
-        decode: () => (input, _, ast) => input instanceof this || fallbackInstanceOf(input) ? succeed13(input) : fail14(new Type2(ast, input)),
+        decode: () => (input, _, ast) => input instanceof this || fallbackInstanceOf(input) ? succeed13(input) : fail15(new Type2(ast, input)),
         encode: () => (input, options) => input instanceof this ? succeed13(input) : map21(encodeUnknown(typeSide)(input, options), (props) => new this(props, true))
       }, {
         identifier: identifier2,
@@ -45795,7 +45798,7 @@ var causePretty = (error) => (cause3) => {
   };
   return f(cause3);
 };
-var causeParse = (decodeUnknown2) => (u, options, ast) => isCause2(u) ? toComposite(decodeUnknown2(causeEncode(u), options), causeDecode, ast, u) : fail14(new Type2(ast, u));
+var causeParse = (decodeUnknown2) => (u, options, ast) => isCause2(u) ? toComposite(decodeUnknown2(causeEncode(u), options), causeDecode, ast, u) : fail15(new Type2(ast, u));
 var CauseFromSelf = ({
   defect,
   error
@@ -45951,6 +45954,28 @@ var SystemError = class extends (/* @__PURE__ */ TaggedError2("@effect/platform/
   }
 };
 
+// node_modules/@effect/platform/dist/esm/FileSystem.js
+var FileSystem_exports = {};
+__export(FileSystem_exports, {
+  FileDescriptor: () => FileDescriptor,
+  FileSystem: () => FileSystem,
+  FileTypeId: () => FileTypeId,
+  GiB: () => GiB2,
+  KiB: () => KiB2,
+  MiB: () => MiB2,
+  PiB: () => PiB2,
+  Size: () => Size2,
+  TiB: () => TiB2,
+  WatchBackend: () => WatchBackend,
+  WatchEventCreate: () => WatchEventCreate,
+  WatchEventRemove: () => WatchEventRemove,
+  WatchEventUpdate: () => WatchEventUpdate,
+  isFile: () => isFile,
+  layerNoop: () => layerNoop2,
+  make: () => make50,
+  makeNoop: () => makeNoop2
+});
+
 // node_modules/effect/dist/esm/Brand.js
 var RefinedConstructorsTypeId = /* @__PURE__ */ Symbol.for("effect/Brand/Refined");
 var nominal = () => {
@@ -45974,6 +45999,7 @@ var write2 = write;
 
 // node_modules/effect/dist/esm/Sink.js
 var drain4 = drain2;
+var fail16 = fail12;
 var foldLeftChunks2 = foldLeftChunks;
 var forEach10 = forEach9;
 var fromChannel4 = fromChannel;
@@ -45982,8 +46008,13 @@ var unwrapScoped7 = unwrapScoped4;
 // node_modules/@effect/platform/dist/esm/internal/fileSystem.js
 var tag = /* @__PURE__ */ GenericTag("@effect/platform/FileSystem");
 var Size = (bytes) => typeof bytes === "bigint" ? bytes : BigInt(bytes);
+var KiB = (n) => Size(n * 1024);
+var MiB = (n) => Size(n * 1024 * 1024);
+var GiB = (n) => Size(n * 1024 * 1024 * 1024);
+var TiB = (n) => Size(n * 1024 * 1024 * 1024 * 1024);
 var bigint1024 = /* @__PURE__ */ BigInt(1024);
 var bigintPiB = bigint1024 * bigint1024 * bigint1024 * bigint1024 * bigint1024;
+var PiB = (n) => Size(BigInt(n) * bigintPiB);
 var make49 = (impl) => {
   return tag.of({
     ...impl,
@@ -46015,6 +46046,106 @@ var make49 = (impl) => {
     }), (_) => impl.writeFile(path, _, options))
   });
 };
+var notFound = (method, path) => new SystemError({
+  module: "FileSystem",
+  method,
+  reason: "NotFound",
+  description: "No such file or directory",
+  pathOrDescriptor: path
+});
+var makeNoop = (fileSystem) => {
+  return {
+    access(path) {
+      return fail9(notFound("access", path));
+    },
+    chmod(path) {
+      return fail9(notFound("chmod", path));
+    },
+    chown(path) {
+      return fail9(notFound("chown", path));
+    },
+    copy(path) {
+      return fail9(notFound("copy", path));
+    },
+    copyFile(path) {
+      return fail9(notFound("copyFile", path));
+    },
+    exists() {
+      return succeed8(false);
+    },
+    link(path) {
+      return fail9(notFound("link", path));
+    },
+    makeDirectory() {
+      return die6("not implemented");
+    },
+    makeTempDirectory() {
+      return die6("not implemented");
+    },
+    makeTempDirectoryScoped() {
+      return die6("not implemented");
+    },
+    makeTempFile() {
+      return die6("not implemented");
+    },
+    makeTempFileScoped() {
+      return die6("not implemented");
+    },
+    open(path) {
+      return fail9(notFound("open", path));
+    },
+    readDirectory(path) {
+      return fail9(notFound("readDirectory", path));
+    },
+    readFile(path) {
+      return fail9(notFound("readFile", path));
+    },
+    readFileString(path) {
+      return fail9(notFound("readFileString", path));
+    },
+    readLink(path) {
+      return fail9(notFound("readLink", path));
+    },
+    realPath(path) {
+      return fail9(notFound("realPath", path));
+    },
+    remove() {
+      return _void;
+    },
+    rename(oldPath) {
+      return fail9(notFound("rename", oldPath));
+    },
+    sink(path) {
+      return fail16(notFound("sink", path));
+    },
+    stat(path) {
+      return fail9(notFound("stat", path));
+    },
+    stream(path) {
+      return fail14(notFound("stream", path));
+    },
+    symlink(fromPath) {
+      return fail9(notFound("symlink", fromPath));
+    },
+    truncate(path) {
+      return fail9(notFound("truncate", path));
+    },
+    utimes(path) {
+      return fail9(notFound("utimes", path));
+    },
+    watch(path) {
+      return fail14(notFound("watch", path));
+    },
+    writeFile(path) {
+      return fail9(notFound("writeFile", path));
+    },
+    writeFileString(path) {
+      return fail9(notFound("writeFileString", path));
+    },
+    ...fileSystem
+  };
+};
+var layerNoop = (fileSystem) => succeed9(tag, makeNoop(fileSystem));
 var stream = (file, {
   bufferSize = 16,
   bytesToRead: bytesToRead_,
@@ -46039,9 +46170,17 @@ var stream = (file, {
 
 // node_modules/@effect/platform/dist/esm/FileSystem.js
 var Size2 = Size;
+var KiB2 = KiB;
+var MiB2 = MiB;
+var GiB2 = GiB;
+var TiB2 = TiB;
+var PiB2 = PiB;
 var FileSystem = tag;
 var make50 = make49;
+var makeNoop2 = makeNoop;
+var layerNoop2 = layerNoop;
 var FileTypeId = /* @__PURE__ */ Symbol.for("@effect/platform/FileSystem/File");
+var isFile = (u) => typeof u === "object" && u !== null && FileTypeId in u;
 var FileDescriptor = /* @__PURE__ */ nominal();
 var WatchEventCreate = /* @__PURE__ */ tagged2("Create");
 var WatchEventUpdate = /* @__PURE__ */ tagged2("Update");
@@ -48494,10 +48633,30 @@ var GitService = class _GitService extends Context_exports.Tag("GitService")() {
 
 // src/State.ts
 var TODO_FILE = "TODO.md";
+var GTD_DIR = ".gtd";
 var parsePorcelainPaths = (porcelain) => porcelain.split("\n").map((line) => line.replace(/\r$/, "")).filter((line) => line.length > 0).map((line) => ({ status: line.slice(0, 2), path: line.slice(3) }));
 var diffAddsTodoMarker = (diff8) => diff8.split("\n").filter((line) => line.startsWith("+") && !line.startsWith("+++")).some((line) => /\bTODO:/.test(line));
+var isNumberedDir = (name) => /^\d+-/.test(name);
+var isTaskFile = (name) => name.endsWith(".md") && name !== "COMMIT_MSG.md";
+var getPackages = (fs) => Effect_exports.gen(function* () {
+  const gtdExists = yield* fs.exists(GTD_DIR);
+  if (!gtdExists) return [];
+  const entries2 = yield* fs.readDirectory(GTD_DIR);
+  const packageDirs = entries2.filter(isNumberedDir).sort();
+  const packages = [];
+  for (const dir of packageDirs) {
+    const packagePath = `${GTD_DIR}/${dir}`;
+    const stat3 = yield* fs.stat(packagePath);
+    if (stat3.type !== "Directory") continue;
+    const files = yield* fs.readDirectory(packagePath);
+    const tasks = files.filter(isTaskFile).sort();
+    packages.push({ name: dir, tasks });
+  }
+  return packages;
+}).pipe(Effect_exports.mapError((e) => new Error(String(e))));
 var detect = () => Effect_exports.gen(function* () {
   const git = yield* GitService;
+  const fs = yield* FileSystem_exports.FileSystem;
   const hasCommits = yield* git.hasCommits();
   const porcelain = hasCommits ? yield* git.statusPorcelain() : "";
   const entries2 = parsePorcelainPaths(porcelain);
@@ -48508,10 +48667,19 @@ var detect = () => Effect_exports.gen(function* () {
   const lastCommitIsTodoOnly = lastCommitFiles.length === 1 && lastCommitFiles[0] === TODO_FILE;
   const todoEntry = entries2.find((e) => e.path === TODO_FILE);
   const nonTodoEntries = entries2.filter((e) => e.path !== TODO_FILE);
+  const packages = yield* getPackages(fs);
+  const gtdExists = yield* fs.exists(GTD_DIR);
   const branches = [];
   if (clean) {
-    if (lastCommitIsTodoOnly) branches.push("build");
-    else branches.push("verify");
+    if (packages.length > 0) {
+      branches.push("execute");
+    } else if (gtdExists) {
+      branches.push("cleanup");
+    } else if (lastCommitIsTodoOnly) {
+      branches.push("decompose");
+    } else {
+      branches.push("verify");
+    }
   } else {
     if (todoEntry) {
       const isNew = todoEntry.status.includes("?") || todoEntry.status.includes("A");
@@ -48522,26 +48690,32 @@ var detect = () => Effect_exports.gen(function* () {
       branches.push("code-changes");
     }
   }
-  return { branches, lastCommitSubject, diff: diff8, workingTreeClean: clean };
+  return { branches, lastCommitSubject, diff: diff8, workingTreeClean: clean, packages };
 });
 
 // src/prompts/header.md
-var header_default = "You are an autonomous coding agent. The context below describes the current\nstate of the user's working tree; follow the task sections that follow it.\n\nWork directly on the current working tree of the repository the user is in.\nDo **not** ask the user clarifying questions \u2014 record any uncertainty in\n`TODO.md` under `## Open Questions` instead.\n";
+var header_default = "You are an autonomous coding agent orchestrating work on the user's repo. The\ncontext below describes the current state of the working tree; follow the\ntask sections that follow it.\n\nYou are running with a **work model**. For planning tasks (developing plans,\nrefining questions, decomposing into packages), spawn subagents with the\n**planning model**. For execution tasks (implementing code, running tests),\nuse the work model directly or spawn work-model subagents.\n\nCheck your user/project AGENTS.md for model preferences. Do **not** ask the\nuser clarifying questions \u2014 record uncertainty in `TODO.md` under\n`## Open Questions` instead.\n";
 
 // src/prompts/new-todo.md
-var new_todo_default = "## Task: Develop the plan in `TODO.md`\n\nA new `TODO.md` was created. Treat its contents as the user's first sketch of\na plan and develop it: interview the plan relentlessly, walk every branch of\nthe design tree, sharpen terminology, and challenge each decision against\nthe existing domain model and documentation.\n\nDo this entirely by editing `TODO.md` \u2014 you cannot talk to the user. Append\nevery unresolved question to a `## Open Questions` section at the very end of\n`TODO.md`, each formatted as:\n\n```markdown\n### <one-line question>\n\n**Recommendation:** <your answer + reasoning>\n\n<!-- user answers here -->\n```\n\nKeep the original plan content above the `## Open Questions` heading and\nexpand it where you can do so confidently from the docs and your reading.\n\nWhen you have exhausted productive questions, commit `TODO.md`.\n";
+var new_todo_default = '## Task: Develop the plan in `TODO.md`\n\nA new `TODO.md` was created. It needs to be developed into a proper plan.\n\n### Orchestration\n\nYou are running with a work model. Spawn a **planning-model subagent** to\ndevelop the plan. Check your user/project AGENTS.md for model preferences\n(e.g., "use opus for planning"). If no preference is set, default to a\nhigh-reasoning model like Claude Opus.\n\nThe subagent should:\n\n1. Treat the contents of `TODO.md` as the user\'s first sketch\n2. Interview the plan relentlessly: walk every branch of the design tree,\n   sharpen terminology, challenge each decision against the existing domain\n   model and documentation\n3. Do this entirely by editing `TODO.md` \u2014 the subagent cannot talk to the user\n4. Append unresolved questions to a `## Open Questions` section at the end,\n   each formatted as:\n\n   ```markdown\n   ### <one-line question>\n\n   **Recommendation:** <your answer + reasoning>\n\n   <!-- user answers here -->\n   ```\n\n5. Keep the original plan content above `## Open Questions` and expand it\n   where confident from docs and codebase reading\n\n### After the subagent completes\n\nCommit `TODO.md` with the developed plan.\n';
 
 // src/prompts/modified-todo.md
-var modified_todo_default = "## Task: Incorporate edits to `TODO.md` and keep developing the plan\n\n`TODO.md` exists in `HEAD` and the user has edited it. The edits are the\nuser's answers to questions in the `## Open Questions` section (written\ninline below each `### <question>` heading, replacing the\n`<!-- user answers here -->` placeholder), plus any free-form changes to the\nplan.\n\nFor each answered question, integrate the answer into the body of the plan\nabove `## Open Questions` and remove the question from `## Open Questions`.\n\nContinue the grilling session: every new piece of information opens new\nbranches of the design tree. Generate fresh questions for any ambiguity the\nanswers surfaced \u2014 sharpening terminology and challenging decisions against\nthe existing domain model \u2014 and append them to `## Open Questions` in the\nsame format as before:\n\n```markdown\n### <one-line question>\n\n**Recommendation:** <your answer + reasoning>\n\n<!-- user answers here -->\n```\n\nIf `## Open Questions` is now empty, delete the heading. Commit `TODO.md`.\n";
+var modified_todo_default = '## Task: Incorporate edits to `TODO.md` and keep developing the plan\n\n`TODO.md` exists in `HEAD` and the user has edited it. The edits are answers\nto questions in `## Open Questions` (written inline below each question,\nreplacing the `<!-- user answers here -->` placeholder), plus any free-form\nchanges to the plan.\n\n### Orchestration\n\nYou are running with a work model. Spawn a **planning-model subagent** to\ncontinue developing the plan. Check your user/project AGENTS.md for model\npreferences (e.g., "use opus for planning"). If no preference is set, default\nto a high-reasoning model like Claude Opus.\n\nThe subagent should:\n\n1. For each answered question, integrate the answer into the body of the plan\n   above `## Open Questions` and remove the question from the section\n\n2. Continue the grilling session: every new piece of information opens new\n   branches of the design tree. Generate fresh questions for any ambiguity\n   the answers surfaced \u2014 sharpening terminology and challenging decisions\n   against the existing domain model\n\n3. Append new questions to `## Open Questions` in the same format:\n\n   ```markdown\n   ### <one-line question>\n\n   **Recommendation:** <your answer + reasoning>\n\n   <!-- user answers here -->\n   ```\n\n4. If `## Open Questions` is now empty, delete the heading\n\n### After the subagent completes\n\nCommit `TODO.md`.\n';
 
-// src/prompts/build.md
-var build_default = "## Task: Execute the plan in `TODO.md`\n\nThe last commit finalized `TODO.md` and the working tree is clean. Read the\nplan and carry it out. Ignore anything under `## Open Questions` \u2014 those are\nunresolved design questions, not implementation tasks.\n\nWhen the plan is fully executed, delete `TODO.md`.\n";
+// src/prompts/decompose.md
+var decompose_default = '## Task: Decompose `TODO.md` into work packages\n\nThe plan in `TODO.md` is finalized (no open questions). It needs to be\ndecomposed into executable work packages.\n\n### Orchestration\n\nYou are running with a work model. Spawn a **planning-model subagent** to\nperform the decomposition. Check your user/project AGENTS.md for model\npreferences (e.g., "use opus for planning"). If no preference is set, default\nto a high-reasoning model like Claude Opus.\n\nThe subagent should create numbered directories in `.gtd/`, each representing\na sequential work package:\n\n```\n.gtd/\n  01-<package-name>/\n    01-<task-name>.md\n    02-<task-name>.md\n    COMMIT_MSG.md\n  02-<package-name>/\n    ...\n```\n\n**Rules for the subagent:**\n\n1. **Packages are sequential** \u2014 Package 02 cannot start until 01 is complete.\n   Use this for dependencies between groups of work.\n\n2. **Tasks within a package are parallel** \u2014 All tasks in a package run\n   simultaneously. If task B depends on task A, they must be in separate\n   packages.\n\n3. **Task files are self-contained** \u2014 Each task `.md` file must include:\n   - Clear description of what to build\n   - Acceptance criteria\n   - Relevant file paths to examine\n   - Any constraints or edge cases\n\n4. **COMMIT_MSG.md** \u2014 Each package directory must contain a `COMMIT_MSG.md`\n   with the conventional commit message to use when the package completes:\n\n   ```\n   <type>(<scope>): <subject>\n\n   <body>\n   ```\n\n### After the subagent completes\n\n1. Delete `TODO.md` (it\'s now captured in the work packages)\n2. Commit `.gtd/` with message: `plan(gtd): decompose TODO.md into N work packages`\n\nThe plan is now executable. The next `/gtd` invocation will begin execution.\n';
+
+// src/prompts/execute.md
+var execute_default = '## Task: Execute the next work package\n\nWork packages exist in `.gtd/`. Execute the lowest-numbered package.\n\n### Orchestration\n\nYou are running with a work model. You orchestrate the execution \u2014 you do not\nimplement the tasks yourself. Spawn subagents for all implementation and\ntesting work.\n\nCheck your user/project AGENTS.md for model preferences (e.g., "use sonnet\nfor execution"). If no preference is set, use the current work model for\nexecution subagents.\n\n### Step 1: Spawn task workers\n\nFor each task file in the current package, spawn a **parallel subagent** with:\n\n- **Model**: The execution model from AGENTS.md (or current work model)\n- **Skill**: Inject the `tdd` skill \u2014 workers write tests first, then implement\n- **Context**: The task file content only (self-contained)\n- **Fresh context**: Each worker starts fresh, no conversation history\n\nWait for all workers to complete.\n\n**If any worker fails** (crash, timeout, error \u2014 not test failure):\nReport which tasks failed. Ask the user: "Retry failed tasks / Skip and\ncontinue / Abort?"\n\n### Step 2: Spawn testing subagent\n\nAfter all workers complete, spawn ONE **testing subagent**:\n\n- **Model**: Execution model (same as workers)\n- **Context**: Fresh\n\nThe testing subagent should:\n\n1. Determine the test command from project configuration (AGENTS.md,\n   `package.json` scripts, Makefile, etc.). If unclear, ask the user.\n2. Run the tests\n3. If tests fail, analyze failures and fix them\n4. Repeat until tests pass or retry limit reached (default: 5, check AGENTS.md)\n5. Report final status: PASS or FAIL with summary\n\n### Step 3: Handle results\n\n**If tests pass:**\n\n1. Read `COMMIT_MSG.md` from the current package\n2. Delete the package directory from `.gtd/`\n3. Commit all changes with the commit message from `COMMIT_MSG.md`\n\n**If tests fail after max retries:**\n\nAsk the user:\n- "Commit anyway with WIP marker?"\n- "Skip this package and continue?"\n- "Abort execution?"\n\nDo not silently commit broken code or silently fail.\n\n### Continue\n\nAfter committing, the next `/gtd` invocation will pick up the next package\n(or proceed to cleanup if none remain).\n';
+
+// src/prompts/cleanup.md
+var cleanup_default = "## Task: Clean up after build completion\n\nThe `.gtd/` directory exists but contains no more work packages. All packages\nhave been executed and committed.\n\n1. Delete the empty `.gtd/` directory\n2. Proceed to verify the working tree is healthy\n\nDo not commit the `.gtd/` deletion separately \u2014 it will be part of any\nfixes made during verification, or left uncommitted if verification passes\nwith no changes.\n";
 
 // src/prompts/code-changes.md
-var code_changes_default = "## Task: Commit the uncommitted changes\n\nThe working tree contains uncommitted code changes outside of `TODO.md`.\nCommit them.\n";
+var code_changes_default = "## Task: Commit the uncommitted changes\n\nThe working tree contains uncommitted code changes outside of `TODO.md`.\nCommit them.\n\n**Important:** Do not commit `TODO.md` in this step. If `TODO.md` has changes,\nleave it uncommitted \u2014 it will be processed in the planning phase on the next\n`/gtd` invocation.\n";
 
 // src/prompts/todo-markers.md
-var todo_markers_default = '## Task: Move `TODO:` markers into `TODO.md`\n\nThe diff contains added or modified lines with `TODO:` comments. Move every\nnew `TODO:` from the diff into `TODO.md` and remove it from the source. If\n`TODO.md` does not exist yet, create it.\n\nDo this **before** the "Commit the uncommitted changes" task below, if both\napply.\n';
+var todo_markers_default = '## Task: Move `TODO:` markers into `TODO.md`\n\nThe diff contains added or modified lines with `TODO:` comments. Move every\nnew `TODO:` from the diff into `TODO.md` and remove it from the source. If\n`TODO.md` does not exist yet, create it.\n\n### Steps\n\n1. **Extract markers** \u2014 For each `TODO:` comment in the diff, add an entry\n   to `TODO.md` with enough context (file, function, what needs to be done).\n\n2. **Remove markers from source** \u2014 Delete the `TODO:` comments from the\n   source files.\n\n3. **Run tests** \u2014 Determine the test command from project configuration\n   (AGENTS.md, `package.json` scripts, etc.). Run the tests to verify the\n   marker removal didn\'t break anything.\n\n4. **Fix failures** \u2014 If tests fail, fix the issues. Loop until tests pass.\n\n5. **Commit source changes only** \u2014 Commit the source file changes (marker\n   removal) but **do not commit `TODO.md`**. Leave it uncommitted.\n\nThe next `/gtd` invocation will see the uncommitted `TODO.md` and enter the\nplanning phase, where it will be developed into a proper plan and eventually\ndecomposed into work packages.\n\nDo this **before** the "Commit the uncommitted changes" task below, if both\napply \u2014 but only commit the non-`TODO.md` changes.\n';
 
 // src/prompts/verify.md
 var verify_default = "## Task: Verify the working tree is healthy\n\nThe working tree is clean and the last commit was not a `TODO.md` checkpoint.\nThere is no plan to execute.\n\nVerify the working tree is healthy. If anything is broken, fix it.\n";
@@ -48550,7 +48724,9 @@ var verify_default = "## Task: Verify the working tree is healthy\n\nThe working
 var SECTIONS = {
   "new-todo": new_todo_default,
   "modified-todo": modified_todo_default,
-  build: build_default,
+  decompose: decompose_default,
+  execute: execute_default,
+  cleanup: cleanup_default,
   "code-changes": code_changes_default,
   "todo-markers": todo_markers_default,
   verify: verify_default
@@ -48561,6 +48737,17 @@ var buildContext = (state) => {
     state.lastCommitSubject === "" ? "Last commit: _(repository has no commits yet)_" : `Last commit: \`${state.lastCommitSubject}\``
   );
   lines3.push(`Working tree: ${state.workingTreeClean ? "clean" : "dirty"}`);
+  if (state.packages.length > 0) {
+    lines3.push("");
+    lines3.push("### Work packages in `.gtd/`");
+    lines3.push("");
+    for (const pkg of state.packages) {
+      lines3.push(`- \`${pkg.name}/\``);
+      for (const task of pkg.tasks) {
+        lines3.push(`  - \`${task}\``);
+      }
+    }
+  }
   lines3.push("");
   if (state.diff !== "") {
     lines3.push("### Diff (`git diff HEAD`, with untracked files included)");

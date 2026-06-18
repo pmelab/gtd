@@ -1,7 +1,9 @@
 import header from "./prompts/header.md"
 import newTodo from "./prompts/new-todo.md"
 import modifiedTodo from "./prompts/modified-todo.md"
-import build from "./prompts/build.md"
+import decompose from "./prompts/decompose.md"
+import execute from "./prompts/execute.md"
+import cleanup from "./prompts/cleanup.md"
 import codeChanges from "./prompts/code-changes.md"
 import todoMarkers from "./prompts/todo-markers.md"
 import verify from "./prompts/verify.md"
@@ -10,7 +12,9 @@ import type { Branch, State } from "./State.js"
 const SECTIONS: Record<Branch, string> = {
   "new-todo": newTodo,
   "modified-todo": modifiedTodo,
-  build,
+  decompose,
+  execute,
+  cleanup,
   "code-changes": codeChanges,
   "todo-markers": todoMarkers,
   verify,
@@ -24,6 +28,19 @@ const buildContext = (state: State): string => {
       : `Last commit: \`${state.lastCommitSubject}\``,
   )
   lines.push(`Working tree: ${state.workingTreeClean ? "clean" : "dirty"}`)
+
+  if (state.packages.length > 0) {
+    lines.push("")
+    lines.push("### Work packages in `.gtd/`")
+    lines.push("")
+    for (const pkg of state.packages) {
+      lines.push(`- \`${pkg.name}/\``)
+      for (const task of pkg.tasks) {
+        lines.push(`  - \`${task}\``)
+      }
+    }
+  }
+
   lines.push("")
   if (state.diff !== "") {
     lines.push("### Diff (`git diff HEAD`, with untracked files included)")

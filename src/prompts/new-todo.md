@@ -1,23 +1,35 @@
 ## Task: Develop the plan in `TODO.md`
 
-A new `TODO.md` was created. Treat its contents as the user's first sketch of
-a plan and develop it: interview the plan relentlessly, walk every branch of
-the design tree, sharpen terminology, and challenge each decision against
-the existing domain model and documentation.
+A new `TODO.md` was created. It needs to be developed into a proper plan.
 
-Do this entirely by editing `TODO.md` — you cannot talk to the user. Append
-every unresolved question to a `## Open Questions` section at the very end of
-`TODO.md`, each formatted as:
+### Orchestration
 
-```markdown
-### <one-line question>
+You are running with a work model. Spawn a **planning-model subagent** to
+develop the plan. Check your user/project AGENTS.md for model preferences
+(e.g., "use opus for planning"). If no preference is set, default to a
+high-reasoning model like Claude Opus.
 
-**Recommendation:** <your answer + reasoning>
+The subagent should:
 
-<!-- user answers here -->
-```
+1. Treat the contents of `TODO.md` as the user's first sketch
+2. Interview the plan relentlessly: walk every branch of the design tree,
+   sharpen terminology, challenge each decision against the existing domain
+   model and documentation
+3. Do this entirely by editing `TODO.md` — the subagent cannot talk to the user
+4. Append unresolved questions to a `## Open Questions` section at the end,
+   each formatted as:
 
-Keep the original plan content above the `## Open Questions` heading and
-expand it where you can do so confidently from the docs and your reading.
+   ```markdown
+   ### <one-line question>
 
-When you have exhausted productive questions, commit `TODO.md`.
+   **Recommendation:** <your answer + reasoning>
+
+   <!-- user answers here -->
+   ```
+
+5. Keep the original plan content above `## Open Questions` and expand it
+   where confident from docs and codebase reading
+
+### After the subagent completes
+
+Commit `TODO.md` with the developed plan.

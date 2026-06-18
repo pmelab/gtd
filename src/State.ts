@@ -1,22 +1,32 @@
+import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { GitService } from "./Git.js"
 
 export type Branch =
   | "new-todo"
   | "modified-todo"
-  | "build"
+  | "decompose"
+  | "execute"
+  | "cleanup"
   | "code-changes"
   | "todo-markers"
   | "verify"
+
+export interface GtdPackage {
+  readonly name: string
+  readonly tasks: ReadonlyArray<string>
+}
 
 export interface State {
   readonly branches: ReadonlyArray<Branch>
   readonly lastCommitSubject: string
   readonly diff: string
   readonly workingTreeClean: boolean
+  readonly packages: ReadonlyArray<GtdPackage>
 }
 
 const TODO_FILE = "TODO.md"
+const GTD_DIR = ".gtd"
 
 const parsePorcelainPaths = (porcelain: string): ReadonlyArray<{ status: string; path: string }> =>
   porcelain
@@ -31,9 +41,39 @@ const diffAddsTodoMarker = (diff: string): boolean =>
     .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
     .some((line) => /\bTODO:/.test(line))
 
-export const detect = (): Effect.Effect<State, Error, GitService> =>
+const isNumberedDir = (name: string): boolean => /^\d+-/.test(name)
+
+const isTaskFile = (name: string): boolean => name.endsWith(".md") && name !== "COMMIT_MSG.md"
+
+const getPackages = (
+  fs: FileSystem.FileSystem,
+): Effect.Effect<ReadonlyArray<GtdPackage>, Error> =>
+  Effect.gen(function* () {
+    const gtdExists = yield* fs.exists(GTD_DIR)
+    if (!gtdExists) return []
+
+    const entries = yield* fs.readDirectory(GTD_DIR)
+    const packageDirs = entries.filter(isNumberedDir).sort()
+
+    const packages: Array<GtdPackage> = []
+    for (const dir of packageDirs) {
+      const packagePath = `${GTD_DIR}/${dir}`
+      const stat = yield* fs.stat(packagePath)
+      if (stat.type !== "Directory") continue
+
+      const files = yield* fs.readDirectory(packagePath)
+      const tasks = files.filter(isTaskFile).sort()
+      packages.push({ name: dir, tasks })
+    }
+
+    return packages
+  }).pipe(Effect.mapError((e) => new Error(String(e))))
+
+export const detect = (): Effect.Effect<State, Error, GitService | FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const git = yield* GitService
+    const fs = yield* FileSystem.FileSystem
+
     const hasCommits = yield* git.hasCommits()
     const porcelain = hasCommits ? yield* git.statusPorcelain() : ""
     const entries = parsePorcelainPaths(porcelain)
@@ -48,11 +88,24 @@ export const detect = (): Effect.Effect<State, Error, GitService> =>
     const todoEntry = entries.find((e) => e.path === TODO_FILE)
     const nonTodoEntries = entries.filter((e) => e.path !== TODO_FILE)
 
+    const packages = yield* getPackages(fs)
+    const gtdExists = yield* fs.exists(GTD_DIR)
+
     const branches: Array<Branch> = []
 
     if (clean) {
-      if (lastCommitIsTodoOnly) branches.push("build")
-      else branches.push("verify")
+      if (packages.length > 0) {
+        // .gtd/ has packages to execute
+        branches.push("execute")
+      } else if (gtdExists) {
+        // .gtd/ exists but is empty — cleanup
+        branches.push("cleanup")
+      } else if (lastCommitIsTodoOnly) {
+        // TODO.md finalized, no .gtd/ — decompose into packages
+        branches.push("decompose")
+      } else {
+        branches.push("verify")
+      }
     } else {
       if (todoEntry) {
         const isNew = todoEntry.status.includes("?") || todoEntry.status.includes("A")
@@ -64,5 +117,5 @@ export const detect = (): Effect.Effect<State, Error, GitService> =>
       }
     }
 
-    return { branches, lastCommitSubject, diff, workingTreeClean: clean }
+    return { branches, lastCommitSubject, diff, workingTreeClean: clean, packages }
   })

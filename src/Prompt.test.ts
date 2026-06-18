@@ -7,6 +7,7 @@ const baseState = (overrides: Partial<State>): State => ({
   lastCommitSubject: "chore: init",
   diff: "",
   workingTreeClean: true,
+  packages: [],
   ...overrides,
 })
 
