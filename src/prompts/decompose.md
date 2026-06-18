@@ -32,13 +32,19 @@ a sequential work package:
    simultaneously. If task B depends on task A, they must be in separate
    packages.
 
-3. **Task files are self-contained** — Each task `.md` file must include:
+3. **Vertical slices, not horizontal** — Each package must be a thin vertical
+   slice that cuts through all integration layers end-to-end:
+   - Each package delivers a narrow but COMPLETE path (not "set up infrastructure")
+   - A completed package is demoable or verifiable on its own
+   - Prefer many thin packages over few thick ones
+
+4. **Task files are self-contained** — Each task `.md` file must include:
    - Clear description of what to build
-   - Acceptance criteria
+   - Acceptance criteria as checkboxes: `- [ ] Criterion`
    - Relevant file paths to examine
    - Any constraints or edge cases
 
-4. **COMMIT_MSG.md** — Each package directory must contain a `COMMIT_MSG.md`
+5. **COMMIT_MSG.md** — Each package directory must contain a `COMMIT_MSG.md`
    with the conventional commit message to use when the package completes:
 
    ```
