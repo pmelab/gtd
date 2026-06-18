@@ -17,7 +17,12 @@ execution subagents.
 For each task file in the current package, spawn a **parallel subagent** with:
 
 - **Model**: The execution model from AGENTS.md (or current work model)
-- **Skill**: Inject the `tdd` skill — workers write tests first, then implement
+- **TDD discipline** (inline rules for workers):
+  - Write ONE test → implement → pass → repeat (vertical slices)
+  - **DO NOT** write all tests first then implement (horizontal slicing)
+  - Tests verify behavior through public interfaces, not implementation details
+  - A good test survives refactors — if renaming an internal function breaks the test, it's testing implementation
+  - Each test responds to what you learned from the previous cycle
 - **Context**: The task file content only (self-contained)
 - **Fresh context**: Each worker starts fresh, no conversation history
 
