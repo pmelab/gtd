@@ -1,265 +1,204 @@
-# Plan: Integrate Matt Pocock's Skills into gtd
+# Plan: Extract Intelligence from Matt Pocock's Skills into gtd Prompts
 
 ## Summary
 
-Matt Pocock's [skills collection](https://github.com/mattpocock/skills/tree/main/skills) is a well-designed set of pi/Claude skills for engineering workflows. After analyzing both repos, there are several high-value integration opportunities that could significantly enhance gtd's planning, execution, and verification phases.
+Extract the disciplined thinking from Matt Pocock's [skills collection](https://github.com/mattpocock/skills/tree/main/skills) and bake it directly into gtd's own prompts. **No external dependencies, no structural changes to gtd's flow.** The goal is better prompts, not different architecture.
+
+**Four target areas:**
+
+| gtd phase | Source skill | What to extract |
+|-----------|--------------|-----------------|
+| Q&A batch interview | grilling | Question-selection discipline, branch-walking, "explore codebase instead" rule |
+| Decompose | to-issues | Vertical-slice rules, acceptance criteria, blocked-by relationships |
+| Execute (build) | tdd | Anti-horizontal-slicing, tracer bullets, behavior-not-implementation testing |
+| Verify | diagnose | 6-phase discipline (esp. "build feedback loop first"), ranked hypotheses |
 
 ---
 
-## Matt Pocock's Skills Inventory
+## Detailed Extractions
 
-### Engineering Skills (most relevant)
+### 1. Q&A Batch Interview ← Grilling
 
-| Skill | What it does | gtd relevance |
-|-------|-------------|---------------|
-| **tdd** | Red-green-refactor with vertical slices, anti-horizontal-slicing rules | Already referenced in `execute.md`; could adopt its philosophy more deeply |
-| **grilling** | One-question-at-a-time relentless interviewing | Direct competitor to `new-todo.md`/`modified-todo.md` |
-| **grill-with-docs** | Grilling + domain-modeling (maintains CONTEXT.md/ADRs) | Enhanced planning with artifact production |
-| **domain-modeling** | Build/maintain glossary (CONTEXT.md) and ADRs inline | gtd has no equivalent |
-| **codebase-design** | Vocabulary: depth, seam, interface, adapter, leverage, locality | Could improve decompose and task file quality |
-| **diagnosing-bugs** | 6-phase loop: feedback loop → reproduce → hypothesize → instrument → fix → postmortem | Far richer than gtd's `verify.md` |
-| **improve-codebase-architecture** | HTML report of deepening opportunities | Could feed into planning phase |
-| **to-prd** | Convert conversation to PRD with user stories, seams, testing decisions | Alternative output format to `.gtd/` |
-| **to-issues** | Break PRD into vertical-slice GitHub issues | Alternative to `.gtd/` packages |
-| **prototype** | Throwaway code for logic or UI questions | Useful during planning when questions need runnable answers |
-| **review** | Two-axis review: Standards vs Spec | Could run after package execution |
-| **triage** | Issue state machine: needs-triage → ready-for-agent → etc. | New capability for issue-driven workflow |
-| **handoff** | Compact conversation for session boundary crossing | Useful for long planning sessions |
-| **resolving-merge-conflicts** | Structured merge conflict resolution | Not a gtd phase but useful skill |
+**Current state:** `new-todo.md` says "interview the plan relentlessly" but gives no specific discipline.
 
-### Productivity Skills
+**Extract from grilling:**
 
-- **grill-me**: Stateless grilling (no CONTEXT.md maintenance)
-- **teach**: Multi-session learning with lessons/reference docs
-- **writing-great-skills**: Meta-skill for writing skills
+> Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
+
+> If a question can be answered by exploring the codebase, explore the codebase instead.
+
+**Concrete changes to `new-todo.md` and `modified-todo.md`:**
+
+- Add: "Walk every branch of the design tree, resolving dependencies between decisions one-by-one"
+- Add: "Before asking a question, check if the codebase or project docs already answer it — explore instead of asking"
+- Add: "Each question must advance toward a decision; avoid questions that don't change implementation"
+- Keep: Batch format with `## Open Questions` section (user edits asynchronously)
 
 ---
 
-## Proposals
+### 2. Decompose ← To-Issues
 
-### 1. Replace gtd planning prompts with grilling-style interviewing
+**Current state:** `decompose.md` creates numbered packages with task files. No guidance on slice granularity.
 
-**Current state:** `new-todo.md` and `modified-todo.md` tell the planning model to "interview the plan relentlessly" and batch questions into `## Open Questions`.
+**Extract from to-issues:**
 
-**Matt's approach:** `grilling` asks questions **one at a time**, waiting for feedback before continuing. Combined with `domain-modeling`, it captures terminology in `CONTEXT.md` and architectural decisions in ADRs.
+> Break the plan into **tracer bullet** issues. Each issue is a thin vertical slice that cuts through ALL integration layers end-to-end, NOT a horizontal slice of one layer.
 
-**Proposal:**
-- Rewrite `new-todo.md` to invoke `/grilling` and `/domain-modeling` as the planning discipline
-- Keep the `## Open Questions` format for async Q&A (user edits TODO.md, not live conversation)
-- Add CONTEXT.md/ADR maintenance as side-effects of the planning phase
-- Consider a "live mode" where gtd drives a conversational grilling session instead of batch editing
+> - Each slice delivers a narrow but COMPLETE path through every layer (schema, API, UI, tests)
+> - A completed slice is demoable or verifiable on its own
+> - Prefer many thin slices over few thick ones
 
-**Benefit:** More thorough plans, domain vocabulary captured, ADRs for hard-to-reverse decisions.
+> Slices may be 'HITL' or 'AFK'. HITL slices require human interaction... AFK slices can be implemented and merged without human interaction. Prefer AFK over HITL where possible.
 
----
+**Concrete changes to `decompose.md`:**
 
-### 2. Adopt codebase-design vocabulary in decompose and task files
-
-**Current state:** `decompose.md` tells the planning model to create packages with self-contained task files. No vocabulary for *how* to think about module boundaries.
-
-**Matt's vocabulary:** module, interface, depth, seam, adapter, leverage, locality. The "deletion test" — would complexity vanish or reappear across callers?
-
-**Proposal:**
-- Add a section to `decompose.md` requiring the planning model to:
-  - Identify seams at which each package operates
-  - Apply the deletion test when grouping tasks
-  - Use the shared vocabulary in task file descriptions
-- Reference `codebase-design` skill or inline its key principles
-
-**Benefit:** Better-structured work packages; tasks describe *where the seam is*, not just *what to build*.
+- Add vertical-slice rules to package creation guidance
+- Add: "Each package must be demoable/verifiable on its own — no 'set up infrastructure' packages that deliver nothing testable"
+- Add: "Prefer many thin packages over few thick ones"
+- Add HITL/AFK classification to task files (mark tasks needing human decisions)
+- Require acceptance criteria in task files (currently just "clear description")
 
 ---
 
-### 3. Enhance verify phase with diagnosing-bugs discipline
+### 3. Execute ← TDD
 
-**Current state:** `verify.md` says "verify the working tree is healthy. If broken, fix it." — no structure for how.
+**Current state:** `execute.md` says "Inject the `tdd` skill" but doesn't specify what that means.
 
-**Matt's approach:** 6-phase discipline: (1) build a tight feedback loop first, (2) reproduce + minimize, (3) hypothesize 3-5 ranked, (4) instrument, (5) fix + regression test, (6) cleanup + postmortem.
+**Extract from tdd:**
 
-**Proposal:**
-- Rewrite `verify.md` to:
-  1. Run the test suite
-  2. If failures exist, invoke `/diagnosing-bugs` discipline
-  3. If all green, perform a quick sanity check (typecheck, lint)
-- The key insight: "Build a feedback loop first" — without a repro, don't hypothesize
+> **Anti-Pattern: Horizontal Slices**
+> DO NOT write all tests first, then all implementation. This is "horizontal slicing"...
 
-**Benefit:** Structured bug fixing instead of ad-hoc "fix it".
+> **Correct approach**: Vertical slices via tracer bullets. One test → one implementation → repeat. Each test responds to what you learned from the previous cycle.
 
----
+> ```
+> WRONG (horizontal):
+>   RED:   test1, test2, test3, test4, test5
+>   GREEN: impl1, impl2, impl3, impl4, impl5
+>
+> RIGHT (vertical):
+>   RED→GREEN: test1→impl1
+>   RED→GREEN: test2→impl2
+>   ...
+> ```
 
-### 4. Add optional review phase after package execution
+> Tests should verify behavior through public interfaces, not implementation details. Code can change entirely; tests shouldn't.
 
-**Current state:** After tests pass, `execute.md` commits and moves on. No code review.
+**Concrete changes to `execute.md`:**
 
-**Matt's approach:** `/review` runs two parallel sub-agents:
-- **Standards axis:** Does the code follow documented coding standards?
-- **Spec axis:** Does the code match what the originating issue/PRD asked for?
-
-**Proposal:**
-- Add optional `review` phase configurable in AGENTS.md
-- If enabled, after tests pass but before commit:
-  - Run `/review` against the package's COMMIT_MSG.md (as spec) and any CODING_STANDARDS.md
-  - Report findings; ask user to proceed/fix
-- Default: off (to preserve gtd's "keep moving" philosophy)
-
-**Benefit:** Catch drift from spec and standards violations before commit.
-
----
-
-### 5. Support issue-based workflow as alternative to .gtd/
-
-**Current state:** gtd decomposes into `.gtd/` directories. Work is local, invisible to external tools.
-
-**Matt's approach:** `/to-prd` creates a PRD with user stories, seams, testing decisions. `/to-issues` breaks it into GitHub issues with vertical slices and acceptance criteria.
-
-**Proposal:**
-- Add a config option: `gtd.decompose.target: "local" | "issues"`
-- If `"issues"`:
-  - `decompose.md` invokes `/to-prd` → `/to-issues` flow
-  - Issues get `ready-for-agent` label
-  - `execute.md` reads issues instead of `.gtd/` directories
-  - Commits reference issue numbers
-- If `"local"` (default): current `.gtd/` behavior
-
-**Benefit:** Integration with GitHub Projects, external CI/CD, team visibility.
-
----
-
-### 6. Invoke prototype during planning when questions need runnable answers
-
-**Current state:** Planning is pure editing of TODO.md. No way to run code to answer a question.
-
-**Matt's approach:** `/prototype` builds throwaway code to answer "does this logic feel right?" (terminal app) or "what should this look like?" (UI variations).
-
-**Proposal:**
-- When the planning model encounters a question that can't be resolved by reading code/docs:
-  - Mark it with `<!-- needs-prototype: logic|ui -->`
-  - On next `/gtd`, detect these markers and suggest invoking `/prototype`
-  - Prototype answers feed back into TODO.md
-
-**Benefit:** Some questions ("how should this state machine behave?") are only answerable by running code.
-
----
-
-### 7. Add improve-codebase-architecture as a new entry point
-
-**Current state:** gtd starts from a TODO.md sketch or uncommitted code. No way to say "find things to improve."
-
-**Matt's approach:** `/improve-codebase-architecture` scans for friction, produces an HTML report of deepening opportunities, then grills through whichever one you pick.
-
-**Proposal:**
-- Add a new branch in `State.ts`: `architecture-review`
-- Triggered by user creating a `.gtd-architecture-review` marker file (or similar)
-- Runs `/improve-codebase-architecture`, outputs to TODO.md
-- Then follows normal planning flow
-
-**Benefit:** gtd can discover work, not just execute user-defined work.
-
----
-
-### 8. Strengthen tdd integration in execute phase
-
-**Current state:** `execute.md` says "inject the tdd skill" but doesn't specify the discipline.
-
-**Matt's tdd skill:** Explicit red-green vertical slices, anti-horizontal-slicing warning, integration-style testing philosophy, supporting docs on good/bad tests and mocking.
-
-**Proposal:**
-- Update `execute.md` to reference Matt's tdd principles:
-  - "Workers must use vertical slices: one test → one implementation → repeat"
-  - "No horizontal slicing: don't write all tests first"
+- Replace "Inject the tdd skill" with explicit rules:
+  - "Write ONE test → implement → pass → repeat (vertical slices)"
+  - "DO NOT write all tests first then implement (horizontal slicing)"
   - "Tests verify behavior through public interfaces, not implementation details"
-- Consider bundling Matt's `tests.md` and `mocking.md` as task file preambles
-
-**Benefit:** Consistent, high-quality tests from parallel workers.
+  - "A good test survives refactors — if renaming an internal function breaks the test, it's testing implementation"
 
 ---
 
-### 9. Add handoff support for long planning sessions
+### 4. Verify ← Diagnose
 
-**Current state:** Planning happens in one subagent invocation. If context fills, information is lost.
+**Current state:** `verify.md` is two lines: "Verify the working tree is healthy. If anything is broken, fix it."
 
-**Matt's approach:** `/handoff` compacts conversation into markdown, saved to temp dir. Next session references it.
+**Extract from diagnose:**
 
-**Proposal:**
-- When planning model reaches ~80% context, auto-invoke `/handoff`
-- Save to `.gtd/handoff-<timestamp>.md`
-- Next `/gtd` detects handoff file and passes it to planning subagent
-- Clean up after plan is finalized
+> ## Phase 1 — Build a feedback loop
+> **This is the skill.** Everything else is mechanical. If you have a fast, deterministic, agent-runnable pass/fail signal for the bug, you will find the cause...
+> Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give up.**
 
-**Benefit:** Arbitrarily long planning sessions without context loss.
+> ## Phase 3 — Hypothesise
+> Generate **3–5 ranked hypotheses** before testing any of them. Single-hypothesis generation anchors on the first plausible idea.
+
+> ## Phase 4 — Instrument
+> **Tag every debug log** with a unique prefix, e.g. `[DEBUG-a4f2]`. Cleanup at the end becomes a single grep.
+
+**Concrete changes to `verify.md`:**
+
+- Expand the happy path: run tests, typecheck, lint — if all pass, done
+- On failure, invoke structured diagnosis:
+  1. Build a feedback loop (failing test, script, minimal repro)
+  2. Generate 3-5 ranked hypotheses before fixing anything
+  3. Instrument with tagged debug logs (cleanup via grep)
+  4. Fix + verify the original repro passes
+  5. Remove all `[DEBUG-*]` instrumentation
 
 ---
 
 ## Implementation Order
 
-1. **Phase 1 — Low-hanging fruit (enhances existing prompts):**
-   - #3: Enhance verify with diagnosing-bugs discipline
-   - #8: Strengthen tdd integration
-   - #2: Adopt codebase-design vocabulary in decompose
+**Phase 1 — Prompt text changes only (no TypeScript):**
 
-2. **Phase 2 — Planning improvements:**
-   - #1: Replace planning prompts with grilling-style + domain-modeling
-   - #6: Prototype support for planning questions
-
-3. **Phase 3 — New capabilities:**
-   - #4: Optional review phase
-   - #9: Handoff support for long sessions
-
-4. **Phase 4 — Alternative workflows:**
-   - #5: Issue-based workflow
-   - #7: Architecture review entry point
+1. `verify.md` ← diagnose discipline (most improvement per effort)
+2. `execute.md` ← tdd anti-horizontal-slicing rules
+3. `decompose.md` ← to-issues vertical-slice rules
+4. `new-todo.md` + `modified-todo.md` ← grilling question discipline
 
 ---
 
 ## Open Questions
 
-### Should gtd bundle Matt's skills or reference them externally?
+### Which grilling principles actually apply to batch Q&A?
 
-**Recommendation:** Reference externally via `skills.sh`. Bundling creates maintenance burden; Matt's skills evolve independently. gtd prompts should say "invoke `/tdd`" not paste the skill content.
+Grilling asks one question at a time, waiting for response. gtd batches questions. What translates?
 
-**Trade-off:** Users need Matt's skills installed (`npx skills add mattpocock/skills -g -y`). Could make this a documented prerequisite or auto-detect.
-
-<!-- user answers here -->
-
----
-
-### Should planning switch from batch Q&A to live grilling?
-
-**Recommendation:** Keep batch Q&A as the default — it's async-friendly (user edits TODO.md offline). Add a `--live` mode that drives conversational grilling for users who want it.
-
-**Trade-off:** Live mode means gtd controls the conversation flow, not just emits a prompt. Significant change to how gtd works (currently: emit prompt → agent follows it).
+**Recommendation:** Keep batching but adopt: (1) "explore codebase first" rule — don't ask what can be answered by reading code; (2) question prioritization — ask the questions that most affect implementation first; (3) branch-walking — group related questions by decision branch so user can answer one branch completely. The "one at a time" aspect doesn't translate; the "resolve dependencies between decisions" does.
 
 <!-- user answers here -->
 
 ---
 
-### Should CONTEXT.md and ADRs be mandatory or optional?
+### Should task files include explicit acceptance criteria format?
 
-**Recommendation:** Optional with encouragement. gtd should detect existing CONTEXT.md/docs/adr/ and maintain them if present. The planning prompt should *suggest* creating them but not block if the user doesn't want them.
+Current task files require "clear description" and "acceptance criteria" but no template. To-issues has a specific format:
 
-**Trade-off:** If optional, planning quality varies. If mandatory, gtd becomes more opinionated than its current "coordinates phases, doesn't dictate strategy" philosophy.
+```markdown
+## Acceptance criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+```
 
-<!-- user answers here -->
-
----
-
-### What's the minimum viable integration for Phase 1?
-
-**Recommendation:** Start with #3 (verify + diagnosing-bugs) because:
-- It's a single prompt rewrite
-- `verify.md` is currently the weakest prompt
-- Measurable improvement: bugs get fixed more reliably
-
-**Alternative:** Start with #8 (tdd strengthening) since it affects every task worker.
+**Recommendation:** Yes, adopt the checkbox format. It's machine-parseable (testing subagent can check off criteria) and forces concrete, testable criteria. Add to decompose.md: "Acceptance criteria must be checkboxes that a testing subagent can verify programmatically."
 
 <!-- user answers here -->
 
 ---
 
-### Should gtd depend on setup-matt-pocock-skills?
+### How much of the 6-phase diagnosis loop belongs in verify.md?
 
-**Recommendation:** No hard dependency. gtd should work without any setup. But if `docs/agents/issue-tracker.md` exists (Matt's convention), gtd can read it for issue-based workflow (#5).
+The full diagnose skill is ~200 lines. verify.md is currently 2 lines. Options:
 
-**Trade-off:** Matt's setup creates valuable config (issue tracker, triage labels, domain docs). Without it, issue-based workflow needs its own config. Could duplicate effort.
+1. **Minimal:** Just add "generate 3-5 hypotheses before fixing" rule
+2. **Medium:** Add phases 1, 3, 4, 5 (feedback loop, hypothesize, instrument, fix)
+3. **Full:** Inline the entire 6-phase discipline
+
+**Recommendation:** Medium. Phases 1 and 3 are the key insights ("build a feedback loop first" and "3-5 ranked hypotheses"). Phase 2 (reproduce) is implicit. Phase 6 (postmortem) is nice-to-have. Skip the 10 ways to build a feedback loop — that's too detailed for a prompt; trust the model to figure it out.
+
+<!-- user answers here -->
+
+---
+
+### Should decompose.md add HITL/AFK classification?
+
+To-issues distinguishes tasks needing human decisions (HITL) from autonomous tasks (AFK). gtd currently treats all tasks as autonomous.
+
+**Recommendation:** No. gtd's flow assumes the planning phase resolved all HITL decisions via `## Open Questions`. If a task genuinely needs human input mid-execution, that's a planning failure. Adding HITL classification would complicate the execute phase (pause for human input between tasks). Keep it simple: plan resolves decisions, execute is autonomous.
+
+<!-- user answers here -->
+
+---
+
+### What happens if verify.md diagnosis loop fails after N attempts?
+
+Current execute.md has a retry limit (default 5) for the testing subagent. If diagnosis fails after 5 attempts, what then?
+
+**Recommendation:** Same pattern as execute.md — ask the user: "Diagnosis failed after N attempts. Commit with WIP marker / Open issue / Abort?" Don't silently fail. The verify phase should surface the ranked hypotheses it tried so the human has context.
+
+<!-- user answers here -->
+
+---
+
+### Should the tdd rules go in execute.md or a separate tdd-rules.md include?
+
+execute.md is already ~60 lines. Adding detailed TDD rules could make it unwieldy.
+
+**Recommendation:** Inline them. The rules are ~10 lines. A separate file adds indirection without benefit. If execute.md grows too large later, refactor then.
 
 <!-- user answers here -->
