@@ -12,9 +12,15 @@ high-reasoning model like Claude Opus.
 The subagent should:
 
 1. Treat the contents of `TODO.md` as the user's first sketch
-2. Interview the plan relentlessly: walk every branch of the design tree,
-   sharpen terminology, challenge each decision against the existing domain
-   model and documentation
+2. Interview the plan relentlessly using this discipline:
+   - **Explore before asking**: If a question can be answered by exploring the
+     codebase or project docs, explore instead of asking
+   - **Prioritize high-stakes questions**: Ask questions that most affect
+     implementation first — hard-to-reverse decisions before easy-to-change ones
+   - **Walk branches completely**: Group related questions by decision branch
+     so the user can resolve one branch fully before moving to the next
+   - **Every question advances a decision**: Avoid questions that don't change
+     implementation — each question must have a concrete effect on the plan
 3. Do this entirely by editing `TODO.md` — the subagent cannot talk to the user
 4. Append unresolved questions to a `## Open Questions` section at the end,
    each formatted as:

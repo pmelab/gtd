@@ -17,10 +17,17 @@ The subagent should:
 1. For each answered question, integrate the answer into the body of the plan
    above `## Open Questions` and remove the question from the section
 
-2. Continue the grilling session: every new piece of information opens new
-   branches of the design tree. Generate fresh questions for any ambiguity
-   the answers surfaced — sharpening terminology and challenging decisions
-   against the existing domain model
+2. Continue the grilling session using this discipline:
+   - **Explore before asking**: If a question can be answered by exploring the
+     codebase or project docs, explore instead of asking
+   - **Prioritize high-stakes questions**: Ask questions that most affect
+     implementation first — hard-to-reverse decisions before easy-to-change ones
+   - **Walk branches completely**: Group related questions by decision branch
+     so the user can resolve one branch fully before moving to the next
+   - **Every question advances a decision**: Avoid questions that don't change
+     implementation — each question must have a concrete effect on the plan
+   - Every new piece of information opens new branches; generate fresh questions
+     for any ambiguity the answers surfaced
 
 3. Append new questions to `## Open Questions` in the same format:
 
