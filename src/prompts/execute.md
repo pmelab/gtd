@@ -1,6 +1,7 @@
-## Task: Execute the next work package
+## Task: Execute all work packages
 
-Work packages exist in `.gtd/`. Execute the lowest-numbered package.
+Work packages exist in `.gtd/`. Execute all packages sequentially, in numeric
+order (01 before 02, etc.), without pausing between them.
 
 ### Orchestration
 
@@ -65,7 +66,11 @@ Ask the user:
 
 Do not silently commit broken code or silently fail.
 
-### Continue
+### Continue to next package
 
-After committing, the next `/gtd` invocation will pick up the next package
-(or proceed to cleanup if none remain).
+After committing a package:
+1. Delete the package directory from `.gtd/`
+2. Check if more packages remain in `.gtd/`
+3. If yes: return to Step 1 for the next package
+4. If no: done — all packages complete. The `.gtd/` cleanup will be handled
+   on the next `/gtd` invocation if the directory remains.
