@@ -32,6 +32,8 @@ Extract the disciplined thinking from Matt Pocock's [skills collection](https://
 - Add: "Walk every branch of the design tree, resolving dependencies between decisions one-by-one"
 - Add: "Before asking a question, check if the codebase or project docs already answer it — explore instead of asking"
 - Add: "Each question must advance toward a decision; avoid questions that don't change implementation"
+- Add: "Ask the questions that most affect implementation first — prioritize high-stakes, hard-to-reverse decisions"
+- Add: "Group related questions by decision branch so user can answer one branch completely"
 - Keep: Batch format with `## Open Questions` section (user edits asynchronously)
 
 ---
@@ -55,8 +57,8 @@ Extract the disciplined thinking from Matt Pocock's [skills collection](https://
 - Add vertical-slice rules to package creation guidance
 - Add: "Each package must be demoable/verifiable on its own — no 'set up infrastructure' packages that deliver nothing testable"
 - Add: "Prefer many thin packages over few thick ones"
-- Add HITL/AFK classification to task files (mark tasks needing human decisions)
-- Require acceptance criteria in task files (currently just "clear description")
+- Require acceptance criteria as checkboxes in task files: `- [ ] Criterion` — machine-parseable so testing subagent can verify
+- No HITL/AFK classification — planning phase resolves all human decisions via `## Open Questions`; execute is fully autonomous
 
 ---
 
@@ -126,79 +128,9 @@ Extract the disciplined thinking from Matt Pocock's [skills collection](https://
 
 **Phase 1 — Prompt text changes only (no TypeScript):**
 
-1. `verify.md` ← diagnose discipline (most improvement per effort)
-2. `execute.md` ← tdd anti-horizontal-slicing rules
-3. `decompose.md` ← to-issues vertical-slice rules
-4. `new-todo.md` + `modified-todo.md` ← grilling question discipline
+1. `verify.md` ← diagnose discipline, phases 1+3+4+5 (feedback loop, ranked hypotheses, instrumentation, fix); surface hypotheses to user on failure after N attempts
+2. `execute.md` ← tdd anti-horizontal-slicing rules, inline (~10 lines)
+3. `decompose.md` ← to-issues vertical-slice rules; acceptance criteria as checkboxes
+4. `new-todo.md` + `modified-todo.md` ← grilling question discipline (explore-first, prioritize-high-stakes, branch-walk)
 
----
 
-## Open Questions
-
-### Which grilling principles actually apply to batch Q&A?
-
-Grilling asks one question at a time, waiting for response. gtd batches questions. What translates?
-
-**Recommendation:** Keep batching but adopt: (1) "explore codebase first" rule — don't ask what can be answered by reading code; (2) question prioritization — ask the questions that most affect implementation first; (3) branch-walking — group related questions by decision branch so user can answer one branch completely. The "one at a time" aspect doesn't translate; the "resolve dependencies between decisions" does.
-
-<!-- user answers here -->
-
----
-
-### Should task files include explicit acceptance criteria format?
-
-Current task files require "clear description" and "acceptance criteria" but no template. To-issues has a specific format:
-
-```markdown
-## Acceptance criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
-```
-
-**Recommendation:** Yes, adopt the checkbox format. It's machine-parseable (testing subagent can check off criteria) and forces concrete, testable criteria. Add to decompose.md: "Acceptance criteria must be checkboxes that a testing subagent can verify programmatically."
-
-<!-- user answers here -->
-
----
-
-### How much of the 6-phase diagnosis loop belongs in verify.md?
-
-The full diagnose skill is ~200 lines. verify.md is currently 2 lines. Options:
-
-1. **Minimal:** Just add "generate 3-5 hypotheses before fixing" rule
-2. **Medium:** Add phases 1, 3, 4, 5 (feedback loop, hypothesize, instrument, fix)
-3. **Full:** Inline the entire 6-phase discipline
-
-**Recommendation:** Medium. Phases 1 and 3 are the key insights ("build a feedback loop first" and "3-5 ranked hypotheses"). Phase 2 (reproduce) is implicit. Phase 6 (postmortem) is nice-to-have. Skip the 10 ways to build a feedback loop — that's too detailed for a prompt; trust the model to figure it out.
-
-<!-- user answers here -->
-
----
-
-### Should decompose.md add HITL/AFK classification?
-
-To-issues distinguishes tasks needing human decisions (HITL) from autonomous tasks (AFK). gtd currently treats all tasks as autonomous.
-
-**Recommendation:** No. gtd's flow assumes the planning phase resolved all HITL decisions via `## Open Questions`. If a task genuinely needs human input mid-execution, that's a planning failure. Adding HITL classification would complicate the execute phase (pause for human input between tasks). Keep it simple: plan resolves decisions, execute is autonomous.
-
-<!-- user answers here -->
-
----
-
-### What happens if verify.md diagnosis loop fails after N attempts?
-
-Current execute.md has a retry limit (default 5) for the testing subagent. If diagnosis fails after 5 attempts, what then?
-
-**Recommendation:** Same pattern as execute.md — ask the user: "Diagnosis failed after N attempts. Commit with WIP marker / Open issue / Abort?" Don't silently fail. The verify phase should surface the ranked hypotheses it tried so the human has context.
-
-<!-- user answers here -->
-
----
-
-### Should the tdd rules go in execute.md or a separate tdd-rules.md include?
-
-execute.md is already ~60 lines. Adding detailed TDD rules could make it unwieldy.
-
-**Recommendation:** Inline them. The rules are ~10 lines. A separate file adds indirection without benefit. If execute.md grows too large later, refactor then.
-
-<!-- user answers here -->
