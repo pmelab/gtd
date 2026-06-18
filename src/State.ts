@@ -79,17 +79,26 @@ export const detect = (): Effect.Effect<State, Error, GitService | FileSystem.Fi
     const entries = parsePorcelainPaths(porcelain)
     const clean = entries.length === 0
     const lastCommitSubject = hasCommits ? yield* git.lastCommitSubject() : ""
-    const lastCommitFiles = hasCommits ? yield* git.lastCommitFiles() : []
     const diff = entries.length > 0 ? yield* git.diffHead() : ""
-
-    const lastCommitIsTodoOnly =
-      lastCommitFiles.length === 1 && lastCommitFiles[0] === TODO_FILE
 
     const todoEntry = entries.find((e) => e.path === TODO_FILE)
     const nonTodoEntries = entries.filter((e) => e.path !== TODO_FILE)
 
     const packages = yield* getPackages(fs)
     const gtdExists = yield* fs.exists(GTD_DIR)
+
+    // A TODO.md is "finalized" when it exists on disk and contains no
+    // unanswered question markers — regardless of commit history.
+    const UNANSWERED_MARKER = "<!-- user answers here -->"
+    const todoFinalized = yield* fs.exists(TODO_FILE).pipe(
+      Effect.flatMap((exists) =>
+        exists
+          ? fs
+              .readFileString(TODO_FILE)
+              .pipe(Effect.map((content) => !content.includes(UNANSWERED_MARKER)))
+          : Effect.succeed(false),
+      ),
+    )
 
     const branches: Array<Branch> = []
 
@@ -100,8 +109,8 @@ export const detect = (): Effect.Effect<State, Error, GitService | FileSystem.Fi
       } else if (gtdExists) {
         // .gtd/ exists but is empty — cleanup
         branches.push("cleanup")
-      } else if (lastCommitIsTodoOnly) {
-        // TODO.md finalized, no .gtd/ — decompose into packages
+      } else if (todoFinalized) {
+        // TODO.md has no unanswered questions — decompose into packages
         branches.push("decompose")
       } else {
         branches.push("verify")
