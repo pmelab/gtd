@@ -4,41 +4,24 @@ gtd should automatically re-run after completing a step, continuing until user i
 
 ## Open Questions
 
-### Should auto-advance be a new footer partial or inline in each prompt?
+### What's the exact auto-advance phrasing?
 
-**Recommendation:** Create `src/prompts/partials/auto-advance.md` partial, import and append to relevant prompts in Prompt.ts. Cleaner than duplicating text in 9 files.
+Given context: `node scripts/gtd.js` outputs a complete prompt. The consuming agent must follow that prompt's instructions.
 
-Alternatives:
-- Inline in each prompt: repetitive, harder to maintain
-- Add to header.md: wrong - not all prompts auto-advance
-
-<!-- user answers here -->
-
-### What's the exact phrasing for the auto-advance instruction?
-
-**Recommendation:** 
+**Proposed phrasing:**
 
 ```
 ### After completion
 
-Re-run `node scripts/gtd.js` to continue to the next step. Do not stop or ask the user for confirmation.
+Re-run `node scripts/gtd.js` and follow the output as your next task. Do not stop or ask the user for confirmation.
 ```
 
-Keep it imperative and explicit about not stopping.
+This captures:
+- Re-run the command
+- Follow what it outputs (the prompt's task sections)
+- Don't pause for user
 
-<!-- user answers here -->
-
-### Should verify have an explicit "STOP" terminal marker?
-
-**Recommendation:** Yes. Currently verify.md says "done, report success" which is vague. Add explicit terminal instruction:
-
-```
-If all pass → report success and STOP. Do not re-run gtd. The working tree is healthy and there is no pending work.
-```
-
-This prevents infinite loops where verify keeps re-running itself.
-
-<!-- user answers here -->
+Is this sufficient, or does it need to be more explicit about "the output is your next prompt"?
 
 ## Plan
 
@@ -95,3 +78,27 @@ This prevents infinite loops where verify keeps re-running itself.
 | `tests/integration/features/auto-advance.feature` | NEW - test coverage |
 
 ## Answered Questions
+
+### Should auto-advance be a new footer partial or inline in each prompt?
+
+**Decision:** Partial (`src/prompts/partials/auto-advance.md`)
+
+Cleaner than duplicating text in 9 files. Import and append to relevant prompts in Prompt.ts.
+
+### Should verify have an explicit "STOP" terminal marker?
+
+**Decision:** Yes
+
+Currently verify.md says "done, report success" which is vague. Add explicit terminal instruction:
+
+```
+If all pass → report success and STOP. Do not re-run gtd. The working tree is healthy and there is no pending work.
+```
+
+Prevents infinite loops where verify keeps re-running itself.
+
+### What happens when the partial approach combines with Prompt.ts imports?
+
+**Decision:** Prompt.ts composes the partial into templates that need it.
+
+Templates that auto-advance get the partial appended. Terminal prompts (verify success, review-create) get explicit STOP instead.
