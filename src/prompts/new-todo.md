@@ -39,6 +39,18 @@ The subagent should:
 6. Add an empty `## Answered Questions` section at the bottom of the file
    (questions will be moved here when answered in future iterations)
 
+7. **Evaluate task complexity**: When the plan is complete (no open questions
+   remain in this iteration), assess whether the task is simple enough to skip
+   decomposition:
+   - Use judgment based on task scope and codebase context
+   - Simple tasks typically: single-file change, no architectural decisions,
+     obvious implementation, can be described in one sentence
+   - If simple: append `<!-- simple -->` at the very end of TODO.md
+   - If complex or uncertain: omit the marker (defaults to decompose path)
+
+   Note: The user can later remove the marker if they want full decomposition,
+   or add it manually to any plan.
+
 ### After the subagent completes
 
 Commit `TODO.md` with the developed plan.
