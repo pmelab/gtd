@@ -2,27 +2,6 @@
 
 gtd should automatically re-run after completing a step, continuing until user interaction is needed or work is done.
 
-## Open Questions
-
-### What's the exact auto-advance phrasing?
-
-Given context: `node scripts/gtd.js` outputs a complete prompt. The consuming agent must follow that prompt's instructions.
-
-**Proposed phrasing:**
-
-```
-### After completion
-
-Re-run `node scripts/gtd.js` and follow the output as your next task. Do not stop or ask the user for confirmation.
-```
-
-This captures:
-- Re-run the command
-- Follow what it outputs (the prompt's task sections)
-- Don't pause for user
-
-Is this sufficient, or does it need to be more explicit about "the output is your next prompt"?
-
 ## Plan
 
 ### Implementation
@@ -102,3 +81,9 @@ Prevents infinite loops where verify keeps re-running itself.
 **Decision:** Prompt.ts composes the partial into templates that need it.
 
 Templates that auto-advance get the partial appended. Terminal prompts (verify success, review-create) get explicit STOP instead.
+
+### What's the exact auto-advance phrasing?
+
+**Recommendation:** The proposed phrasing is sufficient as-is.
+
+**Answer:** thats sufficient
