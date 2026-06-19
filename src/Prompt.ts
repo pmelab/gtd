@@ -9,6 +9,7 @@ import todoMarkers from "./prompts/todo-markers.md"
 import verify from "./prompts/verify.md"
 import reviewCreate from "./prompts/review-create.md"
 import reviewProcess from "./prompts/review-process.md"
+import autoAdvance from "./prompts/partials/auto-advance.md"
 import type { Branch, State } from "./State.js"
 
 const SECTIONS: Record<Branch, string> = {
@@ -66,8 +67,22 @@ const buildContext = (state: State): string => {
   return lines.join("\n")
 }
 
+const AUTO_ADVANCE_BRANCHES: ReadonlySet<Branch> = new Set([
+  "new-todo",
+  "modified-todo",
+  "decompose",
+  "execute",
+  "cleanup",
+  "code-changes",
+  "todo-markers",
+  "review-process",
+])
+
 export const buildPrompt = (state: State): string => {
   const parts: Array<string> = [header, "", buildContext(state)]
   for (const branch of state.branches) parts.push(SECTIONS[branch], "")
+  if (state.branches.some((b) => AUTO_ADVANCE_BRANCHES.has(b))) {
+    parts.push(autoAdvance, "")
+  }
   return parts.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n"
 }

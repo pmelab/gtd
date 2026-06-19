@@ -48799,6 +48799,9 @@ var review_create_default = "## Task: Generate REVIEW.md for the current diff\n\
 // src/prompts/review-process.md
 var review_process_default = "# Process Review Feedback\n\nYou are processing feedback from a code review session. The reviewer has annotated\n`REVIEW.md` and may have directly edited source files to illustrate changes.\n\n## Step 1: Read REVIEW.md for Context\n\nRead `REVIEW.md`. It contains:\n- **Chunk titles and explanations** written by the tool that generated it \u2014 these\n  describe what each diff chunk does; use them as context when interpreting feedback.\n- **Base ref** (noted at the top) \u2014 the commit the review was based on.\n- **Reviewer comments** \u2014 text the user added (inline or between chunks).\n- **Checkboxes** \u2014 informational only; do not treat checked/unchecked as approval\n  or rejection. Read all content regardless of checkbox state.\n\n## Step 2: Read the Working Diff\n\nRun `git diff` (and `git status` for untracked files) to see what the reviewer\nchanged during the session.\n\n## Step 3: Interpret All Source Modifications as Feedback\n\nTreat **every** modification to a source file as intentional reviewer feedback.\nThere is no marker convention \u2014 if the reviewer edited a file, that edit expresses\na desired change or demonstrates an issue.\n\nDo not re-examine the original diff from the base ref. The explanations already\npresent in `REVIEW.md` provide sufficient context for understanding what each chunk\nwas about.\n\n## Step 4: Collect All Feedback\n\nGather feedback from two sources:\n\n1. **REVIEW.md comments** \u2014 any text the reviewer added to the file (inline notes,\n   questions, suggestions written between or inside chunks).\n2. **Source file edits** \u2014 describe what was changed and infer the reviewer's intent\n   from the surrounding REVIEW.md explanation.\n\n## Step 5: Compose TODO.md\n\nWrite `TODO.md` in the project root. Structure it as a clear, actionable list of\ntasks derived from all collected feedback. Group related items if helpful. Be\nspecific \u2014 reference file names, function names, or concepts from the REVIEW.md\nexplanations so each item has enough context to act on without re-reading the diff.\n\n## Step 6: Reset \u2014 Exact Order Required\n\nExecute the reset sequence in this exact order:\n\n```sh\n# 1. Stage TODO.md FIRST so it survives the reset\ngit add TODO.md\n\n# 2. Reset all tracked files to HEAD (discards reviewer's source edits and REVIEW.md edits)\ngit checkout -- .\n\n# 3. Remove any untracked files the reviewer added during the session\ngit clean -fd\n\n# 4. Delete REVIEW.md (it was tracked, so checkout restored it; delete it now)\nrm REVIEW.md\n```\n\nAfter these commands: only `TODO.md` (staged) and the `REVIEW.md` deletion remain\nas pending changes.\n\n## Step 7: Commit\n\n```sh\ngit add -A\ngit commit -m \"docs(review): process review feedback into TODO.md\"\n```\n\nThe commit includes:\n- `TODO.md` added (the extracted feedback)\n- `REVIEW.md` deleted (review session cleaned up)\n\nNo source file changes are committed \u2014 those were illustrative edits by the reviewer,\nnow captured as tasks in `TODO.md`.\n";
 
+// src/prompts/partials/auto-advance.md
+var auto_advance_default = "## Auto-advance\n\nRe-run gtd immediately after completing the steps above. Do not wait for user\ninput. If an unrecoverable error occurs that requires human decision, stop and\nreport the problem instead of re-running.\n";
+
 // src/Prompt.ts
 var SECTIONS = {
   "new-todo": new_todo_default,
@@ -48849,9 +48852,22 @@ var buildContext = (state) => {
   }
   return lines3.join("\n");
 };
+var AUTO_ADVANCE_BRANCHES = /* @__PURE__ */ new Set([
+  "new-todo",
+  "modified-todo",
+  "decompose",
+  "execute",
+  "cleanup",
+  "code-changes",
+  "todo-markers",
+  "review-process"
+]);
 var buildPrompt = (state) => {
   const parts2 = [header_default, "", buildContext(state)];
   for (const branch of state.branches) parts2.push(SECTIONS[branch], "");
+  if (state.branches.some((b) => AUTO_ADVANCE_BRANCHES.has(b))) {
+    parts2.push(auto_advance_default, "");
+  }
   return parts2.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
 };
 
