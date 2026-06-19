@@ -105,9 +105,9 @@ A typical feature:
 2. `/gtd` — the agent (using the planning model) fleshes it out, appends an
    `## Open Questions` section, and commits `TODO.md`.
 3. Open `TODO.md`, write inline answers under each question.
-4. `/gtd` again — the agent integrates your answers, removes resolved
-   questions, raises new ones, and commits. Repeat until `## Open
-   Questions` is empty.
+4. `/gtd` again — the agent integrates your answers, moves resolved
+   questions to `## Answered Questions`, raises new ones, and commits.
+   Repeat until `## Open Questions` is empty.
 5. `/gtd` once more — agent decomposes `TODO.md` into work packages in
    `.gtd/`, deletes `TODO.md`, and commits the plan.
 6. `/gtd` again — agent executes the first package: spawns parallel workers
@@ -157,7 +157,8 @@ Remove empty `.gtd/`, verify working tree is healthy.
 
 ## Q&A format inside TODO.md
 
-The planning sections expect each Open Question to look like this:
+The `## Open Questions` section lives at the TOP of TODO.md (before the plan
+body). Each question looks like this:
 
 ```markdown
 ### What should pagination default to?
@@ -177,8 +178,20 @@ To answer, replace the comment with your response:
 50 — these tables get long and 25 wastes a click for most users.
 ```
 
-On the next run, the agent integrates the answer into the plan body and drops
-the question from `## Open Questions`.
+On the next run, the agent integrates the answer into the plan body and moves
+the question to `## Answered Questions` at the bottom:
+
+```markdown
+## Answered Questions
+
+### What should pagination default to?
+
+**Recommendation:** 25 per page — matches the admin tables elsewhere.
+
+**Answer:** 50 — these tables get long and 25 wastes a click for most users.
+```
+
+This preserves the decision history for future reference.
 
 ## Development
 

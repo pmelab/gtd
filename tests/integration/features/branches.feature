@@ -16,8 +16,6 @@ Feature: gtd prints a structured prompt for the agent based on git state
     Given a test project
     And a commit "docs: seed plan" that adds "TODO.md" with:
       """
-      - build a math library
-
       ## Open Questions
 
       ### What operations?
@@ -25,11 +23,15 @@ Feature: gtd prints a structured prompt for the agent based on git state
       **Recommendation:** add, subtract.
 
       <!-- user answers here -->
+
+      ## Plan
+
+      - build a math library
+
+      ## Answered Questions
       """
     And "TODO.md" is modified to:
       """
-      - build a math library
-
       ## Open Questions
 
       ### What operations?
@@ -37,6 +39,12 @@ Feature: gtd prints a structured prompt for the agent based on git state
       **Recommendation:** add, subtract.
 
       add, subtract, multiply, divide
+
+      ## Plan
+
+      - build a math library
+
+      ## Answered Questions
       """
     When I run gtd
     Then it succeeds

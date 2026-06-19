@@ -14,8 +14,19 @@ to a high-reasoning model like Claude Opus.
 
 The subagent should:
 
-1. For each answered question, integrate the answer into the body of the plan
-   above `## Open Questions` and remove the question from the section
+1. For each answered question:
+   - Integrate the answer into the body of the plan
+   - Move the question to `## Answered Questions` at the bottom of the file
+   - Keep the question heading and `**Recommendation:**` block
+   - Replace `<!-- user answers here -->` with `**Answer:**` followed by the user's response
+   - Example format in Answered Questions:
+     ```markdown
+     ### What operations?
+
+     **Recommendation:** add, subtract.
+
+     **Answer:** add, subtract, multiply, divide
+     ```
 
 2. Continue the grilling session using this discipline:
    - **Explore before asking**: If a question can be answered by exploring the
@@ -29,7 +40,7 @@ The subagent should:
    - Every new piece of information opens new branches; generate fresh questions
      for any ambiguity the answers surfaced
 
-3. Append new questions to `## Open Questions` in the same format:
+3. Keep new questions in `## Open Questions` at the TOP of the file, in the same format:
 
    ```markdown
    ### <one-line question>
@@ -39,7 +50,12 @@ The subagent should:
    <!-- user answers here -->
    ```
 
-4. If `## Open Questions` is now empty, delete the heading
+4. If `## Open Questions` is now empty, delete the heading (but keep
+   `## Answered Questions` with the resolved questions)
+
+5. If processing an old-format TODO.md where `## Open Questions` is at the
+   bottom, migrate it: move the section to the top and create
+   `## Answered Questions` at the bottom
 
 ### After the subagent completes
 
