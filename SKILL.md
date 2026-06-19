@@ -1,6 +1,6 @@
 ---
 name: gtd
-description: Use when the user wants to take the next git-aware, conventional-commits step on the current repo — planning with TODO.md, refining a plan, decomposing into work packages, executing packages with parallel subagents, committing pending changes, or running the test suite. Also triggers on "gtd", "what's next", "take the next step", or `/gtd`.
+description: Use when the user wants to take the next git-aware, conventional-commits step on the current repo — planning with TODO.md, refining a plan, decomposing into work packages, executing packages with parallel subagents, committing pending changes, running the test suite, or reviewing changes since a git ref. Also triggers on "gtd", "what's next", "take the next step", `/gtd`, "review changes", or "start a review".
 compatibility: Requires Node 20+, pi-subagents for orchestration
 allowed-tools: Bash(node:*)
 ---
@@ -15,12 +15,15 @@ git state of the user's working directory.
 1. Run the bundled script from the user's current working directory:
 
    ```bash
-   node scripts/gtd.js
+   node scripts/gtd.js [git-ref]
    ```
 
    Resolve `scripts/gtd.js` relative to this skill's directory, not the
    user's repo. The script must be invoked with the user's repo as the
    working directory so it can read `git status` and the diff.
+
+   Without arguments → normal gtd loop (plan/build/commit).
+   With a git ref → review mode (see below).
 
 2. Treat the script's stdout as a complete, self-contained prompt — read it
    and follow its instructions verbatim. The prompt embeds the
@@ -93,3 +96,27 @@ All configuration comes from AGENTS.md files (user or project scope):
 - Retry limits for test failures (default: 5)
 
 No separate config file needed.
+
+## Review mode
+
+Pass a git ref as argument to start a code review:
+
+```bash
+node scripts/gtd.js main        # review changes since main
+node scripts/gtd.js HEAD~5      # review last 5 commits
+node scripts/gtd.js abc123f     # review since specific commit
+```
+
+Requirements:
+- Working tree must be clean (no uncommitted changes)
+- No existing `REVIEW.md` (delete or finish previous first)
+- Must have actual diff between ref and HEAD
+
+The two-phase flow:
+
+1. **review-create**: Script diffs ref..HEAD, outputs a prompt that generates
+   `REVIEW.md` with structured feedback sections and a `<!-- base: <sha> -->`
+   marker.
+2. **review-process**: User (or agent) edits `REVIEW.md` with feedback, then
+   runs the script again *without* a ref arg. The script detects the modified
+   `REVIEW.md` and outputs a prompt to act on the review comments.
