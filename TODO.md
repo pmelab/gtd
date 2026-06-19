@@ -33,6 +33,8 @@ Validate ref by calling `git rev-parse <ref>` before proceeding:
 - Success -> review mode with resolved commit hash
 - Failure -> error exit with "invalid git ref"
 
+**Conflict detection:** If REVIEW.md exists AND ref arg provided → error exit with "REVIEW.md already exists. Complete or delete existing review before starting new one." No `--force` flag—keep it simple.
+
 ### Phase 2: State Detection Changes
 
 **Location:** `src/State.ts`
@@ -51,6 +53,8 @@ Detection logic in `detect()`:
 2. If ref argument provided → `"review-create"` branch
 3. Existing logic for other branches
 
+**Modification detection:** Any change to REVIEW.md counts as valid review state—even checkbox-only edits with no text feedback. Signals approval without explicit comment.
+
 ### Phase 3: Git Service Extensions
 
 **Location:** `src/Git.ts`
@@ -60,13 +64,15 @@ Add to `GitOperations` interface:
 ```typescript
 readonly diffRef: (ref: string) => Effect.Effect<string, Error>
 readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
-readonly checkoutAll: () => Effect.Effect<void, Error>
+readonly checkoutTracked: () => Effect.Effect<void, Error>
+readonly cleanUntracked: () => Effect.Effect<void, Error>
 ```
 
 Implementation:
 - `diffRef`: `git diff <ref> HEAD` — shows all changes from ref to current HEAD
 - `resolveRef`: `git rev-parse <ref>` to validate and get full hash
-- `checkoutAll`: `git checkout -- .` for hard reset of working tree after review processing
+- `checkoutTracked`: `git checkout -- .` for hard reset of tracked files
+- `cleanUntracked`: `git clean -fd` to remove untracked files/dirs added during review
 
 ### Phase 4: New Prompt Files
 
@@ -92,19 +98,25 @@ Instructions for agent to:
 
 File paths use relative format: `./path/to/file.ts#42` (line number only, no ranges)
 
-4. Commit REVIEW.md
+4. Commit REVIEW.md with prefix `review(gtd):`
 
 **Create:** `src/prompts/review-process.md`
 
 Instructions for agent to:
 1. Read changes in REVIEW.md (comments added by user)
 2. Read ALL changes in source files as feedback — no marker convention, treat every modification as intentional review feedback
-3. Extract user feedback from both sources
-4. Compose TODO.md from collected feedback
-5. Execute `git checkout -- .` to hard reset source changes
-6. Delete REVIEW.md
-7. Stage and commit TODO.md with deletion of REVIEW.md
-8. Normal flow continues (existing `new-todo` branch takes over)
+3. Re-diff from stored base ref: `git diff <stored-base> HEAD` to capture current state including any fixup commits made during review
+4. Extract user feedback from both sources
+5. Compose TODO.md from collected feedback
+6. Stage TODO.md first, then execute reset:
+   - `git checkout -- .` to reset tracked files
+   - `git clean -fd` to remove untracked files added during review
+7. Delete REVIEW.md
+8. Commit TODO.md with REVIEW.md deletion
+9. Normal flow continues (existing `new-todo` branch takes over)
+
+**Error handling:**
+- If `<!-- base: -->` comment missing from REVIEW.md → error "REVIEW.md is corrupted: missing base ref. Delete REVIEW.md and re-run with git ref to restart review."
 
 ### Phase 5: Prompt Building
 
@@ -154,6 +166,8 @@ Updates tests for new auth service API.
 
 The `<!-- base: -->` comment stores full hash for later reference when processing.
 
+Checkboxes are UX affordance for user to track progress—all modifications processed regardless of checkbox state.
+
 ### Phase 7: Tests
 
 **Create:** `tests/integration/features/review.feature`
@@ -164,6 +178,10 @@ Scenarios:
 3. Modified REVIEW.md triggers review-process branch
 4. Review process creates TODO.md, deletes REVIEW.md, resets source changes
 5. Review process commits TODO.md and REVIEW.md deletion together
+6. Error when REVIEW.md exists and ref arg provided simultaneously
+7. Checkbox-only REVIEW.md (no text feedback) is processed as valid
+8. Error when `<!-- base: -->` comment is missing from REVIEW.md
+9. New untracked files created during review are cleaned up
 
 **Create:** Unit tests for new Git methods in a vitest file
 
@@ -171,36 +189,29 @@ Scenarios:
 
 ## Open Questions
 
-### What if REVIEW.md exists AND user passes a git ref?
+### How should agent navigate to files when line numbers have drifted?
 
-Two conflicting signals: existing review file vs new review request. Which takes precedence?
+Line numbers in REVIEW.md (`./path/to/file.ts#42`) reference positions at review creation time. If user makes changes during review, lines shift. Agent needs to find correct location when processing feedback.
 
-**Recommendation:** Error exit with message like "REVIEW.md already exists. Complete or delete existing review before starting new one." This prevents accidental data loss (losing review comments) and forces explicit intent. Alternative: allow `--force` flag to override, but that adds complexity for edge case.
-
-<!-- user answers here -->
-
-### How to detect if REVIEW.md has actual feedback vs just being opened?
-
-User might open REVIEW.md, check boxes, but add no text feedback. Should we require text feedback or process checkbox-only reviews?
-
-**Recommendation:** Process any modification to REVIEW.md as valid review state. Even checking boxes without comments signals "these chunks are approved/reviewed." The agent can note "no explicit feedback provided" when composing TODO.md. Requiring text feedback adds friction for "LGTM" reviews.
+**Recommendation:** Use fuzzy matching. Store ~3 lines of context around each hunk reference in REVIEW.md (as collapsed details or HTML comment). When processing, agent searches for that context snippet rather than trusting line numbers. Line numbers become hints, not absolute references.
 
 <!-- user answers here -->
 
-### Should hunks be extracted from the `<!-- base: -->` ref or current diff?
+### What happens if user has uncommitted changes when running `gtd <ref>`?
 
-When processing REVIEW.md, the base ref might be stale (commits happened since). Should we:
-A) Re-diff from stored base ref to HEAD (captures new changes)
-B) Only look at changes user made to files (ignores new commits)
+Current plan doesn't address dirty working tree + review creation. Options:
+- A) Error: "Commit or stash changes before starting review"
+- B) Stash automatically, create review, user unstashes after
+- C) Allow it—review captures ref..HEAD diff, uncommitted changes separate concern
 
-**Recommendation:** Option A — `git diff <stored-base> HEAD`. This ensures review covers all changes including any fixups made after REVIEW.md was created. The REVIEW.md checkboxes might reference stale line numbers, but the TODO.md gets composed from current state. Alternative: error if HEAD has moved past stored base.
+**Recommendation:** Option A. Clean separation. Uncommitted changes during review creation would confuse the diff scope. User can stash/commit first. Simple rule: review mode requires clean tree to start.
 
 <!-- user answers here -->
 
-### What if user deletes the `<!-- base: -->` comment from REVIEW.md?
+### Should `review-create` and `review-process` be exclusive branches or composable?
 
-Without base ref, we can't reliably determine what was being reviewed.
+Current `Branch` system allows composition (e.g., `todo-markers` + `code-changes`). Review branches seem inherently exclusive—you're either creating a review OR processing one OR doing normal work.
 
-**Recommendation:** Require the base comment. If missing, error with "REVIEW.md is corrupted: missing base ref. Delete REVIEW.md and re-run with git ref to restart review." Don't try to guess — user might have copy-pasted partial content. Simple failure mode > magic recovery.
+**Recommendation:** Exclusive. When REVIEW.md exists → only `review-process` branch, ignore other signals. When ref arg provided → only `review-create` branch. This prevents confusing mixed prompts. Add early-return in `detect()` for review states.
 
 <!-- user answers here -->
