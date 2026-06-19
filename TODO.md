@@ -33,6 +33,8 @@ Validate ref by calling `git rev-parse <ref>` before proceeding:
 - Success -> review mode with resolved commit hash
 - Failure -> error exit with "invalid git ref"
 
+**Dirty tree check:** If ref arg provided AND working tree is dirty → error exit with "Commit or stash changes before starting review". Review mode requires clean tree to start—prevents confusion about diff scope.
+
 **Conflict detection:** If REVIEW.md exists AND ref arg provided → error exit with "REVIEW.md already exists. Complete or delete existing review before starting new one." No `--force` flag—keep it simple.
 
 ### Phase 2: State Detection Changes
@@ -48,10 +50,10 @@ export type Branch =
   | "review-process"    // REVIEW.md exists with changes, convert to TODO
 ```
 
-Detection logic in `detect()`:
-1. Check if `REVIEW.md` exists - if yes and modified → `"review-process"` branch
-2. If ref argument provided → `"review-create"` branch
-3. Existing logic for other branches
+Detection logic in `detect()` with **early-return for exclusive branches**:
+1. Check if `REVIEW.md` exists - if yes and modified → return `"review-process"` branch immediately (exclusive, ignore other signals)
+2. If ref argument provided → return `"review-create"` branch immediately (exclusive)
+3. Existing logic for other branches continues only if neither review branch applies
 
 **Modification detection:** Any change to REVIEW.md counts as valid review state—even checkbox-only edits with no text feedback. Signals approval without explicit comment.
 
@@ -96,7 +98,7 @@ Instructions for agent to:
 - [ ] ./path/to/deleted.ts#1
 ```
 
-File paths use relative format: `./path/to/file.ts#42` (line number only, no ranges)
+File paths use relative format: `./path/to/file.ts#42` (line number only, no ranges). Line numbers are creation-time hints only; agent ignores drift when processing review.
 
 4. Commit REVIEW.md with prefix `review(gtd):`
 
@@ -182,6 +184,7 @@ Scenarios:
 7. Checkbox-only REVIEW.md (no text feedback) is processed as valid
 8. Error when `<!-- base: -->` comment is missing from REVIEW.md
 9. New untracked files created during review are cleaned up
+10. Error when ref arg provided with dirty working tree
 
 **Create:** Unit tests for new Git methods in a vitest file
 
@@ -189,29 +192,59 @@ Scenarios:
 
 ## Open Questions
 
-### How should agent navigate to files when line numbers have drifted?
+### How should ref argument be passed to `detect()`?
 
-Line numbers in REVIEW.md (`./path/to/file.ts#42`) reference positions at review creation time. If user makes changes during review, lines shift. Agent needs to find correct location when processing feedback.
+Currently `detect()` takes no arguments—dependencies come via Effect. Options:
 
-**Recommendation:** Use fuzzy matching. Store ~3 lines of context around each hunk reference in REVIEW.md (as collapsed details or HTML comment). When processing, agent searches for that context snippet rather than trusting line numbers. Line numbers become hints, not absolute references.
+- **A) Add refArg to State interface** — `detect()` reads from State, but State is the output not input
+- **B) Create RefArg service tag** — `class RefArg extends Context.Tag<...>` passed via layer
+- **C) Add parameter to detect()** — `detect(refArg?: string)` directly
+- **D) Check process.argv inside detect()** — simplest but couples to global
 
-<!-- user answers here -->
-
-### What happens if user has uncommitted changes when running `gtd <ref>`?
-
-Current plan doesn't address dirty working tree + review creation. Options:
-- A) Error: "Commit or stash changes before starting review"
-- B) Stash automatically, create review, user unstashes after
-- C) Allow it—review captures ref..HEAD diff, uncommitted changes separate concern
-
-**Recommendation:** Option A. Clean separation. Uncommitted changes during review creation would confuse the diff scope. User can stash/commit first. Simple rule: review mode requires clean tree to start.
+**Recommendation:** Option C. Direct parameter is simplest. `detect()` already uses Effect.gen, adding a parameter doesn't break anything. Other options add ceremony for a single optional string.
 
 <!-- user answers here -->
 
-### Should `review-create` and `review-process` be exclusive branches or composable?
+### What happens when REVIEW.md exists but is NOT modified?
 
-Current `Branch` system allows composition (e.g., `todo-markers` + `code-changes`). Review branches seem inherently exclusive—you're either creating a review OR processing one OR doing normal work.
+Plan says "REVIEW.md exists - if yes and modified → review-process". But what if:
+- REVIEW.md committed, user runs `/gtd` without making any changes
+- User wants to abandon review and start over
 
-**Recommendation:** Exclusive. When REVIEW.md exists → only `review-process` branch, ignore other signals. When ref arg provided → only `review-create` branch. This prevents confusing mixed prompts. Add early-return in `detect()` for review states.
+Options:
+- **A) Unmodified REVIEW.md → error** — Force user to either modify or delete
+- **B) Unmodified REVIEW.md → re-show review-create prompt** — Let agent regenerate
+- **C) Unmodified REVIEW.md → special "review-pending" branch** — Prompt user to continue or abandon
+
+**Recommendation:** Option A with helpful message: "REVIEW.md exists but has no changes. Edit REVIEW.md to provide feedback, or delete it to abandon review." Keeps state machine simple—two states (creating, processing) not three.
+
+<!-- user answers here -->
+
+### What diff should context show during review-process?
+
+Two candidate diffs:
+- **Uncommitted changes** — Shows user's feedback edits (current `diffHead` behavior)
+- **Base..HEAD diff** — Shows original changes being reviewed (from stored base ref)
+
+Agent needs BOTH to process review: the original changes (to understand what's being reviewed) AND the user's feedback edits (to extract comments).
+
+**Recommendation:** Include both in context. Modify `buildContext()` to show:
+1. "### Original changes (from `<base>` to HEAD)" — `git diff <base> HEAD~1` (before review commit)
+2. "### User feedback edits" — current uncommitted diff
+
+Or simpler: just show the working diff (user feedback), and instruct agent to read REVIEW.md for context about what was being reviewed.
+
+<!-- user answers here -->
+
+### What if `git diff <ref> HEAD` produces empty diff?
+
+User runs `gtd HEAD` or `gtd <ref>` where ref equals HEAD. No changes to review.
+
+Options:
+- **A) Error immediately** — "No changes between <ref> and HEAD to review"
+- **B) Create empty REVIEW.md** — Let agent handle it (will produce useless file)
+- **C) Error in prompt** — Let detection succeed, error in review-create prompt
+
+**Recommendation:** Option A. Fail fast in CLI before even entering review mode. Check `git diff --stat <ref> HEAD` output; if empty, error with clear message.
 
 <!-- user answers here -->
