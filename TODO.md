@@ -52,6 +52,8 @@ export type Branch =
   | "review-process"    // REVIEW.md exists with changes, convert to TODO
 ```
 
+**Ref argument passing:** Add parameter to `detect()` directly — `detect(refArg?: string)`. Current function already uses Effect.gen, adding a parameter doesn't break anything. Avoids ceremony of service tags for a single optional string.
+
 Detection logic in `detect()` with **early-return for exclusive branches**:
 1. Check if `REVIEW.md` exists:
    - If exists AND modified → return `"review-process"` branch immediately (exclusive, ignore other signals)
@@ -60,6 +62,8 @@ Detection logic in `detect()` with **early-return for exclusive branches**:
 3. Existing logic for other branches continues only if neither review branch applies
 
 **Modification detection:** Any change to REVIEW.md counts as valid review state—even checkbox-only edits with no text feedback. Signals approval without explicit comment.
+
+**Base ref parsing in detection:** Detection phase parses REVIEW.md, extracts `<!-- base: -->` comment, errors if malformed. Adds `baseRef?: string` to State interface. This keeps error handling in typed code, not prompt instructions. Also allows State to carry `baseRef` for `buildContext()` if needed later.
 
 ### Phase 3: Git Service Extensions
 
@@ -123,10 +127,14 @@ Instructions for agent to:
 8. Commit TODO.md with REVIEW.md deletion
 9. Normal flow continues (existing `new-todo` branch takes over)
 
+**Agent does not need to re-examine original diff:** Agent's job is to extract user feedback and compose TODO.md. The chunk explanations in REVIEW.md provide sufficient context. Agent trusts REVIEW.md explanations without reconstructing original changes.
+
 **Context shown:** Working diff only (user's feedback edits). Agent reads REVIEW.md file for context about what was being reviewed.
 
 **Error handling:**
 - If `<!-- base: -->` comment missing from REVIEW.md → error "REVIEW.md is corrupted: missing base ref. Delete REVIEW.md and re-run with git ref to restart review."
+
+**Reset safety:** No safeguards needed. User explicitly entered review mode, made edits, and ran gtd again. The reset is the expected outcome. Adding confirmation creates awkward multi-turn flow. If user wants backup, they can commit or branch manually before running gtd.
 
 ### Phase 5: Prompt Building
 
@@ -201,58 +209,3 @@ Scenarios:
 12. Error when `git diff <ref> HEAD` is empty
 
 **Create:** Unit tests for new Git methods in a vitest file
-
----
-
-## Open Questions
-
-### How should ref argument be passed to `detect()`?
-
-Currently `detect()` takes no arguments—dependencies come via Effect. Options:
-
-- **A) Add refArg to State interface** — `detect()` reads from State, but State is the output not input
-- **B) Create RefArg service tag** — `class RefArg extends Context.Tag<...>` passed via layer
-- **C) Add parameter to detect()** — `detect(refArg?: string)` directly
-- **D) Check process.argv inside detect()** — simplest but couples to global
-
-**Recommendation:** Option C. Direct parameter is simplest. `detect()` already uses Effect.gen, adding a parameter doesn't break anything. Other options add ceremony for a single optional string.
-
-<!-- user answers here -->
-
-### Should REVIEW.md base ref parsing happen in detection or prompt?
-
-Two places could parse the `<!-- base: -->` comment:
-
-- **A) Detection phase** — `detect()` parses REVIEW.md, extracts base ref, errors if malformed. Adds `baseRef?: string` to State.
-- **B) Prompt phase** — Agent parses REVIEW.md during execution, instructed to error if malformed.
-
-**Recommendation:** Option A. Detection should validate REVIEW.md structure before proceeding. Keeps error handling in typed code, not prompt instructions. Also allows State to carry `baseRef` for `buildContext()` if needed later.
-
-<!-- user answers here -->
-
-### How does agent in review-process reconstruct original changes?
-
-With "working diff only" approach, agent sees user feedback but not original changes. Agent must read REVIEW.md which has:
-- Chunk explanations (prose)
-- File/line references (but not actual code)
-
-To see actual original code, agent could:
-- **A) Read files at HEAD** — sees current state, may differ if user edited during review
-- **B) Run `git diff <base> HEAD~1`** — sees original changes before review commit, but agent would need to execute git
-- **C) Trust REVIEW.md explanations** — agent doesn't need original diff, just processes user feedback
-
-**Recommendation:** Option C. Agent's job is to extract user feedback and compose TODO.md. The chunk explanations in REVIEW.md provide sufficient context. Agent doesn't need to re-examine original diff.
-
-<!-- user answers here -->
-
-### Should reset operation have safeguards?
-
-The reset sequence (`git checkout -- .` + `git clean -fd`) is destructive. Options:
-
-- **A) No safeguards** — Agent follows instructions, user already committed review feedback
-- **B) Dry-run first** — Agent shows what would be reset, asks for confirmation
-- **C) Backup branch** — Create `review-backup-<timestamp>` branch before reset
-
-**Recommendation:** Option A. User explicitly entered review mode, made edits, and ran gtd again. The reset is the expected outcome. Adding confirmation creates awkward multi-turn flow. If user wants backup, they can commit or branch manually before running gtd.
-
-<!-- user answers here -->
