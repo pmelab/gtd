@@ -7,6 +7,11 @@ export interface GitOperations {
   readonly lastCommitSubject: () => Effect.Effect<string, Error>
   readonly lastCommitFiles: () => Effect.Effect<ReadonlyArray<string>, Error>
   readonly hasCommits: () => Effect.Effect<boolean, Error>
+  readonly diffRef: (ref: string) => Effect.Effect<string, Error>
+  readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
+  readonly checkoutTracked: () => Effect.Effect<void, Error>
+  readonly cleanUntracked: () => Effect.Effect<void, Error>
+  readonly diffStatRef: (ref: string) => Effect.Effect<string, Error>
 }
 
 const run = (
@@ -69,6 +74,19 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             Effect.map(() => true),
             Effect.catchAll(() => Effect.succeed(false)),
           ),
+
+        diffRef: (ref: string) => exec("git", "diff", ref, "HEAD"),
+
+        resolveRef: (ref: string) =>
+          exec("git", "rev-parse", ref).pipe(Effect.map((s) => s.trim())),
+
+        checkoutTracked: () =>
+          exec("git", "checkout", "--", ".").pipe(Effect.map(() => undefined as void)),
+
+        cleanUntracked: () =>
+          exec("git", "clean", "-fd").pipe(Effect.map(() => undefined as void)),
+
+        diffStatRef: (ref: string) => exec("git", "diff", "--stat", ref, "HEAD"),
       }
     }),
   )
