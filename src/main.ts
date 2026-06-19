@@ -5,7 +5,8 @@ import { detect } from "./State.js"
 import { buildPrompt } from "./Prompt.js"
 
 const program = Effect.gen(function* () {
-  const state = yield* detect()
+  const refArg = process.argv[2]
+   const state = yield* detect(refArg)
   const prompt = buildPrompt(state)
   yield* Effect.sync(() => process.stdout.write(prompt))
 })
