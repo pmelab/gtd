@@ -1,4 +1,4 @@
-import { Given, Then, When } from "@cucumber/cucumber"
+import { Then, When } from "@cucumber/cucumber"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import assert from "node:assert"

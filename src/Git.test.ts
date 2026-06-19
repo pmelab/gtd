@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { execSync } from "node:child_process"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Layer } from "effect"
+import { Effect } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { GitService } from "./Git.js"
 
