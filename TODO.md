@@ -60,11 +60,13 @@ Add to `GitOperations` interface:
 ```typescript
 readonly diffRef: (ref: string) => Effect.Effect<string, Error>
 readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
+readonly checkoutAll: () => Effect.Effect<void, Error>
 ```
 
 Implementation:
-- `diffRef`: `git diff <ref>^..<ref>` for single commit, or `git diff <ref>` for range/ref
+- `diffRef`: `git diff <ref> HEAD` — shows all changes from ref to current HEAD
 - `resolveRef`: `git rev-parse <ref>` to validate and get full hash
+- `checkoutAll`: `git checkout -- .` for hard reset of working tree after review processing
 
 ### Phase 4: New Prompt Files
 
@@ -83,13 +85,12 @@ Instructions for agent to:
 
 <Explanation of what this chunk does>
 
-- [ ] M path/to/file.ts#L42
-- [ ] A path/to/new-file.ts#L1
-- [ ] D path/to/deleted.ts
-
-## <Next Chunk>
-...
+- [ ] ./path/to/file.ts#42
+- [ ] ./path/to/new-file.ts#1
+- [ ] ./path/to/deleted.ts#1
 ```
+
+File paths use relative format: `./path/to/file.ts#42` (line number only, no ranges)
 
 4. Commit REVIEW.md
 
@@ -97,10 +98,10 @@ Instructions for agent to:
 
 Instructions for agent to:
 1. Read changes in REVIEW.md (comments added by user)
-2. Read changes in source files (inline comments with `// REVIEW:` or similar marker)
+2. Read ALL changes in source files as feedback — no marker convention, treat every modification as intentional review feedback
 3. Extract user feedback from both sources
 4. Compose TODO.md from collected feedback
-5. `git checkout -- .` to reset source changes
+5. Execute `git checkout -- .` to hard reset source changes
 6. Delete REVIEW.md
 7. Stage and commit TODO.md with deletion of REVIEW.md
 8. Normal flow continues (existing `new-todo` branch takes over)
@@ -124,7 +125,7 @@ const SECTIONS: Record<Branch, string> = {
 
 Modify `buildContext()` to include ref-based diff when in review mode:
 - Add `refDiff?: string` to State interface
-- If ref provided, include diff of that ref instead of working tree diff
+- If ref provided, include `git diff <ref> HEAD` instead of working tree diff
 
 ### Phase 6: REVIEW.md File Format
 
@@ -138,17 +139,17 @@ Standard format:
 
 Extracts auth logic into dedicated service class.
 
-- [ ] M src/auth/AuthService.ts#L15
-- [ ] M src/auth/AuthService.ts#L42
-- [ ] A src/auth/types.ts#L1
-- [ ] M src/index.ts#L8
+- [ ] ./src/auth/AuthService.ts#15
+- [ ] ./src/auth/AuthService.ts#42
+- [ ] ./src/auth/types.ts#1
+- [ ] ./src/index.ts#8
 
 ## Test updates
 
 Updates tests for new auth service API.
 
-- [ ] M tests/auth.test.ts#L23
-- [ ] M tests/auth.test.ts#L89
+- [ ] ./tests/auth.test.ts#23
+- [ ] ./tests/auth.test.ts#89
 ```
 
 The `<!-- base: -->` comment stores full hash for later reference when processing.
@@ -166,34 +167,40 @@ Scenarios:
 
 **Create:** Unit tests for new Git methods in a vitest file
 
-### Phase 8: Delete Legacy `.review` File
-
-Current `.review` file in repo root appears to be from different implementation attempt. Delete as part of this feature or in cleanup phase.
-
 ---
 
 ## Open Questions
 
-### Should REVIEW.md use line numbers or hunk ranges?
+### What if REVIEW.md exists AND user passes a git ref?
 
-**Recommendation:** Line numbers (`#L42`). Simpler to parse, easier for user to click/navigate, and sufficient granularity. Hunk ranges (`#L42-L67`) are more precise but add parsing complexity without clear benefit — user can see context in the grouped chunks.
+Two conflicting signals: existing review file vs new review request. Which takes precedence?
 
-<!-- user answers here -->
-
-### How should user inline comments in source code be marked?
-
-**Recommendation:** Use `// REVIEW:` prefix (or `# REVIEW:` for shell/python, `<!-- REVIEW: -->` for HTML/MD). Agent scans for this marker when processing. Alternatives: `// @review`, `// TODO(review):`. The `REVIEW:` prefix is distinct from existing `TODO:` convention and clearly scoped to this feature.
+**Recommendation:** Error exit with message like "REVIEW.md already exists. Complete or delete existing review before starting new one." This prevents accidental data loss (losing review comments) and forces explicit intent. Alternative: allow `--force` flag to override, but that adds complexity for edge case.
 
 <!-- user answers here -->
 
-### What git diff format for multi-commit ranges?
+### How to detect if REVIEW.md has actual feedback vs just being opened?
 
-**Recommendation:** If `<ref>` is a range (e.g., `main..feature` or `HEAD~3..HEAD`), use `git diff <ref>`. If single commit, use `git diff <ref>^..<ref>` (shows changes introduced by that commit). Could also support `git show <ref>` for single commits. Detection: try `git rev-parse <ref>^` — if it fails, treat as range.
+User might open REVIEW.md, check boxes, but add no text feedback. Should we require text feedback or process checkbox-only reviews?
+
+**Recommendation:** Process any modification to REVIEW.md as valid review state. Even checking boxes without comments signals "these chunks are approved/reviewed." The agent can note "no explicit feedback provided" when composing TODO.md. Requiring text feedback adds friction for "LGTM" reviews.
 
 <!-- user answers here -->
 
-### Should source file changes be hard-reset or preserved as unstaged?
+### Should hunks be extracted from the `<!-- base: -->` ref or current diff?
 
-**Recommendation:** Hard reset (`git checkout -- .`). The user's intent is captured in REVIEW.md comments and TODO.md, so source changes served their purpose. Preserving them creates confusion (are they part of TODO work or leftover?). User can always `git stash` before running `/gtd` if they want to keep experiments.
+When processing REVIEW.md, the base ref might be stale (commits happened since). Should we:
+A) Re-diff from stored base ref to HEAD (captures new changes)
+B) Only look at changes user made to files (ignores new commits)
+
+**Recommendation:** Option A — `git diff <stored-base> HEAD`. This ensures review covers all changes including any fixups made after REVIEW.md was created. The REVIEW.md checkboxes might reference stale line numbers, but the TODO.md gets composed from current state. Alternative: error if HEAD has moved past stored base.
+
+<!-- user answers here -->
+
+### What if user deletes the `<!-- base: -->` comment from REVIEW.md?
+
+Without base ref, we can't reliably determine what was being reviewed.
+
+**Recommendation:** Require the base comment. If missing, error with "REVIEW.md is corrupted: missing base ref. Delete REVIEW.md and re-run with git ref to restart review." Don't try to guess — user might have copy-pasted partial content. Simple failure mode > magic recovery.
 
 <!-- user answers here -->
