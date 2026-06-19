@@ -7,6 +7,8 @@ import cleanup from "./prompts/cleanup.md"
 import codeChanges from "./prompts/code-changes.md"
 import todoMarkers from "./prompts/todo-markers.md"
 import verify from "./prompts/verify.md"
+import reviewCreate from "./prompts/review-create.md"
+import reviewProcess from "./prompts/review-process.md"
 import type { Branch, State } from "./State.js"
 
 const SECTIONS: Record<Branch, string> = {
@@ -18,8 +20,8 @@ const SECTIONS: Record<Branch, string> = {
   "code-changes": codeChanges,
   "todo-markers": todoMarkers,
   verify,
-  "review-create": "",
-  "review-process": "",
+  "review-create": reviewCreate,
+  "review-process": reviewProcess,
 }
 
 const buildContext = (state: State): string => {
@@ -43,6 +45,15 @@ const buildContext = (state: State): string => {
     }
   }
 
+  if (state.refDiff) {
+    lines.push("")
+    lines.push(`### Diff (\`git diff ${state.baseRef} HEAD\`)`)
+    lines.push("")
+    lines.push("```diff")
+    lines.push(state.refDiff.replace(/\n$/, ""))
+    lines.push("```")
+    lines.push("")
+  }
   lines.push("")
   if (state.diff !== "") {
     lines.push("### Diff (`git diff HEAD`, with untracked files included)")
