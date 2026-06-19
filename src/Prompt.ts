@@ -3,6 +3,7 @@ import newTodo from "./prompts/new-todo.md"
 import modifiedTodo from "./prompts/modified-todo.md"
 import decompose from "./prompts/decompose.md"
 import execute from "./prompts/execute.md"
+import executeSimple from "./prompts/execute-simple.md"
 import cleanup from "./prompts/cleanup.md"
 import codeChanges from "./prompts/code-changes.md"
 import todoMarkers from "./prompts/todo-markers.md"
@@ -17,6 +18,7 @@ const SECTIONS: Record<Branch, string> = {
   "modified-todo": modifiedTodo,
   decompose,
   execute,
+  "execute-simple": executeSimple,
   cleanup,
   "code-changes": codeChanges,
   "todo-markers": todoMarkers,
@@ -72,6 +74,7 @@ const AUTO_ADVANCE_BRANCHES: ReadonlySet<Branch> = new Set([
   "modified-todo",
   "decompose",
   "execute",
+  "execute-simple",
   "cleanup",
   "code-changes",
   "todo-markers",

@@ -7,6 +7,7 @@ export type Branch =
   | "modified-todo"
   | "decompose"
   | "execute"
+  | "execute-simple"
   | "cleanup"
   | "code-changes"
   | "todo-markers"
@@ -188,8 +189,13 @@ export const detect = (refArg?: string): Effect.Effect<State, Error, GitService 
         // .gtd/ exists but is empty — cleanup
         branches.push("cleanup")
       } else if (todoFinalized) {
-        // TODO.md has no unanswered questions — decompose into packages
-        branches.push("decompose")
+        const todoContent = yield* fs.readFileString(TODO_FILE)
+        const isSimple = todoContent.includes("<!-- simple -->")
+        if (isSimple) {
+          branches.push("execute-simple")
+        } else {
+          branches.push("decompose")
+        }
       } else {
         branches.push("verify")
       }

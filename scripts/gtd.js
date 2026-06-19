@@ -48749,7 +48749,13 @@ var detect = (refArg) => Effect_exports.gen(function* () {
     } else if (gtdExists) {
       branches.push("cleanup");
     } else if (todoFinalized) {
-      branches.push("decompose");
+      const todoContent = yield* fs.readFileString(TODO_FILE);
+      const isSimple = todoContent.includes("<!-- simple -->");
+      if (isSimple) {
+        branches.push("execute-simple");
+      } else {
+        branches.push("decompose");
+      }
     } else {
       branches.push("verify");
     }
@@ -48781,6 +48787,9 @@ var decompose_default = '## Task: Decompose `TODO.md` into work packages\n\nThe 
 // src/prompts/execute.md
 var execute_default = '## Task: Execute all work packages\n\nWork packages exist in `.gtd/`. Execute all packages sequentially, in numeric\norder (01 before 02, etc.), without pausing between them.\n\n### Orchestration\n\nYou are running with a work model. You orchestrate the execution \u2014 you do not\nimplement the tasks yourself. Spawn subagents for all implementation and\ntesting work.\n\nCheck your user/project AGENTS.md for model preferences (e.g., "use sonnet\nfor execution"). If no preference is set, use the current work model for\nexecution subagents.\n\n### Step 1: Spawn task workers\n\nFor each task file in the current package, spawn a **parallel subagent** with:\n\n- **Model**: The execution model from AGENTS.md (or current work model)\n- **TDD discipline** (inline rules for workers):\n  - Write ONE test \u2192 implement \u2192 pass \u2192 repeat (vertical slices)\n  - **DO NOT** write all tests first then implement (horizontal slicing)\n  - Tests verify behavior through public interfaces, not implementation details\n  - A good test survives refactors \u2014 if renaming an internal function breaks the test, it\'s testing implementation\n  - Each test responds to what you learned from the previous cycle\n- **Context**: The task file content only (self-contained)\n- **Fresh context**: Each worker starts fresh, no conversation history\n\nWait for all workers to complete.\n\n**If any worker fails** (crash, timeout, error \u2014 not test failure):\nReport which tasks failed. Ask the user: "Retry failed tasks / Skip and\ncontinue / Abort?"\n\n### Step 2: Spawn testing subagent\n\nAfter all workers complete, spawn ONE **testing subagent**:\n\n- **Model**: Execution model (same as workers)\n- **Context**: Fresh\n\nThe testing subagent should:\n\n1. Determine the test command from project configuration (AGENTS.md,\n   `package.json` scripts, Makefile, etc.). If unclear, ask the user.\n2. Run the tests\n3. If tests fail, analyze failures and fix them\n4. Repeat until tests pass or retry limit reached (default: 5, check AGENTS.md)\n5. Report final status: PASS or FAIL with summary\n\n### Step 3: Handle results\n\n**If tests pass:**\n\n1. Read `COMMIT_MSG.md` from the current package\n2. Delete the package directory from `.gtd/`\n3. Commit all changes with the commit message from `COMMIT_MSG.md`\n\n**If tests fail after max retries:**\n\nAsk the user:\n- "Commit anyway with WIP marker?"\n- "Skip this package and continue?"\n- "Abort execution?"\n\nDo not silently commit broken code or silently fail.\n\n### Continue to next package\n\nAfter committing a package:\n1. Delete the package directory from `.gtd/`\n2. Check if more packages remain in `.gtd/`\n3. If yes: return to Step 1 for the next package\n4. If no: done \u2014 all packages complete. The `.gtd/` cleanup will be handled\n   on the next `/gtd` invocation if the directory remains.\n';
 
+// src/prompts/execute-simple.md
+var execute_simple_default = '## Task: Execute simple task\n\n`TODO.md` contains a simple task marked with `<!-- simple -->`. Execute it\ndirectly without decomposing into work packages.\n\n### Orchestration\n\nYou are running with a work model. You orchestrate the execution \u2014 you do not\nimplement the task yourself. Spawn subagents for implementation and testing.\n\nCheck your user/project AGENTS.md for model preferences (e.g., "use sonnet\nfor execution"). If no preference is set, use the current work model.\n\n### Step 1: Spawn implementation worker\n\nSpawn ONE **execution-model subagent** with:\n\n- **Model**: The execution model from AGENTS.md (or current work model)\n- **TDD discipline** (inline rules for worker):\n  - Write ONE test \u2192 implement \u2192 pass \u2192 repeat (vertical slices)\n  - **DO NOT** write all tests first then implement (horizontal slicing)\n  - Tests verify behavior through public interfaces, not implementation details\n  - Each test responds to what you learned from the previous cycle\n- **Context**: The full content of `TODO.md` as the task specification\n- **Fresh context**: Worker starts fresh, no conversation history\n\nWait for the worker to complete.\n\n**If worker fails** (crash, timeout, error \u2014 not test failure):\nReport the failure. Ask the user: "Retry / Abort?"\n\n### Step 2: Spawn testing subagent\n\nAfter the worker completes, spawn ONE **testing subagent**:\n\n- **Model**: Execution model (same as worker)\n- **Context**: Fresh\n\nThe testing subagent should:\n\n1. Determine the test command from project configuration (AGENTS.md,\n   `package.json` scripts, Makefile, etc.). If unclear, ask the user.\n2. Run the tests\n3. If tests fail, analyze failures and fix them\n4. Repeat until tests pass or retry limit reached (default: 5, check AGENTS.md)\n5. Report final status: PASS or FAIL with summary\n\n### Step 3: Handle results\n\n**If tests pass:**\n\n1. Derive a conventional commit message from the task in `TODO.md`:\n   - Use the task description to determine `<type>(<scope>): <subject>`\n   - Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`\n2. Delete `TODO.md`\n3. Commit all changes with the derived commit message\n\n**If tests fail after max retries:**\n\nAsk the user:\n- "Commit anyway with WIP marker?"\n- "Abort execution?"\n\nDo not silently commit broken code or silently fail.\n';
+
 // src/prompts/cleanup.md
 var cleanup_default = "## Task: Clean up after build completion\n\nThe `.gtd/` directory exists but contains no more work packages. All packages\nhave been executed and committed.\n\n1. Delete the empty `.gtd/` directory\n2. Proceed to verify the working tree is healthy\n\nDo not commit the `.gtd/` deletion separately \u2014 it will be part of any\nfixes made during verification, or left uncommitted if verification passes\nwith no changes.\n";
 
@@ -48808,6 +48817,7 @@ var SECTIONS = {
   "modified-todo": modified_todo_default,
   decompose: decompose_default,
   execute: execute_default,
+  "execute-simple": execute_simple_default,
   cleanup: cleanup_default,
   "code-changes": code_changes_default,
   "todo-markers": todo_markers_default,
@@ -48857,6 +48867,7 @@ var AUTO_ADVANCE_BRANCHES = /* @__PURE__ */ new Set([
   "modified-todo",
   "decompose",
   "execute",
+  "execute-simple",
   "cleanup",
   "code-changes",
   "todo-markers",

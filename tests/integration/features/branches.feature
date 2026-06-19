@@ -61,6 +61,30 @@ Feature: gtd prints a structured prompt for the agent based on git state
     And stdout contains "## Task: Decompose `TODO.md` into work packages"
     And stdout contains "planning model"
 
+  Scenario: TODO.md with simple marker triggers execute-simple
+    Given a test project
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Add a greeting to the CLI output
+
+      <!-- simple -->
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Execute simple task"
+    And stdout does not contain "## Task: Decompose"
+
+  Scenario: TODO.md without simple marker triggers decompose
+    Given a test project
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Refactor authentication to use JWT
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Decompose"
+    And stdout does not contain "## Task: Execute simple task"
+
   Scenario: Existing .gtd with packages triggers execute
     Given a test project
     And a commit "plan(gtd): decompose" that adds ".gtd/01-math/01-add.md" with:

@@ -1,18 +1,3 @@
-# Create execute-simple.md prompt
-
-## Description
-
-Create a new prompt file for the `execute-simple` branch. This is a simplified version of `execute.md` that works directly from TODO.md without the `.gtd/` package structure.
-
-## Files to create
-
-- `src/prompts/execute-simple.md`
-
-## Implementation
-
-Create `src/prompts/execute-simple.md` with this content:
-
-```markdown
 ## Task: Execute simple task
 
 `TODO.md` contains a simple task marked with `<!-- simple -->`. Execute it
@@ -77,13 +62,3 @@ Ask the user:
 - "Abort execution?"
 
 Do not silently commit broken code or silently fail.
-```
-
-## Acceptance criteria
-
-- [ ] File exists at `src/prompts/execute-simple.md`
-- [ ] Prompt contains "## Task: Execute simple task" heading
-- [ ] Prompt includes TDD discipline instructions
-- [ ] Prompt includes testing step (not skipped)
-- [ ] Prompt instructs to derive commit message from TODO.md
-- [ ] Prompt instructs to delete TODO.md on success
