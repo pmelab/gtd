@@ -11,6 +11,8 @@ export type Branch =
   | "code-changes"
   | "todo-markers"
   | "verify"
+  | "review-create"
+  | "review-process"
 
 export interface GtdPackage {
   readonly name: string
@@ -23,6 +25,8 @@ export interface State {
   readonly diff: string
   readonly workingTreeClean: boolean
   readonly packages: ReadonlyArray<GtdPackage>
+  readonly baseRef?: string
+  readonly refDiff?: string
 }
 
 const TODO_FILE = "TODO.md"
@@ -69,10 +73,45 @@ const getPackages = (
     return packages
   }).pipe(Effect.mapError((e) => new Error(String(e))))
 
-export const detect = (): Effect.Effect<State, Error, GitService | FileSystem.FileSystem> =>
+export const detect = (refArg?: string): Effect.Effect<State, Error, GitService | FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
+
+    if (refArg !== undefined) {
+      const porcelainCheck = yield* git.statusPorcelain()
+      const dirty = porcelainCheck.trim().length > 0
+      if (dirty) {
+        yield* Effect.fail(new Error("Commit or stash changes before starting review"))
+      }
+
+      const reviewExists = yield* fs.exists("REVIEW.md")
+      if (reviewExists) {
+        yield* Effect.fail(new Error("REVIEW.md already exists. Complete or delete existing review before starting new one."))
+      }
+
+      const resolvedRef = yield* git.resolveRef(refArg)
+
+      const diffStat = yield* git.diffStatRef(resolvedRef)
+      if (diffStat.trim().length === 0) {
+        yield* Effect.fail(new Error(`No changes between \`${refArg}\` and HEAD to review`))
+      }
+
+      const refDiff = yield* git.diffRef(resolvedRef)
+      const hasCommits = yield* git.hasCommits()
+      const lastCommitSubject = hasCommits ? yield* git.lastCommitSubject() : ""
+      const packages = yield* getPackages(fs)
+
+      return {
+        branches: ["review-create" as Branch],
+        lastCommitSubject,
+        diff: "",
+        workingTreeClean: true,
+        packages,
+        baseRef: resolvedRef,
+        refDiff,
+      }
+    }
 
     const hasCommits = yield* git.hasCommits()
     const porcelain = hasCommits ? yield* git.statusPorcelain() : ""
@@ -99,6 +138,39 @@ export const detect = (): Effect.Effect<State, Error, GitService | FileSystem.Fi
           : Effect.succeed(false),
       ),
     )
+
+    // review-process: REVIEW.md exists with user edits
+    const reviewExists = yield* fs.exists("REVIEW.md")
+    if (reviewExists) {
+      const reviewModified = entries.some((e) => e.path === "REVIEW.md")
+      if (!reviewModified) {
+        yield* Effect.fail(
+          new Error(
+            "REVIEW.md exists but has no changes. Edit REVIEW.md to provide feedback, or delete it to abandon review.",
+          ),
+        )
+      }
+      const reviewContent = yield* fs
+        .readFileString("REVIEW.md")
+        .pipe(Effect.mapError((e) => new Error(String(e))))
+      const baseMatch = reviewContent.match(/<!--\s*base:\s*([a-f0-9]+)\s*-->/)
+      if (!baseMatch) {
+        yield* Effect.fail(
+          new Error(
+            "REVIEW.md is corrupted: missing base ref. Delete REVIEW.md and re-run with git ref to restart review.",
+          ),
+        )
+      }
+      const baseRef = baseMatch![1] as string
+      return {
+        branches: ["review-process" as Branch],
+        lastCommitSubject,
+        diff,
+        workingTreeClean: clean,
+        packages,
+        baseRef,
+      } satisfies State
+    }
 
     const branches: Array<Branch> = []
 

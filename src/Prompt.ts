@@ -18,6 +18,8 @@ const SECTIONS: Record<Branch, string> = {
   "code-changes": codeChanges,
   "todo-markers": todoMarkers,
   verify,
+  "review-create": "",
+  "review-process": "",
 }
 
 const buildContext = (state: State): string => {
