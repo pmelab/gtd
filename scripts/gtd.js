@@ -48707,9 +48707,10 @@ var detect = (refArg) => Effect_exports.gen(function* () {
   const packages = yield* getPackages(fs);
   const gtdExists = yield* fs.exists(GTD_DIR);
   const UNANSWERED_MARKER = "<!-- user answers here -->";
+  const stripCode = (content) => content.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[^\n]*/gm, "").replace(/`[^`\n]+`/g, "");
   const todoFinalized = yield* fs.exists(TODO_FILE).pipe(
     Effect_exports.flatMap(
-      (exists4) => exists4 ? fs.readFileString(TODO_FILE).pipe(Effect_exports.map((content) => !content.includes(UNANSWERED_MARKER))) : Effect_exports.succeed(false)
+      (exists4) => exists4 ? fs.readFileString(TODO_FILE).pipe(Effect_exports.map((content) => !stripCode(content).includes(UNANSWERED_MARKER))) : Effect_exports.succeed(false)
     )
   );
   const reviewExists = yield* fs.exists("REVIEW.md");

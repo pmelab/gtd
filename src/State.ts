@@ -128,13 +128,19 @@ export const detect = (refArg?: string): Effect.Effect<State, Error, GitService 
 
     // A TODO.md is "finalized" when it exists on disk and contains no
     // unanswered question markers — regardless of commit history.
+    // Strip fenced code blocks and inline code spans before checking so that
+    // references to the marker string inside code examples don't count.
     const UNANSWERED_MARKER = "<!-- user answers here -->"
+    const stripCode = (content: string): string =>
+      content
+        .replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[^\n]*/gm, "")
+        .replace(/`[^`\n]+`/g, "")
     const todoFinalized = yield* fs.exists(TODO_FILE).pipe(
       Effect.flatMap((exists) =>
         exists
           ? fs
               .readFileString(TODO_FILE)
-              .pipe(Effect.map((content) => !content.includes(UNANSWERED_MARKER)))
+              .pipe(Effect.map((content) => !stripCode(content).includes(UNANSWERED_MARKER)))
           : Effect.succeed(false),
       ),
     )
