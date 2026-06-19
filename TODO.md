@@ -1,19 +1,3 @@
-## Open Questions
-
-### Where should `<!-- simple -->` marker be placed in TODO.md?
-
-**Recommendation:** At the very end of the file.
-
-Reasoning:
-- Bottom placement keeps it out of the way of the plan content
-- Easy for planning model to append without restructuring
-- State detection just does `content.includes()` so position doesn't matter for logic
-- Consistent with `<!-- user answers here -->` being inline markers
-
-<!-- user answers here -->
-
----
-
 ## Plan
 
 ### Current Flow (for reference)
@@ -30,7 +14,7 @@ new-todo → modified-todo (iterating) → [planning model adds <!-- simple -->]
                               [no marker] → decompose → execute → cleanup → verify
 ```
 
-The planning model decides during the new-todo/modified-todo phase whether a task is simple. If simple, it appends `<!-- simple -->` to TODO.md. State detection reads this marker to route to `execute-simple` instead of `decompose`.
+The planning model decides during the new-todo/modified-todo phase whether a task is simple. If simple, it appends `<!-- simple -->` at the end of TODO.md (after all plan content). State detection reads this marker to route to `execute-simple` instead of `decompose`.
 
 ### Implementation
 
@@ -162,3 +146,15 @@ Alternative: Let planning model decide without strict rules — it has context w
 The test subagent in execute.md is valuable even for simple changes. Skipping decomposition saves the overhead of creating `.gtd/` packages, but testing catches regressions.
 
 **Answer:** no — keep test step, skip decomposition only
+
+### Where should `<!-- simple -->` marker be placed in TODO.md?
+
+**Recommendation:** At the very end of the file.
+
+Reasoning:
+- Bottom placement keeps it out of the way of the plan content
+- Easy for planning model to append without restructuring
+- State detection just does `content.includes()` so position doesn't matter for logic
+- Consistent with `<!-- user answers here -->` being inline markers
+
+**Answer:** agreed
