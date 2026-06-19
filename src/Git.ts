@@ -78,7 +78,14 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
         diffRef: (ref: string) => exec("git", "diff", ref, "HEAD"),
 
         resolveRef: (ref: string) =>
-          exec("git", "rev-parse", ref).pipe(Effect.map((s) => s.trim())),
+          exec("git", "rev-parse", "--verify", ref).pipe(
+            Effect.map((s) => s.trim()),
+            Effect.flatMap((hash) =>
+              /^[0-9a-f]{40}$/.test(hash)
+                ? Effect.succeed(hash)
+                : Effect.fail(new Error(`Invalid ref: ${ref}`)),
+            ),
+          ),
 
         checkoutTracked: () =>
           exec("git", "checkout", "--", ".").pipe(Effect.map(() => undefined as void)),

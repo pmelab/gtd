@@ -48625,7 +48625,17 @@ var GitService = class _GitService extends Context_exports.Tag("GitService")() {
         hasCommits: () => exec2("git", "rev-parse", "--verify", "HEAD").pipe(
           Effect_exports.map(() => true),
           Effect_exports.catchAll(() => Effect_exports.succeed(false))
-        )
+        ),
+        diffRef: (ref) => exec2("git", "diff", ref, "HEAD"),
+        resolveRef: (ref) => exec2("git", "rev-parse", "--verify", ref).pipe(
+          Effect_exports.map((s) => s.trim()),
+          Effect_exports.flatMap(
+            (hash2) => /^[0-9a-f]{40}$/.test(hash2) ? Effect_exports.succeed(hash2) : Effect_exports.fail(new Error(`Invalid ref: ${ref}`))
+          )
+        ),
+        checkoutTracked: () => exec2("git", "checkout", "--", ".").pipe(Effect_exports.map(() => void 0)),
+        cleanUntracked: () => exec2("git", "clean", "-fd").pipe(Effect_exports.map(() => void 0)),
+        diffStatRef: (ref) => exec2("git", "diff", "--stat", ref, "HEAD")
       };
     })
   );
@@ -48654,9 +48664,38 @@ var getPackages = (fs) => Effect_exports.gen(function* () {
   }
   return packages;
 }).pipe(Effect_exports.mapError((e) => new Error(String(e))));
-var detect = () => Effect_exports.gen(function* () {
+var detect = (refArg) => Effect_exports.gen(function* () {
   const git = yield* GitService;
   const fs = yield* FileSystem_exports.FileSystem;
+  if (refArg !== void 0) {
+    const porcelainCheck = yield* git.statusPorcelain();
+    const dirty = porcelainCheck.trim().length > 0;
+    if (dirty) {
+      yield* Effect_exports.fail(new Error("Commit or stash changes before starting review"));
+    }
+    const reviewExists2 = yield* fs.exists("REVIEW.md");
+    if (reviewExists2) {
+      yield* Effect_exports.fail(new Error("REVIEW.md already exists. Complete or delete existing review before starting new one."));
+    }
+    const resolvedRef = yield* git.resolveRef(refArg);
+    const diffStat = yield* git.diffStatRef(resolvedRef);
+    if (diffStat.trim().length === 0) {
+      yield* Effect_exports.fail(new Error(`No changes between \`${refArg}\` and HEAD to review`));
+    }
+    const refDiff = yield* git.diffRef(resolvedRef);
+    const hasCommits2 = yield* git.hasCommits();
+    const lastCommitSubject2 = hasCommits2 ? yield* git.lastCommitSubject() : "";
+    const packages2 = yield* getPackages(fs);
+    return {
+      branches: ["review-create"],
+      lastCommitSubject: lastCommitSubject2,
+      diff: "",
+      workingTreeClean: true,
+      packages: packages2,
+      baseRef: resolvedRef,
+      refDiff
+    };
+  }
   const hasCommits = yield* git.hasCommits();
   const porcelain = hasCommits ? yield* git.statusPorcelain() : "";
   const entries2 = parsePorcelainPaths(porcelain);
@@ -48673,6 +48712,35 @@ var detect = () => Effect_exports.gen(function* () {
       (exists4) => exists4 ? fs.readFileString(TODO_FILE).pipe(Effect_exports.map((content) => !content.includes(UNANSWERED_MARKER))) : Effect_exports.succeed(false)
     )
   );
+  const reviewExists = yield* fs.exists("REVIEW.md");
+  if (reviewExists) {
+    const reviewModified = entries2.some((e) => e.path === "REVIEW.md");
+    if (!reviewModified) {
+      yield* Effect_exports.fail(
+        new Error(
+          "REVIEW.md exists but has no changes. Edit REVIEW.md to provide feedback, or delete it to abandon review."
+        )
+      );
+    }
+    const reviewContent = yield* fs.readFileString("REVIEW.md").pipe(Effect_exports.mapError((e) => new Error(String(e))));
+    const baseMatch = reviewContent.match(/<!--\s*base:\s*([a-f0-9]+)\s*-->/);
+    if (!baseMatch) {
+      yield* Effect_exports.fail(
+        new Error(
+          "REVIEW.md is corrupted: missing base ref. Delete REVIEW.md and re-run with git ref to restart review."
+        )
+      );
+    }
+    const baseRef = baseMatch[1];
+    return {
+      branches: ["review-process"],
+      lastCommitSubject,
+      diff: diff8,
+      workingTreeClean: clean,
+      packages,
+      baseRef
+    };
+  }
   const branches = [];
   if (clean) {
     if (packages.length > 0) {
@@ -48724,6 +48792,12 @@ var todo_markers_default = '## Task: Move `TODO:` markers into `TODO.md`\n\nThe 
 // src/prompts/verify.md
 var verify_default = '## Task: Verify the working tree is healthy\n\nThe working tree is clean and the last commit was not a `TODO.md` checkpoint.\nThere is no plan to execute.\n\n### Happy path\n\n1. Run tests, typecheck, lint (whatever the project has configured)\n2. If all pass \u2192 done, report success\n\n### On failure \u2014 structured diagnosis\n\nIf anything fails, invoke this discipline. Do not skip phases.\n\n#### Phase 1: Build a feedback loop\n\n**This is the skill.** If you have a fast, deterministic, agent-runnable\npass/fail signal, you will find the cause. Spend disproportionate effort here.\n\nTurn the failure into:\n- A failing test at whatever seam reaches the bug\n- A CLI invocation with fixture input\n- A minimal script that reproduces the failure\n\nDo not proceed until you have a reliable feedback loop.\n\n#### Phase 2: Generate ranked hypotheses\n\nGenerate **3\u20135 ranked hypotheses** before testing any of them. Single-hypothesis\ngeneration anchors on the first plausible idea and wastes cycles.\n\nEach hypothesis must be **falsifiable** \u2014 state the prediction:\n> "If <X> is the cause, then <changing Y> will make the bug disappear."\n\n#### Phase 3: Instrument and test\n\nTest hypotheses one at a time. Prefer:\n1. Debugger / REPL inspection (one breakpoint beats ten logs)\n2. Targeted logs at boundaries that distinguish hypotheses\n\n**Tag every debug log** with a unique prefix: `[DEBUG-xxxx]`\nCleanup becomes a single grep. Untagged logs survive; tagged logs die.\n\n#### Phase 4: Fix and verify\n\n1. Apply the fix\n2. Verify the original feedback loop passes\n3. Run full test suite to check for regressions\n\n#### Phase 5: Cleanup\n\nBefore declaring done:\n- [ ] Original failure no longer reproduces\n- [ ] All `[DEBUG-*]` instrumentation removed (grep the prefix)\n- [ ] Full test suite passes\n';
 
+// src/prompts/review-create.md
+var review_create_default = "## Task: Generate REVIEW.md for the current diff\n\nContext contains `refDiff`: output of `git diff <ref> HEAD`.\n\n### Steps\n\n1. **Parse `refDiff`** \u2014 extract all changed hunks with their file paths and\n   starting line numbers.\n\n2. **Group hunks semantically** \u2014 cluster hunks that belong to the same\n   logical concern (same feature, same refactor, same fix). Hunks in different\n   files can belong to the same chunk if they serve the same purpose. Aim for\n   the smallest number of chunks that still makes the review navigable.\n\n3. **Determine the short hash** \u2014 take the first 7 characters of the base ref\n   (the full hash embedded in `<!-- base: -->` comes from `git rev-parse <ref>`).\n\n4. **Write `REVIEW.md`** in this exact format:\n\n   ```markdown\n   # Review: <short-hash>\n   <!-- base: <full-hash> -->\n\n   ## <Chunk Title>\n\n   <Explanation of what this chunk does and why>\n\n   - [ ] ./path/to/file.ts#42\n   - [ ] ./path/to/file.ts#99\n\n   ## <Another Chunk Title>\n\n   <Explanation>\n\n   - [ ] ./path/to/another.ts#1\n   ```\n\n   **Format rules:**\n   - `<short-hash>` = first 7 chars of the base ref\n   - `<!-- base: <full-hash> -->` = full SHA of the base ref (machine-readable,\n     used by later steps to recompute the diff)\n   - File paths are relative, prefixed with `./`\n   - Line numbers (`#42`) are creation-time hints only \u2014 they will drift as the\n     file changes and must not be treated as authoritative\n   - One checkbox per hunk location; do not merge multiple hunks from the same\n     file into a single checkbox unless they are adjacent and inseparable\n   - Chunk titles are short imperative phrases (\u2264 6 words)\n   - Chunk explanations describe *what* changed and *why*, not just where\n\n5. **Commit REVIEW.md** with message:\n\n   ```\n   review(gtd): create review for <short-hash>\n   ```\n\n   where `<short-hash>` is the same first-7-char value used in the heading.\n";
+
+// src/prompts/review-process.md
+var review_process_default = "# Process Review Feedback\n\nYou are processing feedback from a code review session. The reviewer has annotated\n`REVIEW.md` and may have directly edited source files to illustrate changes.\n\n## Step 1: Read REVIEW.md for Context\n\nRead `REVIEW.md`. It contains:\n- **Chunk titles and explanations** written by the tool that generated it \u2014 these\n  describe what each diff chunk does; use them as context when interpreting feedback.\n- **Base ref** (noted at the top) \u2014 the commit the review was based on.\n- **Reviewer comments** \u2014 text the user added (inline or between chunks).\n- **Checkboxes** \u2014 informational only; do not treat checked/unchecked as approval\n  or rejection. Read all content regardless of checkbox state.\n\n## Step 2: Read the Working Diff\n\nRun `git diff` (and `git status` for untracked files) to see what the reviewer\nchanged during the session.\n\n## Step 3: Interpret All Source Modifications as Feedback\n\nTreat **every** modification to a source file as intentional reviewer feedback.\nThere is no marker convention \u2014 if the reviewer edited a file, that edit expresses\na desired change or demonstrates an issue.\n\nDo not re-examine the original diff from the base ref. The explanations already\npresent in `REVIEW.md` provide sufficient context for understanding what each chunk\nwas about.\n\n## Step 4: Collect All Feedback\n\nGather feedback from two sources:\n\n1. **REVIEW.md comments** \u2014 any text the reviewer added to the file (inline notes,\n   questions, suggestions written between or inside chunks).\n2. **Source file edits** \u2014 describe what was changed and infer the reviewer's intent\n   from the surrounding REVIEW.md explanation.\n\n## Step 5: Compose TODO.md\n\nWrite `TODO.md` in the project root. Structure it as a clear, actionable list of\ntasks derived from all collected feedback. Group related items if helpful. Be\nspecific \u2014 reference file names, function names, or concepts from the REVIEW.md\nexplanations so each item has enough context to act on without re-reading the diff.\n\n## Step 6: Reset \u2014 Exact Order Required\n\nExecute the reset sequence in this exact order:\n\n```sh\n# 1. Stage TODO.md FIRST so it survives the reset\ngit add TODO.md\n\n# 2. Reset all tracked files to HEAD (discards reviewer's source edits and REVIEW.md edits)\ngit checkout -- .\n\n# 3. Remove any untracked files the reviewer added during the session\ngit clean -fd\n\n# 4. Delete REVIEW.md (it was tracked, so checkout restored it; delete it now)\nrm REVIEW.md\n```\n\nAfter these commands: only `TODO.md` (staged) and the `REVIEW.md` deletion remain\nas pending changes.\n\n## Step 7: Commit\n\n```sh\ngit add -A\ngit commit -m \"docs(review): process review feedback into TODO.md\"\n```\n\nThe commit includes:\n- `TODO.md` added (the extracted feedback)\n- `REVIEW.md` deleted (review session cleaned up)\n\nNo source file changes are committed \u2014 those were illustrative edits by the reviewer,\nnow captured as tasks in `TODO.md`.\n";
+
 // src/Prompt.ts
 var SECTIONS = {
   "new-todo": new_todo_default,
@@ -48733,7 +48807,9 @@ var SECTIONS = {
   cleanup: cleanup_default,
   "code-changes": code_changes_default,
   "todo-markers": todo_markers_default,
-  verify: verify_default
+  verify: verify_default,
+  "review-create": review_create_default,
+  "review-process": review_process_default
 };
 var buildContext = (state) => {
   const lines3 = ["## Context", ""];
@@ -48751,6 +48827,15 @@ var buildContext = (state) => {
         lines3.push(`  - \`${task}\``);
       }
     }
+  }
+  if (state.refDiff) {
+    lines3.push("");
+    lines3.push(`### Diff (\`git diff ${state.baseRef} HEAD\`)`);
+    lines3.push("");
+    lines3.push("```diff");
+    lines3.push(state.refDiff.replace(/\n$/, ""));
+    lines3.push("```");
+    lines3.push("");
   }
   lines3.push("");
   if (state.diff !== "") {
@@ -48771,7 +48856,8 @@ var buildPrompt = (state) => {
 
 // src/main.ts
 var program = Effect_exports.gen(function* () {
-  const state = yield* detect();
+  const refArg = process.argv[2];
+  const state = yield* detect(refArg);
   const prompt = buildPrompt(state);
   yield* Effect_exports.sync(() => process.stdout.write(prompt));
 });
