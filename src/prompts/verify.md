@@ -6,7 +6,8 @@ There is no plan to execute.
 ### Happy path
 
 1. Run tests, typecheck, lint (whatever the project has configured)
-2. If all pass → done, report success
+2. If all pass → report success and **STOP**. Do not re-run gtd. The working
+   tree is healthy and there is no pending work.
 
 ### On failure — structured diagnosis
 

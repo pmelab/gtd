@@ -54,3 +54,6 @@ Context contains `refDiff`: output of `git diff <ref> HEAD`.
    ```
 
    where `<short-hash>` is the same first-7-char value used in the heading.
+
+After committing, **STOP**. Do not re-run gtd. The user must review and edit
+`REVIEW.md` before proceeding.

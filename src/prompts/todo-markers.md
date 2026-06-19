@@ -21,9 +21,9 @@ new `TODO:` from the diff into `TODO.md` and remove it from the source. If
 5. **Commit source changes only** — Commit the source file changes (marker
    removal) but **do not commit `TODO.md`**. Leave it uncommitted.
 
-The next `/gtd` invocation will see the uncommitted `TODO.md` and enter the
-planning phase, where it will be developed into a proper plan and eventually
-decomposed into work packages.
+The uncommitted `TODO.md` will trigger the planning phase on the next cycle,
+where it will be developed into a proper plan and eventually decomposed into
+work packages.
 
 Do this **before** the "Commit the uncommitted changes" task below, if both
 apply — but only commit the non-`TODO.md` changes.

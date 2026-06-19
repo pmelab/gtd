@@ -58,4 +58,4 @@ a sequential work package:
 1. Delete `TODO.md` (it's now captured in the work packages)
 2. Commit `.gtd/` with message: `plan(gtd): decompose TODO.md into N work packages`
 
-The plan is now executable. The next `/gtd` invocation will begin execution.
+The plan is now executable.
