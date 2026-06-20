@@ -17,6 +17,43 @@ describe("buildPrompt", () => {
     expect(out).toContain("You are an autonomous coding agent")
   })
 
+  it("new-todo prompt instructs to format TODO.md", () => {
+    const out = buildPrompt(baseState({ branches: ["new-todo"] }))
+    expect(out).toContain("format TODO.md")
+  })
+
+  it("modified-todo prompt instructs to format TODO.md", () => {
+    const out = buildPrompt(
+      baseState({
+        branches: ["modified-todo"],
+        workingTreeClean: false,
+        diff: "diff --git a/TODO.md b/TODO.md\n+change\n",
+      }),
+    )
+    expect(out).toContain("format TODO.md")
+  })
+
+  it("todo-markers prompt instructs to format TODO.md", () => {
+    const out = buildPrompt(
+      baseState({
+        branches: ["todo-markers"],
+        workingTreeClean: false,
+        diff: "diff --git a/x.ts b/x.ts\n+// TODO: fix this\n",
+      }),
+    )
+    expect(out).toContain("format TODO.md")
+  })
+
+  it("review-create prompt instructs to format REVIEW.md", () => {
+    const out = buildPrompt(baseState({ branches: ["review-create"] }))
+    expect(out).toContain("format REVIEW.md")
+  })
+
+  it("review-process prompt instructs to format TODO.md", () => {
+    const out = buildPrompt(baseState({ branches: ["review-process"] }))
+    expect(out).toContain("format TODO.md")
+  })
+
   it("composes multiple branches in stable order", () => {
     const out = buildPrompt(
       baseState({

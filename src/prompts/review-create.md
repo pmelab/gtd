@@ -47,7 +47,11 @@ Context contains `refDiff`: output of `git diff <ref> HEAD`.
    - Chunk titles are short imperative phrases (≤ 6 words)
    - Chunk explanations describe *what* changed and *why*, not just where
 
-5. **Commit REVIEW.md** with message:
+5. **Format REVIEW.md** — run `node scripts/gtd.js format REVIEW.md` (use the
+   same `scripts/gtd.js` path you invoked to get this prompt) to normalize
+   formatting.
+
+6. **Commit REVIEW.md** with message:
 
    ```
    review(gtd): create review for <short-hash>

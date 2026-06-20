@@ -44,6 +44,11 @@ tasks derived from all collected feedback. Group related items if helpful. Be
 specific — reference file names, function names, or concepts from the REVIEW.md
 explanations so each item has enough context to act on without re-reading the diff.
 
+## Step 5b: Format TODO.md
+
+Run `node scripts/gtd.js format TODO.md` (use the same `scripts/gtd.js` path
+you invoked to get this prompt) to normalize formatting.
+
 ## Step 6: Reset — Exact Order Required
 
 Execute the reset sequence in this exact order:

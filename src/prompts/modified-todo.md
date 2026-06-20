@@ -71,4 +71,7 @@ The subagent should:
 
 ### After the subagent completes
 
+Run `node scripts/gtd.js format TODO.md` (use the same `scripts/gtd.js` path
+you invoked to get this prompt) to normalize formatting.
+
 Commit `TODO.md`.
