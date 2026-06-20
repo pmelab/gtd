@@ -8,20 +8,11 @@ import { NodeContext } from "@effect/platform-node"
 import { GitService } from "./Git.js"
 
 const run = <A>(eff: Effect.Effect<A, Error, GitService>) =>
-  Effect.runPromise(
-    eff.pipe(
-      Effect.provide(GitService.Live),
-      Effect.provide(NodeContext.layer),
-    ),
-  )
+  Effect.runPromise(eff.pipe(Effect.provide(GitService.Live), Effect.provide(NodeContext.layer)))
 
 const runEither = <A>(eff: Effect.Effect<A, Error, GitService>) =>
   Effect.runPromise(
-    eff.pipe(
-      Effect.provide(GitService.Live),
-      Effect.provide(NodeContext.layer),
-      Effect.either,
-    ),
+    eff.pipe(Effect.provide(GitService.Live), Effect.provide(NodeContext.layer), Effect.either),
   )
 
 let repoDir: string
@@ -81,9 +72,7 @@ describe("GitService", () => {
     it("resolves HEAD~1 when two commits exist", async () => {
       commit("feat: second commit", "extra.txt", "extra")
       const headHash = git("rev-parse HEAD~1")
-      const resolved = await run(
-        Effect.flatMap(GitService, (g) => g.resolveRef("HEAD~1")),
-      )
+      const resolved = await run(Effect.flatMap(GitService, (g) => g.resolveRef("HEAD~1")))
       expect(resolved).toBe(headHash)
     })
 

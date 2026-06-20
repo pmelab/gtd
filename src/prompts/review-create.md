@@ -7,18 +7,20 @@ Context contains `refDiff`: output of `git diff <ref> HEAD`.
 1. **Parse `refDiff`** — extract all changed hunks with their file paths and
    starting line numbers.
 
-2. **Group hunks semantically** — cluster hunks that belong to the same
-   logical concern (same feature, same refactor, same fix). Hunks in different
-   files can belong to the same chunk if they serve the same purpose. Aim for
-   the smallest number of chunks that still makes the review navigable.
+2. **Group hunks semantically** — cluster hunks that belong to the same logical
+   concern (same feature, same refactor, same fix). Hunks in different files can
+   belong to the same chunk if they serve the same purpose. Aim for the smallest
+   number of chunks that still makes the review navigable.
 
 3. **Determine the short hash** — take the first 7 characters of the base ref
-   (the full hash embedded in `<!-- base: -->` comes from `git rev-parse <ref>`).
+   (the full hash embedded in `<!-- base: -->` comes from
+   `git rev-parse <ref>`).
 
 4. **Write `REVIEW.md`** in this exact format:
 
    ```markdown
    # Review: <short-hash>
+
    <!-- base: <full-hash> -->
 
    ## <Chunk Title>
@@ -45,7 +47,7 @@ Context contains `refDiff`: output of `git diff <ref> HEAD`.
    - One checkbox per hunk location; do not merge multiple hunks from the same
      file into a single checkbox unless they are adjacent and inseparable
    - Chunk titles are short imperative phrases (≤ 6 words)
-   - Chunk explanations describe *what* changed and *why*, not just where
+   - Chunk explanations describe _what_ changed and _why_, not just where
 
 5. **Format REVIEW.md** — run `node scripts/gtd.js format REVIEW.md` (use the
    same `scripts/gtd.js` path you invoked to get this prompt) to normalize

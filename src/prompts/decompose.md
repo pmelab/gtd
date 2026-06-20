@@ -7,11 +7,11 @@ decomposed into executable work packages.
 
 You are running with a work model. Spawn a **planning-model subagent** to
 perform the decomposition. Check your user/project AGENTS.md for model
-preferences (e.g., "use opus for planning"). If no preference is set, default
-to a high-reasoning model like Claude Opus.
+preferences (e.g., "use opus for planning"). If no preference is set, default to
+a high-reasoning model like Claude Opus.
 
-The subagent should create numbered directories in `.gtd/`, each representing
-a sequential work package:
+The subagent should create numbered directories in `.gtd/`, each representing a
+sequential work package:
 
 ```
 .gtd/
@@ -34,7 +34,8 @@ a sequential work package:
 
 3. **Vertical slices, not horizontal** — Each package must be a thin vertical
    slice that cuts through all integration layers end-to-end:
-   - Each package delivers a narrow but COMPLETE path (not "set up infrastructure")
+   - Each package delivers a narrow but COMPLETE path (not "set up
+     infrastructure")
    - A completed package is demoable or verifiable on its own
    - Prefer many thin packages over few thick ones
 
@@ -56,6 +57,7 @@ a sequential work package:
 ### After the subagent completes
 
 1. Delete `TODO.md` (it's now captured in the work packages)
-2. Commit `.gtd/` with message: `plan(gtd): decompose TODO.md into N work packages`
+2. Commit `.gtd/` with message:
+   `plan(gtd): decompose TODO.md into N work packages`
 
 The plan is now executable.

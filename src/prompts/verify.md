@@ -19,6 +19,7 @@ If anything fails, invoke this discipline. Do not skip phases.
 pass/fail signal, you will find the cause. Spend disproportionate effort here.
 
 Turn the failure into:
+
 - A failing test at whatever seam reaches the bug
 - A CLI invocation with fixture input
 - A minimal script that reproduces the failure
@@ -31,16 +32,18 @@ Generate **3–5 ranked hypotheses** before testing any of them. Single-hypothes
 generation anchors on the first plausible idea and wastes cycles.
 
 Each hypothesis must be **falsifiable** — state the prediction:
+
 > "If <X> is the cause, then <changing Y> will make the bug disappear."
 
 #### Phase 3: Instrument and test
 
 Test hypotheses one at a time. Prefer:
+
 1. Debugger / REPL inspection (one breakpoint beats ten logs)
 2. Targeted logs at boundaries that distinguish hypotheses
 
-**Tag every debug log** with a unique prefix: `[DEBUG-xxxx]`
-Cleanup becomes a single grep. Untagged logs survive; tagged logs die.
+**Tag every debug log** with a unique prefix: `[DEBUG-xxxx]` Cleanup becomes a
+single grep. Untagged logs survive; tagged logs die.
 
 #### Phase 4: Fix and verify
 
@@ -51,6 +54,7 @@ Cleanup becomes a single grep. Untagged logs survive; tagged logs die.
 #### Phase 5: Cleanup
 
 Before declaring done:
+
 - [ ] Original failure no longer reproduces
 - [ ] All `[DEBUG-*]` instrumentation removed (grep the prefix)
 - [ ] Full test suite passes

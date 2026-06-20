@@ -2,19 +2,30 @@
 
 ## Summary
 
-Integrated 4 answered questions into TODO.md plan body. Added 4 new high-stakes questions focused on edge cases: conflicting REVIEW.md + ref, empty feedback handling, stale base ref detection, and corrupted REVIEW.md recovery.
+Integrated 4 answered questions into TODO.md plan body. Added 4 new high-stakes
+questions focused on edge cases: conflicting REVIEW.md + ref, empty feedback
+handling, stale base ref detection, and corrupted REVIEW.md recovery.
 
 ## Findings
 
-1. **Codebase follows Effect-TS patterns** — GitService uses Context.Tag pattern with Layer.effect for DI. New methods (`diffRef`, `resolveRef`, `checkoutAll`) follow same pattern.
+1. **Codebase follows Effect-TS patterns** — GitService uses Context.Tag pattern
+   with Layer.effect for DI. New methods (`diffRef`, `resolveRef`,
+   `checkoutAll`) follow same pattern.
 
-2. **State detection is branching-based** — `Branch` union type drives which prompt sections get included. Adding `"review-create"` and `"review-process"` branches follows established pattern exactly.
+2. **State detection is branching-based** — `Branch` union type drives which
+   prompt sections get included. Adding `"review-create"` and `"review-process"`
+   branches follows established pattern exactly.
 
-3. **Prompts are static markdown** — Imported at build time, no dynamic generation. Context injected via `buildContext()` which reads from State.
+3. **Prompts are static markdown** — Imported at build time, no dynamic
+   generation. Context injected via `buildContext()` which reads from State.
 
-4. **Tests use cucumber.js with world.ts** — `GtdWorld` class provides `runGtd()`, `repoFile()`, `execInRepo()` helpers. Feature files go in `tests/integration/features/`.
+4. **Tests use cucumber.js with world.ts** — `GtdWorld` class provides
+   `runGtd()`, `repoFile()`, `execInRepo()` helpers. Feature files go in
+   `tests/integration/features/`.
 
-5. **CLI is minimal** — `main.ts` just chains `detect() -> buildPrompt() -> stdout`. Adding ref argument parsing is straightforward.
+5. **CLI is minimal** — `main.ts` just chains
+   `detect() -> buildPrompt() -> stdout`. Adding ref argument parsing is
+   straightforward.
 
 ## Sources
 
@@ -26,8 +37,10 @@ Integrated 4 answered questions into TODO.md plan body. Added 4 new high-stakes 
 
 ## Gaps
 
-- No existing tests in `tests/integration/features/` to reference — directory may not exist yet
-- Unclear if `git diff <ref> HEAD` handles merge commits correctly (may need `--no-merges` or specific format)
+- No existing tests in `tests/integration/features/` to reference — directory
+  may not exist yet
+- Unclear if `git diff <ref> HEAD` handles merge commits correctly (may need
+  `--no-merges` or specific format)
 
 ## Questions Integrated (removed from Open Questions)
 

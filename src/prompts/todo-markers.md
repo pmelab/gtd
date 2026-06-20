@@ -1,23 +1,24 @@
 ## Task: Move `TODO:` markers into `TODO.md`
 
-The diff contains added or modified lines with `TODO:` comments. Move every
-new `TODO:` from the diff into `TODO.md` and remove it from the source. If
-`TODO.md` does not exist yet, create it.
+The diff contains added or modified lines with `TODO:` comments. Move every new
+`TODO:` from the diff into `TODO.md` and remove it from the source. If `TODO.md`
+does not exist yet, create it.
 
 ### Steps
 
-1. **Extract markers** — For each `TODO:` comment in the diff, add an entry
-   to `TODO.md` with enough context (file, function, what needs to be done).
+1. **Extract markers** — For each `TODO:` comment in the diff, add an entry to
+   `TODO.md` with enough context (file, function, what needs to be done).
 
-2. **Remove markers from source** — Delete the `TODO:` comments from the
-   source files.
+2. **Remove markers from source** — Delete the `TODO:` comments from the source
+   files.
 
 3. **Format TODO.md** — run `node scripts/gtd.js format TODO.md` (use the same
-   `scripts/gtd.js` path you invoked to get this prompt) to normalize formatting.
+   `scripts/gtd.js` path you invoked to get this prompt) to normalize
+   formatting.
 
 4. **Run tests** — Determine the test command from project configuration
-   (AGENTS.md, `package.json` scripts, etc.). Run the tests to verify the
-   marker removal didn't break anything.
+   (AGENTS.md, `package.json` scripts, etc.). Run the tests to verify the marker
+   removal didn't break anything.
 
 5. **Fix failures** — If tests fail, fix the issues. Loop until tests pass.
 

@@ -8,8 +8,8 @@ directly without decomposing into work packages.
 You are running with a work model. You orchestrate the execution — you do not
 implement the task yourself. Spawn subagents for implementation and testing.
 
-Check your user/project AGENTS.md for model preferences (e.g., "use sonnet
-for execution"). If no preference is set, use the current work model.
+Check your user/project AGENTS.md for model preferences (e.g., "use sonnet for
+execution"). If no preference is set, use the current work model.
 
 ### Step 1: Spawn implementation worker
 
@@ -26,8 +26,8 @@ Spawn ONE **execution-model subagent** with:
 
 Wait for the worker to complete.
 
-**If worker fails** (crash, timeout, error — not test failure):
-Report the failure. Ask the user: "Retry / Abort?"
+**If worker fails** (crash, timeout, error — not test failure): Report the
+failure. Ask the user: "Retry / Abort?"
 
 ### Step 2: Spawn testing subagent
 
@@ -58,6 +58,7 @@ The testing subagent should:
 **If tests fail after max retries:**
 
 Ask the user:
+
 - "Commit anyway with WIP marker?"
 - "Abort execution?"
 

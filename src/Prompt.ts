@@ -92,5 +92,10 @@ export const buildPrompt = (state: State): string => {
   if (state.branches.some((b) => AUTO_ADVANCE_BRANCHES.has(b))) {
     parts.push(autoAdvance, "")
   }
-  return parts.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n"
+  return (
+    parts
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trimEnd() + "\n"
+  )
 }

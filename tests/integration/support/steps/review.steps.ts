@@ -25,8 +25,5 @@ Then("stderr contains {string}", function (this: GtdWorld, text: string) {
 
 Then("a file named {string} should not exist", function (this: GtdWorld, path: string) {
   const full = join(this.repoDir, path)
-  assert.ok(
-    !existsSync(full),
-    `Expected file "${path}" to not exist, but it does.`,
-  )
+  assert.ok(!existsSync(full), `Expected file "${path}" to not exist, but it does.`)
 })

@@ -52,9 +52,7 @@ const isNumberedDir = (name: string): boolean => /^\d+-/.test(name)
 
 const isTaskFile = (name: string): boolean => name.endsWith(".md") && name !== "COMMIT_MSG.md"
 
-const getPackages = (
-  fs: FileSystem.FileSystem,
-): Effect.Effect<ReadonlyArray<GtdPackage>, Error> =>
+const getPackages = (fs: FileSystem.FileSystem): Effect.Effect<ReadonlyArray<GtdPackage>, Error> =>
   Effect.gen(function* () {
     const gtdExists = yield* fs.exists(GTD_DIR)
     if (!gtdExists) return []
@@ -126,7 +124,9 @@ export const computeReviewBase = (
     return Option.some(best.hash)
   })
 
-export const detect = (refArg?: string): Effect.Effect<State, Error, GitService | FileSystem.FileSystem> =>
+export const detect = (
+  refArg?: string,
+): Effect.Effect<State, Error, GitService | FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
@@ -140,7 +140,11 @@ export const detect = (refArg?: string): Effect.Effect<State, Error, GitService 
 
       const reviewExists = yield* fs.exists("REVIEW.md")
       if (reviewExists) {
-        yield* Effect.fail(new Error("REVIEW.md already exists. Complete or delete existing review before starting new one."))
+        yield* Effect.fail(
+          new Error(
+            "REVIEW.md already exists. Complete or delete existing review before starting new one.",
+          ),
+        )
       }
 
       const resolvedRef = yield* git.resolveRef(refArg)
@@ -185,18 +189,18 @@ export const detect = (refArg?: string): Effect.Effect<State, Error, GitService 
     // references to the marker string inside code examples don't count.
     const UNANSWERED_MARKER = "<!-- user answers here -->"
     const stripCode = (content: string): string =>
-      content
-        .replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[^\n]*/gm, "")
-        .replace(/`[^`\n]+`/g, "")
-    const todoFinalized = yield* fs.exists(TODO_FILE).pipe(
-      Effect.flatMap((exists) =>
-        exists
-          ? fs
-              .readFileString(TODO_FILE)
-              .pipe(Effect.map((content) => !stripCode(content).includes(UNANSWERED_MARKER)))
-          : Effect.succeed(false),
-      ),
-    )
+      content.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[^\n]*/gm, "").replace(/`[^`\n]+`/g, "")
+    const todoFinalized = yield* fs
+      .exists(TODO_FILE)
+      .pipe(
+        Effect.flatMap((exists) =>
+          exists
+            ? fs
+                .readFileString(TODO_FILE)
+                .pipe(Effect.map((content) => !stripCode(content).includes(UNANSWERED_MARKER)))
+            : Effect.succeed(false),
+        ),
+      )
 
     // review-process: REVIEW.md exists with user edits
     const reviewExists = yield* fs.exists("REVIEW.md")

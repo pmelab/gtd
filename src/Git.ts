@@ -33,21 +33,14 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
     Effect.gen(function* () {
       const executor = yield* CommandExecutor.CommandExecutor
       const exec = (...args: [string, ...Array<string>]) =>
-        run(...args).pipe(
-          Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
-        )
+        run(...args).pipe(Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)))
 
       return {
         statusPorcelain: () => exec("git", "status", "--porcelain"),
 
         diffHead: () =>
           Effect.gen(function* () {
-            const untrackedRaw = yield* exec(
-              "git",
-              "ls-files",
-              "--others",
-              "--exclude-standard",
-            )
+            const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard")
             const untracked = untrackedRaw
               .split("\n")
               .map((s) => s.trim())
@@ -55,9 +48,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             if (untracked.length === 0) return yield* exec("git", "diff", "HEAD")
             yield* exec("git", "add", "--intent-to-add", "--", ...untracked)
             const diff = yield* exec("git", "diff", "HEAD")
-            yield* exec("git", "reset", "--", ...untracked).pipe(
-              Effect.catchAll(() => Effect.void),
-            )
+            yield* exec("git", "reset", "--", ...untracked).pipe(Effect.catchAll(() => Effect.void))
             return diff
           }),
 
@@ -95,8 +86,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
         checkoutTracked: () =>
           exec("git", "checkout", "--", ".").pipe(Effect.map(() => undefined as void)),
 
-        cleanUntracked: () =>
-          exec("git", "clean", "-fd").pipe(Effect.map(() => undefined as void)),
+        cleanUntracked: () => exec("git", "clean", "-fd").pipe(Effect.map(() => undefined as void)),
 
         diffStatRef: (ref: string) => exec("git", "diff", "--stat", ref, "HEAD"),
 

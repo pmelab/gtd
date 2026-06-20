@@ -1,19 +1,17 @@
 # gi[t]hings.**done**
 
-> [!WARNING]
-> This project is an experiment in unapologetic vibe coding. Code might be
-> terrible, I don't even know 🤷‍♂️ But otherwise I wouldn't have built it in the
-> first place. Now I have something that actually helps me.
+> [!WARNING] This project is an experiment in unapologetic vibe coding. Code
+> might be terrible, I don't even know 🤷‍♂️ But otherwise I wouldn't have built it
+> in the first place. Now I have something that actually helps me.
 
 A git-aware agent skill that emits the next prompt for an autonomous coding
-agent based on the current working-tree state — plan, refine the plan,
-decompose into work packages, execute with parallel subagents, commit, or
-verify the working tree is healthy.
+agent based on the current working-tree state — plan, refine the plan, decompose
+into work packages, execute with parallel subagents, commit, or verify the
+working tree is healthy.
 
 `gtd` ships as an [Agent Skills Spec](https://agentskills.io/specification)
-compliant skill installable via [skills.sh](https://www.skills.sh/). The
-agent runs the bundled script, reads the emitted prompt, and follows it
-verbatim.
+compliant skill installable via [skills.sh](https://www.skills.sh/). The agent
+runs the bundled script, reads the emitted prompt, and follows it verbatim.
 
 ## Installation
 
@@ -29,11 +27,11 @@ bundles its own prebuilt script.
 Inside the agent (Claude Code, Codex, etc.), either:
 
 - Type `/gtd` to invoke the skill directly, **or**
-- Say something like "take the next step", "what's next", or "gtd" — the
-  skill's description matcher picks it up.
+- Say something like "take the next step", "what's next", or "gtd" — the skill's
+  description matcher picks it up.
 
-The agent runs `node scripts/gtd.js` in your current working directory and
-acts on the emitted prompt.
+The agent runs `node scripts/gtd.js` in your current working directory and acts
+on the emitted prompt.
 
 ## What it does
 
@@ -41,25 +39,25 @@ acts on the emitted prompt.
 task sections. Multiple sections can fire in the same run — for example, new
 `TODO:` markers in code compose with the "group and commit" task.
 
-| State                                                  | Section emitted                              |
-| ------------------------------------------------------ | -------------------------------------------- |
-| New (untracked / added) `TODO.md`                      | Develop the plan (planning model)            |
-| Modified `TODO.md`                                     | Incorporate edits, keep developing (planning)|
-| Clean tree, last commit touched only `TODO.md`, no `.gtd/` | Decompose into work packages (planning)  |
-| `.gtd/` exists with packages                           | Execute next package (execution model)       |
-| `.gtd/` exists but empty                               | Cleanup, then verify                         |
-| Uncommitted code changes outside `TODO.md`             | Commit the uncommitted changes               |
-| Added/modified lines containing `TODO:` markers        | Move `TODO:` markers into `TODO.md`          |
+| State                                                                            | Section emitted                                  |
+| -------------------------------------------------------------------------------- | ------------------------------------------------ |
+| New (untracked / added) `TODO.md`                                                | Develop the plan (planning model)                |
+| Modified `TODO.md`                                                               | Incorporate edits, keep developing (planning)    |
+| Clean tree, last commit touched only `TODO.md`, no `.gtd/`                       | Decompose into work packages (planning)          |
+| `.gtd/` exists with packages                                                     | Execute next package (execution model)           |
+| `.gtd/` exists but empty                                                         | Cleanup, then verify                             |
+| Uncommitted code changes outside `TODO.md`                                       | Commit the uncommitted changes                   |
+| Added/modified lines containing `TODO:` markers                                  | Move `TODO:` markers into `TODO.md`              |
 | Clean tree, no `.gtd/`, last commit was not `TODO.md`, un-reviewed commits exist | Verify, then generate `REVIEW.md` (human-review) |
-| Clean tree, no `.gtd/`, last commit was not `TODO.md`, nothing to review | Verify the working tree is healthy (verified) |
+| Clean tree, no `.gtd/`, last commit was not `TODO.md`, nothing to review         | Verify the working tree is healthy (verified)    |
 
 > **Review base**: the closest-to-HEAD of {parent-branch merge-base, last
 > `<!-- base: … -->` review commit}. When no base exists, nothing to review.
 
 gtd coordinates phases — it doesn't dictate strategy. How to grill, how to
 commit, how to build, how to verify: those are left to other skills (or the
-agent's own judgement). The prompts only describe **intent**, plus the
-`TODO.md` and `.gtd/` plumbing that lets phases bridge across runs.
+agent's own judgement). The prompts only describe **intent**, plus the `TODO.md`
+and `.gtd/` plumbing that lets phases bridge across runs.
 
 Every prompt also includes the current `git diff HEAD` (untracked files
 included) inline.
@@ -113,17 +111,17 @@ A typical feature:
 2. `/gtd` — the agent (using the planning model) fleshes it out, appends an
    `## Open Questions` section, and commits `TODO.md`.
 3. Open `TODO.md`, write inline answers under each question.
-4. `/gtd` again — the agent integrates your answers, moves resolved
-   questions to `## Answered Questions`, raises new ones, and commits.
-   Repeat until `## Open Questions` is empty.
-5. `/gtd` once more — agent decomposes `TODO.md` into work packages in
-   `.gtd/`, deletes `TODO.md`, and commits the plan.
+4. `/gtd` again — the agent integrates your answers, moves resolved questions to
+   `## Answered Questions`, raises new ones, and commits. Repeat until
+   `## Open Questions` is empty.
+5. `/gtd` once more — agent decomposes `TODO.md` into work packages in `.gtd/`,
+   deletes `TODO.md`, and commits the plan.
 6. `/gtd` again — agent executes the first package: spawns parallel workers
    (execution model + TDD), runs tests, fixes failures, commits.
 7. Repeat `/gtd` for each remaining package.
-8. When `.gtd/` is empty, `/gtd` cleans up and verifies. After tests pass,
-   if un-reviewed commits exist relative to the base (parent-branch merge-base
-   or last review commit), it auto-generates `REVIEW.md` and stops for you to
+8. When `.gtd/` is empty, `/gtd` cleans up and verifies. After tests pass, if
+   un-reviewed commits exist relative to the base (parent-branch merge-base or
+   last review commit), it auto-generates `REVIEW.md` and stops for you to
    review it (human-review). If everything is already reviewed, it reports the
    tree healthy and fully reviewed (verified).
 
@@ -148,6 +146,7 @@ A planning-model subagent breaks `TODO.md` into executable work packages:
 ```
 
 Rules:
+
 - **Packages are sequential** — Package 02 cannot start until 01 is complete
 - **Tasks within a package are parallel** — No dependencies between tasks
 - **Task files are self-contained** — Include description, acceptance criteria,
@@ -222,9 +221,8 @@ The main gtd prompt instructs the agent to invoke this command after every edit
 to `TODO.md` or `REVIEW.md`, so those files stay consistently formatted
 regardless of the host project's toolchain.
 
-> [!NOTE]
-> Upgrading gtd may reflow existing `TODO.md` files if the bundled prettier
-> major version changes.
+> [!NOTE] Upgrading gtd may reflow existing `TODO.md` files if the bundled
+> prettier major version changes.
 
 ## Development
 

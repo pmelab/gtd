@@ -27,22 +27,16 @@ Given(
   },
 )
 
-Given(
-  "{string} is modified to:",
-  function (this: GtdWorld, path: string, content: string) {
-    const full = join(this.repoDir, path)
-    writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
-  },
-)
+Given("{string} is modified to:", function (this: GtdWorld, path: string, content: string) {
+  const full = join(this.repoDir, path)
+  writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
+})
 
-Given(
-  "{string} has appended {string}",
-  function (this: GtdWorld, path: string, text: string) {
-    const full = join(this.repoDir, path)
-    const existing = readFileSync(full, "utf-8")
-    writeFileSync(full, existing + text + "\n")
-  },
-)
+Given("{string} has appended {string}", function (this: GtdWorld, path: string, text: string) {
+  const full = join(this.repoDir, path)
+  const existing = readFileSync(full, "utf-8")
+  writeFileSync(full, existing + text + "\n")
+})
 
 Given("a directory {string}", function (this: GtdWorld, path: string) {
   const full = join(this.repoDir, path)

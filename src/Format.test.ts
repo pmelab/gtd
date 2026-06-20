@@ -10,17 +10,10 @@ let tmpDir: string
 let stderrOutput: string[]
 let originalStderrWrite: typeof process.stderr.write
 
-const run = (eff: Effect.Effect<void, never, never>) =>
-  Effect.runPromise(eff)
+const run = (eff: Effect.Effect<void, never, never>) => Effect.runPromise(eff)
 
 const runFormat = (path: string) =>
-  run(
-    formatFile(path).pipe(Effect.provide(NodeContext.layer)) as Effect.Effect<
-      void,
-      never,
-      never
-    >,
-  )
+  run(formatFile(path).pipe(Effect.provide(NodeContext.layer)) as Effect.Effect<void, never, never>)
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "gtd-format-test-"))
@@ -41,9 +34,7 @@ describe("formatFile", () => {
   it("succeeds and warns when file does not exist", async () => {
     const missing = join(tmpDir, "nonexistent.md")
     await expect(runFormat(missing)).resolves.toBeUndefined()
-    expect(stderrOutput.join("")).toContain(
-      `gtd: skipped formatting ${missing}: not found`,
-    )
+    expect(stderrOutput.join("")).toContain(`gtd: skipped formatting ${missing}: not found`)
   })
 
   it("formats a markdown file with long lines", async () => {
@@ -58,9 +49,7 @@ describe("formatFile", () => {
     // prettier wraps at 80 chars so the result should have multiple lines
     expect(result.split("\n").length).toBeGreaterThan(1)
     // content is preserved
-    expect(result.replace(/\n/g, " ").trim()).toContain(
-      "very long markdown paragraph",
-    )
+    expect(result.replace(/\n/g, " ").trim()).toContain("very long markdown paragraph")
   })
 
   it("skips write when content is already formatted", async () => {

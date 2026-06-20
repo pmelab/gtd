@@ -1,6 +1,12 @@
 ---
 name: gtd
-description: Use when the user wants to take the next git-aware, conventional-commits step on the current repo — planning with TODO.md, refining a plan, decomposing into work packages, executing packages with parallel subagents, committing pending changes, running the test suite, or reviewing changes since a git ref. Also triggers on "gtd", "what's next", "take the next step", `/gtd`, "review changes", or "start a review".
+description:
+  Use when the user wants to take the next git-aware, conventional-commits step
+  on the current repo — planning with TODO.md, refining a plan, decomposing into
+  work packages, executing packages with parallel subagents, committing pending
+  changes, running the test suite, or reviewing changes since a git ref. Also
+  triggers on "gtd", "what's next", "take the next step", `/gtd`, "review
+  changes", or "start a review".
 compatibility: Requires Node 20+, pi-subagents for orchestration
 allowed-tools: Bash(node:*)
 ---
@@ -18,22 +24,22 @@ git state of the user's working directory.
    node scripts/gtd.js [git-ref]
    ```
 
-   Resolve `scripts/gtd.js` relative to this skill's directory, not the
-   user's repo. The script must be invoked with the user's repo as the
-   working directory so it can read `git status` and the diff.
+   Resolve `scripts/gtd.js` relative to this skill's directory, not the user's
+   repo. The script must be invoked with the user's repo as the working
+   directory so it can read `git status` and the diff.
 
-   Without arguments → normal gtd loop (plan/build/commit).
-   With a git ref → review mode (see below).
+   Without arguments → normal gtd loop (plan/build/commit). With a git ref →
+   review mode (see below).
 
-2. Treat the script's stdout as a complete, self-contained prompt — read it
-   and follow its instructions verbatim. The prompt embeds the
-   Conventional Commits convention, the current `git diff HEAD`, and one
-   or more task sections (plan, decompose, execute, commit, verify, …)
-   chosen by the script from the working-tree state.
+2. Treat the script's stdout as a complete, self-contained prompt — read it and
+   follow its instructions verbatim. The prompt embeds the Conventional Commits
+   convention, the current `git diff HEAD`, and one or more task sections (plan,
+   decompose, execute, commit, verify, …) chosen by the script from the
+   working-tree state.
 
 3. Do not edit, paraphrase, or summarize the prompt before acting on it.
-   Anything that needs to be communicated to the user should come out of
-   the actions the prompt describes, not from prefacing the prompt itself.
+   Anything that needs to be communicated to the user should come out of the
+   actions the prompt describes, not from prefacing the prompt itself.
 
 ## Model configuration
 
@@ -59,8 +65,8 @@ If no preferences are set, the prompts include sensible defaults.
 
 When a plan is finalized (no open questions), gtd enters build mode:
 
-1. **Decompose**: A planning-model subagent breaks `TODO.md` into work
-   packages in `.gtd/`:
+1. **Decompose**: A planning-model subagent breaks `TODO.md` into work packages
+   in `.gtd/`:
 
    ```
    .gtd/
@@ -108,6 +114,7 @@ node scripts/gtd.js abc123f     # review since specific commit
 ```
 
 Requirements:
+
 - Working tree must be clean (no uncommitted changes)
 - No existing `REVIEW.md` (delete or finish previous first)
 - Must have actual diff between ref and HEAD
@@ -118,5 +125,5 @@ The two-phase flow:
    `REVIEW.md` with structured feedback sections and a `<!-- base: <sha> -->`
    marker.
 2. **review-process**: User (or agent) edits `REVIEW.md` with feedback, then
-   runs the script again *without* a ref arg. The script detects the modified
+   runs the script again _without_ a ref arg. The script detects the modified
    `REVIEW.md` and outputs a prompt to act on the review comments.

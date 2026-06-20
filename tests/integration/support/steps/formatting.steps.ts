@@ -48,43 +48,35 @@ Given("prettier is available in the test project", function (this: GtdWorld) {
   )
 })
 
-Given(
-  "the pre-commit hook from the project is installed",
-  function (this: GtdWorld) {
-    const hookContent = readFileSync(HOOK_PATH, "utf-8")
-    const dest = join(this.repoDir, ".git/hooks/pre-commit")
-    writeFileSync(dest, hookContent, { mode: 0o755 })
-  },
-)
+Given("the pre-commit hook from the project is installed", function (this: GtdWorld) {
+  const hookContent = readFileSync(HOOK_PATH, "utf-8")
+  const dest = join(this.repoDir, ".git/hooks/pre-commit")
+  writeFileSync(dest, hookContent, { mode: 0o755 })
+})
 
 Given("{string} is staged", function (this: GtdWorld, path: string) {
   execFileSync("git", ["add", path], { cwd: this.repoDir, stdio: "pipe" })
 })
 
-When(
-  "I commit with message {string}",
-  function (this: GtdWorld, message: string) {
-    try {
-      execFileSync("git", ["commit", "-m", message], {
-        cwd: this.repoDir,
-        stdio: "pipe",
-      })
-    } catch (err: unknown) {
-      const e = err as { stdout?: Buffer; stderr?: Buffer }
-      throw new Error(
-        `git commit failed:\nstdout: ${e.stdout?.toString()}\nstderr: ${e.stderr?.toString()}`,
-      )
-    }
-  },
-)
+When("I commit with message {string}", function (this: GtdWorld, message: string) {
+  try {
+    execFileSync("git", ["commit", "-m", message], {
+      cwd: this.repoDir,
+      stdio: "pipe",
+    })
+  } catch (err: unknown) {
+    const e = err as { stdout?: Buffer; stderr?: Buffer }
+    throw new Error(
+      `git commit failed:\nstdout: ${e.stdout?.toString()}\nstderr: ${e.stderr?.toString()}`,
+    )
+  }
+})
 
 Then(
   "{string} has no lines longer than {int} characters",
   function (this: GtdWorld, path: string, limit: number) {
     const content = readFileSync(join(this.repoDir, path), "utf-8")
-    const longLines = content
-      .split("\n")
-      .filter((line) => line.length > limit)
+    const longLines = content.split("\n").filter((line) => line.length > limit)
     assert.strictEqual(
       longLines.length,
       0,

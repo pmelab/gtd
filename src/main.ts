@@ -16,7 +16,7 @@ const program = Effect.gen(function* () {
     return
   }
   const refArg = process.argv[2]
-   const state = yield* detect(refArg)
+  const state = yield* detect(refArg)
   const prompt = buildPrompt(state)
   yield* Effect.sync(() => process.stdout.write(prompt))
 })
