@@ -1,13 +1,13 @@
-## Task: Verify the working tree is healthy
+## Task: Confirm the working tree is healthy and fully reviewed
 
-The working tree is clean and the last commit was not a `TODO.md` checkpoint.
-There is no plan to execute.
+The working tree is clean, there is no unreviewed diff (no resolvable review
+base, or the review base equals HEAD). Nothing is pending.
 
-### Happy path
+### Steps
 
-1. Run tests, typecheck, lint (whatever the project has configured)
-2. If all pass → report success and **re-run gtd** so the next step can be
-   reached (e.g. `human-review`).
+1. Run tests, typecheck, lint (whatever the project has configured).
+2. If all pass → report **"working tree healthy and fully reviewed"** and
+   **STOP**. Do not re-run gtd.
 
 ### On failure — structured diagnosis
 
@@ -54,3 +54,6 @@ Before declaring done:
 - [ ] Original failure no longer reproduces
 - [ ] All `[DEBUG-*]` instrumentation removed (grep the prefix)
 - [ ] Full test suite passes
+
+**STOP.** Do not re-run gtd after fixing. Report the outcome and wait for the
+human to decide the next step.

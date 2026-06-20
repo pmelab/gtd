@@ -8,6 +8,8 @@ import cleanup from "./prompts/cleanup.md"
 import codeChanges from "./prompts/code-changes.md"
 import todoMarkers from "./prompts/todo-markers.md"
 import verify from "./prompts/verify.md"
+import humanReview from "./prompts/human-review.md"
+import verified from "./prompts/verified.md"
 import reviewCreate from "./prompts/review-create.md"
 import reviewProcess from "./prompts/review-process.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
@@ -23,8 +25,8 @@ const SECTIONS: Record<Branch, string> = {
   "code-changes": codeChanges,
   "todo-markers": todoMarkers,
   verify,
-  "human-review": "",
-  verified: "",
+  "human-review": humanReview,
+  verified,
   "review-create": reviewCreate,
   "review-process": reviewProcess,
 }
@@ -80,6 +82,7 @@ const AUTO_ADVANCE_BRANCHES: ReadonlySet<Branch> = new Set([
   "cleanup",
   "code-changes",
   "todo-markers",
+  "verify",
   "review-process",
 ])
 
