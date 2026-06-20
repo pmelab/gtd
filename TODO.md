@@ -1,30 +1,6 @@
 i want to create a neovim plugin that supports editing of TODO.md and REVIEW.md
 files from the gtd workflow.
 
-## Open Questions
-
-### Runtime coexistence with `review.nvim` — do the two plugins collide on keymaps, autocmds, or filetypes?
-
-**Recommendation:** Since `review.nvim` stays installed and active, audit it for
-overlapping bindings before settling `gtd.nvim`'s defaults. Two concrete risks:
-
-- **Keymaps:** if `review.nvim` already binds anything under `<leader>g` or a
-  buffer-local `gd`, `gtd.nvim`'s defaults would shadow or be shadowed
-  (load-order dependent). Recommendation: keep `<leader>g` but make every
-  default overridable via `setup({ keys = ... })`, and only set buffer-local
-  maps on buffers `gtd.nvim` actually recognizes (a `TODO.md`/`REVIEW.md` whose
-  content matches the gtd formats), so non-gtd review buffers are left to
-  `review.nvim`.
-- **Buffer detection:** `review.nvim` may attach to `*.review` /
-  `REVIEW`-pattern buffers. `gtd.nvim` matches `*/TODO.md` and `*/REVIEW.md`
-  (uppercase `.md`), which should not overlap the old `.review` file-list format
-  — but confirm `review.nvim`'s autocmd patterns don't also grab `REVIEW.md`. If
-  they do, gate `gtd.nvim`'s attach on a content sniff (first line `# Review:` +
-  a `<!-- base: -->` marker) so only the new chunked format is claimed by
-  `gtd.nvim`.
-
-<!-- user answers here -->
-
 ## Plan
 
 Build **`gtd.nvim`**, a **new, standalone** Neovim plugin (Lua, Neovim ≥ 0.10)
@@ -294,3 +270,25 @@ Proposed default keys:
 
 **Answer:** Agreed — use the `<leader>g` prefix (and keep `gd` for
 jump-to-hunk).
+
+### Runtime coexistence with `review.nvim` — do the two plugins collide on keymaps, autocmds, or filetypes?
+
+**Recommendation:** Since `review.nvim` stays installed and active, audit it for
+overlapping bindings before settling `gtd.nvim`'s defaults. Two concrete risks:
+
+- **Keymaps:** if `review.nvim` already binds anything under `<leader>g` or a
+  buffer-local `gd`, `gtd.nvim`'s defaults would shadow or be shadowed
+  (load-order dependent). Recommendation: keep `<leader>g` but make every
+  default overridable via `setup({ keys = ... })`, and only set buffer-local
+  maps on buffers `gtd.nvim` actually recognizes (a `TODO.md`/`REVIEW.md` whose
+  content matches the gtd formats), so non-gtd review buffers are left to
+  `review.nvim`.
+- **Buffer detection:** `review.nvim` may attach to `*.review` /
+  `REVIEW`-pattern buffers. `gtd.nvim` matches `*/TODO.md` and `*/REVIEW.md`
+  (uppercase `.md`), which should not overlap the old `.review` file-list format
+  — but confirm `review.nvim`'s autocmd patterns don't also grab `REVIEW.md`. If
+  they do, gate `gtd.nvim`'s attach on a content sniff (first line `# Review:` +
+  a `<!-- base: -->` marker) so only the new chunked format is claimed by
+  `gtd.nvim`.
+
+**Answer:** review.nvim will not be active in parallel
