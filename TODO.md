@@ -4,9 +4,130 @@ Formatting must work in **any** project that uses the gtd skill, not just this
 repo. The previous attempt installed a `.git/hooks/pre-commit` in this repo
 only, which (a) does not propagate to consumer repos, (b) depends on the
 consumer having `prettier` installed and discoverable via `npx`, and (c) is not
-even tracked in git. The fix is to bundle formatting into the gtd script itself.
+even tracked in git. The fix is to ship a `format` subcommand of the bundled
+`gtd` script that carries prettier and its config, and to instruct the agent
+(via the gtd prompt) to invoke it after editing `TODO.md` / `REVIEW.md`.
 
-## Open Questions
+## Plan
+
+### Goal
+
+`scripts/gtd.js format <file>` formats a markdown file in place using a bundled
+prettier with a fixed gtd-owned config, with zero dependency on the host repo.
+The main `gtd` prompt instructs the agent to run this subcommand after writing
+`TODO.md` (and `REVIEW.md`) so the committed file is normalised before the next
+gtd cycle ever sees it.
+
+### Changes
+
+1.  **`package.json`** — move `prettier` from `devDependencies` to
+    `dependencies` so tsup bundles it into `scripts/gtd.js`. Existing dev-time
+    `format` / `format:check` npm scripts keep working unchanged.
+
+2.  **`src/main.ts`** — add subcommand dispatch at the top of `program`:
+    - Current behaviour (no subcommand) stays: `process.argv[2]` is the optional
+      ref.
+    - If `process.argv[2] === "format"`, treat `process.argv[3]` as the file
+      path, run the formatter, exit. Do **not** call `detect` / `buildPrompt` in
+      that mode.
+
+    Concretely, replace the body of `program` with a small switch on
+    `process.argv[2]`. Keep the existing `Effect.provide(GitService.Live)` /
+    `NodeContext.layer` plumbing — both paths benefit from `FileSystem`.
+
+3.  **`src/Format.ts` (new)** — exports a `formatFile(path: string)` Effect:
+    - Uses `FileSystem` from `@effect/platform` (same import path as
+      `State.ts`).
+    - Reads the file; if it does not exist, logs
+      `gtd: skipped formatting <path>: not found` to stderr and exits 0.
+    - Runs
+      `prettier.format(content, { parser: "markdown", printWidth: 80, proseWrap: "always" })`
+      — config is a hard-coded object literal in this module; we never call
+      `prettier.resolveConfig`, so host `.prettierrc` is ignored by design.
+    - Writes back only if the output differs (avoid mtime churn).
+    - Wraps the whole thing in `Effect.catchAll` that writes
+      `gtd: skipped formatting <path>: <message>` to stderr and succeeds.
+      Formatting is best-effort; the process exits 0 even on failure.
+
+4.  **`tsup.config.ts`** — no change. `noExternal: [/.*/]` already inlines
+    prettier. Verify the build still produces a working `scripts/gtd.js`.
+
+5.  **Prompt updates** — every prompt template that tells the agent to write or
+    edit `TODO.md` / `REVIEW.md` must end with a "now run the formatter"
+    instruction. Touch points in `src/prompts/`:
+    - `new-todo.md` — after step 6 (or before the "After the subagent completes"
+      section), add: "After editing `TODO.md`, run
+      `node scripts/gtd.js format TODO.md` to normalise it."
+    - `modified-todo.md` — same instruction at the end of the editing steps.
+    - `decompose.md` — when `.gtd/<package>/TODO.md` files are written, run the
+      formatter on each.
+    - `review-create.md` — after step 4 (writing REVIEW.md) and before step 5
+      (commit), add: "Run `node scripts/gtd.js format REVIEW.md`."
+    - `review-process.md` — after edits to `REVIEW.md`, run the formatter.
+    - `execute-simple.md`, `code-changes.md`, `todo-markers.md`, `cleanup.md`,
+      `verify.md` — audit each for paths where the agent edits `TODO.md` /
+      `REVIEW.md`; add the instruction wherever it does.
+
+    The instruction must give the **exact** command string the agent should run.
+    The agent already has the cwd set to the host repo and the bundled
+    `scripts/gtd.js` is the same one that produced the prompt, so
+    `node scripts/gtd.js format <file>` works in this repo. For consumer repos,
+    the path is the same skill-relative location the agent already used to
+    invoke gtd in the first place — the prompt should phrase the instruction as
+    "the same `scripts/gtd.js` you ran to get this prompt, with `format <file>`
+    appended" so the agent reuses whatever absolute path the wrapper script
+    knew.
+
+6.  **Remove the now-redundant local hook artefact:**
+    - Delete `.git/hooks/pre-commit` from this clone (untracked — cleanup note
+      only, no committed change).
+    - Verify `.prettierignore` does not list `TODO.md` / `REVIEW.md` (currently
+      empty, so nothing to do).
+
+7.  **Tests** — add a cucumber.js scenario under `tests/integration/`:
+    - Given a fresh repo with an intentionally unformatted `TODO.md` (e.g. a
+      single very long line of prose).
+    - When the test runs `node scripts/gtd.js format TODO.md`.
+    - Then `TODO.md` on disk is wrapped to 80 columns, the exit code is 0, and
+      stdout is empty.
+    - Add a second scenario: `gtd format does-not-exist.md` exits 0 and writes a
+      single warning to stderr.
+
+    Follow `AGENTS.md`: compose existing Given steps where possible; new steps
+    should be generic (e.g. `Given the file <path> contains:` followed by a
+    fenced code block) and expose raw content in scenario text.
+
+8.  **README.md** — short note that gtd ships a `format` subcommand using a
+    fixed markdown style (parser markdown, printWidth 80, proseWrap always),
+    that the main prompt instructs the agent to invoke it after editing
+    `TODO.md` / `REVIEW.md`, and that the host repo's `.prettierrc` is
+    intentionally ignored.
+
+### Non-goals
+
+- Formatting other markdown files in the host repo (e.g. README.md). The
+  `format` subcommand will format whatever path it is given, but the prompt only
+  instructs the agent to format gtd-owned files.
+- Honouring host-repo prettier config (rejected for determinism).
+- Installing git hooks in consumer repos.
+- Running prettier automatically inside `main.ts` before `buildPrompt` —
+  explicitly rejected in favour of the subcommand approach (see Answered
+  Questions).
+
+### Risks / mitigations
+
+- **Agent forgets to run the subcommand**: mitigated by putting the instruction
+  at the end of every editing step in every relevant prompt, and by phrasing it
+  as a single concrete command line. Worst case the next gtd cycle still sees an
+  unformatted file — acceptable, formatting is best-effort.
+- **Bundle bloat**: prettier inlined into `scripts/gtd.js` adds a few MB.
+  Acceptable; gtd is a dev tool, and the user has confirmed bundle size is not a
+  concern.
+- **Prettier major version drift**: pinning prettier in `dependencies` means one
+  shipped style per gtd release. Document in README that upgrading gtd may
+  reflow existing `TODO.md` files.
+
+## Answered Questions
 
 ### Where in the gtd lifecycle should formatting happen?
 
@@ -21,7 +142,13 @@ Alternative considered: emit a "now run prettier on TODO.md" instruction inside
 each prompt. Rejected — relies on the agent following instructions and on
 prettier existing in the host repo.
 
-<!-- user answers here -->
+**Answer:** The files should be specifically formatted before being handed off
+to the user. The "now run prettier on TODO.md" instruction is right, but it has
+to be a **subcommand of the `gtd` script** that bundles prettier and its
+configuration, so there is no dependency on the host repo. Implement
+`scripts/gtd.js format <file>` and update the prompts to invoke it after editing
+`TODO.md` / `REVIEW.md`. Do **not** run prettier inline inside `main.ts` before
+`buildPrompt`.
 
 ### How is the formatter bundled and what is the runtime dependency surface?
 
@@ -39,7 +166,7 @@ Alternative: ship a hand-rolled markdown wrapper — rejected, won't match
 Concern to watch: bundle size of prettier (~3MB unminified) inflates
 `scripts/gtd.js`. Acceptable for a dev tool.
 
-<!-- user answers here -->
+**Answer:** Bundle size is not a concern. Proceed with the recommendation.
 
 ### Which files get formatted, and with which prettier config?
 
@@ -58,7 +185,10 @@ resolving the host repo's `.prettierrc`. Reasoning:
 Alternative: respect host `.prettierrc` if present — rejected as
 non-deterministic across consumer repos.
 
-<!-- user answers here -->
+**Answer:** Agreed with the recommendation. Use the hard-coded config and ignore
+host `.prettierrc`. The subcommand accepts any path, but the prompts will only
+ever ask the agent to format `TODO.md` and `REVIEW.md` (including those inside
+`.gtd/<package>/`).
 
 ### What about formatting errors or malformed markdown?
 
@@ -67,84 +197,5 @@ non-deterministic across consumer repos.
 Never abort the gtd run because formatting failed — the prompt output is the
 contract, formatting is best-effort.
 
-<!-- user answers here -->
-
-## Plan
-
-### Goal
-
-When `node scripts/gtd.js` runs in any repository, it normalises `TODO.md` and
-`REVIEW.md` (if present) using a bundled prettier with a fixed markdown config,
-before computing state and emitting the prompt.
-
-### Changes
-
-1. **`package.json`** — move `prettier` from `devDependencies` to `dependencies`
-   so tsup bundles it into `scripts/gtd.js` and consumers using the published
-   skill get a working formatter. (Dev-time prettier scripts `format` /
-   `format:check` keep working unchanged.)
-
-2. **`src/Format.ts` (new)** — small module exposing a `formatGtdFiles` Effect
-   that:
-   - Resolves `TODO.md` and `REVIEW.md` relative to cwd
-   - For each that exists, reads the file, runs
-     `prettier.format(content, { parser: "markdown", printWidth: 80, proseWrap: "always" })`,
-     and writes back only if the result differs (avoids needless mtime churn)
-   - Catches per-file errors, logs a single warning to stderr, continues
-   - Uses `FileSystem` from `@effect/platform` (same as `State.ts`)
-
-3. **`src/main.ts`** — invoke `formatGtdFiles` after `detect(refArg)` and before
-   `buildPrompt(state)` so the State already reflects the formatted files when
-   prompts (or the `git diff HEAD` they embed) are produced. Rationale for
-   ordering: `detect()` reads `git status` and file contents; formatting before
-   detect would dirty the working tree in a way that `state.diff` then shows
-   reformatting noise inside the prompt. Placing it **after** detect means:
-   detect sees the user's raw edits, then we format on disk so the _next_ gtd
-   cycle (and the commit the agent makes) sees the formatted form. The prompt
-   itself is unchanged for this cycle.
-
-   Decision to confirm in the first Open Question: format pre-detect vs
-   post-detect. Default chosen: **post-detect, pre-prompt** — agent's next
-   commit ends up formatted, current diff stays readable.
-
-4. **`tsup.config.ts`** — no change needed; `noExternal: [/.*/]` already inlines
-   prettier. Verify bundle still builds and `scripts/gtd.js` runs.
-
-5. **Remove the now-redundant local hook artefact:**
-   - Delete `.git/hooks/pre-commit` from this clone (it is untracked, so this is
-     purely a cleanup note — no committed change)
-   - Remove `TODO.md` from `.prettierignore` if it is still listed (verify;
-     current `.prettierignore` appears empty)
-
-6. **Tests** — add a cucumber.js scenario under `tests/integration/` that:
-   - Creates a temporary repo
-   - Writes an intentionally unformatted `TODO.md` (e.g. single very long line)
-   - Runs the bundled `scripts/gtd.js`
-   - Asserts `TODO.md` on disk is now wrapped to 80 cols
-   - Asserts the script exits 0 and stdout still contains a prompt
-
-   Reuse existing Given/When/Then composable steps from `tests/integration/`;
-   add a new generic Given like `Given TODO.md contains:` followed by a code
-   block with the raw content.
-
-7. **README.md** — short note that gtd auto-formats `TODO.md` and `REVIEW.md`
-   with a fixed markdown style (80 col, prose wrap), no host config required.
-
-### Non-goals
-
-- Formatting other markdown files in the host repo (e.g. README.md). Out of
-  scope; gtd should only touch files it owns.
-- Honouring host-repo prettier config (rejected above for determinism).
-- Installing git hooks in consumer repos.
-
-### Risks / mitigations
-
-- **Bundle bloat**: prettier inlined into `scripts/gtd.js` adds a few MB.
-  Acceptable; gtd is a dev tool.
-- **Prettier major version drift**: pinning prettier in `dependencies` means one
-  shipped style per gtd release. Document in README that upgrading gtd may
-  reflow existing TODO.md files.
-- **Formatting clobbers in-flight agent edits**: mitigated by running only at
-  gtd entry, never between detect and prompt-output.
-
-## Answered Questions
+**Answer:** Agreed. The subcommand exits 0 even on formatter failure and logs a
+single-line warning to stderr.
