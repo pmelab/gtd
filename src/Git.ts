@@ -1,5 +1,5 @@
 import { Command, CommandExecutor } from "@effect/platform"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Option } from "effect"
 
 export interface GitOperations {
   readonly statusPorcelain: () => Effect.Effect<string, Error>
@@ -12,6 +12,11 @@ export interface GitOperations {
   readonly checkoutTracked: () => Effect.Effect<void, Error>
   readonly cleanUntracked: () => Effect.Effect<void, Error>
   readonly diffStatRef: (ref: string) => Effect.Effect<string, Error>
+  readonly resolveDefaultBranch: () => Effect.Effect<Option.Option<string>, Error>
+  readonly mergeBase: (a: string, b: string) => Effect.Effect<Option.Option<string>, Error>
+  readonly lastReviewCommit: () => Effect.Effect<Option.Option<string>, Error>
+  readonly commitCount: (base: string) => Effect.Effect<number, Error>
+  readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
 }
 
 const run = (
@@ -94,6 +99,60 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
           exec("git", "clean", "-fd").pipe(Effect.map(() => undefined as void)),
 
         diffStatRef: (ref: string) => exec("git", "diff", "--stat", ref, "HEAD"),
+
+        resolveDefaultBranch: () =>
+          exec("git", "rev-parse", "--abbrev-ref", "origin/HEAD").pipe(
+            Effect.map((s) => s.trim()),
+            Effect.flatMap((s) =>
+              s !== "" && s !== "origin/HEAD"
+                ? Effect.succeed(Option.some(s.replace(/^origin\//, "")))
+                : Effect.fail(new Error("no remote HEAD")),
+            ),
+            Effect.catchAll(() =>
+              exec("git", "rev-parse", "--verify", "--quiet", "refs/heads/main").pipe(
+                Effect.map(() => Option.some("main")),
+                Effect.catchAll(() =>
+                  exec("git", "rev-parse", "--verify", "--quiet", "refs/heads/master").pipe(
+                    Effect.map(() => Option.some("master")),
+                    Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+        mergeBase: (a: string, b: string) =>
+          exec("git", "merge-base", a, b).pipe(
+            Effect.map((s) => Option.some(s.trim())),
+            Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+          ),
+
+        lastReviewCommit: () =>
+          exec(
+            "git",
+            "log",
+            "-1",
+            "--format=%H",
+            "--grep=^review\\(gtd\\): create review for",
+            "--extended-regexp",
+          ).pipe(
+            Effect.map((s) => s.trim()),
+            Effect.map((hash) => (hash !== "" ? Option.some(hash) : Option.none<string>())),
+            Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+          ),
+
+        commitCount: (base: string) =>
+          exec("git", "rev-list", "--count", `${base}..HEAD`).pipe(
+            Effect.map((s) => parseInt(s.trim(), 10)),
+          ),
+
+        isAncestor: (a: string, b: string) =>
+          Command.make("git", "merge-base", "--is-ancestor", a, b).pipe(
+            Command.exitCode,
+            Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+            Effect.mapError((e) => new Error(String(e))),
+            Effect.map((code) => code === 0),
+          ),
       }
     }),
   )
