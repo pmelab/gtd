@@ -193,6 +193,27 @@ the question to `## Answered Questions` at the bottom:
 
 This preserves the decision history for future reference.
 
+## Formatting
+
+gtd ships a `format` subcommand that formats a markdown file in place:
+
+```bash
+node scripts/gtd.js format <file>
+```
+
+It uses a bundled prettier with a fixed, gtd-owned config (`parser: "markdown"`,
+`printWidth: 80`, `proseWrap: "always"`). The host repo's `.prettierrc` is
+**intentionally ignored** — determinism across consumer repos matters more than
+local style preferences.
+
+The main gtd prompt instructs the agent to invoke this command after every edit
+to `TODO.md` or `REVIEW.md`, so those files stay consistently formatted
+regardless of the host project's toolchain.
+
+> [!NOTE]
+> Upgrading gtd may reflow existing `TODO.md` files if the bundled prettier
+> major version changes.
+
 ## Development
 
 ```bash

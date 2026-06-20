@@ -5,6 +5,26 @@ import { join, resolve } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 
+When("I run gtd with args {string}", function (this: GtdWorld, args: string) {
+  this.runGtd(...args.split(" "))
+})
+
+Then("the exit code is {int}", function (this: GtdWorld, code: number) {
+  assert.strictEqual(
+    this.lastResult.exitCode,
+    code,
+    `Expected exit code ${code}, got ${this.lastResult.exitCode}\nstderr: ${this.lastResult.stderr}`,
+  )
+})
+
+Then("stdout is empty", function (this: GtdWorld) {
+  assert.strictEqual(
+    this.lastResult.stdout.trim(),
+    "",
+    `Expected empty stdout, got:\n${this.lastResult.stdout}`,
+  )
+})
+
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
 const HOOK_PATH = join(PROJECT_ROOT, ".git/hooks/pre-commit")
 
