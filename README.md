@@ -50,7 +50,11 @@ task sections. Multiple sections can fire in the same run — for example, new
 | `.gtd/` exists but empty                               | Cleanup, then verify                         |
 | Uncommitted code changes outside `TODO.md`             | Commit the uncommitted changes               |
 | Added/modified lines containing `TODO:` markers        | Move `TODO:` markers into `TODO.md`          |
-| Clean tree, no `.gtd/`, last commit was not `TODO.md`  | Verify the working tree is healthy           |
+| Clean tree, no `.gtd/`, last commit was not `TODO.md`, un-reviewed commits exist | Verify, then generate `REVIEW.md` (human-review) |
+| Clean tree, no `.gtd/`, last commit was not `TODO.md`, nothing to review | Verify the working tree is healthy (verified) |
+
+> **Review base**: the closest-to-HEAD of {parent-branch merge-base, last
+> `<!-- base: … -->` review commit}. When no base exists, nothing to review.
 
 gtd coordinates phases — it doesn't dictate strategy. How to grill, how to
 commit, how to build, how to verify: those are left to other skills (or the
@@ -97,6 +101,10 @@ flowchart TD
     Other -->|yes| Commit[Commit changes]
     Markers --> Commit
     Cleanup --> Verify
+    Verify -->|green, un-reviewed commits| HumanReview[Generate REVIEW.md]:::terminal
+    Verify -->|green, nothing to review| Verified[Healthy & fully reviewed]:::terminal
+    HumanReview -.->|user edits REVIEW.md, next /gtd| ReviewProcess[review-process]
+    classDef terminal fill:#2d6a4f,color:#fff
 ```
 
 A typical feature:
@@ -113,7 +121,11 @@ A typical feature:
 6. `/gtd` again — agent executes the first package: spawns parallel workers
    (execution model + TDD), runs tests, fixes failures, commits.
 7. Repeat `/gtd` for each remaining package.
-8. When `.gtd/` is empty, `/gtd` cleans up and verifies.
+8. When `.gtd/` is empty, `/gtd` cleans up and verifies. After tests pass,
+   if un-reviewed commits exist relative to the base (parent-branch merge-base
+   or last review commit), it auto-generates `REVIEW.md` and stops for you to
+   review it (human-review). If everything is already reviewed, it reports the
+   tree healthy and fully reviewed (verified).
 
 ## Build orchestration
 

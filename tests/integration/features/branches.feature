@@ -131,11 +131,12 @@ Feature: gtd prints a structured prompt for the agent based on git state
     Then it succeeds
     And stdout contains "## Task: Clean up after build completion"
 
-  Scenario: Clean tree after a non-TODO commit triggers the verify task
+  Scenario: Clean tree with no reviewable base routes to verified
     Given a test project
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Verify the working tree is healthy"
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
+    And stdout does not contain "## Task: Generate REVIEW.md"
 
   Scenario: Uncommitted code changes trigger the commit task
     Given a test project
@@ -168,3 +169,58 @@ Feature: gtd prints a structured prompt for the agent based on git state
     Then it succeeds
     And stdout contains "## Task: Move `TODO:` markers into `TODO.md`"
     And stdout contains "## Task: Commit the uncommitted changes"
+
+  Scenario: Parent-branch merge-base behind HEAD triggers human-review
+    Given a test project
+    And a default branch "main"
+    And a branch "feature"
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      export const sub = (a: number, b: number) => a - b
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Generate REVIEW.md after successful verification"
+    And stdout contains "### Diff (`git diff"
+
+  Scenario: Prior review commit behind HEAD triggers human-review
+    Given a test project
+    And a default branch "feature"
+    And a prior review commit for "prev1234"
+    And a commit "feat: add parser" that adds "src/parser.ts" with:
+      """
+      export const parse = (s: string) => JSON.parse(s)
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Generate REVIEW.md after successful verification"
+    And stdout contains "### Diff (`git diff"
+
+  Scenario: Both parent-branch and prior-review present, closer one wins
+    Given a test project
+    And a default branch "main"
+    And a branch "feature"
+    And a commit "feat: old-module" that adds "src/old-module.ts" with:
+      """
+      export const oldFn = () => "old"
+      """
+    And a prior review commit for "midpoint"
+    And a commit "feat: new-module" that adds "src/new-module.ts" with:
+      """
+      export const newFn = () => "new"
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Generate REVIEW.md after successful verification"
+    And stdout contains "src/new-module.ts"
+    And stdout does not contain "src/old-module.ts"
+
+  Scenario: Review base equals HEAD produces verified terminal
+    Given a test project
+    And a default branch "feature"
+    And a prior review commit for "tiphash"
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
+    And stdout does not contain "## Task: Generate REVIEW.md"

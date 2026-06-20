@@ -49,6 +49,28 @@ Given("a directory {string}", function (this: GtdWorld, path: string) {
   mkdirSync(full, { recursive: true })
 })
 
+// Exercises the main/master local-branch fallback in resolveDefaultBranch()
+// (test repos have no remote, so origin/HEAD is not available).
+Given("a default branch {string}", function (this: GtdWorld, branch: string) {
+  execFileSync("git", ["branch", "-M", branch], { cwd: this.repoDir, stdio: "pipe" })
+})
+
+// Creates a new branch from the current HEAD and switches to it, leaving
+// the old branch name intact so resolveDefaultBranch() can still find it.
+Given("a branch {string}", function (this: GtdWorld, branch: string) {
+  execFileSync("git", ["checkout", "-b", branch], { cwd: this.repoDir, stdio: "pipe" })
+})
+
+// Creates a history-marker commit so lastReviewCommit() can find it.
+// --allow-empty keeps this step a pure marker that does not affect diff content.
+Given("a prior review commit for {string}", function (this: GtdWorld, shortHash: string) {
+  execFileSync(
+    "git",
+    ["commit", "--allow-empty", "-m", `review(gtd): create review for ${shortHash}`],
+    { cwd: this.repoDir, stdio: "pipe" },
+  )
+})
+
 When("I run gtd", function (this: GtdWorld) {
   this.runGtd()
 })

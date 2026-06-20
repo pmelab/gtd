@@ -41,7 +41,7 @@ Feature: Auto-advance and STOP markers in prompts
     And stdout contains "## Task: Commit the uncommitted changes"
     And stdout contains "Re-run gtd immediately"
 
-  Scenario: Verify prompt contains STOP and no auto-advance
+  Scenario: Verified prompt contains STOP and no auto-advance
     Given a test project
     And a commit "feat: init" that adds "index.ts" with:
       """
@@ -49,7 +49,7 @@ Feature: Auto-advance and STOP markers in prompts
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Verify"
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
     And stdout contains "STOP"
     And stdout does not contain "Re-run gtd immediately"
 
