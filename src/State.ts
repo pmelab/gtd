@@ -1,6 +1,6 @@
 import { FileSystem } from "@effect/platform"
-import { Effect } from "effect"
-import { GitService } from "./Git.js"
+import { Effect, Option } from "effect"
+import { type GitOperations, GitService } from "./Git.js"
 
 export type Branch =
   | "new-todo"
@@ -12,6 +12,8 @@ export type Branch =
   | "code-changes"
   | "todo-markers"
   | "verify"
+  | "human-review"
+  | "verified"
   | "review-create"
   | "review-process"
 
@@ -73,6 +75,56 @@ const getPackages = (
 
     return packages
   }).pipe(Effect.mapError((e) => new Error(String(e))))
+
+export const computeReviewBase = (
+  git: GitOperations,
+): Effect.Effect<Option.Option<string>, Error> =>
+  Effect.gen(function* () {
+    // Gather candidates
+    const defaultBranch = yield* git.resolveDefaultBranch()
+    const parentBranchCandidate: Option.Option<string> = Option.isSome(defaultBranch)
+      ? yield* git.mergeBase(defaultBranch.value, "HEAD")
+      : Option.none()
+
+    const lastReviewCandidate = yield* git.lastReviewCommit()
+
+    // Collect present candidates
+    const rawCandidates: Array<string> = []
+    if (Option.isSome(parentBranchCandidate)) rawCandidates.push(parentBranchCandidate.value)
+    if (Option.isSome(lastReviewCandidate)) rawCandidates.push(lastReviewCandidate.value)
+
+    if (rawCandidates.length === 0) return Option.none<string>()
+
+    // Resolve HEAD hash for equality check
+    const headHash = yield* git.resolveRef("HEAD")
+
+    // Filter: must be ancestor of HEAD; equal-to-HEAD means nothing to review
+    const qualified: Array<{ hash: string; count: number }> = []
+    for (const hash of rawCandidates) {
+      if (hash === headHash) continue
+      const ancestor = yield* git.isAncestor(hash, "HEAD")
+      if (!ancestor) continue
+      const count = yield* git.commitCount(hash)
+      qualified.push({ hash, count })
+    }
+
+    if (qualified.length === 0) return Option.none<string>()
+
+    // Pick the one with smallest commitCount (closest to HEAD)
+    let best = qualified[0]!
+    for (let i = 1; i < qualified.length; i++) {
+      const candidate = qualified[i]!
+      if (candidate.count < best.count) {
+        best = candidate
+      } else if (candidate.count === best.count) {
+        // Tie-break: prefer the descendant (if best is ancestor of candidate, candidate is descendant)
+        const bestIsAncestor = yield* git.isAncestor(best.hash, candidate.hash)
+        if (bestIsAncestor) best = candidate
+      }
+    }
+
+    return Option.some(best.hash)
+  })
 
 export const detect = (refArg?: string): Effect.Effect<State, Error, GitService | FileSystem.FileSystem> =>
   Effect.gen(function* () {
@@ -197,7 +249,24 @@ export const detect = (refArg?: string): Effect.Effect<State, Error, GitService 
           branches.push("decompose")
         }
       } else {
-        branches.push("verify")
+        const reviewBase = yield* computeReviewBase(git)
+        if (Option.isSome(reviewBase)) {
+          const base = reviewBase.value
+          const diff = yield* git.diffRef(base)
+          if (diff.trim().length > 0) {
+            branches.push("human-review")
+            return {
+              branches,
+              lastCommitSubject,
+              diff: "",
+              workingTreeClean: true,
+              packages,
+              baseRef: base,
+              refDiff: diff,
+            } satisfies State
+          }
+        }
+        branches.push("verified")
       }
     } else {
       if (todoEntry) {

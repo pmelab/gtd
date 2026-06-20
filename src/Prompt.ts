@@ -23,6 +23,8 @@ const SECTIONS: Record<Branch, string> = {
   "code-changes": codeChanges,
   "todo-markers": todoMarkers,
   verify,
+  "human-review": "",
+  verified: "",
   "review-create": reviewCreate,
   "review-process": reviewProcess,
 }
