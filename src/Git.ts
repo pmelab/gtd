@@ -17,6 +17,7 @@ export interface GitOperations {
   readonly lastReviewCommit: () => Effect.Effect<Option.Option<string>, Error>
   readonly commitCount: (base: string) => Effect.Effect<number, Error>
   readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
+  readonly commitSubjects: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
 }
 
 const run = (
@@ -143,6 +144,20 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             Effect.mapError((e) => new Error(String(e))),
             Effect.map((code) => code === 0),
           ),
+
+        commitSubjects: (base?: string) => {
+          const args: [string, ...Array<string>] =
+            base !== undefined
+              ? ["git", "log", "--first-parent", "--reverse", "--format=%s", `${base}..HEAD`]
+              : ["git", "log", "--first-parent", "--reverse", "--format=%s"]
+          return exec(...args).pipe(
+            Effect.map((out) =>
+              out.split("\n").filter((line) => line.length > 0) as ReadonlyArray<string>,
+            ),
+            // Empty repo (no HEAD) makes `git log` fail; treat as no commits.
+            Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),
+          )
+        },
       }
     }),
   )

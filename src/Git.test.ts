@@ -255,6 +255,44 @@ describe("GitService", () => {
     })
   })
 
+  describe("commitSubjects", () => {
+    it("returns whole history oldest→newest when no base is given", async () => {
+      commit("feat: second", "b.txt", "b")
+      commit("feat: third", "c.txt", "c")
+
+      const subjects = await run(Effect.flatMap(GitService, (g) => g.commitSubjects()))
+      expect(subjects).toEqual(["init: first commit", "feat: second", "feat: third"])
+    })
+
+    it("returns only commits in the base..HEAD range", async () => {
+      commit("feat: second", "b.txt", "b")
+      const base = git("rev-parse HEAD")
+      commit("feat: third", "c.txt", "c")
+      commit("feat: fourth", "d.txt", "d")
+
+      const subjects = await run(Effect.flatMap(GitService, (g) => g.commitSubjects(base)))
+      expect(subjects).toEqual(["feat: third", "feat: fourth"])
+    })
+
+    it("returns an empty array when base equals HEAD", async () => {
+      const subjects = await run(Effect.flatMap(GitService, (g) => g.commitSubjects("HEAD")))
+      expect(subjects).toEqual([])
+    })
+
+    it("returns an empty array in a repo with no commits", async () => {
+      const emptyDir = mkdtempSync(join(tmpdir(), "gtd-git-empty-"))
+      try {
+        execSync("git init", { cwd: emptyDir })
+        process.chdir(emptyDir)
+        const subjects = await run(Effect.flatMap(GitService, (g) => g.commitSubjects()))
+        expect(subjects).toEqual([])
+      } finally {
+        process.chdir(repoDir)
+        rmSync(emptyDir, { recursive: true, force: true })
+      }
+    })
+  })
+
   describe("commitCount distance comparison (integration of primitives)", () => {
     it("review commit is closer to HEAD than the merge-base with parent branch", async () => {
       // History layout:
