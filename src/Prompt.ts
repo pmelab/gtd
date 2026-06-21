@@ -71,13 +71,7 @@ const buildContext = (context: GtdContext): string => {
 
 export const buildPrompt = (result: ResolveResult): string => {
   const value = result.value as LeafState
-  const parts: Array<string> = [
-    header,
-    "",
-    buildContext(result.context),
-    SECTIONS[value],
-    "",
-  ]
+  const parts: Array<string> = [header, "", buildContext(result.context), SECTIONS[value], ""]
   if (result.autoAdvance) {
     parts.push(autoAdvance, "")
   }

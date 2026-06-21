@@ -1,10 +1,10 @@
 ## Task: Escalate to the human — the test gate is stuck
 
-The test gate has failed too many times in a row. The last N consecutive
-commits all carry the `fix(gtd):` prefix, meaning the agent tried to get the
-test suite green that many times and never succeeded. The iteration cap has been
-reached, so automatic fixing has stopped to avoid burning further effort on a
-problem it cannot solve.
+The test gate has failed too many times in a row. The last N consecutive commits
+all carry the `fix(gtd):` prefix, meaning the agent tried to get the test suite
+green that many times and never succeeded. The iteration cap has been reached,
+so automatic fixing has stopped to avoid burning further effort on a problem it
+cannot solve.
 
 ### Steps
 

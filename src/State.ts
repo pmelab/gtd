@@ -12,11 +12,7 @@ export type { ResolveResult } from "./Machine.js"
  * machine (src/Machine.ts). The fold (`resolve`) is synchronous and IO-free;
  * all IO happens while gathering events.
  */
-export const detect = (): Effect.Effect<
-  ResolveResult,
-  Error,
-  GitService | FileSystem.FileSystem
-> =>
+export const detect = (): Effect.Effect<ResolveResult, Error, GitService | FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const events = yield* gatherEvents()
     return resolve(events)
