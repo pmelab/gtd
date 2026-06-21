@@ -4,38 +4,39 @@ description:
   Use when the user wants to take the next git-aware, conventional-commits step
   on the current repo — planning with TODO.md, refining a plan, decomposing into
   work packages, executing packages with parallel subagents, committing pending
-  changes, running the test suite, or reviewing changes since a git ref. Also
-  triggers on "gtd", "what's next", "take the next step", `/gtd`, "review
-  changes", or "start a review".
+  changes, running the test suite, or reviewing the changes on the current
+  branch. Also triggers on "gtd", "what's next", "take the next step", `/gtd`,
+  "review changes", or "start a review".
 compatibility: Requires Node 20+, pi-subagents for orchestration
 allowed-tools: Bash(node:*)
 ---
 
 # gtd
 
-Generate the next prompt for the autonomous coding agent based on the current
-git state of the user's working directory.
+Generate the next prompt for the autonomous coding agent by folding the repo's
+commit history and working tree through an event-sourced state machine that
+resolves to a single active state.
 
 ## How to use this skill
 
 1. Run the bundled script from the user's current working directory:
 
    ```bash
-   node scripts/gtd.js [git-ref]
+   node scripts/gtd.js
    ```
 
    Resolve `scripts/gtd.js` relative to this skill's directory, not the user's
    repo. The script must be invoked with the user's repo as the working
-   directory so it can read `git status` and the diff.
-
-   Without arguments → normal gtd loop (plan/build/commit). With a git ref →
-   review mode (see below).
+   directory so it can read `git status`, the commit history, and the diff. The
+   script takes **no ref argument** — the review base is always auto-computed.
 
 2. Treat the script's stdout as a complete, self-contained prompt — read it and
-   follow its instructions verbatim. The prompt embeds the Conventional Commits
-   convention, the current `git diff HEAD`, and one or more task sections (plan,
-   decompose, execute, commit, verify, …) chosen by the script from the
-   working-tree state.
+   follow its instructions verbatim. The script folds the commit history (since
+   the merge-base with the default branch) plus the working tree through an
+   event-sourced state machine and resolves to exactly **one** active state,
+   whose prompt is emitted. The prompt embeds the Conventional Commits
+   convention, the current `git diff HEAD`, and the single task section (plan,
+   decompose, execute, commit, review, …) for the resolved state.
 
 3. Do not edit, paraphrase, or summarize the prompt before acting on it.
    Anything that needs to be communicated to the user should come out of the
@@ -95,35 +96,49 @@ When a plan is finalized (no open questions), gtd enters build mode:
 
 ## Configuration via AGENTS.md
 
-All configuration comes from AGENTS.md files (user or project scope):
+Advisory guidance comes from AGENTS.md files (user or project scope):
 
 - Model preferences (planning vs execution)
 - Test command (or inferred from package.json, Makefile, etc.)
-- Retry limits for test failures (default: 5)
 
 No separate config file needed.
 
-## Review mode
+> **Note:** the test-fix iteration cap is **not** configurable. The state
+> machine escalates after a fixed **5** consecutive `fix(gtd):` commits at HEAD
+> (`MAX_VERIFY_ITERATIONS`, hardcoded in `src/Machine.ts`). Any retry guidance
+> in the execute prompts is advisory only and does not change the machine cap.
 
-Pass a git ref as argument to start a code review:
+## States
 
-```bash
-node scripts/gtd.js main        # review changes since main
-node scripts/gtd.js HEAD~5      # review last 5 commits
-node scripts/gtd.js abc123f     # review since specific commit
-```
+The script always runs the same way and resolves to one of these leaf states by
+folding the commit history + working tree through guards evaluated in priority
+order:
 
-Requirements:
+- `review-process` — `REVIEW.md` was edited; fold the feedback into `TODO.md`
+- `code-changes` — uncommitted changes outside `TODO.md`; commit them
+- `execute` — `.gtd/` has work packages; execute the next one
+- `cleanup` — `.gtd/` is empty; remove it and verify
+- `execute-simple` — `TODO.md` is finalized and marked `<!-- simple -->`
+- `decompose` — `TODO.md` is finalized; break it into work packages
+- `escalate` — the trailing run of `fix(gtd):` commits hit 5; stop and hand off
+  to the human
+- `new-todo` / `modified-todo` — `TODO.md` is new or modified; keep planning
+- `human-review` — clean tree with un-reviewed commits; auto-generate
+  `REVIEW.md`
+- `verified` — nothing left to do; tree is healthy and fully reviewed
 
-- Working tree must be clean (no uncommitted changes)
-- No existing `REVIEW.md` (delete or finish previous first)
-- Must have actual diff between ref and HEAD
+## Review
 
-The two-phase flow:
+There is no separate review-mode invocation and no ref argument. Review is part
+of the normal loop:
 
-1. **review-create**: Script diffs ref..HEAD, outputs a prompt that generates
-   `REVIEW.md` with structured feedback sections and a `<!-- base: <sha> -->`
-   marker.
-2. **review-process**: User (or agent) edits `REVIEW.md` with feedback, then
-   runs the script again _without_ a ref arg. The script detects the modified
-   `REVIEW.md` and outputs a prompt to act on the review comments.
+1. **human-review**: When the tree is clean and there are un-reviewed commits
+   relative to the auto-computed base (parent-branch merge-base or last
+   `<!-- base: … -->` review commit), gtd generates `REVIEW.md` with structured
+   feedback sections and a `<!-- base: <sha> -->` marker, then stops.
+2. The user edits `REVIEW.md` with feedback (and may edit source files to
+   illustrate desired changes).
+3. **review-process**: On the next run gtd detects the dirty `REVIEW.md`, folds
+   all feedback (comments, source edits, and any `TODO:` markers in the reviewed
+   code) into a fresh `TODO.md`, resets the working tree, and commits —
+   restarting the loop.
