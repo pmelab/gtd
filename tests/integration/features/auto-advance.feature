@@ -53,13 +53,15 @@ Feature: Auto-advance and STOP markers in prompts
     And stdout contains "STOP"
     And stdout does not contain "Re-run gtd immediately"
 
-  Scenario: Review-create prompt contains STOP and no auto-advance
+  Scenario: Human-review prompt contains STOP and no auto-advance
     Given a test project
-    And a commit "feat: init" that adds "index.ts" with:
+    And a default branch "main"
+    And a branch "feature"
+    And a commit "feat: add feature" that adds "src/feature.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    When I run gtd with ref "HEAD~1"
+    When I run gtd
     Then it succeeds
     And stdout contains "## Task: Generate REVIEW.md"
     And stdout contains "STOP"

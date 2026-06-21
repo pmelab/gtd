@@ -15,9 +15,8 @@ const program = Effect.gen(function* () {
     yield* Format.formatFile(path)
     return
   }
-  const refArg = process.argv[2]
-  const state = yield* detect(refArg)
-  const prompt = buildPrompt(state)
+  const result = yield* detect()
+  const prompt = buildPrompt(result)
   yield* Effect.sync(() => process.stdout.write(prompt))
 })
 

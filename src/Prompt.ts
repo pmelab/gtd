@@ -6,16 +6,14 @@ import execute from "./prompts/execute.md"
 import executeSimple from "./prompts/execute-simple.md"
 import cleanup from "./prompts/cleanup.md"
 import codeChanges from "./prompts/code-changes.md"
-import todoMarkers from "./prompts/todo-markers.md"
-import verify from "./prompts/verify.md"
+import escalate from "./prompts/escalate.md"
 import humanReview from "./prompts/human-review.md"
 import verified from "./prompts/verified.md"
-import reviewCreate from "./prompts/review-create.md"
 import reviewProcess from "./prompts/review-process.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
-import type { Branch, State } from "./State.js"
+import type { GtdContext, LeafState, ResolveResult } from "./Machine.js"
 
-const SECTIONS: Record<Branch, string> = {
+const SECTIONS: Record<LeafState, string> = {
   "new-todo": newTodo,
   "modified-todo": modifiedTodo,
   decompose,
@@ -23,28 +21,26 @@ const SECTIONS: Record<Branch, string> = {
   "execute-simple": executeSimple,
   cleanup,
   "code-changes": codeChanges,
-  "todo-markers": todoMarkers,
-  verify,
+  escalate,
   "human-review": humanReview,
   verified,
-  "review-create": reviewCreate,
   "review-process": reviewProcess,
 }
 
-const buildContext = (state: State): string => {
+const buildContext = (context: GtdContext): string => {
   const lines: Array<string> = ["## Context", ""]
   lines.push(
-    state.lastCommitSubject === ""
+    context.lastCommitSubject === ""
       ? "Last commit: _(repository has no commits yet)_"
-      : `Last commit: \`${state.lastCommitSubject}\``,
+      : `Last commit: \`${context.lastCommitSubject}\``,
   )
-  lines.push(`Working tree: ${state.workingTreeClean ? "clean" : "dirty"}`)
+  lines.push(`Working tree: ${context.workingTreeClean ? "clean" : "dirty"}`)
 
-  if (state.packages.length > 0) {
+  if (context.packages.length > 0) {
     lines.push("")
     lines.push("### Work packages in `.gtd/`")
     lines.push("")
-    for (const pkg of state.packages) {
+    for (const pkg of context.packages) {
       lines.push(`- \`${pkg.name}/\``)
       for (const task of pkg.tasks) {
         lines.push(`  - \`${task}\``)
@@ -52,44 +48,37 @@ const buildContext = (state: State): string => {
     }
   }
 
-  if (state.refDiff) {
+  if (context.refDiff) {
     lines.push("")
-    lines.push(`### Diff (\`git diff ${state.baseRef} HEAD\`)`)
+    lines.push(`### Diff (\`git diff ${context.baseRef} HEAD\`)`)
     lines.push("")
     lines.push("```diff")
-    lines.push(state.refDiff.replace(/\n$/, ""))
+    lines.push(context.refDiff.replace(/\n$/, ""))
     lines.push("```")
     lines.push("")
   }
   lines.push("")
-  if (state.diff !== "") {
+  if (context.diff !== "") {
     lines.push("### Diff (`git diff HEAD`, with untracked files included)")
     lines.push("")
     lines.push("```diff")
-    lines.push(state.diff.replace(/\n$/, ""))
+    lines.push(context.diff.replace(/\n$/, ""))
     lines.push("```")
     lines.push("")
   }
   return lines.join("\n")
 }
 
-const AUTO_ADVANCE_BRANCHES: ReadonlySet<Branch> = new Set([
-  "new-todo",
-  "modified-todo",
-  "decompose",
-  "execute",
-  "execute-simple",
-  "cleanup",
-  "code-changes",
-  "todo-markers",
-  "verify",
-  "review-process",
-])
-
-export const buildPrompt = (state: State): string => {
-  const parts: Array<string> = [header, "", buildContext(state)]
-  for (const branch of state.branches) parts.push(SECTIONS[branch], "")
-  if (state.branches.some((b) => AUTO_ADVANCE_BRANCHES.has(b))) {
+export const buildPrompt = (result: ResolveResult): string => {
+  const value = result.value as LeafState
+  const parts: Array<string> = [
+    header,
+    "",
+    buildContext(result.context),
+    SECTIONS[value],
+    "",
+  ]
+  if (result.autoAdvance) {
     parts.push(autoAdvance, "")
   }
   return (

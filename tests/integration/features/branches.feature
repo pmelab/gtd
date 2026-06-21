@@ -1,9 +1,19 @@
 Feature: gtd prints a structured prompt for the agent based on git state
 
-  Scenario: New TODO.md triggers the planning task
+  Scenario: New TODO.md with open questions triggers the planning task
     Given a test project
     And a file "TODO.md" with:
       """
+      ## Open Questions
+
+      ### What operations?
+
+      **Recommendation:** add, subtract.
+
+      <!-- user answers here -->
+
+      ## Plan
+
       - build a math library
       """
     When I run gtd
@@ -39,6 +49,12 @@ Feature: gtd prints a structured prompt for the agent based on git state
       **Recommendation:** add, subtract.
 
       add, subtract, multiply, divide
+
+      ### What precision?
+
+      **Recommendation:** double.
+
+      <!-- user answers here -->
 
       ## Plan
 
@@ -154,7 +170,7 @@ Feature: gtd prints a structured prompt for the agent based on git state
     And stdout contains "## Task: Commit the uncommitted changes"
     And stdout does not contain "## Task: Move `TODO:` markers"
 
-  Scenario: New TODO: markers in code compose with the commit task
+  Scenario: New TODO: markers in code are ordinary code and yield only the commit task
     Given a test project
     And a commit "feat: math" that adds "src/math.ts" with:
       """
@@ -167,8 +183,8 @@ Feature: gtd prints a structured prompt for the agent based on git state
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Move `TODO:` markers into `TODO.md`"
     And stdout contains "## Task: Commit the uncommitted changes"
+    And stdout does not contain "## Task: Move `TODO:` markers into `TODO.md`"
 
   Scenario: Parent-branch merge-base behind HEAD triggers human-review
     Given a test project

@@ -33,12 +33,16 @@ chunk was about.
 
 ## Step 4: Collect All Feedback
 
-Gather feedback from two sources:
+Gather feedback from three sources:
 
 1. **REVIEW.md comments** — any text the reviewer added to the file (inline
    notes, questions, suggestions written between or inside chunks).
 2. **Source file edits** — describe what was changed and infer the reviewer's
    intent from the surrounding REVIEW.md explanation.
+3. **`TODO:` markers in the reviewed code** — scan the reviewed code for any
+   `TODO:` comments. Pull each one into `TODO.md` as a note, with enough context
+   (file, function, what needs to be done) to act on it later. These markers are
+   captured as tasks here rather than left scattered in the source.
 
 ## Step 5: Compose TODO.md
 

@@ -55,6 +55,16 @@ Given("a branch {string}", function (this: GtdWorld, branch: string) {
   execFileSync("git", ["checkout", "-b", branch], { cwd: this.repoDir, stdio: "pipe" })
 })
 
+// Creates a single empty `fix(gtd):` commit so the verify-loop counter advances
+// by exactly one. Empty keeps the working tree clean so the cap/escalate guards
+// (which sit behind codeDirty) are the ones under test.
+Given("a fix\\(gtd) commit {string}", function (this: GtdWorld, message: string) {
+  execFileSync("git", ["commit", "--allow-empty", "-q", "-m", message], {
+    cwd: this.repoDir,
+    stdio: "pipe",
+  })
+})
+
 // Creates a history-marker commit so lastReviewCommit() can find it.
 // --allow-empty keeps this step a pure marker that does not affect diff content.
 Given("a prior review commit for {string}", function (this: GtdWorld, shortHash: string) {
