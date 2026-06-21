@@ -1,62 +1,5 @@
 # Refactor gtd into an xstate event-sourced state machine
 
-## Open Questions
-
-### Where does `maxVerifyIterations` (the escalate cap) come from — a hardcoded constant or parsed from `AGENTS.md`?
-
-The machine now needs the cap as a real TypeScript value at fold time to decide
-`escalate`. Today **no code reads `AGENTS.md`** — retry limits live only as
-prompt text (`execute.md`/`execute-simple.md`: "retry limit reached (default: 5,
-check AGENTS.md)"). `README.md`/`SKILL.md` advertise the retry limit as
-AGENTS.md-configurable, but nothing enforces that in code.
-
-**Recommendation:** Hardcode `maxVerifyIterations = 5` as a constant in
-`Machine.ts` for this refactor. The machine cap is a structural backstop; a real
-`AGENTS.md` parser doesn't exist yet and building one would balloon scope. Keep
-the prompts' "check AGENTS.md" hint for the agent-level retry guidance, but make
-`README.md`/`SKILL.md` honest that the **machine-enforced** cap is currently
-fixed at 5. Track AGENTS.md-driven config as a follow-up.
-
-<!-- user answers here -->
-
-### What bounds the `COMMIT` event stream when there is no default branch / no merge-base (e.g. on `main` itself)?
-
-`computeReviewBase` already degrades to `Option.none`, but the COMMIT stream
-base (`merge-base(default,HEAD)`) is a separate concern, and `verifyIterations`
-folds over it. On `main`, or with no resolvable default branch / merge-base,
-`merge-base(default,HEAD)..HEAD` is empty → zero COMMIT events → counter stuck
-at 0 → `escalate` unreachable.
-
-**Recommendation:** The trailing `fix(gtd):` run always terminates at the first
-non-fix commit, so the stream only needs to reach back far enough to include
-that run. Use `merge-base(default,HEAD)..HEAD` (first-parent) when available;
-when there is no default branch or no merge-base, fall back to the full
-first-parent history (`git log --first-parent`, i.e. root..HEAD). Make
-`commitSubjects(base?)` take an optional base where `undefined` ⇒ whole history.
-Correct counter in every repo shape (including gtd's own `main`) at negligible
-cost.
-
-<!-- user answers here -->
-
-### How does `escalate` resume, and what does `escalate.md` instruct?
-
-`escalate` halts (not auto-advance tagged). The counter only resets when a
-non-`fix(gtd):` commit lands at HEAD. So after the human intervenes, what
-unsticks the loop?
-
-**Recommendation:** `escalate.md` should (a) report that N consecutive
-`fix(gtd):` attempts failed to get tests green, (b) surface the latest failure
-output, (c) ask the human to fix the root cause and commit it with a normal
-prefix (anything but `fix(gtd):`, which resets the counter to 0 and re-enters
-the gate fresh) — or amend/squash the `fix(gtd):` chain — and (d) STOP. No
-machine change needed: reset is purely "next non-`fix(gtd):` commit at HEAD."
-Note the implication for the gate: it must commit **all** its fix changes into
-the single `fix(gtd):` commit so the tree returns to clean/TODO-only and
-`escalate` stays reachable (a stray uncommitted file would route to
-`code-changes` and reset the counter).
-
-<!-- user answers here -->
-
 ## Context
 
 Today `src/State.ts#detect()` takes a single git **snapshot** and emits a
@@ -86,7 +29,13 @@ Settled decisions (see Open Questions above for the three still-live points):
   notes); marker→`TODO.md` extraction becomes a review-process concern only.
 - **Test-fix iterations marked `fix(gtd): <desc>`**; counter = trailing run of
   such commits at HEAD (any other commit resets it).
-- **New `escalate` halt state** when the counter hits the cap (default 5).
+- **New `escalate` halt state** when the counter hits the cap. The cap
+  (`maxVerifyIterations`) is a **hardcoded constant `5` in `Machine.ts`** — no
+  `AGENTS.md` parsing (none exists today); `README.md`/`SKILL.md` must say the
+  machine-enforced cap is fixed at 5. `escalate.md` reports the N failed
+  `fix(gtd):` attempts + latest failure output and asks the human to fix the
+  root cause and commit it with any non-`fix(gtd):` prefix (which resets the
+  counter to 0 and re-enters the gate) or amend/squash the chain, then STOP.
 
 ### The mixed-dirty / verify flow (the key behavior)
 
@@ -95,7 +44,10 @@ When the tree is dirty with BOTH non-TODO code changes and `TODO.md` edits:
 1. **`code-changes`** commits only the non-TODO code; `TODO.md` is left dirty.
 2. Re-run. The tree now has only `TODO.md` dirty. The machine routes into the
    next state, which **begins with a test gate**: run the suite; on failure,
-   make ONE fix → commit `fix(gtd): <desc>` → re-run gtd. Each fix is a separate
+   make ONE fix → commit **all** the fix changes into a single
+   `fix(gtd): <desc>` commit (leaving only `TODO.md`/clean tree behind, so
+   `escalate` stays reachable — a stray uncommitted file would route to
+   `code-changes` and reset the counter) → re-run gtd. Each fix is a separate
    commit and a separate invocation; the machine counts the trailing run of
    `fix(gtd):` commits.
 3. While tests are red and the count is below the cap, the gate keeps looping;
@@ -195,8 +147,9 @@ Modified:
   leave `TODO.md` dirty".
 - `package.json` — add `xstate` (^5).
 - `README.md`, `AGENTS.md`, `SKILL.md` — document the machine, the `fix(gtd):`
-  convention + iteration cap, the `escalate` state, markers-are-code, removal of
-  the ref argument, and update the workflow-step/state-list notes.
+  convention + iteration cap (state the machine-enforced cap is **fixed at 5**,
+  not AGENTS.md-configurable), the `escalate` state, markers-are-code, removal
+  of the ref argument, and update the workflow-step/state-list notes.
 
 ### Tests
 
@@ -232,4 +185,32 @@ Modified:
 
 ## Answered Questions
 
-_(none yet)_
+### Where does `maxVerifyIterations` (the escalate cap) come from — a hardcoded constant or parsed from `AGENTS.md`?
+
+**Recommendation:** Hardcode `maxVerifyIterations = 5` in `Machine.ts`; no
+`AGENTS.md` parser exists, so building one would balloon scope. Make
+`README.md`/`SKILL.md` honest that the machine-enforced cap is fixed at 5.
+
+**Answer:** hardcoded for now.
+
+### What bounds the `COMMIT` event stream when there is no default branch / no merge-base (e.g. on `main` itself)?
+
+**Recommendation:** `commitSubjects(base?)` first-parent; `base` given ⇒
+`base..HEAD`, omitted ⇒ whole history. Use `merge-base(default,HEAD)` when
+available, else fall back to full first-parent history. Trailing `fix(gtd):` run
+ends at the first non-fix commit, so the counter stays correct in every repo
+shape.
+
+**Answer:** agreed.
+
+### How does `escalate` resume, and what does `escalate.md` instruct?
+
+**Recommendation:** Reset is purely "next non-`fix(gtd):` commit at HEAD."
+`escalate.md` reports the failed attempts + latest failure, asks the human to
+fix
+
+- commit with a non-`fix(gtd):` prefix (or amend/squash the chain), then STOP.
+  The gate must commit all its fix changes into the single `fix(gtd):` commit so
+  `escalate` stays reachable.
+
+**Answer:** agreed.
