@@ -1,100 +1,5 @@
 # TODO
 
-## Open Questions
-
-### Closing the loop must DELETE + COMMIT REVIEW.md, not passively resolve to `verified` — confirm the close-path needs its own action-bearing leaf/prompt.
-
-**Recommendation:** Yes — add a dedicated action-bearing leaf (proposed
-`close-review`) that deletes `REVIEW.md` and commits
-`chore(gtd): close approved review for <short-sha>`, tagged `auto-advance`. A
-passive resolve-to-`verified` is provably insufficient:
-
-- A present-but-unmodified `REVIEW.md` makes `gatherEvents` hard-`Effect.fail`
-  with "REVIEW.md exists but has no changes" (`src/Events.ts:187-193`). So if we
-  resolved a ticked-only `REVIEW.md` to `verified` and committed nothing, the
-  ticked file would still be on disk on the next run. Either the user re-runs
-  with the same ticked file still dirty (→ stays on the close path, harmless but
-  it never terminates), or the user `git checkout`s it clean (→ unmodified
-  present file → the hard failure above). Both are bad.
-- `verified.md` is a pure "report and STOP" terminal (`src/prompts/verified.md`)
-  — it has no steps that mutate the tree. There is no leaf today that both
-  removes a file and commits, so this must be new.
-- This mirrors exactly what was done by hand in commit `9820256` ("chore(gtd):
-  close approved review for 8ca9129", a 1-file deletion of REVIEW.md). Codifying
-  that manual move IS the feature.
-
-Mechanically: detection (`reviewApprovedNoChanges`) lives in `gatherEvents` (the
-only place that can diff `REVIEW.md`); a new guard routes to `close-review`
-**ahead of** the `reviewModified → review-process` guard
-(`src/Machine.ts:135-140`), since a ticked-only diff also sets
-`reviewModified: true` and would otherwise be swallowed by review-process.
-
-<!-- user answers here -->
-
-### After closing, will `computeReviewBase` re-trigger a full-branch `human-review` on the very next run? How do we prevent it?
-
-**Recommendation:** It WILL re-trigger unless we account for it. After the close
-commit, `computeReviewBase` (`src/Events.ts:72-120`) still finds the original
-`review(gtd): create review for …` commit via `git.lastReviewCommit()`
-(`src/Git.ts:121-133`) — that commit is an ancestor of HEAD and is NOT removed
-by deleting `REVIEW.md`. `diffRef(reviewBase, HEAD)` would then be non-empty (it
-includes at least the REVIEW.md deletion plus the originally-reviewed diff), so
-the `humanReview` guard (`src/Machine.ts:104-105`,
-`reviewBasePresent && refDiff.trim() !== ""`) fires and we loop straight back
-into generating a fresh `REVIEW.md` for the whole branch — defeating the
-approval.
-
-Two viable fixes; **recommend (A)**:
-
-- **(A) Make the close commit the new review boundary.** Use a commit subject
-  that `lastReviewCommit`'s grep matches, OR teach `computeReviewBase` to also
-  treat the latest `chore(gtd): close approved review for …` commit as a base
-  candidate (preferred — keeps the existing `review(gtd):` grep semantics
-  clean). Since the close commit is the closest ancestor to HEAD, the existing
-  "smallest commitCount wins" tie-break (`src/Events.ts:106-117`) picks it, and
-  `diffRef(closeCommit, HEAD)` is empty on the next run → falls through to
-  `verified`. This is the minimal, self-consistent option.
-- **(B) Resolve to `verified` only after also confirming the merge-base diff is
-  empty.** Rejected: on a real feature branch the merge-base diff is the whole
-  branch and is never empty until merge, so this would never reach `verified`.
-
-So the close-review work has TWO code edges: the new leaf/prompt AND a
-`computeReviewBase` candidate for the close commit.
-
-<!-- user answers here -->
-
-### Does un-ticking a box (`- [x]` → `- [ ]`) also count as "only checkbox changes → close", or only forward ticks?
-
-**Recommendation:** Treat ANY change confined to checkbox markers as a close, in
-either direction. The detection predicate is "every changed line differs from
-its committed counterpart only in the `[ ]`/`[x]` marker, and no lines are
-added/removed and no non-REVIEW.md file is dirty." Direction is irrelevant
-because `review-process.md` already states checkboxes are "informational only;
-do not treat checked/unchecked as approval or rejection"
-(`src/prompts/review-process.md:16-17`) — so an un-tick carries no actionable
-feedback either, and routing it to `review-process` would compose an empty
-`TODO.md` and churn. Closing on any checkbox-only diff is the consistent rule.
-(If the user disagrees and wants un-ticks to mean "more review needed," we'd
-restrict the predicate to forward `[ ]`→`[x]` toggles only.)
-
-<!-- user answers here -->
-
-### On close, commit the ticked `REVIEW.md` content, or just delete it?
-
-**Recommendation:** Just delete it (single-file deletion), matching commit
-`9820256` which deleted `REVIEW.md` outright with no preserved approval record.
-Reasons: (1) the approval IS recorded — by the close commit's existence and
-message; (2) `review-process.md`'s own reset sequence
-(`src/prompts/review-process.md:60-86`) discards the working `REVIEW.md` and
-commits only its deletion, so "delete, don't preserve edits" is the established
-convention; (3) keeping ticked checkboxes around adds a stale artifact that
-`computeReviewBase` would have to reason about. The close commit must therefore
-first `git checkout -- REVIEW.md` (drop the ticked working edits) then
-`git rm REVIEW.md`, so the only committed change is the deletion of the
-committed version — no checkbox noise in history.
-
-<!-- user answers here -->
-
 ## Close the review loop when REVIEW.md has only ticked checkboxes
 
 The review loop has no clean way to express "I reviewed everything and approve
@@ -124,14 +29,16 @@ against its base.
 ### Approach
 
 When `REVIEW.md` is modified, inspect the diff against its committed version: if
-the **only** differences are checkbox-marker toggles (`- [ ]` ⇄ `- [x]`) — no
-added/removed lines, no edited prose, and no non-`REVIEW.md` file dirty in the
-working tree — treat it as approval with nothing to do and route to a new
-terminal **close-review** leaf instead of **review-process**. That leaf's prompt
-discards the ticked working edits, deletes the committed `REVIEW.md`, and
-commits the deletion as `chore(gtd): close approved review for <short-sha>`. Any
-other `REVIEW.md` modification (prose, edited explanations) or any source edit
-continues to route to **review-process** exactly as today.
+the **only** differences are **forward** checkbox ticks (`- [ ]` → `- [x]`) — no
+added/removed lines, no edited prose, no un-ticks (`- [x]` → `- [ ]`), and no
+non-`REVIEW.md` file dirty in the working tree — treat it as approval with
+nothing to do and route to a new terminal **close-review** leaf instead of
+**review-process**. That leaf's prompt discards the ticked working edits,
+deletes the committed `REVIEW.md`, and commits the deletion as
+`chore(gtd): close approved review for <short-sha>`. Any other `REVIEW.md`
+modification — edited prose, **an un-tick** (`- [x]` → `- [ ]`, treated as
+"needs more review"), or any source edit — continues to route to
+**review-process** exactly as today.
 
 ### Implementation notes (keyed to files)
 
@@ -141,9 +48,12 @@ continues to route to **review-process** exactly as today.
      (`git show HEAD:REVIEW.md`, via a small new `GitOperations` op, e.g.
      `showHead(path)`) and the working copy, and compute
      `reviewApprovedNoChanges`: true iff (a) `codeDirty` is false / the only
-     dirty path is `REVIEW.md`, and (b) every line that differs between
-     committed and working versions matches `/^- \[[ x]\] /` on BOTH sides and
-     is identical after normalizing the marker to `[ ]`, with equal line counts.
+     dirty path is `REVIEW.md`, and (b) for every line that differs between
+     committed and working versions, the committed side matches `/^- \[ \] /`
+     and the working side matches `/^- \[x\] /` (a **forward tick only**) and
+     the two lines are identical after normalizing the marker — with equal line
+     counts and no added/removed lines. An un-tick (`[x]`→`[ ]`) therefore makes
+     the predicate false and falls through to `reviewModified → review-process`.
    - Surface `reviewApprovedNoChanges: boolean` on `ResolvePayload`.
    - Also compute the close short-sha for the prompt: the first 7 chars of the
      base ref already parsed from `<!-- base: … -->` (`reviewBaseRef`, `:205`) —
@@ -185,8 +95,9 @@ content in scenario text.
     scenario (`:92-116`): same setup, but
     `Then stdout contains "chore(gtd): close approved review"` and NOT
     `"# Process Review Feedback"`.
-  - New: "Un-ticking a box also closes the review" — committed `[x]`, working
-    `[ ]`, asserts close-review prompt.
+  - New: "Un-ticking a box routes to review-process, not close" — committed
+    `[x]`, working `[ ]`, asserts `# Process Review Feedback` and NOT the
+    close-review prompt (forward-only predicate).
   - New: "Checkbox toggle plus a prose edit routes to review-process" — proves
     the predicate is strict (prose change ⇒ review-process, not close).
   - New: "Checkbox toggle plus a source-file edit routes to review-process" —
@@ -217,3 +128,33 @@ content in scenario text.
   prompt dispatch and the terminal/feedback copy this sits beside.
 
 ## Answered Questions
+
+### Close path: passive `verified` vs. action-bearing leaf?
+
+**Answer:** Add a dedicated action-bearing **close-review** leaf (auto-advance)
+that discards the ticked working edits, deletes the committed `REVIEW.md`, and
+commits `chore(gtd): close approved review for <short-sha>`. A passive
+`verified` terminal is insufficient — it would leave the file on disk and the
+next run would hit the "exists but has no changes" failure.
+
+### Prevent `computeReviewBase` re-triggering a full-branch review after close?
+
+**Answer:** Yes, account for it (option A). Teach `computeReviewBase` to treat
+the latest `chore(gtd): close approved review for …` commit as a base candidate.
+As the closest ancestor it wins the tie-break, so `diffRef(closeCommit, HEAD)`
+is empty on the next run and the machine falls through to `verified`. This makes
+the feature two code edges: the new leaf/prompt AND the base candidate.
+
+### Does un-ticking a box also close?
+
+**Answer:** No — **only forward ticks** (`- [ ]` → `- [x]`) close. An un-tick
+(`- [x]` → `- [ ]`) is treated as "needs more review" and routes to
+**review-process** as today. The detection predicate matches a forward tick on
+every differing line; any un-tick makes it false.
+
+### On close, commit the ticked `REVIEW.md` or just delete it?
+
+**Answer:** Discard the ticked working edits (`git checkout -- REVIEW.md`) and
+commit only the deletion (`git rm REVIEW.md`). The approval is recorded by the
+close commit's message; no checkbox noise enters history. Matches commit
+`9820256` and the existing review-process reset convention.
