@@ -15,7 +15,12 @@ export const MAX_VERIFY_ITERATIONS = 5
 
 export interface GtdPackageFact {
   readonly name: string
+  /** Task .md filenames, sorted (UNCHANGED — still drives the Context listing). */
   readonly tasks: ReadonlyArray<string>
+  /** Full contents of each task .md file, parallel-sorted to `tasks`. */
+  readonly taskContents: ReadonlyArray<{ readonly name: string; readonly content: string }>
+  /** Whether the package dir contains a COMMIT_MSG.md. */
+  readonly hasCommitMsg: boolean
 }
 
 /**

@@ -29,7 +29,7 @@ const isNumberedDir = (name: string): boolean => /^\d+-/.test(name)
 
 const isTaskFile = (name: string): boolean => name.endsWith(".md") && name !== "COMMIT_MSG.md"
 
-const getPackages = (
+export const getPackages = (
   fs: FileSystem.FileSystem,
 ): Effect.Effect<ReadonlyArray<GtdPackageFact>, Error> =>
   Effect.gen(function* () {
@@ -47,7 +47,13 @@ const getPackages = (
 
       const files = yield* fs.readDirectory(packagePath)
       const tasks = files.filter(isTaskFile).sort()
-      packages.push({ name: dir, tasks })
+      const taskContents: Array<{ name: string; content: string }> = []
+      for (const taskFile of tasks) {
+        const content = yield* fs.readFileString(`${packagePath}/${taskFile}`)
+        taskContents.push({ name: taskFile, content })
+      }
+      const hasCommitMsg = files.includes("COMMIT_MSG.md")
+      packages.push({ name: dir, tasks, taskContents, hasCommitMsg })
     }
 
     return packages

@@ -232,6 +232,27 @@ describe("resolve — counter-vs-escalate interaction", () => {
     expect(resolve(events).value).toBe("escalate")
   })
 
+  it("widened packages fact (taskContents + hasCommitMsg) survives applyPayload", () => {
+    const { context } = resolve([
+      resolveEvent({
+        hasPackages: true,
+        gtdDirExists: true,
+        packages: [
+          {
+            name: "01-foo",
+            tasks: ["01-task.md"],
+            taskContents: [{ name: "01-task.md", content: "# Task body\n" }],
+            hasCommitMsg: true,
+          },
+        ],
+      }),
+    ])
+    expect(context.packages[0]!.taskContents).toEqual([
+      { name: "01-task.md", content: "# Task body\n" },
+    ])
+    expect(context.packages[0]!.hasCommitMsg).toBe(true)
+  })
+
   it("passthrough context fields are carried onto the leaf", () => {
     const { context } = resolve([
       resolveEvent({
