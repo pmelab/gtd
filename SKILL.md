@@ -79,10 +79,14 @@ When a plan is finalized (no open questions), gtd enters build mode:
        ...
    ```
 
-2. **Execute**: For each package (sequentially):
-   - Spawn parallel execution-model workers for all tasks (with `tdd` skill)
-   - Spawn a testing subagent to run tests and fix failures
-   - Delete package directory, commit with `COMMIT_MSG.md`
+2. **Execute** (one package per cycle): each run executes EXACTLY ONE package —
+   the lowest-numbered package remaining in `.gtd/`:
+   - Spawn parallel execution-model workers for all tasks in that package (with
+     `tdd` skill)
+   - Commit all changes with `COMMIT_MSG.md`, then delete the package directory
+   - Re-run gtd. The execute step itself does NOT run tests; the next cycle's
+     edge verifies the just-committed package by running `npm run test` before
+     resolving (green → advance to the next package, red → fix-tests).
 
 3. **Cleanup**: Remove empty `.gtd/`, verify working tree
 
@@ -103,10 +107,15 @@ Advisory guidance comes from AGENTS.md files (user or project scope):
 
 No separate config file needed.
 
-> **Note:** the test-fix iteration cap is **not** configurable. The state
-> machine escalates after a fixed **5** consecutive `fix(gtd):` commits at HEAD
-> (`MAX_VERIFY_ITERATIONS`, hardcoded in `src/Machine.ts`). Any retry guidance
-> in the execute prompts is advisory only and does not change the machine cap.
+> **Note:** when the fold resolves to `human-review` or `execute`, the Effect
+> **edge** runs the hardcoded `npm run test` (no env/config override) before
+> emitting a prompt. On green it emits the leaf's normal prompt; on red it emits
+> the `fix-tests` prompt with the captured output embedded. The test-fix
+> iteration cap is **not** configurable: the edge counts the trailing run of
+> `fix(gtd):` commits at HEAD and, once it reaches a fixed **5**, resolves to
+> `escalate` instead of fix-tests. The cap is enforced **in the edge** (before
+> emitting fix-tests), so it applies uniformly to both `human-review` and
+> `execute`. Any retry guidance in the prompts is advisory only.
 
 ## States
 
@@ -119,16 +128,26 @@ order:
   (becomes the new review base so the next run resolves to `verified`)
 - `review-process` — `REVIEW.md` was edited; fold the feedback into `TODO.md`
 - `code-changes` — uncommitted changes outside `TODO.md`; commit them
-- `execute` — `.gtd/` has work packages; execute the next one
+- `execute` — `.gtd/` has work packages; the edge runs `npm run test` first
+  (green → execute the next, lowest-numbered package; red → fix-tests, or
+  `escalate` at the cap)
 - `cleanup` — `.gtd/` is empty; remove it and verify
 - `execute-simple` — `TODO.md` is finalized and marked `<!-- simple -->`
 - `decompose` — `TODO.md` is finalized; break it into work packages
 - `escalate` — the trailing run of `fix(gtd):` commits hit 5; stop and hand off
   to the human
 - `new-todo` / `modified-todo` — `TODO.md` is new or modified; keep planning
-- `human-review` — clean tree with un-reviewed commits; auto-generate
-  `REVIEW.md`
+- `human-review` — clean tree with un-reviewed commits; the edge runs
+  `npm run test` first (green → auto-generate `REVIEW.md`; red → fix-tests, or
+  `escalate` at the cap)
 - `verified` — nothing left to do; tree is healthy and fully reviewed
+
+`fix-tests` is **not** a leaf state. It is a PROMPT the Effect edge selects (it
+never appears in the machine's resolved leaf set) when the hardcoded
+`npm run test` fails on the `human-review` or `execute` path. The prompt embeds
+the captured failure output and instructs exactly ONE `fix(gtd): <desc>` commit
+followed by a re-run; the cap-vs-escalate decision is made in the edge before
+this prompt is emitted.
 
 ## Review
 
