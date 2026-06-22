@@ -105,4 +105,32 @@ describe("buildPrompt", () => {
     const out = buildPrompt(result("verified"))
     expect(out).not.toContain("```diff")
   })
+
+  it("execute prompt renders its section and the auto-advance partial", () => {
+    const out = buildPrompt(result("execute", { autoAdvance: true }))
+    expect(out).toContain("Execute all work packages")
+    expect(out).toContain("Re-run gtd immediately")
+    expect(out).not.toContain("marked with `<!-- simple -->`")
+  })
+
+  it("cleanup prompt renders its section and the auto-advance partial", () => {
+    const out = buildPrompt(result("cleanup", { autoAdvance: true }))
+    expect(out).toContain("Delete the empty `.gtd/` directory")
+    expect(out).toContain("Re-run gtd immediately")
+    expect(out).not.toContain("Execute all work packages")
+  })
+
+  it("decompose prompt renders its section and the auto-advance partial", () => {
+    const out = buildPrompt(result("decompose", { autoAdvance: true }))
+    expect(out).toContain("Decompose `TODO.md` into work packages")
+    expect(out).toContain("Re-run gtd immediately")
+    expect(out).not.toContain("Delete the empty `.gtd/` directory")
+  })
+
+  it("execute-simple prompt renders its section and the auto-advance partial", () => {
+    const out = buildPrompt(result("execute-simple", { autoAdvance: true }))
+    expect(out).toContain("marked with `<!-- simple -->`")
+    expect(out).toContain("Re-run gtd immediately")
+    expect(out).not.toContain("Decompose `TODO.md` into work packages")
+  })
 })

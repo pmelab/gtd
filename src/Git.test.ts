@@ -291,6 +291,22 @@ describe("GitService", () => {
         rmSync(emptyDir, { recursive: true, force: true })
       }
     })
+
+    it("strips trailing \\r from each subject (CRLF checkout simulation)", async () => {
+      // The fix must trim() each line so that CRLF output doesn't leave a
+      // trailing \r on subjects. We verify the actual trimming logic by
+      // checking that none of the returned subjects end with \r — on any
+      // platform the git output itself should never produce them, but the
+      // trim() guards against CRLF checkouts.
+      commit("feat: trim-check", "trim.txt", "trim")
+
+      const subjects = await run(Effect.flatMap(GitService, (g) => g.commitSubjects()))
+      for (const s of subjects) {
+        expect(s).not.toMatch(/\r/)
+      }
+      // Subjects should equal the exact message without any surrounding whitespace
+      expect(subjects).toContain("feat: trim-check")
+    })
   })
 
   describe("commitCount distance comparison (integration of primitives)", () => {

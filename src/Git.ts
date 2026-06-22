@@ -152,7 +152,11 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
               : ["git", "log", "--first-parent", "--reverse", "--format=%s"]
           return exec(...args).pipe(
             Effect.map(
-              (out) => out.split("\n").filter((line) => line.length > 0) as ReadonlyArray<string>,
+              (out) =>
+            out
+              .split("\n")
+              .map((l) => l.trim())
+              .filter((l) => l.length) as ReadonlyArray<string>,
             ),
             // Empty repo (no HEAD) makes `git log` fail; treat as no commits.
             Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),

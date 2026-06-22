@@ -207,12 +207,13 @@ export const gatherEvents = (): Effect.Effect<
 
     // Review base for the human-review branch.
     const reviewBase = yield* computeReviewBase(git)
-    const reviewBasePresent = Option.isSome(reviewBase)
+    let reviewBasePresent = false
     let computedBaseRef: string | undefined
     let refDiff: string | undefined
     if (Option.isSome(reviewBase)) {
       const candidateDiff = yield* git.diffRef(reviewBase.value)
       if (candidateDiff.trim().length > 0) {
+        reviewBasePresent = true
         computedBaseRef = reviewBase.value
         refDiff = candidateDiff
       }

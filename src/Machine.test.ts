@@ -154,6 +154,22 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
     expect(value).toBe("verified")
     expect(autoAdvance).toBe(false)
   })
+
+  it("reviewBasePresent true but whitespace-only refDiff → verified (not human-review)", () => {
+    const { value, autoAdvance } = resolve([
+      resolveEvent({ reviewBasePresent: true, refDiff: "   \n  ", baseRef: "abc123" }),
+    ])
+    expect(value).toBe("verified")
+    expect(autoAdvance).toBe(false)
+  })
+
+  it("reviewBasePresent true but empty refDiff → verified (not human-review)", () => {
+    const { value, autoAdvance } = resolve([
+      resolveEvent({ reviewBasePresent: true, refDiff: "", baseRef: "abc123" }),
+    ])
+    expect(value).toBe("verified")
+    expect(autoAdvance).toBe(false)
+  })
 })
 
 describe("resolve — counter-vs-escalate interaction", () => {
@@ -171,6 +187,26 @@ describe("resolve — counter-vs-escalate interaction", () => {
     events.push(resolveEvent({ reviewBasePresent: false }))
     const { value } = resolve(events)
     expect(value).toBe("verified")
+  })
+
+  it("at cap, escalate wins over human-review", () => {
+    const events: Array<GtdEvent> = []
+    for (let i = 0; i < MAX_VERIFY_ITERATIONS; i++) events.push(commit(true))
+    events.push(
+      resolveEvent({
+        reviewBasePresent: true,
+        refDiff: "diff --git a/x b/x\n+hi\n",
+        baseRef: "abc",
+      }),
+    )
+    expect(resolve(events).value).toBe("escalate")
+  })
+
+  it("at cap, escalate wins over modified-todo", () => {
+    const events: Array<GtdEvent> = []
+    for (let i = 0; i < MAX_VERIFY_ITERATIONS; i++) events.push(commit(true))
+    events.push(resolveEvent({ todoDirty: "modified" }))
+    expect(resolve(events).value).toBe("escalate")
   })
 
   it("passthrough context fields are carried onto the leaf", () => {
