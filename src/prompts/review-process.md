@@ -75,9 +75,9 @@ git commit -m "docs(review): record raw feedback for <base>"
 Replace `<base>` with the actual base ref from the `<!-- base: … -->` comment.
 Do not modify any file content — commit verbatim.
 
-The subsequent reset and synthesis commit will run on top of this commit.
-The synthesis commit will revert the source edits; that churn is acceptable
-and expected — do not try to avoid it.
+The subsequent reset and synthesis commit will run on top of this commit. The
+synthesis commit will revert the source edits; that churn is acceptable and
+expected — do not try to avoid it.
 
 ## Step 7: Reset — Exact Order Required
 

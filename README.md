@@ -49,27 +49,26 @@ on the emitted prompt.
 emits the one prompt for that state. The guards are evaluated in a fixed
 priority order, so exactly one state wins per run:
 
-| Leaf state       | When it wins (first matching guard, top to bottom)                                                  | Prompt                                        |
-| ---------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `close-review`   | `REVIEW.md` dirty with ONLY forward checkbox ticks (`- [ ]`→`- [x]`), nothing else                 | Discard ticks, delete `REVIEW.md`, commit the close |
-| `review-process` | `REVIEW.md` exists and is dirty (user-edited)                                                       | Commit raw feedback verbatim as `docs(review): record raw feedback for <base>`, then reset and synthesize `TODO.md` |
-| `code-changes`   | Any uncommitted change outside `TODO.md`                                | Commit the uncommitted changes                |
-| `execute`        | `.gtd/` contains numbered work packages                                 | Execute the next package (parallel subagents) |
-| `cleanup`        | `.gtd/` exists but holds no packages                                    | Remove empty `.gtd/`, then verify             |
-| `execute-simple` | `TODO.md` finalized and marked `<!-- simple -->`                        | Implement the simple plan directly            |
-| `decompose`      | `TODO.md` finalized (no unanswered questions)                           | Record `TODO.md` as `docs(plan): record TODO.md` (when not already in `HEAD`), then decompose into work packages (planning model) |
-| `escalate`       | Trailing run of `fix(gtd):` commits at HEAD reached 5                   | Stop; ask the human to fix the root cause     |
-| `new-todo`       | `TODO.md` is new (untracked / added)                                    | Develop the plan (planning model)             |
-| `modified-todo`  | `TODO.md` is modified                                                   | Incorporate edits, keep developing (planning) |
-| `human-review`   | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff | Verify, then generate `REVIEW.md`             |
-| `verified`       | Nothing else matched — tree clean, nothing left to review               | Report the working tree healthy and reviewed  |
+| Leaf state       | When it wins (first matching guard, top to bottom)                                 | Prompt                                                                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `close-review`   | `REVIEW.md` dirty with ONLY forward checkbox ticks (`- [ ]`→`- [x]`), nothing else | Discard ticks, delete `REVIEW.md`, commit the close                                                                               |
+| `review-process` | `REVIEW.md` exists and is dirty (user-edited)                                      | Commit raw feedback verbatim as `docs(review): record raw feedback for <base>`, then reset and synthesize `TODO.md`               |
+| `code-changes`   | Any uncommitted change outside `TODO.md`                                           | Commit the uncommitted changes                                                                                                    |
+| `execute`        | `.gtd/` contains numbered work packages                                            | Execute the next package (parallel subagents)                                                                                     |
+| `cleanup`        | `.gtd/` exists but holds no packages                                               | Remove empty `.gtd/`, then verify                                                                                                 |
+| `execute-simple` | `TODO.md` finalized and marked `<!-- simple -->`                                   | Implement the simple plan directly                                                                                                |
+| `decompose`      | `TODO.md` finalized (no unanswered questions)                                      | Record `TODO.md` as `docs(plan): record TODO.md` (when not already in `HEAD`), then decompose into work packages (planning model) |
+| `escalate`       | Trailing run of `fix(gtd):` commits at HEAD reached 5                              | Stop; ask the human to fix the root cause                                                                                         |
+| `new-todo`       | `TODO.md` is new (untracked / added)                                               | Develop the plan (planning model)                                                                                                 |
+| `modified-todo`  | `TODO.md` is modified                                                              | Incorporate edits, keep developing (planning)                                                                                     |
+| `human-review`   | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff            | Verify, then generate `REVIEW.md`                                                                                                 |
+| `verified`       | Nothing else matched — tree clean, nothing left to review                          | Report the working tree healthy and reviewed                                                                                      |
 
 > **Review base**: the closest-to-HEAD of {parent-branch merge-base, last
 > `<!-- base: … -->` review commit, last `chore(gtd): close approved review`
-> commit}, restricted to ancestors of HEAD. When no base exists or
-> `base..HEAD` is empty, there is nothing to review. Because the close commit
-> itself becomes the new base, the run immediately after a close resolves to
-> `verified`.
+> commit}, restricted to ancestors of HEAD. When no base exists or `base..HEAD`
+> is empty, there is nothing to review. Because the close commit itself becomes
+> the new base, the run immediately after a close resolves to `verified`.
 
 > **Test-fix iterations**: each test-gate fix is committed as
 > `fix(gtd): <desc>`. The machine counts the trailing run of such commits at
@@ -143,8 +142,8 @@ A typical feature:
    `## Answered Questions`, raises new ones, and commits. Repeat until
    `## Open Questions` is empty.
 5. `/gtd` once more — agent first records `TODO.md` as
-   `docs(plan): record TODO.md` (when not already in `HEAD`, preserving the
-   plan and its Q&A history), then decomposes it into work packages in `.gtd/`,
+   `docs(plan): record TODO.md` (when not already in `HEAD`, preserving the plan
+   and its Q&A history), then decomposes it into work packages in `.gtd/`,
    deletes `TODO.md`, and commits the plan.
 6. `/gtd` again — agent executes the first package: spawns parallel workers
    (execution model + TDD), runs tests, fixes failures, commits.
@@ -174,11 +173,11 @@ When a plan is finalized, gtd enters build mode:
 ### 1. Decompose
 
 Before decomposing, if `TODO.md` is not already committed and unchanged at
-`HEAD`, it is recorded verbatim as `docs(plan): record TODO.md` — preserving
-the plan and its full Q&A history (`## Open Questions` / `## Answered
-Questions`) in git history before deletion. In the normal flow this is a no-op
-(the plan was already committed by `new-todo`/`modified-todo`); it only fires
-when a fresh, never-committed `TODO.md` is routed directly to decompose.
+`HEAD`, it is recorded verbatim as `docs(plan): record TODO.md` — preserving the
+plan and its full Q&A history (`## Open Questions` / `## Answered Questions`) in
+git history before deletion. In the normal flow this is a no-op (the plan was
+already committed by `new-todo`/`modified-todo`); it only fires when a fresh,
+never-committed `TODO.md` is routed directly to decompose.
 
 A planning-model subagent then breaks `TODO.md` into executable work packages:
 

@@ -114,9 +114,9 @@ The script always runs the same way and resolves to one of these leaf states by
 folding the commit history + working tree through guards evaluated in priority
 order:
 
-- `close-review` — `REVIEW.md` has only forward checkbox ticks (`- [ ]`→`- [x]`);
-  discard the ticks, delete `REVIEW.md`, commit the close (becomes the new
-  review base so the next run resolves to `verified`)
+- `close-review` — `REVIEW.md` has only forward checkbox ticks
+  (`- [ ]`→`- [x]`); discard the ticks, delete `REVIEW.md`, commit the close
+  (becomes the new review base so the next run resolves to `verified`)
 - `review-process` — `REVIEW.md` was edited; fold the feedback into `TODO.md`
 - `code-changes` — uncommitted changes outside `TODO.md`; commit them
 - `execute` — `.gtd/` has work packages; execute the next one
