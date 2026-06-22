@@ -23,6 +23,8 @@ export interface GtdPackageFact {
  * fields that flow straight onto the resulting leaf context.
  */
 export interface ResolvePayload {
+  /** REVIEW.md was approved with no code changes needed. */
+  readonly reviewApprovedNoChanges: boolean
   /** REVIEW.md exists with user edits. */
   readonly reviewModified: boolean
   /** Any non-TODO.md uncommitted change is present. */
@@ -65,6 +67,7 @@ export interface GtdContext {
 
 /** Terminal leaf-state ids. These are the only non-`replaying` states. */
 export type LeafState =
+  | "close-review"
   | "review-process"
   | "code-changes"
   | "execute"
@@ -92,6 +95,7 @@ const machine = setup({
     events: {} as GtdEvent,
   },
   guards: {
+    reviewApprovedNoChanges: (_, params: ResolvePayload) => params.reviewApprovedNoChanges,
     reviewModified: (_, params: ResolvePayload) => params.reviewModified,
     codeDirty: (_, params: ResolvePayload) => params.codeDirty,
     hasPackages: (_, params: ResolvePayload) => params.hasPackages,
@@ -133,6 +137,11 @@ const machine = setup({
       on: {
         COMMIT: { actions: "foldCommit" },
         RESOLVE: [
+          {
+            guard: { type: "reviewApprovedNoChanges", params: ({ event }) => event.payload },
+            target: "close-review",
+            actions: "applyPayload",
+          },
           {
             guard: { type: "reviewModified", params: ({ event }) => event.payload },
             target: "review-process",
@@ -190,6 +199,7 @@ const machine = setup({
         ],
       },
     },
+    "close-review": { tags: ["auto-advance"], type: "final" },
     "review-process": { tags: ["auto-advance"], type: "final" },
     "code-changes": { tags: ["auto-advance"], type: "final" },
     execute: { tags: ["auto-advance"], type: "final" },

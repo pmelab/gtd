@@ -89,7 +89,7 @@ Feature: Review workflow
     Then it succeeds
     And stdout contains "docs(review): process review feedback into TODO.md"
 
-  Scenario: Checkbox-only REVIEW.md with no text feedback is processed as valid
+  Scenario: Ticking all checkboxes with no other changes routes to close-review
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -113,7 +113,90 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
+    And stdout contains "## Task: Close the approved review"
+    And stdout contains "chore(gtd): close approved review"
+    And stdout does not contain "# Process Review Feedback"
+
+  Scenario: Un-ticking a checkbox routes to review-process, not close-review
+    Given a test project
+    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      - [x] ./src/foo.ts#1
+      """
+    And "REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      - [ ] ./src/foo.ts#1
+      """
+    When I run gtd
+    Then it succeeds
     And stdout contains "# Process Review Feedback"
+    And stdout does not contain "chore(gtd): close approved review"
+
+  Scenario: Ticking a checkbox plus adding prose routes to review-process, not close-review
+    Given a test project
+    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      - [ ] ./src/foo.ts#1
+      """
+    And "REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      Please rename foo to bar.
+
+      - [x] ./src/foo.ts#1
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "# Process Review Feedback"
+    And stdout does not contain "chore(gtd): close approved review"
+
+  Scenario: Ticking a checkbox plus a source-file edit routes to review-process, not close-review
+    Given a test project
+    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      - [ ] ./src/foo.ts#1
+      """
+    And "REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      - [x] ./src/foo.ts#1
+      """
+    And a file "src/scratch.ts" with:
+      """
+      // scratch notes from review session
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "# Process Review Feedback"
+    And stdout does not contain "chore(gtd): close approved review"
 
   Scenario: Error when base comment is missing from REVIEW.md
     Given a test project

@@ -4,6 +4,7 @@ import { type GtdEvent, MAX_VERIFY_ITERATIONS, type ResolvePayload, resolve } fr
 const commit = (isFixGtd: boolean): GtdEvent => ({ type: "COMMIT", isFixGtd })
 
 const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
+  reviewApprovedNoChanges: false,
   reviewModified: false,
   codeDirty: false,
   hasPackages: false,
@@ -169,6 +170,28 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
     ])
     expect(value).toBe("verified")
     expect(autoAdvance).toBe(false)
+  })
+
+  it("reviewApprovedNoChanges → close-review, autoAdvance true", () => {
+    const { value, autoAdvance } = resolve([resolveEvent({ reviewApprovedNoChanges: true })])
+    expect(value).toBe("close-review")
+    expect(autoAdvance).toBe(true)
+  })
+
+  it("ordering regression: reviewApprovedNoChanges + reviewModified → close-review wins", () => {
+    const { value, autoAdvance } = resolve([
+      resolveEvent({ reviewApprovedNoChanges: true, reviewModified: true }),
+    ])
+    expect(value).toBe("close-review")
+    expect(autoAdvance).toBe(true)
+  })
+
+  it("reviewApprovedNoChanges false + reviewModified true → review-process (unchanged behavior)", () => {
+    const { value, autoAdvance } = resolve([
+      resolveEvent({ reviewApprovedNoChanges: false, reviewModified: true }),
+    ])
+    expect(value).toBe("review-process")
+    expect(autoAdvance).toBe(true)
   })
 })
 

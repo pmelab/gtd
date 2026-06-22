@@ -133,4 +133,32 @@ describe("buildPrompt", () => {
     expect(out).toContain("Re-run gtd immediately")
     expect(out).not.toContain("Decompose `TODO.md` into work packages")
   })
+
+  it("close-review section renders the commit message prefix", () => {
+    const out = buildPrompt(result("close-review", { autoAdvance: true }))
+    expect(out).toContain("chore(gtd): close approved review for")
+  })
+
+  it("close-review instructs reading short-sha from REVIEW.md base marker", () => {
+    const out = buildPrompt(
+      result("close-review", {
+        autoAdvance: true,
+        context: { baseRef: "abc1234def" },
+      }),
+    )
+    // baseRef is not surfaced by buildContext when refDiff is absent,
+    // so the prompt must instruct reading from REVIEW.md's <!-- base: --> marker.
+    expect(out).toContain("<!-- base:")
+    expect(out).toContain("first 7 characters")
+  })
+
+  it("close-review includes the auto-advance partial when autoAdvance is true", () => {
+    const out = buildPrompt(result("close-review", { autoAdvance: true }))
+    expect(out).toContain("Re-run gtd immediately")
+  })
+
+  it("close-review does NOT contain another leaf's section", () => {
+    const out = buildPrompt(result("close-review", { autoAdvance: true }))
+    expect(out).not.toContain("Process Review Feedback")
+  })
 })

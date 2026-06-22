@@ -180,6 +180,7 @@ export const gatherEvents = (): Effect.Effect<
 
     // REVIEW.md probing — preserve existing error semantics from State.ts.
     let reviewModified = false
+    let reviewApprovedNoChanges = false
     let reviewBaseRef: string | undefined
     const reviewExists = yield* fs.exists(REVIEW_FILE)
     if (reviewExists) {
@@ -203,6 +204,40 @@ export const gatherEvents = (): Effect.Effect<
         )
       }
       reviewBaseRef = baseMatch![1] as string
+
+      // Compute reviewApprovedNoChanges:
+      // true iff reviewModified AND REVIEW.md is the ONLY dirty path AND the
+      // diff is forward-ticks only (every changed line: - [ ] → - [x] with
+      // identical remainder, at least one tick, equal line counts).
+      // Note: codeDirty counts REVIEW.md as dirty too, so check entries directly.
+      const onlyReviewDirty = entries.every((e) => e.path === REVIEW_FILE)
+      if (onlyReviewDirty) {
+        const committedContent = yield* git
+          .showHead(REVIEW_FILE)
+          .pipe(Effect.mapError((e) => new Error(String(e))))
+        const normalise = (line: string) => line.replace(/\r$/, "")
+        const committedLines = committedContent.split("\n").map(normalise)
+        const workingLines = reviewContent.split("\n").map(normalise)
+        const UNTICKED = /^- \[ \] /
+        const TICKED = /^- \[x\] /
+        const stripMarker = (line: string) => line.replace(/^- \[[ x]\] /, "")
+        if (committedLines.length === workingLines.length) {
+          let atLeastOneTick = false
+          let allDiffsAreForwardTicks = true
+          for (let i = 0; i < committedLines.length; i++) {
+            const c = committedLines[i]!
+            const w = workingLines[i]!
+            if (c === w) continue
+            if (UNTICKED.test(c) && TICKED.test(w) && stripMarker(c) === stripMarker(w)) {
+              atLeastOneTick = true
+            } else {
+              allDiffsAreForwardTicks = false
+              break
+            }
+          }
+          reviewApprovedNoChanges = allDiffsAreForwardTicks && atLeastOneTick
+        }
+      }
     }
 
     // Review base for the human-review branch.
@@ -221,6 +256,7 @@ export const gatherEvents = (): Effect.Effect<
 
     const payload: ResolvePayload = {
       reviewModified,
+      reviewApprovedNoChanges,
       codeDirty,
       hasPackages,
       gtdDirExists,

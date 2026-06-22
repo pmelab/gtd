@@ -309,6 +309,21 @@ describe("GitService", () => {
     })
   })
 
+  describe("showHead", () => {
+    it("returns exact committed file content including trailing newline", async () => {
+      commit("feat: add tracked", "tracked.txt", "hello\n")
+      const content = await run(Effect.flatMap(GitService, (g) => g.showHead("tracked.txt")))
+      expect(content).toBe("hello\n")
+    })
+
+    it("fails with an Error when the path does not exist at HEAD", async () => {
+      const result = await runEither(
+        Effect.flatMap(GitService, (g) => g.showHead("nonexistent.txt")),
+      )
+      expect(result._tag).toBe("Left")
+    })
+  })
+
   describe("commitCount distance comparison (integration of primitives)", () => {
     it("review commit is closer to HEAD than the merge-base with parent branch", async () => {
       // History layout:

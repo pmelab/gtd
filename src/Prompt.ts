@@ -10,6 +10,7 @@ import escalate from "./prompts/escalate.md"
 import humanReview from "./prompts/human-review.md"
 import verified from "./prompts/verified.md"
 import reviewProcess from "./prompts/review-process.md"
+import closeReview from "./prompts/close-review.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
 import type { GtdContext, LeafState, ResolveResult } from "./Machine.js"
 
@@ -25,6 +26,7 @@ const SECTIONS: Record<LeafState, string> = {
   "human-review": humanReview,
   verified,
   "review-process": reviewProcess,
+  "close-review": closeReview,
 }
 
 const buildContext = (context: GtdContext): string => {

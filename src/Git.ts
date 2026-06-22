@@ -18,6 +18,7 @@ export interface GitOperations {
   readonly commitCount: (base: string) => Effect.Effect<number, Error>
   readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
   readonly commitSubjects: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
+  readonly showHead: (path: string) => Effect.Effect<string, Error>
 }
 
 const run = (
@@ -144,6 +145,19 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             Effect.mapError((e) => new Error(String(e))),
             Effect.map((code) => code === 0),
           ),
+
+        showHead: (path: string) =>
+          Effect.gen(function* () {
+            const exitCode = yield* Command.make("git", "show", `HEAD:${path}`).pipe(
+              Command.exitCode,
+              Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+              Effect.mapError((e) => new Error(String(e))),
+            )
+            if (exitCode !== 0) {
+              return yield* Effect.fail(new Error(`git show HEAD:${path} exited with ${exitCode}`))
+            }
+            return yield* exec("git", "show", `HEAD:${path}`)
+          }),
 
         commitSubjects: (base?: string) => {
           const args: [string, ...Array<string>] =
