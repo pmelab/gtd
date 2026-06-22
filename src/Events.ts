@@ -82,6 +82,23 @@ export const computeReviewBase = (
     const lastReviewCandidate = yield* git.lastReviewCommit()
     const lastCloseCandidate = yield* git.lastCloseCommit()
 
+    // Resolve HEAD hash for equality checks.
+    const headHash = yield* git.resolveRef("HEAD")
+
+    // Frontier-at-HEAD: if HEAD itself is the latest review/close bookkeeping
+    // commit, the review frontier has reached HEAD — everything up to HEAD is
+    // already reviewed (a close commit means "approved", a review commit means a
+    // REVIEW.md is already present and handled separately), so there is nothing
+    // new to diff. Returning a base here would fall back to an older candidate
+    // (e.g. the prior review commit) whose diff to HEAD is the close commit's own
+    // REVIEW.md deletion — re-surfacing it as a fresh review and looping forever.
+    if (
+      (Option.isSome(lastReviewCandidate) && lastReviewCandidate.value === headHash) ||
+      (Option.isSome(lastCloseCandidate) && lastCloseCandidate.value === headHash)
+    ) {
+      return Option.none<string>()
+    }
+
     // Collect present candidates
     const rawCandidates: Array<string> = []
     if (Option.isSome(parentBranchCandidate)) rawCandidates.push(parentBranchCandidate.value)
@@ -89,9 +106,6 @@ export const computeReviewBase = (
     if (Option.isSome(lastCloseCandidate)) rawCandidates.push(lastCloseCandidate.value)
 
     if (rawCandidates.length === 0) return Option.none<string>()
-
-    // Resolve HEAD hash for equality check
-    const headHash = yield* git.resolveRef("HEAD")
 
     // Filter: must be ancestor of HEAD; equal-to-HEAD means nothing to review
     const qualified: Array<{ hash: string; count: number }> = []

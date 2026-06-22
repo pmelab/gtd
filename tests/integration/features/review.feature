@@ -281,3 +281,25 @@ Feature: Review workflow
     Then it succeeds
     And stdout contains "working tree healthy and fully reviewed"
     And stdout does not contain "Generate REVIEW.md after successful verification"
+
+  Scenario: Closing reports verified even when a prior review commit exists as a fallback base
+    # Regression: with an earlier `review(gtd): create review for ...` commit in
+    # history, computeReviewBase would otherwise fall back to it once the close
+    # commit (HEAD) is filtered out, and diff that prior commit against HEAD —
+    # re-surfacing the close commit's changes as a fresh review and looping
+    # forever. The frontier-at-HEAD short-circuit must win: HEAD is a close
+    # commit, so nothing is left to review.
+    Given a test project
+    And a commit "feat(gtd): add foo helper" that adds "src/foo.ts" with:
+      """
+      export function foo() {}
+      """
+    And a prior review commit for "abc1234"
+    And a commit "chore(gtd): close approved review for abc1234" that adds "CLOSE.md" with:
+      """
+      Approved.
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "working tree healthy and fully reviewed"
+    And stdout does not contain "Generate REVIEW.md after successful verification"
