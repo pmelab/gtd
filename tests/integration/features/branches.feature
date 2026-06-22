@@ -131,6 +131,7 @@ Feature: gtd prints a structured prompt for the agent based on git state
     And stdout contains "## Task: Execute one work package"
     And stdout contains "01-math"
     And stdout contains "01-add.md"
+    And stdout contains "Implement the add function"
 
   Scenario: Execute prompt lists all packages when multiple exist
     Given a test project

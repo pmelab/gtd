@@ -12,3 +12,13 @@
 - A: launches grilling agent that inspects changes, moves answered questions to
   bottom, adds new open questions to the top
 - A: commits updated TODO.md
+- U: answers remaining questions
+- U: invokes "gtd"
+- A: commits updated TODO.md
+- A: launches grilling agent that inspects changes, move answered questsion to
+  bottom. confirms that plan is complete.
+- A: commits updated TODO.md
+- A: auto-invokes "gtd"
+- A: launches decomposition agent, that generates work packages
+- A: commits new work packages
+- A: removes TODO.md and commits removal

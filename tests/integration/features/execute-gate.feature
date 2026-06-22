@@ -27,9 +27,9 @@ Feature: Execute one-package-per-cycle test gate
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Execute one work package"
-    And stdout contains "EXACTLY ONE package"
-    And stdout contains "lowest-numbered package"
     And stdout contains "01-foo"
+    And stdout contains "First task"
+    And stdout does not contain "lowest-numbered"
     And stdout does not contain "## Test gate failed"
 
   Scenario: Red test gate below the cap emits the fix-tests prompt with captured output

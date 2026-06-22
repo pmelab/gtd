@@ -245,7 +245,9 @@ Execution is **one package per cycle** — each `/gtd` run handles exactly the
 lowest-numbered package remaining in `.gtd/`. Verification is deterministic and
 lives in the edge, not in the prompt: before any execute prompt is emitted the
 edge runs `npm run test`, and the cycle that follows a package commit re-runs it
-to verify that commit.
+to verify that commit. gtd selects that package itself and inlines its task
+files' full contents directly into the prompt (noting its `COMMIT_MSG.md`) — the
+agent never browses `.gtd/` or picks a package.
 
 A single execute cycle (green test gate):
 

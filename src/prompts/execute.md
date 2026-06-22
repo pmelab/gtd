@@ -1,13 +1,10 @@
 ## Task: Execute one work package
 
-Work packages exist in `.gtd/`. This run executes EXACTLY ONE package — the
-lowest-numbered package remaining in `.gtd/` (e.g. `01-...` before `02-...`).
-The Context block lists the packages and their task files; pick the first one
-and execute only that package this invocation.
-
-Do NOT loop over the remaining packages. After this package is committed,
-re-running gtd advances to the next one, and the next cycle verifies what you
-just committed.
+gtd has already selected the package to execute this run and inlined its task
+contents below. You execute exactly this package — do not browse `.gtd/`, do not
+choose a package, and do not loop over other packages. After this package is
+committed, re-running gtd advances to the next one, and the next cycle verifies
+what you just committed.
 
 ### Orchestration
 
@@ -20,8 +17,7 @@ subagents.
 
 ### Step 1: Spawn task workers
 
-For each task file in the ONE selected package, spawn a **parallel subagent**
-with:
+For each task in the task contents below, spawn a **parallel subagent** with:
 
 - **Model**: The execution model from AGENTS.md (or current work model)
 - **TDD discipline** (inline rules for workers):
@@ -31,7 +27,7 @@ with:
   - A good test survives refactors — if renaming an internal function breaks the
     test, it's testing implementation
   - Each test responds to what you learned from the previous cycle
-- **Context**: The task file content only (self-contained)
+- **Context**: The task content below only (self-contained)
 - **Fresh context**: Each worker starts fresh, no conversation history
 
 Wait for all workers to complete.
@@ -43,9 +39,9 @@ tasks failed. Ask the user: "Retry failed tasks / Skip and continue / Abort?"
 
 After the workers complete:
 
-1. Read `COMMIT_MSG.md` from the selected package
-2. Commit ALL changes with the commit message from `COMMIT_MSG.md`
-3. Delete the package directory from `.gtd/`
+1. Commit ALL changes using the commit message in the package's `COMMIT_MSG.md`
+   (noted below)
+2. Delete the package directory from `.gtd/`
 
 Verification is NOT performed here. The next cycle's edge runs the test suite
 deterministically to verify what you just committed — do not run or determine a

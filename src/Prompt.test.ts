@@ -106,16 +106,69 @@ describe("buildPrompt", () => {
     expect(out).not.toContain("```diff")
   })
 
-  it("execute prompt renders its section and the auto-advance partial", () => {
-    const out = buildPrompt(result("execute", { autoAdvance: true }))
+  it("execute prompt renders its section, names the selected package, and inlines its tasks", () => {
+    const out = buildPrompt(
+      result("execute", {
+        autoAdvance: true,
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "First task" }],
+              hasCommitMsg: true,
+            },
+          ],
+        },
+      }),
+    )
     expect(out).toContain("Execute one work package")
-    expect(out).toContain("EXACTLY ONE package")
+    expect(out).toContain("### Package: `01-foo/`")
+    expect(out).toContain("01-task.md")
+    expect(out).toContain("First task")
+    expect(out).toContain("01-foo/COMMIT_MSG.md")
     expect(out).toContain("Re-run gtd immediately")
+    expect(out).not.toContain("EXACTLY ONE package")
+    expect(out).not.toContain("lowest-numbered")
     expect(out).not.toContain("marked with `<!-- simple -->`")
     // Verification is now done by the edge at the start of the next cycle,
     // not by an in-prompt testing subagent.
     expect(out).not.toContain("testing subagent")
     expect(out).not.toContain("Determine the test command")
+  })
+
+  it("execute prompt fences backtick-containing task content with a long-enough fence", () => {
+    const out = buildPrompt(
+      result("execute", {
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [
+                { name: "01-task.md", content: "see ```block``` and - [ ] item" },
+              ],
+              hasCommitMsg: true,
+            },
+          ],
+        },
+      }),
+    )
+    expect(out).toContain("````\nsee ```block``` and - [ ] item\n````")
+  })
+
+  it("execute prompt handles a package with zero task files", () => {
+    const out = buildPrompt(
+      result("execute", {
+        context: {
+          packages: [
+            { name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: true },
+          ],
+        },
+      }),
+    )
+    expect(out).toContain("### Package: `01-foo/`")
+    expect(out).toContain("01-foo/COMMIT_MSG.md")
   })
 
   it("cleanup prompt renders its section and the auto-advance partial", () => {

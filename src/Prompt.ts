@@ -13,7 +13,7 @@ import reviewProcess from "./prompts/review-process.md"
 import closeReview from "./prompts/close-review.md"
 import fixTests from "./prompts/fix-tests.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
-import type { GtdContext, LeafState, ResolveResult } from "./Machine.js"
+import type { GtdContext, GtdPackageFact, LeafState, ResolveResult } from "./Machine.js"
 
 const SECTIONS: Record<LeafState, string> = {
   "new-todo": newTodo,
@@ -91,6 +91,30 @@ const fenceFor = (content: string): string => {
   return "`".repeat(Math.max(3, longest + 1))
 }
 
+/**
+ * Renders the inlined, self-contained block for the single package gtd selected
+ * for this execute run. Names the package, notes its `COMMIT_MSG.md` (without
+ * inlining its contents), and inlines each task file's raw content fenced via
+ * `fenceFor` so backtick-bearing content survives.
+ */
+const renderPackage = (pkg: GtdPackageFact): string => {
+  const lines: Array<string> = ["", `### Package: \`${pkg.name}/\``, ""]
+  if (pkg.hasCommitMsg) {
+    lines.push(`Commit with the message in \`${pkg.name}/COMMIT_MSG.md\`.`)
+    lines.push("")
+  }
+  for (const task of pkg.taskContents) {
+    lines.push(`#### \`${task.name}\``)
+    lines.push("")
+    const fence = fenceFor(task.content)
+    lines.push(fence)
+    lines.push(task.content.replace(/\n$/, ""))
+    lines.push(fence)
+    lines.push("")
+  }
+  return lines.join("\n")
+}
+
 export const buildPrompt = (result: ResolveResult, override?: PromptOverride): string => {
   const parts: Array<string> = [header, "", buildContext(result.context)]
   if (override?.kind === "fix-tests") {
@@ -99,6 +123,10 @@ export const buildPrompt = (result: ResolveResult, override?: PromptOverride): s
   } else {
     const value = result.value as LeafState
     parts.push(SECTIONS[value], "")
+    const selectedPackage = result.context.packages[0]
+    if (value === "execute" && selectedPackage !== undefined) {
+      parts.push(renderPackage(selectedPackage), "")
+    }
     if (result.autoAdvance) {
       parts.push(autoAdvance, "")
     }
