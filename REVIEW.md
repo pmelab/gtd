@@ -10,8 +10,8 @@ New `TestRunner` service wrapping the hardcoded `npm run test`. Follows the
 non-zero exit is returned as `TestResult` data, never raised as an Effect error,
 so the edge can branch on `exitCode` in both green and red cases.
 
-- [ ] ./src/TestRunner.ts#1
-- [ ] ./src/TestRunner.test.ts#1
+- [x] ./src/TestRunner.ts#1
+- [x] ./src/TestRunner.test.ts#1
 
 ## fix-tests prompt + buildPrompt override
 
@@ -22,9 +22,9 @@ output in a backtick-aware fence. `fix-tests` is deliberately NOT added to the
 `LeafState` union or `SECTIONS` — it is reachable only via the override, never
 by the machine fold.
 
-- [ ] ./src/prompts/fix-tests.md#1
-- [ ] ./src/Prompt.ts#72
-- [ ] ./src/Prompt.test.ts#1
+- [x] ./src/prompts/fix-tests.md#1
+- [x] ./src/Prompt.ts#72
+- [x] ./src/Prompt.test.ts#1
 
 ## Edge test gate + prompt selection
 
@@ -37,9 +37,9 @@ read generically from `result.context.verifyIterations` / `maxVerifyIterations`.
 and leaves the `format` subcommand and all other leaves ungated.
 `src/Machine.ts` is untouched — no new state, no guard reorder.
 
-- [ ] ./src/State.ts#6
-- [ ] ./src/State.test.ts#1
-- [ ] ./src/main.ts#17
+- [x] ./src/State.ts#6
+- [x] ./src/State.test.ts#1
+- [x] ./src/main.ts#17
 
 ## Remove agent test-gate from human-review
 
@@ -47,7 +47,7 @@ The "## Test gate (run first)" block is removed from `human-review.md`; the edge
 now runs the suite deterministically, so the agent must not be told to run it
 again. The REVIEW.md-generation task is unchanged.
 
-- [ ] ./src/prompts/human-review.md#1
+- [x] ./src/prompts/human-review.md#1
 
 ## execute.md — one package per cycle
 
@@ -56,6 +56,11 @@ package, commits with its `COMMIT_MSG.md`, deletes the dir, and re-runs. The
 in-prompt "testing subagent" step is gone — verification happens at the start of
 the next cycle via the edge gate. Worker-failure (crash/timeout) handling is
 kept.
+
+> instead of prompting to execute "exactly one package", shouldn't `gtd` emit a
+> prompt that just instructs the agent on the next pacakge directly, to avoid
+> misunderstandings? and when no more packages are left, it could directly emit
+> the prompt for the next phase.
 
 - [ ] ./src/prompts/execute.md#1
 
@@ -69,10 +74,10 @@ New `test-gate.feature` (human-review green/red/cap) and `execute-gate.feature`
 they still pass through the gate. Cap scenarios place the 5 `fix(gtd):` commits
 in the counted range (separate default branch) so the cap actually trips.
 
-- [ ] ./tests/integration/features/test-gate.feature#1
-- [ ] ./tests/integration/features/execute-gate.feature#1
-- [ ] ./tests/integration/features/branches.feature#122
-- [ ] ./tests/integration/features/auto-advance.feature#61
+- [x] ./tests/integration/features/test-gate.feature#1
+- [x] ./tests/integration/features/execute-gate.feature#1
+- [x] ./tests/integration/features/branches.feature#122
+- [x] ./tests/integration/features/auto-advance.feature#61
 
 ## Docs
 
@@ -81,12 +86,12 @@ README.md and SKILL.md updated: states tables (test-gated `execute` /
 `fix(gtd):` cap note, the one-package-per-cycle execute walkthrough, and the
 mermaid diagram.
 
-- [ ] ./README.md#55
-- [ ] ./SKILL.md#84
+- [x] ./README.md#55
+- [x] ./SKILL.md#84
 
 ## Generated bundle
 
 `scripts/gtd.js` is the checked-in tsup build artifact, regenerated from the
 edited sources. Not reviewed line-by-line.
 
-- [ ] ./scripts/gtd.js#1
+- [x] ./scripts/gtd.js#1
