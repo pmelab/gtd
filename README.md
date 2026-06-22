@@ -279,12 +279,20 @@ regardless of the host project's toolchain.
 
 ```bash
 npm install
+npm run dev          # run from source, no build (node dev/run.mjs)
 npm run build        # tsup → scripts/gtd.js (checked in)
 npm test             # vitest
 npm run test:e2e     # cucumber integration tests
 npm run typecheck
 npm run lint
 ```
+
+`npm run dev` runs `src/main.ts` directly via Node's native TypeScript
+type-stripping (requires Node 22.6+). It registers `dev/hooks.mjs`, which fills
+the two gaps the tsup build otherwise covers: resolving `./Foo.js` specifiers to
+the on-disk `./Foo.ts`, and importing `*.md` prompt files as text. Pass CLI args
+after `--`, e.g. `npm run dev -- format <file>`. The helpers live in `dev/`
+rather than `scripts/` because tsup wipes `scripts/` (`clean: true`) on build.
 
 `scripts/gtd.js` is committed to the repo so the skill installs zero-step.
 Rebuild it before tagging a release.

@@ -13,7 +13,7 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "tsx src/main.ts",
+    "dev": "node dev/run.mjs",
     "build": "tsup",
     "watch": "tsup --watch",
     "test": "vitest run",
