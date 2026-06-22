@@ -77,6 +77,17 @@ Feature: gtd prints a structured prompt for the agent based on git state
     And stdout contains "## Task: Decompose `TODO.md` into work packages"
     And stdout contains "planning model"
 
+  Scenario: Decompose prompt instructs recording TODO.md before deleting it
+    Given a test project
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      - build the multiply function
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Decompose"
+    And stdout contains "docs(plan): record TODO.md"
+
   Scenario: TODO.md with simple marker triggers execute-simple
     Given a test project
     And a commit "docs: seed plan" that adds "TODO.md" with:

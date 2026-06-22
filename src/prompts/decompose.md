@@ -56,8 +56,25 @@ sequential work package:
 
 ### After the subagent completes
 
-1. Delete `TODO.md` (it's now captured in the work packages)
-2. Commit `.gtd/` with message:
+1. **Record `TODO.md` if not already in `HEAD`** — check whether `TODO.md` is
+   already committed and unchanged:
+   ```
+   git diff --quiet HEAD -- TODO.md 2>/dev/null && git ls-files --error-unmatch TODO.md 2>/dev/null
+   ```
+   If the command fails (exit non-zero), `TODO.md` is either untracked or differs
+   from `HEAD`, so commit it verbatim first:
+   ```
+   git add TODO.md
+   git commit -m "docs(plan): record TODO.md"
+   ```
+   In the normal flow, `new-todo` or `modified-todo` already committed `TODO.md`,
+   so this guard is a no-op there. It only fires on the direct-to-`decompose`
+   path (a fresh, never-committed `TODO.md` routed straight to decompose) —
+   this preserves the user's plan and its full Q&A history
+   (`## Open Questions` / `## Answered Questions`) in git history before deletion.
+
+2. Delete `TODO.md` (it's now captured in the work packages)
+3. Commit `.gtd/` with message:
    `plan(gtd): decompose TODO.md into N work packages`
 
 The plan is now executable.

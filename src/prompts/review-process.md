@@ -57,7 +57,29 @@ diff.
 Run `node scripts/gtd.js format TODO.md` (use the same `scripts/gtd.js` path you
 invoked to get this prompt) to normalize formatting.
 
-## Step 6: Reset — Exact Order Required
+## Step 6: Commit Raw Feedback Verbatim
+
+Before resetting, preserve the reviewer's entire working tree as a dedicated
+commit. This keeps the annotated `REVIEW.md` (with checkboxes), all source
+edits, any untracked files added during the session, and in-place `TODO:`
+markers in git history — exactly as the reviewer left them.
+
+Read the `<!-- base: … -->` comment at the top of `REVIEW.md` to get the base
+ref (you already read this in Step 1). Then run:
+
+```sh
+git add -A
+git commit -m "docs(review): record raw feedback for <base>"
+```
+
+Replace `<base>` with the actual base ref from the `<!-- base: … -->` comment.
+Do not modify any file content — commit verbatim.
+
+The subsequent reset and synthesis commit will run on top of this commit.
+The synthesis commit will revert the source edits; that churn is acceptable
+and expected — do not try to avoid it.
+
+## Step 7: Reset — Exact Order Required
 
 Execute the reset sequence in this exact order:
 
@@ -78,7 +100,7 @@ rm REVIEW.md
 After these commands: only `TODO.md` (staged) and the `REVIEW.md` deletion
 remain as pending changes.
 
-## Step 7: Commit
+## Step 8: Commit
 
 ```sh
 git add -A

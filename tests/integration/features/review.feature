@@ -89,6 +89,36 @@ Feature: Review workflow
     Then it succeeds
     And stdout contains "docs(review): process review feedback into TODO.md"
 
+  Scenario: Review process prompt instructs recording raw feedback before reset
+    Given a test project
+    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      Adds the foo helper function.
+
+      - [ ] ./src/foo.ts#1
+      """
+    And "REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      Adds the foo helper function.
+      Please rename foo to bar everywhere.
+
+      - [ ] ./src/foo.ts#1
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "# Process Review Feedback"
+    And stdout contains "docs(review): record raw feedback for"
+
   Scenario: Ticking all checkboxes with no other changes routes to close-review
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
