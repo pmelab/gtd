@@ -15,6 +15,7 @@ export interface GitOperations {
   readonly resolveDefaultBranch: () => Effect.Effect<Option.Option<string>, Error>
   readonly mergeBase: (a: string, b: string) => Effect.Effect<Option.Option<string>, Error>
   readonly lastReviewCommit: () => Effect.Effect<Option.Option<string>, Error>
+  readonly lastCloseCommit: () => Effect.Effect<Option.Option<string>, Error>
   readonly commitCount: (base: string) => Effect.Effect<number, Error>
   readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
   readonly commitSubjects: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
@@ -126,6 +127,20 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             "-1",
             "--format=%H",
             "--grep=^review\\(gtd\\): create review for",
+            "--extended-regexp",
+          ).pipe(
+            Effect.map((s) => s.trim()),
+            Effect.map((hash) => (hash !== "" ? Option.some(hash) : Option.none<string>())),
+            Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+          ),
+
+        lastCloseCommit: () =>
+          exec(
+            "git",
+            "log",
+            "-1",
+            "--format=%H",
+            "--grep=^chore\\(gtd\\): close approved review for",
             "--extended-regexp",
           ).pipe(
             Effect.map((s) => s.trim()),

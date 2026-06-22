@@ -49,9 +49,10 @@ on the emitted prompt.
 emits the one prompt for that state. The guards are evaluated in a fixed
 priority order, so exactly one state wins per run:
 
-| Leaf state       | When it wins (first matching guard, top to bottom)                      | Prompt                                        |
-| ---------------- | ----------------------------------------------------------------------- | --------------------------------------------- |
-| `review-process` | `REVIEW.md` exists and is dirty (user-edited)                           | Process review feedback into `TODO.md`        |
+| Leaf state       | When it wins (first matching guard, top to bottom)                                                  | Prompt                                        |
+| ---------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `close-review`   | `REVIEW.md` dirty with ONLY forward checkbox ticks (`- [ ]`→`- [x]`), nothing else                 | Discard ticks, delete `REVIEW.md`, commit the close |
+| `review-process` | `REVIEW.md` exists and is dirty (user-edited)                                                       | Process review feedback into `TODO.md`        |
 | `code-changes`   | Any uncommitted change outside `TODO.md`                                | Commit the uncommitted changes                |
 | `execute`        | `.gtd/` contains numbered work packages                                 | Execute the next package (parallel subagents) |
 | `cleanup`        | `.gtd/` exists but holds no packages                                    | Remove empty `.gtd/`, then verify             |
@@ -64,8 +65,11 @@ priority order, so exactly one state wins per run:
 | `verified`       | Nothing else matched — tree clean, nothing left to review               | Report the working tree healthy and reviewed  |
 
 > **Review base**: the closest-to-HEAD of {parent-branch merge-base, last
-> `<!-- base: … -->` review commit}, restricted to ancestors of HEAD. When no
-> base exists or `base..HEAD` is empty, there is nothing to review.
+> `<!-- base: … -->` review commit, last `chore(gtd): close approved review`
+> commit}, restricted to ancestors of HEAD. When no base exists or
+> `base..HEAD` is empty, there is nothing to review. Because the close commit
+> itself becomes the new base, the run immediately after a close resolves to
+> `verified`.
 
 > **Test-fix iterations**: each test-gate fix is committed as
 > `fix(gtd): <desc>`. The machine counts the trailing run of such commits at
@@ -112,6 +116,7 @@ state per run:
 ```mermaid
 flowchart TD
     Start([Invoke /gtd]) --> Resolve{Fold history + working tree}
+    Resolve -->|REVIEW.md ticks only| CloseReview[close-review: close approved review]:::terminal
     Resolve -->|REVIEW.md dirty| ReviewProcess[review-process]:::terminal
     Resolve -->|code change outside TODO.md| CodeChanges[code-changes: commit]
     Resolve -->|.gtd/ has packages| Execute[execute next package]
@@ -124,6 +129,7 @@ flowchart TD
     Resolve -->|clean, base..HEAD has diff| HumanReview[human-review: generate REVIEW.md]:::terminal
     Resolve -->|nothing left| Verified[verified: healthy & reviewed]:::terminal
     HumanReview -.->|user edits REVIEW.md, next /gtd| ReviewProcess
+    CloseReview -.->|auto re-run| Verified
     classDef terminal fill:#2d6a4f,color:#fff
 ```
 

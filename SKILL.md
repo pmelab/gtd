@@ -114,6 +114,9 @@ The script always runs the same way and resolves to one of these leaf states by
 folding the commit history + working tree through guards evaluated in priority
 order:
 
+- `close-review` — `REVIEW.md` has only forward checkbox ticks (`- [ ]`→`- [x]`);
+  discard the ticks, delete `REVIEW.md`, commit the close (becomes the new
+  review base so the next run resolves to `verified`)
 - `review-process` — `REVIEW.md` was edited; fold the feedback into `TODO.md`
 - `code-changes` — uncommitted changes outside `TODO.md`; commit them
 - `execute` — `.gtd/` has work packages; execute the next one
@@ -133,12 +136,18 @@ There is no separate review-mode invocation and no ref argument. Review is part
 of the normal loop:
 
 1. **human-review**: When the tree is clean and there are un-reviewed commits
-   relative to the auto-computed base (parent-branch merge-base or last
-   `<!-- base: … -->` review commit), gtd generates `REVIEW.md` with structured
-   feedback sections and a `<!-- base: <sha> -->` marker, then stops.
+   relative to the auto-computed base (parent-branch merge-base, last
+   `<!-- base: … -->` review commit, or last `chore(gtd): close approved review`
+   commit), gtd generates `REVIEW.md` with structured feedback sections and a
+   `<!-- base: <sha> -->` marker, then stops.
 2. The user edits `REVIEW.md` with feedback (and may edit source files to
    illustrate desired changes).
 3. **review-process**: On the next run gtd detects the dirty `REVIEW.md`, folds
    all feedback (comments, source edits, and any `TODO:` markers in the reviewed
    code) into a fresh `TODO.md`, resets the working tree, and commits —
    restarting the loop.
+4. **close-review**: If the user only ticks checkboxes in `REVIEW.md` (marks
+   items approved with no other edits), gtd detects this as an approval signal:
+   it discards the ticks, deletes `REVIEW.md`, and commits a
+   `chore(gtd): close approved review for …` close commit. That commit becomes
+   the new review base, so the immediately following run resolves to `verified`.

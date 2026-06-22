@@ -208,6 +208,34 @@ describe("GitService", () => {
     })
   })
 
+  describe("lastCloseCommit", () => {
+    it("returns Option.none when there are no close commits", async () => {
+      const result = await run(Effect.flatMap(GitService, (g) => g.lastCloseCommit()))
+      expect(result._tag).toBe("None")
+    })
+
+    it("returns Option.some with the close commit hash", async () => {
+      commit(`chore(gtd): close approved review for abc1234`, "close.txt", "close")
+      const closeHash = git("rev-parse HEAD")
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.lastCloseCommit()))
+      expect(result._tag).toBe("Some")
+      expect(Option.getOrNull(result)).toBe(closeHash)
+    })
+
+    it("returns the most recent close commit when multiple exist", async () => {
+      commit(`chore(gtd): close approved review for aaa0001`, "close1.txt", "first")
+      commit("feat: work between closes", "work.txt", "work")
+      commit(`chore(gtd): close approved review for bbb0002`, "close2.txt", "second")
+      const latestCloseHash = git("rev-parse HEAD")
+      commit("feat: more work after", "more.txt", "more")
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.lastCloseCommit()))
+      expect(result._tag).toBe("Some")
+      expect(Option.getOrNull(result)).toBe(latestCloseHash)
+    })
+  })
+
   describe("commitCount", () => {
     it("returns 0 when base equals HEAD", async () => {
       const result = await run(Effect.flatMap(GitService, (g) => g.commitCount("HEAD")))

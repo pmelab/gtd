@@ -80,11 +80,13 @@ export const computeReviewBase = (
       : Option.none()
 
     const lastReviewCandidate = yield* git.lastReviewCommit()
+    const lastCloseCandidate = yield* git.lastCloseCommit()
 
     // Collect present candidates
     const rawCandidates: Array<string> = []
     if (Option.isSome(parentBranchCandidate)) rawCandidates.push(parentBranchCandidate.value)
     if (Option.isSome(lastReviewCandidate)) rawCandidates.push(lastReviewCandidate.value)
+    if (Option.isSome(lastCloseCandidate)) rawCandidates.push(lastCloseCandidate.value)
 
     if (rawCandidates.length === 0) return Option.none<string>()
 

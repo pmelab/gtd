@@ -266,3 +266,18 @@ Feature: Review workflow
     When I run gtd
     Then it fails
     And stderr contains "REVIEW.md exists but has no changes"
+
+  Scenario: After closing, the next run reports verified, not a fresh review
+    Given a test project
+    And a commit "feat(gtd): add foo helper" that adds "src/foo.ts" with:
+      """
+      export function foo() {}
+      """
+    And a commit "chore(gtd): close approved review for abc1234" that adds "CLOSE.md" with:
+      """
+      Approved.
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "working tree healthy and fully reviewed"
+    And stdout does not contain "Generate REVIEW.md after successful verification"
