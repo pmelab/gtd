@@ -159,6 +159,7 @@ Feature: gtd prints a structured prompt for the agent based on git state
     Then it succeeds
     And stdout contains "01-foo"
     And stdout contains "02-bar"
+    And stdout does not contain "remove the now-empty `.gtd/` directory"
 
   Scenario: Empty .gtd directory triggers cleanup
     Given a test project

@@ -29,6 +29,7 @@ Feature: Execute one-package-per-cycle test gate
     And stdout contains "## Task: Execute one work package"
     And stdout contains "01-foo"
     And stdout contains "First task"
+    And stdout contains "remove the now-empty `.gtd/` directory"
     And stdout does not contain "lowest-numbered"
     And stdout does not contain "## Test gate failed"
 

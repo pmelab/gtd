@@ -22,3 +22,15 @@
 - A: launches decomposition agent, that generates work packages
 - A: commits new work packages
 - A: removes TODO.md and commits removal
+- A: auto-invokes "gtd"
+- A: sees available work packages and picks the first one
+- A: launches a subagent for each task
+- A: waits for all agents to complete
+- A: commits current result
+- A: runs the test command, which returns an error
+- A: emits error output to ERRORS.md and commits it
+- A: auto-invokes "gtd"
+- A: sees ERRORS.md and invokes "fix" subagent
+- A: waits for subagent to complete and commits result
+- A: runs the test command, which returns successful
+- A: auto-invokes "gtd"

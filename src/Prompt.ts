@@ -126,6 +126,12 @@ export const buildPrompt = (result: ResolveResult, override?: PromptOverride): s
     const selectedPackage = result.context.packages[0]
     if (value === "execute" && selectedPackage !== undefined) {
       parts.push(renderPackage(selectedPackage), "")
+      if (result.context.packages.length === 1) {
+        parts.push(
+          "This is the LAST work package. In the SAME commit, also remove the now-empty `.gtd/` directory so the next run proceeds straight to human-review.",
+          "",
+        )
+      }
     }
     if (result.autoAdvance) {
       parts.push(autoAdvance, "")

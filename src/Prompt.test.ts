@@ -137,6 +137,49 @@ describe("buildPrompt", () => {
     expect(out).not.toContain("Determine the test command")
   })
 
+  it("execute prompt for a single package instructs removing the empty .gtd/ directory", () => {
+    const out = buildPrompt(
+      result("execute", {
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "First task" }],
+              hasCommitMsg: true,
+            },
+          ],
+        },
+      }),
+    )
+    expect(out).toContain("remove the now-empty `.gtd/` directory")
+  })
+
+  it("execute prompt for multiple packages does NOT instruct removing the .gtd/ directory", () => {
+    const out = buildPrompt(
+      result("execute", {
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "First task" }],
+              hasCommitMsg: true,
+            },
+            {
+              name: "02-bar",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "Second task" }],
+              hasCommitMsg: true,
+            },
+          ],
+        },
+      }),
+    )
+    expect(out).toContain("### Package: `01-foo/`")
+    expect(out).not.toContain("remove the now-empty `.gtd/` directory")
+  })
+
   it("execute prompt fences backtick-containing task content with a long-enough fence", () => {
     const out = buildPrompt(
       result("execute", {
