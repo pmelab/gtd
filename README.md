@@ -52,12 +52,12 @@ priority order, so exactly one state wins per run:
 | Leaf state       | When it wins (first matching guard, top to bottom)                                                  | Prompt                                        |
 | ---------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------- |
 | `close-review`   | `REVIEW.md` dirty with ONLY forward checkbox ticks (`- [ ]`→`- [x]`), nothing else                 | Discard ticks, delete `REVIEW.md`, commit the close |
-| `review-process` | `REVIEW.md` exists and is dirty (user-edited)                                                       | Process review feedback into `TODO.md`        |
+| `review-process` | `REVIEW.md` exists and is dirty (user-edited)                                                       | Commit raw feedback verbatim as `docs(review): record raw feedback for <base>`, then reset and synthesize `TODO.md` |
 | `code-changes`   | Any uncommitted change outside `TODO.md`                                | Commit the uncommitted changes                |
 | `execute`        | `.gtd/` contains numbered work packages                                 | Execute the next package (parallel subagents) |
 | `cleanup`        | `.gtd/` exists but holds no packages                                    | Remove empty `.gtd/`, then verify             |
 | `execute-simple` | `TODO.md` finalized and marked `<!-- simple -->`                        | Implement the simple plan directly            |
-| `decompose`      | `TODO.md` finalized (no unanswered questions)                           | Decompose into work packages (planning model) |
+| `decompose`      | `TODO.md` finalized (no unanswered questions)                           | Record `TODO.md` as `docs(plan): record TODO.md` (when not already in `HEAD`), then decompose into work packages (planning model) |
 | `escalate`       | Trailing run of `fix(gtd):` commits at HEAD reached 5                   | Stop; ask the human to fix the root cause     |
 | `new-todo`       | `TODO.md` is new (untracked / added)                                    | Develop the plan (planning model)             |
 | `modified-todo`  | `TODO.md` is modified                                                   | Incorporate edits, keep developing (planning) |
@@ -142,7 +142,9 @@ A typical feature:
 4. `/gtd` again — the agent integrates your answers, moves resolved questions to
    `## Answered Questions`, raises new ones, and commits. Repeat until
    `## Open Questions` is empty.
-5. `/gtd` once more — agent decomposes `TODO.md` into work packages in `.gtd/`,
+5. `/gtd` once more — agent first records `TODO.md` as
+   `docs(plan): record TODO.md` (when not already in `HEAD`, preserving the
+   plan and its Q&A history), then decomposes it into work packages in `.gtd/`,
    deletes `TODO.md`, and commits the plan.
 6. `/gtd` again — agent executes the first package: spawns parallel workers
    (execution model + TDD), runs tests, fixes failures, commits.
@@ -153,8 +155,11 @@ A typical feature:
    review it (human-review). If everything is already reviewed, it reports the
    tree healthy and fully reviewed (verified).
 9. Edit `REVIEW.md` with feedback and run `/gtd` again — gtd detects the dirty
-   `REVIEW.md` (review-process), folds your feedback into a fresh `TODO.md`, and
-   the loop starts over.
+   `REVIEW.md` (review-process), first commits the reviewer's entire working
+   tree verbatim as `docs(review): record raw feedback for <base>` (preserving
+   annotated `REVIEW.md`, source edits, and `TODO:` markers in history), then
+   resets and folds your feedback into a fresh `TODO.md`, and the loop starts
+   over.
 
 > If the test gate keeps failing, each fix is committed as `fix(gtd): <desc>`.
 > Once five such commits stack up at HEAD, gtd resolves to **escalate**: it
@@ -168,7 +173,14 @@ When a plan is finalized, gtd enters build mode:
 
 ### 1. Decompose
 
-A planning-model subagent breaks `TODO.md` into executable work packages:
+Before decomposing, if `TODO.md` is not already committed and unchanged at
+`HEAD`, it is recorded verbatim as `docs(plan): record TODO.md` — preserving
+the plan and its full Q&A history (`## Open Questions` / `## Answered
+Questions`) in git history before deletion. In the normal flow this is a no-op
+(the plan was already committed by `new-todo`/`modified-todo`); it only fires
+when a fresh, never-committed `TODO.md` is routed directly to decompose.
+
+A planning-model subagent then breaks `TODO.md` into executable work packages:
 
 ```
 .gtd/
