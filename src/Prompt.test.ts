@@ -161,4 +161,38 @@ describe("buildPrompt", () => {
     const out = buildPrompt(result("close-review", { autoAdvance: true }))
     expect(out).not.toContain("Process Review Feedback")
   })
+
+  it("fix-tests override emits the fix(gtd) instruction and fences the captured output", () => {
+    const out = buildPrompt(result("human-review"), {
+      kind: "fix-tests",
+      testOutput: "FAIL src/x.test.ts\nexpected 1 got 2",
+    })
+    expect(out).toContain("fix(gtd):")
+    // The captured output is embedded inside a ``` fenced block.
+    expect(out).toContain("```\nFAIL src/x.test.ts\nexpected 1 got 2\n```")
+  })
+
+  it("fix-tests override does NOT include the normal human-review REVIEW.md instructions", () => {
+    const out = buildPrompt(result("human-review"), {
+      kind: "fix-tests",
+      testOutput: "FAIL src/x.test.ts\nexpected 1 got 2",
+    })
+    expect(out).not.toContain("format REVIEW.md")
+  })
+
+  it("fix-tests override does NOT include the auto-advance partial", () => {
+    const out = buildPrompt(result("human-review", { autoAdvance: true }), {
+      kind: "fix-tests",
+      testOutput: "boom",
+    })
+    expect(out).not.toContain("Re-run gtd immediately")
+  })
+
+  it("fix-tests override lengthens the fence when the output contains backticks", () => {
+    const out = buildPrompt(result("human-review"), {
+      kind: "fix-tests",
+      testOutput: "see `code` and ```block``` here",
+    })
+    expect(out).toContain("````\nsee `code` and ```block``` here\n````")
+  })
 })

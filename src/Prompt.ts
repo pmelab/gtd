@@ -11,6 +11,7 @@ import humanReview from "./prompts/human-review.md"
 import verified from "./prompts/verified.md"
 import reviewProcess from "./prompts/review-process.md"
 import closeReview from "./prompts/close-review.md"
+import fixTests from "./prompts/fix-tests.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
 import type { GtdContext, LeafState, ResolveResult } from "./Machine.js"
 
@@ -71,11 +72,36 @@ const buildContext = (context: GtdContext): string => {
   return lines.join("\n")
 }
 
-export const buildPrompt = (result: ResolveResult): string => {
-  const value = result.value as LeafState
-  const parts: Array<string> = [header, "", buildContext(result.context), SECTIONS[value], ""]
-  if (result.autoAdvance) {
-    parts.push(autoAdvance, "")
+export interface PromptOverride {
+  readonly kind: "fix-tests"
+  /** Captured combined stdout+stderr from the failed `npm run test`. */
+  readonly testOutput: string
+}
+
+/**
+ * Picks a code fence long enough to safely wrap `content`, even when the
+ * content itself contains runs of backticks (mirrors GitHub-flavored Markdown
+ * fencing rules).
+ */
+const fenceFor = (content: string): string => {
+  let longest = 0
+  for (const match of content.matchAll(/`+/g)) {
+    longest = Math.max(longest, match[0].length)
+  }
+  return "`".repeat(Math.max(3, longest + 1))
+}
+
+export const buildPrompt = (result: ResolveResult, override?: PromptOverride): string => {
+  const parts: Array<string> = [header, "", buildContext(result.context)]
+  if (override?.kind === "fix-tests") {
+    const fence = fenceFor(override.testOutput)
+    parts.push(fixTests, "", fence, override.testOutput.replace(/\n$/, ""), fence, "")
+  } else {
+    const value = result.value as LeafState
+    parts.push(SECTIONS[value], "")
+    if (result.autoAdvance) {
+      parts.push(autoAdvance, "")
+    }
   }
   return (
     parts

@@ -61,7 +61,7 @@ priority order, so exactly one state wins per run:
 | `escalate`       | Trailing run of `fix(gtd):` commits at HEAD reached 5                              | Stop; ask the human to fix the root cause                                                                                         |
 | `new-todo`       | `TODO.md` is new (untracked / added)                                               | Develop the plan (planning model)                                                                                                 |
 | `modified-todo`  | `TODO.md` is modified                                                              | Incorporate edits, keep developing (planning)                                                                                     |
-| `human-review`   | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff            | Verify, then generate `REVIEW.md`                                                                                                 |
+| `human-review`   | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff            | gtd runs the test suite (`npm run test`) itself; on green it generates `REVIEW.md`, on red it emits the fix-tests prompt (or `escalate` at the cap) |
 | `verified`       | Nothing else matched — tree clean, nothing left to review                          | Report the working tree healthy and reviewed                                                                                      |
 
 > **Review base**: the closest-to-HEAD of {parent-branch merge-base, last
@@ -148,11 +148,13 @@ A typical feature:
 6. `/gtd` again — agent executes the first package: spawns parallel workers
    (execution model + TDD), runs tests, fixes failures, commits.
 7. Repeat `/gtd` for each remaining package.
-8. When `.gtd/` is empty, `/gtd` cleans up and verifies. After tests pass, if
-   un-reviewed commits exist relative to the base (parent-branch merge-base or
-   last review commit), it auto-generates `REVIEW.md` and stops for you to
-   review it (human-review). If everything is already reviewed, it reports the
-   tree healthy and fully reviewed (verified).
+8. When `.gtd/` is empty, `/gtd` cleans up and verifies. If un-reviewed commits
+   exist relative to the base (parent-branch merge-base or last review commit),
+   it resolves to human-review and **runs the test suite itself**: on green it
+   auto-generates `REVIEW.md` and stops for you to review it; on red it emits
+   the fix-tests prompt (one fix per cycle, committed as `fix(gtd):`) or, once
+   the iteration cap is reached, `escalate`. If everything is already reviewed,
+   it reports the tree healthy and fully reviewed (verified).
 9. Edit `REVIEW.md` with feedback and run `/gtd` again — gtd detects the dirty
    `REVIEW.md` (review-process), first commits the reviewer's entire working
    tree verbatim as `docs(review): record raw feedback for <base>` (preserving

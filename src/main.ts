@@ -1,7 +1,8 @@
 import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { GitService } from "./Git.js"
-import { detect } from "./State.js"
+import { detect, selectPrompt } from "./State.js"
+import { TestRunner } from "./TestRunner.js"
 import { buildPrompt } from "./Prompt.js"
 import * as Format from "./Format.js"
 
@@ -16,12 +17,25 @@ const program = Effect.gen(function* () {
     return
   }
   const result = yield* detect()
+
+  // Test gate: only the `human-review` leaf runs the suite. Every other leaf
+  // (including `format` above) is unchanged and never spawns the runner.
+  if (result.value === "human-review") {
+    const runner = yield* TestRunner
+    const test = yield* runner.run()
+    const { result: selected, override } = selectPrompt(result, test)
+    const prompt = buildPrompt(selected, override)
+    yield* Effect.sync(() => process.stdout.write(prompt))
+    return
+  }
+
   const prompt = buildPrompt(result)
   yield* Effect.sync(() => process.stdout.write(prompt))
 })
 
 program.pipe(
   Effect.provide(GitService.Live),
+  Effect.provide(TestRunner.Live),
   Effect.provide(NodeContext.layer),
   Effect.catchAll((error) =>
     Effect.sync(() => {

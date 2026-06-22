@@ -206,6 +206,10 @@ Feature: gtd prints a structured prompt for the agent based on git state
       export const add = (a: number, b: number) => a + b
       export const sub = (a: number, b: number) => a - b
       """
+    And a commit "chore: add package.json" that adds "package.json" with:
+      """
+      { "scripts": { "test": "exit 0" } }
+      """
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Generate REVIEW.md after successful verification"
@@ -218,6 +222,10 @@ Feature: gtd prints a structured prompt for the agent based on git state
     And a commit "feat: add parser" that adds "src/parser.ts" with:
       """
       export const parse = (s: string) => JSON.parse(s)
+      """
+    And a commit "chore: add package.json" that adds "package.json" with:
+      """
+      { "scripts": { "test": "exit 0" } }
       """
     When I run gtd
     Then it succeeds
@@ -236,6 +244,10 @@ Feature: gtd prints a structured prompt for the agent based on git state
     And a commit "feat: new-module" that adds "src/new-module.ts" with:
       """
       export const newFn = () => "new"
+      """
+    And a commit "chore: add package.json" that adds "package.json" with:
+      """
+      { "scripts": { "test": "exit 0" } }
       """
     When I run gtd
     Then it succeeds

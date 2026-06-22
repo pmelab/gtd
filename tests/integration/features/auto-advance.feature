@@ -61,6 +61,10 @@ Feature: Auto-advance and STOP markers in prompts
       """
       export const add = (a: number, b: number) => a + b
       """
+    And a commit "chore: add package.json" that adds "package.json" with:
+      """
+      { "scripts": { "test": "exit 0" } }
+      """
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Generate REVIEW.md"

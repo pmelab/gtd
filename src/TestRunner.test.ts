@@ -1,0 +1,82 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { Effect } from "effect"
+import { NodeContext } from "@effect/platform-node"
+import { TestRunner } from "./TestRunner.js"
+
+const run = <A>(eff: Effect.Effect<A, never, TestRunner>) =>
+  Effect.runPromise(eff.pipe(Effect.provide(TestRunner.Live), Effect.provide(NodeContext.layer)))
+
+let projectDir: string
+let originalCwd: string
+
+/**
+ * Writes a minimal package.json whose `test` script runs the given shell
+ * snippet. The snippet drives exit code and output for each scenario.
+ */
+function writeProject(testScript: string) {
+  writeFileSync(
+    join(projectDir, "package.json"),
+    JSON.stringify(
+      {
+        name: "fixture",
+        version: "0.0.0",
+        private: true,
+        scripts: { test: testScript },
+      },
+      null,
+      2,
+    ),
+  )
+}
+
+beforeEach(() => {
+  originalCwd = process.cwd()
+  projectDir = mkdtempSync(join(tmpdir(), "gtd-testrunner-"))
+  process.chdir(projectDir)
+})
+
+afterEach(() => {
+  process.chdir(originalCwd)
+  rmSync(projectDir, { recursive: true, force: true })
+})
+
+describe("TestRunner", () => {
+  it("runs `npm run test` and yields exitCode 0 with captured output when the script passes", async () => {
+    writeProject("echo SENTINEL_PASS")
+
+    const result = await run(Effect.flatMap(TestRunner, (t) => t.run()))
+
+    expect(result.exitCode).toBe(0)
+    expect(result.output).toContain("SENTINEL_PASS")
+  })
+
+  it("succeeds (does not fail the Effect) and returns non-zero exitCode with output when the script fails", async () => {
+    writeProject("echo SENTINEL_FAIL && exit 3")
+
+    const result = await run(Effect.flatMap(TestRunner, (t) => t.run()))
+
+    expect(result.exitCode).not.toBe(0)
+    expect(result.output).toContain("SENTINEL_FAIL")
+  })
+
+  it("captures stderr in the combined output", async () => {
+    writeProject("echo ON_STDERR 1>&2; exit 0")
+
+    const result = await run(Effect.flatMap(TestRunner, (t) => t.run()))
+
+    expect(result.exitCode).toBe(0)
+    expect(result.output).toContain("ON_STDERR")
+  })
+
+  it("invokes the project's `test` script (proving the command is `npm run test`)", async () => {
+    // Only the `test` script writes the sentinel; any other invocation would not.
+    writeProject("echo CONFIRM_NPM_RUN_TEST")
+
+    const result = await run(Effect.flatMap(TestRunner, (t) => t.run()))
+
+    expect(result.output).toContain("CONFIRM_NPM_RUN_TEST")
+  })
+})
