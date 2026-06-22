@@ -122,9 +122,13 @@ Feature: gtd prints a structured prompt for the agent based on git state
       """
       feat(math): implement addition
       """
+    And a commit "chore: add package.json" that adds "package.json" with:
+      """
+      { "scripts": { "test": "exit 0" } }
+      """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Execute all work packages"
+    And stdout contains "## Task: Execute one work package"
     And stdout contains "01-math"
     And stdout contains "01-add.md"
 
@@ -145,6 +149,10 @@ Feature: gtd prints a structured prompt for the agent based on git state
     And a commit "plan(gtd): decompose" that adds ".gtd/02-bar/COMMIT_MSG.md" with:
       """
       feat: second
+      """
+    And a commit "chore: add package.json" that adds "package.json" with:
+      """
+      { "scripts": { "test": "exit 0" } }
       """
     When I run gtd
     Then it succeeds

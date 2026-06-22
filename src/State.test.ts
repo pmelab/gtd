@@ -51,6 +51,31 @@ describe("selectPrompt", () => {
     expect(sel.result.autoAdvance).toBe(false)
   })
 
+  it("execute leaf green → renders execute unchanged, no override", () => {
+    const sel = selectPrompt(result("execute"), test(0))
+    expect(sel.override).toBeUndefined()
+    expect(sel.result.value).toBe("execute")
+  })
+
+  it("execute leaf red below cap → fix-tests override carrying the output", () => {
+    const sel = selectPrompt(
+      result("execute", { verifyIterations: 2 }),
+      test(1, "FAIL src/y.test.ts"),
+    )
+    expect(sel.override).toEqual({ kind: "fix-tests", testOutput: "FAIL src/y.test.ts" })
+    expect(sel.result.value).toBe("execute")
+  })
+
+  it("execute leaf red at cap → escalate (edge cap overrides hasPackages ordering)", () => {
+    const sel = selectPrompt(
+      result("execute", { verifyIterations: 5, maxVerifyIterations: 5 }),
+      test(1, "still failing"),
+    )
+    expect(sel.override).toBeUndefined()
+    expect(sel.result.value).toBe("escalate")
+    expect(sel.result.autoAdvance).toBe(false)
+  })
+
   it("cap check is generic — honors a context-provided maxVerifyIterations", () => {
     const below = selectPrompt(
       result("execute", { verifyIterations: 2, maxVerifyIterations: 3 }),

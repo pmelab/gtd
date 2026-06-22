@@ -18,9 +18,15 @@ const program = Effect.gen(function* () {
   }
   const result = yield* detect()
 
-  // Test gate: only the `human-review` leaf runs the suite. Every other leaf
+  // Test gate: only these leaves run the suite before emitting a prompt. The
+  // `selectPrompt` helper + cap check are leaf-agnostic, so adding a future
+  // gated leaf is just a matter of extending this set. Every other leaf
   // (including `format` above) is unchanged and never spawns the runner.
-  if (result.value === "human-review") {
+  // `execute` is REQUIRED here: the machine checks `hasPackages` before
+  // `capReached`, so without the edge cap a failing-test package would loop
+  // forever.
+  const TEST_GATED_LEAVES = new Set<string>(["human-review", "execute"])
+  if (TEST_GATED_LEAVES.has(result.value)) {
     const runner = yield* TestRunner
     const test = yield* runner.run()
     const { result: selected, override } = selectPrompt(result, test)

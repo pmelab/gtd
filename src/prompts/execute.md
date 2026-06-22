@@ -1,13 +1,18 @@
-## Task: Execute all work packages
+## Task: Execute one work package
 
-Work packages exist in `.gtd/`. Execute all packages sequentially, in numeric
-order (01 before 02, etc.), without pausing between them.
+Work packages exist in `.gtd/`. This run executes EXACTLY ONE package — the
+lowest-numbered package remaining in `.gtd/` (e.g. `01-...` before `02-...`).
+The Context block lists the packages and their task files; pick the first one
+and execute only that package this invocation.
+
+Do NOT loop over the remaining packages. After this package is committed,
+re-running gtd advances to the next one, and the next cycle verifies what you
+just committed.
 
 ### Orchestration
 
 You are running with a work model. You orchestrate the execution — you do not
-implement the tasks yourself. Spawn subagents for all implementation and testing
-work.
+implement the tasks yourself. Spawn subagents for all implementation work.
 
 Check your user/project AGENTS.md for model preferences (e.g., "use sonnet for
 execution"). If no preference is set, use the current work model for execution
@@ -15,7 +20,8 @@ subagents.
 
 ### Step 1: Spawn task workers
 
-For each task file in the current package, spawn a **parallel subagent** with:
+For each task file in the ONE selected package, spawn a **parallel subagent**
+with:
 
 - **Model**: The execution model from AGENTS.md (or current work model)
 - **TDD discipline** (inline rules for workers):
@@ -33,46 +39,19 @@ Wait for all workers to complete.
 **If any worker fails** (crash, timeout, error — not test failure): Report which
 tasks failed. Ask the user: "Retry failed tasks / Skip and continue / Abort?"
 
-### Step 2: Spawn testing subagent
+### Step 2: Commit the package
 
-After all workers complete, spawn ONE **testing subagent**:
+After the workers complete:
 
-- **Model**: Execution model (same as workers)
-- **Context**: Fresh
+1. Read `COMMIT_MSG.md` from the selected package
+2. Commit ALL changes with the commit message from `COMMIT_MSG.md`
+3. Delete the package directory from `.gtd/`
 
-The testing subagent should:
+Verification is NOT performed here. The next cycle's edge runs the test suite
+deterministically to verify what you just committed — do not run or determine a
+test command in this step.
 
-1. Determine the test command from project configuration (AGENTS.md,
-   `package.json` scripts, Makefile, etc.). If unclear, ask the user.
-2. Run the tests
-3. If tests fail, analyze failures and fix them
-4. Repeat until tests pass or retry limit reached (default: 5, check AGENTS.md)
-5. Report final status: PASS or FAIL with summary
+### Step 3: Re-run gtd
 
-### Step 3: Handle results
-
-**If tests pass:**
-
-1. Read `COMMIT_MSG.md` from the current package
-2. Delete the package directory from `.gtd/`
-3. Commit all changes with the commit message from `COMMIT_MSG.md`
-
-**If tests fail after max retries:**
-
-Ask the user:
-
-- "Commit anyway with WIP marker?"
-- "Skip this package and continue?"
-- "Abort execution?"
-
-Do not silently commit broken code or silently fail.
-
-### Continue to next package
-
-After committing a package:
-
-1. Delete the package directory from `.gtd/`
-2. Check if more packages remain in `.gtd/`
-3. If yes: return to Step 1 for the next package
-4. If no: done — all packages complete. The `.gtd/` cleanup will be handled on
-   the next `/gtd` invocation if the directory remains.
+Re-run gtd. This continues to the next remaining package (if any); the next
+cycle's edge runs the tests that verify this commit.

@@ -108,16 +108,21 @@ describe("buildPrompt", () => {
 
   it("execute prompt renders its section and the auto-advance partial", () => {
     const out = buildPrompt(result("execute", { autoAdvance: true }))
-    expect(out).toContain("Execute all work packages")
+    expect(out).toContain("Execute one work package")
+    expect(out).toContain("EXACTLY ONE package")
     expect(out).toContain("Re-run gtd immediately")
     expect(out).not.toContain("marked with `<!-- simple -->`")
+    // Verification is now done by the edge at the start of the next cycle,
+    // not by an in-prompt testing subagent.
+    expect(out).not.toContain("testing subagent")
+    expect(out).not.toContain("Determine the test command")
   })
 
   it("cleanup prompt renders its section and the auto-advance partial", () => {
     const out = buildPrompt(result("cleanup", { autoAdvance: true }))
     expect(out).toContain("Delete the empty `.gtd/` directory")
     expect(out).toContain("Re-run gtd immediately")
-    expect(out).not.toContain("Execute all work packages")
+    expect(out).not.toContain("Execute one work package")
   })
 
   it("decompose prompt renders its section and the auto-advance partial", () => {
