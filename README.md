@@ -49,20 +49,20 @@ on the emitted prompt.
 emits the one prompt for that state. The guards are evaluated in a fixed
 priority order, so exactly one state wins per run:
 
-| Leaf state       | When it wins (first matching guard, top to bottom)                                 | Prompt                                                                                                                                                                                                 |
-| ---------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `close-review`   | `REVIEW.md` dirty with ONLY forward checkbox ticks (`- [ ]`→`- [x]`), nothing else | Discard ticks, delete `REVIEW.md`, commit the close                                                                                                                                                    |
-| `review-process` | `REVIEW.md` exists and is dirty (user-edited)                                      | Commit raw feedback verbatim as `docs(review): record raw feedback for <base>`, then reset and synthesize `TODO.md`                                                                                    |
-| `code-changes`   | Any uncommitted change outside `TODO.md`                                           | Commit the uncommitted changes                                                                                                                                                                         |
-| `execute`        | `.gtd/` contains numbered work packages                                            | gtd runs the test suite (`npm run test`) itself first; on green it executes the next (lowest-numbered) package via parallel subagents, on red it emits the fix-tests prompt (or `escalate` at the cap) |
-| `cleanup`        | `.gtd/` exists but holds no packages                                               | Remove empty `.gtd/`, then verify                                                                                                                                                                      |
-| `execute-simple` | `TODO.md` finalized and marked `<!-- simple -->`                                   | Implement the simple plan directly                                                                                                                                                                     |
-| `decompose`      | `TODO.md` finalized (no unanswered questions)                                      | Record `TODO.md` as `docs(plan): record TODO.md` (when not already in `HEAD`), then decompose into work packages (planning model)                                                                      |
-| `escalate`       | Trailing run of `fix(gtd):` commits at HEAD reached 5                              | Stop; ask the human to fix the root cause                                                                                                                                                              |
-| `new-todo`       | `TODO.md` is new (untracked / added)                                               | Develop the plan (planning model)                                                                                                                                                                      |
-| `modified-todo`  | `TODO.md` is modified                                                              | Incorporate edits, keep developing (planning)                                                                                                                                                          |
-| `human-review`   | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff            | gtd runs the test suite (`npm run test`) itself; on green it generates `REVIEW.md`, on red it emits the fix-tests prompt (or `escalate` at the cap)                                                    |
-| `verified`       | Nothing else matched — tree clean, nothing left to review                          | Report the working tree healthy and reviewed                                                                                                                                                           |
+| Leaf state       | When it wins (first matching guard, top to bottom)                                 | Prompt                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `close-review`   | `REVIEW.md` dirty with ONLY forward checkbox ticks (`- [ ]`→`- [x]`), nothing else | Discard ticks, delete `REVIEW.md`, commit the close                                                                                                                                                                                                                                                                                                                              |
+| `review-process` | `REVIEW.md` exists and is dirty (user-edited)                                      | Commit raw feedback verbatim as `docs(review): record raw feedback for <base>`, then reset and synthesize `TODO.md`                                                                                                                                                                                                                                                              |
+| `code-changes`   | Any uncommitted change outside `TODO.md`                                           | Commit the uncommitted changes                                                                                                                                                                                                                                                                                                                                                   |
+| `execute`        | `.gtd/` contains numbered work packages                                            | gtd runs the test suite (`npm run test`) itself first; on green it names the single next package and inlines its task files' contents into the prompt, executed via parallel subagents (on the last package it also removes the empty `.gtd/` in the same commit so the next run goes straight to human-review); on red it emits the fix-tests prompt (or `escalate` at the cap) |
+| `cleanup`        | `.gtd/` exists but holds no packages                                               | Remove empty `.gtd/`, then verify — a vestigial safety net for a stray empty `.gtd/` (e.g. created by hand); the normal last-package path skips it since execute removes `.gtd/` itself                                                                                                                                                                                          |
+| `execute-simple` | `TODO.md` finalized and marked `<!-- simple -->`                                   | Implement the simple plan directly                                                                                                                                                                                                                                                                                                                                               |
+| `decompose`      | `TODO.md` finalized (no unanswered questions)                                      | Record `TODO.md` as `docs(plan): record TODO.md` (when not already in `HEAD`), then decompose into work packages (planning model)                                                                                                                                                                                                                                                |
+| `escalate`       | Trailing run of `fix(gtd):` commits at HEAD reached 5                              | Stop; ask the human to fix the root cause                                                                                                                                                                                                                                                                                                                                        |
+| `new-todo`       | `TODO.md` is new (untracked / added)                                               | Develop the plan (planning model)                                                                                                                                                                                                                                                                                                                                                |
+| `modified-todo`  | `TODO.md` is modified                                                              | Incorporate edits, keep developing (planning)                                                                                                                                                                                                                                                                                                                                    |
+| `human-review`   | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff            | gtd runs the test suite (`npm run test`) itself; on green it generates `REVIEW.md`, on red it emits the fix-tests prompt (or `escalate` at the cap)                                                                                                                                                                                                                              |
+| `verified`       | Nothing else matched — tree clean, nothing left to review                          | Report the working tree healthy and reviewed                                                                                                                                                                                                                                                                                                                                     |
 
 > **`fix-tests` is a prompt, not a leaf state.** It is never one of the
 > machine's resolved leaf states — it is selected in the Effect edge (keyed off
@@ -143,7 +143,8 @@ flowchart TD
     ExecuteTest -->|green| Execute[execute next package]
     ExecuteTest -->|red, below cap| FixTests[fix-tests prompt]
     ExecuteTest -->|red, at cap| Escalate
-    Resolve -->|.gtd/ empty| Cleanup[cleanup .gtd/]
+    Execute -.->|last package: removes .gtd/ in same commit| Resolve
+    Resolve -->|stray empty .gtd/ safety net| Cleanup[cleanup .gtd/]
     Resolve -->|TODO.md finalized + simple| ExecuteSimple[execute-simple]
     Resolve -->|TODO.md finalized| Decompose[decompose into packages]
     Resolve -->|trailing fix\(gtd\): run hit 5| Escalate[escalate: stop, ask human]:::terminal
@@ -174,22 +175,25 @@ A typical feature:
    and its Q&A history), then decomposes it into work packages in `.gtd/`,
    deletes `TODO.md`, and commits the plan.
 6. `/gtd` again — first the edge runs `npm run test` (green or, on the first
-   package, nothing to verify yet); on green the agent executes the
-   lowest-numbered package: spawns parallel workers (execution model + TDD),
-   commits with `COMMIT_MSG.md`, deletes the package directory. It does **not**
-   run tests in-prompt — the next cycle's edge runs `npm run test` to verify the
-   package just committed.
+   package, nothing to verify yet); on green the prompt names the single next
+   package and inlines its task contents, and the agent executes it: spawns
+   parallel workers (execution model + TDD), commits with `COMMIT_MSG.md`,
+   deletes the package directory. It does **not** run tests in-prompt — the next
+   cycle's edge runs `npm run test` to verify the package just committed.
 7. Repeat `/gtd` for each remaining package — one package per cycle, each
    cycle's edge verifying the previous commit. A red test run emits the
    fix-tests prompt (one `fix(gtd):` fix per cycle) until green or the cap
-   escalates.
-8. When `.gtd/` is empty, `/gtd` cleans up and verifies. If un-reviewed commits
-   exist relative to the base (parent-branch merge-base or last review commit),
-   it resolves to human-review and **runs the test suite itself**: on green it
-   auto-generates `REVIEW.md` and stops for you to review it; on red it emits
-   the fix-tests prompt (one fix per cycle, committed as `fix(gtd):`) or, once
-   the iteration cap is reached, `escalate`. If everything is already reviewed,
-   it reports the tree healthy and fully reviewed (verified).
+   escalates. On the **last** package the execute prompt also removes the empty
+   `.gtd/` in the same commit, so cleanup is normally skipped.
+8. With `.gtd/` already gone, the next `/gtd` proceeds straight to human-review
+   (the `cleanup` step survives only as a safety net for a stray empty `.gtd/`).
+   If un-reviewed commits exist relative to the base (parent-branch merge-base
+   or last review commit), it resolves to human-review and **runs the test suite
+   itself**: on green it auto-generates `REVIEW.md` and stops for you to review
+   it; on red it emits the fix-tests prompt (one fix per cycle, committed as
+   `fix(gtd):`) or, once the iteration cap is reached, `escalate`. If everything
+   is already reviewed, it reports the tree healthy and fully reviewed
+   (verified).
 9. Edit `REVIEW.md` with feedback and run `/gtd` again — gtd detects the dirty
    `REVIEW.md` (review-process), first commits the reviewer's entire working
    tree verbatim as `docs(review): record raw feedback for <base>` (preserving
@@ -241,13 +245,17 @@ Rules:
 
 ### 2. Execute
 
-Execution is **one package per cycle** — each `/gtd` run handles exactly the
-lowest-numbered package remaining in `.gtd/`. Verification is deterministic and
-lives in the edge, not in the prompt: before any execute prompt is emitted the
-edge runs `npm run test`, and the cycle that follows a package commit re-runs it
-to verify that commit. gtd selects that package itself and inlines its task
-files' full contents directly into the prompt (noting its `COMMIT_MSG.md`) — the
-agent never browses `.gtd/` or picks a package.
+Execution is **one package per cycle**. gtd selects the single next package
+itself, NAMES it in the prompt, and inlines its task files' full contents
+directly into the emitted prompt (noting its `COMMIT_MSG.md`) — the prompt is
+self-contained, so the agent never browses `.gtd/` or picks a package.
+Verification is deterministic and lives in the edge, not in the prompt: before
+any execute prompt is emitted the edge runs `npm run test`, and the cycle that
+follows a package commit re-runs it to verify that commit.
+
+On the **last** package, the execute prompt also instructs removing the
+now-empty `.gtd/` directory in the **same** commit, so the next run proceeds
+straight to `human-review` — the `cleanup` round-trip is normally skipped.
 
 A single execute cycle (green test gate):
 
@@ -267,7 +275,11 @@ consecutive `fix(gtd):` commits accumulate at HEAD, the edge resolves to
 
 ### 3. Cleanup
 
-Remove empty `.gtd/`, verify working tree is healthy.
+Remove empty `.gtd/`, verify working tree is healthy. This step is now a
+**vestigial safety net**: the normal tail no longer reaches it, because the last
+execute package removes the empty `.gtd/` in its own commit (see above). It is
+retained only to catch a stray empty `.gtd/` — e.g. one created by hand — so the
+machine still has a defined transition for that case.
 
 ## Q&A format inside TODO.md
 

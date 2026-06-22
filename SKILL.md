@@ -79,16 +79,24 @@ When a plan is finalized (no open questions), gtd enters build mode:
        ...
    ```
 
-2. **Execute** (one package per cycle): each run executes EXACTLY ONE package —
-   the lowest-numbered package remaining in `.gtd/`:
+2. **Execute** (one package per cycle): gtd selects the single next package
+   itself, NAMES it, and inlines its task files' full contents into the emitted
+   prompt (self-contained — the agent does not browse `.gtd/` or pick a
+   package):
    - Spawn parallel execution-model workers for all tasks in that package (with
      `tdd` skill)
    - Commit all changes with `COMMIT_MSG.md`, then delete the package directory
+   - On the **last** package the execute prompt also removes the now-empty
+     `.gtd/` in the same commit, so the next run goes straight to human-review —
+     the cleanup round-trip is normally skipped
    - Re-run gtd. The execute step itself does NOT run tests; the next cycle's
      edge verifies the just-committed package by running `npm run test` before
      resolving (green → advance to the next package, red → fix-tests).
 
-3. **Cleanup**: Remove empty `.gtd/`, verify working tree
+3. **Cleanup**: Remove empty `.gtd/`, verify working tree. The last-package
+   `.gtd/` removal happens inside execute, so the normal tail skips this step;
+   `cleanup` is retained only as a safety net for a stray empty `.gtd/` (e.g.
+   created by hand).
 
 ## Work package rules
 
@@ -129,9 +137,13 @@ order:
 - `review-process` — `REVIEW.md` was edited; fold the feedback into `TODO.md`
 - `code-changes` — uncommitted changes outside `TODO.md`; commit them
 - `execute` — `.gtd/` has work packages; the edge runs `npm run test` first
-  (green → execute the next, lowest-numbered package; red → fix-tests, or
+  (green → emit the named single next package with its task contents inlined for
+  execution, and on the last package also remove the empty `.gtd/` in the same
+  commit so the next run goes straight to human-review; red → fix-tests, or
   `escalate` at the cap)
-- `cleanup` — `.gtd/` is empty; remove it and verify
+- `cleanup` — `.gtd/` is empty; remove it and verify. Retained only as a safety
+  net for a stray empty `.gtd/` (e.g. created by hand) — the normal tail skips
+  it because execute removes `.gtd/` on the last package
 - `execute-simple` — `TODO.md` is finalized and marked `<!-- simple -->`
 - `decompose` — `TODO.md` is finalized; break it into work packages
 - `escalate` — the trailing run of `fix(gtd):` commits hit 5; stop and hand off
