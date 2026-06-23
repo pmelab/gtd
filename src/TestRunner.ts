@@ -1,5 +1,6 @@
 import { Command, CommandExecutor } from "@effect/platform"
 import { Context, Effect, Layer, Stream } from "effect"
+import { ConfigService } from "./Config.js"
 
 export interface TestResult {
   readonly exitCode: number
@@ -8,7 +9,7 @@ export interface TestResult {
 }
 
 export interface TestRunnerOperations {
-  /** Runs `npm run test`, never fails the Effect — non-zero exit is data, not error. */
+  /** Runs the configured test command, never fails the Effect — non-zero exit is data, not error. */
   readonly run: () => Effect.Effect<TestResult>
 }
 
@@ -17,14 +18,26 @@ export class TestRunner extends Context.Tag("TestRunner")<TestRunner, TestRunner
     TestRunner,
     Effect.gen(function* () {
       const executor = yield* CommandExecutor.CommandExecutor
+      // The test command now comes from `ConfigService` (default `npm run test`).
+      // `ConfigService` is NOT baked in here — it stays a requirement of this
+      // layer, provided at the composition root (main.ts), like `GitService`.
+      const config = yield* ConfigService
+
+      // Tokenize by whitespace split into argv. NOTE: quoting/escaping is NOT
+      // supported (whitespace-split only); the default "npm run test" yields
+      // ["npm", "run", "test"]. A non-empty command is guaranteed by the config
+      // default, so `head` is always present.
+      const tokens = config.testCommand.split(/\s+/).filter((s) => s.length > 0)
+      // `head` is the executable; `rest` its args. Fall back to "npm" if the
+      // configured command is blank, so `Command.make` always gets a valid head.
+      const [head = "npm", ...rest] = tokens
 
       return {
         run: () =>
           Effect.scoped(
             Effect.gen(function* () {
-              // Hardcoded command per the plan: `npm run test`. Pipe both streams
-              // so we can capture stdout and stderr into one combined output.
-              const command = Command.make("npm", "run", "test").pipe(
+              // Pipe both streams so we can capture stdout and stderr combined.
+              const command = Command.make(head, ...rest).pipe(
                 Command.stdout("pipe"),
                 Command.stderr("pipe"),
               )

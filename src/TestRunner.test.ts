@@ -5,9 +5,18 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { TestRunner } from "./TestRunner.js"
+import { ConfigService } from "./Config.js"
 
 const run = <A>(eff: Effect.Effect<A, never, TestRunner>) =>
-  Effect.runPromise(eff.pipe(Effect.provide(TestRunner.Live), Effect.provide(NodeContext.layer)))
+  Effect.runPromise(
+    eff.pipe(
+      // `TestRunner.Live` now requires `ConfigService`; provide it here so the
+      // test exercises the real config-driven command resolution.
+      Effect.provide(TestRunner.Live),
+      Effect.provide(ConfigService.Live),
+      Effect.provide(NodeContext.layer),
+    ),
+  )
 
 let projectDir: string
 let originalCwd: string
@@ -16,7 +25,7 @@ let originalCwd: string
  * Writes a minimal package.json whose `test` script runs the given shell
  * snippet. The snippet drives exit code and output for each scenario.
  */
-function writeProject(testScript: string) {
+function writeProject(testScript: string, extraScripts: Record<string, string> = {}) {
   writeFileSync(
     join(projectDir, "package.json"),
     JSON.stringify(
@@ -24,7 +33,7 @@ function writeProject(testScript: string) {
         name: "fixture",
         version: "0.0.0",
         private: true,
-        scripts: { test: testScript },
+        scripts: { test: testScript, ...extraScripts },
       },
       null,
       2,
@@ -78,5 +87,19 @@ describe("TestRunner", () => {
     const result = await run(Effect.flatMap(TestRunner, (t) => t.run()))
 
     expect(result.output).toContain("CONFIRM_NPM_RUN_TEST")
+  })
+
+  it("runs the `testCommand` configured in .gtdrc instead of the default", async () => {
+    // The default `test` script writes a sentinel that must NOT appear; only the
+    // `othertest` script (the configured command) writes CUSTOM_SENTINEL.
+    writeProject("echo DEFAULT_SENTINEL", { othertest: "echo CUSTOM_SENTINEL" })
+    // cwd is the temp project dir (chdir'd in beforeEach) and lives under
+    // os.tmpdir(), outside home — so this cwd-level config is the only one found.
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), "testCommand: npm run othertest\n")
+
+    const result = await run(Effect.flatMap(TestRunner, (t) => t.run()))
+
+    expect(result.output).toContain("CUSTOM_SENTINEL")
+    expect(result.output).not.toContain("DEFAULT_SENTINEL")
   })
 })
