@@ -1,68 +1,10 @@
 ---
-status: grilling
+status: complete
 ---
 
 # Fix two review-loop bugs in gtd
 
 Two bugs surfaced while dogfooding the config-system review loop.
-
-## Open Questions
-
-### Bug 2: Which base should scope `grepBang`'s diff range — `computeReviewBase(git)`, or the `<!-- base: … -->` ref in `REVIEW.md`?
-
-**Context that prompted this (NEW, surfaced after the two answers landed):** the
-two resolved answers settled _that_ `grepBang` is scoped to a diff range and
-_that_ it returns empty with no base. They did **not** settle _which_ base
-defines the range, and the obvious choice — `computeReviewBase(git)`, named in
-the resolved implementation sketch — is provably wrong on the `review-process`
-harvest path:
-
-- In every `spec-harvest.feature` scenario the
-  `review(gtd): create review for …` commit **is HEAD** (REVIEW.md is only
-  _modified in the working tree_, not yet committed past the review commit).
-  `computeReviewBase` has an explicit frontier-at-HEAD guard (`src/Events.ts`
-  lines 130-135): when the last review commit equals HEAD it returns
-  `Option.none()`. Verified by reproducing the fixture git state — the review
-  commit hashes equal HEAD, so `computeReviewBase` returns none.
-- Combined with the resolved "return empty on no base" decision, that means
-  `grepBang` would harvest **nothing** in exactly the scenarios that assert a
-  `!!` comment IS harvested (`spec-harvest.feature:34-37`, `69-72`, `99-102`).
-  The plan's claim that "the existing scenarios must keep passing" (and the
-  resolved recommendation's bullet asserting the tests are unaffected) is
-  **false** for `computeReviewBase`-based scoping.
-
-So the base for the harvest scope must be the review baseline recorded in
-`REVIEW.md` (`reviewBaseRef`, already parsed at `src/Events.ts` line 269), NOT
-`computeReviewBase`. But that opens a second snag: in the feature fixtures the
-recorded base (`abc1234567890abcdef1234`) is a **fake hash that is not a real
-commit**, so `git diff <base>..HEAD` / `git grep <base> -- <pathspec>` would
-fail to resolve the ref and (under "return empty") still harvest nothing.
-
-**Recommendation:** Scope the harvest to the files in the _current review's_
-diff, derived from `reviewBaseRef`, with a resolve-or-fall-through rule that
-keeps the isolated test repos working:
-
-- Base = `reviewBaseRef` from `REVIEW.md` when REVIEW.md exists; else (the
-  `!!`-on-approved-close path, where REVIEW.md may be absent) the
-  `computeReviewBase` result; else empty (no harvest), per the resolved answer.
-- Build the changed-file pathspec with `git diff --name-only <base> HEAD` ∪
-  dirty paths. If `<base>` does **not resolve** to a real commit (e.g. fixture
-  hash), do not fail the whole run — fall back to scoping by the **dirty +
-  reviewed working set**: the union of dirty paths and the files named in the
-  current `REVIEW.md` chunks / `refDiff`. In the fixtures the `!!` line lives in
-  `src/app.ts`/`scripts/run.py`, which the REVIEW.md chunk references
-  (`./src/app.ts#1`), so it stays in scope and the scenarios pass; gtd's own
-  committed docs/fixtures never appear because they aren't in the current
-  review's file set.
-
-Open part I cannot resolve from code alone: confirm this base-selection +
-fallback is acceptable, or pick a simpler rule (e.g. scope `grepBang` to the
-files referenced by the current `REVIEW.md`/`refDiff` only, ignoring
-`reviewBaseRef` resolution entirely). The simpler rule may be preferable because
-it never depends on a base ref resolving and is identical in tests and in the
-real repo.
-
-<!-- user answers here -->
 
 ## Plan
 
@@ -119,32 +61,63 @@ Harvesting and stripping those would corrupt the tool's own docs and fixtures.
 Expected: only genuine reviewer-added `!!` follow-up comments in the code under
 review should be harvested — not the tool describing/testing the syntax.
 
-**Fix (diff-range scope + return-empty-on-no-base both resolved; base-selection
-detail still open — see Open Questions):** `src/Git.ts` — change `grepBang` to
-accept an optional pathspec list and pass it to `git grep … -- <files>`. Keep
-the existing `:!REVIEW.md`/`:!TODO.md` exclusions. `src/Events.ts`
-`gatherEvents` — derive the changed-file set for the _current review_ and pass
-it to `grepBang`; **return empty (no harvest) when no review base resolves**
-(resolved decision: the `!!` scan is meaningless without a review baseline, and
-its only consumers — `bangPresent`/`bangComments` — are review-scoped).
+**Fix (firm — all questions resolved):** scope `grepBang` to the files
+referenced by the current `REVIEW.md` (its chunk references ∪ dirty paths), and
+do not harvest at all when `REVIEW.md` is absent. No `computeReviewBase` /
+`reviewBaseRef` / diff-range base resolution is used — that base-selection
+approach was rejected because `computeReviewBase` returns `none` on the harvest
+path (the review commit is HEAD, frontier-at-HEAD guard at `src/Events.ts` lines
+130-135), which would zero out harvesting in every `spec-harvest.feature`
+scenario; and `reviewBaseRef` is a fixture hash that does not resolve to a real
+commit. The chosen rule never depends on any base ref resolving and behaves
+identically in the fixtures and the real repo.
 
-The base that defines the diff range is the open detail: `computeReviewBase`
-(named in the original sketch) returns `none` on the harvest path because the
-review commit is HEAD (frontier-at-HEAD guard, `src/Events.ts` lines 130-135),
-which would zero out harvesting in every `spec-harvest.feature` scenario. The
-range must instead be anchored on the current `REVIEW.md` (its `reviewBaseRef`
-at `src/Events.ts` line 269, or the files its chunks reference). See Open
-Questions for the exact rule.
+- `src/Git.ts` — change `grepBang` (currently lines 208-237) to accept a
+  pathspec list (`ReadonlyArray<string>`) and pass it to
+  `git grep -nE … -- <files…>` (appended after the existing
+  `:!REVIEW.md`/`:!TODO.md` exclusions, which stay). With an empty pathspec the
+  caller must not invoke it (see below) — but defensively, an empty pathspec
+  list should still scope to nothing rather than the whole tree.
+- `src/Events.ts` `gatherEvents` — the `grepBang()` call currently sits at line
+  244, _before_ `REVIEW.md` is read (line 252+). Move the bang harvest to run
+  only inside the `if (reviewExists)` block (after `reviewContent` is read at
+  line 258), so harvesting is gated on `REVIEW.md` existing. Build the pathspec
+  there as the union of:
+  - **files referenced by the current `REVIEW.md` chunks** — parse
+    `reviewContent` for chunk reference lines of the form
+    `- [ ] ./path/to/file#N` / `- [x] ./path/to/file#N` and collect the `./path`
+    portion (strip the leading `./` and the trailing `#N`). This is the file set
+    the review actually covers; in the fixtures the `!!` line lives in
+    `src/app.ts` / `scripts/run.py`, each referenced by its REVIEW.md chunk
+    (`./src/app.ts#1`, `./scripts/run.py#1`).
+  - **dirty paths** — the `entries` already parsed at line 204 (excluding
+    `REVIEW.md`/`TODO.md`, which `git grep`'s pathspec exclusions also drop).
+
+  When `REVIEW.md` is absent, leave `bangComments` empty (no harvest). This
+  satisfies the resolved "return empty (no harvest) when no review base
+  resolves" decision: the only consumers of `bangPresent`/`bangComments` are the
+  `close-review` vs `review-process` decision and the review-process prompt
+  context, both review-scoped.
+
+Note: `refDiff` (the human-review diff, computed at lines 310-317 from
+`computeReviewBase`) is **not** used for harvest scope — it is `undefined` on
+the harvest path for the same frontier-at-HEAD reason. Scope comes only from
+REVIEW.md chunk references ∪ dirty paths.
 
 **Docs:** update `README.md` and `src/prompts/review-process.md` / `SKILL.md`
-wording if needed to state that `!!` harvesting is scoped to the code changed
-since the review base (per CLAUDE.md: significant changes reflected in README).
+wording if needed to state that `!!` harvesting is scoped to the files the
+current `REVIEW.md` covers (its referenced files plus the dirty working tree),
+not the whole tracked tree (per CLAUDE.md: significant changes reflected in
+README). `src/Git.ts`'s doc comment on `grepBang` (line 204-207) must also be
+updated to mention the pathspec scope.
 
 **Test:** the existing `spec-harvest.feature` scenarios already exercise the
-happy path inside isolated repos and must keep passing (the `!!` line lives in a
-reviewed/changed file). Add a scenario proving a `!!` comment in a file
-**outside** the review diff range (committed before the base, untouched by the
-session) is NOT harvested.
+happy path inside isolated repos and must keep passing — the `!!` line lives in
+`src/app.ts` / `scripts/run.py`, each referenced by that scenario's `REVIEW.md`
+chunk (`./src/app.ts#1`, `./scripts/run.py#1`), so it stays in scope. Add a
+scenario proving a `!!` comment in a file **not** referenced by `REVIEW.md` and
+not dirty (committed before the review, untouched by the session) is NOT
+harvested.
 
 Repro: any `review-process` run in this repo lists `!!` hits from `README.md`,
 `src/prompts/review-process.md`, and `spec-harvest.feature` alongside real
@@ -196,3 +169,35 @@ can't be resolved. The only consumers of `bangPresent`/`bangComments` are the
 context, both of which are review-scoped — so empty-on-no-base is safe.
 
 **Answer:** agreed
+
+### Bug 2: Which base should scope `grepBang`'s diff range — `computeReviewBase(git)`, or the `<!-- base: … -->` ref in `REVIEW.md`?
+
+**Recommendation:** Neither base resolution is needed; pick the simpler rule of
+scoping `grepBang` to the files referenced by the current `REVIEW.md` chunks /
+`refDiff` (∪ dirty paths) only, ignoring base-ref resolution entirely. The
+base-resolution variants are both unworkable on the harvest path:
+
+- `computeReviewBase(git)` (named in the original sketch) returns `none` in
+  every `spec-harvest.feature` scenario: the `review(gtd): create review for …`
+  commit **is HEAD** (REVIEW.md is only modified in the working tree), and
+  `computeReviewBase` has a frontier-at-HEAD guard (`src/Events.ts` lines
+  130-135) that returns `Option.none()` when the last review commit equals HEAD.
+  Combined with "return empty on no base", that would harvest **nothing** in
+  exactly the scenarios asserting a `!!` comment IS harvested.
+- `reviewBaseRef` from `REVIEW.md` (parsed at `src/Events.ts` line 269) is, in
+  the fixtures, a fake hash (`abc1234567890abcdef1234`) that does not resolve to
+  a real commit, so `git diff <base>..HEAD` would fail to resolve the ref and
+  (under "return empty") still harvest nothing.
+
+The simpler rule never depends on a base ref resolving, behaves identically in
+the fixtures and the real repo, and avoids reordering `computeReviewBase`.
+
+**Answer:** Use the simpler rule. Scope `grepBang` to the files referenced by
+the current `REVIEW.md` chunks (∪ dirty paths) only — no
+`reviewBaseRef`/`computeReviewBase` base resolution at all. (`refDiff` is also
+`undefined` on the harvest path for the same frontier-at-HEAD reason, so scope
+comes from REVIEW.md chunk references ∪ dirty paths.) It never depends on a base
+ref resolving, behaves identically in the fixtures and the real repo, and avoids
+reordering `computeReviewBase`. Accepted trade-off: harvest is tied to
+`REVIEW.md` existing, which is correct since `!!` harvest only runs on the
+review path.
