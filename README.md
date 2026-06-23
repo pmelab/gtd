@@ -144,7 +144,7 @@ state per run:
 ```mermaid
 flowchart TD
     Start([Invoke /gtd]) --> Resolve{Fold history + working tree}
-    Resolve -->|ERRORS.md present or fix\(gtd\): run hit 3| Escalate[escalate: stop, ask human]:::terminal
+    Resolve -->|"ERRORS.md present or fix(gtd): run hit 3"| Escalate[escalate: stop, ask human]:::terminal
     Resolve -->|REVIEW.md ticks only, no !!| CloseReview[close-review: close approved review]:::terminal
     Resolve -->|change outside TODO.md/REVIEW.md| CodeChanges[code-changes: git add -A, commit]
     Resolve -->|REVIEW.md notes, or approved + !!| ReviewProcess[review-process]:::terminal
@@ -165,7 +165,7 @@ flowchart TD
     HumanReviewTest -->|red, below cap| FixTests
     HumanReviewTest -->|red, at cap| Escalate
     Resolve -->|nothing left| Verified[verified: healthy & reviewed]:::terminal
-    FixTests -.->|on success: one fix\(gtd\): commit, re-run /gtd| Resolve
+    FixTests -.->|"on success: one fix(gtd): commit, re-run /gtd"| Resolve
     HumanReview -.->|user works REVIEW.md, next /gtd| ReviewProcess
     CloseReview -.->|auto re-run| Verified
     classDef terminal fill:#2d6a4f,color:#fff
