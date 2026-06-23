@@ -228,6 +228,37 @@ Feature: Review workflow
     And stdout contains "## Task: Commit the uncommitted changes"
     And stdout does not contain "chore(gtd): close approved review"
 
+  Scenario: code-changes prompt preserves REVIEW.md by unstaging it
+    Given a test project
+    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      - [ ] ./src/foo.ts#1
+      """
+    And "REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      Looks good so far.
+
+      - [ ] ./src/foo.ts#1
+      """
+    And a file "src/app.ts" with:
+      """
+      export function app() {}
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Commit the uncommitted changes"
+    And stdout contains "git restore --staged REVIEW.md"
+
   Scenario: Error when base comment is missing from REVIEW.md
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
