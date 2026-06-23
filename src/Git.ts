@@ -19,6 +19,7 @@ export interface GitOperations {
   readonly commitCount: (base: string) => Effect.Effect<number, Error>
   readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
   readonly commitSubjects: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
+  readonly commitMessages: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly showHead: (path: string) => Effect.Effect<string, Error>
   readonly grepBang: (pathspec: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<BangComment>, Error>
 }
@@ -195,6 +196,24 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
                   .split("\n")
                   .map((l) => l.trim())
                   .filter((l) => l.length) as ReadonlyArray<string>,
+            ),
+            // Empty repo (no HEAD) makes `git log` fail; treat as no commits.
+            Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),
+          )
+        },
+
+        commitMessages: (base?: string) => {
+          const args: [string, ...Array<string>] =
+            base !== undefined
+              ? ["git", "log", "--first-parent", "--reverse", "--format=%B%x00", `${base}..HEAD`]
+              : ["git", "log", "--first-parent", "--reverse", "--format=%B%x00"]
+          return exec(...args).pipe(
+            Effect.map(
+              (out) =>
+                out
+                  .split("\0")
+                  .map((m) => m.trim())
+                  .filter((m) => m.length > 0) as ReadonlyArray<string>,
             ),
             // Empty repo (no HEAD) makes `git log` fail; treat as no commits.
             Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),

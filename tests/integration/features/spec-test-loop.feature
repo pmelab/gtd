@@ -128,3 +128,20 @@ Feature: Test/fix loop with bounded, memory-retaining escalation
     And stdout contains "Escalate to the human"
     And stdout contains "no progress"
     And stdout does not contain "## Test gate failed"
+
+  Scenario: Plain fix(gtd) feature commits (no trailer) with a green test gate do not escalate
+    Given a test project
+    And a default branch "main"
+    And a branch "feature"
+    And a commit "chore: add package.json" that adds "package.json" with:
+      """
+      { "scripts": { "test": "exit 0" } }
+      """
+    And a plain fix(gtd) feature commit "fix(gtd): plain feature fix 1"
+    And a plain fix(gtd) feature commit "fix(gtd): plain feature fix 2"
+    And a plain fix(gtd) feature commit "fix(gtd): plain feature fix 3"
+    And a plain fix(gtd) feature commit "fix(gtd): plain feature fix 4"
+    And a plain fix(gtd) feature commit "fix(gtd): plain feature fix 5"
+    When I run gtd
+    Then it succeeds
+    And stdout does not contain "Escalate to the human"

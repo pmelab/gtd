@@ -55,10 +55,20 @@ Given("a branch {string}", function (this: GtdWorld, branch: string) {
   execFileSync("git", ["checkout", "-b", branch], { cwd: this.repoDir, stdio: "pipe" })
 })
 
-// Creates a single empty `fix(gtd):` commit so the verify-loop counter advances
-// by exactly one. Empty keeps the working tree clean so the cap/escalate guards
-// (which sit behind codeDirty) are the ones under test.
+// Creates a single empty `fix(gtd):` commit WITH a `Gtd-Test-Fix:` trailer so
+// the verify-loop counter advances by exactly one. Empty keeps the working tree
+// clean so the cap/escalate guards (which sit behind codeDirty) are the ones
+// under test.
 Given("a fix\\(gtd) commit {string}", function (this: GtdWorld, message: string) {
+  execFileSync("git", ["commit", "--allow-empty", "-q", "-m", message, "-m", "Gtd-Test-Fix: 1"], {
+    cwd: this.repoDir,
+    stdio: "pipe",
+  })
+})
+
+// Creates an empty `fix(gtd):` commit WITHOUT the `Gtd-Test-Fix:` trailer.
+// This simulates a plain feature commit that should NOT advance the verify counter.
+Given("a plain fix\\(gtd) feature commit {string}", function (this: GtdWorld, message: string) {
   execFileSync("git", ["commit", "--allow-empty", "-q", "-m", message], {
     cwd: this.repoDir,
     stdio: "pipe",

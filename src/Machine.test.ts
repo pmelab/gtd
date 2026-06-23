@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { type GtdEvent, MAX_VERIFY_ITERATIONS, type ResolvePayload, resolve } from "./Machine.js"
 
-const commit = (isFixGtd: boolean): GtdEvent => ({ type: "COMMIT", isFixGtd })
+const commit = (isTestFix: boolean): GtdEvent => ({ type: "COMMIT", isTestFix })
 
 const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
   errorsPresent: false,
@@ -35,7 +35,7 @@ describe("resolve — COMMIT counter folding", () => {
     expect(context.verifyIterations).toBe(0)
   })
 
-  it("N trailing isFixGtd:true → N", () => {
+  it("N trailing isTestFix:true → N", () => {
     const { context } = resolve([commit(true), commit(true), commit(true)])
     expect(context.verifyIterations).toBe(3)
   })

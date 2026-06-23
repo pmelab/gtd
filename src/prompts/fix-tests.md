@@ -18,9 +18,17 @@ The rule: **only commit on success or escalation** — never commit a
 half-finished attempt.
 
 - **On success** (tests green): commit **all** the fix changes in a single
-  `fix(gtd): <desc>` commit and delete the uncommitted `ERRORS.md`. Do **not**
-  commit `TODO.md` — leave it dirty (the working tree should end with only
-  `TODO.md` pending, or otherwise clean).
+  commit with the `fix(gtd): <desc>` subject **and** a `Gtd-Test-Fix: <n>`
+  trailer in the body (where `<n>` is the current attempt number, starting at
+  1):
+  ```
+  git commit -m "fix(gtd): <desc>" -m "Gtd-Test-Fix: <n>"
+  ```
+  The `Gtd-Test-Fix:` trailer — **not** the `fix(gtd):` subject — is the
+  signal the verify/escalate gate counts; it is load-bearing and **must always
+  be present** on a test-fix success commit. Then delete the uncommitted
+  `ERRORS.md`. Do **not** commit `TODO.md` — leave it dirty (the working tree
+  should end with only `TODO.md` pending, or otherwise clean).
 - **On escalation** (3 attempts exhausted or no progress): commit `ERRORS.md`
   with the full attempt log so the next cycle stops at the human gate.
 

@@ -55,7 +55,7 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 
 | Leaf state       | When it wins (first matching guard, top to bottom)                                              | Prompt                                                                                                                                                                                       |
 | ---------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `escalate`       | A committed `ERRORS.md` is present, OR the trailing `fix(gtd):` run hit the cap                 | Stop; surface the failure, keep `ERRORS.md` as the human gate                                                                                                                                |
+| `escalate`       | A committed `ERRORS.md` is present, OR the trailing run of `Gtd-Test-Fix:`-trailer commits hit the cap | Stop; surface the failure, keep `ERRORS.md` as the human gate                                                                                                                                |
 | `close-review`   | `REVIEW.md` dirty with ONLY forward checkbox ticks, nothing else, **and no `!!` comment**       | Discard ticks, delete `REVIEW.md`, commit the close                                                                                                                                          |
 | `code-changes`   | Any uncommitted change outside `TODO.md` **and** `REVIEW.md` (verbatim-first)                   | Commit everything with `git add -A` (leaving `TODO.md` for the planning phase)                                                                                                               |
 | `review-process` | `REVIEW.md` dirty with notes/ticks (no outside code), or an approved review with a `!!` comment | Commit raw feedback verbatim, then synthesize `TODO.md`; harvest `!!` comments (not plain `TODO:`)                                                                                            |
@@ -74,8 +74,8 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 > machine's resolved leaf states — it is selected in the Effect edge (keyed off
 > the resolved leaf + the test exit code) when the hardcoded `npm run test`
 > fails on the `human-review` or `execute` path. It embeds the captured failure
-> output and instructs the agent to make exactly ONE `fix(gtd): <desc>` commit,
-> then re-run gtd so the gate re-evaluates.
+> output and instructs the agent to make exactly ONE `fix(gtd): <desc>` commit
+> (with a `Gtd-Test-Fix: <n>` trailer), then re-run gtd so the gate re-evaluates.
 
 > **Review base**: the closest-to-HEAD of {parent-branch merge-base, last
 > `<!-- base: … -->` review commit, last `chore(gtd): close approved review`
@@ -87,12 +87,13 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 > uncommitted `ERRORS.md` attempt log, make one fix, re-run, append the attempt,
 > repeat up to **3** (the hardcoded `MAX_VERIFY_ITERATIONS` — **not** overridable
 > via `.gtdrc`). Nothing is committed per attempt; only on success (a single
-> `fix(gtd): <desc>` commit, `ERRORS.md` discarded) or on escalation (`ERRORS.md`
-> committed as the human gate). The trailing run of `fix(gtd):` commits at HEAD
-> is also counted in the Effect edge; reaching the cap, a recurring failure
-> signature, or a committed `ERRORS.md` all resolve to `escalate`. Any
-> non-`fix(gtd):` commit resets the counter to 0; deleting `ERRORS.md` clears the
-> gate. `src/Machine.ts` stays pure/IO-free.
+> `fix(gtd): <desc>` commit carrying a `Gtd-Test-Fix: <n>` trailer, `ERRORS.md`
+> discarded) or on escalation (`ERRORS.md` committed as the human gate). The
+> trailing run of commits carrying a `Gtd-Test-Fix:` trailer at HEAD is counted in
+> the Effect edge; reaching the cap, a recurring failure signature, or a committed
+> `ERRORS.md` all resolve to `escalate`. Any commit WITHOUT a `Gtd-Test-Fix:`
+> trailer resets the counter to 0; deleting `ERRORS.md` clears the gate.
+> `src/Machine.ts` stays pure/IO-free.
 
 > **Deterministic test execution**: when the fold lands on `human-review` or
 > `execute`, gtd runs the test suite **itself** in the Effect edge — not the
@@ -187,7 +188,7 @@ state per run:
 ```mermaid
 flowchart TD
     Start([Invoke /gtd]) --> Resolve{Fold history + working tree}
-    Resolve -->|"ERRORS.md present or fix(gtd): run hit 3"| Escalate[escalate: stop, ask human]:::terminal
+    Resolve -->|"ERRORS.md present or Gtd-Test-Fix: trailer run hit 3"| Escalate[escalate: stop, ask human]:::terminal
     Resolve -->|REVIEW.md ticks only, no !!| CloseReview[close-review: close approved review]:::terminal
     Resolve -->|change outside TODO.md/REVIEW.md| CodeChanges[code-changes: git add -A, commit]
     Resolve -->|REVIEW.md notes, or approved + !!| ReviewProcess[review-process]:::terminal
@@ -208,7 +209,7 @@ flowchart TD
     HumanReviewTest -->|red, below cap| FixTests
     HumanReviewTest -->|red, at cap| Escalate
     Resolve -->|nothing left| Verified[verified: healthy & reviewed]:::terminal
-    FixTests -.->|"on success: one fix(gtd): commit, re-run /gtd"| Resolve
+    FixTests -.->|"on success: one fix(gtd): commit (Gtd-Test-Fix: trailer), re-run /gtd"| Resolve
     HumanReview -.->|user works REVIEW.md, next /gtd| ReviewProcess
     CloseReview -.->|auto re-run| Verified
     classDef terminal fill:#2d6a4f,color:#fff
@@ -238,7 +239,8 @@ A typical feature:
    cycle's edge runs `npm run test` to verify the package just committed.
 7. Repeat `/gtd` for each remaining package — one package per cycle, each
    cycle's edge verifying the previous commit. A red test run emits the
-   fix-tests prompt (one `fix(gtd):` fix per cycle) until green or the cap
+   fix-tests prompt (one `fix(gtd):` fix per cycle, each carrying a
+   `Gtd-Test-Fix:` trailer) until green or the cap
    escalates. On the **last** package the execute prompt also removes the empty
    `.gtd/` in the same commit, so cleanup is normally skipped.
 8. With `.gtd/` already gone, the next `/gtd` proceeds straight to human-review
@@ -246,8 +248,9 @@ A typical feature:
    If un-reviewed commits exist relative to the base (parent-branch merge-base
    or last review commit), it resolves to human-review and **runs the test suite
    itself**: on green it auto-generates `REVIEW.md` and stops for you to review
-   it; on red it emits the fix-tests prompt (one fix per cycle, committed as
-   `fix(gtd):`) or, once the iteration cap is reached, `escalate`. If everything
+   it; on red it emits the fix-tests prompt (one `fix(gtd): <desc>` commit per
+   cycle carrying a `Gtd-Test-Fix:` trailer) or, once the iteration cap is
+   reached, `escalate`. If everything
    is already reviewed, it reports the tree healthy and fully reviewed
    (verified).
 9. Work `REVIEW.md` (tick boxes, leave notes, edit source, drop `!!` comments)
@@ -260,10 +263,20 @@ A typical feature:
 
 > If the test gate keeps failing, the fix-tests prompt loops internally up to
 > **3** attempts, tracking what was tried in an uncommitted `ERRORS.md`, and only
-> commits on success (`fix(gtd): <desc>`) or escalation (`ERRORS.md` committed).
-> Reaching the cap, a recurring failure signature, or a committed `ERRORS.md` all
-> resolve to `escalate`. Commit a fix with any non-`fix(gtd):` prefix to reset
-> the counter, and delete `ERRORS.md` to clear the gate.
+> commits on success (`fix(gtd): <desc>` with a `Gtd-Test-Fix:` trailer) or
+> escalation (`ERRORS.md` committed). The counted signal is the trailing run of
+> commits carrying a `Gtd-Test-Fix:` trailer at HEAD. Reaching the cap, a
+> recurring failure signature, or a committed `ERRORS.md` all resolve to
+> `escalate`. Any commit without a `Gtd-Test-Fix:` trailer resets the counter to
+> 0; delete `ERRORS.md` to clear the gate.
+>
+> **BC note (upgrading mid-flight):** existing loops that have old markerless
+> `fix(gtd):` test-fix commits in history (before this change) may run up to 2
+> extra test-fix attempts in the current loop once, because those commits no
+> longer carry the trailer and therefore stop counting. There is no code
+> fallback. This is strictly safer — it can never escalate a green or
+> recoverable build early — and it never masks a real `ERRORS.md` escalation,
+> which is an independent guard.
 
 ## Build orchestration
 
@@ -331,9 +344,10 @@ A single execute cycle (green test gate):
 
 When that edge test run fails, the edge emits the `fix-tests` prompt instead:
 loop internally up to three attempts (tracked in an uncommitted `ERRORS.md`),
-committing only on success (`fix(gtd): <desc>`) or escalation. Three consecutive
-`fix(gtd):` commits, a recurring failure signature, or a committed `ERRORS.md`
-resolve to `escalate` and hand control back to the human.
+committing only on success (`fix(gtd): <desc>` with a `Gtd-Test-Fix:` trailer)
+or escalation. Three consecutive commits carrying a `Gtd-Test-Fix:` trailer, a
+recurring failure signature, or a committed `ERRORS.md` resolve to `escalate`
+and hand control back to the human.
 
 ### 3. Cleanup
 

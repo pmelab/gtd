@@ -72,7 +72,7 @@ export interface ResolvePayload {
 }
 
 export type GtdEvent =
-  | { type: "COMMIT"; isFixGtd: boolean }
+  | { type: "COMMIT"; isTestFix: boolean }
   | { type: "RESOLVE"; payload: ResolvePayload }
 
 export interface GtdContext {
@@ -153,7 +153,7 @@ const machine = setup({
     foldCommit: assign({
       verifyIterations: ({ context, event }) => {
         if (event.type !== "COMMIT") return context.verifyIterations
-        return event.isFixGtd ? context.verifyIterations + 1 : 0
+        return event.isTestFix ? context.verifyIterations + 1 : 0
       },
     }),
     applyPayload: assign(({ event }) => {

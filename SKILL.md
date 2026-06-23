@@ -111,10 +111,11 @@ When a plan is finalized (no open questions), gtd enters build mode:
 > the `fix-tests` prompt with the captured output embedded. The fix-tests prompt
 > loops internally (tracking attempts in an uncommitted `ERRORS.md`), committing
 > only on success or escalation. The test-fix iteration cap is **not**
-> configurable: the edge counts the trailing run of `fix(gtd):` commits at HEAD
-> and, once it reaches a fixed **3** — or a committed `ERRORS.md` is present, or
-> a failure signature recurs — resolves to `escalate` instead of fix-tests. Any
-> retry guidance in the prompts is advisory only.
+> configurable: the edge counts the trailing run of commits carrying a
+> `Gtd-Test-Fix:` trailer at HEAD and, once it reaches a fixed **3** — or a
+> committed `ERRORS.md` is present, or a failure signature recurs — resolves to
+> `escalate` instead of fix-tests. Any retry guidance in the prompts is advisory
+> only.
 
 ## States
 
@@ -123,7 +124,8 @@ folding the commit history + working tree through guards evaluated in priority
 order:
 
 - `escalate` — a committed `ERRORS.md` is present, or the trailing run of
-  `fix(gtd):` commits hit 3; stop and hand off to the human
+  commits carrying a `Gtd-Test-Fix:` trailer hit 3; stop and hand off to the
+  human
 - `close-review` — `REVIEW.md` has only forward checkbox ticks
   (`- [ ]`→`- [x]`) and no `!!` comment; discard the ticks, delete `REVIEW.md`,
   commit the close (becomes the new review base so the next run is `verified`)
@@ -158,8 +160,10 @@ order:
 never appears in the machine's resolved leaf set) when the hardcoded
 `npm run test` fails on the `human-review` or `execute` path. The prompt embeds
 the captured failure output and instructs exactly ONE `fix(gtd): <desc>` commit
-followed by a re-run; the cap-vs-escalate decision is made in the edge before
-this prompt is emitted.
+with a `Gtd-Test-Fix: <n>` trailer, followed by a re-run; the `Gtd-Test-Fix:`
+trailer is the counted signal — not the subject prefix — and any commit without
+it resets the counter to 0; the cap-vs-escalate decision is made in the edge
+before this prompt is emitted.
 
 ## Review
 

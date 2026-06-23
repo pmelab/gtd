@@ -32,6 +32,25 @@ afterEach(() => {
   rmSync(repoDir, { recursive: true, force: true })
 })
 
+describe("COMMIT event isTestFix flag — Gtd-Test-Fix trailer detection", () => {
+  const isTestFix = (message: string) => /^Gtd-Test-Fix:/m.test(message)
+
+  it("trailer on its own body line → true", () => {
+    const msg = "feat: add thing\n\nSome body text.\n\nGtd-Test-Fix: 1\n"
+    expect(isTestFix(msg)).toBe(true)
+  })
+
+  it("bare fix(gtd): subject with no trailer → false", () => {
+    const msg = "fix(gtd): repair broken test\n"
+    expect(isTestFix(msg)).toBe(false)
+  })
+
+  it("trailer embedded mid-line (not at line start) → false", () => {
+    const msg = "feat: thing\n\nSee Gtd-Test-Fix: info here\n"
+    expect(isTestFix(msg)).toBe(false)
+  })
+})
+
 describe("getPackages — inlined task contents + commit-msg flag", () => {
   it("reads raw task content sorted to match tasks and sets hasCommitMsg", async () => {
     const pkgDir = join(repoDir, ".gtd", "01-foo")

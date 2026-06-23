@@ -192,10 +192,10 @@ export const gatherEvents = (): Effect.Effect<
       ? yield* git.mergeBase(defaultBranch.value, "HEAD")
       : Option.none<string>()
 
-    const subjects = yield* git.commitSubjects(Option.getOrUndefined(base))
-    const commitEvents: Array<GtdEvent> = subjects.map((subject) => ({
+    const messages = yield* git.commitMessages(Option.getOrUndefined(base))
+    const commitEvents: Array<GtdEvent> = messages.map((message) => ({
       type: "COMMIT",
-      isFixGtd: /^fix\(gtd\):/.test(subject),
+      isTestFix: /^Gtd-Test-Fix:/m.test(message),
     }))
 
     // --- RESOLVE payload (working-tree snapshot) -----------------------------
