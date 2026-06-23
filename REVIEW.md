@@ -15,10 +15,10 @@ subagent-spawning states — unknown keys (e.g. `fix-tests`) fail decode rather
 than being stripped. `resolveModel(state)` resolves state-override → tier →
 built-in (Opus/Sonnet). Adds `cosmiconfig` to dependencies.
 
-- [ ] ./src/Config.ts#1
-- [ ] ./src/Config.test.ts#1
-- [ ] ./package.json#1
-- [ ] ./package-lock.json#1
+- [x] ./src/Config.ts#1
+- [x] ./src/Config.test.ts#1
+- [x] ./package.json#1
+- [x] ./package-lock.json#1
 
 ## Drive the test gate from configurable testCommand
 
@@ -28,9 +28,9 @@ of the hardcoded `npm run test`. `main.ts` provides `ConfigService.Live` at the
 composition root so the dependency stays composable. Default behavior is
 preserved when no config exists.
 
-- [ ] ./src/TestRunner.ts#18
-- [ ] ./src/main.ts#23
-- [ ] ./src/TestRunner.test.ts#1
+- [x] ./src/TestRunner.ts#18
+- [x] ./src/main.ts#23
+- [x] ./src/TestRunner.test.ts#1
 
 ## Inject resolved model names into prompts
 
@@ -42,25 +42,29 @@ for model preferences" prose in favor of the injected model directive.
 `header.md` loses its two-tier explainer; `fix-tests` (no subagent) gets no
 injection and no placeholder leaks.
 
-- [ ] ./src/Prompt.ts#15
-- [ ] ./src/Prompt.ts#149
-- [ ] ./src/Prompt.test.ts#1
-- [ ] ./src/prompts/header.md#1
-- [ ] ./src/prompts/new-todo.md#19
-- [ ] ./src/prompts/modified-todo.md#22
-- [ ] ./src/prompts/decompose.md#8
-- [ ] ./src/prompts/execute.md#11
-- [ ] ./src/prompts/execute-simple.md#8
+- [x] ./src/Prompt.ts#15
+- [x] ./src/Prompt.ts#149
+- [x] ./src/Prompt.test.ts#1
+- [x] ./src/prompts/header.md#1
+- [x] ./src/prompts/new-todo.md#19
+- [x] ./src/prompts/modified-todo.md#22
+- [x] ./src/prompts/decompose.md#8
+- [x] ./src/prompts/execute.md#11
+- [x] ./src/prompts/execute-simple.md#8
 
 ## Test-command discovery prose points at .gtdrc
 
 Prompts that tell an agent to determine the test command now note the `.gtdrc`
 `testCommand` takes precedence before falling back to package.json/Makefile.
 
-- [ ] ./src/prompts/execute-simple.md#41
-- [ ] ./src/prompts/close-review.md#1
-- [ ] ./src/prompts/verified.md#1
-- [ ] ./src/prompts/escalate.md#1
+- [x] ./src/prompts/execute-simple.md#41
+- [x] ./src/prompts/close-review.md#1
+- [x] ./src/prompts/verified.md#1
+- [x] ./src/prompts/escalate.md#1
+
+> the prompts should not instruct the agent to read the test command from
+> .gtdrc, but should just print it right into the prompt. like with models
+> above.
 
 ## Docs: document the config system
 
@@ -69,8 +73,8 @@ README.md and SKILL.md replace the AGENTS.md model-preferences sections with a
 use case, innermost-wins precedence, overridable testCommand, built-in
 defaults).
 
-- [ ] ./README.md#1
-- [ ] ./SKILL.md#1
+- [x] ./README.md#1
+- [x] ./SKILL.md#1
 
 ## E2E coverage + bundle rebuild
 
@@ -82,9 +86,9 @@ content-exposing Given steps in `config.steps.ts`. `branches.feature` updates a
 stale `"planning model"` assertion to `"planning-model subagent"` (exposed once
 the bundle was rebuilt from current prompts).
 
-- [ ] ./tests/integration/features/config.feature#1
-- [ ] ./tests/integration/support/steps/config.steps.ts#1
-- [ ] ./tests/integration/features/branches.feature#82
+- [x] ./tests/integration/features/config.feature#1
+- [x] ./tests/integration/support/steps/config.steps.ts#1
+- [x] ./tests/integration/features/branches.feature#82
 
 ## Regenerated bundle
 
@@ -92,4 +96,4 @@ the bundle was rebuilt from current prompts).
 edited sources (now inlining cosmiconfig). Not reviewed line-by-line — note the
 bundle size grew substantially (cosmiconfig pulled in its default loaders).
 
-- [ ] ./scripts/gtd.js#1
+- [x] ./scripts/gtd.js#1
