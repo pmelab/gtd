@@ -15,7 +15,28 @@ import awaitReview from "./prompts/await-review.md"
 import awaitAnswers from "./prompts/await-answers.md"
 import fixTests from "./prompts/fix-tests.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
+import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdContext, GtdPackageFact, LeafState, ResolveResult } from "./Machine.js"
+
+/**
+ * The five leaf states whose prompts spawn subagents and therefore carry a
+ * `{{MODEL}}` placeholder. These coincide with `ModelState` from `Config.ts`.
+ */
+const MODEL_STATES = new Set<LeafState>([
+  "new-todo",
+  "modified-todo",
+  "decompose",
+  "execute",
+  "execute-simple",
+])
+
+/**
+ * Built-in resolver used when no caller-supplied resolver is given. Reuses the
+ * single source of truth in `Config.ts` (state→tier map + built-in tier
+ * defaults) so it can never drift from `ConfigService`'s defaults.
+ */
+const builtinResolveModel = (state: ModelState): string =>
+  builtinTierDefault[stateTier[state]]
 
 const SECTIONS: Record<LeafState, string> = {
   "new-todo": newTodo,
@@ -128,14 +149,21 @@ const renderPackage = (pkg: GtdPackageFact): string => {
   return lines.join("\n")
 }
 
-export const buildPrompt = (result: ResolveResult, override?: PromptOverride): string => {
+export const buildPrompt = (
+  result: ResolveResult,
+  override?: PromptOverride,
+  resolveModel: (state: ModelState) => string = builtinResolveModel,
+): string => {
   const parts: Array<string> = [header, "", buildContext(result.context)]
   if (override?.kind === "fix-tests") {
     const fence = fenceFor(override.testOutput)
     parts.push(fixTests, "", fence, override.testOutput.replace(/\n$/, ""), fence, "")
   } else {
     const value = result.value as LeafState
-    parts.push(SECTIONS[value], "")
+    const section = MODEL_STATES.has(value)
+      ? SECTIONS[value].replaceAll("{{MODEL}}", resolveModel(value as ModelState))
+      : SECTIONS[value]
+    parts.push(section, "")
     const selectedPackage = result.context.packages[0]
     if (value === "execute" && selectedPackage !== undefined) {
       parts.push(renderPackage(selectedPackage), "")

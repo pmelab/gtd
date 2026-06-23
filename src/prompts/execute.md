@@ -9,18 +9,15 @@ what you just committed.
 ### Orchestration
 
 You are running with a work model. You orchestrate the execution — you do not
-implement the tasks yourself. Spawn subagents for all implementation work.
-
-Check your user/project AGENTS.md for model preferences (e.g., "use sonnet for
-execution"). If no preference is set, use the current work model for execution
-subagents.
+implement the tasks yourself. Spawn subagents for all implementation work using
+model `{{MODEL}}`.
 
 ### Step 1: Spawn task workers
 
 Spawn **one subagent per task** — for each task in the task contents below,
 launch a **parallel subagent** with:
 
-- **Model**: The execution model from AGENTS.md (or current work model)
+- **Model**: `{{MODEL}}`
 - **TDD discipline** (inline rules for workers):
   - Write ONE test → implement → pass → repeat (vertical slices)
   - **DO NOT** write all tests first then implement (horizontal slicing)

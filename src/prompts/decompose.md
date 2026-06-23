@@ -5,10 +5,8 @@ decomposed into executable work packages.
 
 ### Orchestration
 
-You are running with a work model. Spawn a **planning-model subagent** to
-perform the decomposition. Check your user/project AGENTS.md for model
-preferences (e.g., "use opus for planning"). If no preference is set, default to
-a high-reasoning model like Claude Opus.
+You are running with a work model. Spawn a **planning-model subagent** using
+model `{{MODEL}}` to perform the decomposition.
 
 The subagent should create numbered directories in `.gtd/`, each representing a
 sequential work package:

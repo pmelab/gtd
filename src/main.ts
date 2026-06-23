@@ -23,6 +23,7 @@ const program = Effect.gen(function* () {
   if (sub !== undefined) {
     yield* Effect.fail(new Error(`unknown command '${sub}'`))
   }
+  const config = yield* ConfigService
   const result = yield* detect()
 
   // Test gate: only these leaves run the suite before emitting a prompt. The
@@ -37,12 +38,12 @@ const program = Effect.gen(function* () {
     const runner = yield* TestRunner
     const test = yield* runner.run()
     const { result: selected, override } = selectPrompt(result, test)
-    const prompt = buildPrompt(selected, override)
+    const prompt = buildPrompt(selected, override, config.resolveModel)
     yield* Effect.sync(() => process.stdout.write(prompt))
     return
   }
 
-  const prompt = buildPrompt(result)
+  const prompt = buildPrompt(result, undefined, config.resolveModel)
   yield* Effect.sync(() => process.stdout.write(prompt))
 })
 

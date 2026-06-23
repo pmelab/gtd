@@ -6,16 +6,14 @@ directly without decomposing into work packages.
 ### Orchestration
 
 You are running with a work model. You orchestrate the execution — you do not
-implement the task yourself. Spawn subagents for implementation and testing.
-
-Check your user/project AGENTS.md for model preferences (e.g., "use sonnet for
-execution"). If no preference is set, use the current work model.
+implement the task yourself. Spawn subagents for implementation and testing
+using model `{{MODEL}}`.
 
 ### Step 1: Spawn implementation worker
 
 Spawn ONE **execution-model subagent** with:
 
-- **Model**: The execution model from AGENTS.md (or current work model)
+- **Model**: `{{MODEL}}`
 - **TDD discipline** (inline rules for worker):
   - Write ONE test → implement → pass → repeat (vertical slices)
   - **DO NOT** write all tests first then implement (horizontal slicing)

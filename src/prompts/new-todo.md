@@ -16,10 +16,8 @@ A new `TODO.md` was created. It needs to be developed into a proper plan.
 
 ### Orchestration
 
-You are running with a work model. Spawn a **planning-model subagent** to
-develop the plan. Check your user/project AGENTS.md for model preferences (e.g.,
-"use opus for planning"). If no preference is set, default to a high-reasoning
-model like Claude Opus.
+You are running with a work model. Spawn a **planning-model subagent** using
+model `{{MODEL}}` to develop the plan.
 
 The subagent should:
 

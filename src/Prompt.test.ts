@@ -296,4 +296,123 @@ describe("buildPrompt", () => {
     })
     expect(out).toContain("````\nsee `code` and ```block``` here\n````")
   })
+
+  describe("model injection", () => {
+    const planningStates: ReadonlyArray<LeafState> = [
+      "new-todo",
+      "modified-todo",
+      "decompose",
+    ]
+    const executionStates: ReadonlyArray<LeafState> = ["execute", "execute-simple"]
+    const subagentStates = [...planningStates, ...executionStates]
+
+    for (const state of planningStates) {
+      it(`${state} emits the built-in planning model by default`, () => {
+        const out = buildPrompt(result(state, { autoAdvance: true }))
+        expect(out).toContain("claude-opus-4-8")
+        expect(out).not.toContain("{{MODEL}}")
+      })
+    }
+
+    for (const state of executionStates) {
+      it(`${state} emits the built-in execution model by default`, () => {
+        const out = buildPrompt(
+          result(state, {
+            autoAdvance: true,
+            context:
+              state === "execute"
+                ? {
+                    packages: [
+                      {
+                        name: "01-foo",
+                        tasks: ["01-task.md"],
+                        taskContents: [{ name: "01-task.md", content: "First task" }],
+                        hasCommitMsg: true,
+                      },
+                    ],
+                  }
+                : {},
+          }),
+        )
+        expect(out).toContain("claude-sonnet-4-8")
+        expect(out).not.toContain("{{MODEL}}")
+      })
+    }
+
+    for (const state of subagentStates) {
+      it(`${state} honors a custom resolveModel`, () => {
+        const out = buildPrompt(
+          result(state, {
+            autoAdvance: true,
+            context:
+              state === "execute"
+                ? {
+                    packages: [
+                      {
+                        name: "01-foo",
+                        tasks: ["01-task.md"],
+                        taskContents: [{ name: "01-task.md", content: "First task" }],
+                        hasCommitMsg: true,
+                      },
+                    ],
+                  }
+                : {},
+          }),
+          undefined,
+          (s) => `MODEL-FOR-${s}`,
+        )
+        expect(out).toContain(`MODEL-FOR-${state}`)
+        expect(out).not.toContain("{{MODEL}}")
+      })
+    }
+
+    it("a per-state override beats its tier default", () => {
+      const out = buildPrompt(
+        result("execute-simple", { autoAdvance: true }),
+        undefined,
+        (s) => (s === "execute-simple" ? "custom-simple-model" : "claude-sonnet-4-8"),
+      )
+      expect(out).toContain("custom-simple-model")
+      expect(out).not.toContain("claude-sonnet-4-8")
+    })
+
+    it("the five subagent prompts no longer carry the AGENTS.md model-preference prose", () => {
+      for (const state of subagentStates) {
+        const out = buildPrompt(
+          result(state, {
+            context:
+              state === "execute"
+                ? {
+                    packages: [
+                      {
+                        name: "01-foo",
+                        tasks: ["01-task.md"],
+                        taskContents: [{ name: "01-task.md", content: "First task" }],
+                        hasCommitMsg: true,
+                      },
+                    ],
+                  }
+                : {},
+          }),
+        )
+        expect(out).not.toContain("AGENTS.md for model preferences")
+      }
+    })
+
+    it("the dropped header prose is gone", () => {
+      const out = buildPrompt(result("verified"))
+      expect(out).not.toContain("AGENTS.md for model preferences")
+      expect(out).not.toContain("Check your user/project AGENTS.md")
+    })
+
+    it("fix-tests override carries no injected model and no {{MODEL}} leak", () => {
+      const out = buildPrompt(
+        result("execute"),
+        { kind: "fix-tests", testOutput: "boom" },
+        () => "SHOULD-NOT-APPEAR",
+      )
+      expect(out).not.toContain("{{MODEL}}")
+      expect(out).not.toContain("SHOULD-NOT-APPEAR")
+    })
+  })
 })
