@@ -1,72 +1,5 @@
 ---
-status: grilling
----
-
-## Open Questions
-
-### Are per-state model overrides actually actionable, given gtd only emits prompt text?
-
-**Critical mechanism question.** gtd does NOT spawn subagents or invoke any
-model itself. `src/main.ts:40,45` just does `process.stdout.write(prompt)` — the
-emitted text is read by a human or an outer orchestrating agent, which then
-decides what to run. There is no out-of-band channel (no `--model` flag passed
-to a runner, no SDK call). So a configured model name can only ever appear _as
-instruction text inside the prompt_ ("Spawn a planning-model subagent using
-`claude-opus-4-8`"). Whether that text actually changes which model runs depends
-entirely on the outer agent honoring it.
-
-Given that, two sub-decisions need user input:
-
-1. **Is prompt-text injection good enough for you?** I.e. config resolves a
-   model name and gtd writes it into the prompt as a directive the outer agent
-   should obey. (This is the only mechanism available without a much larger
-   change — gtd would have to grow an actual subagent-spawning runtime.) My
-   read: yes, this matches how the existing AGENTS.md prose already works (it's
-   all advisory text the agent is told to honor), so per-state config is just a
-   more-specific, deterministic version of the same directive. Confirm.
-
-2. **If prompt-text is the mechanism, are per-state overrides worth the schema
-   surface?** Only 5 of the 14 LeafStates reference a model at all today
-   (planning tier: `new-todo`, `modified-todo`, `decompose`; execution tier:
-   `execute`, `execute-simple`; plus the `fix-tests` override which is execution
-   tier). The other 9 states emit no model directive. So per-state config is
-   only meaningful for those ~6 phases. Confirm you want per-state granularity
-   for _those_ phases (and that the other 9 silently inherit nothing / are
-   model-agnostic), versus the simpler two-tier-only injection.
-
-### How far up does the walk go, and what is the stopDir?
-
-The answer to the search-chain question (cascade across worktrees in a shared
-non-git parent) means the walk must continue past the git root. cosmiconfig's
-`search()` walks cwd → ancestors and stops at `stopDir` (default = OS home dir).
-Proposed rule below is **stopDir = home dir** (so a `.gtdrc` in
-`~/projects/myapp-worktrees/` cascades to every worktree under it, and a
-`~/.gtdrc` is the topmost layer of the _same_ continuous walk). **Confirm**, or
-do you want the walk to go all the way to `/` (filesystem root)? Going to `/`
-risks picking up unrelated configs in shared-machine setups; home dir is the
-natural ceiling and unifies the "user layer" with the walk. Remaining ambiguity:
-if your worktree parent dir lives _outside_ your home dir (e.g. `/work/...` on a
-build box), a home-dir stopDir would never see a `.gtdrc` placed above home —
-flag if that's a real scenario for you, in which case stopDir = `/` is needed.
-
-### `.gtdrc` format/name and model-name format
-
-Two confirmations:
-
-1. **searchPlaces / module name.** cosmiconfig module name `gtd`. Proposed
-   `searchPlaces`: `.gtdrc`, `.gtdrc.json`, `.gtdrc.yaml`, `.gtdrc.yml`,
-   `gtd.config.json`, `gtd.config.yaml` (skip `.js`/`.cjs` loaders to keep the
-   single-file bundle lean and avoid `jiti`-style runtime eval). The user's
-   answer literally said `.gtdrc`, so that must be a supported name. Confirm the
-   set, especially whether you want YAML (a `yaml` dep is already present) and
-   whether `package.json#gtd` should be honored.
-2. **Model-name format.** Config can accept either concrete IDs
-   (`claude-opus-4-8`, as this repo's environment uses) or short aliases
-   (`opus`, `sonnet`). Proposed: accept any string verbatim and inject it as-is
-   into the prompt (no validation against a model registry — gtd can't know the
-   outer agent's available models). Confirm free-form string is acceptable, or
-   whether you want gtd to validate against a fixed allowlist.
-
+status: complete
 ---
 
 ## Plan: configuration system for gtd
@@ -98,16 +31,37 @@ merged with innermost (cwd) winning. Two configurable concerns to start:
   `src/prompts/header.md:5-10`, `decompose.md:8-11`, `new-todo.md:19-22`,
   `modified-todo.md:22-25`, `execute.md:11-23`, `execute-simple.md:8-18`. All
   instruct the agent to read AGENTS.md and fall back to Opus (planning) / Sonnet
-  (execution). The `fix-tests` override prompt is execution tier. Documented in
-  `SKILL.md:45-63` and `SKILL.md:109-114`, and `README.md:123-129`. No
-  structured model value exists anywhere.
+  (execution). Documented in `SKILL.md:45-63` and `SKILL.md:109-114`, and
+  `README.md:123-129`. No structured model value exists anywhere.
+- **Which prompts actually SPAWN a subagent** (verified by reading the prompt
+  files — this is the set that gets a per-state override key, per the user's
+  answer 1b "only the prompts that actually invoke subagents"):
+  - `new-todo.md:19` — "Spawn a **planning-model subagent**" → SPAWNS (planning)
+  - `modified-todo.md:22` — "Spawn a **planning-model subagent**" → SPAWNS
+    (planning)
+  - `decompose.md:8` — "Spawn a **planning-model subagent**" → SPAWNS (planning)
+  - `execute.md:18-21` — "Spawn **one subagent per task** … launch a **parallel
+    subagent**" → SPAWNS (execution, parallel workers)
+  - `execute-simple.md:16,34` — "Spawn ONE **execution-model subagent**"
+    (Step 1)
+    - a testing subagent (Step 2) → SPAWNS (execution). NOTE: the README phrase
+      "implements directly without decomposition" means it skips the
+      **work-package decomposition**, not that it skips subagents — it still
+      spawns an implementation worker and a testing subagent, so it is
+      **INCLUDED**.
+  - `fix-tests.md` — NO subagent spawn anywhere; the fix loop runs **inline in
+    the work model** ("Make exactly ONE fix, then re-run the tests"). Therefore
+    `fix-tests` is **EXCLUDED** from the per-state override set per answer 1b.
+  - `header.md` — shared boilerplate, not a per-state spawn site. So the
+    per-state override set is exactly **5** states: `new-todo`, `modified-todo`,
+    `decompose`, `execute`, `execute-simple`.
 - **LeafStates** (`src/Machine.ts:91-105`, 14 total): `close-review`,
   `review-process`, `await-review`, `code-changes`, `execute`, `cleanup`,
   `decompose`, `execute-simple`, `escalate`, `new-todo`, `modified-todo`,
-  `await-answers`, `human-review`, `verified`. Only **5** reference a model
-  today (planning: `new-todo`, `modified-todo`, `decompose`; execution:
-  `execute`, `execute-simple`), plus the `fix-tests` override (execution). The
-  other 9 are model-agnostic.
+  `await-answers`, `human-review`, `verified`. Only the **5** subagent-spawning
+  states above carry a model directive that the config injects; the `fix-tests`
+  override prompt names the test command but spawns no subagent, and the other 9
+  states are model-agnostic.
 - **Effect/service pattern** to mirror: `GitService` (`src/Git.ts:42-43`) and
   `TestRunner` (`src/TestRunner.ts:15-16`) — `Context.Tag` + `static Live`
   layer, wired with `Effect.provide` in `main.ts`. The repo's own AGENTS.md
@@ -158,54 +112,58 @@ every checkout under it automatically. Therefore:
 gtd emits prompt text only; it does not run models. A configured model name is
 realized by **substituting the resolved name into the emitted prompt** as a
 directive the outer agent/human is expected to honor (the same trust model the
-current AGENTS.md prose already relies on, made deterministic). `buildPrompt`
-(`src/Prompt.ts:131`) takes the resolved `models` config and, for each
-model-referencing section, injects the concrete name for that state. (See the
-open question on whether prompt-text injection is the acceptable mechanism and
-whether per-state granularity is worth it.)
+current AGENTS.md prose already relies on, made deterministic — confirmed
+acceptable by the user). `buildPrompt` (`src/Prompt.ts:131`) takes the resolved
+`models` config and, for each of the **5 subagent-spawning** prompts, injects
+the concrete name for that state. Prompts that spawn no subagent (`fix-tests`
+and the other 9 states) carry no model directive and no injection.
 
 ### Model schema: two base tiers + per-state overrides (decided)
 
-Two base tiers, `planning` and `execution`. Each model-referencing state
-defaults to one of the two tiers, and may be overridden individually.
+Two base tiers, `planning` and `execution`. Per-state override keys exist **only
+for the 5 states whose prompts actually spawn a subagent** (per the user's
+answer 1b). Each such state defaults to one of the two tiers and may be
+overridden individually. There is **no** `fix-tests` override key (its prompt
+runs inline, no subagent), and no keys for the other 9 model-agnostic states.
 
 ```yaml
 testCommand: "npm run test"
 models:
   planning: "claude-opus-4-8" # base tier: high-reasoning
   execution: "claude-sonnet-4-8" # base tier: everyday work
-  states: # optional per-state overrides; each defaults to its tier
-    new-todo: "claude-opus-4-8" # defaults to planning
-    modified-todo: "claude-opus-4-8" # defaults to planning
-    decompose: "claude-opus-4-8" # defaults to planning
-    execute: "claude-sonnet-4-8" # defaults to execution
-    execute-simple: "claude-sonnet-4-8" # defaults to execution
-    fix-tests: "claude-sonnet-4-8" # defaults to execution (override prompt)
+  states: # optional per-state overrides — ONLY the 5 subagent-spawning states
+    new-todo: "claude-opus-4-8" # planning subagent; defaults to planning
+    modified-todo: "claude-opus-4-8" # planning subagent; defaults to planning
+    decompose: "claude-opus-4-8" # planning subagent; defaults to planning
+    execute: "claude-sonnet-4-8" # parallel exec workers; defaults to execution
+    execute-simple: "claude-sonnet-4-8" # exec + test subagents; defaults to execution
 ```
 
-**Default tier mapping (the resolution table).** For each model-referencing
-state, the resolved model is: `models.states.<state>` if set, else its tier
-default below, else the built-in default for that tier.
+**Default tier mapping (the resolution table).** For each of the 5
+subagent-spawning states, the resolved model is: `models.states.<state>` if set,
+else its tier default below, else the built-in default for that tier.
 
-| State            | Tier      |
-| ---------------- | --------- |
-| `new-todo`       | planning  |
-| `modified-todo`  | planning  |
-| `decompose`      | planning  |
-| `execute`        | execution |
-| `execute-simple` | execution |
-| `fix-tests`      | execution |
+| State            | Tier      | Spawns                            |
+| ---------------- | --------- | --------------------------------- |
+| `new-todo`       | planning  | planning-model subagent           |
+| `modified-todo`  | planning  | planning-model subagent           |
+| `decompose`      | planning  | planning-model subagent           |
+| `execute`        | execution | one parallel worker per task      |
+| `execute-simple` | execution | implementation + testing subagent |
 
+`fix-tests` is intentionally absent: its prompt makes the fix **inline in the
+work model** and spawns no subagent, so there is nothing to direct a model at.
 The remaining 9 LeafStates (`cleanup`, `code-changes`, `escalate`,
 `human-review`, `verified`, `review-process`, `close-review`, `await-review`,
 `await-answers`) reference no model and get no injection.
 
 - `models`, `models.planning`, `models.execution`, and every `models.states.*`
-  key are all optional.
+  key are all optional. `models.states` accepts only the 5 keys above; the
+  schema rejects unknown keys (e.g. `fix-tests`) with a readable error.
 - Resolution per state: `states.<state>` → tier value (`planning`/`execution`) →
   built-in default.
 - Model-name value is a free-form string (concrete ID like `claude-opus-4-8` or
-  alias like `opus`), injected verbatim (see open question).
+  alias like `opus`), injected verbatim — no allowlist validation (confirmed).
 
 ### Built-in defaults / backward compatibility
 
@@ -225,16 +183,26 @@ must stop telling the agent to "check your user/project AGENTS.md for model
 preferences." Instead `buildPrompt` injects the resolved concrete model name per
 state. Concretely:
 
-- **Edit every model-referencing prompt** to drop the AGENTS.md directive and
-  instead carry a placeholder filled by `buildPrompt`:
-  - `src/prompts/header.md` (the general two-tier explanation, lines 5-10)
-  - `src/prompts/new-todo.md` (lines 19-22)
-  - `src/prompts/modified-todo.md` (lines 22-25)
-  - `src/prompts/decompose.md` (lines 8-11)
-  - `src/prompts/execute.md` (lines 11-23)
-  - `src/prompts/execute-simple.md` (lines 8-18)
-  - `src/prompts/fix-tests.md` (execution-tier override prompt) — inject the
-    `fix-tests` resolved model.
+- **Edit the prompts to drop the AGENTS.md model directive.** The 5
+  subagent-spawning prompts carry a placeholder filled by `buildPrompt` with the
+  per-state resolved model; `header.md` drops its two-tier AGENTS.md prose
+  (replaced by the concrete per-state injection downstream):
+  - `src/prompts/header.md` (the general two-tier explanation, lines 5-10) —
+    drop the "check AGENTS.md" prose; no per-state injection (shared
+    boilerplate).
+  - `src/prompts/new-todo.md` (lines 19-22) — inject `new-todo` model
+    (planning).
+  - `src/prompts/modified-todo.md` (lines 22-25) — inject `modified-todo` model
+    (planning).
+  - `src/prompts/decompose.md` (lines 8-11) — inject `decompose` model
+    (planning).
+  - `src/prompts/execute.md` (lines 11-23) — inject `execute` model (execution),
+    used by the parallel task workers.
+  - `src/prompts/execute-simple.md` (lines 8-18) — inject `execute-simple` model
+    (execution), used by the implementation + testing subagents.
+  - `src/prompts/fix-tests.md` — **NOT** edited for model injection: it spawns
+    no subagent (inline fix loop), so it has no model directive to replace. It
+    is only touched for the test-command note below.
 - **Drop the model-preferences sections** from docs:
   - `SKILL.md` "Model configuration" (lines 45-63) and the model-preferences
     bullet under "Configuration via AGENTS.md" (lines 109-114) — replace with a
@@ -252,19 +220,29 @@ state. Concretely:
 
 **`effect/Schema`** — typed decode + clear errors flowing through the Effect
 graph. Decode the merged plain object into a `Config` type, defaulting missing
-fields. `models.states` is an optional record keyed by the model-referencing
-state names. Invalid config fails the program with a readable message via the
+fields. `models.states` is an optional struct with exactly the 5
+subagent-spawning keys (`new-todo`, `modified-todo`, `decompose`, `execute`,
+`execute-simple`), each an optional string; unknown keys (including `fix-tests`)
+are rejected. Invalid config fails the program with a readable message via the
 existing `Effect.catchAll` in `main.ts:52`.
 
 ### Integration points
 
-1. **New `ConfigService`** (`src/Config.ts`): `Context.Tag` + `static Live`
-   layer that (a) enumerates the directory chain cwd→home (or `/`), loads every
-   `.gtdrc`-family file via cosmiconfig per level, deep-merges low→high, (b)
-   decodes via `effect/Schema`, (c) exposes resolved
-   `{ testCommand: string; resolveModel(state): string }` where `resolveModel`
-   applies the per-state → tier → built-in-default resolution. Follow the
-   `GitService` shape.
+1. **New `ConfigService`** (`src/Config.ts`, new file — does not exist yet):
+   `Context.Tag` + `static Live` layer (mirroring `GitService`/`TestRunner`)
+   that (a) builds a cosmiconfig explorer with module name `gtd` and
+   `searchPlaces` = `.gtdrc`, `.gtdrc.json`, `.gtdrc.yaml`, `.gtdrc.yml`,
+   `gtd.config.json`, `gtd.config.yaml` (no `.js`/`.cjs` loaders), with the YAML
+   loader backed by the already-present `yaml` dep; (b) enumerates the directory
+   chain from cwd up to and including **stopDir = the user's home dir**, runs
+   the explorer's per-directory load at each level, collects every hit and
+   deep-merges low→high (home < …ancestors… < worktree parent < repo root < cwd,
+   innermost wins); (c) decodes the merged object via `effect/Schema`; (d)
+   exposes resolved `{ testCommand: string; resolveModel(state): string }` where
+   `testCommand` defaults to `"npm run test"` and `resolveModel` applies the
+   per-state → tier → built-in-default resolution (built-in: planning → Opus,
+   execution → Sonnet) for the 5 subagent-spawning states. New unit test
+   `src/Config.test.ts` covering the merge precedence, defaults, and resolution.
 2. **`TestRunner`** (`src/TestRunner.ts`): depend on `ConfigService`, read
    `testCommand`, tokenize, pass to `Command.make` instead of the hardcoded
    literal. Update `src/TestRunner.test.ts` to cover the configured-command path
@@ -273,39 +251,52 @@ existing `Effect.catchAll` in `main.ts:52`.
    (`src/main.ts:48-58`). Thread the resolved config into `buildPrompt`.
 4. **Prompts / `buildPrompt`** (`src/Prompt.ts:131`): accept the config (or a
    `resolveModel` fn) and substitute the concrete per-state model name into the
-   model-referencing sections, replacing the removed AGENTS.md prose. Touch
-   `header.md`, `new-todo.md`, `modified-todo.md`, `decompose.md`, `execute.md`,
-   `execute-simple.md`, `fix-tests.md`.
+   5 subagent-spawning prompts, replacing the removed AGENTS.md prose: edit
+   `new-todo.md`, `modified-todo.md`, `decompose.md`, `execute.md`,
+   `execute-simple.md`, and drop the two-tier AGENTS.md prose from the shared
+   `header.md`. `fix-tests.md` gets **no** model injection (inline fix, no
+   subagent). Update `src/Prompt.test.ts` to assert the resolved per-state model
+   name appears in each of the 5 prompts.
 5. **Docs**: update `README.md` and `SKILL.md` — remove the AGENTS.md
    model-preferences sections, document the `.gtdrc` config file, schema
    (`testCommand`, `models.planning`/`execution`/`states.*`), the cwd→home
    cascade + worktree-parent use case, precedence (innermost wins), and that
    `testCommand` is now overridable. (Per global instructions: reflect the
    change in the README.)
-6. **Cucumber scenarios** (`tests/integration/`): composable Given steps — e.g.
-   "Given a gtd config file at `<dir>` with content `...`" placed at
+6. **Cucumber scenarios** — new feature file under `tests/integration/features/`
+   (e.g. `config.feature`) with step defs in `tests/integration/support/steps/`
+   (alongside `common.steps.ts`, `review.steps.ts`, `formatting.steps.ts`) and
+   any setup helper in `tests/integration/helpers/`. Composable Given steps —
+   e.g. "Given a gtd config file at `<dir>` with content `...`" placed at
    home/worktree-parent/repo-root/cwd levels — and scenarios proving the
    cwd→home cascade and innermost-wins merge, a `.gtdrc` in a shared parent
    cascading to two worktrees, a custom `testCommand` reaching the runner, and
    per-state + tier model names appearing in the right prompt sections (incl. a
-   per-state override beating its tier). Follow AGENTS.md testing conventions
-   (small reusable Given steps, real file content in scenario text, one step per
-   commit).
+   per-state override beating its tier, and `fix-tests` carrying NO injected
+   model). Follow AGENTS.md testing conventions (small reusable Given steps,
+   real file content in scenario text, one step per commit).
 
 ### Rough implementation outline
 
-1. Add `cosmiconfig` to `dependencies`; verify it bundles into `scripts/gtd.js`
-   (`npm run build`, then run the bundled CLI). Confirm no `.js`-loader eval
-   sneaks into the bundle.
-2. Define `effect/Schema` `Config` schema + built-in tier defaults + per-state
-   resolution table.
-3. Implement `ConfigService` (enumerate chain → load per level → deep-merge →
-   decode → expose `testCommand` + `resolveModel`).
-4. Wire into `main.ts`; make `TestRunner` consume `testCommand`.
-5. Thread `resolveModel` into `buildPrompt`; rewrite the 7 model-referencing
-   prompt files to use injected names instead of AGENTS.md prose.
-6. Update docs (README, SKILL.md); drop model-preferences sections.
-7. Add cucumber scenarios + unit tests.
+1. Add `cosmiconfig` to `dependencies`; configure its YAML loader against the
+   existing `yaml` dep and skip `.js`/`.cjs` loaders. Verify it bundles into
+   `scripts/gtd.js` (`npm run build`, then run the bundled CLI). Confirm no
+   `.js`-loader eval sneaks into the bundle.
+2. Define `effect/Schema` `Config` schema (free-form model strings,
+   `testCommand` default `"npm run test"`) + built-in tier defaults
+   (Opus/Sonnet) + per-state resolution table for the 5 subagent-spawning
+   states.
+3. Implement `ConfigService` (enumerate cwd→home chain → load per level →
+   deep-merge low→high → decode → expose `testCommand` + `resolveModel`) +
+   `src/Config.test.ts`.
+4. Wire `ConfigService.Live` into `main.ts`; make `TestRunner` consume
+   `testCommand` and update `src/TestRunner.test.ts`.
+5. Thread `resolveModel` into `buildPrompt`; rewrite the 5 subagent-spawning
+   prompt files to use injected names instead of AGENTS.md prose, drop the
+   header.md tier prose, and update `src/Prompt.test.ts`.
+6. Update docs (README, SKILL.md); drop the AGENTS.md model-preferences sections
+   and document the `.gtdrc` config file.
+7. Add cucumber `config.feature` + step defs.
 
 ## Resolved
 
@@ -397,6 +388,50 @@ fallback, or do you want config to fully replace it (and update SKILL.md to drop
 the AGENTS.md model-preferences section)?
 
 **Answer:** Replace. Structured config replaces the AGENTS.md model prose
-entirely. (Resolved into: rewrite the 7 model-referencing prompts to inject
-concrete names with built-in tier defaults baked into `ConfigService`, and drop
-the model-preferences sections from `SKILL.md` and `README.md`.)
+entirely. (Resolved into: rewrite the 5 subagent-spawning prompts to inject
+concrete names with built-in tier defaults baked into `ConfigService`, drop the
+two-tier prose from `header.md`, and drop the model-preferences sections from
+`SKILL.md` and `README.md`.)
+
+### Are per-state model overrides actually actionable, given gtd only emits prompt text?
+
+**Recommendation:** (1) prompt-text injection is the only available mechanism
+(gtd just `process.stdout.write`s the prompt; no runner/SDK channel), and it
+matches how the existing AGENTS.md prose already works — so it is acceptable;
+(2) per-state granularity is only meaningful for the states whose prompts emit a
+model directive.
+
+**Answer:** (1) "yes that is good enough" — prompt-text injection is acceptable.
+(2) "only the prompts that actually invoke subagents" — per-state override keys
+exist ONLY for the states whose prompts actually spawn a subagent. Verified by
+reading the prompts: `new-todo`, `modified-todo`, `decompose` (planning
+subagent), `execute` (parallel task workers), and `execute-simple`
+(implementation
+
+- testing subagents) → 5 keys. `fix-tests` runs its fix loop **inline in the
+  work model** with no subagent, so it is **excluded** (no override key, no
+  injection), as are the other 9 model-agnostic states. (Resolved into the 5-key
+  `models.states.*` schema and the resolution table above.)
+
+### How far up does the walk go, and what is the stopDir?
+
+**Recommendation:** stopDir = the user's home dir, so a `.gtdrc` in a shared
+worktree parent under home cascades to every checkout and `~/.gtdrc` is the top
+of the same continuous walk (rather than going all the way to `/`, which risks
+picking up unrelated configs).
+
+**Answer:** "yes, thats good" — stopDir = home dir. (Resolved into: walk cwd →
+home dir inclusive, merge all levels found, innermost wins.)
+
+### `.gtdrc` searchPlaces / module name and model-name format?
+
+**Recommendation:** cosmiconfig module name `gtd`; `searchPlaces` = `.gtdrc`,
+`.gtdrc.json`, `.gtdrc.yaml`, `.gtdrc.yml`, `gtd.config.json`, `gtd.config.yaml`
+(skip `.js`/`.cjs` loaders to keep the bundle lean); model names accepted as
+free-form strings injected verbatim (gtd can't know the outer agent's available
+models, so no allowlist).
+
+**Answer:** "both confirmed" — the proposed searchPlaces set is adopted (YAML
+backed by the existing `yaml` dep; no js/cjs loaders) and model names are
+free-form strings with no allowlist validation. (Resolved into the schema and
+`ConfigService` cosmiconfig setup above.)
