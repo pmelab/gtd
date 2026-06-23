@@ -131,8 +131,12 @@ Feature: `!!` comments are harvested into TODO.md; `TODO:` markers are not
       - [x] ./src/app.ts#1
       """
     When I run gtd
+    # The only edit is a forward tick, so this resolves to close-review — but
+    # ONLY because the out-of-scope `!!` in src/other.ts is NOT harvested. If it
+    # were (whole-tree grep), bangPresent would flip the approval to
+    # review-process, so close-review proves the scope holds.
     Then it succeeds
-    And stdout contains "# Process Review Feedback"
+    And stdout contains "## Task: Close the approved review"
     And stdout does not contain "xyzzy-sentinel-unreferenced-scope-check"
 
   Scenario: A plain `TODO:` marker is ordinary code and does not block conclusion
