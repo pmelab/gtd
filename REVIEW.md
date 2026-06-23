@@ -25,6 +25,10 @@ dirty working-tree paths — so gtd's own docs/fixtures are no longer harvested.
 - [ ] ./src/Events.ts#240
 - [ ] ./src/Events.ts#259
 
+> all comments have to be addressed, also potentially in other files, not
+> referenced in REVIEW.md . but it should be clear from the previous git commit
+> what was an actual review comment. older "!!" comments can be ignored.
+
 ## Bug 2 tests and docs
 
 A new `spec-harvest` scenario proves an out-of-scope, non-dirty `!!` comment is
