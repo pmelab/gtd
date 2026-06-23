@@ -5,8 +5,12 @@ import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
 
 /** The five planning/execution states a model can be resolved for. */
-// !! new-todo and modified-todo are both "grilling"
-export type ModelState = "new-todo" | "modified-todo" | "decompose" | "execute" | "execute-simple"
+export type ModelState =
+  | "new-todo"
+  | "modified-todo"
+  | "decompose"
+  | "execute"
+  | "execute-simple"
 
 /** Which tier a state belongs to. The single source of state→tier mapping. */
 export type ModelTier = "planning" | "execution"
@@ -64,7 +68,6 @@ export interface ConfigOperations {
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v)
 
-// !!  research if cosmiconfig has capabilities for merging already. if yes, remove this and rely on cosmiconfig alone (even if it does not 100% meet the requirements)
 const deepMerge = (
   base: Record<string, unknown>,
   inner: Record<string, unknown>,
@@ -99,9 +102,11 @@ const walkUp = (from: string, home: string): ReadonlyArray<string> => {
   return chain
 }
 
-const yamlLoader = (_filepath: string, content: string): unknown => parseYaml(content) as unknown
+const yamlLoader = (_filepath: string, content: string): unknown =>
+  parseYaml(content) as unknown
 
-const jsonLoader = (_filepath: string, content: string): unknown => JSON.parse(content) as unknown
+const jsonLoader = (_filepath: string, content: string): unknown =>
+  JSON.parse(content) as unknown
 
 const SEARCH_PLACES = [
   ".gtdrc",
@@ -144,7 +149,10 @@ const loadMerged = (): Effect.Effect<Record<string, unknown>> =>
       }
     }
 
-    return levels.reduce<Record<string, unknown>>((acc, level) => deepMerge(acc, level), {})
+    return levels.reduce<Record<string, unknown>>(
+      (acc, level) => deepMerge(acc, level),
+      {},
+    )
   })
 
 const toOperations = (decoded: DecodedConfig): ConfigOperations => {
@@ -165,14 +173,21 @@ const toOperations = (decoded: DecodedConfig): ConfigOperations => {
   }
 }
 
-export class ConfigService extends Context.Tag("ConfigService")<ConfigService, ConfigOperations>() {
+export class ConfigService extends Context.Tag("ConfigService")<
+  ConfigService,
+  ConfigOperations
+>() {
   static Live = Layer.effect(
     ConfigService,
     Effect.gen(function* () {
       const merged = yield* loadMerged()
       const decoded = yield* Schema.decodeUnknown(ConfigSchema)(merged, {
         onExcessProperty: "error",
-      }).pipe(Effect.mapError((e) => new Error(`Invalid gtd config: ${String(e.message ?? e)}`)))
+      }).pipe(
+        Effect.mapError(
+          (e) => new Error(`Invalid gtd config: ${String(e.message ?? e)}`),
+        ),
+      )
       return toOperations(decoded)
     }),
   )
