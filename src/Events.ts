@@ -1,6 +1,6 @@
 import { FileSystem } from "@effect/platform"
 import { Effect, Option } from "effect"
-import { type GitOperations, GitService } from "./Git.js"
+import { type BangComment, type GitOperations, GitService } from "./Git.js"
 import type { GtdEvent, GtdPackageFact, ResolvePayload } from "./Machine.js"
 
 /**
@@ -240,15 +240,16 @@ export const gatherEvents = (): Effect.Effect<
     const todoStatus = todoExists ? parseTodoStatus(stripped) : null
     const todoOpenQuestionsPresent = todoExists && hasOpenQuestions(stripped)
 
-    // Scan tracked source for `!!` follow-up comments (leftover review work).
-    const bangComments = yield* git.grepBang()
-    const bangPresent = bangComments.length > 0
-
     // REVIEW.md probing.
     let reviewModified = false
     let reviewUnmodified = false
     let reviewApprovedNoChanges = false
     let reviewBaseRef: string | undefined
+    // Scan tracked source for `!!` follow-up comments (leftover review work).
+    // Only harvested when REVIEW.md exists; scoped to its chunk-referenced files
+    // ∪ dirty working-tree paths (excluding REVIEW.md / TODO.md themselves).
+    let bangComments: ReadonlyArray<BangComment> = []
+    let bangPresent = false
     const reviewExists = yield* fs.exists(REVIEW_FILE)
     if (reviewExists) {
       reviewModified = entries.some((e) => e.path === REVIEW_FILE)
@@ -258,6 +259,18 @@ export const gatherEvents = (): Effect.Effect<
       const reviewContent = yield* fs
         .readFileString(REVIEW_FILE)
         .pipe(Effect.mapError((e) => new Error(String(e))))
+
+      // Build pathspec: REVIEW.md chunk refs ∪ dirty entries (excluding control files)
+      const chunkRefPaths = Array.from(
+        reviewContent.matchAll(/^- \[[ x]\] (\.\/[^\s#]+)/gm),
+        (m) => m[1]!.replace(/^\.\//, ""),
+      )
+      const dirtyPaths = codeEntries.map((e) => e.path)
+      const pathspecSet = new Set([...chunkRefPaths, ...dirtyPaths])
+      const pathspec = Array.from(pathspecSet)
+
+      bangComments = yield* git.grepBang(pathspec)
+      bangPresent = bangComments.length > 0
       const baseMatch = reviewContent.match(/<!--\s*base:\s*([a-f0-9]+)\s*-->/)
       if (!baseMatch) {
         yield* Effect.fail(

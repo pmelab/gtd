@@ -101,6 +101,40 @@ Feature: `!!` comments are harvested into TODO.md; `TODO:` markers are not
     And stdout contains "# Process Review Feedback"
     And stdout contains "this is probably fine but double-check the rounding"
 
+  Scenario: A `!!` comment in an unreferenced, non-dirty file is NOT harvested
+    Given a test project
+    And a commit "feat: app" that adds "src/app.ts" with:
+      """
+      export const app = () => 1
+      """
+    And a commit "feat: other" that adds "src/other.ts" with:
+      """
+      export const other = () => 2
+      // !! xyzzy-sentinel-unreferenced-scope-check
+      """
+    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## App
+
+      - [ ] ./src/app.ts#1
+      """
+    And "REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## App
+
+      - [x] ./src/app.ts#1
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "# Process Review Feedback"
+    And stdout does not contain "xyzzy-sentinel-unreferenced-scope-check"
+
   Scenario: A plain `TODO:` marker is ordinary code and does not block conclusion
     Given a test project
     And a commit "feat: app" that adds "src/app.ts" with:

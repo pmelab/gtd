@@ -20,7 +20,7 @@ export interface GitOperations {
   readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
   readonly commitSubjects: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly showHead: (path: string) => Effect.Effect<string, Error>
-  readonly grepBang: () => Effect.Effect<ReadonlyArray<BangComment>, Error>
+  readonly grepBang: (pathspec: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<BangComment>, Error>
 }
 
 /** A `!!` follow-up comment found in tracked source (any comment syntax). */
@@ -202,11 +202,15 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
         },
 
         // Scan tracked source for `!!` follow-up comments — a comment whose body
-        // begins with `!!`, in any language (`// !!`, `# !!`, `<!-- !!`). TODO.md
-        // and REVIEW.md are excluded so the tool's own control files never match.
-        // `git grep` exits 1 with no matches; treat that as the empty result.
-        grepBang: () =>
-          exec(
+        // begins with `!!`, in any language (`// !!`, `# !!`, `<!-- !!`). Scopes
+        // to the provided pathspec (REVIEW.md-referenced files ∪ dirty paths);
+        // TODO.md and REVIEW.md are excluded even when listed in the pathspec so
+        // the tool's own control files never match. An empty pathspec returns []
+        // immediately (never scans the whole tree). `git grep` exits 1 with no
+        // matches; treat that as the empty result.
+        grepBang: (pathspec: ReadonlyArray<string>) => {
+          if (pathspec.length === 0) return Effect.succeed([] as ReadonlyArray<BangComment>)
+          return exec(
             "git",
             "grep",
             "-nE",
@@ -214,6 +218,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             "--",
             ":!REVIEW.md",
             ":!TODO.md",
+            ...pathspec,
           ).pipe(
             Effect.map((out) =>
               out
@@ -234,7 +239,8 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
                 }),
             ),
             Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<BangComment>)),
-          ),
+          )
+        },
       }
     }),
   )

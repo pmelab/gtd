@@ -131,6 +131,8 @@ order:
   them verbatim (`git add -A`) before any gate is evaluated
 - `review-process` — `REVIEW.md` has notes (or an approved review carries a `!!`
   comment); fold the feedback into `TODO.md`, harvesting `!!` comments verbatim
+  from the files the current `REVIEW.md` references (its chunk references) plus
+  the dirty working tree — not the whole tracked tree
 - `await-review` — `REVIEW.md` is committed and unmodified; human gate, STOP
 - `execute` — `.gtd/` has work packages; the edge runs `npm run test` first
   (green → emit the named single next package with its task contents inlined, one
@@ -172,8 +174,9 @@ of the normal loop:
 2. The user edits `REVIEW.md` with feedback (and may edit source files to
    illustrate desired changes).
 3. **review-process**: On the next run gtd folds all feedback (comments, source
-   edits, and any `!!` follow-up comments in the reviewed code — not plain
-   `TODO:` markers) into a fresh `TODO.md`, resets the working tree, and commits
+   edits, and any `!!` follow-up comments in the files the current `REVIEW.md`
+   references plus the dirty working tree — not plain `TODO:` markers, and not
+   the whole tracked tree) into a fresh `TODO.md`, resets the working tree, and commits
    — restarting the loop. Changes outside `REVIEW.md`/`TODO.md` are committed
    verbatim first (`code-changes`).
 4. **close-review**: If the user only ticks checkboxes in `REVIEW.md` (marks

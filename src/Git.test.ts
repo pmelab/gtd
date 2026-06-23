@@ -352,6 +352,71 @@ describe("GitService", () => {
     })
   })
 
+  describe("grepBang", () => {
+    it("returns empty array when pathspec is empty (never whole-tree)", async () => {
+      writeFileSync(join(repoDir, "src.ts"), "// !! fix this\n")
+      git("add", "-A")
+      git('commit -m "feat: add src with bang"')
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.grepBang([])))
+      expect(result).toEqual([])
+    })
+
+    it("finds !! comment in specified file", async () => {
+      writeFileSync(join(repoDir, "src.ts"), "// !! handle edge case\n")
+      git("add", "-A")
+      git('commit -m "feat: add src"')
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.grepBang(["src.ts"])))
+      expect(result).toHaveLength(1)
+      expect(result[0]!.file).toBe("src.ts")
+      expect(result[0]!.text).toBe("handle edge case")
+    })
+
+    it("does not scan files outside the pathspec", async () => {
+      writeFileSync(join(repoDir, "a.ts"), "// !! fix a\n")
+      writeFileSync(join(repoDir, "b.ts"), "// !! fix b\n")
+      git("add", "-A")
+      git('commit -m "feat: add files"')
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.grepBang(["a.ts"])))
+      expect(result).toHaveLength(1)
+      expect(result[0]!.file).toBe("a.ts")
+    })
+
+    it("excludes REVIEW.md and TODO.md even when listed in pathspec", async () => {
+      writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n// !! do not harvest\n")
+      writeFileSync(join(repoDir, "TODO.md"), "# Todo\n// !! do not harvest\n")
+      git("add", "-A")
+      git('commit -m "feat: add control files"')
+
+      const result = await run(
+        Effect.flatMap(GitService, (g) => g.grepBang(["REVIEW.md", "TODO.md"])),
+      )
+      expect(result).toEqual([])
+    })
+
+    it("returns empty array when no !! comments exist in the specified files", async () => {
+      writeFileSync(join(repoDir, "clean.ts"), "// regular comment\n")
+      git("add", "-A")
+      git('commit -m "feat: add clean file"')
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.grepBang(["clean.ts"])))
+      expect(result).toEqual([])
+    })
+
+    it("parses line number and text correctly", async () => {
+      writeFileSync(join(repoDir, "app.ts"), "export const x = 1\n// !! check rounding\n")
+      git("add", "-A")
+      git('commit -m "feat: add app"')
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.grepBang(["app.ts"])))
+      expect(result).toHaveLength(1)
+      expect(result[0]!.line).toBe("2")
+      expect(result[0]!.text).toBe("check rounding")
+    })
+  })
+
   describe("commitCount distance comparison (integration of primitives)", () => {
     it("review commit is closer to HEAD than the merge-base with parent branch", async () => {
       // History layout:
