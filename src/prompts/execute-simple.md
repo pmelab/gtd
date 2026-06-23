@@ -36,7 +36,8 @@ After the worker completes, spawn ONE **testing subagent**:
 
 The testing subagent should:
 
-1. Determine the test command from project configuration (AGENTS.md,
+1. Determine the test command. The `.gtdrc` `testCommand` config takes
+   precedence if set; otherwise fall back to project configuration (AGENTS.md,
    `package.json` scripts, Makefile, etc.). If unclear, ask the user.
 2. Run the tests
 3. If tests fail, analyze failures and fix them

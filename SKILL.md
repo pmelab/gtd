@@ -42,25 +42,24 @@ resolves to a single active state.
    Anything that needs to be communicated to the user should come out of the
    actions the prompt describes, not from prefacing the prompt itself.
 
-## Model configuration
+## Configuration
 
-gtd uses two model tiers:
+gtd reads an optional `.gtdrc` config file (via cosmiconfig). Supported
+filenames: `.gtdrc`, `.gtdrc.json`, `.gtdrc.yaml`, `.gtdrc.yml`,
+`gtd.config.json`, `gtd.config.yaml`. Schema:
 
-- **Planning model**: High-reasoning (e.g., Claude Opus) for developing plans,
-  grilling on questions, and decomposing into work packages.
-- **Execution model**: Everyday work (e.g., Claude Sonnet) for implementing
-  tasks, running tests, and fixing failures.
+- **`testCommand`** (string) — command the edge runs to verify `human-review` /
+  `execute` (default `npm run test`). The test-fix cap stays fixed and is not
+  overridable.
+- **`models`** — `planning` (default `claude-opus-4-8`), `execution` (default
+  `claude-sonnet-4-8`), and `states.*` per-state overrides for the 5
+  subagent-spawning states (`new-todo`, `modified-todo`, `decompose`, `execute`,
+  `execute-simple`). Unknown `models.states` keys are rejected.
 
-Configure these in your `~/.pi/AGENTS.md` or project AGENTS.md:
-
-```markdown
-## Model preferences
-
-- Use Claude Opus for planning work
-- Use Claude Sonnet for execution work
-```
-
-If no preferences are set, the prompts include sensible defaults.
+Lookup walks from cwd up to the home dir (or filesystem root when cwd is outside
+home); all found levels merge, **innermost (cwd) wins**. A `.gtdrc` in a shared
+parent directory therefore cascades to every checkout/worktree beneath it. See
+the README for the full schema and an example.
 
 ## Build orchestration
 
@@ -106,17 +105,8 @@ When a plan is finalized (no open questions), gtd enters build mode:
   relevant file paths
 - **COMMIT_MSG.md**: Conventional commit message for the package
 
-## Configuration via AGENTS.md
-
-Advisory guidance comes from AGENTS.md files (user or project scope):
-
-- Model preferences (planning vs execution)
-- Test command (or inferred from package.json, Makefile, etc.)
-
-No separate config file needed.
-
 > **Note:** when the fold resolves to `human-review` or `execute`, the Effect
-> **edge** runs the hardcoded `npm run test` (no env/config override) before
+> **edge** runs the configured `testCommand` (default `npm run test`) before
 > emitting a prompt. On green it emits the leaf's normal prompt; on red it emits
 > the `fix-tests` prompt with the captured output embedded. The fix-tests prompt
 > loops internally (tracking attempts in an uncommitted `ERRORS.md`), committing

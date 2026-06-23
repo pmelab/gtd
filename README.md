@@ -63,10 +63,10 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 | `execute`        | `.gtd/` contains numbered work packages                                                         | Edge runs `npm run test` first; on green, name the single next package and inline its tasks (one subagent per task); on the last package also remove `.gtd/`; on red, fix-tests (or escalate) |
 | `cleanup`        | `.gtd/` exists but holds no packages                                                            | Remove empty `.gtd/`, then verify — vestigial safety net                                                                                                                                     |
 | `execute-simple` | `TODO.md` `status: simple` (≤5 files), or legacy `<!-- simple -->`                              | Implement the simple plan directly, no decomposition                                                                                                                                         |
-| `decompose`      | `TODO.md` `status: complete`                                                                     | Record `TODO.md`, then decompose into ordinal, dependency-ordered packages (planning model)                                                                                                  |
+| `decompose`      | `TODO.md` `status: complete`                                                                     | Record `TODO.md`, then decompose into ordinal, dependency-ordered packages                                                                                                  |
 | `await-answers`  | `TODO.md` `status: grilling`, committed, with open questions remaining                          | Human gate — wait for the user to answer the open questions; **STOP**                                                                                                                         |
 | `modified-todo`  | `TODO.md` `status: grilling` and edited, or a markerless `TODO.md` modified in place            | Incorporate edits, re-grill, move resolved Q&A to `## Resolved`, set `status:` when done                                                                                                     |
-| `new-todo`       | A markerless `TODO.md` (fresh sketch), committed or newly added                                 | Develop the plan: add `## Open Questions`, set `status: grilling` (planning model)                                                                                                           |
+| `new-todo`       | A markerless `TODO.md` (fresh sketch), committed or newly added                                 | Develop the plan: add `## Open Questions`, set `status: grilling`                                                                                                           |
 | `human-review`   | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff                         | Edge runs `npm run test`; on green generate `REVIEW.md`, on red fix-tests (or escalate)                                                                                                      |
 | `verified`       | Nothing else matched — tree clean, nothing left to review                                       | Report the working tree healthy and reviewed                                                                                                                                                 |
 
@@ -85,8 +85,8 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 
 > **Test-fix loop**: the fix-tests prompt drives an internal loop — read the
 > uncommitted `ERRORS.md` attempt log, make one fix, re-run, append the attempt,
-> repeat up to **3** (the hardcoded `MAX_VERIFY_ITERATIONS` — **not** configurable
-> via AGENTS.md). Nothing is committed per attempt; only on success (a single
+> repeat up to **3** (the hardcoded `MAX_VERIFY_ITERATIONS` — **not** overridable
+> via `.gtdrc`). Nothing is committed per attempt; only on success (a single
 > `fix(gtd): <desc>` commit, `ERRORS.md` discarded) or on escalation (`ERRORS.md`
 > committed as the human gate). The trailing run of `fix(gtd):` commits at HEAD
 > is also counted in the Effect edge; reaching the cap, a recurring failure
@@ -96,8 +96,9 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 
 > **Deterministic test execution**: when the fold lands on `human-review` or
 > `execute`, gtd runs the test suite **itself** in the Effect edge — not the
-> agent. It spawns the hardcoded `npm run test` (no env/config override for
-> now), captures stdout + stderr + the exit code, and branches the emitted
+> agent. It spawns the configured `testCommand` (defaults to `npm run test`; see
+> [Configuration](#configuration)), captures stdout + stderr + the exit code, and
+> branches the emitted
 > prompt on the result: a green run (exit 0) emits the leaf's normal prompt
 > (`REVIEW.md` generation / execute the next package); a red run emits the
 > `fix-tests` prompt with the captured output embedded (or `escalate` once the
@@ -118,23 +119,63 @@ and `.gtd/` plumbing that lets phases bridge across runs.
 Every prompt also includes the current `git diff HEAD` (untracked files
 included) inline.
 
-## Model configuration
+## Configuration
 
-gtd uses two model tiers, configured in your `~/.pi/AGENTS.md`:
+gtd reads an optional `.gtdrc` config file via
+[cosmiconfig](https://github.com/cosmiconfig/cosmiconfig). With no config, the
+built-in defaults apply. Supported filenames (searched in this order):
 
-```markdown
-## Model preferences
+- `.gtdrc`
+- `.gtdrc.json`
+- `.gtdrc.yaml`
+- `.gtdrc.yml`
+- `gtd.config.json`
+- `gtd.config.yaml`
 
-- Use Claude Opus for planning work
-- Use Claude Sonnet for execution work
+### Schema
+
+- **`testCommand`** (string) — the command gtd runs in the Effect edge to verify
+  the `human-review` and `execute` paths. Previously hardcoded to `npm run test`;
+  now overridable. (The per-edge test-fix cap — `MAX_VERIFY_ITERATIONS` — stays
+  fixed and is **not** overridable.)
+- **`models`** — model selection for subagent-spawning states:
+  - `planning` — high-reasoning model for developing plans, grilling, and
+    decomposing work packages.
+  - `execution` — everyday model for implementing tasks, running tests, fixing
+    failures.
+  - `states.*` — per-state overrides for the 5 subagent-spawning states:
+    `new-todo`, `modified-todo`, `decompose`, `execute`, `execute-simple`.
+    Unknown `models.states` keys (e.g. `fix-tests`) are **rejected**.
+
+### Defaults (no config)
+
+- `testCommand`: `npm run test`
+- `models.planning`: `claude-opus-4-8`
+- `models.execution`: `claude-sonnet-4-8`
+
+### Lookup and precedence
+
+gtd walks from the current working directory **up to your home directory** (or
+to the filesystem root when cwd is outside home), collecting every `.gtdrc` it
+finds along the way. All found levels are **merged**, with the **innermost (cwd)
+config winning** on conflicts.
+
+This makes the worktree-parent case easy: drop a single `.gtdrc` in a shared
+parent directory and it cascades to **all** checkouts/worktrees beneath it,
+while any individual checkout can still override settings with its own `.gtdrc`.
+
+### Example
+
+```yaml
+# .gtdrc.yaml
+testCommand: pnpm test
+models:
+  planning: claude-opus-4-8
+  execution: claude-sonnet-4-8
+  states:
+    decompose: claude-opus-4-8
+    execute: claude-sonnet-4-8
 ```
-
-- **Planning model**: High-reasoning for developing plans, grilling, and
-  decomposing work packages
-- **Execution model**: Everyday work for implementing tasks, running tests,
-  fixing failures
-
-If no preferences are set, the prompts include sensible defaults.
 
 ## Workflow
 

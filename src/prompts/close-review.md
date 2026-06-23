@@ -1,7 +1,8 @@
 ## Test gate (run first)
 
-Before doing anything else, run the project's test suite (determine the command
-from AGENTS.md / `package.json` scripts / Makefile).
+Before doing anything else, run the project's test suite. The `.gtdrc`
+`testCommand` config takes precedence if set; otherwise determine the command
+from AGENTS.md / `package.json` scripts / Makefile.
 
 - **On failure:** make exactly **ONE** fix, then commit **all** the fix changes
   into a single commit with a `fix(gtd): <desc>` message. Do not commit

@@ -8,9 +8,10 @@ cannot solve.
 
 ### Steps
 
-1. **Re-run the test suite** so the human sees the current failure. Determine
-   the test command from project configuration (AGENTS.md, `package.json`
-   scripts, Makefile, etc.).
+1. **Re-run the test suite** so the human sees the current failure. The `.gtdrc`
+   `testCommand` config takes precedence if set; otherwise determine the test
+   command from project configuration (AGENTS.md, `package.json` scripts,
+   Makefile, etc.).
 
 2. **Record the attempt log in `ERRORS.md`** — if `ERRORS.md` is not already
    committed, write the failing signature and everything tried so far into it

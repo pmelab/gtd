@@ -79,7 +79,7 @@ Feature: gtd prints a structured prompt for the agent based on git state
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Decompose `TODO.md` into work packages"
-    And stdout contains "planning model"
+    And stdout contains "planning-model subagent"
 
   Scenario: Decompose prompt instructs recording TODO.md before deleting it
     Given a test project
