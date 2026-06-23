@@ -11,6 +11,8 @@ import humanReview from "./prompts/human-review.md"
 import verified from "./prompts/verified.md"
 import reviewProcess from "./prompts/review-process.md"
 import closeReview from "./prompts/close-review.md"
+import awaitReview from "./prompts/await-review.md"
+import awaitAnswers from "./prompts/await-answers.md"
 import fixTests from "./prompts/fix-tests.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
 import type { GtdContext, GtdPackageFact, LeafState, ResolveResult } from "./Machine.js"
@@ -28,6 +30,8 @@ const SECTIONS: Record<LeafState, string> = {
   verified,
   "review-process": reviewProcess,
   "close-review": closeReview,
+  "await-review": awaitReview,
+  "await-answers": awaitAnswers,
 }
 
 const buildContext = (context: GtdContext): string => {
@@ -58,6 +62,15 @@ const buildContext = (context: GtdContext): string => {
     lines.push("```diff")
     lines.push(context.refDiff.replace(/\n$/, ""))
     lines.push("```")
+    lines.push("")
+  }
+  if (context.bangComments && context.bangComments.length > 0) {
+    lines.push("")
+    lines.push("### `!!` follow-up comments (leftover work to harvest)")
+    lines.push("")
+    for (const c of context.bangComments) {
+      lines.push(`- \`${c.file}:${c.line}\` — ${c.text}`)
+    }
     lines.push("")
   }
   lines.push("")

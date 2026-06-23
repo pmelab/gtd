@@ -4,14 +4,18 @@ import { type GtdEvent, MAX_VERIFY_ITERATIONS, type ResolvePayload, resolve } fr
 const commit = (isFixGtd: boolean): GtdEvent => ({ type: "COMMIT", isFixGtd })
 
 const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
+  errorsPresent: false,
   reviewApprovedNoChanges: false,
   reviewModified: false,
+  reviewUnmodified: false,
   codeDirty: false,
   hasPackages: false,
   gtdDirExists: false,
   todoDirty: null,
-  todoFinalized: false,
-  todoSimple: false,
+  todoExists: false,
+  todoStatus: null,
+  todoOpenQuestionsPresent: false,
+  bangPresent: false,
   reviewBasePresent: false,
   lastCommitSubject: "chore: init",
   workingTreeClean: true,
@@ -48,17 +52,22 @@ describe("resolve — COMMIT counter folding", () => {
 })
 
 describe("resolve — RESOLVE leaf + tag priority", () => {
-  it("reviewModified → review-process, autoAdvance true", () => {
+  it("reviewModified (no outside code dirty) → review-process, autoAdvance true", () => {
     const { value, autoAdvance } = resolve([
       resolveEvent({
         reviewModified: true,
-        codeDirty: true,
+        codeDirty: false,
         hasPackages: true,
         gtdDirExists: true,
       }),
     ])
     expect(value).toBe("review-process")
     expect(autoAdvance).toBe(true)
+  })
+
+  it("codeDirty wins over reviewModified (verbatim-first) → code-changes", () => {
+    const { value } = resolve([resolveEvent({ reviewModified: true, codeDirty: true })])
+    expect(value).toBe("code-changes")
   })
 
   it("codeDirty → code-changes, autoAdvance true", () => {
@@ -94,27 +103,72 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
         codeDirty: false,
         hasPackages: false,
         gtdDirExists: true,
-        todoFinalized: true,
       }),
     ])
     expect(value).toBe("cleanup")
     expect(autoAdvance).toBe(true)
   })
 
-  it("todoFinalized + todoSimple → execute-simple, autoAdvance true", () => {
+  it("todoStatus simple → execute-simple, autoAdvance true", () => {
     const { value, autoAdvance } = resolve([
-      resolveEvent({ todoFinalized: true, todoSimple: true }),
+      resolveEvent({ todoExists: true, todoStatus: "simple" }),
     ])
     expect(value).toBe("execute-simple")
     expect(autoAdvance).toBe(true)
   })
 
-  it("todoFinalized without simple → decompose, autoAdvance true", () => {
+  it("todoStatus complete → decompose, autoAdvance true", () => {
     const { value, autoAdvance } = resolve([
-      resolveEvent({ todoFinalized: true, todoSimple: false }),
+      resolveEvent({ todoExists: true, todoStatus: "complete" }),
     ])
     expect(value).toBe("decompose")
     expect(autoAdvance).toBe(true)
+  })
+
+  it("errorsPresent → escalate, autoAdvance false", () => {
+    const { value, autoAdvance } = resolve([resolveEvent({ errorsPresent: true })])
+    expect(value).toBe("escalate")
+    expect(autoAdvance).toBe(false)
+  })
+
+  it("grilling + clean + open questions → await-answers gate, autoAdvance false", () => {
+    const { value, autoAdvance } = resolve([
+      resolveEvent({
+        todoExists: true,
+        todoStatus: "grilling",
+        todoDirty: null,
+        todoOpenQuestionsPresent: true,
+      }),
+    ])
+    expect(value).toBe("await-answers")
+    expect(autoAdvance).toBe(false)
+  })
+
+  it("grilling + dirty → modified-todo (re-grill)", () => {
+    const { value } = resolve([
+      resolveEvent({ todoExists: true, todoStatus: "grilling", todoDirty: "modified" }),
+    ])
+    expect(value).toBe("modified-todo")
+  })
+
+  it("markerless clean committed TODO → new-todo (first grill)", () => {
+    const { value } = resolve([
+      resolveEvent({ todoExists: true, todoStatus: null, todoDirty: null }),
+    ])
+    expect(value).toBe("new-todo")
+  })
+
+  it("reviewUnmodified → await-review gate, autoAdvance false", () => {
+    const { value, autoAdvance } = resolve([resolveEvent({ reviewUnmodified: true })])
+    expect(value).toBe("await-review")
+    expect(autoAdvance).toBe(false)
+  })
+
+  it("approved review with a !! comment diverts to review-process, not close", () => {
+    const { value } = resolve([
+      resolveEvent({ reviewApprovedNoChanges: true, reviewModified: true, bangPresent: true }),
+    ])
+    expect(value).toBe("review-process")
   })
 
   it("counter ≥ cap → escalate, autoAdvance false", () => {
@@ -127,13 +181,17 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
   })
 
   it('todoDirty "new" → new-todo, autoAdvance true', () => {
-    const { value, autoAdvance } = resolve([resolveEvent({ todoDirty: "new" })])
+    const { value, autoAdvance } = resolve([
+      resolveEvent({ todoExists: true, todoDirty: "new" }),
+    ])
     expect(value).toBe("new-todo")
     expect(autoAdvance).toBe(true)
   })
 
   it('todoDirty "modified" → modified-todo, autoAdvance true', () => {
-    const { value, autoAdvance } = resolve([resolveEvent({ todoDirty: "modified" })])
+    const { value, autoAdvance } = resolve([
+      resolveEvent({ todoExists: true, todoDirty: "modified" }),
+    ])
     expect(value).toBe("modified-todo")
     expect(autoAdvance).toBe(true)
   })

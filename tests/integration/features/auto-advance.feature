@@ -15,11 +15,15 @@ Feature: Auto-advance and STOP markers in prompts
     Given a test project
     And a commit "docs: seed plan" that adds "TODO.md" with:
       """
+      ---
+      status: complete
+      ---
+
       ## Plan
 
       - build a math library
 
-      ## Answered Questions
+      ## Resolved
 
       ### Is this enough?
 

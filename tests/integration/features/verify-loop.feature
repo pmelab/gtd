@@ -31,8 +31,6 @@ Feature: Verify loop and escalation cap
     And a branch "feature"
     And a fix(gtd) commit "fix(gtd): attempt 1"
     And a fix(gtd) commit "fix(gtd): attempt 2"
-    And a fix(gtd) commit "fix(gtd): attempt 3"
-    And a fix(gtd) commit "fix(gtd): attempt 4"
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"

@@ -118,12 +118,13 @@ No separate config file needed.
 > **Note:** when the fold resolves to `human-review` or `execute`, the Effect
 > **edge** runs the hardcoded `npm run test` (no env/config override) before
 > emitting a prompt. On green it emits the leaf's normal prompt; on red it emits
-> the `fix-tests` prompt with the captured output embedded. The test-fix
-> iteration cap is **not** configurable: the edge counts the trailing run of
-> `fix(gtd):` commits at HEAD and, once it reaches a fixed **5**, resolves to
-> `escalate` instead of fix-tests. The cap is enforced **in the edge** (before
-> emitting fix-tests), so it applies uniformly to both `human-review` and
-> `execute`. Any retry guidance in the prompts is advisory only.
+> the `fix-tests` prompt with the captured output embedded. The fix-tests prompt
+> loops internally (tracking attempts in an uncommitted `ERRORS.md`), committing
+> only on success or escalation. The test-fix iteration cap is **not**
+> configurable: the edge counts the trailing run of `fix(gtd):` commits at HEAD
+> and, once it reaches a fixed **3** — or a committed `ERRORS.md` is present, or
+> a failure signature recurs — resolves to `escalate` instead of fix-tests. Any
+> retry guidance in the prompts is advisory only.
 
 ## States
 
@@ -131,24 +132,31 @@ The script always runs the same way and resolves to one of these leaf states by
 folding the commit history + working tree through guards evaluated in priority
 order:
 
+- `escalate` — a committed `ERRORS.md` is present, or the trailing run of
+  `fix(gtd):` commits hit 3; stop and hand off to the human
 - `close-review` — `REVIEW.md` has only forward checkbox ticks
-  (`- [ ]`→`- [x]`); discard the ticks, delete `REVIEW.md`, commit the close
-  (becomes the new review base so the next run resolves to `verified`)
-- `review-process` — `REVIEW.md` was edited; fold the feedback into `TODO.md`
-- `code-changes` — uncommitted changes outside `TODO.md`; commit them
+  (`- [ ]`→`- [x]`) and no `!!` comment; discard the ticks, delete `REVIEW.md`,
+  commit the close (becomes the new review base so the next run is `verified`)
+- `code-changes` — uncommitted changes outside `TODO.md` and `REVIEW.md`; commit
+  them verbatim (`git add -A`) before any gate is evaluated
+- `review-process` — `REVIEW.md` has notes (or an approved review carries a `!!`
+  comment); fold the feedback into `TODO.md`, harvesting `!!` comments verbatim
+- `await-review` — `REVIEW.md` is committed and unmodified; human gate, STOP
 - `execute` — `.gtd/` has work packages; the edge runs `npm run test` first
-  (green → emit the named single next package with its task contents inlined for
-  execution, and on the last package also remove the empty `.gtd/` in the same
-  commit so the next run goes straight to human-review; red → fix-tests, or
-  `escalate` at the cap)
-- `cleanup` — `.gtd/` is empty; remove it and verify. Retained only as a safety
-  net for a stray empty `.gtd/` (e.g. created by hand) — the normal tail skips
-  it because execute removes `.gtd/` on the last package
-- `execute-simple` — `TODO.md` is finalized and marked `<!-- simple -->`
-- `decompose` — `TODO.md` is finalized; break it into work packages
-- `escalate` — the trailing run of `fix(gtd):` commits hit 5; stop and hand off
-  to the human
-- `new-todo` / `modified-todo` — `TODO.md` is new or modified; keep planning
+  (green → emit the named single next package with its task contents inlined, one
+  subagent per task, and on the last package also remove the empty `.gtd/`; red →
+  fix-tests, or `escalate` at the cap)
+- `cleanup` — `.gtd/` is empty; remove it and verify. Safety net for a stray
+  empty `.gtd/` — the normal tail skips it because execute removes `.gtd/` on the
+  last package
+- `execute-simple` — `TODO.md` `status: simple` (≤5 files, or legacy
+  `<!-- simple -->`); implement directly without decomposition
+- `decompose` — `TODO.md` `status: complete`; break it into ordinal,
+  dependency-ordered work packages
+- `await-answers` — `TODO.md` `status: grilling`, committed, with open questions
+  remaining; human gate, STOP
+- `new-todo` / `modified-todo` — a markerless `TODO.md` (first grill, sets
+  `status: grilling`) / a grilling-or-markerless `TODO.md` edited (re-grill)
 - `human-review` — clean tree with un-reviewed commits; the edge runs
   `npm run test` first (green → auto-generate `REVIEW.md`; red → fix-tests, or
   `escalate` at the cap)
@@ -173,10 +181,11 @@ of the normal loop:
    `<!-- base: <sha> -->` marker, then stops.
 2. The user edits `REVIEW.md` with feedback (and may edit source files to
    illustrate desired changes).
-3. **review-process**: On the next run gtd detects the dirty `REVIEW.md`, folds
-   all feedback (comments, source edits, and any `TODO:` markers in the reviewed
-   code) into a fresh `TODO.md`, resets the working tree, and commits —
-   restarting the loop.
+3. **review-process**: On the next run gtd folds all feedback (comments, source
+   edits, and any `!!` follow-up comments in the reviewed code — not plain
+   `TODO:` markers) into a fresh `TODO.md`, resets the working tree, and commits
+   — restarting the loop. Changes outside `REVIEW.md`/`TODO.md` are committed
+   verbatim first (`code-changes`).
 4. **close-review**: If the user only ticks checkboxes in `REVIEW.md` (marks
    items approved with no other edits), gtd detects this as an approval signal:
    it discards the ticks, deletes `REVIEW.md`, and commits a

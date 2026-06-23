@@ -25,27 +25,36 @@ sequential work package:
 
 **Rules for the subagent:**
 
-1. **Packages are sequential** — Package 02 cannot start until 01 is complete.
-   Use this for dependencies between groups of work.
+1. **Packages are sequential, in dependency order** — Name directories with an
+   ordinal prefix (`01-`, `02-`, …); they execute in that ordinal, dependency
+   order and the set is frozen once written (no re-decomposition later). Package
+   02 cannot start until 01 is complete, so order them so each package depends
+   only on lower-numbered ones.
 
-2. **Tasks within a package are parallel** — All tasks in a package run
-   simultaneously. If task B depends on task A, they must be in separate
-   packages.
+2. **Each package must be green on its own** — The project test suite runs after
+   every package. Each package must leave the tree green on its own; never split
+   a feature so the tree stays red until a later package lands.
 
-3. **Vertical slices, not horizontal** — Each package must be a thin vertical
+3. **Tasks within a package are parallel and file-disjoint** — All tasks in a
+   package run simultaneously, each via one subagent, writing to the same
+   working tree with no isolation. Tasks must be file-disjoint: two tasks that
+   would touch the same file must be **merged** into one task. If task B depends
+   on task A, they must be in separate packages.
+
+4. **Vertical slices, not horizontal** — Each package must be a thin vertical
    slice that cuts through all integration layers end-to-end:
    - Each package delivers a narrow but COMPLETE path (not "set up
      infrastructure")
    - A completed package is demoable or verifiable on its own
    - Prefer many thin packages over few thick ones
 
-4. **Task files are self-contained** — Each task `.md` file must include:
+5. **Task files are self-contained** — Each task `.md` file must include:
    - Clear description of what to build
    - Acceptance criteria as checkboxes: `- [ ] Criterion`
    - Relevant file paths to examine
    - Any constraints or edge cases
 
-5. **COMMIT_MSG.md** — Each package directory must contain a `COMMIT_MSG.md`
+6. **COMMIT_MSG.md** — Each package directory must contain a `COMMIT_MSG.md`
    with the conventional commit message to use when the package completes:
 
    ```

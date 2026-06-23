@@ -17,7 +17,8 @@ subagents.
 
 ### Step 1: Spawn task workers
 
-For each task in the task contents below, spawn a **parallel subagent** with:
+Spawn **one subagent per task** — for each task in the task contents below,
+launch a **parallel subagent** with:
 
 - **Model**: The execution model from AGENTS.md (or current work model)
 - **TDD discipline** (inline rules for workers):

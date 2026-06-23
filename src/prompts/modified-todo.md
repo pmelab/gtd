@@ -28,11 +28,11 @@ The subagent should:
 
 1. For each answered question:
    - Integrate the answer into the body of the plan
-   - Move the question to `## Answered Questions` at the bottom of the file
+   - Move the question to the `## Resolved` graveyard at the bottom of the file
    - Keep the question heading and `**Recommendation:**` block
    - Replace `<!-- user answers here -->` with `**Answer:**` followed by the
      user's response
-   - Example format in Answered Questions:
+   - Example format in `## Resolved`:
 
      ```markdown
      ### What operations?
@@ -65,24 +65,20 @@ The subagent should:
    <!-- user answers here -->
    ```
 
-4. If `## Open Questions` is now empty, delete the heading (but keep
-   `## Answered Questions` with the resolved questions)
+4. If `## Open Questions` is now empty, delete the heading (but keep the
+   `## Resolved` graveyard with the resolved questions)
 
 5. If processing an old-format TODO.md where `## Open Questions` is at the
-   bottom, migrate it: move the section to the top and create
-   `## Answered Questions` at the bottom
+   bottom, migrate it: move the section to the top and create a `## Resolved`
+   section at the bottom
 
-6. **Evaluate task complexity**: If `## Open Questions` is now empty (all
-   questions resolved), assess whether the task is simple enough to skip
-   decomposition:
-   - Use judgment based on task scope and codebase context
-   - Simple tasks typically: single-file change, no architectural decisions,
-     obvious implementation, can be described in one sentence
-   - If simple: append `<!-- simple -->` at the very end of TODO.md
-   - If complex or uncertain: omit the marker (defaults to decompose path)
-
-   Note: The user can later remove the marker if they want full decomposition,
-   or add it manually to any plan.
+6. **Set the frontmatter `status:`** — the `status:` field is the source of
+   truth for what happens next:
+   - If `## Open Questions` is now empty (all questions resolved), decide scope:
+     - **`status: simple`** if the change is confined to **five files or fewer**
+       (single, obvious implementation) — executed directly, no decomposition.
+     - **`status: complete`** otherwise — decomposed into work packages.
+   - If questions still remain, keep `status: grilling`.
 
 ### After the subagent completes
 

@@ -199,7 +199,7 @@ Feature: Review workflow
     And stdout contains "# Process Review Feedback"
     And stdout does not contain "chore(gtd): close approved review"
 
-  Scenario: Ticking a checkbox plus a source-file edit routes to review-process, not close-review
+  Scenario: Ticking a checkbox plus a source-file edit commits verbatim first
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -225,7 +225,7 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "# Process Review Feedback"
+    And stdout contains "## Task: Commit the uncommitted changes"
     And stdout does not contain "chore(gtd): close approved review"
 
   Scenario: Error when base comment is missing from REVIEW.md
@@ -252,7 +252,7 @@ Feature: Review workflow
     Then it fails
     And stderr contains "missing base ref"
 
-  Scenario: Untracked files created during review are cleaned up by review-process prompt
+  Scenario: Untracked files added during review are committed verbatim first
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -280,9 +280,9 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "git clean -fd"
+    And stdout contains "## Task: Commit the uncommitted changes"
 
-  Scenario: Error when REVIEW.md exists but has not been modified
+  Scenario: An unmodified committed REVIEW.md is the review gate
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -294,8 +294,10 @@ Feature: Review workflow
       - [ ] ./src/foo.ts#1
       """
     When I run gtd
-    Then it fails
-    And stderr contains "REVIEW.md exists but has no changes"
+    Then it succeeds
+    And stdout contains "Wait for the human to review"
+    And stdout contains "STOP"
+    And stdout does not contain "Re-run gtd immediately"
 
   Scenario: After closing, the next run reports verified, not a fresh review
     Given a test project

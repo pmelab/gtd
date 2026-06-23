@@ -20,6 +20,15 @@ export interface GitOperations {
   readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
   readonly commitSubjects: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly showHead: (path: string) => Effect.Effect<string, Error>
+  readonly grepBang: () => Effect.Effect<ReadonlyArray<BangComment>, Error>
+}
+
+/** A `!!` follow-up comment found in tracked source (any comment syntax). */
+export interface BangComment {
+  readonly file: string
+  readonly line: string
+  /** The comment body following `!!`, trimmed (trailing `-->` stripped). */
+  readonly text: string
 }
 
 const run = (
@@ -191,6 +200,41 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),
           )
         },
+
+        // Scan tracked source for `!!` follow-up comments — a comment whose body
+        // begins with `!!`, in any language (`// !!`, `# !!`, `<!-- !!`). TODO.md
+        // and REVIEW.md are excluded so the tool's own control files never match.
+        // `git grep` exits 1 with no matches; treat that as the empty result.
+        grepBang: () =>
+          exec(
+            "git",
+            "grep",
+            "-nE",
+            "(//|#|<!--)[[:space:]]*!!",
+            "--",
+            ":!REVIEW.md",
+            ":!TODO.md",
+          ).pipe(
+            Effect.map((out) =>
+              out
+                .split("\n")
+                .map((l) => l.replace(/\r$/, ""))
+                .filter((l) => l.length > 0)
+                .map((l) => {
+                  const i1 = l.indexOf(":")
+                  const i2 = l.indexOf(":", i1 + 1)
+                  const file = l.slice(0, i1)
+                  const line = l.slice(i1 + 1, i2)
+                  const raw = l.slice(i2 + 1)
+                  const text = raw
+                    .replace(/^.*?(?:\/\/|#|<!--)\s*!!\s*/, "")
+                    .replace(/\s*-->\s*$/, "")
+                    .trim()
+                  return { file, line, text } satisfies BangComment
+                }),
+            ),
+            Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<BangComment>)),
+          ),
       }
     }),
   )

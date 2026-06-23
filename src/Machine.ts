@@ -11,7 +11,14 @@ import { assign, createActor, setup } from "xstate"
  */
 
 /** Hardcoded cap on consecutive `fix(gtd):` verify iterations before escalating. */
-export const MAX_VERIFY_ITERATIONS = 5
+export const MAX_VERIFY_ITERATIONS = 3
+
+/** A `!!` follow-up comment found in tracked source (mirror of Git.BangComment). */
+export interface BangComment {
+  readonly file: string
+  readonly line: string
+  readonly text: string
+}
 
 export interface GtdPackageFact {
   readonly name: string
@@ -28,11 +35,15 @@ export interface GtdPackageFact {
  * fields that flow straight onto the resulting leaf context.
  */
 export interface ResolvePayload {
-  /** REVIEW.md was approved with no code changes needed. */
+  /** A committed `ERRORS.md` is present — the test loop escalated to the human. */
+  readonly errorsPresent: boolean
+  /** REVIEW.md was approved with no code changes needed (all forward ticks). */
   readonly reviewApprovedNoChanges: boolean
   /** REVIEW.md exists with user edits. */
   readonly reviewModified: boolean
-  /** Any non-TODO.md uncommitted change is present. */
+  /** REVIEW.md exists and is committed/unmodified — the review gate. */
+  readonly reviewUnmodified: boolean
+  /** Any uncommitted change outside TODO.md AND REVIEW.md is present. */
   readonly codeDirty: boolean
   /** `.gtd/` contains work packages to execute. */
   readonly hasPackages: boolean
@@ -40,10 +51,14 @@ export interface ResolvePayload {
   readonly gtdDirExists: boolean
   /** Uncommitted state of TODO.md, if any. */
   readonly todoDirty: "new" | "modified" | null
-  /** TODO.md exists and has no unanswered question markers. */
-  readonly todoFinalized: boolean
-  /** TODO.md is marked `<!-- simple -->`. */
-  readonly todoSimple: boolean
+  /** TODO.md exists at all. */
+  readonly todoExists: boolean
+  /** TODO.md `status:` frontmatter value (folds legacy `<!-- simple -->`). */
+  readonly todoStatus: "simple" | "complete" | "grilling" | null
+  /** TODO.md has unanswered questions under `## Open Questions`. */
+  readonly todoOpenQuestionsPresent: boolean
+  /** A `!!` follow-up comment is present in tracked source. */
+  readonly bangPresent: boolean
   /** A review base ref is available to diff against. */
   readonly reviewBasePresent: boolean
   // passthrough
@@ -53,6 +68,7 @@ export interface ResolvePayload {
   readonly diff: string
   readonly baseRef?: string
   readonly refDiff?: string
+  readonly bangComments?: ReadonlyArray<BangComment>
 }
 
 export type GtdEvent =
@@ -68,12 +84,14 @@ export interface GtdContext {
   diff: string
   baseRef?: string
   refDiff?: string
+  bangComments?: ReadonlyArray<BangComment>
 }
 
 /** Terminal leaf-state ids. These are the only non-`replaying` states. */
 export type LeafState =
   | "close-review"
   | "review-process"
+  | "await-review"
   | "code-changes"
   | "execute"
   | "cleanup"
@@ -82,6 +100,7 @@ export type LeafState =
   | "escalate"
   | "new-todo"
   | "modified-todo"
+  | "await-answers"
   | "human-review"
   | "verified"
 
@@ -100,16 +119,33 @@ const machine = setup({
     events: {} as GtdEvent,
   },
   guards: {
-    reviewApprovedNoChanges: (_, params: ResolvePayload) => params.reviewApprovedNoChanges,
+    errorsPresent: (_, params: ResolvePayload) => params.errorsPresent,
+    // A `!!` follow-up comment is leftover work, so it diverts an otherwise
+    // approved review into the review-process loop instead of closing it.
+    reviewApprovedClose: (_, params: ResolvePayload) =>
+      params.reviewApprovedNoChanges && !params.bangPresent,
     reviewModified: (_, params: ResolvePayload) => params.reviewModified,
+    reviewUnmodified: (_, params: ResolvePayload) => params.reviewUnmodified,
     codeDirty: (_, params: ResolvePayload) => params.codeDirty,
     hasPackages: (_, params: ResolvePayload) => params.hasPackages,
     gtdDirExists: (_, params: ResolvePayload) => params.gtdDirExists,
-    todoFinalized: (_, params: ResolvePayload) => params.todoFinalized,
-    todoFinalizedSimple: (_, params: ResolvePayload) => params.todoFinalized && params.todoSimple,
+    todoSimple: (_, params: ResolvePayload) => params.todoStatus === "simple",
+    todoComplete: (_, params: ResolvePayload) => params.todoStatus === "complete",
     capReached: ({ context }) => context.verifyIterations >= context.maxVerifyIterations,
-    todoNew: (_, params: ResolvePayload) => params.todoDirty === "new",
-    todoModified: (_, params: ResolvePayload) => params.todoDirty === "modified",
+    // Grilled plan, committed, with open questions still pending → human gate.
+    todoAwaitAnswers: (_, params: ResolvePayload) =>
+      params.todoStatus === "grilling" &&
+      params.todoDirty === null &&
+      params.todoOpenQuestionsPresent,
+    // Re-grill: a grilling plan the user edited, or a markerless plan modified
+    // in place.
+    todoRegrill: (_, params: ResolvePayload) =>
+      (params.todoStatus === "grilling" &&
+        (params.todoDirty !== null || !params.todoOpenQuestionsPresent)) ||
+      (params.todoStatus === null && params.todoDirty === "modified"),
+    // First grill: a markerless plan (fresh sketch), committed or newly added.
+    todoInitial: (_, params: ResolvePayload) =>
+      params.todoExists && params.todoStatus === null && params.todoDirty !== "modified",
     humanReview: (_, params: ResolvePayload) =>
       params.reviewBasePresent && (params.refDiff ?? "").trim().length > 0,
   },
@@ -130,6 +166,7 @@ const machine = setup({
         diff: p.diff,
         ...(p.baseRef !== undefined ? { baseRef: p.baseRef } : {}),
         ...(p.refDiff !== undefined ? { refDiff: p.refDiff } : {}),
+        ...(p.bangComments !== undefined ? { bangComments: p.bangComments } : {}),
       }
     }),
   },
@@ -143,8 +180,18 @@ const machine = setup({
         COMMIT: { actions: "foldCommit" },
         RESOLVE: [
           {
-            guard: { type: "reviewApprovedNoChanges", params: ({ event }) => event.payload },
+            guard: { type: "errorsPresent", params: ({ event }) => event.payload },
+            target: "escalate",
+            actions: "applyPayload",
+          },
+          {
+            guard: { type: "reviewApprovedClose", params: ({ event }) => event.payload },
             target: "close-review",
+            actions: "applyPayload",
+          },
+          {
+            guard: { type: "codeDirty", params: ({ event }) => event.payload },
+            target: "code-changes",
             actions: "applyPayload",
           },
           {
@@ -153,8 +200,8 @@ const machine = setup({
             actions: "applyPayload",
           },
           {
-            guard: { type: "codeDirty", params: ({ event }) => event.payload },
-            target: "code-changes",
+            guard: { type: "reviewUnmodified", params: ({ event }) => event.payload },
+            target: "await-review",
             actions: "applyPayload",
           },
           {
@@ -168,12 +215,12 @@ const machine = setup({
             actions: "applyPayload",
           },
           {
-            guard: { type: "todoFinalizedSimple", params: ({ event }) => event.payload },
+            guard: { type: "todoSimple", params: ({ event }) => event.payload },
             target: "execute-simple",
             actions: "applyPayload",
           },
           {
-            guard: { type: "todoFinalized", params: ({ event }) => event.payload },
+            guard: { type: "todoComplete", params: ({ event }) => event.payload },
             target: "decompose",
             actions: "applyPayload",
           },
@@ -183,13 +230,18 @@ const machine = setup({
             actions: "applyPayload",
           },
           {
-            guard: { type: "todoNew", params: ({ event }) => event.payload },
-            target: "new-todo",
+            guard: { type: "todoAwaitAnswers", params: ({ event }) => event.payload },
+            target: "await-answers",
             actions: "applyPayload",
           },
           {
-            guard: { type: "todoModified", params: ({ event }) => event.payload },
+            guard: { type: "todoRegrill", params: ({ event }) => event.payload },
             target: "modified-todo",
+            actions: "applyPayload",
+          },
+          {
+            guard: { type: "todoInitial", params: ({ event }) => event.payload },
+            target: "new-todo",
             actions: "applyPayload",
           },
           {
@@ -206,6 +258,7 @@ const machine = setup({
     },
     "close-review": { tags: ["auto-advance"], type: "final" },
     "review-process": { tags: ["auto-advance"], type: "final" },
+    "await-review": { type: "final" },
     "code-changes": { tags: ["auto-advance"], type: "final" },
     execute: { tags: ["auto-advance"], type: "final" },
     cleanup: { tags: ["auto-advance"], type: "final" },
@@ -213,6 +266,7 @@ const machine = setup({
     "execute-simple": { tags: ["auto-advance"], type: "final" },
     "new-todo": { tags: ["auto-advance"], type: "final" },
     "modified-todo": { tags: ["auto-advance"], type: "final" },
+    "await-answers": { type: "final" },
     "human-review": { type: "final" },
     verified: { type: "final" },
     escalate: { type: "final" },

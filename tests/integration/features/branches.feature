@@ -66,10 +66,14 @@ Feature: gtd prints a structured prompt for the agent based on git state
     Then it succeeds
     And stdout contains "## Task: Incorporate edits to `TODO.md`"
 
-  Scenario: Clean tree after a TODO.md-only commit triggers decompose
+  Scenario: A status:complete TODO.md triggers decompose
     Given a test project
     And a commit "docs: seed plan" that adds "TODO.md" with:
       """
+      ---
+      status: complete
+      ---
+
       - build the multiply function
       """
     When I run gtd
@@ -81,6 +85,10 @@ Feature: gtd prints a structured prompt for the agent based on git state
     Given a test project
     And a commit "docs: seed plan" that adds "TODO.md" with:
       """
+      ---
+      status: complete
+      ---
+
       - build the multiply function
       """
     When I run gtd
@@ -101,10 +109,14 @@ Feature: gtd prints a structured prompt for the agent based on git state
     And stdout contains "## Task: Execute simple task"
     And stdout does not contain "## Task: Decompose"
 
-  Scenario: TODO.md without simple marker triggers decompose
+  Scenario: A status:complete TODO.md decomposes rather than execute-simple
     Given a test project
     And a commit "docs: seed plan" that adds "TODO.md" with:
       """
+      ---
+      status: complete
+      ---
+
       Refactor authentication to use JWT
       """
     When I run gtd

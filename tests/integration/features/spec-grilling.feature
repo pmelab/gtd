@@ -123,5 +123,5 @@ Feature: Grilling drives the plan toward a simple/complete marker
       """
     When I run gtd
     Then it succeeds
+    And stdout contains "## Task: Incorporate edits to `TODO.md`"
     And stdout contains "status: complete"
-    And stdout does not contain "status: simple"

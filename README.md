@@ -49,20 +49,26 @@ on the emitted prompt.
 emits the one prompt for that state. The guards are evaluated in a fixed
 priority order, so exactly one state wins per run:
 
-| Leaf state       | When it wins (first matching guard, top to bottom)                                 | Prompt                                                                                                                                                                                                                                                                                                                                                                           |
-| ---------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `close-review`   | `REVIEW.md` dirty with ONLY forward checkbox ticks (`- [ ]`→`- [x]`), nothing else | Discard ticks, delete `REVIEW.md`, commit the close                                                                                                                                                                                                                                                                                                                              |
-| `review-process` | `REVIEW.md` exists and is dirty (user-edited)                                      | Commit raw feedback verbatim as `docs(review): record raw feedback for <base>`, then reset and synthesize `TODO.md`                                                                                                                                                                                                                                                              |
-| `code-changes`   | Any uncommitted change outside `TODO.md`                                           | Commit the uncommitted changes                                                                                                                                                                                                                                                                                                                                                   |
-| `execute`        | `.gtd/` contains numbered work packages                                            | gtd runs the test suite (`npm run test`) itself first; on green it names the single next package and inlines its task files' contents into the prompt, executed via parallel subagents (on the last package it also removes the empty `.gtd/` in the same commit so the next run goes straight to human-review); on red it emits the fix-tests prompt (or `escalate` at the cap) |
-| `cleanup`        | `.gtd/` exists but holds no packages                                               | Remove empty `.gtd/`, then verify — a vestigial safety net for a stray empty `.gtd/` (e.g. created by hand); the normal last-package path skips it since execute removes `.gtd/` itself                                                                                                                                                                                          |
-| `execute-simple` | `TODO.md` finalized and marked `<!-- simple -->`                                   | Implement the simple plan directly                                                                                                                                                                                                                                                                                                                                               |
-| `decompose`      | `TODO.md` finalized (no unanswered questions)                                      | Record `TODO.md` as `docs(plan): record TODO.md` (when not already in `HEAD`), then decompose into work packages (planning model)                                                                                                                                                                                                                                                |
-| `escalate`       | Trailing run of `fix(gtd):` commits at HEAD reached 5                              | Stop; ask the human to fix the root cause                                                                                                                                                                                                                                                                                                                                        |
-| `new-todo`       | `TODO.md` is new (untracked / added)                                               | Develop the plan (planning model)                                                                                                                                                                                                                                                                                                                                                |
-| `modified-todo`  | `TODO.md` is modified                                                              | Incorporate edits, keep developing (planning)                                                                                                                                                                                                                                                                                                                                    |
-| `human-review`   | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff            | gtd runs the test suite (`npm run test`) itself; on green it generates `REVIEW.md`, on red it emits the fix-tests prompt (or `escalate` at the cap)                                                                                                                                                                                                                              |
-| `verified`       | Nothing else matched — tree clean, nothing left to review                          | Report the working tree healthy and reviewed                                                                                                                                                                                                                                                                                                                                     |
+Planning state is driven by `TODO.md`'s `status:` frontmatter (`grilling` /
+`complete` / `simple`) — the in-file marker is the source of truth — and human
+changes are always committed verbatim **first**, before any gate is evaluated.
+
+| Leaf state       | When it wins (first matching guard, top to bottom)                                              | Prompt                                                                                                                                                                                       |
+| ---------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `escalate`       | A committed `ERRORS.md` is present, OR the trailing `fix(gtd):` run hit the cap                 | Stop; surface the failure, keep `ERRORS.md` as the human gate                                                                                                                                |
+| `close-review`   | `REVIEW.md` dirty with ONLY forward checkbox ticks, nothing else, **and no `!!` comment**       | Discard ticks, delete `REVIEW.md`, commit the close                                                                                                                                          |
+| `code-changes`   | Any uncommitted change outside `TODO.md` **and** `REVIEW.md` (verbatim-first)                   | Commit everything with `git add -A` (leaving `TODO.md` for the planning phase)                                                                                                               |
+| `review-process` | `REVIEW.md` dirty with notes/ticks (no outside code), or an approved review with a `!!` comment | Commit raw feedback verbatim, then synthesize `TODO.md`; harvest `!!` comments (not plain `TODO:`)                                                                                            |
+| `await-review`   | `REVIEW.md` committed and unmodified (no feedback yet)                                           | Human gate — wait for the reviewer to work through `REVIEW.md`; **STOP**                                                                                                                      |
+| `execute`        | `.gtd/` contains numbered work packages                                                         | Edge runs `npm run test` first; on green, name the single next package and inline its tasks (one subagent per task); on the last package also remove `.gtd/`; on red, fix-tests (or escalate) |
+| `cleanup`        | `.gtd/` exists but holds no packages                                                            | Remove empty `.gtd/`, then verify — vestigial safety net                                                                                                                                     |
+| `execute-simple` | `TODO.md` `status: simple` (≤5 files), or legacy `<!-- simple -->`                              | Implement the simple plan directly, no decomposition                                                                                                                                         |
+| `decompose`      | `TODO.md` `status: complete`                                                                     | Record `TODO.md`, then decompose into ordinal, dependency-ordered packages (planning model)                                                                                                  |
+| `await-answers`  | `TODO.md` `status: grilling`, committed, with open questions remaining                          | Human gate — wait for the user to answer the open questions; **STOP**                                                                                                                         |
+| `modified-todo`  | `TODO.md` `status: grilling` and edited, or a markerless `TODO.md` modified in place            | Incorporate edits, re-grill, move resolved Q&A to `## Resolved`, set `status:` when done                                                                                                     |
+| `new-todo`       | A markerless `TODO.md` (fresh sketch), committed or newly added                                 | Develop the plan: add `## Open Questions`, set `status: grilling` (planning model)                                                                                                           |
+| `human-review`   | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff                         | Edge runs `npm run test`; on green generate `REVIEW.md`, on red fix-tests (or escalate)                                                                                                      |
+| `verified`       | Nothing else matched — tree clean, nothing left to review                                       | Report the working tree healthy and reviewed                                                                                                                                                 |
 
 > **`fix-tests` is a prompt, not a leaf state.** It is never one of the
 > machine's resolved leaf states — it is selected in the Effect edge (keyed off
@@ -77,16 +83,16 @@ priority order, so exactly one state wins per run:
 > is empty, there is nothing to review. Because the close commit itself becomes
 > the new base, the run immediately after a close resolves to `verified`.
 
-> **Test-fix iterations**: each test-gate fix is committed as
-> `fix(gtd): <desc>`. The trailing run of such commits at HEAD is counted; when
-> it reaches **5** (the hardcoded `MAX_VERIFY_ITERATIONS` — **not** configurable
-> via AGENTS.md) gtd resolves to `escalate` and stops. Any non-`fix(gtd):`
-> commit at HEAD resets the counter to 0. The cap is enforced **in the Effect
-> edge** before emitting fix-tests, so it works uniformly for both
-> `human-review` and `execute` — the latter sits above `capReached` in the
-> machine's guard order (the machine checks `hasPackages` first), so without the
-> edge cap a failing-test package would loop forever. `src/Machine.ts` stays
-> pure/IO-free; the guard order is unchanged.
+> **Test-fix loop**: the fix-tests prompt drives an internal loop — read the
+> uncommitted `ERRORS.md` attempt log, make one fix, re-run, append the attempt,
+> repeat up to **3** (the hardcoded `MAX_VERIFY_ITERATIONS` — **not** configurable
+> via AGENTS.md). Nothing is committed per attempt; only on success (a single
+> `fix(gtd): <desc>` commit, `ERRORS.md` discarded) or on escalation (`ERRORS.md`
+> committed as the human gate). The trailing run of `fix(gtd):` commits at HEAD
+> is also counted in the Effect edge; reaching the cap, a recurring failure
+> signature, or a committed `ERRORS.md` all resolve to `escalate`. Any
+> non-`fix(gtd):` commit resets the counter to 0; deleting `ERRORS.md` clears the
+> gate. `src/Machine.ts` stays pure/IO-free.
 
 > **Deterministic test execution**: when the fold lands on `human-review` or
 > `execute`, gtd runs the test suite **itself** in the Effect edge — not the
@@ -98,9 +104,11 @@ priority order, so exactly one state wins per run:
 > cap is reached). The fold in `src/Machine.ts` stays pure — the actual test run
 > lives only in the edge.
 
-> **`TODO:` markers in code** are ordinary code in the normal loop — they are
-> only swept into `TODO.md` during review processing (`review-process`), never
-> as a standalone step.
+> **`!!` follow-up comments** (a comment whose body begins with `!!`, in any
+> language — `// !!`, `# !!`, `<!-- !!`) are leftover work. They are harvested
+> verbatim into `TODO.md` during `review-process` and stripped from the source;
+> their presence also diverts an otherwise-approved review away from
+> `close-review`. Plain `TODO:` markers are ordinary code and are never swept up.
 
 gtd coordinates phases — it doesn't dictate strategy. How to grill, how to
 commit, how to build, how to verify: those are left to other skills (or the
@@ -136,27 +144,29 @@ state per run:
 ```mermaid
 flowchart TD
     Start([Invoke /gtd]) --> Resolve{Fold history + working tree}
-    Resolve -->|REVIEW.md ticks only| CloseReview[close-review: close approved review]:::terminal
-    Resolve -->|REVIEW.md dirty| ReviewProcess[review-process]:::terminal
-    Resolve -->|code change outside TODO.md| CodeChanges[code-changes: commit]
+    Resolve -->|ERRORS.md present or fix\(gtd\): run hit 3| Escalate[escalate: stop, ask human]:::terminal
+    Resolve -->|REVIEW.md ticks only, no !!| CloseReview[close-review: close approved review]:::terminal
+    Resolve -->|change outside TODO.md/REVIEW.md| CodeChanges[code-changes: git add -A, commit]
+    Resolve -->|REVIEW.md notes, or approved + !!| ReviewProcess[review-process]:::terminal
+    Resolve -->|REVIEW.md committed, unmodified| AwaitReview[await-review: human gate]:::terminal
     Resolve -->|.gtd/ has packages| ExecuteTest{execute: edge runs npm run test}
     ExecuteTest -->|green| Execute[execute next package]
     ExecuteTest -->|red, below cap| FixTests[fix-tests prompt]
     ExecuteTest -->|red, at cap| Escalate
     Execute -.->|last package: removes .gtd/ in same commit| Resolve
     Resolve -->|stray empty .gtd/ safety net| Cleanup[cleanup .gtd/]
-    Resolve -->|TODO.md finalized + simple| ExecuteSimple[execute-simple]
-    Resolve -->|TODO.md finalized| Decompose[decompose into packages]
-    Resolve -->|trailing fix\(gtd\): run hit 5| Escalate[escalate: stop, ask human]:::terminal
-    Resolve -->|TODO.md new| NewTodo[new-todo: develop plan]
-    Resolve -->|TODO.md modified| ModifiedTodo[modified-todo: incorporate edits]
+    Resolve -->|TODO.md status: simple| ExecuteSimple[execute-simple]
+    Resolve -->|TODO.md status: complete| Decompose[decompose into packages]
+    Resolve -->|grilling, committed, open questions| AwaitAnswers[await-answers: human gate]:::terminal
+    Resolve -->|grilling + edited, or markerless modified| ModifiedTodo[modified-todo: re-grill]
+    Resolve -->|markerless TODO.md| NewTodo[new-todo: develop plan, set status: grilling]
     Resolve -->|clean, base..HEAD has diff| HumanReviewTest{human-review: edge runs npm run test}
     HumanReviewTest -->|green| HumanReview[human-review: generate REVIEW.md]:::terminal
     HumanReviewTest -->|red, below cap| FixTests
     HumanReviewTest -->|red, at cap| Escalate
     Resolve -->|nothing left| Verified[verified: healthy & reviewed]:::terminal
-    FixTests -.->|one fix\(gtd\): commit, re-run /gtd| Resolve
-    HumanReview -.->|user edits REVIEW.md, next /gtd| ReviewProcess
+    FixTests -.->|on success: one fix\(gtd\): commit, re-run /gtd| Resolve
+    HumanReview -.->|user works REVIEW.md, next /gtd| ReviewProcess
     CloseReview -.->|auto re-run| Verified
     classDef terminal fill:#2d6a4f,color:#fff
 ```
@@ -164,12 +174,15 @@ flowchart TD
 A typical feature:
 
 1. Create a `TODO.md` with a sketch of what you want.
-2. `/gtd` — the agent (using the planning model) fleshes it out, appends an
-   `## Open Questions` section, and commits `TODO.md`.
+2. `/gtd` — the agent (using the planning model) fleshes it out, adds
+   `status: grilling` frontmatter, appends an `## Open Questions` section, and
+   commits `TODO.md`. The next run is a human gate (`await-answers`) until you
+   answer.
 3. Open `TODO.md`, write inline answers under each question.
 4. `/gtd` again — the agent integrates your answers, moves resolved questions to
-   `## Answered Questions`, raises new ones, and commits. Repeat until
-   `## Open Questions` is empty.
+   the `## Resolved` graveyard, raises new ones, and commits. When no questions
+   remain it sets `status: simple` (≤5 files) or `status: complete`. Repeat until
+   the status is set.
 5. `/gtd` once more — agent first records `TODO.md` as
    `docs(plan): record TODO.md` (when not already in `HEAD`, preserving the plan
    and its Q&A history), then decomposes it into work packages in `.gtd/`,
@@ -194,20 +207,19 @@ A typical feature:
    `fix(gtd):`) or, once the iteration cap is reached, `escalate`. If everything
    is already reviewed, it reports the tree healthy and fully reviewed
    (verified).
-9. Edit `REVIEW.md` with feedback and run `/gtd` again — gtd detects the dirty
-   `REVIEW.md` (review-process), first commits the reviewer's entire working
-   tree verbatim as `docs(review): record raw feedback for <base>` (preserving
-   annotated `REVIEW.md`, source edits, and `TODO:` markers in history), then
-   resets and folds your feedback into a fresh `TODO.md`, and the loop starts
-   over.
+9. Work `REVIEW.md` (tick boxes, leave notes, edit source, drop `!!` comments)
+   and run `/gtd`. Any change outside `REVIEW.md`/`TODO.md` is committed verbatim
+   first (`code-changes`). A pure-tick approval with nothing left over closes the
+   review (`close-review`); notes or `!!` comments fold your feedback into a
+   fresh `TODO.md` (`review-process`, harvesting `!!` comments verbatim), and the
+   loop starts over.
 
-> If the test gate keeps failing, each fix is committed as `fix(gtd): <desc>`.
-> The cap (five trailing `fix(gtd):` commits → **escalate**) is enforced in the
-> Effect edge before fix-tests is emitted, so it applies uniformly to both the
-> `human-review` and `execute` gates. Once the cap is hit, gtd stops
-> auto-advancing and asks you to fix the root cause. Commit that fix with any
-> non-`fix(gtd):` prefix (or amend/squash the chain) to reset the counter and
-> resume.
+> If the test gate keeps failing, the fix-tests prompt loops internally up to
+> **3** attempts, tracking what was tried in an uncommitted `ERRORS.md`, and only
+> commits on success (`fix(gtd): <desc>`) or escalation (`ERRORS.md` committed).
+> Reaching the cap, a recurring failure signature, or a committed `ERRORS.md` all
+> resolve to `escalate`. Commit a fix with any non-`fix(gtd):` prefix to reset
+> the counter, and delete `ERRORS.md` to clear the gate.
 
 ## Build orchestration
 
@@ -217,8 +229,8 @@ When a plan is finalized, gtd enters build mode:
 
 Before decomposing, if `TODO.md` is not already committed and unchanged at
 `HEAD`, it is recorded verbatim as `docs(plan): record TODO.md` — preserving the
-plan and its full Q&A history (`## Open Questions` / `## Answered Questions`) in
-git history before deletion. In the normal flow this is a no-op (the plan was
+plan and its full Q&A history (`## Open Questions` / `## Resolved`) in git
+history before deletion. In the normal flow this is a no-op (the plan was
 already committed by `new-todo`/`modified-todo`); it only fires when a fresh,
 never-committed `TODO.md` is routed directly to decompose.
 
@@ -238,8 +250,13 @@ A planning-model subagent then breaks `TODO.md` into executable work packages:
 
 Rules:
 
-- **Packages are sequential** — Package 02 cannot start until 01 is complete
-- **Tasks within a package are parallel** — No dependencies between tasks
+- **Packages are sequential, in ordinal dependency order** — `01-`, `02-`, …;
+  the set is frozen once written (no re-decomposition). Package 02 cannot start
+  until 01 is complete.
+- **Each package is green on its own** — the test suite runs after every
+  package, so none may leave the tree red for a later package to fix.
+- **Tasks within a package are parallel and file-disjoint** — one subagent per
+  task, no isolation; tasks that would touch the same file are merged into one.
 - **Task files are self-contained** — Include description, acceptance criteria,
   relevant file paths
 
@@ -269,9 +286,10 @@ A single execute cycle (green test gate):
    just committed, then advances to the next package.
 
 When that edge test run fails, the edge emits the `fix-tests` prompt instead:
-make exactly one fix, commit it as `fix(gtd): <desc>`, and re-run gtd. Once five
-consecutive `fix(gtd):` commits accumulate at HEAD, the edge resolves to
-`escalate` and hands control back to the human.
+loop internally up to three attempts (tracked in an uncommitted `ERRORS.md`),
+committing only on success (`fix(gtd): <desc>`) or escalation. Three consecutive
+`fix(gtd):` commits, a recurring failure signature, or a committed `ERRORS.md`
+resolve to `escalate` and hand control back to the human.
 
 ### 3. Cleanup
 
@@ -283,8 +301,18 @@ machine still has a defined transition for that case.
 
 ## Q&A format inside TODO.md
 
-The `## Open Questions` section lives at the TOP of TODO.md (before the plan
-body). Each question looks like this:
+`TODO.md` carries a `status:` frontmatter field that drives the planning phase:
+`grilling` while questions remain, then `simple` (≤5 files) or `complete` once
+resolved:
+
+```markdown
+---
+status: grilling
+---
+```
+
+The `## Open Questions` section lives at the TOP of TODO.md (below the
+frontmatter, before the plan body). Each question looks like this:
 
 ```markdown
 ### What should pagination default to?
@@ -305,10 +333,10 @@ To answer, replace the comment with your response:
 ```
 
 On the next run, the agent integrates the answer into the plan body and moves
-the question to `## Answered Questions` at the bottom:
+the question to the `## Resolved` graveyard at the bottom:
 
 ```markdown
-## Answered Questions
+## Resolved
 
 ### What should pagination default to?
 

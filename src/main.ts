@@ -7,7 +7,8 @@ import { buildPrompt } from "./Prompt.js"
 import * as Format from "./Format.js"
 
 const program = Effect.gen(function* () {
-  if (process.argv[2] === "format") {
+  const sub = process.argv[2]
+  if (sub === "format") {
     const path = process.argv[3]
     if (!path) {
       process.stderr.write("gtd format: missing file path argument\n")
@@ -15,6 +16,11 @@ const program = Effect.gen(function* () {
     }
     yield* Format.formatFile(path)
     return
+  }
+  // No escape hatches: gtd takes no command other than `format`. Anything else
+  // (e.g. `abort`, `cancel`) is rejected rather than silently ignored.
+  if (sub !== undefined) {
+    yield* Effect.fail(new Error(`unknown command '${sub}'`))
   }
   const result = yield* detect()
 

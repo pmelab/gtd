@@ -2,10 +2,31 @@
 
 `npm run test` failed. The captured failure output is shown below.
 
-- Read the failure output carefully, then make exactly **ONE** fix.
-- Commit **all** the fix changes into a single commit with a
-  `fix(gtd): <desc>` message. Do **not** commit `TODO.md` — leave it dirty (the
-  working tree should end with only `TODO.md` pending, or otherwise clean).
+### Fix loop (run internally, do not commit per attempt)
+
+1. **Read the attempt log.** If `ERRORS.md` exists, read it first — it holds the
+   running log of previous attempts and what was already tried. Do not repeat a
+   failed approach.
+2. **Make exactly ONE fix**, then re-run the tests.
+3. **Append the attempt to `ERRORS.md`** (leave it uncommitted): the failing
+   signature and what you changed. This is the memory that survives across
+   attempts.
+4. Loop up to **3 attempts**. If the same failure signature recurs with no
+   progress, stop early and escalate.
+
+The rule: **only commit on success or escalation** — never commit a
+half-finished attempt.
+
+- **On success** (tests green): commit **all** the fix changes in a single
+  `fix(gtd): <desc>` commit and delete the uncommitted `ERRORS.md`. Do **not**
+  commit `TODO.md` — leave it dirty (the working tree should end with only
+  `TODO.md` pending, or otherwise clean).
+- **On escalation** (3 attempts exhausted or no progress): commit `ERRORS.md`
+  with the full attempt log so the next cycle stops at the human gate.
+
+Because attempts are not committed individually, an interrupted loop resumes
+from the package-execution commit: `git reset --hard HEAD` discards the partial
+work and the loop restarts cold.
 
 After committing, **re-run gtd** and **STOP**. The gate will re-evaluate on the
 next cycle.

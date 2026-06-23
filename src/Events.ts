@@ -15,8 +15,37 @@ import type { GtdEvent, GtdPackageFact, ResolvePayload } from "./Machine.js"
 const TODO_FILE = "TODO.md"
 const GTD_DIR = ".gtd"
 const REVIEW_FILE = "REVIEW.md"
+const ERRORS_FILE = "ERRORS.md"
 const UNANSWERED_MARKER = "<!-- user answers here -->"
 const SIMPLE_MARKER = "<!-- simple -->"
+
+/**
+ * Parse the `status:` value from a leading YAML frontmatter block. Folds the
+ * legacy `<!-- simple -->` marker into `"simple"` for backward compatibility.
+ */
+const parseTodoStatus = (content: string): "simple" | "complete" | "grilling" | null => {
+  const fm = content.match(/^---\n([\s\S]*?)\n---/)
+  if (fm) {
+    const m = fm[1]!.match(/^\s*status:\s*(\w+)/m)
+    if (m) {
+      const v = m[1]
+      if (v === "simple" || v === "complete" || v === "grilling") return v
+    }
+  }
+  if (content.includes(SIMPLE_MARKER)) return "simple"
+  return null
+}
+
+/**
+ * Whether TODO.md still has unanswered questions: the legacy answer placeholder,
+ * or a `## Open Questions` section that contains at least one `### ` entry
+ * before the next `## ` heading.
+ */
+const hasOpenQuestions = (content: string): boolean => {
+  if (content.includes(UNANSWERED_MARKER)) return true
+  const m = content.match(/^##\s+Open Questions\s*\n([\s\S]*?)(?=\n##\s|\n---|\s*$)/m)
+  return m ? /^###\s+/m.test(m[1]!) : false
+}
 
 const parsePorcelainPaths = (porcelain: string): ReadonlyArray<{ status: string; path: string }> =>
   porcelain
@@ -176,8 +205,14 @@ export const gatherEvents = (): Effect.Effect<
     const workingTreeClean = entries.length === 0
 
     const todoEntry = entries.find((e) => e.path === TODO_FILE)
-    const nonTodoEntries = entries.filter((e) => e.path !== TODO_FILE)
-    const codeDirty = nonTodoEntries.length > 0
+    // Verbatim-first: any uncommitted change outside the tool's own control
+    // files (TODO.md, REVIEW.md) is "code" that must be committed before any
+    // gate is evaluated. REVIEW.md checkbox edits are handled by the review
+    // branch, not treated as code.
+    const codeEntries = entries.filter(
+      (e) => e.path !== TODO_FILE && e.path !== REVIEW_FILE,
+    )
+    const codeDirty = codeEntries.length > 0
 
     const todoDirty: "new" | "modified" | null = todoEntry
       ? todoEntry.status.includes("?") || todoEntry.status.includes("A")
@@ -192,28 +227,34 @@ export const gatherEvents = (): Effect.Effect<
     const hasPackages = packages.length > 0
     const gtdDirExists = yield* fs.exists(GTD_DIR)
 
-    // TODO.md finalized: exists AND, after stripping code, no unanswered marker.
+    // A committed ERRORS.md means the test loop escalated; it is a human gate.
+    const errorsPresent = yield* fs.exists(ERRORS_FILE)
+
+    // TODO.md state is driven by its `status:` frontmatter (source of truth),
+    // with open-questions presence gating the await-answers branch.
     const todoExists = yield* fs.exists(TODO_FILE)
     const todoContent = todoExists
       ? yield* fs.readFileString(TODO_FILE).pipe(Effect.mapError((e) => new Error(String(e))))
       : ""
-    const todoFinalized = todoExists && !stripCode(todoContent).includes(UNANSWERED_MARKER)
-    const todoSimple = todoExists && todoContent.includes(SIMPLE_MARKER)
+    const stripped = stripCode(todoContent)
+    const todoStatus = todoExists ? parseTodoStatus(stripped) : null
+    const todoOpenQuestionsPresent = todoExists && hasOpenQuestions(stripped)
 
-    // REVIEW.md probing — preserve existing error semantics from State.ts.
+    // Scan tracked source for `!!` follow-up comments (leftover review work).
+    const bangComments = yield* git.grepBang()
+    const bangPresent = bangComments.length > 0
+
+    // REVIEW.md probing.
     let reviewModified = false
+    let reviewUnmodified = false
     let reviewApprovedNoChanges = false
     let reviewBaseRef: string | undefined
     const reviewExists = yield* fs.exists(REVIEW_FILE)
     if (reviewExists) {
       reviewModified = entries.some((e) => e.path === REVIEW_FILE)
-      if (!reviewModified) {
-        yield* Effect.fail(
-          new Error(
-            "REVIEW.md exists but has no changes. Edit REVIEW.md to provide feedback, or delete it to abandon review.",
-          ),
-        )
-      }
+      // A committed, unmodified REVIEW.md is the review gate: the human has not
+      // recorded any feedback yet. Wait for them rather than erroring.
+      reviewUnmodified = !reviewModified
       const reviewContent = yield* fs
         .readFileString(REVIEW_FILE)
         .pipe(Effect.mapError((e) => new Error(String(e))))
@@ -277,14 +318,18 @@ export const gatherEvents = (): Effect.Effect<
     }
 
     const payload: ResolvePayload = {
+      errorsPresent,
       reviewModified,
+      reviewUnmodified,
       reviewApprovedNoChanges,
       codeDirty,
       hasPackages,
       gtdDirExists,
       todoDirty,
-      todoFinalized,
-      todoSimple,
+      todoExists,
+      todoStatus,
+      todoOpenQuestionsPresent,
+      bangPresent,
       reviewBasePresent,
       lastCommitSubject,
       workingTreeClean,
@@ -296,6 +341,7 @@ export const gatherEvents = (): Effect.Effect<
           ? { baseRef: computedBaseRef }
           : {}),
       ...(refDiff !== undefined ? { refDiff } : {}),
+      ...(bangComments.length > 0 ? { bangComments } : {}),
     }
 
     return [...commitEvents, { type: "RESOLVE", payload }] as ReadonlyArray<GtdEvent>

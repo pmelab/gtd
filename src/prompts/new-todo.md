@@ -34,8 +34,18 @@ The subagent should:
    - **Every question advances a decision**: Avoid questions that don't change
      implementation — each question must have a concrete effect on the plan
 3. Do this entirely by editing `TODO.md` — the subagent cannot talk to the user
-4. Place unresolved questions in a `## Open Questions` section at the TOP of the
-   file (before the plan body), each formatted as:
+4. Add a YAML frontmatter block at the very top with `status: grilling` while
+   questions remain (this `status:` field is the source of truth for the
+   planning phase):
+
+   ```markdown
+   ---
+   status: grilling
+   ---
+   ```
+
+5. Place unresolved questions in a `## Open Questions` section at the TOP of the
+   file (below the frontmatter, before the plan body), each formatted as:
 
    ```markdown
    ### <one-line question>
@@ -45,23 +55,21 @@ The subagent should:
    <!-- user answers here -->
    ```
 
-5. Keep the original plan content BELOW `## Open Questions` and expand it where
+6. Keep the original plan content BELOW `## Open Questions` and expand it where
    confident from docs and codebase reading
 
-6. Add an empty `## Answered Questions` section at the bottom of the file
-   (questions will be moved here when answered in future iterations)
+7. Add an empty `## Resolved` section at the bottom of the file (answered
+   questions will be moved here in future iterations)
 
-7. **Evaluate task complexity**: When the plan is complete (no open questions
-   remain in this iteration), assess whether the task is simple enough to skip
-   decomposition:
-   - Use judgment based on task scope and codebase context
-   - Simple tasks typically: single-file change, no architectural decisions,
-     obvious implementation, can be described in one sentence
-   - If simple: append `<!-- simple -->` at the very end of TODO.md
-   - If complex or uncertain: omit the marker (defaults to decompose path)
-
-   Note: The user can later remove the marker if they want full decomposition,
-   or add it manually to any plan.
+8. **Set the status when the plan is complete**: If no open questions remain in
+   this iteration, decide the scope and set the frontmatter `status:`
+   accordingly:
+   - **`status: simple`** if the change is confined to **five files or fewer**
+     (single, obvious implementation) — the next cycle executes it directly with
+     no decomposition.
+   - **`status: complete`** otherwise — the next cycle decomposes it into work
+     packages.
+   - If questions still remain, keep `status: grilling`.
 
 ### After the subagent completes
 

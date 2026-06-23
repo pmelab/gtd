@@ -39,10 +39,14 @@ Gather feedback from three sources:
    notes, questions, suggestions written between or inside chunks).
 2. **Source file edits** — describe what was changed and infer the reviewer's
    intent from the surrounding REVIEW.md explanation.
-3. **`TODO:` markers in the reviewed code** — scan the reviewed code for any
-   `TODO:` comments. Pull each one into `TODO.md` as a note, with enough context
-   (file, function, what needs to be done) to act on it later. These markers are
-   captured as tasks here rather than left scattered in the source.
+3. **`!!` follow-up comments in the reviewed code** — scan the reviewed code for
+   any comment whose body begins with `!!` (e.g. `// !! …`, `# !! …`,
+   `<!-- !! … -->`). The ones gtd already found are inlined in the Context above
+   under "`!!` follow-up comments". Pull each one into `TODO.md` verbatim, with
+   enough context (file, function, what needs to be done) to act on it later —
+   intent is not parsed; capture exactly what the comment says. Plain `TODO:`
+   comments are ordinary code and are **not** harvested — only `!!` comments are.
+   After capturing, strip the `!!` comments from the source.
 
 ## Step 5: Compose TODO.md
 
