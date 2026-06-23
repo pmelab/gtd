@@ -64,7 +64,14 @@ export interface ConfigOperations {
   readonly resolveModel: (state: ModelState) => string
 }
 
-/** Recursively deep-merge plain objects; scalars/arrays from `inner` overwrite. */
+/**
+ * Recursively deep-merge plain objects; scalars/arrays from `inner` overwrite.
+ * Hand-rolled because cosmiconfig v9 `search()` stops at the FIRST config it
+ * finds and has no native cross-level auto-merge. Its only merge hook is the
+ * explicit `$import` key, which would force users to hand-author import chains
+ * and lose the implicit cwd→home layering. The manual `walkUp` + `deepMerge`
+ * with innermost-wins semantics is therefore intentional.
+ */
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v)
 
