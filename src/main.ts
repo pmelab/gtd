@@ -26,6 +26,19 @@ const program = Effect.gen(function* () {
   const config = yield* ConfigService
   const result = yield* detect()
 
+  // Review-process pre-render: run the edge write op before building the prompt.
+  if (result.value === "review-process") {
+    const git = yield* GitService
+    const base = result.context.baseRef
+    if (base === undefined) {
+      yield* Effect.fail(new Error("review-process: missing review base ref"))
+    }
+    const { diff, recordSha } = yield* git.recordAndRevertReview(base!)
+    const prompt = buildPrompt(result, { kind: "review-process", reviewDiff: diff, recordSha }, config.resolveModel)
+    yield* Effect.sync(() => process.stdout.write(prompt))
+    return
+  }
+
   // Test gate: only these leaves run the suite before emitting a prompt. The
   // `selectPrompt` helper + cap check are leaf-agnostic, so adding a future
   // gated leaf is just a matter of extending this set. Every other leaf

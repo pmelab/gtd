@@ -54,10 +54,13 @@ describe("buildPrompt", () => {
     expect(out).toContain("<!-- base: <full-hash> -->")
   })
 
-  it("review-process prompt instructs to format TODO.md and use git revert", () => {
+  it("review-process prompt instructs to format and commit TODO.md without git revert", () => {
     const out = buildPrompt(result("review-process", { autoAdvance: true }))
     expect(out).toContain("format TODO.md")
-    expect(out).toContain("git revert --no-edit")
+    expect(out).toContain("git add TODO.md")
+    expect(out).not.toContain("git revert")
+    expect(out).not.toContain("docs(review): record raw feedback")
+    expect(out).not.toContain("chore(gtd): close approved review")
   })
 
   it("renders exactly one section for the resolved value", () => {
@@ -423,7 +426,9 @@ describe("buildPrompt", () => {
     })
     // Section rendered
     expect(out).toContain("format TODO.md")
-    expect(out).toContain("git revert --no-edit")
+    expect(out).toContain("git add TODO.md")
+    // No git revert in the slim prompt
+    expect(out).not.toContain("git revert")
     // Fenced diff
     expect(out).toContain("### Review feedback diff")
     expect(out).toContain("```\ndiff --git a/x b/x\n+hi\n```")
