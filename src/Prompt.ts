@@ -55,6 +55,7 @@ const SECTIONS: Record<LeafState, string> = {
   "await-review": awaitReview,
   "await-answers": awaitAnswers,
   "review-incomplete": reviewIncomplete,
+  "fix-tests": fixTests,
 }
 
 const buildContext = (context: GtdContext): string => {

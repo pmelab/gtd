@@ -2,7 +2,7 @@ import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { ConfigService } from "./Config.js"
 import { GitService } from "./Git.js"
-import { detect, selectPrompt } from "./State.js"
+import { startDetect } from "./State.js"
 import { TestRunner } from "./TestRunner.js"
 import { buildPrompt } from "./Prompt.js"
 import * as Format from "./Format.js"
@@ -24,39 +24,40 @@ const program = Effect.gen(function* () {
     yield* Effect.fail(new Error(`unknown command '${sub}'`))
   }
   const config = yield* ConfigService
-  const result = yield* detect()
+  const handle = yield* startDetect()
+  let result = handle.current
 
-  // Review-process pre-render: run the edge write op before building the prompt.
-  if (result.value === "review-process") {
+  // The machine owns the decision tree; the edge only performs the side effect
+  // each settled `edgeAction` requests, then advances the SAME actor with the
+  // result event so the machine re-projects the next state.
+  const action = result.edgeAction
+  if (action?.kind === "reviewPreRender") {
+    // Review-process pre-render: record + revert REVIEW.md, feed it back.
     const git = yield* GitService
-    const base = result.context.baseRef
-    if (base === undefined) {
-      yield* Effect.fail(new Error("review-process: missing review base ref"))
-    }
-    const { diff, recordSha } = yield* git.recordAndRevertReview(base!)
-    const prompt = buildPrompt(result, { kind: "review-process", reviewDiff: diff, recordSha }, config.resolveModel)
-    yield* Effect.sync(() => process.stdout.write(prompt))
-    return
-  }
-
-  // Test gate: only these leaves run the suite before emitting a prompt. The
-  // `selectPrompt` helper + cap check are leaf-agnostic, so adding a future
-  // gated leaf is just a matter of extending this set. Every other leaf
-  // (including `format` above) is unchanged and never spawns the runner.
-  // `execute` is REQUIRED here: the machine checks `hasPackages` before
-  // `capReached`, so without the edge cap a failing-test package would loop
-  // forever.
-  const TEST_GATED_LEAVES = new Set<string>(["human-review", "execute"])
-  if (TEST_GATED_LEAVES.has(result.value)) {
+    const { diff, recordSha } = yield* git.recordAndRevertReview(action.base)
+    result = handle.advance([{ type: "REVIEW_RECORDED", diff, recordSha }])
+  } else if (action?.kind === "runTestGate") {
+    // Test gate (execute only): run the suite, feed the exit code back. The
+    // machine folds green→execute / red<cap→fix-tests / red≥cap→escalate.
     const runner = yield* TestRunner
     const test = yield* runner.run()
-    const { result: selected, override } = selectPrompt(result, test)
-    const prompt = buildPrompt(selected, override, config.resolveModel)
-    yield* Effect.sync(() => process.stdout.write(prompt))
-    return
+    result = handle.advance([{ type: "TEST_RESULT", exitCode: test.exitCode, output: test.output }])
   }
 
-  const prompt = buildPrompt(result, undefined, config.resolveModel)
+  // Map any machine-carried render data back onto the buildPrompt override
+  // contract (Prompt.ts is unchanged; the data now lives on the context).
+  const override =
+    result.value === "review-process" && result.context.reviewDiff !== undefined
+      ? ({
+          kind: "review-process" as const,
+          reviewDiff: result.context.reviewDiff,
+          recordSha: result.context.recordSha ?? "",
+        })
+      : result.value === "fix-tests"
+        ? ({ kind: "fix-tests" as const, testOutput: result.context.testOutput ?? "" })
+        : undefined
+
+  const prompt = buildPrompt(result, override, config.resolveModel)
   yield* Effect.sync(() => process.stdout.write(prompt))
 })
 

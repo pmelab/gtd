@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { type GtdEvent, MAX_VERIFY_ITERATIONS, type ResolvePayload, resolve } from "./Machine.js"
+import {
+  type GtdEvent,
+  MAX_NO_AGENT_HOPS,
+  MAX_VERIFY_ITERATIONS,
+  type ResolvePayload,
+  resolve,
+  start,
+} from "./Machine.js"
 
 const commit = (isTestFix: boolean): GtdEvent => ({ type: "COMMIT", isTestFix })
 
@@ -86,8 +93,8 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
     expect(autoAdvance).toBe(true)
   })
 
-  it("hasPackages → execute, autoAdvance true", () => {
-    const { value, autoAdvance } = resolve([
+  it("hasPackages → runTestGate first (edgeAction runTestGate), then green TEST_RESULT → execute", () => {
+    const handle = start([
       resolveEvent({
         reviewModified: false,
         codeDirty: false,
@@ -95,8 +102,15 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
         gtdDirExists: true,
       }),
     ])
-    expect(value).toBe("execute")
-    expect(autoAdvance).toBe(true)
+    // Settles on the gate, not execute yet.
+    expect(handle.current.value).toBe("execute")
+    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
+    expect(handle.current.autoAdvance).toBe(false)
+    // Green test → execute leaf, no edgeAction, auto-advance.
+    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
+    expect(after.value).toBe("execute")
+    expect(after.edgeAction).toBeUndefined()
+    expect(after.autoAdvance).toBe(true)
   })
 
   it("gtdDirExists only → cleanup, autoAdvance true", () => {
@@ -370,5 +384,179 @@ describe("resolve — counter-vs-escalate interaction", () => {
     expect(context.diff).toBe("some diff")
     expect(context.baseRef).toBe("ref1")
     expect(context.refDiff).toBe("rd")
+  })
+})
+
+describe("no-agent action leaves — edgeAction + loop-back", () => {
+  it("cleanup exposes removeGtdDir; next clearing RESOLVE advances + bumps noAgentHops", () => {
+    const handle = start([
+      resolveEvent({ gtdDirExists: true, hasPackages: false }),
+    ])
+    expect(handle.current.value).toBe("cleanup")
+    expect(handle.current.edgeAction).toEqual({ kind: "removeGtdDir" })
+    expect(handle.current.context.noAgentHops).toBe(0)
+    // .gtd removed → now clean with a review base, settles human-review.
+    const after = handle.advance([
+      resolveEvent({
+        gtdDirExists: false,
+        reviewBasePresent: true,
+        refDiff: "diff --git a/x b/x\n+hi\n",
+        baseRef: "abc",
+      }),
+    ])
+    expect(after.value).toBe("human-review")
+    expect(after.edgeAction).toBeUndefined()
+    expect(after.context.noAgentHops).toBe(1)
+  })
+
+  it("close-review exposes closeReview{base}; next RESOLVE advances + bumps noAgentHops", () => {
+    const handle = start([
+      resolveEvent({
+        reviewModified: true,
+        reviewHasUncheckedBoxes: false,
+        reviewHasRealFeedback: false,
+        baseRef: "base-sha",
+      }),
+    ])
+    expect(handle.current.value).toBe("close-review")
+    expect(handle.current.edgeAction).toEqual({ kind: "closeReview", base: "base-sha" })
+    const after = handle.advance([resolveEvent({ reviewBasePresent: false })])
+    expect(after.value).toBe("verified")
+    expect(after.context.noAgentHops).toBe(1)
+  })
+
+  it("code-changes exposes commitPending; next clean RESOLVE advances + bumps noAgentHops", () => {
+    const handle = start([resolveEvent({ codeDirty: true, reviewPresent: false })])
+    expect(handle.current.value).toBe("code-changes")
+    expect(handle.current.edgeAction).toEqual({ kind: "commitPending" })
+    const after = handle.advance([resolveEvent({ codeDirty: false, reviewBasePresent: false })])
+    expect(after.value).toBe("verified")
+    expect(after.context.noAgentHops).toBe(1)
+  })
+})
+
+describe("no-agent loop — cap + stuck escalation", () => {
+  it("noAgentHops >= MAX_NO_AGENT_HOPS → escalate", () => {
+    // Alternate code-changes ↔ cleanup so each hop makes progress (no `stuck`)
+    // and the hop counter climbs to the cap.
+    const codeChanges = resolveEvent({ codeDirty: true })
+    const cleanup = resolveEvent({ codeDirty: false, gtdDirExists: true })
+    const handle = start([codeChanges])
+    expect(handle.current.value).toBe("code-changes")
+    let last = handle.current
+    for (let i = 0; i < MAX_NO_AGENT_HOPS; i++) {
+      last = handle.advance([i % 2 === 0 ? cleanup : codeChanges])
+      if (last.value === "escalate") break
+    }
+    expect(last.value).toBe("escalate")
+    expect(last.context.noAgentHops).toBeGreaterThanOrEqual(MAX_NO_AGENT_HOPS)
+    expect(last.edgeAction).toBeUndefined()
+  })
+
+  it("stuck: re-settling on the same no-agent leaf with no progress → escalate", () => {
+    // close-review → next RESOLVE still close-review (no progress) → escalate.
+    const handle = start([
+      resolveEvent({
+        reviewModified: true,
+        reviewHasUncheckedBoxes: false,
+        reviewHasRealFeedback: false,
+        baseRef: "b",
+      }),
+    ])
+    expect(handle.current.value).toBe("close-review")
+    const after = handle.advance([
+      resolveEvent({
+        reviewModified: true,
+        reviewHasUncheckedBoxes: false,
+        reviewHasRealFeedback: false,
+        baseRef: "b",
+      }),
+    ])
+    expect(after.value).toBe("escalate")
+  })
+})
+
+describe("runTestGate — TEST_RESULT fold (moved from selectPrompt)", () => {
+  const gate = () =>
+    start([resolveEvent({ hasPackages: true, gtdDirExists: true })])
+
+  it("green → execute, no edgeAction", () => {
+    const after = gate().advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
+    expect(after.value).toBe("execute")
+    expect(after.edgeAction).toBeUndefined()
+  })
+
+  it("red below cap → fix-tests carrying testOutput", () => {
+    const after = gate().advance([
+      { type: "TEST_RESULT", exitCode: 1, output: "FAIL src/y.test.ts" },
+    ])
+    expect(after.value).toBe("fix-tests")
+    expect(after.context.testOutput).toBe("FAIL src/y.test.ts")
+    expect(after.edgeAction).toBeUndefined()
+  })
+
+  it("red just below cap (verify = max-1) → fix-tests, not escalate", () => {
+    // capReached precedes hasPackages in the chain, so the gate is only ever
+    // reached while verifyIterations < max; the gate's own red→fix-tests branch
+    // owns this case. (The gate's red≥cap→escalate branch exists for fidelity
+    // with the retired selectPrompt but is shadowed by replaying's capReached.)
+    const handle = start([
+      ...Array.from({ length: MAX_VERIFY_ITERATIONS - 1 }, () => commit(true)),
+      resolveEvent({ hasPackages: true, gtdDirExists: true }),
+    ])
+    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
+    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 1, output: "boom" }])
+    expect(after.value).toBe("fix-tests")
+    expect(after.context.testOutput).toBe("boom")
+  })
+
+  it("red at cap (verify >= max) → escalate via the gate fold", () => {
+    // hasPackages precedes capReached in the chain, so a capped verify count
+    // STILL reaches the gate; the gate fold's red≥cap branch escalates (this is
+    // exactly why the test gate had to move into the machine — see main.ts note).
+    const events: Array<GtdEvent> = []
+    for (let i = 0; i < MAX_VERIFY_ITERATIONS; i++) events.push(commit(true))
+    events.push(resolveEvent({ hasPackages: true, gtdDirExists: true }))
+    const handle = start(events)
+    expect(handle.current.value).toBe("execute")
+    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
+    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 1, output: "still failing" }])
+    expect(after.value).toBe("escalate")
+    expect(after.edgeAction).toBeUndefined()
+  })
+
+  it("human-review settles WITHOUT a runTestGate edgeAction", () => {
+    const hr = start([
+      resolveEvent({
+        reviewBasePresent: true,
+        refDiff: "diff --git a/x b/x\n+hi\n",
+        baseRef: "abc",
+      }),
+    ])
+    expect(hr.current.value).toBe("human-review")
+    expect(hr.current.edgeAction).toBeUndefined()
+  })
+})
+
+describe("review-process — reviewPreRender then REVIEW_RECORDED", () => {
+  it("emits reviewPreRender{base}, then settles carrying reviewDiff/recordSha", () => {
+    const handle = start([
+      resolveEvent({
+        reviewModified: true,
+        reviewHasUncheckedBoxes: false,
+        reviewHasRealFeedback: true,
+        baseRef: "rev-base",
+      }),
+    ])
+    expect(handle.current.value).toBe("review-process")
+    expect(handle.current.edgeAction).toEqual({ kind: "reviewPreRender", base: "rev-base" })
+    const after = handle.advance([
+      { type: "REVIEW_RECORDED", diff: "DIFF-BODY", recordSha: "sha123" },
+    ])
+    expect(after.value).toBe("review-process")
+    expect(after.edgeAction).toBeUndefined()
+    expect(after.autoAdvance).toBe(true)
+    expect(after.context.reviewDiff).toBe("DIFF-BODY")
+    expect(after.context.recordSha).toBe("sha123")
   })
 })

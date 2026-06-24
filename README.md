@@ -19,6 +19,17 @@ or merge-base) plus the working tree, turns them into a `COMMIT[]` + single
 selects the prompt. There is no multi-section/branches-array snapshot — a single
 run resolves to a single state.
 
+The machine is a **stepping** actor, not a one-shot fold: it owns the
+no-agent action loop and both side-effect gates in machine logic. A settled
+leaf can expose an `edgeAction` (`removeGtdDir` / `closeReview` / `commitPending`
+/ `runTestGate` / `reviewPreRender`) telling the IO edge to perform one side
+effect and feed the result back as a `TEST_RESULT` / `REVIEW_RECORDED` event (or
+a freshly re-gathered `RESOLVE`); the machine re-evaluates and projects the next
+state. The edge opens the actor via `startDetect()` in `src/State.ts` and
+advances the same handle — the machine stays pure (no IO/Effect/git). The
+no-agent loop is bounded by `MAX_NO_AGENT_HOPS` (8) and a `stuck` guard
+(re-settling on the same no-agent leaf with no progress); either escalates.
+
 `gtd` ships as an [Agent Skills Spec](https://agentskills.io/specification)
 compliant skill installable via [skills.sh](https://www.skills.sh/). The agent
 runs the bundled script, reads the emitted prompt, and follows it verbatim.
@@ -68,15 +79,18 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 | `await-answers`  | `TODO.md` `status: grilling`, committed, with open questions remaining                          | Human gate — wait for the user to answer the open questions; **STOP**                                                                                                                         |
 | `modified-todo`  | `TODO.md` `status: grilling` and edited, or a markerless `TODO.md` modified in place            | Incorporate edits, re-grill, move resolved Q&A to `## Resolved`, set `status:` when done                                                                                                     |
 | `new-todo`       | A markerless `TODO.md` (fresh sketch), committed or newly added                                 | Develop the plan: add `## Open Questions`, set `status: grilling`                                                                                                           |
-| `human-review`   | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff                         | Edge runs `npm run test`; on green generate `REVIEW.md`, on red fix-tests (or escalate)                                                                                                      |
+| `human-review`   | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff                         | Generate `REVIEW.md` (no test gate — `human-review` settles directly)                                                                                                                        |
 | `verified`       | Nothing else matched — tree clean, nothing left to review                                       | Report the working tree healthy and reviewed                                                                                                                                                 |
 
-> **`fix-tests` is a prompt, not a leaf state.** It is never one of the
-> machine's resolved leaf states — it is selected in the Effect edge (keyed off
-> the resolved leaf + the test exit code) when the hardcoded `npm run test`
-> fails on the `human-review` or `execute` path. It embeds the captured failure
-> output and instructs the agent to make exactly ONE `fix(gtd): <desc>` commit
-> (with a `Gtd-Test-Fix: <n>` trailer), then re-run gtd so the gate re-evaluates.
+> **`fix-tests` is a machine leaf state.** When the chain would settle on
+> `execute`, the machine first emits a `runTestGate` edgeAction; the edge runs
+> the hardcoded `npm run test` and feeds the exit code back as `TEST_RESULT`. The
+> machine then folds it: green → `execute`, red below cap → `fix-tests` (carrying
+> the captured output on `context.testOutput`), red at/over cap → `escalate`.
+> `human-review` is **not** test-gated — it settles directly. The `fix-tests`
+> prompt embeds the captured failure output and instructs the agent to make
+> exactly ONE `fix(gtd): <desc>` commit (with a `Gtd-Test-Fix: <n>` trailer),
+> then re-run gtd so the gate re-evaluates.
 
 > **Review base**: the closest-to-HEAD of {parent-branch merge-base, last
 > `<!-- base: … -->` review commit, last `chore(gtd): close approved review`
@@ -96,16 +110,17 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 > trailer resets the counter to 0; deleting `ERRORS.md` clears the gate.
 > `src/Machine.ts` stays pure/IO-free.
 
-> **Deterministic test execution**: when the fold lands on `human-review` or
-> `execute`, gtd runs the test suite **itself** in the Effect edge — not the
-> agent. It spawns the configured `testCommand` (defaults to `npm run test`; see
+> **Deterministic test execution**: when the chain would settle on `execute`,
+> the machine emits a `runTestGate` edgeAction and gtd runs the test suite
+> **itself** in the Effect edge — not the agent. It spawns the configured
+> `testCommand` (defaults to `npm run test`; see
 > [Configuration](#configuration)), captures stdout + stderr + the exit code, and
-> branches the emitted
-> prompt on the result: a green run (exit 0) emits the leaf's normal prompt
-> (`REVIEW.md` generation / execute the next package); a red run emits the
-> `fix-tests` prompt with the captured output embedded (or `escalate` once the
-> cap is reached). The fold in `src/Machine.ts` stays pure — the actual test run
-> lives only in the edge.
+> feeds it back as a `TEST_RESULT` event. The **machine** then branches: a green
+> run (exit 0) settles `execute`; a red run below the verify cap settles
+> `fix-tests` with the captured output on context; a red run at/over the cap
+> settles `escalate`. The branching (formerly the edge's `selectPrompt`) now
+> lives in the machine; `src/Machine.ts` stays pure — only the actual test run
+> lives in the edge.
 
 > **Any working-tree change is feedback** — there is no marker convention.
 > Taxonomy: REVIEW.md prose edits = global feedback on the whole change or named

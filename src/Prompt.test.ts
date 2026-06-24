@@ -5,6 +5,8 @@ import type { GtdContext, LeafState, ResolveResult } from "./Machine.js"
 const baseContext = (overrides: Partial<GtdContext> = {}): GtdContext => ({
   verifyIterations: 0,
   maxVerifyIterations: 5,
+  noAgentHops: 0,
+  lastAdvancedLeaf: null,
   lastCommitSubject: "chore: init",
   workingTreeClean: true,
   packages: [],
