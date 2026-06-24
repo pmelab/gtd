@@ -490,7 +490,7 @@ regardless of the host project's toolchain.
 ```bash
 npm install
 npm run dev          # run from source, no build (node dev/run.mjs)
-npm run build        # tsup → scripts/gtd.js (checked in)
+npm run build        # tsup → dist/gtd.bundle.mjs (+ copies to scripts/)
 npm test             # vitest
 npm run test:e2e     # cucumber integration tests
 npm run typecheck
@@ -502,10 +502,22 @@ type-stripping (requires Node 22.6+). It registers `dev/hooks.mjs`, which fills
 the two gaps the tsup build otherwise covers: resolving `./Foo.js` specifiers to
 the on-disk `./Foo.ts`, and importing `*.md` prompt files as text. Pass CLI args
 after `--`, e.g. `npm run dev -- format <file>`. The helpers live in `dev/`
-rather than `scripts/` because tsup wipes `scripts/` (`clean: true`) on build.
+rather than `scripts/` because tsup wipes `dist/` (`clean: true`) on build.
 
-`scripts/gtd.js` is committed to the repo so the skill installs zero-step.
-Rebuild it before tagging a release.
+`scripts/gtd.js` is a tiny launcher shim; the real bundle
+(`dist/gtd.bundle.mjs`) is downloaded automatically on first invocation from the
+GitHub release whose tag matches the `version` field in `package.json`. The
+placeholder version `0.0.0-development` falls back to the `latest` release. The
+bundle can also be built locally with `npm run build`.
+
+## Releasing
+
+Releases are automatic. Push releasable Conventional Commits (`fix:`, `feat:`,
+or breaking changes) to `main` and the Release workflow runs the tests, then
+`npx semantic-release`. Semantic-release computes the next version, writes it
+into `package.json`, builds the bundle, commits the bump back as
+`chore(release): X.Y.Z [skip ci]`, tags `vX.Y.Z`, and creates the GitHub release
+with `gtd.bundle.mjs` attached.
 
 ## License
 

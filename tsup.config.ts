@@ -1,13 +1,14 @@
 import { defineConfig } from "tsup"
 
 export default defineConfig({
-  entry: { gtd: "src/main.ts" },
+  entry: { "gtd.bundle": "src/main.ts" },
   format: ["esm"],
   platform: "node",
   target: "node20",
-  outDir: "scripts",
+  outDir: "dist",
   noExternal: [/.*/],
   splitting: false,
+  outExtension: () => ({ js: ".mjs" }),
   loader: { ".md": "text" },
   banner: {
     js: `#!/usr/bin/env node
