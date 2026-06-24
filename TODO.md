@@ -1,5 +1,5 @@
 ---
-status: grilling
+status: complete
 ---
 
 # Harvest `!!` review comments by review-session diff, not file membership
@@ -11,113 +11,6 @@ chunk of `REVIEW.md`:
 > all comments have to be addressed, also potentially in other files, not
 > referenced in REVIEW.md. but it should be clear from the previous git commit
 > what was an actual review comment. older "!!" comments can be ignored.
-
-## Open Questions
-
-### What is the exact baseline ref + diff command that defines "reviewer-added `!!` lines"?
-
-**Recommendation:** Baseline = the **`review(gtd): create review for <short>`
-commit**, which is exactly what `git.lastReviewCommit()` already returns
-(`src/Git.ts:133-145`, greps `^review\(gtd\): create review for`). I verified
-the live loop ordering against this session's history (`git log`):
-
-```
-448733f docs(review): process review feedback into TODO.md   <- written AFTER harvest
-613cd45 docs(review): record raw feedback for d78b6fc...      <- written AFTER harvest
-e44f86a review(gtd): create review for d78b6fc                <- HEAD at harvest time
-```
-
-When `gatherEvents` runs the harvest (`src/Events.ts:254-272`), `REVIEW.md`
-exists and is **dirty** (modified), no raw-feedback commit exists yet, and HEAD
-is the `review(gtd): create review …` commit. So the reviewer's session edits =
-the working-tree changes since that commit. The harvest must therefore diff the
-**working tree against `lastReviewCommit()`** and keep only `!!` tokens on added
-(`+`) lines:
-
-```
-git diff <reviewCommit> -- ':!REVIEW.md' ':!TODO.md'
-```
-
-(no `HEAD` second arg — `git diff <ref>` compares ref → working tree, which is
-what we want; it picks up the reviewer's uncommitted edits). I confirmed
-`git diff <ref>` against a dirty tree surfaces the reviewer's new lines, and
-that filtering `+` lines through the existing `(//|#|<!--)[[:space:]]*!!`
-pattern isolates added `!!` from pre-existing ones (tested in /tmp). This
-**replaces** the pathspec (`chunkRefPaths ∪ dirtyPaths`) approach entirely —
-file membership is no longer the axis; the diff itself is unrestricted by file,
-so a reviewer `!!` in a file NOT referenced by REVIEW.md is still caught, and a
-pre-existing `!!` in a referenced file is dropped.
-
-Note: `git diff <ref>` does not include **untracked** new files. Reviewers can
-add `!!` in a brand-new untracked file. Recommendation: mirror `diffHead`'s
-existing trick (`src/Git.ts:54-66`) — `git add --intent-to-add` the untracked
-paths first so they appear in the diff as all-`+` lines, then reset. This keeps
-untracked reviewer files in scope without a whole-tree grep.
-
-<!-- user answers here -->
-
-### How does the new line-level harvest map onto the `BangComment` {file, line, text} shape the prompt consumes?
-
-**Recommendation:** Keep the shape identical (`src/Git.ts:27-33`); the prompt
-(`review-process.md` Step 4.3) and `Events.ts` payload (`bangComments`) are
-unchanged. Compute `line` from diff hunk headers: parse `@@ -a,b +c,d @@`, take
-`c` as the new-file start line, and increment a counter for every `+`/context
-line in the hunk; when a `+` line matches the `!!` pattern, emit
-`{file, line: <counter>, text}` with the same text-stripping regex already in
-`grepBang` (`src/Git.ts:253-256`). I verified hunk headers give the new-file
-start (`@@ -1,2 +1,4 @@`) and added lines follow in order. This preserves all
-existing assertions in `Git.test.ts` (file/line/text) — only the _source_ of the
-candidates changes (diff-added vs whole-file grep).
-
-<!-- user answers here -->
-
-### Does this replace `grepBang(pathspec)` or add a new method? And how does stripping (Step 4.3) stay limited to added lines?
-
-**Recommendation:** Replace it. Rename `grepBang(pathspec)` →
-`grepBangAdded(baseRef)` (or keep the name, change the signature to take a
-`baseRef: string`). There is exactly **one** caller (`Events.ts:272`, confirmed
-via grep), so the blast radius is small. The `:!REVIEW.md`/`:!TODO.md`
-exclusions stay (as `git diff -- :!…` pathspecs). Empty/no-baseline fallback:
-when `lastReviewCommit()` is `None`, return `[]` (never whole-tree) — same guard
-as today's empty-pathspec early return (`src/Git.ts:231`).
-
-**Stripping:** Step 4.3 of `review-process.md` tells the agent to strip
-harvested `!!` from source after capturing. Today it strips by matching the
-comment text. Because the harvested set is now _exactly the reviewer-added
-lines_, the agent should strip only those `{file, line}` locations —
-pre-existing `!!` (gtd's docs/fixtures) are never in `bangComments`, so they are
-never stripped. Recommendation: tighten the prompt wording to "strip only the
-`!!` comments listed in the harvested set (each identified by file + line),
-leaving any other `!!` in the tree untouched." This is the corruption fix from
-the original Bug 2 motivation.
-
-<!-- user answers here -->
-
-### How do the existing `spec-harvest` scenarios and `Git.test.ts` map onto added-line semantics?
-
-**Recommendation:**
-
-- `spec-harvest.feature` scenarios commit the `!!` file **before** the
-  `review(gtd): create review …` commit. Under added-line semantics, those `!!`
-  are NOT "added since the review commit" → they would no longer harvest. The
-  scenarios must be **rewritten** so the `!!` is introduced as a working-tree
-  edit _after_ the review-create commit (i.e. modify the source file in the same
-  step that modifies REVIEW.md), matching how a real reviewer adds it. The
-  composable Given steps (per AGENTS.md) likely need a new
-  `"<file>" is modified to:` step for source files (analogous to the existing
-  REVIEW.md one) so the `!!` lands as a dirty working-tree change.
-- The "unreferenced, non-dirty file is NOT harvested" scenario
-  (`spec-harvest.feature:104-140`) now passes for a _different, stronger_ reason
-  (the `!!` predates the review commit, so it's pre-existing) — keep it, it
-  still guards the false-positive case. Add the inverse: a reviewer-added `!!`
-  in an **unreferenced** file IS harvested.
-- `Git.test.ts` `grepBang` describe block (`src/Git.test.ts:355-418`) tests the
-  pathspec API; rewrite to the `baseRef` API: commit a baseline, then
-  write/commit or dirty an added `!!` line and assert it is harvested while a
-  pre-existing `!!` (committed at baseline) is not. Keep the REVIEW.md/TODO.md
-  exclusion test.
-
-<!-- user answers here -->
 
 ## The problem this exposes
 
@@ -143,8 +36,9 @@ That filters by _which files_, not by _which comments are new_. Two failures:
 Harvest exactly the `!!` follow-up comments the **reviewer introduced during the
 review session**, identified as `!!` tokens on lines ADDED since the
 `review(gtd): create review …` baseline (`git.lastReviewCommit()`), regardless
-of file. Pre-existing (`older`) `!!` anywhere are ignored: never harvested,
-never stripped.
+of file. Pre-existing (`older`) `!!` anywhere are ignored: never harvested.
+Reviewer-added `!!` are removed from the tree by the existing review-process
+reset (Step 7 `git checkout -- .` / `git clean -fd`), not by a manual strip.
 
 ## Implementation (grounded in code)
 
@@ -174,15 +68,42 @@ reader:
 unchanged. Update the stale comment at `Events.ts:248-250` and the doc comment
 at `Git.ts:223-229`.
 
-**`src/prompts/review-process.md` (Step 4.3, lines 42-49):** reword to say the
-harvested set is the reviewer-added `!!` (by file+line) and that stripping must
-touch only those lines, never other `!!` in the tree.
+**`src/prompts/review-process.md` (Step 4.3, lines 42-49):** reword the harvest
+source to "the reviewer-added `!!` (`!!` tokens on lines added since the
+`review(gtd): create review …` commit), by file+line, regardless of which files
+REVIEW.md references". **DROP the trailing
+`After capturing, strip the !! comments from the source.` sentence** — it is now
+redundant (see "Why no manual strip / git revert" below). The reset in Step 7
+already removes those lines.
 
-**Tests:** `tests/integration/features/spec-harvest.feature` — rewrite scenarios
-so `!!` is a working-tree edit after the review-create commit; add a step to
-dirty/modify a source file; add an "unreferenced reviewer-added `!!` IS
-harvested" scenario and keep the false-positive guard. `src/Git.test.ts:355-418`
-— rewrite `grepBang` block to the `baseRef` API.
+**Tests:** `tests/integration/features/spec-harvest.feature` — the `!!` must be
+introduced as a **working-tree edit after** the `review(gtd): create review …`
+commit (reality: `!!` always lands during the review session, never before it).
+Concretely: commit the source file WITHOUT the `!!` (or before the review
+commit, but clean), commit the review-create commit, then add the `!!` via a new
+`"<file>" is modified to:` step (composable, mirrors the existing REVIEW.md
+modify step) so it surfaces as an added line in `git diff <reviewCommit>`. Add
+an "unreferenced reviewer-added `!!` IS harvested" scenario (the `!!`-bearing
+file is not in REVIEW.md's chunk refs, yet the diff-based harvest still catches
+it). Keep a false-positive guard: a `!!` committed at/before the review commit
+(pre-existing) is NOT harvested. `src/Git.test.ts:355-418` — rewrite the
+`grepBang` block to the `baseRef` API: commit a baseline, dirty an added `!!`
+line, assert it is harvested while a pre-existing `!!` (committed at baseline)
+is not; keep the REVIEW.md/TODO.md exclusion test.
+
+## Why no manual strip / git revert (Q3 resolution)
+
+At harvest time (`gatherEvents`) HEAD IS the `review(gtd): create review …`
+commit and the reviewer's `!!` additions are **uncommitted working-tree edits**.
+The review-process flow then runs its reset (Step 7): `git add TODO.md` →
+`git checkout -- .` → `git clean -fd` → `rm REVIEW.md`. `git checkout -- .`
+discards **all** tracked source edits wholesale, and `git clean -fd` removes
+untracked reviewer files — so the reviewer-added `!!` lines are removed
+**mechanically by the existing reset**, with no per-line agent stripping. The
+old Step 4.3 strip instruction is therefore redundant in the normal flow, and an
+explicit `git revert` is unnecessary (the lines were never committed; there is
+nothing to revert). Pre-existing committed `!!` are explicitly ignored per the
+user, so they must NOT be stripped anyway. Harvest becomes **read-only**.
 
 **README.md:** update the `!!` harvest description (`README.md:110` area) to the
 added-line-since-review-commit semantics.
@@ -194,3 +115,83 @@ treated as pre-existing noise: NOT pulled in as tasks, NOT stripped. They appear
 here only as evidence.
 
 ## Resolved
+
+### What is the exact baseline ref + diff command that defines "reviewer-added `!!` lines"?
+
+**Recommendation:** Baseline = the **`review(gtd): create review for <short>`
+commit**, exactly what `git.lastReviewCommit()` returns (`src/Git.ts:133-145`,
+greps `^review\(gtd\): create review for`). At harvest (`gatherEvents`,
+`src/Events.ts:253-273`) `REVIEW.md` is dirty, no raw-feedback commit exists
+yet, and HEAD is the review-create commit — so reviewer session edits = the
+working-tree changes since that commit. Diff the **working tree against
+`lastReviewCommit()`** and keep only `!!` tokens on added (`+`) lines:
+`git diff <reviewCommit> -- ':!REVIEW.md' ':!TODO.md'` (no second ref — compares
+ref → working tree, picking up uncommitted edits). This replaces the pathspec
+(`chunkRefPaths ∪ dirtyPaths`) approach entirely. `git diff <ref>` omits
+untracked files, so `git add --intent-to-add` untracked paths first (mirror
+`diffHead`, `Git.ts:54-66`) then reset, keeping new untracked reviewer files in
+scope.
+
+**Answer:** agree with recommendation
+
+### How does the new line-level harvest map onto the `BangComment` {file, line, text} shape the prompt consumes?
+
+**Recommendation:** Keep the shape identical (`src/Git.ts:27-33`); the prompt
+payload (`bangComments`) is unchanged. Compute `line` from diff hunk headers:
+parse `@@ -a,b +c,d @@`, take `c` as the new-file start line, increment a
+counter for each `+`/context line; when a `+` line matches the `!!` pattern emit
+`{file, line: <counter>, text}` using the same text-strip regex already in
+`grepBang` (`src/Git.ts:253-256`). Preserves all existing file/line/text
+assertions in `Git.test.ts` — only the _source_ of candidates changes
+(diff-added vs whole-file grep).
+
+**Answer:** agreed
+
+### Does this replace `grepBang(pathspec)` or add a new method? And how is the reviewer-added `!!` removed from source?
+
+**Recommendation:** Replace it. `grepBang(pathspec)` →
+`grepBangAdded(baseRef: string)` (interface decl `Git.ts:24`). Exactly **one**
+caller (`Events.ts:272`). Keep `:!REVIEW.md`/`:!TODO.md` exclusions. When
+`lastReviewCommit()` is `None`, return `[]` (never whole-tree). Harvest is
+**read-only** — it does not mutate source.
+
+**Removal of the added `!!`:** No manual strip and no `git revert` needed. The
+reviewer's `!!` are uncommitted working-tree edits at harvest time; the existing
+review-process reset (Step 7: `git checkout -- .` discards tracked edits,
+`git clean -fd` removes untracked files) wipes them mechanically. The old Step
+4.3 "strip the `!!` from source" instruction is redundant and should be dropped.
+Pre-existing committed `!!` are ignored per the user, so they are never stripped
+anyway. (See "Why no manual strip / git revert" above.)
+
+**Answer:** couldn't we use git revert to remove those lines instead of letting
+the agent guess and maybe forget something? — Resolved: even simpler than a
+revert. The added `!!` are never committed at harvest time; the existing
+`git checkout -- .` / `git clean -fd` reset already removes every reviewer
+source edit (including the `!!` lines) with zero per-line agent guessing. Drop
+the Step 4.3 strip instruction; the harvest becomes read-only and the reset is
+the single mechanical removal point.
+
+### How do the existing `spec-harvest` scenarios and `Git.test.ts` map onto added-line semantics?
+
+**Recommendation:** Rewrite both so the `!!` is introduced **after** the
+review-create commit:
+
+- `spec-harvest.feature` — the source file is committed clean (no `!!`)
+  at/before the review-create commit; the `!!` is then added as a working-tree
+  edit via a new composable `"<file>" is modified to:` step (mirrors the
+  existing REVIEW.md modify step). Add an "unreferenced reviewer-added `!!` IS
+  harvested" scenario (file not in REVIEW.md chunk refs, still caught by the
+  diff). Keep a guard that a `!!` committed at/before the review commit is NOT
+  harvested.
+- `Git.test.ts` `grepBang` block (`src/Git.test.ts:355-418`) — rewrite to the
+  `baseRef` API: commit a baseline, dirty an added `!!`, assert harvested while
+  a pre-existing (baseline-committed) `!!` is not; keep the REVIEW.md/TODO.md
+  exclusion test.
+
+**Answer:** "scenarios commit the `!!` file **before** the
+`review(gtd): create review …` commit": this is a violation of reality. `!!`
+comments will always be after review creation. — Corrected: all fixtures now
+introduce the `!!` as a working-tree edit **after** the review-create commit,
+never before. (The current `spec-harvest.feature` fixtures commit the `!!` in a
+`feat:` commit that precedes the review commit — that ordering is wrong and is
+what this rewrite fixes.)
