@@ -8,6 +8,7 @@ export default defineConfig({
   outDir: "dist",
   noExternal: [/.*/],
   splitting: false,
+  outExtension: () => ({ js: ".mjs" }),
   loader: { ".md": "text" },
   banner: {
     js: `#!/usr/bin/env node

@@ -37,3 +37,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # test sandbox
 test
 test/
+
+# downloaded/built CLI bundle
+scripts/gtd.bundle.mjs
+scripts/gtd.bundle.mjs.tmp
