@@ -65,21 +65,9 @@ describe("buildPrompt", () => {
     expect(out).not.toContain("chore(gtd): close approved review")
   })
 
-  it("renders exactly one section for the resolved value", () => {
-    const out = buildPrompt(
-      result("code-changes", {
-        autoAdvance: true,
-        context: { workingTreeClean: false, diff: "diff --git a/x b/x\n" },
-      }),
-    )
-    expect(out).toContain("Commit the uncommitted changes")
-    // The review-process section must NOT leak in.
-    expect(out).not.toContain("Process Review Feedback")
-  })
-
   it("escalate prompt renders its section", () => {
     const out = buildPrompt(result("escalate"))
-    expect(out).toContain("fix(gtd):")
+    expect(out).toContain("Escalate to the human")
   })
 
   it("escalate does NOT include the auto-advance partial when autoAdvance is false", () => {
@@ -88,14 +76,13 @@ describe("buildPrompt", () => {
   })
 
   it("includes the auto-advance partial when autoAdvance is true", () => {
-    const out = buildPrompt(result("code-changes", { autoAdvance: true }))
+    const out = buildPrompt(result("verified", { autoAdvance: true }))
     expect(out).toContain("Re-run gtd immediately")
   })
 
   it("embeds the diff when present", () => {
     const out = buildPrompt(
-      result("code-changes", {
-        autoAdvance: true,
+      result("human-review", {
         context: {
           workingTreeClean: false,
           diff: "diff --git a/foo b/foo\n+hello\n",
@@ -104,6 +91,34 @@ describe("buildPrompt", () => {
     )
     expect(out).toContain("```diff")
     expect(out).toContain("+hello")
+  })
+
+  it("action leaf cleanup throws when reaching buildPrompt", () => {
+    expect(() => buildPrompt(result("cleanup"))).toThrow(/Action leaf "cleanup"/)
+  })
+
+  it("action leaf close-review throws when reaching buildPrompt", () => {
+    expect(() => buildPrompt(result("close-review"))).toThrow(/Action leaf "close-review"/)
+  })
+
+  it("action leaf code-changes throws when reaching buildPrompt", () => {
+    expect(() => buildPrompt(result("code-changes"))).toThrow(/Action leaf "code-changes"/)
+  })
+
+  it("human-review (green path) contains format REVIEW.md and no Test gate failed", () => {
+    const out = buildPrompt(result("human-review"))
+    expect(out).toContain("format REVIEW.md")
+    expect(out).not.toContain("Test gate failed")
+  })
+
+  it("fix-tests override contains Test gate failed and the output, no format REVIEW.md", () => {
+    const out = buildPrompt(result("human-review"), {
+      kind: "fix-tests",
+      testOutput: "Test gate failed: npm test exited 1",
+    })
+    expect(out).toContain("Test gate failed")
+    expect(out).toContain("Test gate failed: npm test exited 1")
+    expect(out).not.toContain("format REVIEW.md")
   })
 
   it("omits the diff block when the tree is clean", () => {
@@ -219,13 +234,6 @@ describe("buildPrompt", () => {
     expect(out).toContain("01-foo/COMMIT_MSG.md")
   })
 
-  it("cleanup prompt renders its section and the auto-advance partial", () => {
-    const out = buildPrompt(result("cleanup", { autoAdvance: true }))
-    expect(out).toContain("Delete the empty `.gtd/` directory")
-    expect(out).toContain("Re-run gtd immediately")
-    expect(out).not.toContain("Execute one work package")
-  })
-
   it("decompose prompt renders its section and the auto-advance partial", () => {
     const out = buildPrompt(result("decompose", { autoAdvance: true }))
     expect(out).toContain("Decompose `TODO.md` into work packages")
@@ -238,34 +246,6 @@ describe("buildPrompt", () => {
     expect(out).toContain("marked with `<!-- simple -->`")
     expect(out).toContain("Re-run gtd immediately")
     expect(out).not.toContain("Decompose `TODO.md` into work packages")
-  })
-
-  it("close-review section renders the commit message prefix", () => {
-    const out = buildPrompt(result("close-review", { autoAdvance: true }))
-    expect(out).toContain("chore(gtd): close approved review for")
-  })
-
-  it("close-review instructs reading short-sha from REVIEW.md base marker", () => {
-    const out = buildPrompt(
-      result("close-review", {
-        autoAdvance: true,
-        context: { baseRef: "abc1234def" },
-      }),
-    )
-    // baseRef is not surfaced by buildContext when refDiff is absent,
-    // so the prompt must instruct reading from REVIEW.md's <!-- base: --> marker.
-    expect(out).toContain("<!-- base:")
-    expect(out).toContain("first 7 characters")
-  })
-
-  it("close-review includes the auto-advance partial when autoAdvance is true", () => {
-    const out = buildPrompt(result("close-review", { autoAdvance: true }))
-    expect(out).toContain("Re-run gtd immediately")
-  })
-
-  it("close-review does NOT contain another leaf's section", () => {
-    const out = buildPrompt(result("close-review", { autoAdvance: true }))
-    expect(out).not.toContain("Process Review Feedback")
   })
 
   it("fix-tests override emits the fix(gtd) instruction and fences the captured output", () => {

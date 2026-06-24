@@ -4,13 +4,10 @@ import modifiedTodo from "./prompts/modified-todo.md"
 import decompose from "./prompts/decompose.md"
 import execute from "./prompts/execute.md"
 import executeSimple from "./prompts/execute-simple.md"
-import cleanup from "./prompts/cleanup.md"
-import codeChanges from "./prompts/code-changes.md"
 import escalate from "./prompts/escalate.md"
 import humanReview from "./prompts/human-review.md"
 import verified from "./prompts/verified.md"
 import reviewProcess from "./prompts/review-process.md"
-import closeReview from "./prompts/close-review.md"
 import awaitReview from "./prompts/await-review.md"
 import reviewIncomplete from "./prompts/review-incomplete.md"
 import awaitAnswers from "./prompts/await-answers.md"
@@ -39,19 +36,16 @@ const MODEL_STATES = new Set<LeafState>([
 const builtinResolveModel = (state: ModelState): string =>
   builtinTierDefault[stateTier[state]]
 
-const SECTIONS: Record<LeafState, string> = {
+const SECTIONS: Record<Exclude<LeafState, "cleanup" | "close-review" | "code-changes">, string> = {
   "new-todo": newTodo,
   "modified-todo": modifiedTodo,
   decompose,
   execute,
   "execute-simple": executeSimple,
-  cleanup,
-  "code-changes": codeChanges,
   escalate,
   "human-review": humanReview,
   verified,
   "review-process": reviewProcess,
-  "close-review": closeReview,
   "await-review": awaitReview,
   "await-answers": awaitAnswers,
   "review-incomplete": reviewIncomplete,
@@ -161,6 +155,9 @@ export const buildPrompt = (
     }
   } else {
     const value = result.value as LeafState
+    if (value === "cleanup" || value === "close-review" || value === "code-changes") {
+      throw new Error(`Action leaf "${value}" is executed by the edge and must never reach buildPrompt`)
+    }
     const section = MODEL_STATES.has(value)
       ? SECTIONS[value].replaceAll("{{MODEL}}", resolveModel(value as ModelState))
       : SECTIONS[value]

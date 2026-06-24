@@ -1,11 +1,30 @@
+import { FileSystem } from "@effect/platform"
 import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { ConfigService } from "./Config.js"
 import { GitService } from "./Git.js"
+import { gatherEvents } from "./Events.js"
 import { startDetect } from "./State.js"
+import type { ResolveResult } from "./State.js"
 import { TestRunner } from "./TestRunner.js"
 import { buildPrompt } from "./Prompt.js"
+import type { PromptOverride } from "./Prompt.js"
 import * as Format from "./Format.js"
+
+/** Build the PromptOverride from the settled ResolveResult context. */
+const overrideFromContext = (r: ResolveResult): PromptOverride | undefined => {
+  if (r.value === "fix-tests") {
+    return { kind: "fix-tests", testOutput: r.context.testOutput ?? "" }
+  }
+  if (r.value === "review-process" && r.context.reviewDiff !== undefined) {
+    return {
+      kind: "review-process",
+      reviewDiff: r.context.reviewDiff,
+      recordSha: r.context.recordSha ?? "",
+    }
+  }
+  return undefined
+}
 
 const program = Effect.gen(function* () {
   const sub = process.argv[2]
@@ -24,41 +43,59 @@ const program = Effect.gen(function* () {
     yield* Effect.fail(new Error(`unknown command '${sub}'`))
   }
   const config = yield* ConfigService
+  const git = yield* GitService
+  const runner = yield* TestRunner
   const handle = yield* startDetect()
-  let result = handle.current
 
-  // The machine owns the decision tree; the edge only performs the side effect
-  // each settled `edgeAction` requests, then advances the SAME actor with the
-  // result event so the machine re-projects the next state.
-  const action = result.edgeAction
-  if (action?.kind === "reviewPreRender") {
-    // Review-process pre-render: record + revert REVIEW.md, feed it back.
-    const git = yield* GitService
-    const { diff, recordSha } = yield* git.recordAndRevertReview(action.base)
-    result = handle.advance([{ type: "REVIEW_RECORDED", diff, recordSha }])
-  } else if (action?.kind === "runTestGate") {
-    // Test gate (execute only): run the suite, feed the exit code back. The
-    // machine folds green→execute / red<cap→fix-tests / red≥cap→escalate.
-    const runner = yield* TestRunner
-    const test = yield* runner.run()
-    result = handle.advance([{ type: "TEST_RESULT", exitCode: test.exitCode, output: test.output }])
-  }
+  // Driver loop: ask the machine for an EdgeAction, execute it, re-feed events,
+  // repeat until the machine settles with no action — then emit the single prompt.
+  // Effect.suspend breaks the recursive type cycle; explicit R annotation fixes inference.
+  const loop = (): Effect.Effect<void, Error, GitService | FileSystem.FileSystem> =>
+    Effect.suspend(() => Effect.gen(function* () {
+      const r = handle.current
+      const action = r.edgeAction
+      switch (action?.kind) {
+        case "removeGtdDir":
+          yield* git.removeGtdDir()
+          handle.advance(yield* gatherEvents())
+          yield* loop()
+          break
+        case "closeReview": {
+          const base = action.base
+          if (!base) yield* Effect.fail(new Error("closeReview: missing base ref"))
+          yield* git.closeReview(base)
+          handle.advance(yield* gatherEvents())
+          yield* loop()
+          break
+        }
+        case "commitPending":
+          yield* git.commitPending()
+          handle.advance(yield* gatherEvents())
+          yield* loop()
+          break
+        case "runTestGate": {
+          const t = yield* runner.run()
+          handle.advance([{ type: "TEST_RESULT", exitCode: t.exitCode, output: t.output }])
+          yield* loop()
+          break
+        }
+        case "reviewPreRender": {
+          const base = action.base
+          if (!base) yield* Effect.fail(new Error("reviewPreRender: missing base ref"))
+          const rec = yield* git.recordAndRevertReview(base)
+          handle.advance([{ type: "REVIEW_RECORDED", diff: rec.diff, recordSha: rec.recordSha }])
+          yield* loop()
+          break
+        }
+        default: {
+          // No edgeAction: machine has settled (or escalated). Emit the single prompt.
+          const prompt = buildPrompt(r, overrideFromContext(r), config.resolveModel)
+          process.stdout.write(prompt)
+        }
+      }
+    }))
 
-  // Map any machine-carried render data back onto the buildPrompt override
-  // contract (Prompt.ts is unchanged; the data now lives on the context).
-  const override =
-    result.value === "review-process" && result.context.reviewDiff !== undefined
-      ? ({
-          kind: "review-process" as const,
-          reviewDiff: result.context.reviewDiff,
-          recordSha: result.context.recordSha ?? "",
-        })
-      : result.value === "fix-tests"
-        ? ({ kind: "fix-tests" as const, testOutput: result.context.testOutput ?? "" })
-        : undefined
-
-  const prompt = buildPrompt(result, override, config.resolveModel)
-  yield* Effect.sync(() => process.stdout.write(prompt))
+  yield* loop()
 })
 
 program.pipe(
