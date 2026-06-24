@@ -16,9 +16,9 @@ The `EdgeAction` union and three fire-and-re-gather git ops (`removeGtdDir`,
 `closeReview` extracted from `recordAndRevertReview`'s tail, `commitPending`).
 Pure additions; `recordAndRevertReview` now delegates its close step.
 
-- [ ] ./src/Machine.ts#13
-- [ ] ./src/Git.ts#35
-- [ ] ./src/Git.test.ts#1
+- [x] ./src/Machine.ts#13
+- [x] ./src/Git.ts#35
+- [x] ./src/Git.test.ts#1
 
 ## Machine: stepping handle + no-agent loop
 
@@ -27,9 +27,9 @@ over a live actor, `ResolveResult.edgeAction?`, `MAX_NO_AGENT_HOPS=8` +
 `noAgentHops`/`lastAdvancedLeaf` context, no-agent leaves lose `type:"final"`
 and loop back to `replaying`, `noAgentCapReached`/`stuck` → escalate.
 
-- [ ] ./src/Machine.ts#99
-- [ ] ./src/Machine.ts#78
-- [ ] ./src/Machine.test.ts#1
+- [x] ./src/Machine.ts#99
+- [x] ./src/Machine.ts#78
+- [x] ./src/Machine.test.ts#1
 
 ## Test gate + review pre-render folded into the machine
 
@@ -39,9 +39,9 @@ The test-gate branching moves out of `selectPrompt` into a `runTestGate` action
   the review-process pre-render becomes a `reviewPreRender` action +
   `REVIEW_RECORDED` fold. `fix-tests` becomes a `LeafState`.
 
-* [ ] ./src/Machine.ts#99
-* [ ] ./src/State.ts#2
-* [ ] ./src/main.ts#44
+- [x] ./src/Machine.ts#99
+- [x] ./src/State.ts#2
+- [x] ./src/main.ts#44
 
 ## main.ts driver loop
 
@@ -50,8 +50,8 @@ on `edgeAction.kind`, executes each via the right service, re-feeds events, and
 emits exactly one prompt. `TEST_GATED_LEAVES` and the review-process `if` are
 gone. No status output.
 
-- [ ] ./src/main.ts#1
-- [ ] ./src/main.ts#44
+- [x] ./src/main.ts#1
+- [x] ./src/main.ts#44
 
 ## Retire no-agent prompts + Prompt.ts wiring
 
@@ -59,17 +59,17 @@ gone. No status output.
 with `Exclude` so the compiler proves those action leaves are never rendered;
 fix-tests/review-process still render via their override paths.
 
-- [ ] ./src/Prompt.ts#4
-- [ ] ./src/Prompt.test.ts#1
+- [x] ./src/Prompt.ts#4
+- [x] ./src/Prompt.test.ts#1
 
 ## Strip test-gate blocks from non-execute prompts
 
 The "Test gate (run first)" block removed from `new-todo`/`modified-todo`/
 `verified` (the gate is machine-modeled and execute-only now).
 
-- [ ] ./src/prompts/new-todo.md#1
-- [ ] ./src/prompts/modified-todo.md#1
-- [ ] ./src/prompts/verified.md#1
+- [x] ./src/prompts/new-todo.md#1
+- [x] ./src/prompts/modified-todo.md#1
+- [x] ./src/prompts/verified.md#1
 
 ## Part B: generalized post-agent commit
 
@@ -81,10 +81,10 @@ AHEAD of the generic `code-changes`; the edge computes the message and commits
 (execute → COMMIT_MSG.md + removes the consumed `.gtd/NN-…`; decompose → count;
 human-review → base short-sha; fix-tests → preserved `Gtd-Test-Fix:` trailer).
 
-- [ ] ./src/Machine.ts#99
-- [ ] ./src/Events.ts#20
-- [ ] ./src/Git.ts#141
-- [ ] ./src/main.ts#44
+- [x] ./src/Machine.ts#99
+- [x] ./src/Events.ts#20
+- [x] ./src/Git.ts#141
+- [x] ./src/main.ts#44
 
 ## Part B: prompts drop the commit step
 
@@ -92,11 +92,11 @@ The 7 agent prompts now leave output uncommitted + write the intent marker;
 residual LLM work kept (execute package exec, decompose `.gtd/` authoring,
 human-review hunk grouping, plan dev + `gtd format`, simple impl, fix loop).
 
-- [ ] ./src/prompts/execute.md#1
-- [ ] ./src/prompts/decompose.md#1
-- [ ] ./src/prompts/human-review.md#1
-- [ ] ./src/prompts/fix-tests.md#1
-- [ ] ./src/prompts/execute-simple.md#1
+- [x] ./src/prompts/execute.md#1
+- [x] ./src/prompts/decompose.md#1
+- [x] ./src/prompts/human-review.md#1
+- [x] ./src/prompts/fix-tests.md#1
+- [x] ./src/prompts/execute-simple.md#1
 
 ## e2e suite + README + bundle
 
@@ -105,10 +105,10 @@ prompt) for the now edge-driven states, proves `human-review` skips the suite,
 adds Part A loop + Part B commit coverage (`edge-loop.feature`). README + bundle
 refreshed. (e2e: 113 scenarios pass.)
 
-- [ ] ./tests/integration/features/edge-loop.feature#1
-- [ ] ./tests/integration/features/test-gate.feature#1
-- [ ] ./tests/integration/support/steps/common.steps.ts#1
-- [ ] ./README.md#1
+- [x] ./tests/integration/features/edge-loop.feature#1
+- [x] ./tests/integration/features/test-gate.feature#1
+- [x] ./tests/integration/support/steps/common.steps.ts#1
+- [x] ./README.md#1
 
 ## !! Risks flagged during implementation (please scrutinize)
 
@@ -126,5 +126,55 @@ refreshed. (e2e: 113 scenarios pass.)
    fixtures; they're purely defensive (no e2e covers them). Escalation is
    covered via the reachable verify-cap / execute-gate / ERRORS.md paths.
 
-- [ ] ./src/Machine.ts#99
-- [ ] ./src/prompts/human-review.md#1
+- [x] ./src/Machine.ts#99
+- [x] ./src/prompts/human-review.md#1
+
+## !! Decision: split human-review so the edge commits a CLEAN baseline (fixes risk #2)
+
+Keep Part B's edge-commit pattern (the commit stays an `EdgeAction`, not back in
+the agent prompt), but fix the risk-#2 timing flaw by making `human-review`
+**auto-advance** instead of stopping, so the edge commits `REVIEW.md` BEFORE the
+human can touch it. The single human-review STOP becomes two passes:
+
+**Pass 1 — `human-review` (now auto-advance, NOT a stop):** the agent generates
+`REVIEW.md`, writes `.gtd-commit-intent` = `human-review`, then **re-runs gtd**.
+The human never sees the uncommitted `REVIEW.md`.
+
+- `src/Machine.ts`: give the `human-review` leaf the `auto-advance` tag (today
+  it is a terminal STOP).
+- `src/prompts/human-review.md`: replace the closing "STOP — do not re-run gtd"
+  paragraph with the auto-advance instruction (after writing `REVIEW.md` + the
+  marker, re-run gtd). Keep steps 1–6 (generate + format + write marker) as-is.
+
+**Pass 2 — edge commit → `await-review` gate (no machine change needed):** the
+next gtd run detects the marker. `hasCommitIntent` already wins early in
+`resolveChain` (`Machine.ts:242`, ahead of the review gates), so it routes to
+`commit-pending`, which commits `REVIEW.md` clean as
+`review(gtd): create review for <short>` and deletes the marker; the driver then
+re-resolves to `await-review` (REVIEW.md committed & unmodified) → STOP and
+prompt for human review. The driver loop already collapses
+`commit-pending → await-review` into that one run, so this is the "detect it was
+just created, commit it, prompt for review" pass.
+
+**Why this is correct / what to verify:**
+
+- The clean-baseline invariant is restored: `REVIEW.md` is committed before the
+  human edits it, so the subsequent working-vs-committed diff is a clean
+  feedback diff and `review-process` / `close-review` / `review-incomplete`
+  detection works. The editing window that polluted the creation commit is gone
+  because pass 1 auto-advances within the same agent session.
+- Termination: pass 2 deletes the marker, so `hasCommitIntent` no longer fires
+  and `await-review` is terminal — no re-loop. (The defensive
+  `stuckCommitPending` cap still backstops a commit that fails to clear the
+  marker.)
+- `commit-pending` for the `human-review` intent must keep `restorePaths: []`
+  (do NOT un-stage `REVIEW.md`) so the commit actually contains it — this is the
+  one place risk #1's `[]` choice is load-bearing and correct.
+- Update tests/docs: `test-gate.feature` / `edge-loop.feature` (human-review now
+  auto-advances and the FOLLOWING run yields the `review(gtd): create review`
+  commit + the await-review prompt), the `Machine.test.ts` human-review case
+  (now carries the `auto-advance` tag), and the README
+  human-review/decision-tree description.
+
+- [x] ./src/prompts/human-review.md#58
+- [x] ./src/Machine.ts#99
