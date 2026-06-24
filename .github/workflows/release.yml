@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 0 # semantic-release needs full history + tags
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - run: npm install
       - run: npx semantic-release
         env:
