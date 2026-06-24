@@ -91,7 +91,7 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 | `await-answers`     | `TODO.md` `status: grilling`, committed, with open questions remaining                                                            | Human gate — wait for the user to answer the open questions; **STOP**                                                                                                                                                                                                                                                           |
 | `modified-todo`     | `TODO.md` `status: grilling` and edited, or a markerless `TODO.md` modified in place                                              | Incorporate edits, re-grill, move resolved Q&A to `## Resolved`, set `status:` when done                                                                                                                                                                                                                                        |
 | `new-todo`          | A markerless `TODO.md` (fresh sketch), committed or newly added                                                                   | Develop the plan: add `## Open Questions`, set `status: grilling`                                                                                                                                                                                                                                                               |
-| `human-review`      | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff                                                           | Generate `REVIEW.md` (no test gate — `human-review` settles directly)                                                                                                                                                                                                                                                           |
+| `human-review`      | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff                                                           | Generate `REVIEW.md` (no test gate) + write the `human-review` intent marker, then **auto-advance**: the next cycle's edge `commit-pending` commits `REVIEW.md` clean and resolves to the `await-review` human gate                                                                                                             |
 | `verified`          | Nothing else matched — tree clean, nothing left to review                                                                         | Report the working tree healthy and reviewed                                                                                                                                                                                                                                                                                    |
 
 > **`fix-tests` is a machine leaf state.** When the chain would settle on
@@ -99,11 +99,12 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 > the hardcoded `npm run test` and feeds the exit code back as `TEST_RESULT`.
 > The machine then folds it: green → `execute`, red below cap → `fix-tests`
 > (carrying the captured output on `context.testOutput`), red at/over cap →
-> `escalate`. `human-review` is **not** test-gated — it settles directly. The
-> `fix-tests` prompt embeds the captured failure output and instructs the agent
-> to make exactly ONE fix, leave it uncommitted with a `fix-tests` marker (the
-> edge then commits it with a `fix(gtd): …` subject and the `Gtd-Test-Fix: <n>`
-> trailer), then re-run gtd so the gate re-evaluates.
+> `escalate`. `human-review` is **not** test-gated — it generates `REVIEW.md`
+> and auto-advances (the edge commits it on the next cycle). The `fix-tests`
+> prompt embeds the captured failure output and instructs the agent to make
+> exactly ONE fix, leave it uncommitted with a `fix-tests` marker (the edge then
+> commits it with a `fix(gtd): …` subject and the `Gtd-Test-Fix: <n>` trailer),
+> then re-run gtd so the gate re-evaluates.
 
 > **Review base**: the closest-to-HEAD of {parent-branch merge-base, last
 > `<!-- base: … -->` review commit, last `chore(gtd): close approved review`
@@ -256,10 +257,11 @@ flowchart TD
     Resolve -->|grilling, committed, open questions| AwaitAnswers[await-answers: human gate]:::terminal
     Resolve -->|"grilling + edited, or markerless modified"| ModifiedTodo[modified-todo: re-grill]:::terminal
     Resolve -->|markerless TODO.md| NewTodo["new-todo: develop plan, set status: grilling"]:::terminal
-    Resolve -->|"clean, base..HEAD has diff"| HumanReview[human-review: generate REVIEW.md]:::terminal
+    Resolve -->|"clean, base..HEAD has diff"| HumanReview[human-review: generate REVIEW.md + marker]:::terminal
     Resolve -->|nothing left| Verified[verified: healthy & reviewed]:::terminal
     FixTests -.->|"leave uncommitted + fix-tests marker; next cycle edge commits fix(gtd):…"| Resolve
-    HumanReview -.->|"user works REVIEW.md, next /gtd"| ReviewProcess
+    HumanReview -.->|"leave uncommitted REVIEW.md + human-review marker; next cycle edge commits review(gtd):… → await-review"| Resolve
+    AwaitReview -.->|"user works REVIEW.md, next /gtd"| ReviewProcess
     classDef terminal fill:#2d6a4f,color:#fff
     classDef edge fill:#1a4a6b,color:#fff
 ```
@@ -299,8 +301,9 @@ A typical feature:
    (the `cleanup` step survives only as a safety net for a stray empty `.gtd/`).
    If un-reviewed commits exist relative to the base (parent-branch merge-base
    or last review commit), it resolves to `human-review` and auto-generates
-   `REVIEW.md` — no test gate; `human-review` settles directly. If everything is
-   already reviewed, it reports the tree healthy and fully reviewed
+   `REVIEW.md` + the intent marker and auto-advances; the next cycle's edge
+   commits `REVIEW.md` clean and stops at the `await-review` gate. If everything
+   is already reviewed, it reports the tree healthy and fully reviewed
    (`verified`).
 9. Work `REVIEW.md` (tick boxes, leave notes inline, edit source files) and run
    `/gtd`. There is no marker convention — any working-tree change is feedback.

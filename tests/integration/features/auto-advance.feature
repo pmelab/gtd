@@ -62,7 +62,7 @@ Feature: Auto-advance and STOP markers in prompts
     And stdout contains "STOP"
     And stdout does not contain "Re-run gtd immediately"
 
-  Scenario: Human-review prompt contains STOP and no auto-advance
+  Scenario: Human-review prompt auto-advances and contains no STOP
     Given a test project
     And a default branch "main"
     And a branch "feature"
@@ -77,5 +77,5 @@ Feature: Auto-advance and STOP markers in prompts
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Generate REVIEW.md"
-    And stdout contains "STOP"
-    And stdout does not contain "Re-run gtd immediately"
+    And stdout contains "the next cycle commits"
+    And stdout does not contain "STOP"

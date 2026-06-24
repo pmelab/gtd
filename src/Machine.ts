@@ -481,7 +481,7 @@ const machine = setup({
     "new-todo": { tags: ["auto-advance"], type: "final" },
     "modified-todo": { tags: ["auto-advance"], type: "final" },
     "await-answers": { type: "final" },
-    "human-review": { type: "final" },
+    "human-review": { tags: ["auto-advance"], type: "final" },
     verified: { type: "final" },
     escalate: { type: "final" },
   },

@@ -230,7 +230,7 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
     expect(autoAdvance).toBe(true)
   })
 
-  it("clean + reviewBasePresent + non-empty refDiff → human-review, autoAdvance false", () => {
+  it("clean + reviewBasePresent + non-empty refDiff → human-review, autoAdvance true", () => {
     const { value, autoAdvance } = resolve([
       resolveEvent({
         reviewBasePresent: true,
@@ -239,7 +239,7 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
       }),
     ])
     expect(value).toBe("human-review")
-    expect(autoAdvance).toBe(false)
+    expect(autoAdvance).toBe(true)
   })
 
   it("clean + no review base → verified, autoAdvance false", () => {
