@@ -329,9 +329,7 @@ describe("GitService", () => {
       const base = git("rev-parse HEAD")
       const shortBase = base.slice(0, 7)
 
-      const result = await run(
-        Effect.flatMap(GitService, (g) => g.recordAndRevertReview(base)),
-      )
+      const result = await run(Effect.flatMap(GitService, (g) => g.recordAndRevertReview(base)))
 
       // Returned diff contains the changes
       expect(result.diff).toContain("modified content for review")

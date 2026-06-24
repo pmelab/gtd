@@ -173,8 +173,7 @@ describe("computeReviewHasRealFeedback", () => {
   })
 
   it("prose edit in REVIEW.md → true", async () => {
-    const committed =
-      "# Review\n\n<!-- base: abc123 -->\n\n- [ ] item one\n\nNo extra feedback.\n"
+    const committed = "# Review\n\n<!-- base: abc123 -->\n\n- [ ] item one\n\nNo extra feedback.\n"
     const working =
       "# Review\n\n<!-- base: abc123 -->\n\n- [x] item one\n\nActually here is real feedback that changes things significantly.\n"
     const result = await runEffect(

@@ -2,12 +2,7 @@ import { FileSystem } from "@effect/platform"
 import { Effect, Option } from "effect"
 import { type GitOperations, GitService } from "./Git.js"
 import { formatString } from "./Format.js"
-import type {
-  GtdEvent,
-  GtdPackageFact,
-  PendingCommitIntent,
-  ResolvePayload,
-} from "./Machine.js"
+import type { GtdEvent, GtdPackageFact, PendingCommitIntent, ResolvePayload } from "./Machine.js"
 
 /**
  * The Effect "edge": all git/filesystem IO lives here. It probes the working
@@ -292,9 +287,7 @@ export const gatherEvents = (): Effect.Effect<
     // files (TODO.md, REVIEW.md) is "code" that must be committed before any
     // gate is evaluated. REVIEW.md checkbox edits are handled by the review
     // branch, not treated as code.
-    const codeEntries = entries.filter(
-      (e) => e.path !== TODO_FILE && e.path !== REVIEW_FILE,
-    )
+    const codeEntries = entries.filter((e) => e.path !== TODO_FILE && e.path !== REVIEW_FILE)
     const codeDirty = codeEntries.length > 0
 
     const todoDirty: "new" | "modified" | null = todoEntry

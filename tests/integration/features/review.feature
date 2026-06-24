@@ -143,8 +143,9 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Close the approved review"
-    And stdout contains "chore(gtd): close approved review"
+    And the last commit subject is "chore(gtd): close approved review for abc1234"
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
+    And stdout does not contain "## Task: Close the approved review"
     And stdout does not contain "# Process Review Feedback"
 
   Scenario: Un-ticking a checkbox routes to review-incomplete, not close-review

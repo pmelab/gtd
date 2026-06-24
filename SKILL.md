@@ -126,9 +126,9 @@ order:
 - `escalate` — a committed `ERRORS.md` is present, or the trailing run of
   commits carrying a `Gtd-Test-Fix:` trailer hit 3; stop and hand off to the
   human
-- `close-review` — `REVIEW.md` has only forward checkbox ticks
-  (`- [ ]`→`- [x]`) and no `!!` comment; discard the ticks, delete `REVIEW.md`,
-  commit the close (becomes the new review base so the next run is `verified`)
+- `close-review` — `REVIEW.md` has only forward checkbox ticks (`- [ ]`→`- [x]`)
+  and no `!!` comment; discard the ticks, delete `REVIEW.md`, commit the close
+  (becomes the new review base so the next run is `verified`)
 - `code-changes` — uncommitted changes outside `TODO.md` and `REVIEW.md`; commit
   them verbatim (`git add -A`) before any gate is evaluated
 - `review-process` — `REVIEW.md` has notes (or an approved review carries a `!!`
@@ -137,12 +137,12 @@ order:
   the dirty working tree — not the whole tracked tree
 - `await-review` — `REVIEW.md` is committed and unmodified; human gate, STOP
 - `execute` — `.gtd/` has work packages; the edge runs `npm run test` first
-  (green → emit the named single next package with its task contents inlined, one
-  subagent per task, and on the last package also remove the empty `.gtd/`; red →
-  fix-tests, or `escalate` at the cap)
+  (green → emit the named single next package with its task contents inlined,
+  one subagent per task, and on the last package also remove the empty `.gtd/`;
+  red → fix-tests, or `escalate` at the cap)
 - `cleanup` — `.gtd/` is empty; remove it and verify. Safety net for a stray
-  empty `.gtd/` — the normal tail skips it because execute removes `.gtd/` on the
-  last package
+  empty `.gtd/` — the normal tail skips it because execute removes `.gtd/` on
+  the last package
 - `execute-simple` — `TODO.md` `status: simple` (≤5 files, or legacy
   `<!-- simple -->`); implement directly without decomposition
 - `decompose` — `TODO.md` `status: complete`; break it into ordinal,
@@ -180,9 +180,9 @@ of the normal loop:
 3. **review-process**: On the next run gtd folds all feedback (comments, source
    edits, and any `!!` follow-up comments in the files the current `REVIEW.md`
    references plus the dirty working tree — not plain `TODO:` markers, and not
-   the whole tracked tree) into a fresh `TODO.md`, resets the working tree, and commits
-   — restarting the loop. Changes outside `REVIEW.md`/`TODO.md` are committed
-   verbatim first (`code-changes`).
+   the whole tracked tree) into a fresh `TODO.md`, resets the working tree, and
+   commits — restarting the loop. Changes outside `REVIEW.md`/`TODO.md` are
+   committed verbatim first (`code-changes`).
 4. **close-review**: If the user only ticks checkboxes in `REVIEW.md` (marks
    items approved with no other edits), gtd detects this as an approval signal:
    it discards the ticks, deletes `REVIEW.md`, and commits a

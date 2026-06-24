@@ -48,7 +48,9 @@ Feature: Review gate and the conclude-vs-loop decision
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Close the approved review"
+    And the last commit subject is "chore(gtd): close approved review for abc1234"
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
+    And stdout does not contain "## Task: Close the approved review"
     And stdout does not contain "# Process Review Feedback"
 
   Scenario: All boxes checked but a leftover note loops into a new TODO.md

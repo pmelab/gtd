@@ -390,9 +390,7 @@ const machine = setup({
           ({ kind: "closeReview", base: context.baseRef! }) satisfies EdgeAction,
         lastAdvancedLeaf: () => "close-review" as LeafState,
       }),
-      always: [
-        { guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" },
-      ],
+      always: [{ guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" }],
       on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "close-review") },
     },
     "code-changes": {
@@ -401,9 +399,7 @@ const machine = setup({
         edgeAction: () => ({ kind: "commitPending" }) satisfies EdgeAction,
         lastAdvancedLeaf: () => "code-changes" as LeafState,
       }),
-      always: [
-        { guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" },
-      ],
+      always: [{ guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" }],
       on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "code-changes") },
     },
     // Disambiguated commit: an agent left an intent marker. The entry maps the
@@ -418,9 +414,7 @@ const machine = setup({
             : ({ kind: "commitPending" } satisfies EdgeAction),
         lastAdvancedLeaf: () => "commit-pending" as LeafState,
       }),
-      always: [
-        { guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" },
-      ],
+      always: [{ guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" }],
       on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "commit-pending") },
     },
     cleanup: {
@@ -429,9 +423,7 @@ const machine = setup({
         edgeAction: () => ({ kind: "removeGtdDir" }) satisfies EdgeAction,
         lastAdvancedLeaf: () => "cleanup" as LeafState,
       }),
-      always: [
-        { guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" },
-      ],
+      always: [{ guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" }],
       on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "cleanup") },
     },
     // ── Test gate (execute only) ────────────────────────────────────────────
@@ -449,8 +441,7 @@ const machine = setup({
             target: "fix-tests",
             actions: assign({
               edgeAction: () => undefined,
-              testOutput: ({ event }) =>
-                event.type === "TEST_RESULT" ? event.output : undefined,
+              testOutput: ({ event }) => (event.type === "TEST_RESULT" ? event.output : undefined),
             }),
           },
           { guard: "testRedAtCap", target: "escalate", actions: "clearEdgeAction" },
@@ -471,8 +462,7 @@ const machine = setup({
           target: "review-process-ready",
           actions: assign({
             edgeAction: () => undefined,
-            reviewDiff: ({ event }) =>
-              event.type === "REVIEW_RECORDED" ? event.diff : undefined,
+            reviewDiff: ({ event }) => (event.type === "REVIEW_RECORDED" ? event.diff : undefined),
             recordSha: ({ event }) =>
               event.type === "REVIEW_RECORDED" ? event.recordSha : undefined,
           }),

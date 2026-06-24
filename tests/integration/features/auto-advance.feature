@@ -34,7 +34,11 @@ Feature: Auto-advance and STOP markers in prompts
     And stdout contains "## Task: Decompose"
     And stdout contains "Re-run gtd immediately"
 
-  Scenario: Code changes prompt includes auto-advance
+  Scenario: Code changes are committed by the edge, then the loop advances to the next leaf
+    # `code-changes` is edge-driven: one gtd run commits the dirty file and drives
+    # the loop forward. The retired prompt no longer appears; instead the commit
+    # lands and the next leaf's prompt (verified, here — clean tree, no review base)
+    # is the only stdout.
     Given a test project
     And a file "hello.txt" with:
       """
@@ -42,8 +46,9 @@ Feature: Auto-advance and STOP markers in prompts
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
-    And stdout contains "Re-run gtd immediately"
+    And the last commit subject is "chore(gtd): commit pending changes"
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
+    And stdout does not contain "## Task: Commit the uncommitted changes"
 
   Scenario: Verified prompt contains STOP and no auto-advance
     Given a test project

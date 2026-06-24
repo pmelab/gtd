@@ -32,19 +32,16 @@ Given(
 // ancestor is a plain directory, not a git root, so this proves ConfigService's
 // cwd→up walk (stopping at filesystem root) finds configs in shared parents
 // above the repo. The repo's git history is preserved via a recursive copy.
-Given(
-  "a shared parent directory with a gtd config:",
-  function (this: GtdWorld, content: string) {
-    const parent = mkdtempSync(join(tmpdir(), "gtd-parent-"))
-    writeFileSync(join(parent, ".gtdrc"), content.endsWith("\n") ? content : content + "\n")
+Given("a shared parent directory with a gtd config:", function (this: GtdWorld, content: string) {
+  const parent = mkdtempSync(join(tmpdir(), "gtd-parent-"))
+  writeFileSync(join(parent, ".gtdrc"), content.endsWith("\n") ? content : content + "\n")
 
-    const moved = join(parent, "repo")
-    cpSync(this.repoDir, moved, { recursive: true })
-    rmSync(this.repoDir, { recursive: true, force: true })
-    this.repoDir = moved
+  const moved = join(parent, "repo")
+  cpSync(this.repoDir, moved, { recursive: true })
+  rmSync(this.repoDir, { recursive: true, force: true })
+  this.repoDir = moved
 
-    // The copy may have changed absolute paths inside .git; a no-op git command
-    // confirms the repo is still operable from the new location.
-    execFileSync("git", ["status", "--porcelain"], { cwd: this.repoDir, stdio: "pipe" })
-  },
-)
+  // The copy may have changed absolute paths inside .git; a no-op git command
+  // confirms the repo is still operable from the new location.
+  execFileSync("git", ["status", "--porcelain"], { cwd: this.repoDir, stdio: "pipe" })
+})

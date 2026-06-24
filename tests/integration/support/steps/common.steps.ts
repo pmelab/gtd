@@ -110,3 +110,45 @@ Then("stdout does not contain {string}", function (this: GtdWorld, text: string)
     `Expected stdout NOT to contain "${text}". Got:\n${this.lastResult.stdout}`,
   )
 })
+
+// Post-loop observables. The edge-driven actions (cleanup / close-review /
+// code-changes / commit-pending) no longer emit a prompt: a single `gtd` run
+// performs the git action and drives the loop forward. Assert the landed commit
+// instead of the retired prompt string.
+Then("the last commit subject is {string}", function (this: GtdWorld, subject: string) {
+  assert.strictEqual(
+    this.lastCommitSubject(),
+    subject,
+    `Expected last commit subject "${subject}". Got "${this.lastCommitSubject()}".\nLog:\n${this.gitLog()}`,
+  )
+})
+
+Then("the git log contains {string}", function (this: GtdWorld, subject: string) {
+  const log = this.gitLog()
+  assert.ok(log.includes(subject), `Expected git log to contain "${subject}". Got:\n${log}`)
+})
+
+Then("the git log does not contain {string}", function (this: GtdWorld, subject: string) {
+  const log = this.gitLog()
+  assert.ok(!log.includes(subject), `Expected git log NOT to contain "${subject}". Got:\n${log}`)
+})
+
+Then("the last commit body contains {string}", function (this: GtdWorld, text: string) {
+  const body = this.lastCommitBody()
+  assert.ok(body.includes(text), `Expected last commit body to contain "${text}". Got:\n${body}`)
+})
+
+Then("the file {string} exists", function (this: GtdWorld, path: string) {
+  assert.ok(this.repoFileExists(path), `Expected file "${path}" to exist.`)
+})
+
+Then("the file {string} does not exist", function (this: GtdWorld, path: string) {
+  assert.ok(!this.repoFileExists(path), `Expected file "${path}" NOT to exist.`)
+})
+
+// Part B: an agent leaves its output UNCOMMITTED plus a `.gtd-commit-intent`
+// marker (repo root) naming the producing state. The NEXT gtd run's edge reads
+// it, commits with the disambiguated subject, and deletes the marker.
+Given("a commit-intent marker {string}", function (this: GtdWorld, intent: string) {
+  writeFileSync(join(this.repoDir, ".gtd-commit-intent"), intent + "\n")
+})

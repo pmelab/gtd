@@ -111,9 +111,7 @@ export const deriveCommitMessage = (
     }
     case "execute-simple": {
       const heading = firstHeading(inputs.todoContent ?? "")
-      return heading !== undefined
-        ? `feat(gtd): ${heading}`
-        : "feat(gtd): execute simple task"
+      return heading !== undefined ? `feat(gtd): ${heading}` : "feat(gtd): execute simple task"
     }
     case "fix-tests": {
       const n = inputs.verifyIteration ?? 1
@@ -386,12 +384,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
               )
             }
             // Check if anything remains staged
-            const cachedExitCode = yield* Command.make(
-              "git",
-              "diff",
-              "--cached",
-              "--quiet",
-            ).pipe(
+            const cachedExitCode = yield* Command.make("git", "diff", "--cached", "--quiet").pipe(
               Command.exitCode,
               Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
               Effect.mapError((e) => new Error(String(e))),
@@ -405,12 +398,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
           Effect.gen(function* () {
             // 1. Stage everything and create the record commit
             yield* exec("git", "add", "-A")
-            yield* exec(
-              "git",
-              "commit",
-              "-m",
-              `docs(review): record raw feedback for ${base}`,
-            )
+            yield* exec("git", "commit", "-m", `docs(review): record raw feedback for ${base}`)
 
             // 2. Capture record SHA and diff
             const recordSha = yield* exec("git", "rev-parse", "HEAD").pipe(
@@ -419,12 +407,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             const diff = yield* exec("git", "show", recordSha)
 
             // 3. Attempt revert — use exitCode to detect conflicts without throwing
-            const revertCode = yield* Command.make(
-              "git",
-              "revert",
-              "--no-edit",
-              recordSha,
-            ).pipe(
+            const revertCode = yield* Command.make("git", "revert", "--no-edit", recordSha).pipe(
               Command.exitCode,
               Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
               Effect.mapError((e) => new Error(String(e))),

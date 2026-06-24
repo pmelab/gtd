@@ -22,11 +22,7 @@ export type { TestResult } from "./TestRunner.js"
  *
  * `State.ts` performs NO git writes; `gatherEvents` is the only IO here.
  */
-export const startDetect = (): Effect.Effect<
-  Handle,
-  Error,
-  GitService | FileSystem.FileSystem
-> =>
+export const startDetect = (): Effect.Effect<Handle, Error, GitService | FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const events = yield* gatherEvents()
     return start(events)
@@ -37,8 +33,5 @@ export const startDetect = (): Effect.Effect<
  * (a one-shot `ResolveResult`) rather than the live handle — e.g. `main.ts`
  * until the driver loop (package 03) switches to `startDetect`.
  */
-export const detect = (): Effect.Effect<
-  ResolveResult,
-  Error,
-  GitService | FileSystem.FileSystem
-> => Effect.map(startDetect(), (handle) => handle.current)
+export const detect = (): Effect.Effect<ResolveResult, Error, GitService | FileSystem.FileSystem> =>
+  Effect.map(startDetect(), (handle) => handle.current)

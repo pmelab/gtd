@@ -9,13 +9,12 @@ Feature: .gtdrc config system
   end-to-end so the merge walk + cosmiconfig bundling are exercised for real.
 
   Scenario: A custom testCommand reaches the runner and beats the default
-    # human-review gate runs the resolved testCommand (NOT package.json directly),
-    # so a custom red command's sentinel surfaces in the fix-tests prompt. No
-    # package.json `test` script is present — proving config, not the default
-    # `npm run test`, drove the gate.
+    # The execute test gate runs the resolved testCommand (NOT package.json
+    # directly), so a custom red command's sentinel surfaces in the fix-tests
+    # prompt. No package.json `test` script is present — proving config, not the
+    # default `npm run test`, drove the gate. The pending `.gtd/01-foo/` package
+    # reaches the execute gate (human-review is no longer test-gated).
     Given a test project
-    And a default branch "feature"
-    And a prior review commit for "prev1234"
     And a commit "chore: add gate.sh" that adds "gate.sh" with:
       """
       echo CONFIG_SENTINEL
@@ -25,9 +24,9 @@ Feature: .gtdrc config system
       """
       testCommand: bash gate.sh
       """
-    And a commit "feat: add parser" that adds "src/parser.ts" with:
+    And a commit "plan(gtd): decompose" that adds ".gtd/01-foo/01-task.md" with:
       """
-      export const parse = (s: string) => JSON.parse(s)
+      First task
       """
     When I run gtd
     Then it succeeds
@@ -141,8 +140,6 @@ Feature: .gtdrc config system
     # carries no model. The config sets a testCommand only (no models) so the
     # absence of the raw {{MODEL}} token proves no model injection happened.
     Given a test project
-    And a default branch "feature"
-    And a prior review commit for "prev1234"
     And a gtd config file at ".gtdrc" with:
       """
       testCommand: bash gate.sh
@@ -152,9 +149,9 @@ Feature: .gtdrc config system
       echo CONFIG_SENTINEL
       exit 1
       """
-    And a commit "feat: add parser" that adds "src/parser.ts" with:
+    And a commit "plan(gtd): decompose" that adds ".gtd/01-foo/01-task.md" with:
       """
-      export const parse = (s: string) => JSON.parse(s)
+      First task
       """
     When I run gtd
     Then it succeeds

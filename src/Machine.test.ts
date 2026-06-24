@@ -217,9 +217,7 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
   })
 
   it('todoDirty "new" → new-todo, autoAdvance true', () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({ todoExists: true, todoDirty: "new" }),
-    ])
+    const { value, autoAdvance } = resolve([resolveEvent({ todoExists: true, todoDirty: "new" })])
     expect(value).toBe("new-todo")
     expect(autoAdvance).toBe(true)
   })
@@ -390,9 +388,7 @@ describe("resolve — counter-vs-escalate interaction", () => {
 
 describe("no-agent action leaves — edgeAction + loop-back", () => {
   it("cleanup exposes removeGtdDir; next clearing RESOLVE advances + bumps noAgentHops", () => {
-    const handle = start([
-      resolveEvent({ gtdDirExists: true, hasPackages: false }),
-    ])
+    const handle = start([resolveEvent({ gtdDirExists: true, hasPackages: false })])
     expect(handle.current.value).toBe("cleanup")
     expect(handle.current.edgeAction).toEqual({ kind: "removeGtdDir" })
     expect(handle.current.context.noAgentHops).toBe(0)
@@ -449,7 +445,10 @@ describe("commit-pending — intent-disambiguated commit (Part B)", () => {
     readonly intent: PendingCommitIntent
     readonly expected: Record<string, unknown>
   }> = [
-    { intent: "execute", expected: { kind: "commitPending", removeLastPackage: true, restorePaths: [] } },
+    {
+      intent: "execute",
+      expected: { kind: "commitPending", removeLastPackage: true, restorePaths: [] },
+    },
     { intent: "decompose", expected: { kind: "commitPending", restorePaths: [] } },
     { intent: "human-review", expected: { kind: "commitPending", restorePaths: [] } },
     { intent: "execute-simple", expected: { kind: "commitPending", restorePaths: [] } },
@@ -551,8 +550,7 @@ describe("no-agent loop — cap + stuck escalation", () => {
 })
 
 describe("runTestGate — TEST_RESULT fold (moved from selectPrompt)", () => {
-  const gate = () =>
-    start([resolveEvent({ hasPackages: true, gtdDirExists: true })])
+  const gate = () => start([resolveEvent({ hasPackages: true, gtdDirExists: true })])
 
   it("green → execute, no edgeAction", () => {
     const after = gate().advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])

@@ -106,10 +106,7 @@ describe("ConfigService", () => {
   })
 
   it("loads JSON config (gtd.config.json)", async () => {
-    writeFileSync(
-      join(projectDir, "gtd.config.json"),
-      JSON.stringify({ testCommand: "json test" }),
-    )
+    writeFileSync(join(projectDir, "gtd.config.json"), JSON.stringify({ testCommand: "json test" }))
 
     const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
 

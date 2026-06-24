@@ -228,9 +228,7 @@ describe("buildPrompt", () => {
             {
               name: "01-foo",
               tasks: ["01-task.md"],
-              taskContents: [
-                { name: "01-task.md", content: "see ```block``` and - [ ] item" },
-              ],
+              taskContents: [{ name: "01-task.md", content: "see ```block``` and - [ ] item" }],
               hasCommitMsg: true,
             },
           ],
@@ -244,9 +242,7 @@ describe("buildPrompt", () => {
     const out = buildPrompt(
       result("execute", {
         context: {
-          packages: [
-            { name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: true },
-          ],
+          packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: true }],
         },
       }),
     )
@@ -303,11 +299,7 @@ describe("buildPrompt", () => {
   })
 
   describe("model injection", () => {
-    const planningStates: ReadonlyArray<LeafState> = [
-      "new-todo",
-      "modified-todo",
-      "decompose",
-    ]
+    const planningStates: ReadonlyArray<LeafState> = ["new-todo", "modified-todo", "decompose"]
     const executionStates: ReadonlyArray<LeafState> = ["execute", "execute-simple"]
     const subagentStates = [...planningStates, ...executionStates]
 
@@ -372,10 +364,8 @@ describe("buildPrompt", () => {
     }
 
     it("a per-state override beats its tier default", () => {
-      const out = buildPrompt(
-        result("execute-simple", { autoAdvance: true }),
-        undefined,
-        (s) => (s === "execute-simple" ? "custom-simple-model" : "claude-sonnet-4-8"),
+      const out = buildPrompt(result("execute-simple", { autoAdvance: true }), undefined, (s) =>
+        s === "execute-simple" ? "custom-simple-model" : "claude-sonnet-4-8",
       )
       expect(out).toContain("custom-simple-model")
       expect(out).not.toContain("claude-sonnet-4-8")
@@ -411,46 +401,46 @@ describe("buildPrompt", () => {
     })
 
     it("review-incomplete prompt renders its section and does NOT leak another leaf's section", () => {
-    const out = buildPrompt(result("review-incomplete", { autoAdvance: false }))
-    expect(out).toContain("at least one checkbox is still unticked")
-    expect(out).toContain("STOP")
-    // Must not leak the await-review section
-    expect(out).not.toContain("has not recorded any feedback")
-    // Must not include auto-advance
-    expect(out).not.toContain("Re-run gtd immediately")
-  })
-
-  it("review-process override renders the section, fences the diff, includes auto-advance, and surfaces recordSha", () => {
-    const out = buildPrompt(result("review-process", { autoAdvance: true }), {
-      kind: "review-process",
-      reviewDiff: "diff --git a/x b/x\n+hi\n",
-      recordSha: "deadbee",
+      const out = buildPrompt(result("review-incomplete", { autoAdvance: false }))
+      expect(out).toContain("at least one checkbox is still unticked")
+      expect(out).toContain("STOP")
+      // Must not leak the await-review section
+      expect(out).not.toContain("has not recorded any feedback")
+      // Must not include auto-advance
+      expect(out).not.toContain("Re-run gtd immediately")
     })
-    // Section rendered
-    expect(out).toContain("format TODO.md")
-    expect(out).toContain("git add TODO.md")
-    // No git revert in the slim prompt
-    expect(out).not.toContain("git revert")
-    // Fenced diff
-    expect(out).toContain("### Review feedback diff")
-    expect(out).toContain("```\ndiff --git a/x b/x\n+hi\n```")
-    // auto-advance partial
-    expect(out).toContain("Re-run gtd immediately")
-    // recovery hint with recordSha
-    expect(out).toContain("deadbee")
-    expect(out).toContain("git show deadbee")
-  })
 
-  it("review-process override lengthens the fence when diff contains backticks", () => {
-    const out = buildPrompt(result("review-process", { autoAdvance: true }), {
-      kind: "review-process",
-      reviewDiff: "see `code` and ```block``` here",
-      recordSha: "abc1234",
+    it("review-process override renders the section, fences the diff, includes auto-advance, and surfaces recordSha", () => {
+      const out = buildPrompt(result("review-process", { autoAdvance: true }), {
+        kind: "review-process",
+        reviewDiff: "diff --git a/x b/x\n+hi\n",
+        recordSha: "deadbee",
+      })
+      // Section rendered
+      expect(out).toContain("format TODO.md")
+      expect(out).toContain("git add TODO.md")
+      // No git revert in the slim prompt
+      expect(out).not.toContain("git revert")
+      // Fenced diff
+      expect(out).toContain("### Review feedback diff")
+      expect(out).toContain("```\ndiff --git a/x b/x\n+hi\n```")
+      // auto-advance partial
+      expect(out).toContain("Re-run gtd immediately")
+      // recovery hint with recordSha
+      expect(out).toContain("deadbee")
+      expect(out).toContain("git show deadbee")
     })
-    expect(out).toContain("````\nsee `code` and ```block``` here\n````")
-  })
 
-  it("fix-tests override carries no injected model and no {{MODEL}} leak", () => {
+    it("review-process override lengthens the fence when diff contains backticks", () => {
+      const out = buildPrompt(result("review-process", { autoAdvance: true }), {
+        kind: "review-process",
+        reviewDiff: "see `code` and ```block``` here",
+        recordSha: "abc1234",
+      })
+      expect(out).toContain("````\nsee `code` and ```block``` here\n````")
+    })
+
+    it("fix-tests override carries no injected model and no {{MODEL}} leak", () => {
       const out = buildPrompt(
         result("execute"),
         { kind: "fix-tests", testOutput: "boom" },

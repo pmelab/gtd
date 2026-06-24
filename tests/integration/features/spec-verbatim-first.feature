@@ -5,6 +5,8 @@
 Feature: Human changes are committed verbatim before any gate is evaluated
 
   Scenario: Uncommitted human changes are committed verbatim first
+    # The code-changes edge commits the dirty source BEFORE any gate; one gtd run
+    # lands the commit and drives the loop to the next leaf (verified).
     Given a test project
     And a commit "feat: math" that adds "src/math.ts" with:
       """
@@ -17,9 +19,12 @@ Feature: Human changes are committed verbatim before any gate is evaluated
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
+    And the last commit subject is "chore(gtd): commit pending changes"
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
 
   Scenario: Commit uses git add -A so untracked files are captured too
+    # The untracked file is staged by the edge's `git add -A` and lands in the
+    # verbatim commit (proven by the clean tree → verified after one run).
     Given a test project
     And a commit "feat: math" that adds "src/math.ts" with:
       """
@@ -31,8 +36,9 @@ Feature: Human changes are committed verbatim before any gate is evaluated
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
-    And stdout contains "git add -A"
+    And the last commit subject is "chore(gtd): commit pending changes"
+    And the file "src/extra.ts" exists
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
 
   Scenario: Review gate routes human edits to review-process when REVIEW.md is present and all boxes ticked
     Given a test project

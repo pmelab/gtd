@@ -73,7 +73,7 @@ sequential work package:
 
    Re-run gtd — the next cycle commits `.gtd/` (and the `TODO.md` deletion) with
    the message `plan(gtd): decompose TODO.md into N work packages` (N derived by
-   the edge from the package count) and deletes the marker, preserving the user's
-   plan and its full Q&A history in git history.
+   the edge from the package count) and deletes the marker, preserving the
+   user's plan and its full Q&A history in git history.
 
 The plan is now executable.

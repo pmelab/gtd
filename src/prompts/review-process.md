@@ -10,8 +10,8 @@ source of all feedback**. Read it as follows:
 
 - **REVIEW.md prose hunks** — global feedback, comments, and observations that
   apply to the whole change or to named areas.
-- **Source-file comment additions** — local, inline feedback on specific
-  lines or functions.
+- **Source-file comment additions** — local, inline feedback on specific lines
+  or functions.
 - **Source-file code changes** — suggestions that illustrate intent. Do **not**
   apply them verbatim; treat them as hints, verify independently, and implement
   properly.

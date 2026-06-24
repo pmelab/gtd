@@ -33,8 +33,7 @@ const MODEL_STATES = new Set<LeafState>([
  * single source of truth in `Config.ts` (state→tier map + built-in tier
  * defaults) so it can never drift from `ConfigService`'s defaults.
  */
-const builtinResolveModel = (state: ModelState): string =>
-  builtinTierDefault[stateTier[state]]
+const builtinResolveModel = (state: ModelState): string => builtinTierDefault[stateTier[state]]
 
 const SECTIONS: Record<
   Exclude<LeafState, "cleanup" | "close-review" | "code-changes" | "commit-pending">,
@@ -123,9 +122,7 @@ const fenceFor = (content: string): string => {
 const renderPackage = (pkg: GtdPackageFact): string => {
   const lines: Array<string> = ["", `### Package: \`${pkg.name}/\``, ""]
   if (pkg.hasCommitMsg) {
-    lines.push(
-      `The next cycle's edge commits this package using \`${pkg.name}/COMMIT_MSG.md\`.`,
-    )
+    lines.push(`The next cycle's edge commits this package using \`${pkg.name}/COMMIT_MSG.md\`.`)
     lines.push("")
   }
   for (const task of pkg.taskContents) {
@@ -166,7 +163,9 @@ export const buildPrompt = (
       value === "code-changes" ||
       value === "commit-pending"
     ) {
-      throw new Error(`Action leaf "${value}" is executed by the edge and must never reach buildPrompt`)
+      throw new Error(
+        `Action leaf "${value}" is executed by the edge and must never reach buildPrompt`,
+      )
     }
     const section = MODEL_STATES.has(value)
       ? SECTIONS[value].replaceAll("{{MODEL}}", resolveModel(value as ModelState))

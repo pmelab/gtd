@@ -52,86 +52,88 @@ const program = Effect.gen(function* () {
   // repeat until the machine settles with no action — then emit the single prompt.
   // Effect.suspend breaks the recursive type cycle; explicit R annotation fixes inference.
   const loop = (): Effect.Effect<void, Error, GitService | FileSystem.FileSystem> =>
-    Effect.suspend(() => Effect.gen(function* () {
-      const r = handle.current
-      const action = r.edgeAction
-      switch (action?.kind) {
-        case "removeGtdDir":
-          yield* git.removeGtdDir()
-          handle.advance(yield* gatherEvents())
-          yield* loop()
-          break
-        case "closeReview": {
-          const base = action.base
-          if (!base) yield* Effect.fail(new Error("closeReview: missing base ref"))
-          yield* git.closeReview(base)
-          handle.advance(yield* gatherEvents())
-          yield* loop()
-          break
-        }
-        case "commitPending": {
-          // The machine passes a FIXED `message` for some intents and leaves it
-          // undefined for content-derived ones. Compute the derived message HERE
-          // (all reads in the edge) before committing. `pendingCommitIntent` is
-          // the intent that produced this dirty tree.
-          const intent = r.context.pendingCommitIntent
-          let message = action.message
-          if (message === undefined && intent !== undefined) {
-            const fs = yield* FileSystem.FileSystem
-            const inputs: { -readonly [K in keyof CommitMessageInputs]: CommitMessageInputs[K] } =
-              {}
-            if (intent === "execute") {
-              const pkg = r.context.packages[0]
-              if (pkg !== undefined && pkg.hasCommitMsg) {
-                inputs.packageCommitMsg = yield* fs
-                  .readFileString(`.gtd/${pkg.name}/COMMIT_MSG.md`)
-                  .pipe(Effect.catchAll(() => Effect.succeed("")))
-              }
-            } else if (intent === "decompose") {
-              inputs.packageCount = r.context.packages.length
-            } else if (intent === "human-review") {
-              if (r.context.baseRef !== undefined) inputs.base = r.context.baseRef
-            } else if (intent === "execute-simple") {
-              inputs.todoContent = yield* fs
-                .readFileString("TODO.md")
-                .pipe(Effect.catchAll(() => Effect.succeed("")))
-            } else if (intent === "fix-tests") {
-              // The verify counter folds COMMIT events; the next attempt number
-              // is the current iteration + 1 (preserves the `Gtd-Test-Fix:` trailer).
-              inputs.verifyIteration = r.context.verifyIterations + 1
-            }
-            message = deriveCommitMessage(intent, inputs)
+    Effect.suspend(() =>
+      Effect.gen(function* () {
+        const r = handle.current
+        const action = r.edgeAction
+        switch (action?.kind) {
+          case "removeGtdDir":
+            yield* git.removeGtdDir()
+            handle.advance(yield* gatherEvents())
+            yield* loop()
+            break
+          case "closeReview": {
+            const base = action.base
+            if (!base) yield* Effect.fail(new Error("closeReview: missing base ref"))
+            yield* git.closeReview(base)
+            handle.advance(yield* gatherEvents())
+            yield* loop()
+            break
           }
-          yield* git.commitPending({
-            ...(message !== undefined ? { message } : {}),
-            ...(action.removeLastPackage ? { removeLastPackage: true } : {}),
-            ...(action.restorePaths !== undefined ? { restorePaths: action.restorePaths } : {}),
-          })
-          handle.advance(yield* gatherEvents())
-          yield* loop()
-          break
+          case "commitPending": {
+            // The machine passes a FIXED `message` for some intents and leaves it
+            // undefined for content-derived ones. Compute the derived message HERE
+            // (all reads in the edge) before committing. `pendingCommitIntent` is
+            // the intent that produced this dirty tree.
+            const intent = r.context.pendingCommitIntent
+            let message = action.message
+            if (message === undefined && intent !== undefined) {
+              const fs = yield* FileSystem.FileSystem
+              const inputs: { -readonly [K in keyof CommitMessageInputs]: CommitMessageInputs[K] } =
+                {}
+              if (intent === "execute") {
+                const pkg = r.context.packages[0]
+                if (pkg !== undefined && pkg.hasCommitMsg) {
+                  inputs.packageCommitMsg = yield* fs
+                    .readFileString(`.gtd/${pkg.name}/COMMIT_MSG.md`)
+                    .pipe(Effect.catchAll(() => Effect.succeed("")))
+                }
+              } else if (intent === "decompose") {
+                inputs.packageCount = r.context.packages.length
+              } else if (intent === "human-review") {
+                if (r.context.baseRef !== undefined) inputs.base = r.context.baseRef
+              } else if (intent === "execute-simple") {
+                inputs.todoContent = yield* fs
+                  .readFileString("TODO.md")
+                  .pipe(Effect.catchAll(() => Effect.succeed("")))
+              } else if (intent === "fix-tests") {
+                // The verify counter folds COMMIT events; the next attempt number
+                // is the current iteration + 1 (preserves the `Gtd-Test-Fix:` trailer).
+                inputs.verifyIteration = r.context.verifyIterations + 1
+              }
+              message = deriveCommitMessage(intent, inputs)
+            }
+            yield* git.commitPending({
+              ...(message !== undefined ? { message } : {}),
+              ...(action.removeLastPackage ? { removeLastPackage: true } : {}),
+              ...(action.restorePaths !== undefined ? { restorePaths: action.restorePaths } : {}),
+            })
+            handle.advance(yield* gatherEvents())
+            yield* loop()
+            break
+          }
+          case "runTestGate": {
+            const t = yield* runner.run()
+            handle.advance([{ type: "TEST_RESULT", exitCode: t.exitCode, output: t.output }])
+            yield* loop()
+            break
+          }
+          case "reviewPreRender": {
+            const base = action.base
+            if (!base) yield* Effect.fail(new Error("reviewPreRender: missing base ref"))
+            const rec = yield* git.recordAndRevertReview(base)
+            handle.advance([{ type: "REVIEW_RECORDED", diff: rec.diff, recordSha: rec.recordSha }])
+            yield* loop()
+            break
+          }
+          default: {
+            // No edgeAction: machine has settled (or escalated). Emit the single prompt.
+            const prompt = buildPrompt(r, overrideFromContext(r), config.resolveModel)
+            process.stdout.write(prompt)
+          }
         }
-        case "runTestGate": {
-          const t = yield* runner.run()
-          handle.advance([{ type: "TEST_RESULT", exitCode: t.exitCode, output: t.output }])
-          yield* loop()
-          break
-        }
-        case "reviewPreRender": {
-          const base = action.base
-          if (!base) yield* Effect.fail(new Error("reviewPreRender: missing base ref"))
-          const rec = yield* git.recordAndRevertReview(base)
-          handle.advance([{ type: "REVIEW_RECORDED", diff: rec.diff, recordSha: rec.recordSha }])
-          yield* loop()
-          break
-        }
-        default: {
-          // No edgeAction: machine has settled (or escalated). Emit the single prompt.
-          const prompt = buildPrompt(r, overrideFromContext(r), config.resolveModel)
-          process.stdout.write(prompt)
-        }
-      }
-    }))
+      }),
+    )
 
   yield* loop()
 })

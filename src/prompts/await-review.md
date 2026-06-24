@@ -12,5 +12,5 @@ for the agent to do.
    more work.
 4. Re-run gtd once the review is fully worked through.
 
-Report that the review is awaiting human input, then **STOP**. Do not re-run
-gtd — the human must act first.
+Report that the review is awaiting human input, then **STOP**. Do not re-run gtd
+— the human must act first.
