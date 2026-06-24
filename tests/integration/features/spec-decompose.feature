@@ -58,7 +58,7 @@ Feature: Decomposition produces a frozen, ordered package set
     And stdout contains "file-disjoint"
     And stdout contains "merge"
 
-  Scenario: Decompose records TODO.md verbatim before removing it
+  Scenario: Decompose leaves work uncommitted with a decompose marker for the edge to record
     Given a test project
     And a commit "docs: finalize plan" that adds "TODO.md" with:
       """
@@ -73,7 +73,8 @@ Feature: Decomposition produces a frozen, ordered package set
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Decompose"
-    And stdout contains "docs(plan): record TODO.md"
+    And stdout contains ".gtd-commit-intent"
+    And stdout contains "plan(gtd): decompose TODO.md into N work packages"
 
   Scenario: An existing package set is frozen — decomposition does not run again
     Given a test project

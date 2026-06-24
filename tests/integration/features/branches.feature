@@ -79,9 +79,9 @@ Feature: gtd prints a structured prompt for the agent based on git state
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Decompose `TODO.md` into work packages"
-    And stdout contains "planning model"
+    And stdout contains "planning-model subagent"
 
-  Scenario: Decompose prompt instructs recording TODO.md before deleting it
+  Scenario: Decompose prompt instructs leaving work uncommitted with a decompose marker
     Given a test project
     And a commit "docs: seed plan" that adds "TODO.md" with:
       """
@@ -94,7 +94,8 @@ Feature: gtd prints a structured prompt for the agent based on git state
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Decompose"
-    And stdout contains "docs(plan): record TODO.md"
+    And stdout contains ".gtd-commit-intent"
+    And stdout contains "plan(gtd): decompose TODO.md into N work packages"
 
   Scenario: TODO.md with simple marker triggers execute-simple
     Given a test project
@@ -173,12 +174,17 @@ Feature: gtd prints a structured prompt for the agent based on git state
     And stdout contains "02-bar"
     And stdout does not contain "remove the now-empty `.gtd/` directory"
 
-  Scenario: Empty .gtd directory triggers cleanup
+  Scenario: A stray empty .gtd directory is removed by the edge, then the loop advances
+    # `cleanup` is edge-driven: one gtd run removes the stray `.gtd/` and drives
+    # the loop forward. No prompt is emitted for the cleanup itself; the dir is
+    # gone and the next leaf's prompt (verified) is the only stdout.
     Given a test project
     And a directory ".gtd"
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Clean up after build completion"
+    And the file ".gtd" does not exist
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
+    And stdout does not contain "## Task: Clean up after build completion"
 
   Scenario: Clean tree with no reviewable base routes to verified
     Given a test project
@@ -200,7 +206,9 @@ Feature: gtd prints a structured prompt for the agent based on git state
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
+    And the last commit subject is "chore(gtd): commit pending changes"
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
+    And stdout does not contain "## Task: Commit the uncommitted changes"
     And stdout does not contain "## Task: Move `TODO:` markers"
 
   Scenario: New TODO: markers in code are ordinary code and yield only the commit task
@@ -216,7 +224,8 @@ Feature: gtd prints a structured prompt for the agent based on git state
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
+    And the last commit subject is "chore(gtd): commit pending changes"
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
     And stdout does not contain "## Task: Move `TODO:` markers into `TODO.md`"
 
   Scenario: Parent-branch merge-base behind HEAD triggers human-review

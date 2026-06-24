@@ -4,34 +4,54 @@ import modifiedTodo from "./prompts/modified-todo.md"
 import decompose from "./prompts/decompose.md"
 import execute from "./prompts/execute.md"
 import executeSimple from "./prompts/execute-simple.md"
-import cleanup from "./prompts/cleanup.md"
-import codeChanges from "./prompts/code-changes.md"
 import escalate from "./prompts/escalate.md"
 import humanReview from "./prompts/human-review.md"
 import verified from "./prompts/verified.md"
 import reviewProcess from "./prompts/review-process.md"
-import closeReview from "./prompts/close-review.md"
 import awaitReview from "./prompts/await-review.md"
+import reviewIncomplete from "./prompts/review-incomplete.md"
 import awaitAnswers from "./prompts/await-answers.md"
 import fixTests from "./prompts/fix-tests.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
+import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdContext, GtdPackageFact, LeafState, ResolveResult } from "./Machine.js"
 
-const SECTIONS: Record<LeafState, string> = {
+/**
+ * The five leaf states whose prompts spawn subagents and therefore carry a
+ * `{{MODEL}}` placeholder. These coincide with `ModelState` from `Config.ts`.
+ */
+const MODEL_STATES = new Set<LeafState>([
+  "new-todo",
+  "modified-todo",
+  "decompose",
+  "execute",
+  "execute-simple",
+])
+
+/**
+ * Built-in resolver used when no caller-supplied resolver is given. Reuses the
+ * single source of truth in `Config.ts` (state→tier map + built-in tier
+ * defaults) so it can never drift from `ConfigService`'s defaults.
+ */
+const builtinResolveModel = (state: ModelState): string => builtinTierDefault[stateTier[state]]
+
+const SECTIONS: Record<
+  Exclude<LeafState, "cleanup" | "close-review" | "code-changes" | "commit-pending">,
+  string
+> = {
   "new-todo": newTodo,
   "modified-todo": modifiedTodo,
   decompose,
   execute,
   "execute-simple": executeSimple,
-  cleanup,
-  "code-changes": codeChanges,
   escalate,
   "human-review": humanReview,
   verified,
   "review-process": reviewProcess,
-  "close-review": closeReview,
   "await-review": awaitReview,
   "await-answers": awaitAnswers,
+  "review-incomplete": reviewIncomplete,
+  "fix-tests": fixTests,
 }
 
 const buildContext = (context: GtdContext): string => {
@@ -64,15 +84,6 @@ const buildContext = (context: GtdContext): string => {
     lines.push("```")
     lines.push("")
   }
-  if (context.bangComments && context.bangComments.length > 0) {
-    lines.push("")
-    lines.push("### `!!` follow-up comments (leftover work to harvest)")
-    lines.push("")
-    for (const c of context.bangComments) {
-      lines.push(`- \`${c.file}:${c.line}\` — ${c.text}`)
-    }
-    lines.push("")
-  }
   lines.push("")
   if (context.diff !== "") {
     lines.push("### Diff (`git diff HEAD`, with untracked files included)")
@@ -85,11 +96,9 @@ const buildContext = (context: GtdContext): string => {
   return lines.join("\n")
 }
 
-export interface PromptOverride {
-  readonly kind: "fix-tests"
-  /** Captured combined stdout+stderr from the failed `npm run test`. */
-  readonly testOutput: string
-}
+export type PromptOverride =
+  | { readonly kind: "fix-tests"; readonly testOutput: string }
+  | { readonly kind: "review-process"; readonly reviewDiff: string; readonly recordSha: string }
 
 /**
  * Picks a code fence long enough to safely wrap `content`, even when the
@@ -113,7 +122,7 @@ const fenceFor = (content: string): string => {
 const renderPackage = (pkg: GtdPackageFact): string => {
   const lines: Array<string> = ["", `### Package: \`${pkg.name}/\``, ""]
   if (pkg.hasCommitMsg) {
-    lines.push(`Commit with the message in \`${pkg.name}/COMMIT_MSG.md\`.`)
+    lines.push(`The next cycle's edge commits this package using \`${pkg.name}/COMMIT_MSG.md\`.`)
     lines.push("")
   }
   for (const task of pkg.taskContents) {
@@ -128,23 +137,45 @@ const renderPackage = (pkg: GtdPackageFact): string => {
   return lines.join("\n")
 }
 
-export const buildPrompt = (result: ResolveResult, override?: PromptOverride): string => {
+export const buildPrompt = (
+  result: ResolveResult,
+  override?: PromptOverride,
+  resolveModel: (state: ModelState) => string = builtinResolveModel,
+): string => {
   const parts: Array<string> = [header, "", buildContext(result.context)]
   if (override?.kind === "fix-tests") {
     const fence = fenceFor(override.testOutput)
     parts.push(fixTests, "", fence, override.testOutput.replace(/\n$/, ""), fence, "")
+  } else if (override?.kind === "review-process") {
+    const fence = fenceFor(override.reviewDiff)
+    parts.push(SECTIONS["review-process"], "")
+    parts.push("### Review feedback diff", "")
+    parts.push(fence, override.reviewDiff.replace(/\n$/, ""), fence, "")
+    parts.push(`If you lose this diff, recover it with \`git show ${override.recordSha}\`.`, "")
+    if (result.autoAdvance) {
+      parts.push(autoAdvance, "")
+    }
   } else {
     const value = result.value as LeafState
-    parts.push(SECTIONS[value], "")
+    if (
+      value === "cleanup" ||
+      value === "close-review" ||
+      value === "code-changes" ||
+      value === "commit-pending"
+    ) {
+      throw new Error(
+        `Action leaf "${value}" is executed by the edge and must never reach buildPrompt`,
+      )
+    }
+    const section = MODEL_STATES.has(value)
+      ? SECTIONS[value].replaceAll("{{MODEL}}", resolveModel(value as ModelState))
+      : SECTIONS[value]
+    parts.push(section, "")
     const selectedPackage = result.context.packages[0]
     if (value === "execute" && selectedPackage !== undefined) {
       parts.push(renderPackage(selectedPackage), "")
-      if (result.context.packages.length === 1) {
-        parts.push(
-          "This is the LAST work package. In the SAME commit, also remove the now-empty `.gtd/` directory so the next run proceeds straight to human-review.",
-          "",
-        )
-      }
+      // `.gtd/` removal (including the last-package case) is handled by the
+      // edge's `commitPending({ removeLastPackage })` action, not the prompt.
     }
     if (result.autoAdvance) {
       parts.push(autoAdvance, "")

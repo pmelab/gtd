@@ -1,120 +1,55 @@
 # Process Review Feedback
 
-You are processing feedback from a code review session. The reviewer has
-annotated `REVIEW.md` and may have directly edited source files to illustrate
-changes.
+The review feedback has been captured and is injected below as a diff. Your only
+job is to synthesize it into a fresh `TODO.md`.
 
-## Step 1: Read REVIEW.md for Context
+## Interpret the injected diff
 
-Read `REVIEW.md`. It contains:
+The injected diff (rendered by the edge below this prompt) is the **single
+source of all feedback**. Read it as follows:
 
-- **Chunk titles and explanations** written by the tool that generated it —
-  these describe what each diff chunk does; use them as context when
-  interpreting feedback.
-- **Base ref** (noted at the top) — the commit the review was based on.
-- **Reviewer comments** — text the user added (inline or between chunks).
-- **Checkboxes** — informational only; do not treat checked/unchecked as
-  approval or rejection. Read all content regardless of checkbox state.
+- **REVIEW.md prose hunks** — global feedback, comments, and observations that
+  apply to the whole change or to named areas.
+- **Source-file comment additions** — local, inline feedback on specific lines
+  or functions.
+- **Source-file code changes** — suggestions that illustrate intent. Do **not**
+  apply them verbatim; treat them as hints, verify independently, and implement
+  properly.
 
-## Step 2: Read the Working Diff
+Reference file names and function names from the REVIEW.md explanations so each
+task has enough context to act on without re-reading the diff.
 
-Run `git diff` (and `git status` for untracked files) to see what the reviewer
-changed during the session.
+## Synthesize `TODO.md`
 
-## Step 3: Interpret All Source Modifications as Feedback
+Compose `TODO.md` in the project root as a clear, actionable list of tasks
+derived from all the feedback above. Group related items where helpful.
 
-Treat **every** modification to a source file as intentional reviewer feedback.
-There is no marker convention — if the reviewer edited a file, that edit
-expresses a desired change or demonstrates an issue.
-
-Do not re-examine the original diff from the base ref. The explanations already
-present in `REVIEW.md` provide sufficient context for understanding what each
-chunk was about.
-
-## Step 4: Collect All Feedback
-
-Gather feedback from three sources:
-
-1. **REVIEW.md comments** — any text the reviewer added to the file (inline
-   notes, questions, suggestions written between or inside chunks).
-2. **Source file edits** — describe what was changed and infer the reviewer's
-   intent from the surrounding REVIEW.md explanation.
-3. **`!!` follow-up comments in the reviewed code** — scan the reviewed code for
-   any comment whose body begins with `!!` (e.g. `// !! …`, `# !! …`,
-   `<!-- !! … -->`). The ones gtd already found are inlined in the Context above
-   under "`!!` follow-up comments". Pull each one into `TODO.md` verbatim, with
-   enough context (file, function, what needs to be done) to act on it later —
-   intent is not parsed; capture exactly what the comment says. Plain `TODO:`
-   comments are ordinary code and are **not** harvested — only `!!` comments are.
-   After capturing, strip the `!!` comments from the source.
-
-## Step 5: Compose TODO.md
-
-Write `TODO.md` in the project root. Structure it as a clear, actionable list of
-tasks derived from all collected feedback. Group related items if helpful. Be
-specific — reference file names, function names, or concepts from the REVIEW.md
-explanations so each item has enough context to act on without re-reading the
-diff.
-
-## Step 5b: Format TODO.md
-
-Run `node scripts/gtd.js format TODO.md` (use the same `scripts/gtd.js` path you
-invoked to get this prompt) to normalize formatting.
-
-## Step 6: Commit Raw Feedback Verbatim
-
-Before resetting, preserve the reviewer's entire working tree as a dedicated
-commit. This keeps the annotated `REVIEW.md` (with checkboxes), all source
-edits, any untracked files added during the session, and in-place `TODO:`
-markers in git history — exactly as the reviewer left them.
-
-Read the `<!-- base: … -->` comment at the top of `REVIEW.md` to get the base
-ref (you already read this in Step 1). Then run:
+Then normalize formatting:
 
 ```sh
-git add -A
-git commit -m "docs(review): record raw feedback for <base>"
+node scripts/gtd.js format TODO.md
 ```
 
-Replace `<base>` with the actual base ref from the `<!-- base: … -->` comment.
-Do not modify any file content — commit verbatim.
+Use the same `scripts/gtd.js` path that was invoked to get this prompt.
 
-The subsequent reset and synthesis commit will run on top of this commit. The
-synthesis commit will revert the source edits; that churn is acceptable and
-expected — do not try to avoid it.
+## Commit
 
-## Step 7: Reset — Exact Order Required
-
-Execute the reset sequence in this exact order:
+Stage and commit ONLY `TODO.md`:
 
 ```sh
-# 1. Stage TODO.md FIRST so it survives the reset
 git add TODO.md
-
-# 2. Reset all tracked files to HEAD (discards reviewer's source edits and REVIEW.md edits)
-git checkout -- .
-
-# 3. Remove any untracked files the reviewer added during the session
-git clean -fd
-
-# 4. Delete REVIEW.md (it was tracked, so checkout restored it; delete it now)
-rm REVIEW.md
+git commit -m "docs(review): synthesize TODO.md from review feedback"
 ```
 
-After these commands: only `TODO.md` (staged) and the `REVIEW.md` deletion
-remain as pending changes.
+Do not run any other git work — no revert, no record commit, no close commit.
 
-## Step 8: Commit
+## Recovery
+
+If you lose the injected diff, recover it with:
 
 ```sh
-git add -A
-git commit -m "docs(review): process review feedback into TODO.md"
+git show <record-sha>
 ```
 
-The commit includes:
-
-- `TODO.md` added (the extracted feedback)
-- `REVIEW.md` deleted (review session cleaned up)
-
-No source file changes are committed — those were illustrative edits by the
-reviewer, now captured as tasks in `TODO.md`.
+The edge substitutes the actual record SHA for `<record-sha>` when it renders
+this prompt.

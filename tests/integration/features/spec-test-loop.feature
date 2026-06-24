@@ -4,20 +4,22 @@
 # does NOT commit per attempt, and commits only on success (discarding ERRORS.md)
 # or on escalation. Escalates after 3 attempts, or immediately on a recurring
 # error signature. Allowed to fail.
+#
+# NOTE (Part A): the test gate now fires ONLY before `execute`. human-review is
+# no longer test-gated, so these fixtures reach the gate via a committed package
+# in `.gtd/` (the execute path) rather than a clean tree with a review base.
 
 Feature: Test/fix loop with bounded, memory-retaining escalation
 
   Scenario: A red test gate below the cap emits the fix prompt with captured output
     Given a test project
-    And a default branch "feature"
-    And a prior review commit for "prev1234"
     And a commit "chore: add package.json" that adds "package.json" with:
       """
       { "scripts": { "test": "echo SENTINEL_FAILURE; exit 1" } }
       """
-    And a commit "feat: add parser" that adds "src/parser.ts" with:
+    And a commit "plan(gtd): decompose" that adds ".gtd/01-foo/01-task.md" with:
       """
-      export const parse = (s: string) => JSON.parse(s)
+      First task
       """
     When I run gtd
     Then it succeeds
@@ -26,15 +28,13 @@ Feature: Test/fix loop with bounded, memory-retaining escalation
 
   Scenario: The fix prompt retains prior attempts and writes them to an uncommitted ERRORS.md
     Given a test project
-    And a default branch "feature"
-    And a prior review commit for "prev1234"
     And a commit "chore: add package.json" that adds "package.json" with:
       """
       { "scripts": { "test": "echo SENTINEL_FAILURE; exit 1" } }
       """
-    And a commit "feat: add parser" that adds "src/parser.ts" with:
+    And a commit "plan(gtd): decompose" that adds ".gtd/01-foo/01-task.md" with:
       """
-      export const parse = (s: string) => JSON.parse(s)
+      First task
       """
     When I run gtd
     Then it succeeds
@@ -44,32 +44,28 @@ Feature: Test/fix loop with bounded, memory-retaining escalation
 
   Scenario: The fix prompt forbids committing per attempt, committing only on success or escalation
     Given a test project
-    And a default branch "feature"
-    And a prior review commit for "prev1234"
     And a commit "chore: add package.json" that adds "package.json" with:
       """
       { "scripts": { "test": "echo SENTINEL_FAILURE; exit 1" } }
       """
-    And a commit "feat: add parser" that adds "src/parser.ts" with:
+    And a commit "plan(gtd): decompose" that adds ".gtd/01-foo/01-task.md" with:
       """
-      export const parse = (s: string) => JSON.parse(s)
+      First task
       """
     When I run gtd
     Then it succeeds
     And stdout contains "## Test gate failed"
-    And stdout contains "only commit on success or escalation"
+    And stdout contains "never commit a half-finished attempt"
 
-  Scenario: The test loop also runs after human code edits, not just after a package
+  Scenario: The test loop runs before executing a pending package
     Given a test project
-    And a default branch "feature"
-    And a prior review commit for "prev1234"
     And a commit "chore: add package.json" that adds "package.json" with:
       """
       { "scripts": { "test": "echo SENTINEL_FAILURE; exit 1" } }
       """
-    And a commit "fix: human tweak" that adds "src/human.ts" with:
+    And a commit "plan(gtd): decompose" that adds ".gtd/02-bar/01-task.md" with:
       """
-      export const human = () => 1
+      Second task
       """
     When I run gtd
     Then it succeeds
@@ -96,11 +92,13 @@ Feature: Test/fix loop with bounded, memory-retaining escalation
 
   Scenario: Two consecutive fix attempts stay in the loop, below the cap of three
     Given a test project
-    And a default branch "main"
-    And a branch "feature"
     And a commit "chore: add package.json" that adds "package.json" with:
       """
       { "scripts": { "test": "echo SENTINEL_FAILURE; exit 1" } }
+      """
+    And a commit "plan(gtd): decompose" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      First task
       """
     And a fix(gtd) commit "fix(gtd): attempt 1"
     And a fix(gtd) commit "fix(gtd): attempt 2"
@@ -128,3 +126,20 @@ Feature: Test/fix loop with bounded, memory-retaining escalation
     And stdout contains "Escalate to the human"
     And stdout contains "no progress"
     And stdout does not contain "## Test gate failed"
+
+  Scenario: Plain fix(gtd) feature commits (no trailer) with a green test gate do not escalate
+    Given a test project
+    And a default branch "main"
+    And a branch "feature"
+    And a commit "chore: add package.json" that adds "package.json" with:
+      """
+      { "scripts": { "test": "exit 0" } }
+      """
+    And a plain fix(gtd) feature commit "fix(gtd): plain feature fix 1"
+    And a plain fix(gtd) feature commit "fix(gtd): plain feature fix 2"
+    And a plain fix(gtd) feature commit "fix(gtd): plain feature fix 3"
+    And a plain fix(gtd) feature commit "fix(gtd): plain feature fix 4"
+    And a plain fix(gtd) feature commit "fix(gtd): plain feature fix 5"
+    When I run gtd
+    Then it succeeds
+    And stdout does not contain "Escalate to the human"

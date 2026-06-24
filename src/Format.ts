@@ -8,6 +8,12 @@ const PRETTIER_CONFIG: prettier.Options = {
   proseWrap: "always",
 }
 
+export const formatString = (content: string): Effect.Effect<string, Error> =>
+  Effect.tryPromise({
+    try: () => prettier.format(content, PRETTIER_CONFIG),
+    catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
+  })
+
 export const formatFile = (path: string): Effect.Effect<void, never, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
@@ -19,10 +25,7 @@ export const formatFile = (path: string): Effect.Effect<void, never, FileSystem.
     }
 
     const content = yield* fs.readFileString(path, "utf8")
-    const formatted = yield* Effect.tryPromise({
-      try: () => prettier.format(content, PRETTIER_CONFIG),
-      catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
-    })
+    const formatted = yield* formatString(content)
 
     if (formatted !== content) {
       yield* fs.writeFileString(path, formatted)

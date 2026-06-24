@@ -60,5 +60,4 @@ Feature: Packages execute sequentially, lowest ordinal first
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Execute one work package"
-    And stdout contains "remove the now-empty `.gtd/` directory"
     And stdout contains "Re-run gtd immediately"

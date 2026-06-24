@@ -5,6 +5,8 @@ import type { GtdContext, LeafState, ResolveResult } from "./Machine.js"
 const baseContext = (overrides: Partial<GtdContext> = {}): GtdContext => ({
   verifyIterations: 0,
   maxVerifyIterations: 5,
+  noAgentHops: 0,
+  lastAdvancedLeaf: null,
   lastCommitSubject: "chore: init",
   workingTreeClean: true,
   packages: [],
@@ -54,27 +56,18 @@ describe("buildPrompt", () => {
     expect(out).toContain("<!-- base: <full-hash> -->")
   })
 
-  it("review-process prompt instructs to format TODO.md and pull TODO: markers", () => {
+  it("review-process prompt instructs to format and commit TODO.md without git revert", () => {
     const out = buildPrompt(result("review-process", { autoAdvance: true }))
     expect(out).toContain("format TODO.md")
-    expect(out).toContain("TODO:")
-  })
-
-  it("renders exactly one section for the resolved value", () => {
-    const out = buildPrompt(
-      result("code-changes", {
-        autoAdvance: true,
-        context: { workingTreeClean: false, diff: "diff --git a/x b/x\n" },
-      }),
-    )
-    expect(out).toContain("Commit the uncommitted changes")
-    // The review-process section must NOT leak in.
-    expect(out).not.toContain("Process Review Feedback")
+    expect(out).toContain("git add TODO.md")
+    expect(out).not.toContain("git revert")
+    expect(out).not.toContain("docs(review): record raw feedback")
+    expect(out).not.toContain("chore(gtd): close approved review")
   })
 
   it("escalate prompt renders its section", () => {
     const out = buildPrompt(result("escalate"))
-    expect(out).toContain("fix(gtd):")
+    expect(out).toContain("Escalate to the human")
   })
 
   it("escalate does NOT include the auto-advance partial when autoAdvance is false", () => {
@@ -83,14 +76,13 @@ describe("buildPrompt", () => {
   })
 
   it("includes the auto-advance partial when autoAdvance is true", () => {
-    const out = buildPrompt(result("code-changes", { autoAdvance: true }))
+    const out = buildPrompt(result("verified", { autoAdvance: true }))
     expect(out).toContain("Re-run gtd immediately")
   })
 
   it("embeds the diff when present", () => {
     const out = buildPrompt(
-      result("code-changes", {
-        autoAdvance: true,
+      result("human-review", {
         context: {
           workingTreeClean: false,
           diff: "diff --git a/foo b/foo\n+hello\n",
@@ -99,6 +91,34 @@ describe("buildPrompt", () => {
     )
     expect(out).toContain("```diff")
     expect(out).toContain("+hello")
+  })
+
+  it("action leaf cleanup throws when reaching buildPrompt", () => {
+    expect(() => buildPrompt(result("cleanup"))).toThrow(/Action leaf "cleanup"/)
+  })
+
+  it("action leaf close-review throws when reaching buildPrompt", () => {
+    expect(() => buildPrompt(result("close-review"))).toThrow(/Action leaf "close-review"/)
+  })
+
+  it("action leaf code-changes throws when reaching buildPrompt", () => {
+    expect(() => buildPrompt(result("code-changes"))).toThrow(/Action leaf "code-changes"/)
+  })
+
+  it("human-review (green path) contains format REVIEW.md and no Test gate failed", () => {
+    const out = buildPrompt(result("human-review"))
+    expect(out).toContain("format REVIEW.md")
+    expect(out).not.toContain("Test gate failed")
+  })
+
+  it("fix-tests override contains Test gate failed and the output, no format REVIEW.md", () => {
+    const out = buildPrompt(result("human-review"), {
+      kind: "fix-tests",
+      testOutput: "Test gate failed: npm test exited 1",
+    })
+    expect(out).toContain("Test gate failed")
+    expect(out).toContain("Test gate failed: npm test exited 1")
+    expect(out).not.toContain("format REVIEW.md")
   })
 
   it("omits the diff block when the tree is clean", () => {
@@ -137,8 +157,8 @@ describe("buildPrompt", () => {
     expect(out).not.toContain("Determine the test command")
   })
 
-  it("execute prompt for a single package instructs removing the empty .gtd/ directory", () => {
-    const out = buildPrompt(
+  it("execute prompt never injects the now-empty .gtd/ removal line (edge owns it now)", () => {
+    const single = buildPrompt(
       result("execute", {
         context: {
           packages: [
@@ -152,7 +172,9 @@ describe("buildPrompt", () => {
         },
       }),
     )
-    expect(out).toContain("remove the now-empty `.gtd/` directory")
+    // The edge's commitPending({ removeLastPackage }) removes `.gtd/`; the prompt
+    // must no longer instruct the agent to do it (single- OR multi-package).
+    expect(single).not.toContain("remove the now-empty `.gtd/` directory")
   })
 
   it("execute prompt for multiple packages does NOT instruct removing the .gtd/ directory", () => {
@@ -180,6 +202,24 @@ describe("buildPrompt", () => {
     expect(out).not.toContain("remove the now-empty `.gtd/` directory")
   })
 
+  it("execute prompt instructs writing the `execute` intent marker", () => {
+    const out = buildPrompt(
+      result("execute", {
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "First task" }],
+              hasCommitMsg: true,
+            },
+          ],
+        },
+      }),
+    )
+    expect(out).toContain(".gtd-commit-intent")
+  })
+
   it("execute prompt fences backtick-containing task content with a long-enough fence", () => {
     const out = buildPrompt(
       result("execute", {
@@ -188,9 +228,7 @@ describe("buildPrompt", () => {
             {
               name: "01-foo",
               tasks: ["01-task.md"],
-              taskContents: [
-                { name: "01-task.md", content: "see ```block``` and - [ ] item" },
-              ],
+              taskContents: [{ name: "01-task.md", content: "see ```block``` and - [ ] item" }],
               hasCommitMsg: true,
             },
           ],
@@ -204,21 +242,12 @@ describe("buildPrompt", () => {
     const out = buildPrompt(
       result("execute", {
         context: {
-          packages: [
-            { name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: true },
-          ],
+          packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: true }],
         },
       }),
     )
     expect(out).toContain("### Package: `01-foo/`")
     expect(out).toContain("01-foo/COMMIT_MSG.md")
-  })
-
-  it("cleanup prompt renders its section and the auto-advance partial", () => {
-    const out = buildPrompt(result("cleanup", { autoAdvance: true }))
-    expect(out).toContain("Delete the empty `.gtd/` directory")
-    expect(out).toContain("Re-run gtd immediately")
-    expect(out).not.toContain("Execute one work package")
   })
 
   it("decompose prompt renders its section and the auto-advance partial", () => {
@@ -233,34 +262,6 @@ describe("buildPrompt", () => {
     expect(out).toContain("marked with `<!-- simple -->`")
     expect(out).toContain("Re-run gtd immediately")
     expect(out).not.toContain("Decompose `TODO.md` into work packages")
-  })
-
-  it("close-review section renders the commit message prefix", () => {
-    const out = buildPrompt(result("close-review", { autoAdvance: true }))
-    expect(out).toContain("chore(gtd): close approved review for")
-  })
-
-  it("close-review instructs reading short-sha from REVIEW.md base marker", () => {
-    const out = buildPrompt(
-      result("close-review", {
-        autoAdvance: true,
-        context: { baseRef: "abc1234def" },
-      }),
-    )
-    // baseRef is not surfaced by buildContext when refDiff is absent,
-    // so the prompt must instruct reading from REVIEW.md's <!-- base: --> marker.
-    expect(out).toContain("<!-- base:")
-    expect(out).toContain("first 7 characters")
-  })
-
-  it("close-review includes the auto-advance partial when autoAdvance is true", () => {
-    const out = buildPrompt(result("close-review", { autoAdvance: true }))
-    expect(out).toContain("Re-run gtd immediately")
-  })
-
-  it("close-review does NOT contain another leaf's section", () => {
-    const out = buildPrompt(result("close-review", { autoAdvance: true }))
-    expect(out).not.toContain("Process Review Feedback")
   })
 
   it("fix-tests override emits the fix(gtd) instruction and fences the captured output", () => {
@@ -295,5 +296,158 @@ describe("buildPrompt", () => {
       testOutput: "see `code` and ```block``` here",
     })
     expect(out).toContain("````\nsee `code` and ```block``` here\n````")
+  })
+
+  describe("model injection", () => {
+    const planningStates: ReadonlyArray<LeafState> = ["new-todo", "modified-todo", "decompose"]
+    const executionStates: ReadonlyArray<LeafState> = ["execute", "execute-simple"]
+    const subagentStates = [...planningStates, ...executionStates]
+
+    for (const state of planningStates) {
+      it(`${state} emits the built-in planning model by default`, () => {
+        const out = buildPrompt(result(state, { autoAdvance: true }))
+        expect(out).toContain("claude-opus-4-8")
+        expect(out).not.toContain("{{MODEL}}")
+      })
+    }
+
+    for (const state of executionStates) {
+      it(`${state} emits the built-in execution model by default`, () => {
+        const out = buildPrompt(
+          result(state, {
+            autoAdvance: true,
+            context:
+              state === "execute"
+                ? {
+                    packages: [
+                      {
+                        name: "01-foo",
+                        tasks: ["01-task.md"],
+                        taskContents: [{ name: "01-task.md", content: "First task" }],
+                        hasCommitMsg: true,
+                      },
+                    ],
+                  }
+                : {},
+          }),
+        )
+        expect(out).toContain("claude-sonnet-4-8")
+        expect(out).not.toContain("{{MODEL}}")
+      })
+    }
+
+    for (const state of subagentStates) {
+      it(`${state} honors a custom resolveModel`, () => {
+        const out = buildPrompt(
+          result(state, {
+            autoAdvance: true,
+            context:
+              state === "execute"
+                ? {
+                    packages: [
+                      {
+                        name: "01-foo",
+                        tasks: ["01-task.md"],
+                        taskContents: [{ name: "01-task.md", content: "First task" }],
+                        hasCommitMsg: true,
+                      },
+                    ],
+                  }
+                : {},
+          }),
+          undefined,
+          (s) => `MODEL-FOR-${s}`,
+        )
+        expect(out).toContain(`MODEL-FOR-${state}`)
+        expect(out).not.toContain("{{MODEL}}")
+      })
+    }
+
+    it("a per-state override beats its tier default", () => {
+      const out = buildPrompt(result("execute-simple", { autoAdvance: true }), undefined, (s) =>
+        s === "execute-simple" ? "custom-simple-model" : "claude-sonnet-4-8",
+      )
+      expect(out).toContain("custom-simple-model")
+      expect(out).not.toContain("claude-sonnet-4-8")
+    })
+
+    it("the five subagent prompts no longer carry the AGENTS.md model-preference prose", () => {
+      for (const state of subagentStates) {
+        const out = buildPrompt(
+          result(state, {
+            context:
+              state === "execute"
+                ? {
+                    packages: [
+                      {
+                        name: "01-foo",
+                        tasks: ["01-task.md"],
+                        taskContents: [{ name: "01-task.md", content: "First task" }],
+                        hasCommitMsg: true,
+                      },
+                    ],
+                  }
+                : {},
+          }),
+        )
+        expect(out).not.toContain("AGENTS.md for model preferences")
+      }
+    })
+
+    it("the dropped header prose is gone", () => {
+      const out = buildPrompt(result("verified"))
+      expect(out).not.toContain("AGENTS.md for model preferences")
+      expect(out).not.toContain("Check your user/project AGENTS.md")
+    })
+
+    it("review-incomplete prompt renders its section and does NOT leak another leaf's section", () => {
+      const out = buildPrompt(result("review-incomplete", { autoAdvance: false }))
+      expect(out).toContain("at least one checkbox is still unticked")
+      expect(out).toContain("STOP")
+      // Must not leak the await-review section
+      expect(out).not.toContain("has not recorded any feedback")
+      // Must not include auto-advance
+      expect(out).not.toContain("Re-run gtd immediately")
+    })
+
+    it("review-process override renders the section, fences the diff, includes auto-advance, and surfaces recordSha", () => {
+      const out = buildPrompt(result("review-process", { autoAdvance: true }), {
+        kind: "review-process",
+        reviewDiff: "diff --git a/x b/x\n+hi\n",
+        recordSha: "deadbee",
+      })
+      // Section rendered
+      expect(out).toContain("format TODO.md")
+      expect(out).toContain("git add TODO.md")
+      // No git revert in the slim prompt
+      expect(out).not.toContain("git revert")
+      // Fenced diff
+      expect(out).toContain("### Review feedback diff")
+      expect(out).toContain("```\ndiff --git a/x b/x\n+hi\n```")
+      // auto-advance partial
+      expect(out).toContain("Re-run gtd immediately")
+      // recovery hint with recordSha
+      expect(out).toContain("deadbee")
+      expect(out).toContain("git show deadbee")
+    })
+
+    it("review-process override lengthens the fence when diff contains backticks", () => {
+      const out = buildPrompt(result("review-process", { autoAdvance: true }), {
+        kind: "review-process",
+        reviewDiff: "see `code` and ```block``` here",
+        recordSha: "abc1234",
+      })
+      expect(out).toContain("````\nsee `code` and ```block``` here\n````")
+    })
+
+    it("fix-tests override carries no injected model and no {{MODEL}} leak", () => {
+      const out = buildPrompt(
+        result("execute"),
+        { kind: "fix-tests", testOutput: "boom" },
+        () => "SHOULD-NOT-APPEAR",
+      )
+      expect(out).not.toContain("{{MODEL}}")
+      expect(out).not.toContain("SHOULD-NOT-APPEAR")
+    })
   })
 })

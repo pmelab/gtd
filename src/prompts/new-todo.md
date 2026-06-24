@@ -1,25 +1,11 @@
-## Test gate (run first)
-
-Before doing anything else, run the project's test suite (determine the command
-from AGENTS.md / `package.json` scripts / Makefile).
-
-- **On failure:** make exactly **ONE** fix, then commit **all** the fix changes
-  into a single commit with a `fix(gtd): <desc>` message. Do not commit
-  `TODO.md` — leave it dirty (the working tree should end with only `TODO.md`
-  pending, or otherwise clean). Then **re-run gtd** and stop; the gate will
-  re-evaluate on the next cycle.
-- **On green:** proceed inline with the task below in this same run.
-
 ## Task: Develop the plan in `TODO.md`
 
 A new `TODO.md` was created. It needs to be developed into a proper plan.
 
 ### Orchestration
 
-You are running with a work model. Spawn a **planning-model subagent** to
-develop the plan. Check your user/project AGENTS.md for model preferences (e.g.,
-"use opus for planning"). If no preference is set, default to a high-reasoning
-model like Claude Opus.
+You are running with a work model. Spawn a **planning-model subagent** using
+model `{{MODEL}}` to develop the plan.
 
 The subagent should:
 
@@ -76,4 +62,11 @@ The subagent should:
 Run `node scripts/gtd.js format TODO.md` (use the same `scripts/gtd.js` path you
 invoked to get this prompt) to normalize formatting.
 
-Commit `TODO.md` with the developed plan.
+Leave `TODO.md` **uncommitted** and write the intent marker file
+`.gtd-commit-intent` at the repository root containing exactly:
+
+```
+new-todo
+```
+
+The next cycle commits the developed `TODO.md` and deletes the marker.

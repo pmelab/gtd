@@ -1,7 +1,8 @@
 import { FileSystem } from "@effect/platform"
 import { Effect, Option } from "effect"
 import { type GitOperations, GitService } from "./Git.js"
-import type { GtdEvent, GtdPackageFact, ResolvePayload } from "./Machine.js"
+import { formatString } from "./Format.js"
+import type { GtdEvent, GtdPackageFact, PendingCommitIntent, ResolvePayload } from "./Machine.js"
 
 /**
  * The Effect "edge": all git/filesystem IO lives here. It probes the working
@@ -18,6 +19,51 @@ const REVIEW_FILE = "REVIEW.md"
 const ERRORS_FILE = "ERRORS.md"
 const UNANSWERED_MARKER = "<!-- user answers here -->"
 const SIMPLE_MARKER = "<!-- simple -->"
+
+/**
+ * Commit-intent sentinel marker (the on-disk contract Part B introduces).
+ *
+ * An agent leaves its output UNCOMMITTED and writes this top-level file whose
+ * sole content is the intent-kind string (one of `PendingCommitIntent`). It
+ * lives at the repo ROOT — NOT inside `.gtd/` — so the same location works for
+ * every intent regardless of whether `.gtd/` exists (e.g. new-todo / human-review
+ * have no `.gtd/`). The next `gtd` cycle reads it here (READ-ONLY) into
+ * `payload.pendingCommitIntent`; the machine folds it to a disambiguated
+ * `commitPending` action, and the edge deletes this file as part of that commit.
+ */
+const COMMIT_INTENT_FILE = ".gtd-commit-intent"
+
+const COMMIT_INTENTS: ReadonlyArray<PendingCommitIntent> = [
+  "execute",
+  "decompose",
+  "new-todo",
+  "modified-todo",
+  "execute-simple",
+  "human-review",
+  "fix-tests",
+]
+
+const parseCommitIntent = (raw: string): PendingCommitIntent | undefined => {
+  const v = raw.trim()
+  return COMMIT_INTENTS.find((k) => k === v)
+}
+
+/**
+ * Read the commit-intent sentinel (READ-ONLY) into a `PendingCommitIntent`.
+ * Absent marker (or unrecognized content) → `undefined` (the Part A
+ * `code-changes` path). Exported for unit testing the gather contract.
+ */
+export const readCommitIntent = (
+  fs: FileSystem.FileSystem,
+): Effect.Effect<PendingCommitIntent | undefined, Error> =>
+  Effect.gen(function* () {
+    const exists = yield* fs.exists(COMMIT_INTENT_FILE)
+    if (!exists) return undefined
+    const raw = yield* fs
+      .readFileString(COMMIT_INTENT_FILE)
+      .pipe(Effect.mapError((e) => new Error(String(e))))
+    return parseCommitIntent(raw)
+  }).pipe(Effect.mapError((e) => new Error(String(e))))
 
 /**
  * Parse the `status:` value from a leading YAML frontmatter block. Folds the
@@ -171,6 +217,38 @@ export const computeReviewBase = (
   })
 
 /**
+ * True iff the working-tree REVIEW.md content contains at least one unchecked
+ * checkbox line (`- [ ] …`).
+ */
+export const computeReviewHasUncheckedBoxes = (reviewContent: string): boolean =>
+  /^- \[ \] /m.test(reviewContent)
+
+/**
+ * True iff the REVIEW.md diff represents real feedback (not just forward-ticks).
+ *
+ * Short-circuits to `true` when other dirty paths exist. Otherwise normalizes
+ * the committed copy (replacing `- [ ]` with `- [x]`) and compares formatted
+ * strings; returns `true` when they differ.
+ */
+export const computeReviewHasRealFeedback = (opts: {
+  otherDirtyPathsExist: boolean
+  committedContent: string
+  workingContent: string
+}): Effect.Effect<boolean, Error> => {
+  if (opts.otherDirtyPathsExist) return Effect.succeed(true)
+  const normalizedCommitted = opts.committedContent.replace(/- \[ \] /g, "- [x] ")
+  return Effect.gen(function* () {
+    const formattedCommitted = yield* formatString(normalizedCommitted).pipe(
+      Effect.mapError((e) => new Error(String(e))),
+    )
+    const formattedWorking = yield* formatString(opts.workingContent).pipe(
+      Effect.mapError((e) => new Error(String(e))),
+    )
+    return formattedCommitted !== formattedWorking
+  })
+}
+
+/**
  * Gather ALL git/filesystem facts and produce the typed event stream the pure
  * machine folds: one `COMMIT` per first-parent commit (oldest→newest) followed
  * by a single `RESOLVE` carrying the working-tree snapshot.
@@ -192,10 +270,10 @@ export const gatherEvents = (): Effect.Effect<
       ? yield* git.mergeBase(defaultBranch.value, "HEAD")
       : Option.none<string>()
 
-    const subjects = yield* git.commitSubjects(Option.getOrUndefined(base))
-    const commitEvents: Array<GtdEvent> = subjects.map((subject) => ({
+    const messages = yield* git.commitMessages(Option.getOrUndefined(base))
+    const commitEvents: Array<GtdEvent> = messages.map((message) => ({
       type: "COMMIT",
-      isFixGtd: /^fix\(gtd\):/.test(subject),
+      isTestFix: /^Gtd-Test-Fix:/m.test(message),
     }))
 
     // --- RESOLVE payload (working-tree snapshot) -----------------------------
@@ -209,9 +287,7 @@ export const gatherEvents = (): Effect.Effect<
     // files (TODO.md, REVIEW.md) is "code" that must be committed before any
     // gate is evaluated. REVIEW.md checkbox edits are handled by the review
     // branch, not treated as code.
-    const codeEntries = entries.filter(
-      (e) => e.path !== TODO_FILE && e.path !== REVIEW_FILE,
-    )
+    const codeEntries = entries.filter((e) => e.path !== TODO_FILE && e.path !== REVIEW_FILE)
     const codeDirty = codeEntries.length > 0
 
     const todoDirty: "new" | "modified" | null = todoEntry
@@ -230,6 +306,11 @@ export const gatherEvents = (): Effect.Effect<
     // A committed ERRORS.md means the test loop escalated; it is a human gate.
     const errorsPresent = yield* fs.exists(ERRORS_FILE)
 
+    // Commit-intent sentinel (READ-ONLY): an agent left output uncommitted plus
+    // this marker naming which state produced it, so the next edge can emit a
+    // disambiguated commit. Absent → Part A generic `code-changes` path.
+    const pendingCommitIntent = yield* readCommitIntent(fs)
+
     // TODO.md state is driven by its `status:` frontmatter (source of truth),
     // with open-questions presence gating the await-answers branch.
     const todoExists = yield* fs.exists(TODO_FILE)
@@ -240,14 +321,11 @@ export const gatherEvents = (): Effect.Effect<
     const todoStatus = todoExists ? parseTodoStatus(stripped) : null
     const todoOpenQuestionsPresent = todoExists && hasOpenQuestions(stripped)
 
-    // Scan tracked source for `!!` follow-up comments (leftover review work).
-    const bangComments = yield* git.grepBang()
-    const bangPresent = bangComments.length > 0
-
     // REVIEW.md probing.
     let reviewModified = false
     let reviewUnmodified = false
-    let reviewApprovedNoChanges = false
+    let reviewHasUncheckedBoxes = false
+    let reviewHasRealFeedback = false
     let reviewBaseRef: string | undefined
     const reviewExists = yield* fs.exists(REVIEW_FILE)
     if (reviewExists) {
@@ -258,6 +336,7 @@ export const gatherEvents = (): Effect.Effect<
       const reviewContent = yield* fs
         .readFileString(REVIEW_FILE)
         .pipe(Effect.mapError((e) => new Error(String(e))))
+
       const baseMatch = reviewContent.match(/<!--\s*base:\s*([a-f0-9]+)\s*-->/)
       if (!baseMatch) {
         yield* Effect.fail(
@@ -268,38 +347,20 @@ export const gatherEvents = (): Effect.Effect<
       }
       reviewBaseRef = baseMatch![1] as string
 
-      // Compute reviewApprovedNoChanges:
-      // true iff reviewModified AND REVIEW.md is the ONLY dirty path AND the
-      // diff is forward-ticks only (every changed line: - [ ] → - [x] with
-      // identical remainder, at least one tick, equal line counts).
-      // Note: codeDirty counts REVIEW.md as dirty too, so check entries directly.
-      const onlyReviewDirty = entries.every((e) => e.path === REVIEW_FILE)
-      if (onlyReviewDirty) {
+      reviewHasUncheckedBoxes = computeReviewHasUncheckedBoxes(reviewContent)
+
+      const otherDirtyPathsExist = !entries.every((e) => e.path === REVIEW_FILE)
+      if (otherDirtyPathsExist) {
+        reviewHasRealFeedback = true
+      } else if (reviewModified) {
         const committedContent = yield* git
           .showHead(REVIEW_FILE)
           .pipe(Effect.mapError((e) => new Error(String(e))))
-        const normalise = (line: string) => line.replace(/\r$/, "")
-        const committedLines = committedContent.split("\n").map(normalise)
-        const workingLines = reviewContent.split("\n").map(normalise)
-        const UNTICKED = /^- \[ \] /
-        const TICKED = /^- \[x\] /
-        const stripMarker = (line: string) => line.replace(/^- \[[ x]\] /, "")
-        if (committedLines.length === workingLines.length) {
-          let atLeastOneTick = false
-          let allDiffsAreForwardTicks = true
-          for (let i = 0; i < committedLines.length; i++) {
-            const c = committedLines[i]!
-            const w = workingLines[i]!
-            if (c === w) continue
-            if (UNTICKED.test(c) && TICKED.test(w) && stripMarker(c) === stripMarker(w)) {
-              atLeastOneTick = true
-            } else {
-              allDiffsAreForwardTicks = false
-              break
-            }
-          }
-          reviewApprovedNoChanges = allDiffsAreForwardTicks && atLeastOneTick
-        }
+        reviewHasRealFeedback = yield* computeReviewHasRealFeedback({
+          otherDirtyPathsExist: false,
+          committedContent,
+          workingContent: reviewContent,
+        })
       }
     }
 
@@ -321,7 +382,8 @@ export const gatherEvents = (): Effect.Effect<
       errorsPresent,
       reviewModified,
       reviewUnmodified,
-      reviewApprovedNoChanges,
+      reviewHasUncheckedBoxes,
+      reviewHasRealFeedback,
       codeDirty,
       hasPackages,
       gtdDirExists,
@@ -329,8 +391,9 @@ export const gatherEvents = (): Effect.Effect<
       todoExists,
       todoStatus,
       todoOpenQuestionsPresent,
-      bangPresent,
+      reviewPresent: reviewExists,
       reviewBasePresent,
+      ...(pendingCommitIntent !== undefined ? { pendingCommitIntent } : {}),
       lastCommitSubject,
       workingTreeClean,
       packages,
@@ -341,7 +404,6 @@ export const gatherEvents = (): Effect.Effect<
           ? { baseRef: computedBaseRef }
           : {}),
       ...(refDiff !== undefined ? { refDiff } : {}),
-      ...(bangComments.length > 0 ? { bangComments } : {}),
     }
 
     return [...commitEvents, { type: "RESOLVE", payload }] as ReadonlyArray<GtdEvent>

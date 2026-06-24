@@ -1,10 +1,15 @@
 Feature: Verify loop and escalation cap
 
-  The verify loop counts consecutive `fix(gtd):` commits. Below the cap the
-  machine keeps making progress; at the cap it escalates and STOPs. A green run
-  (a non-`fix(gtd):` commit) resets the counter so planning can resume.
+  The verify loop counts consecutive `fix(gtd):` commits that carry a
+  `Gtd-Test-Fix:` trailer. Only trailer-carrying commits advance the counter;
+  a plain `fix(gtd):` feature commit (no trailer) does NOT advance the counter
+  and is treated like any other non-fix commit. At the cap the machine escalates
+  and STOPs; any non-advancing commit resets the counter so planning can resume.
 
   Scenario: Mixed code and TODO.md dirty commits only code, leaving TODO.md dirty
+    # The code-changes edge commits the dirty source but restores TODO.md, leaving
+    # it uncommitted. One gtd run commits the code and drives the loop forward; the
+    # still-dirty new TODO.md then routes to the planning prompt.
     Given a test project
     And a commit "feat: math" that adds "src/math.ts" with:
       """
@@ -21,9 +26,10 @@ Feature: Verify loop and escalation cap
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
-    And stdout contains "Do not commit `TODO.md`"
-    And stdout does not contain "## Task: Develop the plan in `TODO.md`"
+    And the last commit subject is "chore(gtd): commit pending changes"
+    And the file "TODO.md" exists
+    And stdout contains "## Task: Develop the plan in `TODO.md`"
+    And stdout does not contain "## Task: Commit the uncommitted changes"
 
   Scenario: A chain of fix(gtd) commits below the cap stays in a gated state
     Given a test project
@@ -64,6 +70,35 @@ Feature: Verify loop and escalation cap
       """
       export const done = true
       """
+    And a file "TODO.md" with:
+      """
+      ## Open Questions
+
+      ### What should the next iteration cover?
+
+      **Recommendation:** finish the math library.
+
+      <!-- user answers here -->
+
+      ## Plan
+
+      - plan the next iteration
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Develop the plan in `TODO.md`"
+    And stdout does not contain "Escalate to the human"
+
+  Scenario: A plain fix(gtd) feature commit (no trailer) resets the counter and planning resumes
+    Given a test project
+    And a default branch "main"
+    And a branch "feature"
+    And a fix(gtd) commit "fix(gtd): attempt 1"
+    And a fix(gtd) commit "fix(gtd): attempt 2"
+    And a fix(gtd) commit "fix(gtd): attempt 3"
+    And a fix(gtd) commit "fix(gtd): attempt 4"
+    And a fix(gtd) commit "fix(gtd): attempt 5"
+    And a plain fix(gtd) feature commit "fix(gtd): plain feature fix, no trailer"
     And a file "TODO.md" with:
       """
       ## Open Questions

@@ -6,16 +6,14 @@ directly without decomposing into work packages.
 ### Orchestration
 
 You are running with a work model. You orchestrate the execution — you do not
-implement the task yourself. Spawn subagents for implementation and testing.
-
-Check your user/project AGENTS.md for model preferences (e.g., "use sonnet for
-execution"). If no preference is set, use the current work model.
+implement the task yourself. Spawn subagents for implementation and testing
+using model `{{MODEL}}`.
 
 ### Step 1: Spawn implementation worker
 
 Spawn ONE **execution-model subagent** with:
 
-- **Model**: The execution model from AGENTS.md (or current work model)
+- **Model**: `{{MODEL}}`
 - **TDD discipline** (inline rules for worker):
   - Write ONE test → implement → pass → repeat (vertical slices)
   - **DO NOT** write all tests first then implement (horizontal slicing)
@@ -49,11 +47,17 @@ The testing subagent should:
 
 **If tests pass:**
 
-1. Derive a conventional commit message from the task in `TODO.md`:
-   - Use the task description to determine `<type>(<scope>): <subject>`
-   - Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
-2. Delete `TODO.md`
-3. Commit all changes with the derived commit message
+1. Delete `TODO.md` (its task is now implemented).
+2. Leave all changes **uncommitted** and write the intent marker file
+   `.gtd-commit-intent` at the repository root containing exactly:
+
+   ```
+   execute-simple
+   ```
+
+   Re-run gtd — the next cycle commits the implementation (and the `TODO.md`
+   deletion) with a conventional message derived from the task and deletes the
+   marker.
 
 **If tests fail after max retries:**
 

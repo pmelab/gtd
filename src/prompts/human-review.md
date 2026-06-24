@@ -55,13 +55,18 @@ Context contains `refDiff`: output of `git diff <base> HEAD`.
    same `scripts/gtd.js` path you invoked to get this prompt) to normalize
    formatting.
 
-6. **Commit REVIEW.md** with message:
+6. **Leave `REVIEW.md` uncommitted and mark the intent** — do **not** commit.
+   Write the intent marker file `.gtd-commit-intent` at the repository root
+   containing exactly:
 
    ```
-   review(gtd): create review for <short-hash>
+   human-review
    ```
 
-   where `<short-hash>` is the same first-7-char value used in the heading.
+   The next gtd cycle commits `REVIEW.md` with the message
+   `review(gtd): create review for <short-hash>` (`<short-hash>` derived by the
+   edge from the base ref) and deletes the marker.
 
-After committing, **STOP**. Do not re-run gtd. The user must review and edit
-`REVIEW.md` before proceeding.
+After writing `REVIEW.md` and the marker, the next cycle's edge commits
+`REVIEW.md` and deletes the marker, then stops at the `await-review` gate for
+the user to work through it.

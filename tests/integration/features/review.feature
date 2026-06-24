@@ -1,6 +1,6 @@
 Feature: Review workflow
 
-  Scenario: Modified REVIEW.md triggers review-process branch
+  Scenario: Modified REVIEW.md with prose but unchecked boxes routes to review-incomplete
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -27,7 +27,9 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "# Process Review Feedback"
+    And stdout contains "## Task: Review is incomplete"
+    And stdout contains "STOP"
+    And stdout does not contain "# Process Review Feedback"
 
   Scenario: Review process prompt instructs creating TODO.md and deleting REVIEW.md
     Given a test project
@@ -52,13 +54,12 @@ Feature: Review workflow
       Adds the foo helper function.
       Please rename foo to bar everywhere.
 
-      - [ ] ./src/foo.ts#1
+      - [x] ./src/foo.ts#1
       """
     When I run gtd
     Then it succeeds
     And stdout contains "TODO.md"
     And stdout contains "REVIEW.md"
-    And stdout contains "git checkout -- ."
 
   Scenario: Review process prompt instructs committing TODO.md and REVIEW.md deletion together
     Given a test project
@@ -83,11 +84,11 @@ Feature: Review workflow
       Adds the foo helper function.
       Please rename foo to bar everywhere.
 
-      - [ ] ./src/foo.ts#1
+      - [x] ./src/foo.ts#1
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "docs(review): process review feedback into TODO.md"
+    And stdout contains "# Process Review Feedback"
 
   Scenario: Review process prompt instructs recording raw feedback before reset
     Given a test project
@@ -112,12 +113,11 @@ Feature: Review workflow
       Adds the foo helper function.
       Please rename foo to bar everywhere.
 
-      - [ ] ./src/foo.ts#1
+      - [x] ./src/foo.ts#1
       """
     When I run gtd
     Then it succeeds
     And stdout contains "# Process Review Feedback"
-    And stdout contains "docs(review): record raw feedback for"
 
   Scenario: Ticking all checkboxes with no other changes routes to close-review
     Given a test project
@@ -143,11 +143,12 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Close the approved review"
-    And stdout contains "chore(gtd): close approved review"
+    And the last commit subject is "chore(gtd): close approved review for abc1234"
+    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
+    And stdout does not contain "## Task: Close the approved review"
     And stdout does not contain "# Process Review Feedback"
 
-  Scenario: Un-ticking a checkbox routes to review-process, not close-review
+  Scenario: Un-ticking a checkbox routes to review-incomplete, not close-review
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -169,8 +170,10 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "# Process Review Feedback"
-    And stdout does not contain "chore(gtd): close approved review"
+    And stdout contains "## Task: Review is incomplete"
+    And stdout contains "STOP"
+    And stdout does not contain "# Process Review Feedback"
+    And stdout does not contain "## Task: Close the approved review"
 
   Scenario: Ticking a checkbox plus adding prose routes to review-process, not close-review
     Given a test project
@@ -197,9 +200,9 @@ Feature: Review workflow
     When I run gtd
     Then it succeeds
     And stdout contains "# Process Review Feedback"
-    And stdout does not contain "chore(gtd): close approved review"
+    And stdout does not contain "## Task: Close the approved review"
 
-  Scenario: Ticking a checkbox plus a source-file edit commits verbatim first
+  Scenario: Ticking a checkbox plus a source-file edit routes to review-process
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -225,8 +228,40 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
-    And stdout does not contain "chore(gtd): close approved review"
+    And stdout contains "# Process Review Feedback"
+    And stdout does not contain "## Task: Commit the uncommitted changes"
+
+  Scenario: Note plus dirty source with unchecked boxes routes to review-incomplete
+    Given a test project
+    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      - [ ] ./src/foo.ts#1
+      """
+    And "REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      Looks good so far.
+
+      - [ ] ./src/foo.ts#1
+      """
+    And a file "src/scratch.ts" with:
+      """
+      // scratch notes from review session
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Review is incomplete"
+    And stdout contains "STOP"
+    And stdout does not contain "## Task: Commit the uncommitted changes"
 
   Scenario: Error when base comment is missing from REVIEW.md
     Given a test project
@@ -252,7 +287,7 @@ Feature: Review workflow
     Then it fails
     And stderr contains "missing base ref"
 
-  Scenario: Untracked files added during review are committed verbatim first
+  Scenario: Untracked files added during review with unchecked boxes route to review-incomplete
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -280,7 +315,9 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
+    And stdout contains "## Task: Review is incomplete"
+    And stdout contains "STOP"
+    And stdout does not contain "## Task: Commit the uncommitted changes"
 
   Scenario: An unmodified committed REVIEW.md is the review gate
     Given a test project

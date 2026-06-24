@@ -2,58 +2,36 @@ import type { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { gatherEvents } from "./Events.js"
 import type { GitService } from "./Git.js"
-import { resolve, type ResolveResult } from "./Machine.js"
+import { type Handle, type ResolveResult, start } from "./Machine.js"
 
-export type { ResolveResult } from "./Machine.js"
-
-/** Result of running the project test suite (contract owned by TestRunner, task 01). */
-export interface TestResult {
-  readonly exitCode: number
-  readonly output: string
-}
-
-/** Prompt-override contract owned by Prompt.ts (task 02). */
-export type PromptOverride = { kind: "fix-tests"; testOutput: string }
+// Re-export the canonical types the edge (main.ts / driver loop) consumes via
+// `State.js`. `ResolveResult` + `EdgeAction` come from the machine; `TestResult`
+// is owned by `TestRunner` (the layer that actually produces it).
+export type { EdgeAction, Handle, ResolveResult } from "./Machine.js"
+export type { TestResult } from "./TestRunner.js"
 
 /**
- * Pure decision for what prompt to render after the test gate ran on a leaf.
+ * Open the gtd stepping machine for the current repository.
  *
- * Returns the (result, override?) pair that should be fed to `buildPrompt`.
- * Kept IO-free and free of any dependency on TestRunner/buildPrompt so the
- * branching logic (green → normal, red < cap → fix-tests, red >= cap →
- * escalate) is unit-testable without spawning a subprocess.
+ * Gathers git/filesystem facts (the Effect edge in `src/Events.ts`) and folds
+ * the resulting events through a single long-lived actor, returning the live
+ * `Handle`. All IO happens while gathering events; the machine fold and the
+ * handle's `advance` are pure and synchronous. The driver advances the handle
+ * with `TEST_RESULT` / `REVIEW_RECORDED` (and re-gathered `RESOLVE`) events as
+ * it performs the side effects the machine's `edgeAction` requests.
  *
- * The cap check is GENERIC — it reads `result.context.verifyIterations` vs
- * `result.context.maxVerifyIterations` — so the execute path (package 02) can
- * reuse it unchanged.
+ * `State.ts` performs NO git writes; `gatherEvents` is the only IO here.
  */
-export interface PromptSelection {
-  readonly result: ResolveResult
-  readonly override?: PromptOverride
-}
-
-export const selectPrompt = (result: ResolveResult, test: TestResult): PromptSelection => {
-  // Green: unchanged path for the resolved leaf.
-  if (test.exitCode === 0) {
-    return { result }
-  }
-  // Red: honor the escalation cap generically.
-  const { verifyIterations, maxVerifyIterations } = result.context
-  if (verifyIterations >= maxVerifyIterations) {
-    return { result: { ...result, value: "escalate", autoAdvance: false } }
-  }
-  // Red, below cap: emit the fix-tests prompt with the captured output.
-  return { result, override: { kind: "fix-tests", testOutput: test.output } }
-}
-
-/**
- * Detect the current gtd state by gathering git/filesystem facts (the Effect
- * edge in src/Events.ts) and folding them through the pure event-sourced
- * machine (src/Machine.ts). The fold (`resolve`) is synchronous and IO-free;
- * all IO happens while gathering events.
- */
-export const detect = (): Effect.Effect<ResolveResult, Error, GitService | FileSystem.FileSystem> =>
+export const startDetect = (): Effect.Effect<Handle, Error, GitService | FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const events = yield* gatherEvents()
-    return resolve(events)
+    return start(events)
   })
+
+/**
+ * Convenience wrapper retained for callers that only need the first projection
+ * (a one-shot `ResolveResult`) rather than the live handle — e.g. `main.ts`
+ * until the driver loop (package 03) switches to `startDetect`.
+ */
+export const detect = (): Effect.Effect<ResolveResult, Error, GitService | FileSystem.FileSystem> =>
+  Effect.map(startDetect(), (handle) => handle.current)

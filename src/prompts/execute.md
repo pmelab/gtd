@@ -9,18 +9,15 @@ what you just committed.
 ### Orchestration
 
 You are running with a work model. You orchestrate the execution — you do not
-implement the tasks yourself. Spawn subagents for all implementation work.
-
-Check your user/project AGENTS.md for model preferences (e.g., "use sonnet for
-execution"). If no preference is set, use the current work model for execution
-subagents.
+implement the tasks yourself. Spawn subagents for all implementation work using
+model `{{MODEL}}`.
 
 ### Step 1: Spawn task workers
 
 Spawn **one subagent per task** — for each task in the task contents below,
 launch a **parallel subagent** with:
 
-- **Model**: The execution model from AGENTS.md (or current work model)
+- **Model**: `{{MODEL}}`
 - **TDD discipline** (inline rules for workers):
   - Write ONE test → implement → pass → repeat (vertical slices)
   - **DO NOT** write all tests first then implement (horizontal slicing)
@@ -36,19 +33,26 @@ Wait for all workers to complete.
 **If any worker fails** (crash, timeout, error — not test failure): Report which
 tasks failed. Ask the user: "Retry failed tasks / Skip and continue / Abort?"
 
-### Step 2: Commit the package
+### Step 2: Leave the work uncommitted and mark the intent
 
-After the workers complete:
+After the workers complete, do **not** commit, do **not** delete the package
+directory, and do **not** remove `.gtd/`. Instead, leave all changes uncommitted
+and write the intent marker file `.gtd-commit-intent` at the repository root
+containing exactly:
 
-1. Commit ALL changes using the commit message in the package's `COMMIT_MSG.md`
-   (noted below)
-2. Delete the package directory from `.gtd/`
+```
+execute
+```
+
+The next gtd cycle's edge commits these changes (using the package's
+`COMMIT_MSG.md`), removes the consumed package directory from `.gtd/`, and
+deletes the marker — all in one commit.
 
 Verification is NOT performed here. The next cycle's edge runs the test suite
-deterministically to verify what you just committed — do not run or determine a
-test command in this step.
+deterministically to verify what the edge just committed — do not run or
+determine a test command in this step.
 
 ### Step 3: Re-run gtd
 
-Re-run gtd. This continues to the next remaining package (if any); the next
-cycle's edge runs the tests that verify this commit.
+Re-run gtd. The next cycle commits this package, then continues to the next
+remaining package (if any) and runs the tests that verify the commit.

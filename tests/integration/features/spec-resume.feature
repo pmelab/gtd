@@ -25,19 +25,21 @@ Feature: Resume is from committed state with a hard reset of the working tree
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
+    And the last commit subject is "chore(gtd): commit pending changes"
+    And stdout contains "## Task: Generate REVIEW.md after successful verification"
 
   Scenario: The fix prompt documents the hard-reset resume contract
+    # The fix-tests prompt is only reachable via the execute test gate now
+    # (human-review is no longer gated). A red package.json with a pending package
+    # drives the gate red and emits the fix prompt.
     Given a test project
-    And a default branch "feature"
-    And a prior review commit for "prev1234"
     And a commit "chore: add package.json" that adds "package.json" with:
       """
       { "scripts": { "test": "echo SENTINEL_FAILURE; exit 1" } }
       """
-    And a commit "feat: add parser" that adds "src/parser.ts" with:
+    And a commit "plan(gtd): decompose" that adds ".gtd/01-foo/01-task.md" with:
       """
-      export const parse = (s: string) => JSON.parse(s)
+      First task
       """
     When I run gtd
     Then it succeeds
