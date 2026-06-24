@@ -69,5 +69,4 @@ Leave `TODO.md` **uncommitted** and write the intent marker file
 new-todo
 ```
 
-Re-run gtd — the next cycle commits the developed `TODO.md` and deletes the
-marker.
+The next cycle commits the developed `TODO.md` and deletes the marker.

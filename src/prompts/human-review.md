@@ -67,6 +67,6 @@ Context contains `refDiff`: output of `git diff <base> HEAD`.
    `review(gtd): create review for <short-hash>` (`<short-hash>` derived by the
    edge from the base ref) and deletes the marker.
 
-After writing `REVIEW.md` and the marker, re-run gtd — the next cycle commits
-`REVIEW.md` and deletes the marker, then stops at the human-review gate for the
-user to work through it.
+After writing `REVIEW.md` and the marker, the next cycle's edge commits
+`REVIEW.md` and deletes the marker, then stops at the `await-review` gate for
+the user to work through it.
