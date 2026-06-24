@@ -13,154 +13,105 @@ so the agent prompt only ever has to turn a captured diff into a fresh
 
 ## Open Questions
 
-### Does "decision moves to the edge" mean leaving the routing in the pure machine, or actually moving branching out of `Machine.ts`?
+### #8 turns `review-process` from agent-driven git work into an edge operation. Where exactly does the commit→capture→revert happen?
 
-**Recommendation:** Keep routing in the **pure machine** (`src/Machine.ts`);
-"edge" here means the existing `Events.ts` fact-gathering layer, not a new
-decision site. The whole architecture (see the module docstrings in
-`Machine.ts`/`Events.ts` and AGENTS.md) is "edge gathers git/fs facts → machine
-folds them into one leaf via guards." The plan's three outcomes map cleanly onto
-three existing/near-existing leaves: abort-on-unchecked → a new leaf (see next
-question), finish → `close-review`, process → `review-process`. Moving branching
-into `Events.ts` would fork the decision tree and break every `Machine.test.ts`
-guard test. So: edge computes richer boolean signals (`reviewHasUncheckedBoxes`,
-`reviewHasRealFeedback`), machine routes on them. Reword the plan's "edge
-decides the outcome" to "edge computes the signals; the machine routes." If you
-actually want the IO layer to short-circuit, say so — it's a much larger
-refactor.
+Today the whole flow is **agent-driven**: `main.ts` emits ONE prompt and exits
+0; `review-process.md` then instructs the agent to run `git add -A` /
+`git commit` / `git show <x>` / `git revert`. Answer #8 says the edge (the `gtd`
+process) should itself, within one execution, commit the dirty tree, capture its
+diff in process memory, `git revert` it, and **print the captured diff into the
+agent's prompt**. That means the IO edge gains write-side git operations it has
+never had (today `Events.ts` only reads).
 
-<!-- user answers here -->
+**Recommendation:** Add a dedicated `review-process` pre-render phase in
+`main.ts` (parallel to the existing `TEST_GATED_LEAVES` block): when
+`result.value === "review-process"`, run a new `GitService` op that does
+`git add -A` → `git commit -m "docs(review): record raw feedback for <base>"` →
+capture `git show <sha>` into a string → `git revert --no-edit <sha>` →
+`git rm REVIEW.md` (if tracked) →
+`git commit -m "chore(gtd): close approved review for <short-sha>"`, then inject
+the captured diff string into the prompt via a new `PromptOverride` kind (like
+`fix-tests`). The agent's only remaining job is "here is the review diff,
+synthesize TODO.md from it." Keep `Events.ts` read-only; put the write ops in
+`main.ts`/`GitService` so the pure machine and fact-gathering layer stay
+side-effect-free.
 
-### The "abort on unchecked boxes" outcome is brand new — what is "abort" mechanically, given today every run emits a prompt and exits 0?
-
-**Recommendation:** Today there is **no abort path**: a modified `REVIEW.md`
-with unchecked boxes routes to `review-process` and processes immediately;
-`main.ts` only `exit(1)`s on an internal error. Introduce a new **terminal leaf
-`review-incomplete`** (non-`auto-advance`, like `await-review`) with its own
-prompt `src/prompts/review-incomplete.md` that tells the human "tick every box
-before re-running" and **STOPs**. Exit code stays 0 (it is a normal human gate,
-not an error), matching how `await-review`/`await-answers` behave. Do NOT use
-`exit(1)`/stderr — that is reserved for corruption (e.g. missing base ref).
-Confirm you want a true new leaf+prompt rather than overloading the existing
-`await-review` gate text.
+Confirm: is `main.ts` the right home for this write-side phase, mirroring the
+test-gate block? Or do you want a separate "executor" module so `main.ts`
+doesn't grow a second special-case leaf?
 
 <!-- user answers here -->
 
-### Is "unchecked boxes ⇒ abort" desired even when the human ALSO left real feedback (notes / source edits)?
+### If the edge commits+reverts BEFORE the agent runs, what happens to TODO.md synthesis on agent failure?
 
-**Recommendation:** Yes — gate on unchecked boxes **first**, before the feedback
-check. Rationale: an unchecked box means the human has not finished triaging
-that chunk, so processing now would synthesize a `TODO.md` from a half-worked
-review. This is a behavior change: today notes/source-edits route straight to
-`review-process` regardless of checkbox state (see `review.feature` "Ticking a
-checkbox plus adding prose", and the unchecked-box scenarios). Those scenarios
-must be **rewritten** to expect `review-incomplete`. Order in the machine:
-`review-incomplete` (unchecked) → `close-review` (all-checked, no other change)
-→ `review-process` (all-checked + real feedback). If instead you want feedback
-to win over an unchecked box, say so and I will flip the order — but that makes
-"unchecked box" nearly meaningless.
+In the agent-driven flow, if the agent died mid-run the working tree was
+untouched (nothing committed yet) and re-running `gtd` simply re-emitted the
+same `review-process` prompt — idempotent and safe. In the edge-driven flow #8
+describes, by the time the agent receives the diff the edge has **already**
+committed-reverted-and-deleted REVIEW.md. If the agent then fails to write
+TODO.md (or writes garbage), REVIEW.md is gone, the review is "closed", and the
+only record of the feedback is the reverted `docs(review): record raw feedback`
+commit deep in history.
 
-<!-- user answers here -->
+**Recommendation:** Either (a) have the edge commit `record raw feedback` but
+NOT revert/close until it can confirm TODO.md was produced — but the edge can't,
+because the agent runs _after_ the prompt is emitted; or (b) accept that the
+feedback is recoverable via `git show <record-sha>` and document that recovery
+in the prompt so a re-run can resynthesize. Recommend (b): leave the reverted
+`record raw feedback` commit as the durable artifact, and tell the agent "if you
+lose this diff, recover it with `git show <record-sha>`" — injecting the
+`<record-sha>` alongside the diff.
 
-### What counts as a "box" and how do we detect "unchecked boxes present"?
+Which durability guarantee do you want: edge defers close until TODO.md exists
+(needs a second `gtd` pass), or fire-and-document-recovery (single pass, diff
+lives in reverted history)?
 
-**Recommendation:** A box is a line matching `^- \[[ x]\] ` (the format
-`human-review.md` emits). "Unchecked present" = the **working-tree** `REVIEW.md`
-contains at least one `^- \[ \] ` line. Compute it in `Events.ts` over the
-working-tree content (not the committed copy). Edge case: a `REVIEW.md` the
-human stripped of all checkboxes entirely → no unchecked boxes → falls through
-to the no-other-changes / feedback decision, which is the sensible result.
+### On revert conflict, who handles it now — the edge or the agent?
 
-<!-- user answers here -->
+Today the agent owns the revert and the FAILURE BRANCH in `review-process.md`
+Step 7 (`git revert --abort`, STOP, escalate). If the edge now runs
+`git revert --no-edit <sha>` itself, a revert conflict surfaces in the Effect
+edge, before any prompt is built.
 
-### How is "all boxes checked but no other changes" computed — keep today's strict forward-tick diff, or adopt the plan's "string-replace `- [ ]`→`- [x]` then compare formatted" approach?
+**Recommendation:** On a non-clean revert at the edge, run `git revert --abort`
+in the same `GitService` op and `Effect.fail` with a clear message; `main.ts`'s
+existing `catchAll` writes it to stderr and `exit(1)`. This matches the
+"corruption ⇒ exit 1" convention (Resolved Q2/Q-abort). The agent never sees a
+conflicted tree because the prompt is never emitted. Delete the Step-7 FAILURE
+BRANCH from `review-process.md` since the agent no longer runs the revert.
 
-**Recommendation:** Adopt the plan's normalize-and-compare, it is simpler and
-strictly more permissive in the right way. Algorithm in `Events.ts`: take the
-**committed** `REVIEW.md` (`git show HEAD:REVIEW.md`), string-replace every
-`- [ ]` → `- [x]`, run it through `Format.formatFile` semantics (the same
-normalizer the prompt would apply via `node scripts/gtd.js format`), and compare
-to the **formatted** working-tree `REVIEW.md`. Equal ⇒ "no real feedback" ⇒
-`close-review`. This replaces the `reviewApprovedNoChanges` forward-tick
-machinery (equal-line-count, `atLeastOneTick`, per-line UNTICKED/TICKED regex)
-in `Events.ts`. Caveat to confirm: `Format` currently exposes `formatFile`
-(writes to disk); we need a **pure** `formatString` to compare in-memory without
-touching the tree. I will extract one from `Format.ts`. Confirm that's
-acceptable, or we keep the cheaper raw forward-tick compare and just drop the
-`!!` divert from it.
+Confirm exit 1 + abort at the edge is the desired conflict behavior (vs. exit 0
+with an "escalate" prompt asking the human to resolve manually).
 
-<!-- user answers here -->
+### Does `review-process` keep the `auto-advance` tag once it's edge-driven?
 
-### "No other changes" — does it include source-file edits and untracked files, or only REVIEW.md?
+`review-process` is tagged `auto-advance` today so the loop chains into the next
+step. If the edge does the commit/revert/close and only the TODO.md-synthesis
+remains for the agent, the post-agent state is "fresh TODO.md, no REVIEW.md" —
+which on the next `gtd` resolves to a TODO/plan leaf. The auto-advance semantics
+may still be correct, but the leaf now does far less.
 
-**Recommendation:** Include **everything**. "No real feedback" must mean: the
-ONLY working-tree delta is checkbox ticks in `REVIEW.md`. Concretely:
-`close-review` requires (a) the only dirty path is `REVIEW.md` AND (b) the
-normalized-tick comparison above matches. Any dirty source file, any untracked
-file, or any non-tick edit to `REVIEW.md` ⇒ real feedback ⇒ `review-process`.
-This matches the current `onlyReviewDirty` guard and the
-`spec-review-conclude.feature` "human source edit loops" scenario. So
-`reviewHasRealFeedback = reviewModified-with-non-tick-content OR otherDirtyPathsExist`.
+**Recommendation:** Keep `auto-advance` — after synthesis the natural next step
+is grilling/planning the new TODO.md, exactly what auto-advance enables. No
+change needed, but verify the loop driver (the gtd skill) doesn't assume
+`review-process` left a dirty tree to commit.
 
-<!-- user answers here -->
+Confirm auto-advance stays on `review-process`.
 
-### How does dropping `!!` interact with `reviewPresent` suppressing `code-changes`, and with the verbatim-commit step?
+### Does edge-driven `review-process` interact with the test gate?
 
-**Recommendation:** Keep the `reviewPresent` suppression of `code-changes`
-**unchanged** — it is exactly what makes "any source edit is feedback" work:
-while `REVIEW.md` is present, source edits arrive **uncommitted** and are folded
-into the verbatim reference commit by `review-process` (Step 5: `git add -A`),
-not committed early by `code-changes`. Removing `bangPresent` only changes the
-`reviewApprovedClose` guard (drop `&& !params.bangPresent`) and the divert; it
-does NOT touch the `codeDirty && !reviewPresent` guard. The verbatim
-`git add -A` commit-then-revert teardown stays as-is.
+`main.ts` runs the test suite only for `human-review` and `execute`.
+`review-process` is not test-gated today. With the edge now performing the
+verbatim commit, should the suite run before that commit (to avoid committing a
+broken tree as the reference) or not at all?
 
-<!-- user answers here -->
+**Recommendation:** Do NOT test-gate `review-process`. The verbatim
+`record raw feedback` commit is explicitly "preserve the reviewer's tree as-is,
+even if broken"; the human's edits are feedback to triage, not code that must
+pass. Running tests here would block synthesis on a tree the reviewer never
+claimed was green. Leave `TEST_GATED_LEAVES` unchanged.
 
-### [folded] Where should the captured commit diff be "stored in memory"?
-
-**Recommendation:** **Nowhere new** — no scratch file, no `.gtd/REVIEW_DIFF`.
-The synthesis prompt already operates _inside the same agent run_ that creates
-reference commit "x": `review-process.md` Step 6 does `git show <x>` to read the
-diff back. The diff is "in memory" only in the sense that the agent holds the
-SHA across Steps 5→7 within one prompt execution. So the original two open
-questions resolve to: (1) recover on demand via `git show <x>` (already the
-case), and (2) it does **not** need to survive across separate `gtd` invocations
-— it is consumed within the single `review-process` run that creates and reverts
-"x". Recommend deleting the "Store the resulting commit diff in memory" bullet
-from §3 as redundant; the existing revert-based prompt already satisfies the
-intent. Confirm you don't want the diff pre-rendered into the emitted prompt
-string (we can't — the edge hasn't created commit "x" yet when it emits; the
-agent creates it).
-
-<!-- user answers here -->
-
-### Does the new `bangPresent`-free `Git.ts` still need a `baseRef`/`lastReviewCommit` at all for the review-process branch?
-
-**Recommendation:** Yes — keep `lastReviewCommit()`, `computeReviewBase`, and
-the `<!-- base: … -->` parsing. Only `hasBangAdded` (and its `baseRef`-since
-diff scan) is bang-specific and gets deleted. The base ref is still needed for
-`human-review` generation, the `review-incomplete`/`close-review` baseline, and
-the `chore(gtd): close approved review for <short-sha>` anchor. The plan's
-bullet "remove `grepBangAdded`/`hasBangAdded`/`BangComment`" is right but note:
-grep shows **no** `grepBangAdded` or `BangComment` symbols exist in `src/Git.ts`
-today — only `hasBangAdded`. Update the plan to delete `hasBangAdded` only.
-
-<!-- user answers here -->
-
-### Should `await-review` (unmodified committed REVIEW.md) and the new `review-incomplete` be merged, since both are "human, do more" gates?
-
-**Recommendation:** Keep them **separate**. `await-review` = human has touched
-nothing yet (no edits at all). `review-incomplete` = human started but left
-unchecked boxes. Different messages help the user. But verify the guard order:
-`await-review` fires on `reviewUnmodified`; `review-incomplete` fires on
-`reviewModified && hasUncheckedBoxes`. An unmodified REVIEW.md has all-original
-(likely unchecked) boxes — make sure `reviewUnmodified` is checked before
-`review-incomplete` so a fresh untouched review still lands on `await-review`,
-not the new gate. If you'd rather have ONE "finish the review" gate, say so and
-I'll collapse them.
-
-<!-- user answers here -->
+Confirm `review-process` stays out of the test gate.
 
 ## 1. Remove the `!!` / "bang" functionality entirely
 
@@ -191,43 +142,104 @@ Delete the bang plumbing:
 
 ## 2. Move feedback classification + decision to the gtd edge
 
-**Architecture note (see Open Question 1):** routing stays in the pure machine.
-The edge (`Events.ts`) computes richer signals; the machine folds them into one
-of three leaves. New/changed `ResolvePayload` signals:
+**Architecture note (Resolved Q1):** routing stays in the pure machine. The edge
+(`Events.ts`) computes richer signals; the machine folds them into one of four
+leaves. New/changed `ResolvePayload` signals:
 
 - `reviewHasUncheckedBoxes: boolean` — working-tree `REVIEW.md` contains a
   `^- \[ \] ` line.
 - `reviewHasRealFeedback: boolean` — there is a working-tree delta beyond
   checkbox ticks (non-tick REVIEW.md edits, dirty source, untracked files),
-  computed via the normalize-and-compare algorithm in Open Question 5/6.
+  computed via the normalize-and-compare algorithm in Resolved Q5/Q6.
 
-Machine routing when `reviewPresent` (ordered):
+**`reviewHasUncheckedBoxes`** (Resolved Q4): a box is a line matching
+`^- \[[ x]\] `; "unchecked present" = the **working-tree** `REVIEW.md` contains
+at least one `^- \[ \] ` line. Computed over working-tree content, not the
+committed copy. If the human stripped all checkboxes entirely, no unchecked
+boxes → falls through to the feedback decision.
 
-1. `reviewUnmodified` → **`await-review`** (untouched gate, unchanged).
+**`reviewHasRealFeedback`** (Resolved Q5/Q6): adopt normalize-and-compare. Take
+the **committed** `REVIEW.md` (`git show HEAD:REVIEW.md`), string-replace every
+`- [ ]` → `- [x]`, run it through a pure `formatString` (extracted from
+`Format.ts`, see §4), and compare to the formatted working-tree `REVIEW.md`.
+Equal AND the only dirty path is `REVIEW.md` ⇒ no real feedback. Any dirty
+source file, any untracked file, or any non-tick edit to `REVIEW.md` ⇒ real
+feedback. So
+`reviewHasRealFeedback = (normalized REVIEW.md differs) OR (otherDirtyPathsExist)`.
+This replaces the `reviewApprovedNoChanges` forward-tick machinery
+(equal-line-count, `atLeastOneTick`, per-line UNTICKED/TICKED regex) in
+`Events.ts`.
+
+Machine routing when `reviewPresent` (ordered, Resolved Q3/Q10):
+
+1. `reviewUnmodified` → **`await-review`** (untouched gate, unchanged). Checked
+   **before** `review-incomplete` so a fresh untouched review (all-original,
+   likely unchecked boxes) lands on `await-review`, not the new gate.
 2. `reviewModified && reviewHasUncheckedBoxes` → **`review-incomplete`** (NEW
-   leaf): abort and tell the user to check all the boxes first. No processing
-   prompt. Terminal, non-auto-advance, exit 0.
+   leaf): abort and tell the user to review everything and at least tick all the
+   boxes first. No processing prompt. **Unchecked boxes gate first, before the
+   feedback check** — even if real feedback is also present, always check all
+   boxes first.
 3. `reviewModified && !reviewHasUncheckedBoxes && !reviewHasRealFeedback` →
    **`close-review`**: all boxes checked, nothing else changed — finish.
-4. otherwise (real feedback exists) → **`review-process`**.
+4. otherwise (real feedback exists, all boxes checked) → **`review-process`**.
 
-## 3. Process flow when real feedback exists
+The `reviewPresent` suppression of `code-changes` stays **unchanged** (Resolved
+Q7): `codeDirty && !reviewPresent`. While REVIEW.md is present, source edits
+arrive uncommitted and are folded into the verbatim reference commit, not
+committed early by `code-changes`.
 
-Unchanged from today's revert-based teardown (see
-`src/prompts/review-process.md`):
+### The new `review-incomplete` leaf
 
-1. Commit the human-review feedback verbatim (whole dirty tree, `git add -A`) as
-   reference commit "x".
-2. Synthesize a new `TODO.md` from `git show <x>` (the diff IS the feedback; no
-   `!!` harvesting). The prompt is self-contained because the agent holds "x"
-   across the run — no separate on-disk diff artifact needed (Open Question 8).
-3. `git revert --no-edit <x>` and remove `REVIEW.md`.
-4. Close with the `chore(gtd): close approved review for <short-sha>` anchor.
+A terminal, non-`auto-advance` leaf (like `await-review`) with its own prompt
+`src/prompts/review-incomplete.md`. "Abort" means: do **not** proceed with any
+operations — just tell the human to review everything and at least tick all the
+boxes, then STOP. Exit code stays **0** (a normal human gate, not an error,
+matching `await-review`/`await-answers`); do NOT use `exit(1)`/stderr — that is
+reserved for corruption. Kept **separate** from `await-review`: `await-review` =
+human touched nothing; `review-incomplete` = human started but left unchecked
+boxes. Different messages help the user.
 
-Prompt edits to `review-process.md`: strip the `!!` mentions in Steps 3–5 so it
-reads "every working-tree modification since the review commit is feedback;
-REVIEW.md prose is global feedback, source comments are local feedback, source
-code changes are suggestions to verify, not apply verbatim."
+## 3. Process flow when real feedback exists (edge-driven — see Open Questions)
+
+**This section is reshaped by Answer #8.** The reviewer wants the commit /
+capture-diff-in-memory / revert / inject-diff-into-prompt to happen at the
+**edge**, within a single `gtd` execution — NOT via the agent running git
+commands across prompt steps. The agent should only receive a diff and "turn it
+into TODO.md."
+
+Today (agent-driven, for contrast): `main.ts` emits one `review-process` prompt
+and exits; `review-process.md` instructs the agent to do `git add -A` / commit /
+`git show <x>` / `git revert` / close itself.
+
+Target (edge-driven, per #8 — exact home/durability/conflict handling pending
+the Open Questions above):
+
+1. When the machine resolves to `review-process`, the edge (a new write-side
+   `GitService` op invoked from `main.ts`) runs:
+   - `git add -A` → `git commit -m "docs(review): record raw feedback for
+     <base>"` (verbatim, the whole dirty tree: annotated REVIEW.md, source
+     edits, untracked files).
+   - Capture `git show <record-sha>` into a string held in process memory.
+   - `git revert --no-edit <record-sha>` (on conflict: `git revert --abort` +
+     `Effect.fail` → exit 1; see Open Question on conflict handling).
+   - `git rm REVIEW.md` if still tracked, then
+     `git commit -m "chore(gtd): close approved review for <short-sha>"`.
+2. The edge injects the captured diff (and the `<record-sha>` for recovery) into
+   the emitted prompt via a new `PromptOverride` kind, analogous to `fix-tests`.
+3. The agent's prompt (`review-process.md`, heavily slimmed) now only:
+   synthesize a new `TODO.md` from the injected diff (the diff IS the feedback;
+   REVIEW.md prose = global feedback, source comments = local feedback, source
+   code changes = suggestions to verify, not apply verbatim),
+   `node scripts/gtd.js format TODO.md`, and commit it. The agent no longer
+   commits/reverts/closes — those moved to the edge. Strip Steps 5–8 (the
+   commit/revert/close machinery) and the `!!` mentions from
+   `review-process.md`.
+
+Keep `lastReviewCommit()`, `computeReviewBase`, and `<!-- base: … -->` parsing
+(Resolved Q9) — needed for `human-review` generation, the
+`review-incomplete`/`close-review` baseline, and the close anchor. Delete only
+`hasBangAdded`.
 
 ## 4. Tests + docs
 
@@ -237,6 +249,9 @@ code changes are suggestions to verify, not apply verbatim."
   `realFeedback` → `review-process`. Delete the two `bangPresent` cases.
 - **Events unit tests**: pin the normalize-and-compare classifier and the
   uncheckedBoxes detector.
+- **Edge write-side op** (new): unit-test the commit→capture→revert→close
+  sequence and the revert-conflict abort path (pending Open Question
+  resolution).
 - **e2e features**:
   - Rewrite `spec-harvest.feature` → a markerless `spec-feedback.feature` (or
     fold into `review.feature`): assert any source edit / REVIEW.md note routes
@@ -252,7 +267,113 @@ code changes are suggestions to verify, not apply verbatim."
   add a `review-incomplete` row), the §"`!!` follow-up comments" prose (replace
   with "any change is feedback" + the global/local/suggestion taxonomy), and the
   mermaid diagram (relabel the review edges, add `review-incomplete`).
-- **Format.ts**: extract a pure `formatString` if the close-review classifier
-  needs in-memory normalization (Open Question 5).
+- **Format.ts**: extract a pure `formatString(content): Effect<string>` (no disk
+  write) for the close-review classifier's in-memory normalization; `formatFile`
+  reuses it.
 
 ## Resolved
+
+### Does "decision moves to the edge" mean leaving the routing in the pure machine, or actually moving branching out of `Machine.ts`?
+
+**Recommendation:** Keep routing in the **pure machine** (`src/Machine.ts`);
+"edge" here means the existing `Events.ts` fact-gathering layer, not a new
+decision site. The whole architecture is "edge gathers git/fs facts → machine
+folds them into one leaf via guards." Three outcomes map onto leaves:
+abort-on-unchecked → a new leaf, finish → `close-review`, process →
+`review-process`. So: edge computes richer boolean signals
+(`reviewHasUncheckedBoxes`, `reviewHasRealFeedback`), machine routes on them.
+
+**Answer:** agreed.
+
+### The "abort on unchecked boxes" outcome is brand new — what is "abort" mechanically, given today every run emits a prompt and exits 0?
+
+**Recommendation:** Introduce a new **terminal leaf `review-incomplete`**
+(non-`auto-advance`, like `await-review`) with its own prompt
+`src/prompts/review-incomplete.md` that tells the human "tick every box before
+re-running" and **STOPs**. Exit code stays 0 (normal human gate, not an error).
+Do NOT use `exit(1)`/stderr — reserved for corruption.
+
+**Answer:** "abort" means to not proceed with any operations, but just tell the
+user to review everything and at least tick all boxes.
+
+### Is "unchecked boxes ⇒ abort" desired even when the human ALSO left real feedback (notes / source edits)?
+
+**Recommendation:** Yes — gate on unchecked boxes **first**, before the feedback
+check. An unchecked box means the human has not finished triaging that chunk.
+Order in the machine: `review-incomplete` (unchecked) → `close-review`
+(all-checked, no other change) → `review-process` (all-checked + real feedback).
+
+**Answer:** yes, always check all boxes.
+
+### What counts as a "box" and how do we detect "unchecked boxes present"?
+
+**Recommendation:** A box is a line matching `^- \[[ x]\] `. "Unchecked present"
+= the **working-tree** `REVIEW.md` contains at least one `^- \[ \] ` line.
+Compute it in `Events.ts` over working-tree content. If the human stripped all
+checkboxes, no unchecked boxes → falls through to the feedback decision.
+
+**Answer:** agreed.
+
+### How is "all boxes checked but no other changes" computed — keep today's strict forward-tick diff, or adopt the plan's "string-replace `- [ ]`→`- [x]` then compare formatted" approach?
+
+**Recommendation:** Adopt normalize-and-compare. Take the **committed**
+`REVIEW.md`, string-replace `- [ ]` → `- [x]`, run through a pure `formatString`
+extracted from `Format.ts`, and compare to the formatted working-tree
+`REVIEW.md`. Equal ⇒ no real feedback ⇒ `close-review`. Replaces the
+forward-tick machinery in `Events.ts`. Requires extracting a pure `formatString`
+from `Format.ts` (currently only `formatFile` writes to disk).
+
+**Answer:** agreed.
+
+### "No other changes" — does it include source-file edits and untracked files, or only REVIEW.md?
+
+**Recommendation:** Include **everything**. `close-review` requires (a) the only
+dirty path is `REVIEW.md` AND (b) the normalized-tick comparison matches. Any
+dirty source file, any untracked file, or any non-tick REVIEW.md edit ⇒ real
+feedback ⇒ `review-process`. So
+`reviewHasRealFeedback = reviewModified-with- non-tick-content OR otherDirtyPathsExist`.
+
+**Answer:** agreed.
+
+### How does dropping `!!` interact with `reviewPresent` suppressing `code-changes`, and with the verbatim-commit step?
+
+**Recommendation:** Keep the `reviewPresent` suppression of `code-changes`
+**unchanged** — it is what makes "any source edit is feedback" work: while
+REVIEW.md is present, source edits arrive uncommitted and are folded into the
+verbatim reference commit, not committed early by `code-changes`. Removing
+`bangPresent` only changes the `reviewApprovedClose` guard and the divert; it
+does NOT touch the `codeDirty && !reviewPresent` guard.
+
+**Answer:** agreed.
+
+### Where should the captured commit diff be "stored in memory"?
+
+**Recommendation:** Nowhere new — no scratch file, no `.gtd/REVIEW_DIFF`. The
+synthesis prompt operates inside the same agent run that creates reference
+commit "x"; `git show <x>` reads the diff back. It does not need to survive
+across separate `gtd` invocations.
+
+**Answer:** the agent does not even need the sha. it just executes `gtd`, and
+within that one execution, the review diff is committed, stored in process
+memory, reverted and then directly printed into the agent's prompt for
+processing it into a TODO.md. (NOTE: this refinement moves the commit / capture
+/ revert from the agent to the **edge** — it reshapes §3 and raised the new Open
+Questions above.)
+
+### Does the new `bangPresent`-free `Git.ts` still need a `baseRef`/`lastReviewCommit` at all for the review-process branch?
+
+**Recommendation:** Yes — keep `lastReviewCommit()`, `computeReviewBase`, and
+the `<!-- base: … -->` parsing. Only `hasBangAdded` (and its `baseRef`-since
+diff scan) is bang-specific and gets deleted. `grepBangAdded`/`BangComment` do
+not exist as symbols today — only `hasBangAdded`.
+
+**Answer:** agreed.
+
+### Should `await-review` (unmodified committed REVIEW.md) and the new `review-incomplete` be merged, since both are "human, do more" gates?
+
+**Recommendation:** Keep them **separate**. `await-review` = human touched
+nothing yet. `review-incomplete` = human started but left unchecked boxes. Guard
+order: `await-review` fires on `reviewUnmodified` and is checked **before**
+`review-incomplete` so a fresh untouched review lands on `await-review`.
+
+**Answer:** agreed.
