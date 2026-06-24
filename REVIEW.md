@@ -2,6 +2,18 @@
 
 <!-- base: e44f86a2d5e2df762a2b131782affff0c0d0e9e7 -->
 
+refactored review process:
+
+- REVIEW.md is initially created
+- user makes changes to REVIEW.md _and_ leaves `!!` comments in code
+- both are committed verbatim in a single commit for reference, no agent
+  involved (commit "x")
+- instruct agent to generate TODO.md from diff of commit "x" and commit TODO.md
+- revert commit "x"
+- remove REVIEW.md
+
+that should leave no artifacts in code and provide maximum reliability
+
 ## grepBangAdded: harvest by review-session diff
 
 `grepBang(pathspec)` is replaced by `grepBangAdded(baseRef)`: it diffs the
