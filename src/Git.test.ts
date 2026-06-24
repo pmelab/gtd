@@ -352,68 +352,81 @@ describe("GitService", () => {
     })
   })
 
-  describe("grepBang", () => {
-    it("returns empty array when pathspec is empty (never whole-tree)", async () => {
-      writeFileSync(join(repoDir, "src.ts"), "// !! fix this\n")
-      git("add", "-A")
-      git('commit -m "feat: add src with bang"')
+  describe("grepBangAdded", () => {
+    it("harvests !! added (uncommitted) after baseline", async () => {
+      // baseline: commit something, capture hash
+      commit("feat: baseline", "src.ts", "export const x = 1\n")
+      const baseRef = git("rev-parse HEAD")
 
-      const result = await run(Effect.flatMap(GitService, (g) => g.grepBang([])))
-      expect(result).toEqual([])
-    })
+      // working-tree edit: add a !! comment
+      writeFileSync(join(repoDir, "src.ts"), "export const x = 1\n// !! handle edge case\n")
 
-    it("finds !! comment in specified file", async () => {
-      writeFileSync(join(repoDir, "src.ts"), "// !! handle edge case\n")
-      git("add", "-A")
-      git('commit -m "feat: add src"')
-
-      const result = await run(Effect.flatMap(GitService, (g) => g.grepBang(["src.ts"])))
+      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
       expect(result).toHaveLength(1)
       expect(result[0]!.file).toBe("src.ts")
+      expect(result[0]!.line).toBe("2")
       expect(result[0]!.text).toBe("handle edge case")
     })
 
-    it("does not scan files outside the pathspec", async () => {
-      writeFileSync(join(repoDir, "a.ts"), "// !! fix a\n")
-      writeFileSync(join(repoDir, "b.ts"), "// !! fix b\n")
-      git("add", "-A")
-      git('commit -m "feat: add files"')
+    it("does NOT harvest !! that existed at baseline (false-positive guard)", async () => {
+      // baseline already contains the !! — it was committed before the review
+      commit("feat: baseline with bang", "src.ts", "// !! old comment\n")
+      const baseRef = git("rev-parse HEAD")
 
-      const result = await run(Effect.flatMap(GitService, (g) => g.grepBang(["a.ts"])))
-      expect(result).toHaveLength(1)
-      expect(result[0]!.file).toBe("a.ts")
+      // working-tree is clean (no new additions)
+      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
+      expect(result).toEqual([])
     })
 
-    it("excludes REVIEW.md and TODO.md even when listed in pathspec", async () => {
+    it("recognises !! across // # <!-- comment syntaxes", async () => {
+      commit("feat: baseline", "a.ts", "x\n")
+      commit("feat: baseline2", "b.py", "x\n")
+      commit("feat: baseline3", "c.html", "x\n")
+      const baseRef = git("rev-parse HEAD")
+
+      writeFileSync(join(repoDir, "a.ts"), "x\n// !! js style\n")
+      writeFileSync(join(repoDir, "b.py"), "x\n# !! python style\n")
+      writeFileSync(join(repoDir, "c.html"), "x\n<!-- !! html style -->\n")
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
+      expect(result).toHaveLength(3)
+      const texts = result.map((r) => r.text).sort()
+      expect(texts).toEqual(["html style", "js style", "python style"])
+    })
+
+    it("excludes REVIEW.md and TODO.md even with added !!", async () => {
+      commit("feat: baseline", "other.ts", "x\n")
+      const baseRef = git("rev-parse HEAD")
+
       writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n// !! do not harvest\n")
-      writeFileSync(join(repoDir, "TODO.md"), "# Todo\n// !! do not harvest\n")
-      git("add", "-A")
-      git('commit -m "feat: add control files"')
+      writeFileSync(join(repoDir, "TODO.md"), "# Todo\n# !! do not harvest\n")
 
-      const result = await run(
-        Effect.flatMap(GitService, (g) => g.grepBang(["REVIEW.md", "TODO.md"])),
-      )
+      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
       expect(result).toEqual([])
     })
 
-    it("returns empty array when no !! comments exist in the specified files", async () => {
-      writeFileSync(join(repoDir, "clean.ts"), "// regular comment\n")
-      git("add", "-A")
-      git('commit -m "feat: add clean file"')
+    it("returns [] when no !! added after baseline", async () => {
+      commit("feat: baseline", "clean.ts", "// regular comment\n")
+      const baseRef = git("rev-parse HEAD")
 
-      const result = await run(Effect.flatMap(GitService, (g) => g.grepBang(["clean.ts"])))
+      writeFileSync(join(repoDir, "clean.ts"), "// regular comment\n// another regular\n")
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
       expect(result).toEqual([])
     })
 
-    it("parses line number and text correctly", async () => {
-      writeFileSync(join(repoDir, "app.ts"), "export const x = 1\n// !! check rounding\n")
-      git("add", "-A")
-      git('commit -m "feat: add app"')
+    it("harvests !! in a NEW untracked file added after baseline", async () => {
+      commit("feat: baseline", "existing.ts", "x\n")
+      const baseRef = git("rev-parse HEAD")
 
-      const result = await run(Effect.flatMap(GitService, (g) => g.grepBang(["app.ts"])))
+      // new file, never committed — untracked
+      writeFileSync(join(repoDir, "newfile.ts"), "// !! brand new\n")
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
       expect(result).toHaveLength(1)
-      expect(result[0]!.line).toBe("2")
-      expect(result[0]!.text).toBe("check rounding")
+      expect(result[0]!.file).toBe("newfile.ts")
+      expect(result[0]!.line).toBe("1")
+      expect(result[0]!.text).toBe("brand new")
     })
   })
 

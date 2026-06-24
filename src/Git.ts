@@ -21,7 +21,7 @@ export interface GitOperations {
   readonly commitSubjects: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly commitMessages: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly showHead: (path: string) => Effect.Effect<string, Error>
-  readonly grepBang: (pathspec: ReadonlyArray<string>) => Effect.Effect<ReadonlyArray<BangComment>, Error>
+  readonly grepBangAdded: (baseRef: string) => Effect.Effect<ReadonlyArray<BangComment>, Error>
 }
 
 /** A `!!` follow-up comment found in tracked source (any comment syntax). */
@@ -220,46 +220,76 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
           )
         },
 
-        // Scan tracked source for `!!` follow-up comments — a comment whose body
-        // begins with `!!`, in any language (`// !!`, `# !!`, `<!-- !!`). Scopes
-        // to the provided pathspec (REVIEW.md-referenced files ∪ dirty paths);
-        // TODO.md and REVIEW.md are excluded even when listed in the pathspec so
-        // the tool's own control files never match. An empty pathspec returns []
-        // immediately (never scans the whole tree). `git grep` exits 1 with no
-        // matches; treat that as the empty result.
-        grepBang: (pathspec: ReadonlyArray<string>) => {
-          if (pathspec.length === 0) return Effect.succeed([] as ReadonlyArray<BangComment>)
-          return exec(
-            "git",
-            "grep",
-            "-nE",
-            "(//|#|<!--)[[:space:]]*!!",
-            "--",
-            ":!REVIEW.md",
-            ":!TODO.md",
-            ...pathspec,
-          ).pipe(
-            Effect.map((out) =>
-              out
-                .split("\n")
-                .map((l) => l.replace(/\r$/, ""))
-                .filter((l) => l.length > 0)
-                .map((l) => {
-                  const i1 = l.indexOf(":")
-                  const i2 = l.indexOf(":", i1 + 1)
-                  const file = l.slice(0, i1)
-                  const line = l.slice(i1 + 1, i2)
-                  const raw = l.slice(i2 + 1)
-                  const text = raw
+        // Harvest `!!` follow-up comments found on lines the reviewer ADDED since a
+        // baseline ref. Diffs the working tree against `baseRef` (no second ref —
+        // picks up uncommitted edits). REVIEW.md and TODO.md are excluded. Untracked
+        // files are intent-to-added before diffing and reset afterward so they appear
+        // in the diff. `git diff` exit 1 / any failure → [].
+        grepBangAdded: (baseRef: string) =>
+          Effect.gen(function* () {
+            const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard")
+            const untracked = untrackedRaw
+              .split("\n")
+              .map((s) => s.trim())
+              .filter((s) => s !== "")
+            if (untracked.length > 0) {
+              yield* exec("git", "add", "--intent-to-add", "--", ...untracked)
+            }
+            const diff = yield* exec(
+              "git",
+              "diff",
+              baseRef,
+              "--",
+              ":!REVIEW.md",
+              ":!TODO.md",
+            ).pipe(Effect.catchAll(() => Effect.succeed("")))
+            if (untracked.length > 0) {
+              yield* exec("git", "reset", "--", ...untracked).pipe(
+                Effect.catchAll(() => Effect.void),
+              )
+            }
+
+            if (diff === "") return [] as ReadonlyArray<BangComment>
+
+            const results: BangComment[] = []
+            let currentFile = ""
+            let lineCounter = 0
+            for (const rawLine of diff.split("\n")) {
+              const line = rawLine.replace(/\r$/, "")
+              // new file header: +++ b/<path> or +++ /dev/null
+              if (line.startsWith("+++ ")) {
+                const rest = line.slice(4)
+                currentFile = rest.startsWith("b/") ? rest.slice(2) : ""
+                lineCounter = 0
+                continue
+              }
+              // hunk header: @@ -a,b +c,d @@ ...
+              const hunkMatch = line.match(/^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/)
+              if (hunkMatch) {
+                lineCounter = parseInt(hunkMatch[1]!, 10)
+                continue
+              }
+              // added line
+              if (line.startsWith("+")) {
+                const content = line.slice(1)
+                if (/(\/\/|#|<!--)\s*!!/.test(content)) {
+                  const text = content
                     .replace(/^.*?(?:\/\/|#|<!--)\s*!!\s*/, "")
                     .replace(/\s*-->\s*$/, "")
                     .trim()
-                  return { file, line, text } satisfies BangComment
-                }),
-            ),
-            Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<BangComment>)),
-          )
-        },
+                  results.push({ file: currentFile, line: String(lineCounter), text })
+                }
+                lineCounter++
+                continue
+              }
+              // context line
+              if (line.startsWith(" ")) {
+                lineCounter++
+              }
+              // removed lines (-): do not increment
+            }
+            return results as ReadonlyArray<BangComment>
+          }).pipe(Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<BangComment>))),
       }
     }),
   )

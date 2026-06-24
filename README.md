@@ -108,11 +108,15 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 
 > **`!!` follow-up comments** (a comment whose body begins with `!!`, in any
 > language — `// !!`, `# !!`, `<!-- !!`) are leftover work. They are harvested
-> verbatim into `TODO.md` during `review-process` and stripped from the source;
-> their presence also diverts an otherwise-approved review away from
-> `close-review`. Harvesting is **scoped**: only files referenced in the current
-> `REVIEW.md` (its chunk references) plus the dirty working tree are scanned —
-> not every tracked file. Plain `TODO:` markers are ordinary code and are never swept up.
+> verbatim into `TODO.md` during `review-process`; their presence also diverts
+> an otherwise-approved review away from `close-review`. Harvesting is
+> **scoped to the reviewer's session**: only `!!` tokens on lines *added* since
+> the `review(gtd): create review …` commit (the review baseline) are
+> harvested, regardless of which files `REVIEW.md` references — pre-existing
+> `!!` anywhere in the tree are ignored. Harvest is **read-only** — the comment
+> is captured verbatim into `TODO.md` but is not stripped from the source (the
+> reviewer's edits reach `review-process` already committed, since `code-changes`
+> runs first). Plain `TODO:` markers are ordinary code and are never swept up.
 
 gtd coordinates phases — it doesn't dictate strategy. How to grill, how to
 commit, how to build, how to verify: those are left to other skills (or the
@@ -257,8 +261,8 @@ A typical feature:
    and run `/gtd`. Any change outside `REVIEW.md`/`TODO.md` is committed verbatim
    first (`code-changes`). A pure-tick approval with nothing left over closes the
    review (`close-review`); notes or `!!` comments fold your feedback into a
-   fresh `TODO.md` (`review-process`, harvesting `!!` comments verbatim from the
-   files the current `REVIEW.md` references plus the dirty working tree), and the
+   fresh `TODO.md` (`review-process`, harvesting `!!` tokens on lines added
+   since the review baseline commit, regardless of file membership), and the
    loop starts over.
 
 > If the test gate keeps failing, the fix-tests prompt loops internally up to

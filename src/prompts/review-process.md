@@ -40,13 +40,13 @@ Gather feedback from three sources:
 2. **Source file edits** — describe what was changed and infer the reviewer's
    intent from the surrounding REVIEW.md explanation.
 3. **`!!` follow-up comments in the reviewed code** — gtd has already harvested
-   `!!` comments from the files this `REVIEW.md` covers (its chunk references)
-   plus the dirty working tree, and inlined them in the Context above under
-   "`!!` follow-up comments". Pull each one into `TODO.md` verbatim, with enough
-   context (file, function, what needs to be done) to act on it later — intent
-   is not parsed; capture exactly what the comment says. Plain `TODO:` comments
-   are ordinary code and are **not** harvested — only `!!` comments are.
-   After capturing, strip the `!!` comments from the source.
+   the reviewer-added `!!` comments — the `!!` tokens on lines added since the
+   `review(gtd): create review …` commit — regardless of which files `REVIEW.md`
+   references, and inlined them in the Context above under "`!!` follow-up
+   comments". Pull each one into `TODO.md` verbatim, with enough context (file,
+   function, what needs to be done) to act on it later — intent is not parsed;
+   capture exactly what the comment says. Plain `TODO:` comments are ordinary
+   code and are **not** harvested — only `!!` comments are.
 
 ## Step 5: Compose TODO.md
 

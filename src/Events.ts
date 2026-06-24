@@ -246,8 +246,9 @@ export const gatherEvents = (): Effect.Effect<
     let reviewApprovedNoChanges = false
     let reviewBaseRef: string | undefined
     // Scan tracked source for `!!` follow-up comments (leftover review work).
-    // Only harvested when REVIEW.md exists; scoped to its chunk-referenced files
-    // ∪ dirty working-tree paths (excluding REVIEW.md / TODO.md themselves).
+    // Only harvested when REVIEW.md exists; `!!` tokens on lines added since
+    // the `review(gtd): create review …` commit (`lastReviewCommit()`),
+    // regardless of which files REVIEW.md references; REVIEW.md/TODO.md excluded.
     let bangComments: ReadonlyArray<BangComment> = []
     let bangPresent = false
     const reviewExists = yield* fs.exists(REVIEW_FILE)
@@ -260,16 +261,8 @@ export const gatherEvents = (): Effect.Effect<
         .readFileString(REVIEW_FILE)
         .pipe(Effect.mapError((e) => new Error(String(e))))
 
-      // Build pathspec: REVIEW.md chunk refs ∪ dirty entries (excluding control files)
-      const chunkRefPaths = Array.from(
-        reviewContent.matchAll(/^- \[[ x]\] (\.\/[^\s#]+)/gm),
-        (m) => m[1]!.replace(/^\.\//, ""),
-      )
-      const dirtyPaths = codeEntries.map((e) => e.path)
-      const pathspecSet = new Set([...chunkRefPaths, ...dirtyPaths])
-      const pathspec = Array.from(pathspecSet)
-
-      bangComments = yield* git.grepBang(pathspec)
+      const reviewCommit = yield* git.lastReviewCommit()
+      bangComments = Option.isSome(reviewCommit) ? yield* git.grepBangAdded(reviewCommit.value) : []
       bangPresent = bangComments.length > 0
       const baseMatch = reviewContent.match(/<!--\s*base:\s*([a-f0-9]+)\s*-->/)
       if (!baseMatch) {
