@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { execSync } from "node:child_process"
@@ -551,6 +551,110 @@ describe("GitService", () => {
         { encoding: "utf8" },
       ).trim()
       expect(revertHead).toBe("missing")
+    })
+  })
+
+  describe("removeGtdDir", () => {
+    it("deletes a populated .gtd/ directory", async () => {
+      mkdirSync(join(repoDir, ".gtd"))
+      writeFileSync(join(repoDir, ".gtd", "task.md"), "some task content")
+      expect(existsSync(join(repoDir, ".gtd"))).toBe(true)
+
+      await run(Effect.flatMap(GitService, (g) => g.removeGtdDir()))
+
+      expect(existsSync(join(repoDir, ".gtd"))).toBe(false)
+    })
+
+    it("succeeds idempotently when .gtd/ is absent", async () => {
+      expect(existsSync(join(repoDir, ".gtd"))).toBe(false)
+
+      // Must not throw
+      await run(Effect.flatMap(GitService, (g) => g.removeGtdDir()))
+
+      expect(existsSync(join(repoDir, ".gtd"))).toBe(false)
+    })
+  })
+
+  describe("closeReview", () => {
+    it("discards working edits, removes tracked REVIEW.md, creates close commit", async () => {
+      // Commit a REVIEW.md so it is tracked
+      writeFileSync(join(repoDir, "REVIEW.md"), "# Original review\n")
+      git("add", "-A")
+      git(`commit -m "review(gtd): add REVIEW.md"`)
+      const base = git("rev-parse HEAD")
+      const shortBase = base.slice(0, 7)
+
+      // Make working-tree edits to REVIEW.md (not staged)
+      writeFileSync(join(repoDir, "REVIEW.md"), "# Edited review with extra notes\n")
+
+      await run(Effect.flatMap(GitService, (g) => g.closeReview(base)))
+
+      // HEAD subject should be the close commit
+      const subject = git("log", "-1", "--format=%s")
+      expect(subject).toBe(`chore(gtd): close approved review for ${shortBase}`)
+
+      // REVIEW.md should no longer be tracked
+      const tracked = git("ls-files", "REVIEW.md")
+      expect(tracked.trim()).toBe("")
+
+      // Working tree should be clean
+      const status = git("status", "--porcelain")
+      expect(status.trim()).toBe("")
+    })
+
+    it("creates allow-empty close commit when REVIEW.md is untracked", async () => {
+      const base = git("rev-parse HEAD")
+      const shortBase = base.slice(0, 7)
+      const headBefore = git("rev-parse HEAD")
+
+      // REVIEW.md is not tracked at all
+      await run(Effect.flatMap(GitService, (g) => g.closeReview(base)))
+
+      const headAfter = git("rev-parse HEAD")
+      expect(headAfter).not.toBe(headBefore)
+
+      const subject = git("log", "-1", "--format=%s")
+      expect(subject).toBe(`chore(gtd): close approved review for ${shortBase}`)
+    })
+  })
+
+  describe("commitPending", () => {
+    it("commits dirty src file but leaves TODO.md dirty", async () => {
+      // Write a source file and TODO.md as untracked changes
+      mkdirSync(join(repoDir, "src"), { recursive: true })
+      writeFileSync(join(repoDir, "src/x.ts"), "export const x = 1")
+      writeFileSync(join(repoDir, "TODO.md"), "# TODO\n\n- [ ] task")
+      const headBefore = git("rev-parse HEAD")
+
+      await run(Effect.flatMap(GitService, (g) => g.commitPending()))
+
+      const headAfter = git("rev-parse HEAD")
+      expect(headAfter).not.toBe(headBefore)
+
+      const subject = git("log", "-1", "--format=%s")
+      expect(subject).toBe("chore(gtd): commit pending changes")
+
+      // src/x.ts should now be committed (tracked)
+      const trackedX = git("ls-files", "src/x.ts")
+      expect(trackedX.trim()).toBe("src/x.ts")
+
+      // TODO.md should still be untracked/dirty (not committed)
+      const status = git("status", "--porcelain")
+      expect(status).toContain("TODO.md")
+    })
+
+    it("does not create a commit when only TODO.md is dirty", async () => {
+      writeFileSync(join(repoDir, "TODO.md"), "# TODO\n\n- [ ] only task")
+      const headBefore = git("rev-parse HEAD")
+
+      await run(Effect.flatMap(GitService, (g) => g.commitPending()))
+
+      const headAfter = git("rev-parse HEAD")
+      expect(headAfter).toBe(headBefore)
+
+      // TODO.md should remain dirty
+      const status = git("status", "--porcelain")
+      expect(status).toContain("TODO.md")
     })
   })
 

@@ -69,6 +69,13 @@ export type GtdEvent =
   | { type: "COMMIT"; isTestFix: boolean }
   | { type: "RESOLVE"; payload: ResolvePayload }
 
+export type EdgeAction =
+  | { kind: "removeGtdDir" }
+  | { kind: "closeReview"; base: string }
+  | { kind: "commitPending" }
+  | { kind: "runTestGate" }
+  | { kind: "reviewPreRender"; base: string }
+
 export interface GtdContext {
   verifyIterations: number
   maxVerifyIterations: number

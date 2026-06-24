@@ -34,6 +34,18 @@ export interface GitOperations {
   readonly recordAndRevertReview: (
     base: string,
   ) => Effect.Effect<{ readonly diff: string; readonly recordSha: string }, Error>
+  /** Removes the `.gtd/` directory idempotently (no error if absent). */
+  readonly removeGtdDir: () => Effect.Effect<void, Error>
+  /**
+   * Discards working-tree REVIEW.md edits (tolerates untracked), removes it
+   * via `git rm` if tracked, then creates a close commit.
+   */
+  readonly closeReview: (base: string) => Effect.Effect<void, Error>
+  /**
+   * Stages all changes, unstages TODO.md and REVIEW.md, then commits.
+   * Skips the commit when nothing remains staged after the restore.
+   */
+  readonly commitPending: () => Effect.Effect<void, Error>
 }
 
 const run = (
@@ -51,6 +63,41 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
       const executor = yield* CommandExecutor.CommandExecutor
       const exec = (...args: [string, ...Array<string>]) =>
         run(...args).pipe(Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)))
+
+      // Shared implementation used by both closeReview and recordAndRevertReview
+      const closeReviewImpl = (base: string): Effect.Effect<void, Error> =>
+        Effect.gen(function* () {
+          // Discard working-tree REVIEW.md edits (tolerate failure if untracked)
+          yield* Command.make("git", "checkout", "--", "REVIEW.md").pipe(
+            Command.exitCode,
+            Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+            Effect.mapError((e) => new Error(String(e))),
+            Effect.catchAll(() => Effect.void),
+          )
+          // Remove REVIEW.md if still tracked, then close commit
+          const rmCode = yield* Command.make("git", "rm", "REVIEW.md").pipe(
+            Command.exitCode,
+            Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+            Effect.mapError((e) => new Error(String(e))),
+          )
+          if (rmCode === 0) {
+            yield* exec(
+              "git",
+              "commit",
+              "-m",
+              `chore(gtd): close approved review for ${base.slice(0, 7)}`,
+            )
+          } else {
+            // REVIEW.md not tracked — still create close commit (nothing extra to stage)
+            yield* exec(
+              "git",
+              "commit",
+              "--allow-empty",
+              "-m",
+              `chore(gtd): close approved review for ${base.slice(0, 7)}`,
+            )
+          }
+        })
 
       return {
         statusPorcelain: () => exec("git", "status", "--porcelain"),
@@ -183,6 +230,37 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             return yield* exec("git", "show", `HEAD:${path}`)
           }),
 
+        closeReview: closeReviewImpl,
+
+        removeGtdDir: () => exec("rm", "-rf", ".gtd").pipe(Effect.asVoid),
+
+        commitPending: () =>
+          Effect.gen(function* () {
+            // Stage all changes
+            yield* exec("git", "add", "-A")
+            // Unstage TODO.md and REVIEW.md individually (tolerate failure when not staged)
+            yield* exec("git", "restore", "--staged", "TODO.md").pipe(
+              Effect.catchAll(() => Effect.void),
+            )
+            yield* exec("git", "restore", "--staged", "REVIEW.md").pipe(
+              Effect.catchAll(() => Effect.void),
+            )
+            // Check if anything remains staged
+            const cachedExitCode = yield* Command.make(
+              "git",
+              "diff",
+              "--cached",
+              "--quiet",
+            ).pipe(
+              Command.exitCode,
+              Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+              Effect.mapError((e) => new Error(String(e))),
+            )
+            // exit 0 means nothing staged — skip commit
+            if (cachedExitCode === 0) return
+            yield* exec("git", "commit", "-m", "chore(gtd): commit pending changes")
+          }),
+
         recordAndRevertReview: (base: string) =>
           Effect.gen(function* () {
             // 1. Stage everything and create the record commit
@@ -227,29 +305,8 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
               )
             }
 
-            // 4. Remove REVIEW.md if still tracked, then close commit
-            const rmCode = yield* Command.make("git", "rm", "REVIEW.md").pipe(
-              Command.exitCode,
-              Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
-              Effect.mapError((e) => new Error(String(e))),
-            )
-            if (rmCode === 0) {
-              yield* exec(
-                "git",
-                "commit",
-                "-m",
-                `chore(gtd): close approved review for ${base.slice(0, 7)}`,
-              )
-            } else {
-              // REVIEW.md not tracked — still create close commit (nothing extra to stage)
-              yield* exec(
-                "git",
-                "commit",
-                "--allow-empty",
-                "-m",
-                `chore(gtd): close approved review for ${base.slice(0, 7)}`,
-              )
-            }
+            // 4. Remove REVIEW.md if still tracked, then close commit (delegated)
+            yield* closeReviewImpl(base)
 
             return { diff, recordSha }
           }),
