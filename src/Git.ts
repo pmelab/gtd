@@ -19,6 +19,21 @@ export interface GitOperations {
   readonly commitSubjects: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly commitMessages: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly showHead: (path: string) => Effect.Effect<string, Error>
+  /**
+   * Records the current working tree as a raw feedback commit, captures its
+   * diff, reverts the commit, removes REVIEW.md, then creates a close commit.
+   * Returns the captured diff and the SHA of the record commit.
+   *
+   * Sequence:
+   *   1. `git add -A` + `git commit -m "docs(review): record raw feedback for <base>"`
+   *   2. Capture record SHA via `git rev-parse HEAD` and diff via `git show <sha>`
+   *   3. `git revert --no-edit <sha>` — on conflict: `git revert --abort` then fail
+   *   4. `git rm REVIEW.md` (if tracked) + `git commit -m "chore(gtd): close approved review for <short-sha>"`
+   *   5. Return `{ diff, recordSha }`
+   */
+  readonly recordAndRevertReview: (
+    base: string,
+  ) => Effect.Effect<{ readonly diff: string; readonly recordSha: string }, Error>
 }
 
 const run = (
@@ -166,6 +181,77 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
               return yield* Effect.fail(new Error(`git show HEAD:${path} exited with ${exitCode}`))
             }
             return yield* exec("git", "show", `HEAD:${path}`)
+          }),
+
+        recordAndRevertReview: (base: string) =>
+          Effect.gen(function* () {
+            // 1. Stage everything and create the record commit
+            yield* exec("git", "add", "-A")
+            yield* exec(
+              "git",
+              "commit",
+              "-m",
+              `docs(review): record raw feedback for ${base}`,
+            )
+
+            // 2. Capture record SHA and diff
+            const recordSha = yield* exec("git", "rev-parse", "HEAD").pipe(
+              Effect.map((s) => s.trim()),
+            )
+            const diff = yield* exec("git", "show", recordSha)
+
+            // 3. Attempt revert — use exitCode to detect conflicts without throwing
+            const revertCode = yield* Command.make(
+              "git",
+              "revert",
+              "--no-edit",
+              recordSha,
+            ).pipe(
+              Command.exitCode,
+              Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+              Effect.mapError((e) => new Error(String(e))),
+            )
+
+            if (revertCode !== 0) {
+              // Abort the in-progress revert and fail
+              yield* Command.make("git", "revert", "--abort").pipe(
+                Command.exitCode,
+                Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+                Effect.mapError((e) => new Error(String(e))),
+              )
+              return yield* Effect.fail(
+                new Error(
+                  `review-process: revert conflict reverting ${recordSha}; aborted. ` +
+                    `Resolve conflicts manually or re-run after cleaning the working tree.`,
+                ),
+              )
+            }
+
+            // 4. Remove REVIEW.md if still tracked, then close commit
+            const rmCode = yield* Command.make("git", "rm", "REVIEW.md").pipe(
+              Command.exitCode,
+              Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+              Effect.mapError((e) => new Error(String(e))),
+            )
+            if (rmCode === 0) {
+              yield* exec(
+                "git",
+                "commit",
+                "-m",
+                `chore(gtd): close approved review for ${base.slice(0, 7)}`,
+              )
+            } else {
+              // REVIEW.md not tracked — still create close commit (nothing extra to stage)
+              yield* exec(
+                "git",
+                "commit",
+                "--allow-empty",
+                "-m",
+                `chore(gtd): close approved review for ${base.slice(0, 7)}`,
+              )
+            }
+
+            return { diff, recordSha }
           }),
 
         commitSubjects: (base?: string) => {

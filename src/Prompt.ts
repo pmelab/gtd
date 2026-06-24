@@ -99,11 +99,9 @@ const buildContext = (context: GtdContext): string => {
   return lines.join("\n")
 }
 
-export interface PromptOverride {
-  readonly kind: "fix-tests"
-  /** Captured combined stdout+stderr from the failed `npm run test`. */
-  readonly testOutput: string
-}
+export type PromptOverride =
+  | { readonly kind: "fix-tests"; readonly testOutput: string }
+  | { readonly kind: "review-process"; readonly reviewDiff: string; readonly recordSha: string }
 
 /**
  * Picks a code fence long enough to safely wrap `content`, even when the
@@ -151,6 +149,15 @@ export const buildPrompt = (
   if (override?.kind === "fix-tests") {
     const fence = fenceFor(override.testOutput)
     parts.push(fixTests, "", fence, override.testOutput.replace(/\n$/, ""), fence, "")
+  } else if (override?.kind === "review-process") {
+    const fence = fenceFor(override.reviewDiff)
+    parts.push(SECTIONS["review-process"], "")
+    parts.push("### Review feedback diff", "")
+    parts.push(fence, override.reviewDiff.replace(/\n$/, ""), fence, "")
+    parts.push(`If you lose this diff, recover it with \`git show ${override.recordSha}\`.`, "")
+    if (result.autoAdvance) {
+      parts.push(autoAdvance, "")
+    }
   } else {
     const value = result.value as LeafState
     const section = MODEL_STATES.has(value)

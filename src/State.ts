@@ -13,7 +13,9 @@ export interface TestResult {
 }
 
 /** Prompt-override contract owned by Prompt.ts (task 02). */
-export type PromptOverride = { kind: "fix-tests"; testOutput: string }
+export type PromptOverride =
+  | { readonly kind: "fix-tests"; readonly testOutput: string }
+  | { readonly kind: "review-process"; readonly reviewDiff: string; readonly recordSha: string }
 
 /**
  * Pure decision for what prompt to render after the test gate ran on a leaf.

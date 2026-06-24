@@ -415,6 +415,34 @@ describe("buildPrompt", () => {
     expect(out).not.toContain("Re-run gtd immediately")
   })
 
+  it("review-process override renders the section, fences the diff, includes auto-advance, and surfaces recordSha", () => {
+    const out = buildPrompt(result("review-process", { autoAdvance: true }), {
+      kind: "review-process",
+      reviewDiff: "diff --git a/x b/x\n+hi\n",
+      recordSha: "deadbee",
+    })
+    // Section rendered
+    expect(out).toContain("format TODO.md")
+    expect(out).toContain("git revert --no-edit")
+    // Fenced diff
+    expect(out).toContain("### Review feedback diff")
+    expect(out).toContain("```\ndiff --git a/x b/x\n+hi\n```")
+    // auto-advance partial
+    expect(out).toContain("Re-run gtd immediately")
+    // recovery hint with recordSha
+    expect(out).toContain("deadbee")
+    expect(out).toContain("git show deadbee")
+  })
+
+  it("review-process override lengthens the fence when diff contains backticks", () => {
+    const out = buildPrompt(result("review-process", { autoAdvance: true }), {
+      kind: "review-process",
+      reviewDiff: "see `code` and ```block``` here",
+      recordSha: "abc1234",
+    })
+    expect(out).toContain("````\nsee `code` and ```block``` here\n````")
+  })
+
   it("fix-tests override carries no injected model and no {{MODEL}} leak", () => {
       const out = buildPrompt(
         result("execute"),
