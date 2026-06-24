@@ -12,6 +12,7 @@ import verified from "./prompts/verified.md"
 import reviewProcess from "./prompts/review-process.md"
 import closeReview from "./prompts/close-review.md"
 import awaitReview from "./prompts/await-review.md"
+import reviewIncomplete from "./prompts/review-incomplete.md"
 import awaitAnswers from "./prompts/await-answers.md"
 import fixTests from "./prompts/fix-tests.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
@@ -53,6 +54,7 @@ const SECTIONS: Record<LeafState, string> = {
   "close-review": closeReview,
   "await-review": awaitReview,
   "await-answers": awaitAnswers,
+  "review-incomplete": reviewIncomplete,
 }
 
 const buildContext = (context: GtdContext): string => {

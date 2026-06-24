@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform"
 import { Effect, Option } from "effect"
 import { type GitOperations, GitService } from "./Git.js"
+import { formatString } from "./Format.js"
 import type { GtdEvent, GtdPackageFact, ResolvePayload } from "./Machine.js"
 
 /**
@@ -171,6 +172,38 @@ export const computeReviewBase = (
   })
 
 /**
+ * True iff the working-tree REVIEW.md content contains at least one unchecked
+ * checkbox line (`- [ ] …`).
+ */
+export const computeReviewHasUncheckedBoxes = (reviewContent: string): boolean =>
+  /^- \[ \] /m.test(reviewContent)
+
+/**
+ * True iff the REVIEW.md diff represents real feedback (not just forward-ticks).
+ *
+ * Short-circuits to `true` when other dirty paths exist. Otherwise normalizes
+ * the committed copy (replacing `- [ ]` with `- [x]`) and compares formatted
+ * strings; returns `true` when they differ.
+ */
+export const computeReviewHasRealFeedback = (opts: {
+  otherDirtyPathsExist: boolean
+  committedContent: string
+  workingContent: string
+}): Effect.Effect<boolean, Error> => {
+  if (opts.otherDirtyPathsExist) return Effect.succeed(true)
+  const normalizedCommitted = opts.committedContent.replace(/- \[ \] /g, "- [x] ")
+  return Effect.gen(function* () {
+    const formattedCommitted = yield* formatString(normalizedCommitted).pipe(
+      Effect.mapError((e) => new Error(String(e))),
+    )
+    const formattedWorking = yield* formatString(opts.workingContent).pipe(
+      Effect.mapError((e) => new Error(String(e))),
+    )
+    return formattedCommitted !== formattedWorking
+  })
+}
+
+/**
  * Gather ALL git/filesystem facts and produce the typed event stream the pure
  * machine folds: one `COMMIT` per first-parent commit (oldest→newest) followed
  * by a single `RESOLVE` carrying the working-tree snapshot.
@@ -243,13 +276,9 @@ export const gatherEvents = (): Effect.Effect<
     // REVIEW.md probing.
     let reviewModified = false
     let reviewUnmodified = false
-    let reviewApprovedNoChanges = false
+    let reviewHasUncheckedBoxes = false
+    let reviewHasRealFeedback = false
     let reviewBaseRef: string | undefined
-    // Scan tracked source for `!!` follow-up comments (leftover review work).
-    // Only harvested when REVIEW.md exists; `!!` tokens on lines added since
-    // the `review(gtd): create review …` commit (`lastReviewCommit()`),
-    // regardless of which files REVIEW.md references; REVIEW.md/TODO.md excluded.
-    let bangPresent = false
     const reviewExists = yield* fs.exists(REVIEW_FILE)
     if (reviewExists) {
       reviewModified = entries.some((e) => e.path === REVIEW_FILE)
@@ -260,8 +289,6 @@ export const gatherEvents = (): Effect.Effect<
         .readFileString(REVIEW_FILE)
         .pipe(Effect.mapError((e) => new Error(String(e))))
 
-      const reviewCommit = yield* git.lastReviewCommit()
-      bangPresent = Option.isSome(reviewCommit) ? yield* git.hasBangAdded(reviewCommit.value) : false
       const baseMatch = reviewContent.match(/<!--\s*base:\s*([a-f0-9]+)\s*-->/)
       if (!baseMatch) {
         yield* Effect.fail(
@@ -272,38 +299,20 @@ export const gatherEvents = (): Effect.Effect<
       }
       reviewBaseRef = baseMatch![1] as string
 
-      // Compute reviewApprovedNoChanges:
-      // true iff reviewModified AND REVIEW.md is the ONLY dirty path AND the
-      // diff is forward-ticks only (every changed line: - [ ] → - [x] with
-      // identical remainder, at least one tick, equal line counts).
-      // Note: codeDirty counts REVIEW.md as dirty too, so check entries directly.
-      const onlyReviewDirty = entries.every((e) => e.path === REVIEW_FILE)
-      if (onlyReviewDirty) {
+      reviewHasUncheckedBoxes = computeReviewHasUncheckedBoxes(reviewContent)
+
+      const otherDirtyPathsExist = !entries.every((e) => e.path === REVIEW_FILE)
+      if (otherDirtyPathsExist) {
+        reviewHasRealFeedback = true
+      } else if (reviewModified) {
         const committedContent = yield* git
           .showHead(REVIEW_FILE)
           .pipe(Effect.mapError((e) => new Error(String(e))))
-        const normalise = (line: string) => line.replace(/\r$/, "")
-        const committedLines = committedContent.split("\n").map(normalise)
-        const workingLines = reviewContent.split("\n").map(normalise)
-        const UNTICKED = /^- \[ \] /
-        const TICKED = /^- \[x\] /
-        const stripMarker = (line: string) => line.replace(/^- \[[ x]\] /, "")
-        if (committedLines.length === workingLines.length) {
-          let atLeastOneTick = false
-          let allDiffsAreForwardTicks = true
-          for (let i = 0; i < committedLines.length; i++) {
-            const c = committedLines[i]!
-            const w = workingLines[i]!
-            if (c === w) continue
-            if (UNTICKED.test(c) && TICKED.test(w) && stripMarker(c) === stripMarker(w)) {
-              atLeastOneTick = true
-            } else {
-              allDiffsAreForwardTicks = false
-              break
-            }
-          }
-          reviewApprovedNoChanges = allDiffsAreForwardTicks && atLeastOneTick
-        }
+        reviewHasRealFeedback = yield* computeReviewHasRealFeedback({
+          otherDirtyPathsExist: false,
+          committedContent,
+          workingContent: reviewContent,
+        })
       }
     }
 
@@ -325,7 +334,8 @@ export const gatherEvents = (): Effect.Effect<
       errorsPresent,
       reviewModified,
       reviewUnmodified,
-      reviewApprovedNoChanges,
+      reviewHasUncheckedBoxes,
+      reviewHasRealFeedback,
       codeDirty,
       hasPackages,
       gtdDirExists,
@@ -333,7 +343,6 @@ export const gatherEvents = (): Effect.Effect<
       todoExists,
       todoStatus,
       todoOpenQuestionsPresent,
-      bangPresent,
       reviewPresent: reviewExists,
       reviewBasePresent,
       lastCommitSubject,

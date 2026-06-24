@@ -5,7 +5,11 @@ import { NodeContext } from "@effect/platform-node"
 import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { getPackages } from "./Events.js"
+import {
+  computeReviewHasRealFeedback,
+  computeReviewHasUncheckedBoxes,
+  getPackages,
+} from "./Events.js"
 
 const run = <A>(eff: Effect.Effect<A, Error, FileSystem.FileSystem>) =>
   Effect.runPromise(eff.pipe(Effect.provide(NodeContext.layer)))
@@ -89,5 +93,66 @@ describe("getPackages — inlined task contents + commit-msg flag", () => {
   it("no .gtd dir → empty package list", async () => {
     const packages = await withFs((fs) => getPackages(fs))
     expect(packages).toEqual([])
+  })
+})
+
+const runEffect = <A>(eff: Effect.Effect<A, Error>) =>
+  Effect.runPromise(eff.pipe(Effect.provide(NodeContext.layer)))
+
+describe("computeReviewHasUncheckedBoxes", () => {
+  it("returns true when there is at least one unchecked box", () => {
+    const content = "# Review\n\n- [ ] something to check\n- [x] already done\n"
+    expect(computeReviewHasUncheckedBoxes(content)).toBe(true)
+  })
+
+  it("returns false when all boxes are checked", () => {
+    const content = "# Review\n\n- [x] done\n- [x] also done\n"
+    expect(computeReviewHasUncheckedBoxes(content)).toBe(false)
+  })
+
+  it("returns false when there are no checkboxes at all", () => {
+    const content = "# Review\n\nSome prose feedback without any checkboxes.\n"
+    expect(computeReviewHasUncheckedBoxes(content)).toBe(false)
+  })
+})
+
+describe("computeReviewHasRealFeedback", () => {
+  it("forward-ticks only (committed unchecked → working checked, otherwise identical) → false", async () => {
+    const committed = "# Review\n\n<!-- base: abc123 -->\n\n- [ ] item one\n- [ ] item two\n"
+    const working = "# Review\n\n<!-- base: abc123 -->\n\n- [x] item one\n- [x] item two\n"
+    const result = await runEffect(
+      computeReviewHasRealFeedback({
+        otherDirtyPathsExist: false,
+        committedContent: committed,
+        workingContent: working,
+      }),
+    )
+    expect(result).toBe(false)
+  })
+
+  it("prose edit in REVIEW.md → true", async () => {
+    const committed =
+      "# Review\n\n<!-- base: abc123 -->\n\n- [ ] item one\n\nNo extra feedback.\n"
+    const working =
+      "# Review\n\n<!-- base: abc123 -->\n\n- [x] item one\n\nActually here is real feedback that changes things significantly.\n"
+    const result = await runEffect(
+      computeReviewHasRealFeedback({
+        otherDirtyPathsExist: false,
+        committedContent: committed,
+        workingContent: working,
+      }),
+    )
+    expect(result).toBe(true)
+  })
+
+  it("otherDirtyPathsExist=true → true (short-circuit)", async () => {
+    const result = await runEffect(
+      computeReviewHasRealFeedback({
+        otherDirtyPathsExist: true,
+        committedContent: "anything",
+        workingContent: "anything",
+      }),
+    )
+    expect(result).toBe(true)
   })
 })

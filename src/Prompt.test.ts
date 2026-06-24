@@ -405,7 +405,17 @@ describe("buildPrompt", () => {
       expect(out).not.toContain("Check your user/project AGENTS.md")
     })
 
-    it("fix-tests override carries no injected model and no {{MODEL}} leak", () => {
+    it("review-incomplete prompt renders its section and does NOT leak another leaf's section", () => {
+    const out = buildPrompt(result("review-incomplete", { autoAdvance: false }))
+    expect(out).toContain("at least one checkbox is still unticked")
+    expect(out).toContain("STOP")
+    // Must not leak the await-review section
+    expect(out).not.toContain("has not recorded any feedback")
+    // Must not include auto-advance
+    expect(out).not.toContain("Re-run gtd immediately")
+  })
+
+  it("fix-tests override carries no injected model and no {{MODEL}} leak", () => {
       const out = buildPrompt(
         result("execute"),
         { kind: "fix-tests", testOutput: "boom" },

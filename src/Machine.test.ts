@@ -5,7 +5,8 @@ const commit = (isTestFix: boolean): GtdEvent => ({ type: "COMMIT", isTestFix })
 
 const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
   errorsPresent: false,
-  reviewApprovedNoChanges: false,
+  reviewHasUncheckedBoxes: false,
+  reviewHasRealFeedback: false,
   reviewModified: false,
   reviewUnmodified: false,
   codeDirty: false,
@@ -15,7 +16,6 @@ const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
   todoExists: false,
   todoStatus: null,
   todoOpenQuestionsPresent: false,
-  bangPresent: false,
   reviewPresent: false,
   reviewBasePresent: false,
   lastCommitSubject: "chore: init",
@@ -53,10 +53,12 @@ describe("resolve — COMMIT counter folding", () => {
 })
 
 describe("resolve — RESOLVE leaf + tag priority", () => {
-  it("reviewModified (no outside code dirty) → review-process, autoAdvance true", () => {
+  it("reviewModified + real feedback (no outside code dirty) → review-process, autoAdvance true", () => {
     const { value, autoAdvance } = resolve([
       resolveEvent({
         reviewModified: true,
+        reviewHasUncheckedBoxes: false,
+        reviewHasRealFeedback: true,
         codeDirty: false,
         hasPackages: true,
         gtdDirExists: true,
@@ -165,19 +167,13 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
     expect(autoAdvance).toBe(false)
   })
 
-  it("approved review with a !! comment diverts to review-process, not close", () => {
-    const { value } = resolve([
-      resolveEvent({ reviewApprovedNoChanges: true, reviewModified: true, bangPresent: true }),
-    ])
-    expect(value).toBe("review-process")
-  })
-
   it("reviewPresent + reviewModified + codeDirty → review-process (not code-changes)", () => {
     const { value } = resolve([
       resolveEvent({
         reviewPresent: true,
         reviewModified: true,
-        reviewApprovedNoChanges: false,
+        reviewHasUncheckedBoxes: false,
+        reviewHasRealFeedback: true,
         codeDirty: true,
       }),
     ])
@@ -255,26 +251,48 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
     expect(autoAdvance).toBe(false)
   })
 
-  it("reviewApprovedNoChanges → close-review, autoAdvance true", () => {
-    const { value, autoAdvance } = resolve([resolveEvent({ reviewApprovedNoChanges: true })])
-    expect(value).toBe("close-review")
-    expect(autoAdvance).toBe(true)
+  it("reviewModified + reviewHasUncheckedBoxes → review-incomplete, autoAdvance false", () => {
+    const { value, autoAdvance } = resolve([
+      resolveEvent({ reviewModified: true, reviewHasUncheckedBoxes: true }),
+    ])
+    expect(value).toBe("review-incomplete")
+    expect(autoAdvance).toBe(false)
   })
 
-  it("ordering regression: reviewApprovedNoChanges + reviewModified → close-review wins", () => {
+  it("reviewModified + allChecked + no real feedback → close-review, autoAdvance true", () => {
     const { value, autoAdvance } = resolve([
-      resolveEvent({ reviewApprovedNoChanges: true, reviewModified: true }),
+      resolveEvent({
+        reviewModified: true,
+        reviewHasUncheckedBoxes: false,
+        reviewHasRealFeedback: false,
+      }),
     ])
     expect(value).toBe("close-review")
     expect(autoAdvance).toBe(true)
   })
 
-  it("reviewApprovedNoChanges false + reviewModified true → review-process (unchanged behavior)", () => {
+  it("reviewModified + allChecked + real feedback → review-process, autoAdvance true", () => {
     const { value, autoAdvance } = resolve([
-      resolveEvent({ reviewApprovedNoChanges: false, reviewModified: true }),
+      resolveEvent({
+        reviewModified: true,
+        reviewHasUncheckedBoxes: false,
+        reviewHasRealFeedback: true,
+      }),
     ])
     expect(value).toBe("review-process")
     expect(autoAdvance).toBe(true)
+  })
+
+  it("ordering regression: unchecked-boxes wins over real feedback → review-incomplete", () => {
+    const { value, autoAdvance } = resolve([
+      resolveEvent({
+        reviewModified: true,
+        reviewHasUncheckedBoxes: true,
+        reviewHasRealFeedback: true,
+      }),
+    ])
+    expect(value).toBe("review-incomplete")
+    expect(autoAdvance).toBe(false)
   })
 })
 

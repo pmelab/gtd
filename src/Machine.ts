@@ -30,8 +30,10 @@ export interface GtdPackageFact {
 export interface ResolvePayload {
   /** A committed `ERRORS.md` is present — the test loop escalated to the human. */
   readonly errorsPresent: boolean
-  /** REVIEW.md was approved with no code changes needed (all forward ticks). */
-  readonly reviewApprovedNoChanges: boolean
+  /** Working-tree REVIEW.md has at least one unchecked `- [ ] ` line. */
+  readonly reviewHasUncheckedBoxes: boolean
+  /** Working-tree delta beyond forward checkbox ticks (non-tick REVIEW.md edits, dirty source, untracked). */
+  readonly reviewHasRealFeedback: boolean
   /** REVIEW.md exists with user edits. */
   readonly reviewModified: boolean
   /** REVIEW.md exists and is committed/unmodified — the review gate. */
@@ -50,8 +52,6 @@ export interface ResolvePayload {
   readonly todoStatus: "simple" | "complete" | "grilling" | null
   /** TODO.md has unanswered questions under `## Open Questions`. */
   readonly todoOpenQuestionsPresent: boolean
-  /** A `!!` follow-up comment is present in tracked source. */
-  readonly bangPresent: boolean
   /** A review base ref is available to diff against. */
   readonly reviewBasePresent: boolean
   /** A REVIEW.md is present (committed and/or dirty) — the review path owns routing. */
@@ -84,6 +84,7 @@ export interface GtdContext {
 export type LeafState =
   | "close-review"
   | "review-process"
+  | "review-incomplete"
   | "await-review"
   | "code-changes"
   | "execute"
@@ -113,10 +114,12 @@ const machine = setup({
   },
   guards: {
     errorsPresent: (_, params: ResolvePayload) => params.errorsPresent,
-    // A `!!` follow-up comment is leftover work, so it diverts an otherwise
-    // approved review into the review-process loop instead of closing it.
-    reviewApprovedClose: (_, params: ResolvePayload) =>
-      params.reviewApprovedNoChanges && !params.bangPresent,
+    // All boxes checked + no real feedback — safe to close the review.
+    closeReview: (_, params: ResolvePayload) =>
+      params.reviewModified && !params.reviewHasUncheckedBoxes && !params.reviewHasRealFeedback,
+    // REVIEW.md was modified but still has unchecked boxes — human must finish.
+    reviewIncomplete: (_, params: ResolvePayload) =>
+      params.reviewModified && params.reviewHasUncheckedBoxes,
     reviewModified: (_, params: ResolvePayload) => params.reviewModified,
     reviewUnmodified: (_, params: ResolvePayload) => params.reviewUnmodified,
     codeDirty: (_, params: ResolvePayload) => params.codeDirty && !params.reviewPresent,
@@ -177,23 +180,28 @@ const machine = setup({
             actions: "applyPayload",
           },
           {
-            guard: { type: "reviewApprovedClose", params: ({ event }) => event.payload },
-            target: "close-review",
-            actions: "applyPayload",
-          },
-          {
             guard: { type: "codeDirty", params: ({ event }) => event.payload },
             target: "code-changes",
             actions: "applyPayload",
           },
           {
-            guard: { type: "reviewModified", params: ({ event }) => event.payload },
-            target: "review-process",
+            guard: { type: "reviewUnmodified", params: ({ event }) => event.payload },
+            target: "await-review",
             actions: "applyPayload",
           },
           {
-            guard: { type: "reviewUnmodified", params: ({ event }) => event.payload },
-            target: "await-review",
+            guard: { type: "reviewIncomplete", params: ({ event }) => event.payload },
+            target: "review-incomplete",
+            actions: "applyPayload",
+          },
+          {
+            guard: { type: "closeReview", params: ({ event }) => event.payload },
+            target: "close-review",
+            actions: "applyPayload",
+          },
+          {
+            guard: { type: "reviewModified", params: ({ event }) => event.payload },
+            target: "review-process",
             actions: "applyPayload",
           },
           {
@@ -250,6 +258,7 @@ const machine = setup({
     },
     "close-review": { tags: ["auto-advance"], type: "final" },
     "review-process": { tags: ["auto-advance"], type: "final" },
+    "review-incomplete": { type: "final" },
     "await-review": { type: "final" },
     "code-changes": { tags: ["auto-advance"], type: "final" },
     execute: { tags: ["auto-advance"], type: "final" },
