@@ -2,7 +2,12 @@ import { FileSystem } from "@effect/platform"
 import { Effect, Option } from "effect"
 import { type GitOperations, GitService } from "./Git.js"
 import { formatString } from "./Format.js"
-import type { GtdEvent, GtdPackageFact, ResolvePayload } from "./Machine.js"
+import type {
+  GtdEvent,
+  GtdPackageFact,
+  PendingCommitIntent,
+  ResolvePayload,
+} from "./Machine.js"
 
 /**
  * The Effect "edge": all git/filesystem IO lives here. It probes the working
@@ -19,6 +24,51 @@ const REVIEW_FILE = "REVIEW.md"
 const ERRORS_FILE = "ERRORS.md"
 const UNANSWERED_MARKER = "<!-- user answers here -->"
 const SIMPLE_MARKER = "<!-- simple -->"
+
+/**
+ * Commit-intent sentinel marker (the on-disk contract Part B introduces).
+ *
+ * An agent leaves its output UNCOMMITTED and writes this top-level file whose
+ * sole content is the intent-kind string (one of `PendingCommitIntent`). It
+ * lives at the repo ROOT — NOT inside `.gtd/` — so the same location works for
+ * every intent regardless of whether `.gtd/` exists (e.g. new-todo / human-review
+ * have no `.gtd/`). The next `gtd` cycle reads it here (READ-ONLY) into
+ * `payload.pendingCommitIntent`; the machine folds it to a disambiguated
+ * `commitPending` action, and the edge deletes this file as part of that commit.
+ */
+const COMMIT_INTENT_FILE = ".gtd-commit-intent"
+
+const COMMIT_INTENTS: ReadonlyArray<PendingCommitIntent> = [
+  "execute",
+  "decompose",
+  "new-todo",
+  "modified-todo",
+  "execute-simple",
+  "human-review",
+  "fix-tests",
+]
+
+const parseCommitIntent = (raw: string): PendingCommitIntent | undefined => {
+  const v = raw.trim()
+  return COMMIT_INTENTS.find((k) => k === v)
+}
+
+/**
+ * Read the commit-intent sentinel (READ-ONLY) into a `PendingCommitIntent`.
+ * Absent marker (or unrecognized content) → `undefined` (the Part A
+ * `code-changes` path). Exported for unit testing the gather contract.
+ */
+export const readCommitIntent = (
+  fs: FileSystem.FileSystem,
+): Effect.Effect<PendingCommitIntent | undefined, Error> =>
+  Effect.gen(function* () {
+    const exists = yield* fs.exists(COMMIT_INTENT_FILE)
+    if (!exists) return undefined
+    const raw = yield* fs
+      .readFileString(COMMIT_INTENT_FILE)
+      .pipe(Effect.mapError((e) => new Error(String(e))))
+    return parseCommitIntent(raw)
+  }).pipe(Effect.mapError((e) => new Error(String(e))))
 
 /**
  * Parse the `status:` value from a leading YAML frontmatter block. Folds the
@@ -263,6 +313,11 @@ export const gatherEvents = (): Effect.Effect<
     // A committed ERRORS.md means the test loop escalated; it is a human gate.
     const errorsPresent = yield* fs.exists(ERRORS_FILE)
 
+    // Commit-intent sentinel (READ-ONLY): an agent left output uncommitted plus
+    // this marker naming which state produced it, so the next edge can emit a
+    // disambiguated commit. Absent → Part A generic `code-changes` path.
+    const pendingCommitIntent = yield* readCommitIntent(fs)
+
     // TODO.md state is driven by its `status:` frontmatter (source of truth),
     // with open-questions presence gating the await-answers branch.
     const todoExists = yield* fs.exists(TODO_FILE)
@@ -345,6 +400,7 @@ export const gatherEvents = (): Effect.Effect<
       todoOpenQuestionsPresent,
       reviewPresent: reviewExists,
       reviewBasePresent,
+      ...(pendingCommitIntent !== undefined ? { pendingCommitIntent } : {}),
       lastCommitSubject,
       workingTreeClean,
       packages,

@@ -5,7 +5,7 @@ import { execSync } from "node:child_process"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Option } from "effect"
 import { NodeContext } from "@effect/platform-node"
-import { GitService } from "./Git.js"
+import { GitService, deriveCommitMessage } from "./Git.js"
 
 const run = <A>(eff: Effect.Effect<A, Error, GitService>) =>
   Effect.runPromise(eff.pipe(Effect.provide(GitService.Live), Effect.provide(NodeContext.layer)))
@@ -655,6 +655,98 @@ describe("GitService", () => {
       // TODO.md should remain dirty
       const status = git("status", "--porcelain")
       expect(status).toContain("TODO.md")
+    })
+
+    it("uses the supplied {message} and deletes the intent sentinel in the commit", async () => {
+      mkdirSync(join(repoDir, "src"), { recursive: true })
+      writeFileSync(join(repoDir, "src/x.ts"), "export const x = 1")
+      writeFileSync(join(repoDir, ".gtd-commit-intent"), "new-todo\n")
+
+      await run(
+        Effect.flatMap(GitService, (g) =>
+          g.commitPending({ message: "docs(plan): record TODO.md", restorePaths: [] }),
+        ),
+      )
+
+      expect(git("log", "-1", "--format=%s")).toBe("docs(plan): record TODO.md")
+      // Sentinel is gone from disk and tree is clean.
+      expect(existsSync(join(repoDir, ".gtd-commit-intent"))).toBe(false)
+      expect(git("status", "--porcelain").trim()).toBe("")
+    })
+
+    it("{removeLastPackage} removes the lowest-numbered .gtd/ package dir + sentinel", async () => {
+      mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
+      mkdirSync(join(repoDir, ".gtd", "02-bar"), { recursive: true })
+      writeFileSync(join(repoDir, ".gtd", "01-foo", "COMMIT_MSG.md"), "feat: foo\n")
+      writeFileSync(join(repoDir, ".gtd", "02-bar", "COMMIT_MSG.md"), "feat: bar\n")
+      writeFileSync(join(repoDir, "src.ts"), "export const y = 2")
+      writeFileSync(join(repoDir, ".gtd-commit-intent"), "execute\n")
+
+      await run(
+        Effect.flatMap(GitService, (g) =>
+          g.commitPending({ message: "feat: foo", removeLastPackage: true, restorePaths: [] }),
+        ),
+      )
+
+      // Lowest-numbered package removed; the higher one survives.
+      expect(existsSync(join(repoDir, ".gtd", "01-foo"))).toBe(false)
+      expect(existsSync(join(repoDir, ".gtd", "02-bar"))).toBe(true)
+      expect(existsSync(join(repoDir, ".gtd-commit-intent"))).toBe(false)
+      expect(git("log", "-1", "--format=%s")).toBe("feat: foo")
+    })
+
+    it("{restorePaths} keeps the listed paths uncommitted", async () => {
+      writeFileSync(join(repoDir, "src.ts"), "export const z = 3")
+      writeFileSync(join(repoDir, "KEEP.md"), "keep me dirty")
+      writeFileSync(join(repoDir, ".gtd-commit-intent"), "execute-simple\n")
+
+      await run(
+        Effect.flatMap(GitService, (g) =>
+          g.commitPending({ message: "feat: thing", restorePaths: ["KEEP.md"] }),
+        ),
+      )
+
+      // src.ts committed, KEEP.md still pending.
+      expect(git("ls-files", "src.ts").trim()).toBe("src.ts")
+      expect(git("status", "--porcelain")).toContain("KEEP.md")
+      expect(existsSync(join(repoDir, ".gtd-commit-intent"))).toBe(false)
+    })
+  })
+
+  describe("deriveCommitMessage — content-derived intent messages (edge-side)", () => {
+    it("execute → the package COMMIT_MSG.md verbatim", () => {
+      expect(
+        deriveCommitMessage("execute", { packageCommitMsg: "feat(x): do thing\n\nbody\n" }),
+      ).toBe("feat(x): do thing\n\nbody")
+    })
+
+    it("decompose → plan(gtd): decompose TODO.md into N work packages", () => {
+      expect(deriveCommitMessage("decompose", { packageCount: 3 })).toBe(
+        "plan(gtd): decompose TODO.md into 3 work packages",
+      )
+    })
+
+    it("human-review → review(gtd): create review for <short>", () => {
+      expect(deriveCommitMessage("human-review", { base: "abcdef1234567890" })).toBe(
+        "review(gtd): create review for abcdef1",
+      )
+    })
+
+    it("execute-simple → feat(gtd): <first heading of TODO.md>", () => {
+      expect(
+        deriveCommitMessage("execute-simple", { todoContent: "# Add the widget\n\nbody\n" }),
+      ).toBe("feat(gtd): Add the widget")
+    })
+
+    it("fix-tests → fix(gtd) subject WITH the Gtd-Test-Fix trailer", () => {
+      const msg = deriveCommitMessage("fix-tests", { verifyIteration: 2 })
+      expect(msg).toMatch(/^fix\(gtd\):/)
+      expect(msg).toMatch(/\nGtd-Test-Fix: 2$/m)
+    })
+
+    it("new-todo / modified-todo → fixed record subject", () => {
+      expect(deriveCommitMessage("new-todo", {})).toBe("docs(plan): record TODO.md")
+      expect(deriveCommitMessage("modified-todo", {})).toBe("docs(plan): record TODO.md")
     })
   })
 

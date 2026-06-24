@@ -157,8 +157,8 @@ describe("buildPrompt", () => {
     expect(out).not.toContain("Determine the test command")
   })
 
-  it("execute prompt for a single package instructs removing the empty .gtd/ directory", () => {
-    const out = buildPrompt(
+  it("execute prompt never injects the now-empty .gtd/ removal line (edge owns it now)", () => {
+    const single = buildPrompt(
       result("execute", {
         context: {
           packages: [
@@ -172,7 +172,9 @@ describe("buildPrompt", () => {
         },
       }),
     )
-    expect(out).toContain("remove the now-empty `.gtd/` directory")
+    // The edge's commitPending({ removeLastPackage }) removes `.gtd/`; the prompt
+    // must no longer instruct the agent to do it (single- OR multi-package).
+    expect(single).not.toContain("remove the now-empty `.gtd/` directory")
   })
 
   it("execute prompt for multiple packages does NOT instruct removing the .gtd/ directory", () => {
@@ -198,6 +200,24 @@ describe("buildPrompt", () => {
     )
     expect(out).toContain("### Package: `01-foo/`")
     expect(out).not.toContain("remove the now-empty `.gtd/` directory")
+  })
+
+  it("execute prompt instructs writing the `execute` intent marker", () => {
+    const out = buildPrompt(
+      result("execute", {
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "First task" }],
+              hasCommitMsg: true,
+            },
+          ],
+        },
+      }),
+    )
+    expect(out).toContain(".gtd-commit-intent")
   })
 
   it("execute prompt fences backtick-containing task content with a long-enough fence", () => {

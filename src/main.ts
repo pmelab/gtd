@@ -2,7 +2,8 @@ import { FileSystem } from "@effect/platform"
 import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { ConfigService } from "./Config.js"
-import { GitService } from "./Git.js"
+import { GitService, deriveCommitMessage } from "./Git.js"
+import type { CommitMessageInputs } from "./Git.js"
 import { gatherEvents } from "./Events.js"
 import { startDetect } from "./State.js"
 import type { ResolveResult } from "./State.js"
@@ -68,11 +69,48 @@ const program = Effect.gen(function* () {
           yield* loop()
           break
         }
-        case "commitPending":
-          yield* git.commitPending()
+        case "commitPending": {
+          // The machine passes a FIXED `message` for some intents and leaves it
+          // undefined for content-derived ones. Compute the derived message HERE
+          // (all reads in the edge) before committing. `pendingCommitIntent` is
+          // the intent that produced this dirty tree.
+          const intent = r.context.pendingCommitIntent
+          let message = action.message
+          if (message === undefined && intent !== undefined) {
+            const fs = yield* FileSystem.FileSystem
+            const inputs: { -readonly [K in keyof CommitMessageInputs]: CommitMessageInputs[K] } =
+              {}
+            if (intent === "execute") {
+              const pkg = r.context.packages[0]
+              if (pkg !== undefined && pkg.hasCommitMsg) {
+                inputs.packageCommitMsg = yield* fs
+                  .readFileString(`.gtd/${pkg.name}/COMMIT_MSG.md`)
+                  .pipe(Effect.catchAll(() => Effect.succeed("")))
+              }
+            } else if (intent === "decompose") {
+              inputs.packageCount = r.context.packages.length
+            } else if (intent === "human-review") {
+              if (r.context.baseRef !== undefined) inputs.base = r.context.baseRef
+            } else if (intent === "execute-simple") {
+              inputs.todoContent = yield* fs
+                .readFileString("TODO.md")
+                .pipe(Effect.catchAll(() => Effect.succeed("")))
+            } else if (intent === "fix-tests") {
+              // The verify counter folds COMMIT events; the next attempt number
+              // is the current iteration + 1 (preserves the `Gtd-Test-Fix:` trailer).
+              inputs.verifyIteration = r.context.verifyIterations + 1
+            }
+            message = deriveCommitMessage(intent, inputs)
+          }
+          yield* git.commitPending({
+            ...(message !== undefined ? { message } : {}),
+            ...(action.removeLastPackage ? { removeLastPackage: true } : {}),
+            ...(action.restorePaths !== undefined ? { restorePaths: action.restorePaths } : {}),
+          })
           handle.advance(yield* gatherEvents())
           yield* loop()
           break
+        }
         case "runTestGate": {
           const t = yield* runner.run()
           handle.advance([{ type: "TEST_RESULT", exitCode: t.exitCode, output: t.output }])

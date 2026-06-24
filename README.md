@@ -25,7 +25,17 @@ leaf can expose an `edgeAction` (`removeGtdDir` / `closeReview` / `commitPending
 / `runTestGate` / `reviewPreRender`) telling the IO edge to perform one side
 effect and feed the result back as a `TEST_RESULT` / `REVIEW_RECORDED` event (or
 a freshly re-gathered `RESOLVE`); the machine re-evaluates and projects the next
-state. The edge opens the actor via `startDetect()` in `src/State.ts` and
+state. Agent prompts never run `git commit` themselves: every agent leaves its
+output **uncommitted** plus a `.gtd-commit-intent` sentinel naming the producing
+state (`execute` / `decompose` / `new-todo` / `modified-todo` / `execute-simple`
+/ `human-review` / `fix-tests`). The next cycle's edge reads that marker
+(READ-ONLY in `src/Events.ts`), the machine folds it to a disambiguated
+`commitPending` edge action (ahead of the generic `code-changes` leaf), and the
+edge computes the message and commits — deleting the marker (and, for `execute`,
+the consumed `.gtd/NN-…` package dir) in the same commit. The machine stays pure:
+it only maps the intent to the action and its cleanup flags; the edge derives any
+content-based message (`COMMIT_MSG.md`, package count, review short-sha, TODO.md
+heading, and the load-bearing `Gtd-Test-Fix:` trailer). The edge opens the actor via `startDetect()` in `src/State.ts` and
 advances the same handle — the machine stays pure (no IO/Effect/git). The
 no-agent loop is bounded by `MAX_NO_AGENT_HOPS` (8) and a `stuck` guard
 (re-settling on the same no-agent leaf with no progress); either escalates.
@@ -67,12 +77,13 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 | Leaf state          | When it wins (first matching guard, top to bottom)                                                                                       | Prompt                                                                                                                                                                                                                                    |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `escalate`          | A committed `ERRORS.md` is present, OR the trailing run of `Gtd-Test-Fix:`-trailer commits hit the cap                                  | Stop; surface the failure, keep `ERRORS.md` as the human gate                                                                                                                                                                            |
-| `code-changes`      | Any uncommitted change outside `TODO.md`/`REVIEW.md` **and no `REVIEW.md` present**                                                     | Commit everything with `git add -A` (leaving `TODO.md` for the planning phase)                                                                                                                                                           |
+| `commit-pending`    | A `.gtd-commit-intent` marker is present (an agent left output for the edge to commit)                                                  | EDGE-DRIVEN: commit the agent's output with the intent-derived message, delete the marker (and, for `execute`, the consumed package dir); no prompt                                                                                       |
+| `code-changes`      | Any uncommitted change outside `TODO.md`/`REVIEW.md`, **no `REVIEW.md` present**, and **no intent marker**                              | Commit everything with `git add -A` (leaving `TODO.md` for the planning phase)                                                                                                                                                           |
 | `await-review`      | `REVIEW.md` committed and unmodified (no feedback yet)                                                                                   | Human gate — wait for the reviewer to work through `REVIEW.md`; **STOP**                                                                                                                                                                 |
 | `review-incomplete` | `REVIEW.md` dirty and at least one checkbox is still unchecked                                                                           | Human gate — report that the review is unfinished and stop; the human must tick all boxes before re-running gtd                                                                                                                           |
 | `close-review`      | `REVIEW.md` dirty, ALL boxes ticked, and no other change (no non-tick REVIEW.md edits, no dirty source, no untracked files)             | The edge discards the ticks, deletes `REVIEW.md`, and commits the close                                                                                                                                                                   |
 | `review-process`    | `REVIEW.md` dirty, all boxes ticked, AND real feedback present (non-tick REVIEW.md edits, dirty source files, or untracked files)       | EDGE-DRIVEN: the edge commits the verbatim dirty tree (`docs(review): record raw feedback for <base>`), captures the diff, `git revert`s that commit, removes `REVIEW.md`, and closes (`chore(gtd): close approved review for <sha>`) — all before the agent runs. The agent only synthesizes `TODO.md` from the injected diff. |
-| `execute`        | `.gtd/` contains numbered work packages                                                         | Edge runs `npm run test` first; on green, name the single next package and inline its tasks (one subagent per task); on the last package also remove `.gtd/`; on red, fix-tests (or escalate) |
+| `execute`        | `.gtd/` contains numbered work packages                                                         | Edge runs `npm run test` first; on green, name the single next package and inline its tasks (one subagent per task), then leave the work uncommitted with an `execute` marker (the edge commits it and removes the consumed package dir); on red, fix-tests (or escalate) |
 | `cleanup`        | `.gtd/` exists but holds no packages                                                            | Remove empty `.gtd/`, then verify — vestigial safety net                                                                                                                                     |
 | `execute-simple` | `TODO.md` `status: simple` (≤5 files), or legacy `<!-- simple -->`                              | Implement the simple plan directly, no decomposition                                                                                                                                         |
 | `decompose`      | `TODO.md` `status: complete`                                                                     | Record `TODO.md`, then decompose into ordinal, dependency-ordered packages                                                                                                  |
@@ -89,7 +100,8 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 > the captured output on `context.testOutput`), red at/over cap → `escalate`.
 > `human-review` is **not** test-gated — it settles directly. The `fix-tests`
 > prompt embeds the captured failure output and instructs the agent to make
-> exactly ONE `fix(gtd): <desc>` commit (with a `Gtd-Test-Fix: <n>` trailer),
+> exactly ONE fix, leave it uncommitted with a `fix-tests` marker (the edge then
+> commits it with a `fix(gtd): …` subject and the `Gtd-Test-Fix: <n>` trailer),
 > then re-run gtd so the gate re-evaluates.
 
 > **Review base**: the closest-to-HEAD of {parent-branch merge-base, last
@@ -101,9 +113,11 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 > **Test-fix loop**: the fix-tests prompt drives an internal loop — read the
 > uncommitted `ERRORS.md` attempt log, make one fix, re-run, append the attempt,
 > repeat up to **3** (the hardcoded `MAX_VERIFY_ITERATIONS` — **not** overridable
-> via `.gtdrc`). Nothing is committed per attempt; only on success (a single
-> `fix(gtd): <desc>` commit carrying a `Gtd-Test-Fix: <n>` trailer, `ERRORS.md`
-> discarded) or on escalation (`ERRORS.md` committed as the human gate). The
+> via `.gtdrc`). Nothing is committed per attempt, and the agent never commits at
+> all: on success it leaves the fix uncommitted with a `fix-tests` marker
+> (`ERRORS.md` discarded) and the next cycle's edge makes the single
+> `fix(gtd): …` commit carrying the `Gtd-Test-Fix: <n>` trailer; on escalation it
+> leaves `ERRORS.md` for the edge to commit as the human gate. The
 > trailing run of commits carrying a `Gtd-Test-Fix:` trailer at HEAD is counted in
 > the Effect edge; reaching the cap, a recurring failure signature, or a committed
 > `ERRORS.md` all resolve to `escalate`. Any commit WITHOUT a `Gtd-Test-Fix:`

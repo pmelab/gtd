@@ -3,6 +3,7 @@ import {
   type GtdEvent,
   MAX_NO_AGENT_HOPS,
   MAX_VERIFY_ITERATIONS,
+  type PendingCommitIntent,
   type ResolvePayload,
   resolve,
   start,
@@ -432,6 +433,79 @@ describe("no-agent action leaves — edgeAction + loop-back", () => {
     const after = handle.advance([resolveEvent({ codeDirty: false, reviewBasePresent: false })])
     expect(after.value).toBe("verified")
     expect(after.context.noAgentHops).toBe(1)
+  })
+})
+
+describe("commit-pending — intent-disambiguated commit (Part B)", () => {
+  it("dirty tree with NO intent → code-changes (Part A regression)", () => {
+    const r = resolve([resolveEvent({ codeDirty: true, reviewPresent: false })])
+    expect(r.value).toBe("code-changes")
+    expect(r.edgeAction).toEqual({ kind: "commitPending" })
+  })
+
+  // Per-intent: a dirty-tree RESOLVE carrying that marker → commit-pending leaf
+  // with the expected commitPending payload (machine-only; message/flags assert).
+  const cases: Array<{
+    readonly intent: PendingCommitIntent
+    readonly expected: Record<string, unknown>
+  }> = [
+    { intent: "execute", expected: { kind: "commitPending", removeLastPackage: true, restorePaths: [] } },
+    { intent: "decompose", expected: { kind: "commitPending", restorePaths: [] } },
+    { intent: "human-review", expected: { kind: "commitPending", restorePaths: [] } },
+    { intent: "execute-simple", expected: { kind: "commitPending", restorePaths: [] } },
+    {
+      intent: "new-todo",
+      expected: { kind: "commitPending", message: "docs(plan): record TODO.md", restorePaths: [] },
+    },
+    {
+      intent: "modified-todo",
+      expected: { kind: "commitPending", message: "docs(plan): record TODO.md", restorePaths: [] },
+    },
+    { intent: "fix-tests", expected: { kind: "commitPending", restorePaths: ["TODO.md"] } },
+  ]
+
+  for (const { intent, expected } of cases) {
+    it(`intent "${intent}" → commit-pending emitting ${JSON.stringify(expected)}`, () => {
+      const r = resolve([resolveEvent({ codeDirty: true, pendingCommitIntent: intent })])
+      expect(r.value).toBe("commit-pending")
+      expect(r.edgeAction).toEqual(expected)
+    })
+  }
+
+  it("intent routes to commit-pending AHEAD of code-changes even with codeDirty", () => {
+    const r = resolve([resolveEvent({ codeDirty: true, pendingCommitIntent: "execute" })])
+    expect(r.value).toBe("commit-pending")
+  })
+
+  it("commit-pending bumps noAgentHops; cleared intent on next RESOLVE advances", () => {
+    const handle = start([resolveEvent({ codeDirty: true, pendingCommitIntent: "decompose" })])
+    expect(handle.current.value).toBe("commit-pending")
+    const after = handle.advance([resolveEvent({ codeDirty: false, reviewBasePresent: false })])
+    expect(after.value).toBe("verified")
+    expect(after.context.noAgentHops).toBe(1)
+  })
+
+  it("stuck: marker persists after the commit (tree never cleared) → escalate", () => {
+    const handle = start([resolveEvent({ codeDirty: true, pendingCommitIntent: "execute" })])
+    expect(handle.current.value).toBe("commit-pending")
+    const after = handle.advance([
+      resolveEvent({ codeDirty: true, pendingCommitIntent: "execute" }),
+    ])
+    expect(after.value).toBe("escalate")
+  })
+
+  it("noAgentHops cap bounds a commit that keeps making progress but never finishes", () => {
+    // Alternate intent ↔ generic code-changes so each hop progresses (no stuck)
+    // and the hop counter climbs to the cap → escalate.
+    const intent = resolveEvent({ codeDirty: true, pendingCommitIntent: "decompose" })
+    const code = resolveEvent({ codeDirty: true })
+    const handle = start([intent])
+    let last = handle.current
+    for (let i = 0; i < MAX_NO_AGENT_HOPS; i++) {
+      last = handle.advance([i % 2 === 0 ? code : intent])
+      if (last.value === "escalate") break
+    }
+    expect(last.value).toBe("escalate")
   })
 })
 

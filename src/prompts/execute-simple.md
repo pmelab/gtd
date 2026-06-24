@@ -47,11 +47,17 @@ The testing subagent should:
 
 **If tests pass:**
 
-1. Derive a conventional commit message from the task in `TODO.md`:
-   - Use the task description to determine `<type>(<scope>): <subject>`
-   - Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
-2. Delete `TODO.md`
-3. Commit all changes with the derived commit message
+1. Delete `TODO.md` (its task is now implemented).
+2. Leave all changes **uncommitted** and write the intent marker file
+   `.gtd-commit-intent` at the repository root containing exactly:
+
+   ```
+   execute-simple
+   ```
+
+   Re-run gtd — the next cycle commits the implementation (and the `TODO.md`
+   deletion) with a conventional message derived from the task and deletes the
+   marker.
 
 **If tests fail after max retries:**
 

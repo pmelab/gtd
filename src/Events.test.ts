@@ -9,6 +9,7 @@ import {
   computeReviewHasRealFeedback,
   computeReviewHasUncheckedBoxes,
   getPackages,
+  readCommitIntent,
 } from "./Events.js"
 
 const run = <A>(eff: Effect.Effect<A, Error, FileSystem.FileSystem>) =>
@@ -93,6 +94,47 @@ describe("getPackages — inlined task contents + commit-msg flag", () => {
   it("no .gtd dir → empty package list", async () => {
     const packages = await withFs((fs) => getPackages(fs))
     expect(packages).toEqual([])
+  })
+})
+
+describe("readCommitIntent — commit-intent sentinel (READ-ONLY)", () => {
+  it("execute marker → 'execute'", async () => {
+    writeFileSync(join(repoDir, ".gtd-commit-intent"), "execute\n")
+    const intent = await withFs((fs) => readCommitIntent(fs))
+    expect(intent).toBe("execute")
+  })
+
+  it("decompose marker → 'decompose'", async () => {
+    writeFileSync(join(repoDir, ".gtd-commit-intent"), "decompose")
+    const intent = await withFs((fs) => readCommitIntent(fs))
+    expect(intent).toBe("decompose")
+  })
+
+  it("no marker → undefined (Part A code-changes path)", async () => {
+    const intent = await withFs((fs) => readCommitIntent(fs))
+    expect(intent).toBeUndefined()
+  })
+
+  it("unrecognized marker content → undefined", async () => {
+    writeFileSync(join(repoDir, ".gtd-commit-intent"), "bogus-intent\n")
+    const intent = await withFs((fs) => readCommitIntent(fs))
+    expect(intent).toBeUndefined()
+  })
+
+  it("all seven intent kinds round-trip", async () => {
+    for (const kind of [
+      "execute",
+      "decompose",
+      "new-todo",
+      "modified-todo",
+      "execute-simple",
+      "human-review",
+      "fix-tests",
+    ]) {
+      writeFileSync(join(repoDir, ".gtd-commit-intent"), kind)
+      const intent = await withFs((fs) => readCommitIntent(fs))
+      expect(intent).toBe(kind)
+    }
   })
 })
 

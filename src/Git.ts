@@ -1,5 +1,6 @@
 import { Command, CommandExecutor } from "@effect/platform"
 import { Context, Effect, Layer, Option } from "effect"
+import type { PendingCommitIntent } from "./Machine.js"
 
 export interface GitOperations {
   readonly statusPorcelain: () => Effect.Effect<string, Error>
@@ -42,10 +43,96 @@ export interface GitOperations {
    */
   readonly closeReview: (base: string) => Effect.Effect<void, Error>
   /**
-   * Stages all changes, unstages TODO.md and REVIEW.md, then commits.
-   * Skips the commit when nothing remains staged after the restore.
+   * Stages all changes, unstages `restorePaths` (default ["TODO.md","REVIEW.md"]),
+   * also stages the deletion of the commit-intent sentinel and — when
+   * `removeLastPackage` is set — `git rm -r` the lowest-numbered remaining
+   * `.gtd/NN-…` package dir, then commits with `message` (default
+   * `chore(gtd): commit pending changes`). Skips the commit when nothing remains
+   * staged after the restores.
    */
-  readonly commitPending: () => Effect.Effect<void, Error>
+  readonly commitPending: (opts?: CommitPendingOptions) => Effect.Effect<void, Error>
+}
+
+/**
+ * Inputs the edge gathers to derive the content-derived commit message for an
+ * intent (see `deriveCommitMessage`). All reads happen in the edge; this struct
+ * just carries the already-read facts so the derivation itself stays pure.
+ */
+export interface CommitMessageInputs {
+  /** Selected package's `COMMIT_MSG.md` content (execute). */
+  readonly packageCommitMsg?: string
+  /** Remaining package count (decompose → N). */
+  readonly packageCount?: number
+  /** Review base ref (human-review → short sha). */
+  readonly base?: string
+  /** `TODO.md` content (execute-simple → first heading). */
+  readonly todoContent?: string
+  /** Current verify attempt number (fix-tests → `Gtd-Test-Fix: <n>` trailer). */
+  readonly verifyIteration?: number
+}
+
+const firstHeading = (markdown: string): string | undefined => {
+  for (const line of markdown.split("\n")) {
+    const m = line.match(/^#+\s+(.+?)\s*$/)
+    if (m) return m[1]
+  }
+  return undefined
+}
+
+/**
+ * Deterministic, edge-side message derivation for the content-derived intents.
+ * The machine leaves `message` undefined for these and the edge fills it here:
+ *
+ *   - `execute`        → the selected package's `COMMIT_MSG.md` verbatim.
+ *   - `decompose`      → `plan(gtd): decompose TODO.md into N work packages`.
+ *   - `human-review`   → `review(gtd): create review for <short>` (7-char base).
+ *   - `execute-simple` → `feat(gtd): <TODO.md first heading>` (deterministic).
+ *   - `fix-tests`      → `fix(gtd): apply test fix` PLUS a `Gtd-Test-Fix: <n>`
+ *     trailer (load-bearing — the verify/escalate gate counts the trailer).
+ *   - `new-todo` / `modified-todo` carry a FIXED message from the machine and
+ *     never reach this helper; included for totality.
+ */
+export const deriveCommitMessage = (
+  intent: PendingCommitIntent,
+  inputs: CommitMessageInputs,
+): string => {
+  switch (intent) {
+    case "execute": {
+      const msg = (inputs.packageCommitMsg ?? "").trim()
+      return msg.length > 0 ? msg : "chore(gtd): commit work package"
+    }
+    case "decompose": {
+      const n = inputs.packageCount ?? 0
+      return `plan(gtd): decompose TODO.md into ${n} work packages`
+    }
+    case "human-review": {
+      const short = (inputs.base ?? "").slice(0, 7)
+      return `review(gtd): create review for ${short}`
+    }
+    case "execute-simple": {
+      const heading = firstHeading(inputs.todoContent ?? "")
+      return heading !== undefined
+        ? `feat(gtd): ${heading}`
+        : "feat(gtd): execute simple task"
+    }
+    case "fix-tests": {
+      const n = inputs.verifyIteration ?? 1
+      return `fix(gtd): apply test fix\n\nGtd-Test-Fix: ${n}`
+    }
+    case "new-todo":
+    case "modified-todo":
+      return "docs(plan): record TODO.md"
+  }
+}
+
+/** Options for the generalized `commitPending` edge action (see Machine.ts). */
+export interface CommitPendingOptions {
+  /** Commit subject/body; default `chore(gtd): commit pending changes`. */
+  readonly message?: string
+  /** Paths to keep uncommitted; default `["TODO.md", "REVIEW.md"]`. */
+  readonly restorePaths?: ReadonlyArray<string>
+  /** Also remove the lowest-numbered remaining `.gtd/NN-…` package dir. */
+  readonly removeLastPackage?: boolean
 }
 
 const run = (
@@ -54,6 +141,35 @@ const run = (
   Command.make(...args).pipe(
     Command.string,
     Effect.mapError((e) => new Error(String(e))),
+  )
+
+/**
+ * Commit-intent sentinel path — MUST match `Events.ts` (`COMMIT_INTENT_FILE`).
+ * The edge deletes it as part of the disambiguated commit so the dirty tree
+ * clears and the loop advances. Top-level (not inside `.gtd/`) so it works for
+ * every intent regardless of whether `.gtd/` exists.
+ */
+const COMMIT_INTENT_FILE = ".gtd-commit-intent"
+
+/**
+ * Lowest-numbered remaining `.gtd/NN-…` package directory, or undefined. This is
+ * the package `execute` just consumed (packages execute in ordinal order). Pure
+ * `ls`-based lookup so it works whether or not the dir is tracked.
+ */
+const lowestPackageDir = (
+  exec: (...args: [string, ...Array<string>]) => Effect.Effect<string, Error>,
+): Effect.Effect<string | undefined, Error> =>
+  exec("ls", "-1", ".gtd").pipe(
+    Effect.map((out) =>
+      out
+        .split("\n")
+        .map((s) => s.trim())
+        .filter((s) => /^\d+-/.test(s))
+        .sort(),
+    ),
+    Effect.map((dirs) => (dirs.length > 0 ? `.gtd/${dirs[0]}` : undefined)),
+    // No `.gtd/` (ls fails) → nothing to remove.
+    Effect.catchAll(() => Effect.succeed<string | undefined>(undefined)),
   )
 
 export class GitService extends Context.Tag("GitService")<GitService, GitOperations>() {
@@ -234,17 +350,41 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
 
         removeGtdDir: () => exec("rm", "-rf", ".gtd").pipe(Effect.asVoid),
 
-        commitPending: () =>
+        commitPending: (opts?: CommitPendingOptions) =>
           Effect.gen(function* () {
-            // Stage all changes
+            const message = opts?.message ?? "chore(gtd): commit pending changes"
+            const restorePaths = opts?.restorePaths ?? ["TODO.md", "REVIEW.md"]
+
+            // When removing the consumed package, find the lowest-numbered
+            // remaining `.gtd/NN-…` dir and stage its deletion in this commit.
+            if (opts?.removeLastPackage) {
+              const dir = yield* lowestPackageDir(exec)
+              if (dir !== undefined) {
+                // Remove from disk; the `git add -A` below stages the deletion
+                // (tracked) or simply records the absence (untracked). Works
+                // uniformly without depending on `git rm`'s tracked-only behavior.
+                yield* exec("rm", "-rf", "--", dir).pipe(
+                  Effect.asVoid,
+                  Effect.catchAll(() => Effect.void),
+                )
+              }
+            }
+
+            // Delete the intent sentinel from disk FIRST so the subsequent
+            // `git add -A` stages its removal as part of this same commit
+            // (works whether the sentinel was tracked or untracked).
+            yield* exec("rm", "-f", "--", COMMIT_INTENT_FILE).pipe(
+              Effect.asVoid,
+              Effect.catchAll(() => Effect.void),
+            )
+            // Stage all changes (including the sentinel deletion above).
             yield* exec("git", "add", "-A")
-            // Unstage TODO.md and REVIEW.md individually (tolerate failure when not staged)
-            yield* exec("git", "restore", "--staged", "TODO.md").pipe(
-              Effect.catchAll(() => Effect.void),
-            )
-            yield* exec("git", "restore", "--staged", "REVIEW.md").pipe(
-              Effect.catchAll(() => Effect.void),
-            )
+            // Unstage the restore paths individually (tolerate failure when not staged)
+            for (const path of restorePaths) {
+              yield* exec("git", "restore", "--staged", "--", path).pipe(
+                Effect.catchAll(() => Effect.void),
+              )
+            }
             // Check if anything remains staged
             const cachedExitCode = yield* Command.make(
               "git",
@@ -258,7 +398,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             )
             // exit 0 means nothing staged — skip commit
             if (cachedExitCode === 0) return
-            yield* exec("git", "commit", "-m", "chore(gtd): commit pending changes")
+            yield* exec("git", "commit", "-m", message)
           }),
 
         recordAndRevertReview: (base: string) =>

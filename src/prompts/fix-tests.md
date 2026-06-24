@@ -14,29 +14,32 @@
 4. Loop up to **3 attempts**. If the same failure signature recurs with no
    progress, stop early and escalate.
 
-The rule: **only commit on success or escalation** — never commit a
-half-finished attempt.
+The rule: **leave the resolved state uncommitted and let the next cycle's edge
+commit it** — never commit a half-finished attempt.
 
-- **On success** (tests green): commit **all** the fix changes in a single
-  commit with the `fix(gtd): <desc>` subject **and** a `Gtd-Test-Fix: <n>`
-  trailer in the body (where `<n>` is the current attempt number, starting at
-  1):
+- **On success** (tests green): leave **all** the fix changes uncommitted and
+  delete the uncommitted `ERRORS.md`. Then write the intent marker file
+  `.gtd-commit-intent` at the repository root containing exactly:
   ```
-  git commit -m "fix(gtd): <desc>" -m "Gtd-Test-Fix: <n>"
+  fix-tests
   ```
-  The `Gtd-Test-Fix:` trailer — **not** the `fix(gtd):` subject — is the
-  signal the verify/escalate gate counts; it is load-bearing and **must always
-  be present** on a test-fix success commit. Then delete the uncommitted
-  `ERRORS.md`. Do **not** commit `TODO.md` — leave it dirty (the working tree
-  should end with only `TODO.md` pending, or otherwise clean).
-- **On escalation** (3 attempts exhausted or no progress): commit `ERRORS.md`
-  with the full attempt log so the next cycle stops at the human gate.
+  The next gtd cycle's edge commits the fix in a single commit with a
+  `fix(gtd): …` subject **and** a `Gtd-Test-Fix: <n>` trailer in the body (the
+  edge derives `<n>` from the verify counter), then deletes the marker. The
+  `Gtd-Test-Fix:` trailer — **not** the `fix(gtd):` subject — is the signal the
+  verify/escalate gate counts; the edge always emits it. Do **not** stage or
+  commit `TODO.md`; the edge keeps it dirty (the working tree should end with
+  only `TODO.md` pending, or otherwise clean).
+- **On escalation** (3 attempts exhausted or no progress): leave `ERRORS.md`
+  with the full attempt log uncommitted and write the `fix-tests` marker as
+  above. The next cycle's edge commits `ERRORS.md` and the gate stops at the
+  human escalation.
 
 Because attempts are not committed individually, an interrupted loop resumes
 from the package-execution commit: `git reset --hard HEAD` discards the partial
 work and the loop restarts cold.
 
-After committing, **re-run gtd** and **STOP**. The gate will re-evaluate on the
-next cycle.
+After writing the marker, **re-run gtd** and **STOP**. The edge commits the fix
+and the gate re-evaluates on the next cycle.
 
 ## Failing test output

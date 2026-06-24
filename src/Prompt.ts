@@ -36,7 +36,10 @@ const MODEL_STATES = new Set<LeafState>([
 const builtinResolveModel = (state: ModelState): string =>
   builtinTierDefault[stateTier[state]]
 
-const SECTIONS: Record<Exclude<LeafState, "cleanup" | "close-review" | "code-changes">, string> = {
+const SECTIONS: Record<
+  Exclude<LeafState, "cleanup" | "close-review" | "code-changes" | "commit-pending">,
+  string
+> = {
   "new-todo": newTodo,
   "modified-todo": modifiedTodo,
   decompose,
@@ -120,7 +123,9 @@ const fenceFor = (content: string): string => {
 const renderPackage = (pkg: GtdPackageFact): string => {
   const lines: Array<string> = ["", `### Package: \`${pkg.name}/\``, ""]
   if (pkg.hasCommitMsg) {
-    lines.push(`Commit with the message in \`${pkg.name}/COMMIT_MSG.md\`.`)
+    lines.push(
+      `The next cycle's edge commits this package using \`${pkg.name}/COMMIT_MSG.md\`.`,
+    )
     lines.push("")
   }
   for (const task of pkg.taskContents) {
@@ -155,7 +160,12 @@ export const buildPrompt = (
     }
   } else {
     const value = result.value as LeafState
-    if (value === "cleanup" || value === "close-review" || value === "code-changes") {
+    if (
+      value === "cleanup" ||
+      value === "close-review" ||
+      value === "code-changes" ||
+      value === "commit-pending"
+    ) {
       throw new Error(`Action leaf "${value}" is executed by the edge and must never reach buildPrompt`)
     }
     const section = MODEL_STATES.has(value)
@@ -165,12 +175,8 @@ export const buildPrompt = (
     const selectedPackage = result.context.packages[0]
     if (value === "execute" && selectedPackage !== undefined) {
       parts.push(renderPackage(selectedPackage), "")
-      if (result.context.packages.length === 1) {
-        parts.push(
-          "This is the LAST work package. In the SAME commit, also remove the now-empty `.gtd/` directory so the next run proceeds straight to human-review.",
-          "",
-        )
-      }
+      // `.gtd/` removal (including the last-package case) is handled by the
+      // edge's `commitPending({ removeLastPackage })` action, not the prompt.
     }
     if (result.autoAdvance) {
       parts.push(autoAdvance, "")

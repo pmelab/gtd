@@ -62,4 +62,12 @@ The subagent should:
 Run `node scripts/gtd.js format TODO.md` (use the same `scripts/gtd.js` path you
 invoked to get this prompt) to normalize formatting.
 
-Commit `TODO.md` with the developed plan.
+Leave `TODO.md` **uncommitted** and write the intent marker file
+`.gtd-commit-intent` at the repository root containing exactly:
+
+```
+new-todo
+```
+
+Re-run gtd — the next cycle commits the developed `TODO.md` and deletes the
+marker.

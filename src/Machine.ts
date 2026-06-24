@@ -21,6 +21,20 @@ export const MAX_VERIFY_ITERATIONS = 3
  */
 export const MAX_NO_AGENT_HOPS = 8
 
+/**
+ * The seven agent-output kinds an intent marker may carry. Each maps to a
+ * `commitPending` action; the machine selects the action + cleanup flags, the
+ * edge fills any content-derived message.
+ */
+export type PendingCommitIntent =
+  | "execute"
+  | "decompose"
+  | "new-todo"
+  | "modified-todo"
+  | "execute-simple"
+  | "human-review"
+  | "fix-tests"
+
 export interface GtdPackageFact {
   readonly name: string
   /** Task .md filenames, sorted (UNCHANGED — still drives the Context listing). */
@@ -64,6 +78,15 @@ export interface ResolvePayload {
   readonly reviewBasePresent: boolean
   /** A REVIEW.md is present (committed and/or dirty) — the review path owns routing. */
   readonly reviewPresent: boolean
+  /**
+   * Intent descriptor an agent left for the NEXT cycle's edge to commit. Read
+   * READ-ONLY from the `.gtd-commit-intent` sentinel marker (see Events.ts).
+   * When present, the dirty tree is routed to a disambiguated `commitPending`
+   * action AHEAD of the generic `code-changes` leaf; the machine maps the kind
+   * to the action+cleanup flags but NEVER reads files or computes content-derived
+   * messages (the edge fills those).
+   */
+  readonly pendingCommitIntent?: PendingCommitIntent
   // passthrough
   readonly lastCommitSubject: string
   readonly workingTreeClean: boolean
@@ -82,9 +105,64 @@ export type GtdEvent =
 export type EdgeAction =
   | { kind: "removeGtdDir" }
   | { kind: "closeReview"; base: string }
-  | { kind: "commitPending" }
+  /**
+   * Commit the agent's (or generic) pending changes. The bare Part A form (all
+   * optional fields absent) = the generic `code-changes` commit: default message
+   * `chore(gtd): commit pending changes`, restorePaths `["TODO.md","REVIEW.md"]`.
+   * The disambiguated form carries:
+   *   - `message` — a FIXED subject the machine knows; ABSENT for content-derived
+   *     intents (execute=COMMIT_MSG.md, decompose=count N, human-review=base
+   *     short-sha, execute-simple=from TODO.md) which the EDGE computes.
+   *   - `removeLastPackage` — also `git rm -r` the lowest-numbered remaining
+   *     `.gtd/NN-…` package dir in the SAME commit (set by the `execute` intent).
+   *   - `restorePaths` — paths to keep uncommitted (default ["TODO.md","REVIEW.md"]).
+   * The edge also deletes the intent sentinel as part of the same commit.
+   */
+  | {
+      kind: "commitPending"
+      message?: string
+      removeLastPackage?: boolean
+      restorePaths?: ReadonlyArray<string>
+    }
   | { kind: "runTestGate" }
   | { kind: "reviewPreRender"; base: string }
+
+/**
+ * Pure intent→action mapping. The machine NEVER reads files or derives content
+ * messages — it only selects the FIXED-string message (when one exists) and the
+ * cleanup flags. Intents with content-derived messages leave `message` undefined
+ * so the edge fills it.
+ *
+ *   execute        → message: undefined (edge reads COMMIT_MSG.md); removeLastPackage
+ *   decompose      → message: undefined (edge counts packages → N)
+ *   human-review   → message: undefined (edge derives base short-sha)
+ *   execute-simple → message: undefined (edge derives from TODO.md heading)
+ *   new-todo       → FIXED "docs(plan): record TODO.md"
+ *   modified-todo  → FIXED "docs(plan): record TODO.md"
+ *   fix-tests      → message: undefined (edge writes fixed subject + Gtd-Test-Fix trailer)
+ *
+ * `restorePaths` is intent-specific. Unlike the generic `code-changes` commit
+ * (which keeps TODO.md/REVIEW.md uncommitted), an agent-output commit must
+ * capture the agent's full output — including TODO.md/REVIEW.md edits and
+ * deletions — so most intents restore NOTHING (`[]`). The sole exception is
+ * `fix-tests`, which must leave TODO.md dirty (a fix commit never touches the
+ * plan), so it restores `["TODO.md"]`.
+ */
+const commitActionForIntent = (intent: PendingCommitIntent): EdgeAction => {
+  switch (intent) {
+    case "execute":
+      return { kind: "commitPending", removeLastPackage: true, restorePaths: [] }
+    case "new-todo":
+    case "modified-todo":
+      return { kind: "commitPending", message: "docs(plan): record TODO.md", restorePaths: [] }
+    case "decompose":
+    case "human-review":
+    case "execute-simple":
+      return { kind: "commitPending", restorePaths: [] }
+    case "fix-tests":
+      return { kind: "commitPending", restorePaths: ["TODO.md"] }
+  }
+}
 
 export interface GtdContext {
   verifyIterations: number
@@ -107,6 +185,8 @@ export interface GtdContext {
   recordSha?: string
   /** The action a settled action-leaf wants the edge to perform; else cleared. */
   edgeAction?: EdgeAction
+  /** Intent marker the current RESOLVE carried, for the disambiguated commit. */
+  pendingCommitIntent?: PendingCommitIntent
 }
 
 /** Terminal leaf-state ids. These are the only non-`replaying` states. */
@@ -116,6 +196,7 @@ export type LeafState =
   | "review-incomplete"
   | "await-review"
   | "code-changes"
+  | "commit-pending"
   | "execute"
   | "cleanup"
   | "decompose"
@@ -152,6 +233,13 @@ const resolveChain = (actions: ReadonlyArray<string>, stuckLeaf?: LeafState) => 
     event.type === "RESOLVE" ? event.payload : ({} as ResolvePayload)
   const chain: Array<unknown> = [
     { guard: { type: "errorsPresent", params: p }, target: "escalate", actions },
+    ...(stuckLeaf === "commit-pending"
+      ? [{ guard: { type: "stuckCommitPending", params: p }, target: "escalate", actions }]
+      : []),
+    // Intent-bearing dirty tree → disambiguated commit, AHEAD of the generic
+    // `code-changes` leaf. A dirty tree with NO intent still routes to
+    // `code-changes` below (Part A regression).
+    { guard: { type: "hasCommitIntent", params: p }, target: "commit-pending", actions },
     ...(stuckLeaf === "code-changes"
       ? [{ guard: { type: "stuckCodeChanges", params: p }, target: "escalate", actions }]
       : []),
@@ -197,6 +285,8 @@ const machine = setup({
     reviewModified: (_, params: ResolvePayload) => params.reviewModified,
     reviewUnmodified: (_, params: ResolvePayload) => params.reviewUnmodified,
     codeDirty: (_, params: ResolvePayload) => params.codeDirty && !params.reviewPresent,
+    // An intent marker is present — the agent left output for the edge to commit.
+    hasCommitIntent: (_, params: ResolvePayload) => params.pendingCommitIntent !== undefined,
     hasPackages: (_, params: ResolvePayload) => params.hasPackages,
     gtdDirExists: (_, params: ResolvePayload) => params.gtdDirExists,
     todoSimple: (_, params: ResolvePayload) => params.todoStatus === "simple",
@@ -232,6 +322,10 @@ const machine = setup({
       !params.reviewHasRealFeedback,
     stuckCodeChanges: ({ context }, params: ResolvePayload) =>
       context.lastAdvancedLeaf === "code-changes" && params.codeDirty && !params.reviewPresent,
+    // `commit-pending` made no progress: the marker still present after the
+    // edge's commit (the commit failed to clear the tree) → escalate.
+    stuckCommitPending: ({ context }, params: ResolvePayload) =>
+      context.lastAdvancedLeaf === "commit-pending" && params.pendingCommitIntent !== undefined,
     // Test-gate fold (mirrors the retired `selectPrompt`).
     testGreen: ({ event }) => event.type === "TEST_RESULT" && event.exitCode === 0,
     testRedBelowCap: ({ context, event }) =>
@@ -263,6 +357,7 @@ const machine = setup({
       return {
         // Cleared here; action-leaf entry actions re-set it afterwards.
         edgeAction: undefined,
+        pendingCommitIntent: p.pendingCommitIntent,
         lastCommitSubject: p.lastCommitSubject,
         workingTreeClean: p.workingTreeClean,
         packages: p.packages,
@@ -310,6 +405,23 @@ const machine = setup({
         { guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" },
       ],
       on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "code-changes") },
+    },
+    // Disambiguated commit: an agent left an intent marker. The entry maps the
+    // marker kind → a `commitPending` action (fixed-string message and/or
+    // cleanup flags); content-derived messages are filled by the edge.
+    "commit-pending": {
+      tags: ["auto-advance"],
+      entry: assign({
+        edgeAction: ({ context }) =>
+          context.pendingCommitIntent !== undefined
+            ? commitActionForIntent(context.pendingCommitIntent)
+            : ({ kind: "commitPending" } satisfies EdgeAction),
+        lastAdvancedLeaf: () => "commit-pending" as LeafState,
+      }),
+      always: [
+        { guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" },
+      ],
+      on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "commit-pending") },
     },
     cleanup: {
       tags: ["auto-advance"],

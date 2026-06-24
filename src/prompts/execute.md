@@ -33,19 +33,26 @@ Wait for all workers to complete.
 **If any worker fails** (crash, timeout, error — not test failure): Report which
 tasks failed. Ask the user: "Retry failed tasks / Skip and continue / Abort?"
 
-### Step 2: Commit the package
+### Step 2: Leave the work uncommitted and mark the intent
 
-After the workers complete:
+After the workers complete, do **not** commit, do **not** delete the package
+directory, and do **not** remove `.gtd/`. Instead, leave all changes uncommitted
+and write the intent marker file `.gtd-commit-intent` at the repository root
+containing exactly:
 
-1. Commit ALL changes using the commit message in the package's `COMMIT_MSG.md`
-   (noted below)
-2. Delete the package directory from `.gtd/`
+```
+execute
+```
+
+The next gtd cycle's edge commits these changes (using the package's
+`COMMIT_MSG.md`), removes the consumed package directory from `.gtd/`, and
+deletes the marker — all in one commit.
 
 Verification is NOT performed here. The next cycle's edge runs the test suite
-deterministically to verify what you just committed — do not run or determine a
-test command in this step.
+deterministically to verify what the edge just committed — do not run or
+determine a test command in this step.
 
 ### Step 3: Re-run gtd
 
-Re-run gtd. This continues to the next remaining package (if any); the next
-cycle's edge runs the tests that verify this commit.
+Re-run gtd. The next cycle commits this package, then continues to the next
+remaining package (if any) and runs the tests that verify the commit.
