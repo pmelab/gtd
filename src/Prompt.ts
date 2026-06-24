@@ -85,15 +85,6 @@ const buildContext = (context: GtdContext): string => {
     lines.push("```")
     lines.push("")
   }
-  if (context.bangComments && context.bangComments.length > 0) {
-    lines.push("")
-    lines.push("### `!!` follow-up comments (leftover work to harvest)")
-    lines.push("")
-    for (const c of context.bangComments) {
-      lines.push(`- \`${c.file}:${c.line}\` — ${c.text}`)
-    }
-    lines.push("")
-  }
   lines.push("")
   if (context.diff !== "") {
     lines.push("### Diff (`git diff HEAD`, with untracked files included)")

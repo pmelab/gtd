@@ -11,7 +11,8 @@ Read `REVIEW.md`. It contains:
 - **Chunk titles and explanations** written by the tool that generated it —
   these describe what each diff chunk does; use them as context when
   interpreting feedback.
-- **Base ref** (noted at the top) — the commit the review was based on.
+- **Base ref** (noted at the top as `<!-- base: … -->`) — the commit the review
+  was based on. Record this full hash; you will need it in Steps 6–8.
 - **Reviewer comments** — text the user added (inline or between chunks).
 - **Checkboxes** — informational only; do not treat checked/unchecked as
   approval or rejection. Read all content regardless of checkbox state.
@@ -25,7 +26,9 @@ changed during the session.
 
 Treat **every** modification to a source file as intentional reviewer feedback.
 There is no marker convention — if the reviewer edited a file, that edit
-expresses a desired change or demonstrates an issue.
+expresses a desired change or demonstrates an issue. This includes any `!!`
+comment lines added to source files — treat them as inline feedback hunks, not
+as separately injected context.
 
 Do not re-examine the original diff from the base ref. The explanations already
 present in `REVIEW.md` provide sufficient context for understanding what each
@@ -33,88 +36,105 @@ chunk was about.
 
 ## Step 4: Collect All Feedback
 
-Gather feedback from three sources:
+All feedback comes from a single source: the diff of reference commit "x"
+(recorded in Step 6, read back in Step 7). At this point, gather feedback from
+two places visible in that diff:
 
 1. **REVIEW.md comments** — any text the reviewer added to the file (inline
    notes, questions, suggestions written between or inside chunks).
-2. **Source file edits** — describe what was changed and infer the reviewer's
+2. **Source file edits** — every hunk in any source file, including lines
+   containing `!!` markers. Describe what was changed and infer the reviewer's
    intent from the surrounding REVIEW.md explanation.
-3. **`!!` follow-up comments in the reviewed code** — gtd has already harvested
-   the reviewer-added `!!` comments — the `!!` tokens on lines added since the
-   `review(gtd): create review …` commit — regardless of which files `REVIEW.md`
-   references, and inlined them in the Context above under "`!!` follow-up
-   comments". Pull each one into `TODO.md` verbatim, with enough context (file,
-   function, what needs to be done) to act on it later — intent is not parsed;
-   capture exactly what the comment says. Plain `TODO:` comments are ordinary
-   code and are **not** harvested — only `!!` comments are.
 
-## Step 5: Compose TODO.md
+Do not reference any injected context section for `!!` comments — they appear
+as ordinary diff hunks and are treated identically to other source edits.
 
-Write `TODO.md` in the project root. Structure it as a clear, actionable list of
-tasks derived from all collected feedback. Group related items if helpful. Be
-specific — reference file names, function names, or concepts from the REVIEW.md
-explanations so each item has enough context to act on without re-reading the
-diff.
+## Step 5: Commit Raw Feedback as Reference Commit "x"
 
-## Step 5b: Format TODO.md
-
-Run `node scripts/gtd.js format TODO.md` (use the same `scripts/gtd.js` path you
-invoked to get this prompt) to normalize formatting.
-
-## Step 6: Commit Raw Feedback Verbatim
-
-Before resetting, preserve the reviewer's entire working tree as a dedicated
+Before synthesizing, preserve the reviewer's entire working tree as a dedicated
 commit. This keeps the annotated `REVIEW.md` (with checkboxes), all source
-edits, any untracked files added during the session, and in-place `TODO:`
-markers in git history — exactly as the reviewer left them.
+edits, any untracked files added during the session, and any `!!` markers in
+git history — exactly as the reviewer left them.
 
-Read the `<!-- base: … -->` comment at the top of `REVIEW.md` to get the base
-ref (you already read this in Step 1). Then run:
+Use the full hash from the `<!-- base: … -->` comment you recorded in Step 1 as
+`<base>`. Then run:
 
 ```sh
 git add -A
 git commit -m "docs(review): record raw feedback for <base>"
 ```
 
-Replace `<base>` with the actual base ref from the `<!-- base: … -->` comment.
-Do not modify any file content — commit verbatim.
+Replace `<base>` with the actual base ref. Do not modify any file content —
+commit verbatim. Call this commit "x"; you will reference it in Steps 6 and 7.
 
-The subsequent reset and synthesis commit will run on top of this commit. The
-synthesis commit will revert the source edits; that churn is acceptable and
-expected — do not try to avoid it.
+## Step 6: Synthesize TODO.md from Commit "x"
 
-## Step 7: Reset — Exact Order Required
-
-Execute the reset sequence in this exact order:
+Run:
 
 ```sh
-# 1. Stage TODO.md FIRST so it survives the reset
+git show <x>
+```
+
+(or equivalently `git diff <x>^ <x>`) where `<x>` is the commit created in
+Step 5. This diff is the **single source of all feedback** — REVIEW.md comment
+hunks and source-edit hunks alike.
+
+Compose `TODO.md` in the project root. Structure it as a clear, actionable list
+of tasks derived from all collected feedback. Group related items if helpful. Be
+specific — reference file names, function names, or concepts from the REVIEW.md
+explanations so each item has enough context to act on without re-reading the
+diff.
+
+Then normalize formatting:
+
+```sh
+node scripts/gtd.js format TODO.md
+```
+
+Use the same `scripts/gtd.js` path that was invoked to get this prompt.
+
+Commit the result:
+
+```sh
 git add TODO.md
-
-# 2. Reset all tracked files to HEAD (discards reviewer's source edits and REVIEW.md edits)
-git checkout -- .
-
-# 3. Remove any untracked files the reviewer added during the session
-git clean -fd
-
-# 4. Delete REVIEW.md (it was tracked, so checkout restored it; delete it now)
-rm REVIEW.md
+git commit -m "docs(review): synthesize TODO.md from review feedback"
 ```
 
-After these commands: only `TODO.md` (staged) and the `REVIEW.md` deletion
-remain as pending changes.
+## Step 7: Mechanical Teardown via Revert
 
-## Step 8: Commit
+Undo ALL reviewer changes by reverting commit "x":
 
 ```sh
-git add -A
-git commit -m "docs(review): process review feedback into TODO.md"
+git revert --no-edit <x>
 ```
 
-The commit includes:
+**On conflict or non-clean exit (FAILURE BRANCH — STOP):**
 
-- `TODO.md` added (the extracted feedback)
-- `REVIEW.md` deleted (review session cleaned up)
+If `git revert --no-edit <x>` exits with a conflict or any non-zero status,
+immediately run:
 
-No source file changes are committed — those were illustrative edits by the
-reviewer, now captured as tasks in `TODO.md`.
+```sh
+git revert --abort
+```
+
+Then **STOP** and escalate to the human. Do NOT attempt to resolve conflicts
+automatically. Do NOT leave a half-reverted working tree. Report exactly which
+files conflicted and wait for manual resolution before proceeding.
+
+**On success:**
+
+If `REVIEW.md` is still tracked after the revert, remove it:
+
+```sh
+git rm REVIEW.md
+```
+
+Extract the short SHA (first 7 characters of the full hash from the
+`<!-- base: … -->` comment recorded in Step 1):
+
+```sh
+git commit -m "chore(gtd): close approved review for <short-sha>"
+```
+
+Replace `<short-sha>` with the actual 7-character prefix of the base ref. This
+commit subject must match exactly: `chore(gtd): close approved review for <short-sha>`.

@@ -57,8 +57,8 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 | ---------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `escalate`       | A committed `ERRORS.md` is present, OR the trailing run of `Gtd-Test-Fix:`-trailer commits hit the cap | Stop; surface the failure, keep `ERRORS.md` as the human gate                                                                                                                                |
 | `close-review`   | `REVIEW.md` dirty with ONLY forward checkbox ticks, nothing else, **and no `!!` comment**       | Discard ticks, delete `REVIEW.md`, commit the close                                                                                                                                          |
-| `code-changes`   | Any uncommitted change outside `TODO.md` **and** `REVIEW.md` (verbatim-first)                   | Commit everything with `git add -A` (leaving `TODO.md` for the planning phase)                                                                                                               |
-| `review-process` | `REVIEW.md` dirty with notes/ticks (no outside code), or an approved review with a `!!` comment | Commit raw feedback verbatim, then synthesize `TODO.md`; harvest `!!` comments (not plain `TODO:`)                                                                                            |
+| `code-changes`   | Any uncommitted change outside `TODO.md`/`REVIEW.md` **and no `REVIEW.md` present**             | Commit everything with `git add -A` (leaving `TODO.md` for the planning phase)                                                                                                               |
+| `review-process` | `REVIEW.md` dirty with notes/ticks (no outside code), or an approved review with a `!!` (or any note) | Commit the whole dirty tree verbatim as reference commit `x`, synthesize `TODO.md` from its diff, then `git revert` `x`, remove `REVIEW.md`, and close with the anchor commit — leaving no artifact |
 | `await-review`   | `REVIEW.md` committed and unmodified (no feedback yet)                                           | Human gate — wait for the reviewer to work through `REVIEW.md`; **STOP**                                                                                                                      |
 | `execute`        | `.gtd/` contains numbered work packages                                                         | Edge runs `npm run test` first; on green, name the single next package and inline its tasks (one subagent per task); on the last package also remove `.gtd/`; on red, fix-tests (or escalate) |
 | `cleanup`        | `.gtd/` exists but holds no packages                                                            | Remove empty `.gtd/`, then verify — vestigial safety net                                                                                                                                     |
@@ -107,16 +107,17 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 > lives only in the edge.
 
 > **`!!` follow-up comments** (a comment whose body begins with `!!`, in any
-> language — `// !!`, `# !!`, `<!-- !!`) are leftover work. They are harvested
-> verbatim into `TODO.md` during `review-process`; their presence also diverts
-> an otherwise-approved review away from `close-review`. Harvesting is
-> **scoped to the reviewer's session**: only `!!` tokens on lines *added* since
-> the `review(gtd): create review …` commit (the review baseline) are
-> harvested, regardless of which files `REVIEW.md` references — pre-existing
-> `!!` anywhere in the tree are ignored. Harvest is **read-only** — the comment
-> is captured verbatim into `TODO.md` but is not stripped from the source (the
-> reviewer's edits reach `review-process` already committed, since `code-changes`
-> runs first). Plain `TODO:` markers are ordinary code and are never swept up.
+> language — `// !!`, `# !!`, `<!-- !!`) signal leftover work and divert an
+> otherwise-approved review away from `close-review` into `review-process`.
+> While a `REVIEW.md` is present the `reviewPresent` gate suppresses
+> `code-changes`, so any source edits the reviewer made are **not** committed
+> before `review-process` runs — they arrive **uncommitted**. `review-process`
+> captures the entire dirty tree into a reference commit `x`, synthesizes
+> `TODO.md` from its diff, then `git revert`s `x` and closes with an anchor
+> commit, leaving no artifact. Only `!!` tokens on lines *added* since the
+> `review(gtd): create review …` commit (the review baseline) divert the flow —
+> pre-existing `!!` anywhere in the tree are ignored. Plain `TODO:` markers are
+> ordinary code and are never swept up.
 
 gtd coordinates phases — it doesn't dictate strategy. How to grill, how to
 commit, how to build, how to verify: those are left to other skills (or the
@@ -194,8 +195,8 @@ flowchart TD
     Start([Invoke /gtd]) --> Resolve{Fold history + working tree}
     Resolve -->|"ERRORS.md present or Gtd-Test-Fix: trailer run hit 3"| Escalate[escalate: stop, ask human]:::terminal
     Resolve -->|REVIEW.md ticks only, no !!| CloseReview[close-review: close approved review]:::terminal
-    Resolve -->|change outside TODO.md/REVIEW.md| CodeChanges[code-changes: git add -A, commit]
-    Resolve -->|REVIEW.md notes, or approved + !!| ReviewProcess[review-process]:::terminal
+    Resolve -->|"change outside TODO.md/REVIEW.md, no REVIEW.md present"| CodeChanges[code-changes: git add -A, commit]
+    Resolve -->|"REVIEW.md notes, or approved + !! (any note)"| ReviewProcess["review-process: commit x → synthesize TODO.md → git revert x → close anchor"]:::terminal
     Resolve -->|REVIEW.md committed, unmodified| AwaitReview[await-review: human gate]:::terminal
     Resolve -->|.gtd/ has packages| ExecuteTest{execute: edge runs npm run test}
     ExecuteTest -->|green| Execute[execute next package]
@@ -258,12 +259,13 @@ A typical feature:
    is already reviewed, it reports the tree healthy and fully reviewed
    (verified).
 9. Work `REVIEW.md` (tick boxes, leave notes, edit source, drop `!!` comments)
-   and run `/gtd`. Any change outside `REVIEW.md`/`TODO.md` is committed verbatim
-   first (`code-changes`). A pure-tick approval with nothing left over closes the
-   review (`close-review`); notes or `!!` comments fold your feedback into a
-   fresh `TODO.md` (`review-process`, harvesting `!!` tokens on lines added
-   since the review baseline commit, regardless of file membership), and the
-   loop starts over.
+   and run `/gtd`. While `REVIEW.md` is present the `reviewPresent` gate
+   suppresses `code-changes`, so source edits are **not** committed separately.
+   A pure-tick approval with nothing left over closes the review (`close-review`).
+   Any note or `!!` comment routes to `review-process`, which commits the whole
+   dirty tree verbatim as reference commit `x`, synthesizes `TODO.md` from its
+   diff, then `git revert`s `x` and closes with an anchor commit — leaving no
+   artifact — and the loop starts over.
 
 > If the test gate keeps failing, the fix-tests prompt loops internally up to
 > **3** attempts, tracking what was tried in an uncommitted `ERRORS.md`, and only

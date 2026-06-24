@@ -9,8 +9,6 @@ export interface GitOperations {
   readonly hasCommits: () => Effect.Effect<boolean, Error>
   readonly diffRef: (ref: string) => Effect.Effect<string, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
-  readonly checkoutTracked: () => Effect.Effect<void, Error>
-  readonly cleanUntracked: () => Effect.Effect<void, Error>
   readonly diffStatRef: (ref: string) => Effect.Effect<string, Error>
   readonly resolveDefaultBranch: () => Effect.Effect<Option.Option<string>, Error>
   readonly mergeBase: (a: string, b: string) => Effect.Effect<Option.Option<string>, Error>
@@ -21,15 +19,8 @@ export interface GitOperations {
   readonly commitSubjects: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly commitMessages: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly showHead: (path: string) => Effect.Effect<string, Error>
-  readonly grepBangAdded: (baseRef: string) => Effect.Effect<ReadonlyArray<BangComment>, Error>
-}
-
-/** A `!!` follow-up comment found in tracked source (any comment syntax). */
-export interface BangComment {
-  readonly file: string
-  readonly line: string
-  /** The comment body following `!!`, trimmed (trailing `-->` stripped). */
-  readonly text: string
+  /** Returns `true` if any reviewer-added `!!` comment exists in the working tree since `baseRef`. */
+  readonly hasBangAdded: (baseRef: string) => Effect.Effect<boolean, Error>
 }
 
 const run = (
@@ -95,11 +86,6 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
                 : Effect.fail(new Error(`Invalid ref: ${ref}`)),
             ),
           ),
-
-        checkoutTracked: () =>
-          exec("git", "checkout", "--", ".").pipe(Effect.map(() => undefined as void)),
-
-        cleanUntracked: () => exec("git", "clean", "-fd").pipe(Effect.map(() => undefined as void)),
 
         diffStatRef: (ref: string) => exec("git", "diff", "--stat", ref, "HEAD"),
 
@@ -220,12 +206,11 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
           )
         },
 
-        // Harvest `!!` follow-up comments found on lines the reviewer ADDED since a
-        // baseline ref. Diffs the working tree against `baseRef` (no second ref —
-        // picks up uncommitted edits). REVIEW.md and TODO.md are excluded. Untracked
-        // files are intent-to-added before diffing and reset afterward so they appear
-        // in the diff. `git diff` exit 1 / any failure → [].
-        grepBangAdded: (baseRef: string) =>
+        // Returns `true` if any reviewer-added `!!` comment exists in the working tree
+        // since `baseRef` (no second ref — compares ref to working tree). REVIEW.md and
+        // TODO.md are excluded. Untracked files are intent-to-added before diffing and
+        // reset afterward. Any failure → `false`.
+        hasBangAdded: (baseRef: string) =>
           Effect.gen(function* () {
             const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard")
             const untracked = untrackedRaw
@@ -249,47 +234,17 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
               )
             }
 
-            if (diff === "") return [] as ReadonlyArray<BangComment>
+            if (diff === "") return false
 
-            const results: BangComment[] = []
-            let currentFile = ""
-            let lineCounter = 0
             for (const rawLine of diff.split("\n")) {
               const line = rawLine.replace(/\r$/, "")
-              // new file header: +++ b/<path> or +++ /dev/null
-              if (line.startsWith("+++ ")) {
-                const rest = line.slice(4)
-                currentFile = rest.startsWith("b/") ? rest.slice(2) : ""
-                lineCounter = 0
-                continue
+              if (line.startsWith("+++ ")) continue
+              if (line.startsWith("+") && /(\/\/|#|<!--)\s*!!/.test(line.slice(1))) {
+                return true
               }
-              // hunk header: @@ -a,b +c,d @@ ...
-              const hunkMatch = line.match(/^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/)
-              if (hunkMatch) {
-                lineCounter = parseInt(hunkMatch[1]!, 10)
-                continue
-              }
-              // added line
-              if (line.startsWith("+")) {
-                const content = line.slice(1)
-                if (/(\/\/|#|<!--)\s*!!/.test(content)) {
-                  const text = content
-                    .replace(/^.*?(?:\/\/|#|<!--)\s*!!\s*/, "")
-                    .replace(/\s*-->\s*$/, "")
-                    .trim()
-                  results.push({ file: currentFile, line: String(lineCounter), text })
-                }
-                lineCounter++
-                continue
-              }
-              // context line
-              if (line.startsWith(" ")) {
-                lineCounter++
-              }
-              // removed lines (-): do not increment
             }
-            return results as ReadonlyArray<BangComment>
-          }).pipe(Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<BangComment>))),
+            return false
+          }).pipe(Effect.catchAll(() => Effect.succeed(false))),
       }
     }),
   )

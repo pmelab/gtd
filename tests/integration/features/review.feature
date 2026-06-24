@@ -58,7 +58,7 @@ Feature: Review workflow
     Then it succeeds
     And stdout contains "TODO.md"
     And stdout contains "REVIEW.md"
-    And stdout contains "git checkout -- ."
+    And stdout contains "git revert --no-edit"
 
   Scenario: Review process prompt instructs committing TODO.md and REVIEW.md deletion together
     Given a test project
@@ -87,7 +87,7 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "docs(review): process review feedback into TODO.md"
+    And stdout contains "chore(gtd): close approved review"
 
   Scenario: Review process prompt instructs recording raw feedback before reset
     Given a test project
@@ -170,7 +170,7 @@ Feature: Review workflow
     When I run gtd
     Then it succeeds
     And stdout contains "# Process Review Feedback"
-    And stdout does not contain "chore(gtd): close approved review"
+    And stdout does not contain "## Task: Close the approved review"
 
   Scenario: Ticking a checkbox plus adding prose routes to review-process, not close-review
     Given a test project
@@ -197,9 +197,9 @@ Feature: Review workflow
     When I run gtd
     Then it succeeds
     And stdout contains "# Process Review Feedback"
-    And stdout does not contain "chore(gtd): close approved review"
+    And stdout does not contain "## Task: Close the approved review"
 
-  Scenario: Ticking a checkbox plus a source-file edit commits verbatim first
+  Scenario: Ticking a checkbox plus a source-file edit routes to review-process
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -225,10 +225,11 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
-    And stdout does not contain "chore(gtd): close approved review"
+    And stdout contains "# Process Review Feedback"
+    And stdout does not contain "## Task: Commit the uncommitted changes"
+    And stdout contains "git revert --no-edit"
 
-  Scenario: code-changes prompt preserves REVIEW.md by unstaging it
+  Scenario: Note plus dirty source routes to review-process not code-changes
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -250,14 +251,15 @@ Feature: Review workflow
 
       - [ ] ./src/foo.ts#1
       """
-    And a file "src/app.ts" with:
+    And a file "src/scratch.ts" with:
       """
-      export function app() {}
+      // scratch notes from review session
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
-    And stdout contains "git restore --staged REVIEW.md"
+    And stdout contains "# Process Review Feedback"
+    And stdout does not contain "## Task: Commit the uncommitted changes"
+    And stdout contains "git revert --no-edit"
 
   Scenario: Error when base comment is missing from REVIEW.md
     Given a test project
@@ -283,7 +285,7 @@ Feature: Review workflow
     Then it fails
     And stderr contains "missing base ref"
 
-  Scenario: Untracked files added during review are committed verbatim first
+  Scenario: Untracked files added during review route to review-process
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -311,7 +313,8 @@ Feature: Review workflow
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
+    And stdout contains "# Process Review Feedback"
+    And stdout does not contain "## Task: Commit the uncommitted changes"
 
   Scenario: An unmodified committed REVIEW.md is the review gate
     Given a test project

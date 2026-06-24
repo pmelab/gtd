@@ -1,16 +1,11 @@
-# Aspirational — covers example.md Rule 9 `!!` comment harvesting. Leftover
-# `!!` comments (a comment whose body begins with `!!`, in any language) are
-# consolidated verbatim into a new TODO.md. Only `!!` on lines ADDED since the
-# `review(gtd): create review …` commit are harvested (reviewer-added work);
-# pre-existing `!!` are ignored. Harvest is read-only. The reviewer's source
-# edits reach review-process already committed (code-changes runs first), so
-# the `!!` is captured into TODO.md but stays in source history — it is not
-# auto-stripped. Intent is not parsed. Plain `TODO:` markers are never
-# harvested. Allowed to fail.
+# `!!` on lines added since the review-create commit divert an otherwise-approved
+# review into `review-process` (boolean `bangPresent`); the prompt instructs the
+# agent to read the commit-"x" diff and `git revert` it, leaving NO `!!` artifact;
+# per-comment text is no longer surfaced.
 
 Feature: `!!` comments are harvested into TODO.md; `TODO:` markers are not
 
-  Scenario: A checked review plus a `!!` comment loops and harvests the comment
+  Scenario: routes to review-process
     Given a test project
     And a commit "feat: app" that adds "src/app.ts" with:
       """
@@ -42,8 +37,7 @@ Feature: `!!` comments are harvested into TODO.md; `TODO:` markers are not
     When I run gtd
     Then it succeeds
     And stdout contains "# Process Review Feedback"
-    And stdout contains "handle the empty-input edge case"
-    And stdout contains "TODO.md"
+    And stdout contains "git revert --no-edit"
     And stdout does not contain "## Task: Close the approved review"
 
   Scenario: The `!!` marker is recognized regardless of comment syntax
@@ -82,43 +76,8 @@ Feature: `!!` comments are harvested into TODO.md; `TODO:` markers are not
     When I run gtd
     Then it succeeds
     And stdout contains "# Process Review Feedback"
-    And stdout contains "validate the config before running"
 
-  Scenario: Harvesting captures the `!!` text verbatim without parsing intent
-    Given a test project
-    And a commit "feat: app" that adds "src/app.ts" with:
-      """
-      export const app = () => 1
-      """
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
-      """
-      # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
-
-      ## App
-
-      - [ ] ./src/app.ts#1
-      """
-    And a commit "fix: rounding" that adds "src/app.ts" with:
-      """
-      export const app = () => 1
-      // !! this is probably fine but double-check the rounding
-      """
-    And "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
-
-      ## App
-
-      - [x] ./src/app.ts#1
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "# Process Review Feedback"
-    And stdout contains "this is probably fine but double-check the rounding"
-
-  Scenario: Unreferenced reviewer-added `!!` IS harvested
+  Scenario: Unreferenced reviewer-added `!!` still diverts to review-process
     Given a test project
     And a commit "feat: app" that adds "src/app.ts" with:
       """
@@ -157,7 +116,6 @@ Feature: `!!` comments are harvested into TODO.md; `TODO:` markers are not
     # therefore IS harvested under the new added-line semantics.
     Then it succeeds
     And stdout contains "# Process Review Feedback"
-    And stdout contains "xyzzy-sentinel-unreferenced-scope-check"
 
   Scenario: A `!!` committed at/before the review commit is NOT harvested
     Given a test project

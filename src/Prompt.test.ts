@@ -54,10 +54,10 @@ describe("buildPrompt", () => {
     expect(out).toContain("<!-- base: <full-hash> -->")
   })
 
-  it("review-process prompt instructs to format TODO.md and pull TODO: markers", () => {
+  it("review-process prompt instructs to format TODO.md and use git revert", () => {
     const out = buildPrompt(result("review-process", { autoAdvance: true }))
     expect(out).toContain("format TODO.md")
-    expect(out).toContain("TODO:")
+    expect(out).toContain("git revert --no-edit")
   })
 
   it("renders exactly one section for the resolved value", () => {

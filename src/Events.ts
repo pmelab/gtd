@@ -1,6 +1,6 @@
 import { FileSystem } from "@effect/platform"
 import { Effect, Option } from "effect"
-import { type BangComment, type GitOperations, GitService } from "./Git.js"
+import { type GitOperations, GitService } from "./Git.js"
 import type { GtdEvent, GtdPackageFact, ResolvePayload } from "./Machine.js"
 
 /**
@@ -249,7 +249,6 @@ export const gatherEvents = (): Effect.Effect<
     // Only harvested when REVIEW.md exists; `!!` tokens on lines added since
     // the `review(gtd): create review …` commit (`lastReviewCommit()`),
     // regardless of which files REVIEW.md references; REVIEW.md/TODO.md excluded.
-    let bangComments: ReadonlyArray<BangComment> = []
     let bangPresent = false
     const reviewExists = yield* fs.exists(REVIEW_FILE)
     if (reviewExists) {
@@ -262,8 +261,7 @@ export const gatherEvents = (): Effect.Effect<
         .pipe(Effect.mapError((e) => new Error(String(e))))
 
       const reviewCommit = yield* git.lastReviewCommit()
-      bangComments = Option.isSome(reviewCommit) ? yield* git.grepBangAdded(reviewCommit.value) : []
-      bangPresent = bangComments.length > 0
+      bangPresent = Option.isSome(reviewCommit) ? yield* git.hasBangAdded(reviewCommit.value) : false
       const baseMatch = reviewContent.match(/<!--\s*base:\s*([a-f0-9]+)\s*-->/)
       if (!baseMatch) {
         yield* Effect.fail(
@@ -336,6 +334,7 @@ export const gatherEvents = (): Effect.Effect<
       todoStatus,
       todoOpenQuestionsPresent,
       bangPresent,
+      reviewPresent: reviewExists,
       reviewBasePresent,
       lastCommitSubject,
       workingTreeClean,
@@ -347,7 +346,6 @@ export const gatherEvents = (): Effect.Effect<
           ? { baseRef: computedBaseRef }
           : {}),
       ...(refDiff !== undefined ? { refDiff } : {}),
-      ...(bangComments.length > 0 ? { bangComments } : {}),
     }
 
     return [...commitEvents, { type: "RESOLVE", payload }] as ReadonlyArray<GtdEvent>

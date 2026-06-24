@@ -84,38 +84,6 @@ describe("GitService", () => {
     })
   })
 
-  describe("checkoutTracked", () => {
-    it("discards modifications to tracked files", async () => {
-      // foo.txt is tracked after this commit
-      commit("feat: add foo", "foo.txt", "original")
-      // modify it without staging
-      writeFileSync(join(repoDir, "foo.txt"), "modified")
-
-      // sanity: porcelain should show modification
-      const before = await run(Effect.flatMap(GitService, (g) => g.statusPorcelain()))
-      expect(before).toContain("foo.txt")
-
-      await run(Effect.flatMap(GitService, (g) => g.checkoutTracked()))
-
-      const after = await run(Effect.flatMap(GitService, (g) => g.statusPorcelain()))
-      expect(after.trim()).toBe("")
-    })
-  })
-
-  describe("cleanUntracked", () => {
-    it("removes untracked files", async () => {
-      writeFileSync(join(repoDir, "untracked.txt"), "noise")
-
-      const before = await run(Effect.flatMap(GitService, (g) => g.statusPorcelain()))
-      expect(before).toContain("untracked.txt")
-
-      await run(Effect.flatMap(GitService, (g) => g.cleanUntracked()))
-
-      const after = await run(Effect.flatMap(GitService, (g) => g.statusPorcelain()))
-      expect(after.trim()).toBe("")
-    })
-  })
-
   describe("diffStatRef", () => {
     it("returns stat text listing changed files", async () => {
       commit("feat: second commit", "stats.txt", "content")
@@ -352,33 +320,27 @@ describe("GitService", () => {
     })
   })
 
-  describe("grepBangAdded", () => {
-    it("harvests !! added (uncommitted) after baseline", async () => {
-      // baseline: commit something, capture hash
+  describe("hasBangAdded", () => {
+    it("returns true when !! added (uncommitted) after baseline", async () => {
       commit("feat: baseline", "src.ts", "export const x = 1\n")
       const baseRef = git("rev-parse HEAD")
 
-      // working-tree edit: add a !! comment
       writeFileSync(join(repoDir, "src.ts"), "export const x = 1\n// !! handle edge case\n")
 
-      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
-      expect(result).toHaveLength(1)
-      expect(result[0]!.file).toBe("src.ts")
-      expect(result[0]!.line).toBe("2")
-      expect(result[0]!.text).toBe("handle edge case")
+      const result = await run(Effect.flatMap(GitService, (g) => g.hasBangAdded(baseRef)))
+      expect(result).toBe(true)
     })
 
-    it("does NOT harvest !! that existed at baseline (false-positive guard)", async () => {
-      // baseline already contains the !! — it was committed before the review
+    it("returns false when !! existed at baseline (false-positive guard)", async () => {
       commit("feat: baseline with bang", "src.ts", "// !! old comment\n")
       const baseRef = git("rev-parse HEAD")
 
       // working-tree is clean (no new additions)
-      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
-      expect(result).toEqual([])
+      const result = await run(Effect.flatMap(GitService, (g) => g.hasBangAdded(baseRef)))
+      expect(result).toBe(false)
     })
 
-    it("recognises !! across // # <!-- comment syntaxes", async () => {
+    it("returns true for !! across // # <!-- comment syntaxes", async () => {
       commit("feat: baseline", "a.ts", "x\n")
       commit("feat: baseline2", "b.py", "x\n")
       commit("feat: baseline3", "c.html", "x\n")
@@ -388,45 +350,40 @@ describe("GitService", () => {
       writeFileSync(join(repoDir, "b.py"), "x\n# !! python style\n")
       writeFileSync(join(repoDir, "c.html"), "x\n<!-- !! html style -->\n")
 
-      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
-      expect(result).toHaveLength(3)
-      const texts = result.map((r) => r.text).sort()
-      expect(texts).toEqual(["html style", "js style", "python style"])
+      const result = await run(Effect.flatMap(GitService, (g) => g.hasBangAdded(baseRef)))
+      expect(result).toBe(true)
     })
 
-    it("excludes REVIEW.md and TODO.md even with added !!", async () => {
+    it("returns false when REVIEW.md and TODO.md contain !! but no other file does", async () => {
       commit("feat: baseline", "other.ts", "x\n")
       const baseRef = git("rev-parse HEAD")
 
       writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n// !! do not harvest\n")
       writeFileSync(join(repoDir, "TODO.md"), "# Todo\n# !! do not harvest\n")
 
-      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
-      expect(result).toEqual([])
+      const result = await run(Effect.flatMap(GitService, (g) => g.hasBangAdded(baseRef)))
+      expect(result).toBe(false)
     })
 
-    it("returns [] when no !! added after baseline", async () => {
+    it("returns false when no !! added after baseline", async () => {
       commit("feat: baseline", "clean.ts", "// regular comment\n")
       const baseRef = git("rev-parse HEAD")
 
       writeFileSync(join(repoDir, "clean.ts"), "// regular comment\n// another regular\n")
 
-      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
-      expect(result).toEqual([])
+      const result = await run(Effect.flatMap(GitService, (g) => g.hasBangAdded(baseRef)))
+      expect(result).toBe(false)
     })
 
-    it("harvests !! in a NEW untracked file added after baseline", async () => {
+    it("returns true for !! in a NEW untracked file added after baseline", async () => {
       commit("feat: baseline", "existing.ts", "x\n")
       const baseRef = git("rev-parse HEAD")
 
       // new file, never committed — untracked
       writeFileSync(join(repoDir, "newfile.ts"), "// !! brand new\n")
 
-      const result = await run(Effect.flatMap(GitService, (g) => g.grepBangAdded(baseRef)))
-      expect(result).toHaveLength(1)
-      expect(result[0]!.file).toBe("newfile.ts")
-      expect(result[0]!.line).toBe("1")
-      expect(result[0]!.text).toBe("brand new")
+      const result = await run(Effect.flatMap(GitService, (g) => g.hasBangAdded(baseRef)))
+      expect(result).toBe(true)
     })
   })
 

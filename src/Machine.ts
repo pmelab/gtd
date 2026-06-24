@@ -13,13 +13,6 @@ import { assign, createActor, setup } from "xstate"
 /** Hardcoded cap on consecutive `fix(gtd):` verify iterations before escalating. */
 export const MAX_VERIFY_ITERATIONS = 3
 
-/** A `!!` follow-up comment found in tracked source (mirror of Git.BangComment). */
-export interface BangComment {
-  readonly file: string
-  readonly line: string
-  readonly text: string
-}
-
 export interface GtdPackageFact {
   readonly name: string
   /** Task .md filenames, sorted (UNCHANGED — still drives the Context listing). */
@@ -61,6 +54,8 @@ export interface ResolvePayload {
   readonly bangPresent: boolean
   /** A review base ref is available to diff against. */
   readonly reviewBasePresent: boolean
+  /** A REVIEW.md is present (committed and/or dirty) — the review path owns routing. */
+  readonly reviewPresent: boolean
   // passthrough
   readonly lastCommitSubject: string
   readonly workingTreeClean: boolean
@@ -68,7 +63,6 @@ export interface ResolvePayload {
   readonly diff: string
   readonly baseRef?: string
   readonly refDiff?: string
-  readonly bangComments?: ReadonlyArray<BangComment>
 }
 
 export type GtdEvent =
@@ -84,7 +78,6 @@ export interface GtdContext {
   diff: string
   baseRef?: string
   refDiff?: string
-  bangComments?: ReadonlyArray<BangComment>
 }
 
 /** Terminal leaf-state ids. These are the only non-`replaying` states. */
@@ -126,7 +119,7 @@ const machine = setup({
       params.reviewApprovedNoChanges && !params.bangPresent,
     reviewModified: (_, params: ResolvePayload) => params.reviewModified,
     reviewUnmodified: (_, params: ResolvePayload) => params.reviewUnmodified,
-    codeDirty: (_, params: ResolvePayload) => params.codeDirty,
+    codeDirty: (_, params: ResolvePayload) => params.codeDirty && !params.reviewPresent,
     hasPackages: (_, params: ResolvePayload) => params.hasPackages,
     gtdDirExists: (_, params: ResolvePayload) => params.gtdDirExists,
     todoSimple: (_, params: ResolvePayload) => params.todoStatus === "simple",
@@ -166,7 +159,6 @@ const machine = setup({
         diff: p.diff,
         ...(p.baseRef !== undefined ? { baseRef: p.baseRef } : {}),
         ...(p.refDiff !== undefined ? { refDiff: p.refDiff } : {}),
-        ...(p.bangComments !== undefined ? { bangComments: p.bangComments } : {}),
       }
     }),
   },

@@ -16,6 +16,7 @@ const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
   todoStatus: null,
   todoOpenQuestionsPresent: false,
   bangPresent: false,
+  reviewPresent: false,
   reviewBasePresent: false,
   lastCommitSubject: "chore: init",
   workingTreeClean: true,
@@ -169,6 +170,30 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
       resolveEvent({ reviewApprovedNoChanges: true, reviewModified: true, bangPresent: true }),
     ])
     expect(value).toBe("review-process")
+  })
+
+  it("reviewPresent + reviewModified + codeDirty → review-process (not code-changes)", () => {
+    const { value } = resolve([
+      resolveEvent({
+        reviewPresent: true,
+        reviewModified: true,
+        reviewApprovedNoChanges: false,
+        codeDirty: true,
+      }),
+    ])
+    expect(value).toBe("review-process")
+  })
+
+  it("reviewPresent + reviewUnmodified + codeDirty → await-review (not code-changes)", () => {
+    const { value } = resolve([
+      resolveEvent({ reviewPresent: true, reviewUnmodified: true, codeDirty: true }),
+    ])
+    expect(value).toBe("await-review")
+  })
+
+  it("codeDirty + !reviewPresent → code-changes (regression)", () => {
+    const { value } = resolve([resolveEvent({ codeDirty: true, reviewPresent: false })])
+    expect(value).toBe("code-changes")
   })
 
   it("counter ≥ cap → escalate, autoAdvance false", () => {

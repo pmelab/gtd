@@ -34,7 +34,7 @@ Feature: Human changes are committed verbatim before any gate is evaluated
     And stdout contains "## Task: Commit the uncommitted changes"
     And stdout contains "git add -A"
 
-  Scenario: Review gate commits human edits verbatim before complaining about unchecked boxes
+  Scenario: Review gate routes human edits to review-process when REVIEW.md is present
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -62,5 +62,6 @@ Feature: Human changes are committed verbatim before any gate is evaluated
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Commit the uncommitted changes"
+    And stdout contains "# Process Review Feedback"
+    And stdout does not contain "## Task: Commit the uncommitted changes"
     And stdout does not contain "## Task: Close the approved review"
