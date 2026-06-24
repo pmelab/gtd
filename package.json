@@ -15,9 +15,11 @@
   "scripts": {
     "dev": "node dev/run.mjs",
     "build": "tsup",
+    "postbuild": "node -e \"require('fs').copyFileSync('dist/gtd.bundle.mjs','scripts/gtd.bundle.mjs')\"",
     "watch": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
+    "pretest:e2e": "npm run build",
     "test:e2e": "npx cucumber-js --config tests/integration/cucumber.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
