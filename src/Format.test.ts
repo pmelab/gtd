@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { NodeContext } from "@effect/platform-node"
-import { formatFile } from "./Format.js"
+import { formatFile, formatString } from "./Format.js"
 
 let tmpDir: string
 let stderrOutput: string[]
@@ -28,6 +28,28 @@ beforeEach(() => {
 afterEach(() => {
   process.stderr.write = originalStderrWrite
   rmSync(tmpDir, { recursive: true, force: true })
+})
+
+describe("formatString", () => {
+  it("wraps a long line into multiple lines", async () => {
+    const longLine =
+      "This is a very long markdown paragraph that definitely exceeds eighty characters and should be wrapped by prettier automatically."
+    const result = await Effect.runPromise(formatString(longLine))
+    expect(result.split("\n").length).toBeGreaterThan(1)
+    expect(result.replace(/\n/g, " ").trim()).toContain("very long markdown paragraph")
+  })
+
+  it("round-trips already-formatted short content unchanged", async () => {
+    const content = "Hello world.\n"
+    const result = await Effect.runPromise(formatString(content))
+    expect(result).toBe(content)
+  })
+
+  it("returns a string with no FileSystem dependency", async () => {
+    // No NodeContext.layer provided — pure Effect
+    const result = await Effect.runPromise(formatString("# Title\n"))
+    expect(typeof result).toBe("string")
+  })
 })
 
 describe("formatFile", () => {
