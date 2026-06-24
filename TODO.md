@@ -1,182 +1,8 @@
 ---
-status: grilling
+status: complete
 ---
 
 # Refactor review-process: reference-commit + mechanical revert
-
-## Open Questions
-
-### Q1: Do we keep `grepBangAdded` / `bangComments`, or delete them?
-
-**Recommendation:** **Keep the boolean signal, drop the comment extraction +
-injection.** This is the load-bearing call. Two distinct uses of `!!` exist
-today and they must be separated:
-
-1. **Extraction** (`bangComments`) — `grepBangAdded` parses the diff, pulls each
-   `!!` body, and `Prompt.ts:88-96` injects them as a "follow-up comments to
-   harvest" section so the agent copies them into TODO.md. Under the new model
-   the agent reads the **whole commit-"x" diff** (`git show <x>`), and every
-   `!!` line is already a hunk in that diff. So the extraction/injection becomes
-   redundant: **drop the `bangComments` passthrough from `ResolvePayload`/
-   `GtdContext`, the `Prompt.ts` injection block, and the prompt's Step 4.3.**
-
-2. **Routing guard** (`bangPresent`) — `Machine.ts:125-126`
-   `reviewApprovedClose = reviewApprovedNoChanges && !bangPresent`. This is what
-   diverts an otherwise-approved (forward-tick-only) REVIEW.md that has a `!!`
-   in code AWAY from `close-review` and INTO `review-process`. **This guard is
-   still required** and there is no cheaper replacement available at this point
-   in the pipeline: by the time the resolve runs, `reviewApprovedNoChanges` is
-   true only when REVIEW.md is the _only_ dirty path
-   (`Events.ts:282 onlyReviewDirty`), so we cannot use "working tree dirtiness"
-   to distinguish "pure approval" from "approval + leftover `!!` work" — the
-   `!!` is already _committed_ in source (code-changes ran first). The only
-   signal that leftover work exists is the `!!` token on a line added since the
-   review-create commit, which is exactly what `grepBangAdded` computes.
-
-   **Therefore: keep `git.grepBangAdded` but reduce it to a boolean** (or add a
-   thin `git.hasBangAdded(ref): boolean` and delete the parsing). Concretely:
-   keep the diff-scan + `/(\/\/|#|<!--)\s*!!/` test, return `boolean`, drop the
-   `BangComment` struct, the per-comment text parsing, the `file`/`line`
-   tracking, and the `bangComments` plumbing. `Events.ts:264-266` becomes
-   `bangPresent = Option.isSome(reviewCommit) ? yield* git.hasBangAdded(...) : false`.
-
-   Net: delete ~40 lines of parser in `Git.ts`, the `BangComment` interface
-   (Git.ts + Machine.ts), the `bangComments` fields, and the Prompt.ts block;
-   keep one boolean guard. The `spec-harvest.feature` scenarios that assert the
-   `!!` _text_ appears in stdout must be rewritten to assert routing only (see
-   Q5).
-
-<!-- user answers here -->
-
-### Q2: What does commit "x" actually capture, given `code-changes` runs first?
-
-**Recommendation:** **Commit "x" captures ONLY the REVIEW.md edits** (plus any
-untracked junk), NOT the source `!!`/illustrative edits — because by the time
-`review-process` fires, source is already committed. The reviewer's verbatim
-proposal assumes "x" captures the _whole_ working tree including source edits,
-but the machine ordering (`codeDirty` at `Machine.ts:193` is ABOVE
-`reviewModified` at `:198`) means `code-changes` commits all non-REVIEW.md/
-non-TODO.md source FIRST (`Events.ts:212-215` `codeEntries`). The `code-changes`
-prompt even unstages REVIEW.md (`git restore --staged REVIEW.md`,
-review.feature:260) so REVIEW.md survives into the next cycle as the only dirty
-path. So when `review-process` finally runs, the working tree holds **only the
-REVIEW.md edits**; the `!!` and illustrative source edits are already in history
-across one-or-more `code-changes` commits.
-
-This breaks the proposal's clean "revert one commit x" story. Two viable
-designs:
-
-- **(A) Single-commit "x" via ordering change — RECOMMENDED.** Make
-  `code-changes` NOT pre-commit when a modified REVIEW.md is present, so the
-  reviewer's source edits + `!!` + REVIEW.md edits all reach `review-process`
-  uncommitted and get squashed into ONE commit "x". Then
-  `git revert --no-edit <x>` cleanly undoes everything. Implementation: reorder
-  the guards so `reviewModified` (and `reviewApprovedClose`) win over
-  `codeDirty` — i.e. move the `codeDirty` branch BELOW
-  `reviewModified`/`reviewUnmodified`. Risk: this is a real semantic change to
-  the pipeline and affects the "commit verbatim first" invariant other paths
-  rely on; must re-audit every codeDirty scenario. Cleanest revert target, but
-  largest blast radius.
-
-- **(B) Revert a RANGE / keep two-phase.** Accept that source edits are already
-  committed by `code-changes`. Then "x" = the raw-feedback commit (REVIEW.md
-  only), and the teardown must revert BOTH the `code-changes` commit(s) AND "x".
-  This requires identifying the range `reviewCreateCommit..HEAD` minus the
-  TODO.md commit, and `git revert --no-edit <range>` — more revert surface, more
-  conflict risk, ambiguous if multiple code-changes commits interleave.
-
-  **Recommendation: design (A).** It is the only one that delivers the
-  reviewer's stated goal ("revert commit x" undoes ALL reviewer changes) with an
-  unambiguous single revert target. The plan body specs (A). If (A)'s blast
-  radius is unacceptable, fall back to (B) with
-  `git revert --no-edit <reviewCreateCommit>..HEAD~1` style range, excluding the
-  TODO.md commit by ordering TODO.md commit LAST and reverting the range below
-  it.
-
-<!-- user answers here -->
-
-### Q3: Is a new `git.revert` / `git.show` needed in GitOperations?
-
-**Recommendation:** **No — keep it prompt-level.** `review-process` is a PROMPT
-the agent executes, not Effect edge logic. Steps 6-8 today are literally shell
-commands in `review-process.md` (`git add -A && git commit`,
-`git checkout -- .`, `git clean -fd`, `rm REVIEW.md`). The existing
-`checkoutTracked`/ `cleanUntracked` GitOperations methods are **dead code on
-this path** — they are not invoked anywhere outside `Git.test.ts`; the reset
-happens via prompt shell. So the refactor stays consistent by expressing
-`git show <x>`, `git revert --no-edit <x>`, and `git rm REVIEW.md` as prompt
-shell commands too. **No additions to `GitOperations`/`GitService.Live` are
-required.**
-
-Cleanup opportunity (optional, flag for user): with the reset sequence gone,
-`checkoutTracked`/`cleanUntracked` become fully dead and their `Git.test.ts`
-tests can be deleted. Recommend deleting them in the same change to avoid
-leaving orphan IO methods.
-
-<!-- user answers here -->
-
-### Q4: Does `computeReviewBase`/`lastReviewCommit` still resolve a correct base after a revert teardown? And revert-conflict behavior?
-
-**Recommendation:** **The base resolution still works, but verify the
-frontier-at-HEAD short-circuit.** Today the close path writes
-`chore(gtd): close approved review for <sha>` and `lastCloseCommit()`
-(Git.ts:147) is a `computeReviewBase` candidate + the `headHash` short-circuit
-at Events.ts:130-135 stops the loop when HEAD is a close/review commit. The new
-teardown produces a different HEAD subject (a `Revert "..."` commit or a
-`docs(review): ...` commit), which is NOT matched by `lastCloseCommit()`'s grep.
-So **the revert teardown needs its own bookkeeping anchor** so the next cycle
-does not re-diff and loop:
-
-- Give the final teardown commit a recognized subject. Cleanest: keep emitting a
-  `chore(gtd): close ...`-style marker as the LAST commit (e.g. fold the
-  `git rm REVIEW.md` into a `chore(gtd): close approved review for <sha>` commit
-  AFTER the revert), so `lastCloseCommit()` + the frontier short-circuit keep
-  working unchanged. This preserves Q4 with zero changes to `computeReviewBase`.
-- The next review base then resolves against this close commit exactly as today
-  (spec-review-conclude / review.feature:333-368 regression scenarios stay
-  green).
-
-**Revert-conflict failure behavior:** the revert runs immediately on top of "x"
-
-- the TODO.md commit (TODO.md add only), so under design (A) conflicts are
-  effectively impossible (revert of the tip-1 commit). If `git revert` ever
-  fails (non-clean exit), the prompt must instruct: `git revert --abort`, then
-  STOP and escalate to the human (do NOT leave a half-reverted tree). Spell this
-  out as an explicit failure branch in the prompt.
-
-<!-- user answers here -->
-
-### Q5: Which tests/specs must change, and what do they now assert?
-
-**Recommendation:** Rewrite assertions from "reset/reset-sequence + harvest
-text" to "revert + artifact-free tree":
-
-- `review.feature:59-61` asserts `git checkout -- .` → replace with
-  `git revert --no-edit`.
-- `review.feature:90` asserts commit `docs(review): process review feedback` →
-  keep or rename to the new teardown commit subjects.
-- `review.feature:117-120` asserts `docs(review): record raw feedback for` →
-  this remains (commit "x"); keep.
-- `spec-harvest.feature` scenarios assert the `!!` _body text_ appears in stdout
-  (e.g. "handle the empty-input edge case", "validate the config before
-  running"). Under Q1's "drop extraction" decision these become invalid. Rewrite
-  them to assert **routing** only: a forward-tick approval + a reviewer-added
-  `!!` routes to `review-process` (NOT close-review), and the agent is told to
-  read the commit-"x" diff. The "pre-review `!!` → close-review" and "plain
-  `TODO:` → close-review" scenarios stay (they assert the `bangPresent` boolean
-  routing, which we keep).
-- `Prompt.test.ts:57-58` (review-process prompt content) and any
-  bangComments-injection assertions: update for the new prompt + removed
-  injection block.
-- `Machine.test.ts:167-171` ("approved + !! diverts to review-process") stays —
-  it asserts the `bangPresent` guard, which survives.
-- `README.md` lines 61, 111, 118, 198, 264: update the review-process row, the
-  `!!`/code-changes ordering note, and the mermaid edge label to describe the
-  revert-based teardown.
-
-<!-- user answers here -->
-
----
 
 ## Reviewer's verbatim proposal
 
@@ -219,10 +45,11 @@ REVIEW.md noise. Achieve this mechanically (no agent guessing/stripping).
 
 ### Design decisions (from Open Questions)
 
-- **Single squashed commit "x"** (Q2 design A): `code-changes` no longer
-  pre-commits when a modified REVIEW.md is present, so reviewer source edits +
-  `!!` + REVIEW.md edits all land in ONE commit "x". One unambiguous revert
-  target.
+- **Single commit "x" captures everything** (Q2): code changes are not allowed
+  in the review process. While a `REVIEW.md` is present, `code-changes` must NOT
+  fire/pre-commit source — the entire dirty working tree (source edits + `!!` +
+  `REVIEW.md` edits) is squashed into ONE reference commit "x" by
+  `review-process`. `git revert --no-edit <x>` then cleanly undoes everything.
 - **Prompt-level git** (Q3): all teardown is shell in `review-process.md`; no
   new `GitOperations` methods. Delete now-dead `checkoutTracked`/
   `cleanUntracked`.
@@ -230,52 +57,166 @@ REVIEW.md noise. Achieve this mechanically (no agent guessing/stripping).
 - **Close-style anchor commit last** (Q4) so
   `lastCloseCommit`/`computeReviewBase` keep working and the loop terminates.
 
+### Q2 guard change (verified against the machine)
+
+The current RESOLVE guard order in `src/Machine.ts` `replaying` (the `RESOLVE`
+array, lines ~181-256) is: `errorsPresent`(:183) → `reviewApprovedClose`(:188) →
+`codeDirty`(:193) → `reviewModified`(:198) → `reviewUnmodified`(:203) → … . The
+`codeDirty` guard (:129 / :193) fires whenever any path outside `TODO.md`/
+`REVIEW.md` is dirty (`Events.ts:212-215` `codeEntries`), and it sits ABOVE the
+review branches — so today a dirty source file pre-empts the review path.
+
+**The exact change:** gate `codeDirty` on the absence of a `REVIEW.md`. Add a
+new payload boolean `reviewPresent` (= `reviewExists` already computed at
+`Events.ts:254`) to `ResolvePayload`, and change the `codeDirty` guard to fire
+only when no review is in progress:
+
+```ts
+codeDirty: (_, params: ResolvePayload) => params.codeDirty && !params.reviewPresent,
+```
+
+Keep the guard array order unchanged (no reorder needed). With `codeDirty` now
+inert while `REVIEW.md` exists, the review branches below it
+(`reviewApprovedClose`, `reviewModified`, `reviewUnmodified`) take over the
+review path; when there is NO `REVIEW.md`, `reviewPresent` is false and
+`codeDirty` behaves exactly as before.
+
+Traced scenarios (the two that pin the design):
+
+- **REVIEW.md modified with a note AND a dirty source file.** `codeDirty`=true,
+  `reviewPresent`=true, `reviewModified`=true, `reviewApprovedNoChanges`=false
+  (a note, not pure ticks). Old order → `code-changes` (WRONG). New gate:
+  `codeDirty` is suppressed (`reviewPresent`), `reviewApprovedClose` is false,
+  so it falls to `reviewModified` → **`review-process`**. Then commit "x"
+  (`git add -A`) captures BOTH the source edit and the REVIEW.md note. ✓
+- **REVIEW.md committed-unmodified + dirty source (no feedback recorded yet).**
+  `reviewModified`=false, `reviewUnmodified`=true (`Events.ts:259`),
+  `reviewPresent`=true, `codeDirty`=true. New gate: `codeDirty` suppressed,
+  `reviewApprovedClose`/`reviewModified` false, so → `reviewUnmodified` →
+  **`await-review`** (the human gate). DECISION: this is correct — the human is
+  mid-review; their in-progress source edits are unrecorded feedback and must
+  wait at the human gate, not be pre-committed by `code-changes`. This
+  reconciles "code changes not allowed in the review process" with the
+  `await-review` gate: the gate simply holds; nothing is committed until the
+  human records feedback (touches REVIEW.md → next cycle routes to
+  `review-process`, commit "x").
+
+**Non-review `code-changes` path is preserved:** with no `REVIEW.md`,
+`reviewModified`/`reviewUnmodified`/`reviewApprovedNoChanges`/`bangPresent` are
+all false and `reviewPresent`=false, so `reviewApprovedClose` cannot fire and
+`codeDirty` fires normally → `code-changes`. The verbatim-first invariant for
+ordinary work is untouched.
+
+`Machine.test.ts` adds a `reviewPresent: false` default to its
+`resolveEvent`/payload fixture (mirroring the existing `bangPresent: false` at
+:18) and gains a scenario for each traced case above.
+
 ### Work items
 
-1. **`src/Machine.ts`** — reorder guards so `reviewModified` /
-   `reviewApprovedClose` win over `codeDirty` on the review path (so source
-   edits are NOT pre-committed during an active review). Keep `bangPresent` in
-   `reviewApprovedClose`. Remove `bangComments` from `ResolvePayload` and
-   `GtdContext`; remove the `BangComment` re-export.
+1. **`src/Machine.ts`** — Q2: add `reviewPresent: boolean` to `ResolvePayload`
+   (alongside the other review booleans ~:41-63) and change the `codeDirty`
+   guard (:129) to `params.codeDirty && !params.reviewPresent` (array order
+   unchanged). Q1: remove the `BangComment` interface (:16-21), the
+   `bangComments?` fields from `ResolvePayload` (:71) and `GtdContext` (:87),
+   and the `bangComments` spread in `applyPayload` (:169). Keep `bangPresent`
+   (:61) and the `reviewApprovedClose` guard
+   `reviewApprovedNoChanges && !bangPresent` (:125-126).
 
-2. **`src/Git.ts`** — replace `grepBangAdded` (returns `BangComment[]`) with a
-   boolean `hasBangAdded(ref)` (keep the added-line `!!` scan, drop body/file/
-   line parsing). Remove the `BangComment` interface. Delete dead
-   `checkoutTracked`/`cleanUntracked` from the interface and `Live`.
+2. **`src/Git.ts`** — replace `grepBangAdded` (returns `BangComment[]`,
+   :228-292) with a boolean `hasBangAdded(ref): Effect<boolean, Error>`: keep
+   the untracked intent-to-add + `git diff baseRef -- :!REVIEW.md :!TODO.md`
+   scan, return `true` on the first added (`+`) line matching
+   `/(\/\/|#|<!--)\s*!!/`, else `false`; drop the hunk-header parsing,
+   `file`/`line`/`text` extraction, and the `BangComment` result. Remove the
+   `BangComment` interface (:27-33) and the `grepBangAdded` signature (:24); add
+   the `hasBangAdded` signature. Delete dead `checkoutTracked` (:12, :99-100)
+   and `cleanUntracked` (:13, :102) from the interface and `Live` — they are
+   unused on every path (only `Git.test.ts` referenced them). Leave
+   `lastCloseCommit` (:147-159) and its grep
+   `^chore\(gtd\): close approved review for` untouched — the Q4 teardown anchor
+   must match this pattern exactly.
 
-3. **`src/Events.ts`** — compute `bangPresent` from `hasBangAdded`; delete
-   `bangComments` plumbing and its payload spread.
+3. **`src/Events.ts`** — drop the `BangComment` type import (:3). Replace the
+   `bangComments` plumbing (:252, :265-266) with
+   `bangPresent = Option.isSome(reviewCommit) ? yield* git.hasBangAdded(reviewCommit.value) : false`
+   (remove the `let bangComments` declaration). Set
+   `reviewPresent: reviewExists` in the `ResolvePayload` (the `reviewExists`
+   value at :254 is in scope at the payload literal). Remove the
+   `...(bangComments.length > 0 ? { bangComments } : {})` spread (:350).
+   Unchanged: `codeEntries`/`codeDirty` (:212-215), `commitMessages` (:195),
+   `computeReviewBase`/`lastReviewCommit`/ `lastCloseCommit` (:107-171, :264) —
+   Q4 base bookkeeping is unaffected.
 
-4. **`src/Prompt.ts`** — remove the `bangComments` injection block (lines
-   88-96).
+4. **`src/Prompt.ts`** — remove the `bangComments` injection block (:88-96, the
+   "`!!` follow-up comments (leftover work to harvest)" section).
 
-5. **`src/prompts/review-process.md`** — rewrite Steps 6-8 into:
-   - Step A: commit "x" verbatim —
+5. **`src/prompts/review-process.md`** — rewrite the teardown. Delete the Step 4
+   item 3 "`!!` follow-up comments" harvest paragraph (:42-49) and adjust Step 4
+   to two sources (REVIEW.md comments + source edits, both now read from the
+   commit-"x" diff). Replace Steps 6-8 (:64-120) with:
+   - **Step 6 — commit "x" verbatim:** read the `<!-- base: … -->` ref, then
      `git add -A && git commit -m "docs(review): record raw feedback for <base>"`
-     (unchanged subject; now captures source + REVIEW.md together thanks to item
-     1).
-   - Step B: synthesize `TODO.md` from `git show <x>` (the whole commit-"x" diff
-     — REVIEW.md comments, source edits, and `!!` are all hunks), then `format`
-     and commit TODO.md.
-   - Step C: `git revert --no-edit <x>` (undoes all reviewer changes). On
-     conflict/failure: `git revert --abort`, STOP, escalate to human.
-   - Step D: `git rm REVIEW.md` and commit as
+     — this now captures source edits + `!!` + REVIEW.md together (Q2: code was
+     never pre-committed during the review).
+   - **Step 7 — synthesize TODO.md from the commit-"x" diff:** `git show <x>`
+     (or `git diff <x>^ <x>`) is the single source of all feedback (REVIEW.md
+     comments, source edits, `!!` lines are all hunks). Compose `TODO.md`, run
+     `node scripts/gtd.js format TODO.md`, then `git add TODO.md && git commit`.
+   - **Step 8 — mechanical teardown:** `git revert --no-edit <x>` to undo all
+     reviewer changes. **On conflict/non-clean exit:** run `git revert --abort`,
+     then STOP and escalate to the human — do NOT leave a half-reverted tree
+     (explicit failure branch). On success, if `REVIEW.md` still tracked run
+     `git rm REVIEW.md`, then commit the final anchor
      `chore(gtd): close approved review for <short-sha>` (the recognized
-     teardown anchor, Q4). Also delete Step 4.3 (`!!` harvest instructions)
-     since the diff now carries it.
+     `lastCloseCommit` anchor, Q4 — terminates the loop via the frontier-at-HEAD
+     short-circuit, `Events.ts:130-135`). Remove the old Step 7
+     `git checkout -- .` / `git clean -fd` / `rm REVIEW.md` reset sequence
+     entirely.
 
-6. **`src/prompts/close-review.md`** — no change expected (verify the close
-   anchor subject matches what `lastCloseCommit` greps).
+6. **`src/prompts/close-review.md`** — verify only; its close anchor subject
+   must already match `^chore\(gtd\): close approved review for` (no change
+   expected).
 
-7. **Tests** — per Q5: rewrite `review.feature` reset/`git checkout` assertions
-   to revert; rewrite `spec-harvest.feature` text-harvest assertions to routing
-   assertions; update `Prompt.test.ts` and delete `Git.test.ts`
-   checkoutTracked/cleanUntracked tests; keep `Machine.test.ts` bangPresent
-   routing tests.
+7. **Tests** (Q5):
+   - `tests/integration/features/review.feature`: replace the
+     `git checkout -- .` assertion (:61) with `git revert --no-edit`;
+     update/keep the teardown commit assertion at :90 (was
+     `docs(review): process review feedback into TODO.md`) to the new final
+     anchor `chore(gtd): close approved review`; keep the commit "x" assertion
+     `docs(review): record raw feedback for` (:120). Add a scenario: REVIEW.md
+     modified with a note + a dirty source file routes to `review-process`
+     (asserting the source edit lands in commit "x" and the reverted tree is
+     artifact-free), NOT `code-changes`.
+   - `tests/integration/features/spec-harvest.feature`: rewrite the scenarios
+     that assert `!!` body text in stdout (the harvested-text assertions) to
+     assert **routing only** — a forward-tick approval + a reviewer-added `!!`
+     routes to `review-process` (not `close-review`), and the prompt tells the
+     agent to read the commit-"x" diff; assert the reverted tree carries no `!!`
+     artifact. Keep the "pre-review `!!` → close-review" and "plain `TODO:` →
+     close-review" scenarios (they exercise the surviving `bangPresent`
+     boolean).
+   - `src/Prompt.test.ts`: the review-process content test (:57-61) must no
+     longer assert the injected `!!` follow-up section; assert the new teardown
+     text (`git revert --no-edit`, `format TODO.md`) instead. No `bangComments`
+     injection assertions remain.
+   - `src/Machine.test.ts`: add `reviewPresent: false` to the payload fixture
+     default (next to `bangPresent: false`, :18); keep the bangPresent routing
+     test (:167-171); add the two Q2 traced scenarios (note+dirty →
+     `review-process`; unmodified-review+dirty → `await-review`).
+   - `src/Git.test.ts`: delete the `checkoutTracked` (:87-103) and
+     `cleanUntracked` (:105-…) describe blocks; rewrite the `grepBangAdded`
+     describe (:355-…) to `hasBangAdded`, asserting `true`/`false` instead of a
+     `BangComment[]`.
 
-8. **`README.md`** — update review-process row (line 61), the `!!`/code-changes
-   ordering note (lines 111-118), the mermaid edge (line 198), and the workflow
-   prose (line 264) to describe the revert-based teardown and the new ordering.
+8. **`README.md`** — update the review-process row (:61) and the `code-changes`
+   row (:60) / ordering note (:109-118): describe the revert-based teardown and
+   that code changes are NOT pre-committed while a `REVIEW.md` is present (drop
+   the "reviewer's edits reach review-process already committed" sentence at
+   :118 — that is now false). Update the mermaid edges (:196-198) and the
+   workflow prose (:260-264) to reflect: while reviewing, source edits are NOT
+   committed; an approval with leftover `!!` or any note routes to
+   `review-process`, which records commit "x", synthesizes `TODO.md`, then
+   `git revert`s "x" and closes — leaving no artifact.
 
 ### Note on this run
 
@@ -284,5 +225,57 @@ flow for FUTURE runs.
 
 ## Resolved
 
-</content>
-</invoke>
+### Q1: Do we keep `grepBangAdded` / `bangComments`, or delete them?
+
+**Recommendation:** **Keep the boolean signal, drop the comment extraction +
+injection.** `bangComments`/`BangComment` and the `Prompt.ts` injection block
+become redundant once the agent reads the whole commit-"x" diff (`git show <x>`)
+— every `!!` line is already a hunk there. Drop `bangComments`/`BangComment`/the
+`Prompt.ts:88-96` injection/the prompt Step 4 item-3 harvest text. KEEP a
+boolean `hasBangAdded(ref)` (reduce `grepBangAdded` to the `!!` scan returning
+`boolean`) because `bangPresent` still diverts a forward-tick-only approval into
+`review-process` via
+`reviewApprovedClose = reviewApprovedNoChanges && !bangPresent`
+(`Machine.ts:125-126`).
+
+**Answer:** agreed
+
+### Q2: What does commit "x" actually capture, given `code-changes` runs first?
+
+**Recommendation:** **Single squashed commit "x" via an ordering change** so the
+reviewer's source edits + `!!` + REVIEW.md edits all reach `review-process`
+uncommitted and revert as one target.
+
+**Answer:** no, commit "x" captures everything. code changes are not allowed in
+the review process
+
+### Q3: Is a new `git.revert` / `git.show` needed in GitOperations?
+
+**Recommendation:** **No — keep it prompt-level.** `git show`/
+`git revert --no-edit`/`git rm` stay shell commands in `review-process.md`; no
+additions to `GitOperations`. Delete the now-dead `checkoutTracked`/
+`cleanUntracked` methods + their `Git.test.ts` tests.
+
+**Answer:** agreed
+
+### Q4: Does `computeReviewBase`/`lastReviewCommit` still resolve a correct base after a revert teardown? And revert-conflict behavior?
+
+**Recommendation:** Teardown must END with a recognized
+`chore(gtd): close approved review for <sha>` anchor commit so
+`lastCloseCommit()`/`computeReviewBase` resolve and the frontier-at-HEAD
+short-circuit terminates the loop. On revert CONFLICT, `git revert --abort`,
+STOP, and escalate to the human (explicit failure branch in the prompt).
+
+**Answer:** agreed
+
+### Q5: Which tests/specs must change, and what do they now assert?
+
+**Recommendation:** Rewrite assertions from "reset-sequence + harvested `!!`
+text" to "revert + artifact-free reverted tree" and routing assertions:
+`review.feature` (`git checkout` → `git revert --no-edit`, teardown anchor),
+`spec-harvest.feature` (routing not harvested text), `Prompt.test.ts` (new
+teardown text, no injection), `Machine.test.ts` (keep bangPresent, add
+`reviewPresent` cases), `Git.test.ts` (drop `checkoutTracked`/`cleanUntracked`,
+adapt `hasBangAdded`), `README.md` wording.
+
+**Answer:** agreed
