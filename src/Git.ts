@@ -19,8 +19,6 @@ export interface GitOperations {
   readonly commitSubjects: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly commitMessages: (base?: string) => Effect.Effect<ReadonlyArray<string>, Error>
   readonly showHead: (path: string) => Effect.Effect<string, Error>
-  /** Returns `true` if any reviewer-added `!!` comment exists in the working tree since `baseRef`. */
-  readonly hasBangAdded: (baseRef: string) => Effect.Effect<boolean, Error>
 }
 
 const run = (
@@ -205,46 +203,6 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),
           )
         },
-
-        // Returns `true` if any reviewer-added `!!` comment exists in the working tree
-        // since `baseRef` (no second ref — compares ref to working tree). REVIEW.md and
-        // TODO.md are excluded. Untracked files are intent-to-added before diffing and
-        // reset afterward. Any failure → `false`.
-        hasBangAdded: (baseRef: string) =>
-          Effect.gen(function* () {
-            const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard")
-            const untracked = untrackedRaw
-              .split("\n")
-              .map((s) => s.trim())
-              .filter((s) => s !== "")
-            if (untracked.length > 0) {
-              yield* exec("git", "add", "--intent-to-add", "--", ...untracked)
-            }
-            const diff = yield* exec(
-              "git",
-              "diff",
-              baseRef,
-              "--",
-              ":!REVIEW.md",
-              ":!TODO.md",
-            ).pipe(Effect.catchAll(() => Effect.succeed("")))
-            if (untracked.length > 0) {
-              yield* exec("git", "reset", "--", ...untracked).pipe(
-                Effect.catchAll(() => Effect.void),
-              )
-            }
-
-            if (diff === "") return false
-
-            for (const rawLine of diff.split("\n")) {
-              const line = rawLine.replace(/\r$/, "")
-              if (line.startsWith("+++ ")) continue
-              if (line.startsWith("+") && /(\/\/|#|<!--)\s*!!/.test(line.slice(1))) {
-                return true
-              }
-            }
-            return false
-          }).pipe(Effect.catchAll(() => Effect.succeed(false))),
       }
     }),
   )

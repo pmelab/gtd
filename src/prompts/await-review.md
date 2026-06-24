@@ -8,8 +8,8 @@ for the agent to do.
 
 1. Read `REVIEW.md` and inspect each chunk.
 2. Tick every checkbox (`- [ ]` → `- [x]`) once that chunk is accepted.
-3. Optionally leave notes inline, edit source files, or drop `!!` follow-up
-   comments in the code for anything that needs more work.
+3. Optionally leave notes inline or edit source files for anything that needs
+   more work.
 4. Re-run gtd once the review is fully worked through.
 
 Report that the review is awaiting human input, then **STOP**. Do not re-run
