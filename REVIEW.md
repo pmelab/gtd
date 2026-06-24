@@ -2,26 +2,6 @@
 
 <!-- base: a16bbc42b423952f525d03712dea4c87e6e23b48 -->
 
-we can simplify the review process even further:
-
-- get rid of the whole `!!` and "bang" functionality. treat ANY change in the
-  human review commit as feedback:
-  - additions in REVIEW.md are global feedback
-  - code comments are local feedback
-  - code changes are suggestions that still need to be verified and implemented
-    properly
-- process at the edge of running "gtd" when processing feedback
-  - check if there are unchecked boxes (`[ ]`) -> abort and tell the user to
-    check all
-  - all boxes are checked, but no other changes (determine by taking the initial
-    REVIEW.md, string-replace checkboxes and compare it against formatted new
-    REVIEW.md) -> abort and finish: review done
-  - otherwise:
-    - commit human review feedback verbatim
-    - store the commit diff in memory
-    - revert the commit and remove REVIEW.md
-    - emit commit diff along with the prompt to turn it into a new TODO.md
-
 ## Mechanical revert-based teardown (prompt)
 
 `review-process.md` Steps 6–8 are rewritten to your proposed flow: commit the
