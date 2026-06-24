@@ -1,15 +1,3 @@
-## Test gate (run first)
-
-Before doing anything else, run the project's test suite (determine the command
-from AGENTS.md / `package.json` scripts / Makefile).
-
-- **On failure:** make exactly **ONE** fix, then commit **all** the fix changes
-  into a single commit with a `fix(gtd): <desc>` message. Do not commit
-  `TODO.md` — leave it dirty (the working tree should end with only `TODO.md`
-  pending, or otherwise clean). Then **re-run gtd** and stop; the gate will
-  re-evaluate on the next cycle.
-- **On green:** proceed inline with the task below in this same run.
-
 ## Task: Develop the plan in `TODO.md`
 
 A new `TODO.md` was created. It needs to be developed into a proper plan.
