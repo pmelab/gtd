@@ -505,13 +505,19 @@ after `--`, e.g. `npm run dev -- format <file>`. The helpers live in `dev/`
 rather than `scripts/` because tsup wipes `dist/` (`clean: true`) on build.
 
 `scripts/gtd.js` is a tiny launcher shim; the real bundle
-(`dist/gtd.bundle.mjs`) is downloaded automatically from the latest GitHub
-release on first invocation, or built locally with `npm run build`.
+(`dist/gtd.bundle.mjs`) is downloaded automatically on first invocation from the
+GitHub release whose tag matches the `version` field in `package.json`. The
+placeholder version `0.0.0-development` falls back to the `latest` release. The
+bundle can also be built locally with `npm run build`.
 
 ## Releasing
 
-Tag `vX.Y.Z` and push the tag. CI (`.github/workflows/release.yml`) runs the
-tests, builds the bundle, and uploads `gtd.bundle.mjs` as a release asset.
+Releases are automatic. Push releasable Conventional Commits (`fix:`, `feat:`,
+or breaking changes) to `main` and the Release workflow runs the tests, then
+`npx semantic-release`. Semantic-release computes the next version, writes it
+into `package.json`, builds the bundle, commits the bump back as
+`chore(release): X.Y.Z [skip ci]`, tags `vX.Y.Z`, and creates the GitHub release
+with `gtd.bundle.mjs` attached.
 
 ## License
 
