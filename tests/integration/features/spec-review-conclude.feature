@@ -105,6 +105,38 @@ Feature: Review gate and the conclude-vs-loop decision
       """
     When I run gtd
     Then it succeeds
+    And stdout contains "# Process Review Feedback"
+    And stdout does not contain "## Task: Close the approved review"
+
+  Scenario: Unchecked boxes route to review-incomplete, not review-process or close-review
+    Given a test project
+    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      - [ ] ./src/foo.ts#1
+      - [ ] ./src/bar.ts#5
+      """
+    And "REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234567890abcdef1234 -->
+
+      ## Add foo helper
+
+      Looks promising so far.
+
+      - [x] ./src/foo.ts#1
+      - [ ] ./src/bar.ts#5
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Review is incomplete"
+    And stdout contains "STOP"
+    And stdout does not contain "# Process Review Feedback"
     And stdout does not contain "## Task: Close the approved review"
 
   Scenario: A consolidated TODO.md is re-grilled; a small one is marked simple

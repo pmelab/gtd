@@ -34,7 +34,7 @@ Feature: Human changes are committed verbatim before any gate is evaluated
     And stdout contains "## Task: Commit the uncommitted changes"
     And stdout contains "git add -A"
 
-  Scenario: Review gate routes human edits to review-process when REVIEW.md is present
+  Scenario: Review gate routes human edits to review-process when REVIEW.md is present and all boxes ticked
     Given a test project
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
@@ -54,7 +54,7 @@ Feature: Human changes are committed verbatim before any gate is evaluated
       ## Add foo helper
 
       - [x] ./src/foo.ts#1
-      - [ ] ./src/bar.ts#5
+      - [x] ./src/bar.ts#5
       """
     And a file "src/scratch.ts" with:
       """
