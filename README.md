@@ -490,7 +490,7 @@ regardless of the host project's toolchain.
 ```bash
 npm install
 npm run dev          # run from source, no build (node dev/run.mjs)
-npm run build        # tsup → scripts/gtd.js (checked in)
+npm run build        # tsup → dist/gtd.bundle.mjs (+ copies to scripts/)
 npm test             # vitest
 npm run test:e2e     # cucumber integration tests
 npm run typecheck
@@ -502,10 +502,16 @@ type-stripping (requires Node 22.6+). It registers `dev/hooks.mjs`, which fills
 the two gaps the tsup build otherwise covers: resolving `./Foo.js` specifiers to
 the on-disk `./Foo.ts`, and importing `*.md` prompt files as text. Pass CLI args
 after `--`, e.g. `npm run dev -- format <file>`. The helpers live in `dev/`
-rather than `scripts/` because tsup wipes `scripts/` (`clean: true`) on build.
+rather than `scripts/` because tsup wipes `dist/` (`clean: true`) on build.
 
-`scripts/gtd.js` is committed to the repo so the skill installs zero-step.
-Rebuild it before tagging a release.
+`scripts/gtd.js` is a tiny launcher shim; the real bundle
+(`dist/gtd.bundle.mjs`) is downloaded automatically from the latest GitHub
+release on first invocation, or built locally with `npm run build`.
+
+## Releasing
+
+Tag `vX.Y.Z` and push the tag. CI (`.github/workflows/release.yml`) runs the
+tests, builds the bundle, and uploads `gtd.bundle.mjs` as a release asset.
 
 ## License
 
