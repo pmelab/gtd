@@ -118,7 +118,11 @@ committed verbatim **first**, before any gate is evaluated.
 > restricted to ancestors of HEAD (computed via `computeReviewBase` — no marker
 > in `REVIEW.md`). When no base exists or `base..HEAD` is empty, there is
 > nothing to review. Because the close commit itself becomes the new base, the
-> run immediately after a close resolves to `verified`.
+> run immediately after a close resolves to `verified`. If every commit between
+> the chosen candidate and HEAD carries a `plan(gtd):`, `review(gtd):`, or
+> `chore(gtd):` subject, the frontier stays at the candidate and there is still
+> nothing to review — gtd-workflow commits do not re-open a closed review.
+> Only a non-gtd (real code) commit in `candidate..HEAD` re-opens review.
 
 > **Test-fix loop**: the fix-tests prompt drives an internal loop — read the
 > uncommitted `ERRORS.md` attempt log, make one fix, re-run, append the attempt,
