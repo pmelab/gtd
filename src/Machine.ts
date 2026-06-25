@@ -127,7 +127,6 @@ export type EdgeAction =
   | { kind: "runTestGate" }
   | { kind: "reviewPreRender"; base: string }
 
-
 export interface GtdContext {
   verifyIterations: number
   maxVerifyIterations: number
@@ -311,7 +310,10 @@ const machine = setup({
       context.lastAdvancedLeaf === "code-changes" && params.codeDirty && !params.reviewPresent,
     hasCommitIntent: (_, params: ResolvePayload) => params.commitIntent !== undefined,
     isFixTestsLoop: ({ context }, params: ResolvePayload) =>
-      params.codeDirty && !params.reviewPresent && !params.hasPackages && context.verifyIterations > 0,
+      params.codeDirty &&
+      !params.reviewPresent &&
+      !params.hasPackages &&
+      context.verifyIterations > 0,
     stuckCommitPending: ({ context }, params: ResolvePayload) =>
       context.lastAdvancedLeaf === "commit-pending" && params.commitIntent !== undefined,
     // Test-gate fold (mirrors the retired `selectPrompt`).
@@ -416,7 +418,9 @@ const machine = setup({
             return {
               kind: "commitPending",
               intent: "execute",
-              ...(context.packageCommitMsg !== undefined ? { packageCommitMsg: context.packageCommitMsg } : {}),
+              ...(context.packageCommitMsg !== undefined
+                ? { packageCommitMsg: context.packageCommitMsg }
+                : {}),
               removeLastPackage: true,
               restorePaths: [],
             } satisfies EdgeAction
