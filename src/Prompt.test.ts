@@ -62,7 +62,7 @@ describe("buildPrompt", () => {
     expect(out).toContain("format TODO.md")
     expect(out).toContain("git add TODO.md")
     expect(out).not.toContain("git revert")
-    expect(out).not.toContain("docs(review): record raw feedback")
+    expect(out).not.toContain("chore(gtd): record raw feedback")
     expect(out).not.toContain("chore(gtd): close approved review")
   })
 

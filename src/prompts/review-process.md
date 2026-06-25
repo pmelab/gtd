@@ -38,7 +38,7 @@ Stage and commit ONLY `TODO.md`:
 
 ```sh
 git add TODO.md
-git commit -m "docs(review): synthesize TODO.md from review feedback"
+git commit -m "chore(gtd): synthesize TODO.md from review feedback"
 ```
 
 Do not run any other git work — no revert, no record commit, no close commit.

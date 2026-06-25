@@ -26,7 +26,7 @@ export interface GitOperations {
    * Returns the captured diff and the SHA of the record commit.
    *
    * Sequence:
-   *   1. `git add -A` + `git commit -m "docs(review): record raw feedback for <base>"`
+   *   1. `git add -A` + `git commit -m "chore(gtd): record raw feedback for <base>"`
    *   2. Capture record SHA via `git rev-parse HEAD` and diff via `git show <sha>`
    *   3. `git revert --no-edit <sha>` — on conflict: `git revert --abort` then fail
    *   4. `git rm REVIEW.md` (if tracked) + `git commit -m "chore(gtd): close approved review for <short-sha>"`
@@ -379,7 +379,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
           Effect.gen(function* () {
             // 1. Stage everything and create the record commit
             yield* exec("git", "add", "-A")
-            yield* exec("git", "commit", "-m", `docs(review): record raw feedback for ${base}`)
+            yield* exec("git", "commit", "-m", `chore(gtd): record raw feedback for ${base}`)
 
             // 2. Capture record SHA and diff
             const recordSha = yield* exec("git", "rev-parse", "HEAD").pipe(

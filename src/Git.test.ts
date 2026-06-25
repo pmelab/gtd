@@ -338,7 +338,7 @@ describe("GitService", () => {
 
       // Record commit exists in log
       const subjects = git("log", "--format=%s")
-      expect(subjects).toContain(`docs(review): record raw feedback for ${base}`)
+      expect(subjects).toContain(`chore(gtd): record raw feedback for ${base}`)
 
       // Close commit exists in log
       expect(subjects).toContain(`chore(gtd): close approved review for ${shortBase}`)
