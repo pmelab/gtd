@@ -104,6 +104,16 @@ Given("a prior review commit for {string}", function (this: GtdWorld, shortHash:
   )
 })
 
+// Creates a history-marker close commit mirroring the close-review edge action.
+// --allow-empty keeps this step a pure marker that does not affect diff content.
+Given("a prior close commit for {string}", function (this: GtdWorld, shortHash: string) {
+  execFileSync(
+    "git",
+    ["commit", "--allow-empty", "-m", `chore(gtd): close approved review for ${shortHash}`],
+    { cwd: this.repoDir, stdio: "pipe" },
+  )
+})
+
 When("I run gtd", function (this: GtdWorld) {
   this.runGtd()
 })

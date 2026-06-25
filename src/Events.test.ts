@@ -7,6 +7,7 @@ import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
+  computeReviewBase,
   computeReviewHasRealFeedback,
   computeReviewHasUncheckedBoxes,
   gatherEvents,
@@ -283,6 +284,90 @@ describe("gatherEvents — commitIntent and reviewDirty inference", { timeout: 3
     expect(resolve.payload.reviewBaseHash).toBe(baseHash)
   })
 })
+
+describe(
+  "computeReviewBase — frontier survives gtd-workflow commits",
+  { timeout: 30_000 },
+  () => {
+    let gitRepoDir: string
+    let savedCwd: string
+
+    const gitInDir = (...args: string[]) => {
+      execFileSync("git", args, { cwd: gitRepoDir, stdio: "pipe" })
+    }
+
+    const commit = (msg: string, file = "code.ts", content = `// ${msg}\n`) => {
+      writeFileSync(join(gitRepoDir, file), content)
+      gitInDir("add", "-A")
+      gitInDir("commit", "-q", "-m", msg)
+      return execFileSync("git", ["rev-parse", "HEAD"], { cwd: gitRepoDir, stdio: "pipe" })
+        .toString()
+        .trim()
+    }
+
+    const runComputeReviewBase = () =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const git = yield* GitService
+          return yield* computeReviewBase(git)
+        }).pipe(Effect.provide(GitService.Live), Effect.provide(NodeContext.layer)),
+      )
+
+    beforeEach(() => {
+      savedCwd = process.cwd()
+      gitRepoDir = mkdtempSync(join(tmpdir(), "gtd-reviewbase-"))
+      gitInDir("init", "-q")
+      gitInDir("config", "user.name", "Test")
+      gitInDir("config", "user.email", "test@test.com")
+      gitInDir("config", "commit.gpgsign", "false")
+      writeFileSync(join(gitRepoDir, "README.md"), "# test\n")
+      gitInDir("add", "-A")
+      gitInDir("commit", "-q", "-m", "chore: init")
+      process.chdir(gitRepoDir)
+    })
+
+    afterEach(() => {
+      process.chdir(savedCwd)
+      rmSync(gitRepoDir, { recursive: true, force: true })
+    })
+
+    it("close commit at HEAD → Option.none() (existing equality fast path)", async () => {
+      // real code commit
+      commit("feat: real code", "src.ts")
+      // close commit at HEAD
+      commit("chore(gtd): close approved review for abc1234", "REVIEW.md", "")
+      const result = await runComputeReviewBase()
+      expect(result._tag).toBe("None")
+    })
+
+    it("close commit + plan(gtd) on top → Option.none() (regression)", async () => {
+      // real code commit
+      commit("feat: real code", "src.ts")
+      // close commit
+      commit("chore(gtd): close approved review for abc1234", "REVIEW.md", "")
+      // gtd workflow commit on top
+      commit("plan(gtd): grilling", "TODO.md", "# Plan\n")
+      const result = await runComputeReviewBase()
+      expect(result._tag).toBe("None")
+    })
+
+    it("close commit + plan(gtd) + real code → Option.some(closeSha)", async () => {
+      // real code commit
+      commit("feat: real code", "src.ts")
+      // close commit
+      const closeSha = commit("chore(gtd): close approved review for abc1234", "REVIEW.md", "")
+      // gtd workflow commit
+      commit("plan(gtd): grilling", "TODO.md", "# Plan\n")
+      // real non-gtd code commit on top
+      commit("feat: more real code", "other.ts")
+      const result = await runComputeReviewBase()
+      expect(result._tag).toBe("Some")
+      if (result._tag === "Some") {
+        expect(result.value).toBe(closeSha)
+      }
+    })
+  },
+)
 
 describe("parsePlanPhase", () => {
   it('grilling subject → "grilling"', () => {

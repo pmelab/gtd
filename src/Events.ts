@@ -116,18 +116,28 @@ export const computeReviewBase = (
     // Resolve HEAD hash for equality checks.
     const headHash = yield* git.resolveRef("HEAD")
 
-    // Frontier-at-HEAD: if HEAD itself is the latest review/close bookkeeping
-    // commit, the review frontier has reached HEAD — everything up to HEAD is
-    // already reviewed (a close commit means "approved", a review commit means a
-    // REVIEW.md is already present and handled separately), so there is nothing
-    // new to diff. Returning a base here would fall back to an older candidate
-    // (e.g. the prior review commit) whose diff to HEAD is the close commit's own
-    // REVIEW.md deletion — re-surfacing it as a fresh review and looping forever.
-    if (
-      (Option.isSome(lastReviewCandidate) && lastReviewCandidate.value === headHash) ||
-      (Option.isSome(lastCloseCandidate) && lastCloseCandidate.value === headHash)
-    ) {
-      return Option.none<string>()
+    // Frontier-at-HEAD: if the latest review/close bookkeeping commit is either
+    // at HEAD or is followed only by gtd-workflow commits (plan(gtd):,
+    // review(gtd):, chore(gtd):), the review frontier has effectively reached
+    // HEAD — everything up to HEAD is already reviewed. Returning a base here
+    // would fall back to an older candidate whose diff to HEAD is pure workflow
+    // noise, re-surfacing it as a fresh review and looping forever.
+    const isGtdWorkflowSubject = (s: string) =>
+      /^(?:plan|review|chore)\(gtd\):/.test(s)
+
+    for (const candidate of [lastReviewCandidate, lastCloseCandidate]) {
+      if (!Option.isSome(candidate)) continue
+      const candidateHash = candidate.value
+      // Must be ancestor of (or equal to) HEAD
+      if (candidateHash !== headHash) {
+        const ancestor = yield* git.isAncestor(candidateHash, "HEAD")
+        if (!ancestor) continue
+      }
+      // All commits between candidate and HEAD must be gtd-workflow commits
+      const subjects = yield* git.commitSubjects(candidateHash)
+      if (subjects.every(isGtdWorkflowSubject)) {
+        return Option.none<string>()
+      }
     }
 
     // Collect present candidates
