@@ -20,4 +20,4 @@ Two extra guards added to the committed arm:
 
 The untracked arm (`todoDirty === "new"`) is unchanged.
 
-- [x] ./src/Machine.ts#283
+- [ ] ./src/Machine.ts#283
