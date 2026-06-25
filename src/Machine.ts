@@ -283,9 +283,16 @@ const machine = setup({
     // Re-grill: user touched a committed plan.
     todoRegrill: (_, params: ResolvePayload) => params.todoDirty === "modified",
     // First grill: untracked TODO.md (any history), OR committed+clean with no plan commits yet.
+    // The committed arm additionally requires planPhase===null (so a committed plan(gtd): grilling
+    // commit is never re-triggered as a first grill) and !reviewBasePresent (so the humanReview
+    // gate takes priority when real unreviewed commits exist, regardless of planEverGrilled).
     todoInitial: ({ context }, params: ResolvePayload) =>
       params.todoDirty === "new" ||
-      (params.todoExists && params.todoDirty === null && !context.planEverGrilled),
+      (params.todoExists &&
+        params.todoDirty === null &&
+        !context.planEverGrilled &&
+        params.planPhase === null &&
+        !params.reviewBasePresent),
     humanReview: (_, params: ResolvePayload) =>
       params.reviewBasePresent && (params.refDiff ?? "").trim().length > 0,
     // No-agent action loop escalation guards (checked on re-entering an action
