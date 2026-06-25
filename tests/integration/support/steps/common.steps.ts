@@ -59,6 +59,25 @@ Given("a branch {string}", function (this: GtdWorld, branch: string) {
 // the verify-loop counter advances by exactly one. Empty keeps the working tree
 // clean so the cap/escalate guards (which sit behind codeDirty) are the ones
 // under test.
+Given("an untracked file {string} with:", function (this: GtdWorld, path: string, content: string) {
+  const full = join(this.repoDir, path)
+  mkdirSync(join(full, ".."), { recursive: true })
+  writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
+})
+
+Given(
+  "a package dir {string} with COMMIT_MSG.md {string}",
+  function (this: GtdWorld, path: string, msg: string) {
+    const full = join(this.repoDir, path)
+    mkdirSync(full, { recursive: true })
+    writeFileSync(join(full, "COMMIT_MSG.md"), msg)
+  },
+)
+
+Given("a deleted committed file {string}", function (this: GtdWorld, path: string) {
+  execFileSync("git", ["rm", path], { cwd: this.repoDir, stdio: "pipe" })
+})
+
 Given("a fix\\(gtd) commit {string}", function (this: GtdWorld, message: string) {
   execFileSync("git", ["commit", "--allow-empty", "-q", "-m", message, "-m", "Gtd-Test-Fix: 1"], {
     cwd: this.repoDir,
@@ -146,9 +165,3 @@ Then("the file {string} does not exist", function (this: GtdWorld, path: string)
   assert.ok(!this.repoFileExists(path), `Expected file "${path}" NOT to exist.`)
 })
 
-// Part B: an agent leaves its output UNCOMMITTED plus a `.gtd-commit-intent`
-// marker (repo root) naming the producing state. The NEXT gtd run's edge reads
-// it, commits with the disambiguated subject, and deletes the marker.
-Given("a commit-intent marker {string}", function (this: GtdWorld, intent: string) {
-  writeFileSync(join(this.repoDir, ".gtd-commit-intent"), intent + "\n")
-})

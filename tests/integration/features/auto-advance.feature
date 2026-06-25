@@ -13,12 +13,8 @@ Feature: Auto-advance and STOP markers in prompts
 
   Scenario: Decompose prompt includes auto-advance
     Given a test project
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       ## Plan
 
       - build a math library
@@ -77,5 +73,5 @@ Feature: Auto-advance and STOP markers in prompts
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Generate REVIEW.md"
-    And stdout contains "the next cycle's edge commits"
+    And stdout contains "the next cycle commits"
     And stdout does not contain "STOP"

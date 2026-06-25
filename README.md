@@ -26,16 +26,24 @@ expose an `edgeAction` (`removeGtdDir` / `closeReview` / `commitPending` /
 effect and feed the result back as a `TEST_RESULT` / `REVIEW_RECORDED` event (or
 a freshly re-gathered `RESOLVE`); the machine re-evaluates and projects the next
 state. Agent prompts never run `git commit` themselves: every agent leaves its
-output **uncommitted** plus a `.gtd-commit-intent` sentinel naming the producing
-state (`execute` / `decompose` / `new-todo` / `modified-todo` / `execute-simple`
-/ `human-review` / `fix-tests`). The next cycle's edge reads that marker
-(READ-ONLY in `src/Events.ts`), the machine folds it to a disambiguated
-`commitPending` edge action (ahead of the generic `code-changes` leaf), and the
-edge computes the message and commits — deleting the marker (and, for `execute`,
-the consumed `.gtd/NN-…` package dir) in the same commit. The machine stays
-pure: it only maps the intent to the action and its cleanup flags; the edge
-derives any content-based message (`COMMIT_MSG.md`, package count, review
-short-sha, TODO.md heading, and the load-bearing `Gtd-Test-Fix:` trailer). The
+output **uncommitted**. The edge infers the commit intent from the working-tree
+shape and the previous commit subject (`plan(gtd): grilling` /
+`plan(gtd): ready complete`). Non-plan intents leave output uncommitted and fall
+through to the `commitPending` edge action, which computes the message and
+commits — removing (for `execute`) the consumed `.gtd/NN-…` package dir in the
+same commit. The inference rules (evaluated in priority order):
+
+| Shape | Intent | Commit subject |
+|---|---|---|
+| Fresh untracked `REVIEW.md` (status `??`) containing `<!-- base: <sha> -->` | `human-review` | `review(gtd): create review for <short>` (first 7 chars of base) |
+| `TODO.md` deleted (`D`) in working tree + `.gtd/` packages present | `decompose` | `plan(gtd): decompose TODO.md into N work packages` |
+| Dirty source + lowest `.gtd/NN-…` package has `COMMIT_MSG.md` | `execute` | that `COMMIT_MSG.md` verbatim (trimmed) |
+| Dirty source + no packages + `verifyIterations > 0` (active fix loop) | `fix-tests` | `fix(gtd): apply test fix` + `Gtd-Test-Fix: N` trailer |
+| Dirty source + no packages + not in fix loop | *(generic)* | `chore(gtd): commit pending changes` |
+
+The machine stays pure: it only maps the intent to the action and its cleanup
+flags; the edge derives any content-based message (`COMMIT_MSG.md`, package
+count, review short-sha, and the load-bearing `Gtd-Test-Fix:` trailer). The
 edge opens the actor via `startDetect()` in `src/State.ts` and advances the same
 handle — the machine stays pure (no IO/Effect/git). The no-agent loop is bounded
 by `MAX_NO_AGENT_HOPS` (8) and a `stuck` guard (re-settling on the same no-agent
@@ -71,27 +79,26 @@ on the emitted prompt.
 emits the one prompt for that state. The guards are evaluated in a fixed
 priority order, so exactly one state wins per run:
 
-Planning state is driven by `TODO.md`'s `status:` frontmatter (`grilling` /
-`complete` / `simple`) — the in-file marker is the source of truth — and human
-changes are always committed verbatim **first**, before any gate is evaluated.
+Planning state is driven by the plan commit subject (`plan(gtd): grilling` /
+`plan(gtd): ready complete`) — the edge infers the phase from the last commit
+subject plus `## Open Questions` content — and human changes are always
+committed verbatim **first**, before any gate is evaluated.
 
 | Leaf state          | When it wins (first matching guard, top to bottom)                                                                                | Prompt                                                                                                                                                                                                                                                                                                                          |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `escalate`          | A committed `ERRORS.md` is present, OR the trailing run of `Gtd-Test-Fix:`-trailer commits hit the cap                            | Stop; surface the failure, keep `ERRORS.md` as the human gate                                                                                                                                                                                                                                                                   |
-| `commit-pending`    | A `.gtd-commit-intent` marker is present (an agent left output for the edge to commit)                                            | EDGE-DRIVEN: commit the agent's output with the intent-derived message, delete the marker (and, for `execute`, the consumed package dir); no prompt                                                                                                                                                                             |
-| `code-changes`      | Any uncommitted change outside `TODO.md`/`REVIEW.md`, **no `REVIEW.md` present**, and **no intent marker**                        | EDGE-DRIVEN: the edge commits the dirty tree with `git add -A`, leaving `TODO.md`/`REVIEW.md` uncommitted; no agent prompt                                                                                                                                                                                                      |
+| `code-changes`      | Any uncommitted change outside `TODO.md`/`REVIEW.md`, **no `REVIEW.md` present**                                                  | EDGE-DRIVEN: the edge commits the dirty tree with `git add -A`, leaving `TODO.md`/`REVIEW.md` uncommitted; no agent prompt                                                                                                                                                                                                      |
 | `await-review`      | `REVIEW.md` committed and unmodified (no feedback yet)                                                                            | Human gate — wait for the reviewer to work through `REVIEW.md`; **STOP**                                                                                                                                                                                                                                                        |
 | `review-incomplete` | `REVIEW.md` dirty and at least one checkbox is still unchecked                                                                    | Human gate — report that the review is unfinished and stop; the human must tick all boxes before re-running gtd                                                                                                                                                                                                                 |
 | `close-review`      | `REVIEW.md` dirty, ALL boxes ticked, and no other change (no non-tick REVIEW.md edits, no dirty source, no untracked files)       | EDGE-DRIVEN: the edge discards the ticks, deletes `REVIEW.md`, and commits the close; no agent prompt                                                                                                                                                                                                                           |
 | `review-process`    | `REVIEW.md` dirty, all boxes ticked, AND real feedback present (non-tick REVIEW.md edits, dirty source files, or untracked files) | EDGE-DRIVEN: the edge commits the verbatim dirty tree (`docs(review): record raw feedback for <base>`), captures the diff, `git revert`s that commit, removes `REVIEW.md`, and closes (`chore(gtd): close approved review for <sha>`) — all before the agent runs. The agent only synthesizes `TODO.md` from the injected diff. |
-| `execute`           | `.gtd/` contains numbered work packages                                                                                           | Edge runs `npm run test` first; on green, name the single next package and inline its tasks (one subagent per task), then leave the work uncommitted with an `execute` marker (the edge commits it and removes the consumed package dir); on red, fix-tests (or escalate)                                                       |
+| `execute`           | `.gtd/` contains numbered work packages                                                                                           | Edge runs `npm run test` first; on green, name the single next package and inline its tasks (one subagent per task), then leave the work **uncommitted**; the edge infers `execute` intent and commits using the package's `COMMIT_MSG.md` subject, removing the consumed package dir in the same commit; on red, fix-tests (or escalate) |
 | `cleanup`           | `.gtd/` exists but holds no packages                                                                                              | EDGE-DRIVEN: the edge removes the empty `.gtd/` directory; no agent prompt — vestigial safety net                                                                                                                                                                                                                               |
-| `execute-simple`    | `TODO.md` `status: simple` (≤5 files), or legacy `<!-- simple -->`                                                                | Implement the simple plan directly, no decomposition                                                                                                                                                                                                                                                                            |
-| `decompose`         | `TODO.md` `status: complete`                                                                                                      | Record `TODO.md`, then decompose into ordinal, dependency-ordered packages                                                                                                                                                                                                                                                      |
-| `await-answers`     | `TODO.md` `status: grilling`, committed, with open questions remaining                                                            | Human gate — wait for the user to answer the open questions; **STOP**                                                                                                                                                                                                                                                           |
-| `modified-todo`     | `TODO.md` `status: grilling` and edited, or a markerless `TODO.md` modified in place                                              | Incorporate edits, re-grill, move resolved Q&A to `## Resolved`, set `status:` when done                                                                                                                                                                                                                                        |
-| `new-todo`          | A markerless `TODO.md` (fresh sketch), committed or newly added                                                                   | Develop the plan: add `## Open Questions`, set `status: grilling`                                                                                                                                                                                                                                                               |
-| `human-review`      | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff                                                           | Generate `REVIEW.md` (no test gate) + write the `human-review` intent marker, then **auto-advance**: the next cycle's edge `commit-pending` commits `REVIEW.md` clean and resolves to the `await-review` human gate                                                                                                             |
+| `decompose`         | Last commit subject is `plan(gtd): ready complete`                                                                                | Record `TODO.md`, then decompose into ordinal, dependency-ordered packages                                                                                                                                                                                                                                                      |
+| `await-answers`     | Last commit subject is `plan(gtd): grilling`, TODO.md committed, with open questions remaining under `## Open Questions`          | Human gate — wait for the user to answer the open questions; **STOP**                                                                                                                                                                                                                                                           |
+| `modified-todo`     | `TODO.md` edited (any plan phase — re-grill on changes)                                                                           | Incorporate edits, re-grill, move resolved Q&A to `## Resolved`; edge commits `plan(gtd): grilling` or `plan(gtd): ready complete` based on remaining open questions                                                                                                                                                           |
+| `new-todo`          | A `TODO.md` exists, no prior plan commit in history                                                                               | Develop the plan: add `## Open Questions`; edge commits `plan(gtd): grilling`                                                                                                                                                                                                                                                   |
+| `human-review`      | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff                                                           | Generate `REVIEW.md` (leave uncommitted); the edge infers `human-review` intent from the untracked REVIEW.md, commits it with `review(gtd): create review for <short>`, and resolves to the `await-review` human gate                                                                                                           |
 | `verified`          | Nothing else matched — tree clean, nothing left to review                                                                         | Report the working tree healthy and reviewed                                                                                                                                                                                                                                                                                    |
 
 > **`fix-tests` is a machine leaf state.** When the chain would settle on
@@ -107,10 +114,11 @@ changes are always committed verbatim **first**, before any gate is evaluated.
 > then re-run gtd so the gate re-evaluates.
 
 > **Review base**: the closest-to-HEAD of {parent-branch merge-base, last
-> `<!-- base: … -->` review commit, last `chore(gtd): close approved review`
-> commit}, restricted to ancestors of HEAD. When no base exists or `base..HEAD`
-> is empty, there is nothing to review. Because the close commit itself becomes
-> the new base, the run immediately after a close resolves to `verified`.
+> `review(gtd):` commit, last `chore(gtd): close approved review` commit},
+> restricted to ancestors of HEAD (computed via `computeReviewBase` — no marker
+> in `REVIEW.md`). When no base exists or `base..HEAD` is empty, there is
+> nothing to review. Because the close commit itself becomes the new base, the
+> run immediately after a close resolves to `verified`.
 
 > **Test-fix loop**: the fix-tests prompt drives an internal loop — read the
 > uncommitted `ERRORS.md` attempt log, make one fix, re-run, append the attempt,
@@ -193,8 +201,8 @@ built-in defaults apply. Supported filenames (searched in this order):
     decomposing work packages.
   - `execution` — everyday model for implementing tasks, running tests, fixing
     failures.
-  - `states.*` — per-state overrides for the 5 subagent-spawning states:
-    `new-todo`, `modified-todo`, `decompose`, `execute`, `execute-simple`.
+  - `states.*` — per-state overrides for the 4 subagent-spawning states:
+    `new-todo`, `modified-todo`, `decompose`, `execute`.
     Unknown `models.states` keys (e.g. `fix-tests`) are **rejected**.
 
 ### Defaults (no config)
@@ -236,9 +244,7 @@ state per run:
 flowchart TD
     Start([Invoke /gtd]) --> Resolve{Fold history + working tree}
     Resolve -->|"ERRORS.md present or Gtd-Test-Fix: trailer run hit cap"| Escalate[escalate: stop, ask human]:::terminal
-    Resolve -->|".gtd-commit-intent marker present"| CommitPending["commit-pending: edge commits agent output, deletes marker"]:::edge
-    CommitPending -.->|re-gather + re-evaluate| Resolve
-    Resolve -->|"change outside TODO.md/REVIEW.md, no REVIEW.md, no intent marker"| CodeChanges["code-changes: edge commits dirty tree"]:::edge
+    Resolve -->|"change outside TODO.md/REVIEW.md, no REVIEW.md"| CodeChanges["code-changes: edge commits dirty tree"]:::edge
     CodeChanges -.->|re-gather + re-evaluate| Resolve
     Resolve -->|REVIEW.md committed, unmodified| AwaitReview[await-review: human gate]:::terminal
     Resolve -->|"REVIEW.md dirty, unchecked box remains"| ReviewIncomplete[review-incomplete: human gate]:::terminal
@@ -249,14 +255,13 @@ flowchart TD
     ExecuteTest -->|green| Execute[execute next package]:::terminal
     ExecuteTest -->|"red, below cap"| FixTests[fix-tests prompt]:::terminal
     ExecuteTest -->|red, at cap| Escalate
-    Execute -.->|"leave uncommitted + execute marker; next cycle edge commits + removes package"| Resolve
+    Execute -.->|"leave uncommitted; next cycle edge infers intent + commits + removes package"| Resolve
     Resolve -->|"stray empty .gtd/ safety net"| Cleanup["cleanup: edge removes empty .gtd/"]:::edge
     Cleanup -.->|re-gather + re-evaluate| Resolve
-    Resolve -->|TODO.md status: simple| ExecuteSimple[execute-simple]:::terminal
-    Resolve -->|TODO.md status: complete| Decompose[decompose into packages]:::terminal
-    Resolve -->|grilling, committed, open questions| AwaitAnswers[await-answers: human gate]:::terminal
-    Resolve -->|"grilling + edited, or markerless modified"| ModifiedTodo[modified-todo: re-grill]:::terminal
-    Resolve -->|markerless TODO.md| NewTodo["new-todo: develop plan, set status: grilling"]:::terminal
+    Resolve -->|"plan(gtd): ready complete at HEAD"| Decompose[decompose into packages]:::terminal
+    Resolve -->|"plan(gtd): grilling at HEAD, committed, open questions remain"| AwaitAnswers[await-answers: human gate]:::terminal
+    Resolve -->|TODO.md edited| ModifiedTodo[modified-todo: re-grill]:::terminal
+    Resolve -->|"TODO.md exists, no prior plan commit"| NewTodo["new-todo: develop plan"]:::terminal
     Resolve -->|"clean, base..HEAD has diff"| HumanReview[human-review: generate REVIEW.md + marker]:::terminal
     Resolve -->|nothing left| Verified[verified: healthy & reviewed]:::terminal
     FixTests -.->|"leave uncommitted + fix-tests marker; next cycle edge commits fix(gtd):…"| Resolve
@@ -269,28 +274,26 @@ flowchart TD
 A typical feature:
 
 1. Create a `TODO.md` with a sketch of what you want.
-2. `/gtd` — the agent (using the planning model) fleshes it out, adds
-   `status: grilling` frontmatter, appends an `## Open Questions` section, and
-   leaves `TODO.md` uncommitted with a `new-todo` marker; the edge commits
-   `docs(plan): record TODO.md`. The next run is a human gate (`await-answers`)
+2. `/gtd` — the agent (using the planning model) fleshes it out, appends an
+   `## Open Questions` section, and leaves `TODO.md` uncommitted; the edge
+   commits `plan(gtd): grilling`. The next run is a human gate (`await-answers`)
    until you answer.
 3. Open `TODO.md`, write inline answers under each question.
 4. `/gtd` again — the agent integrates your answers, moves resolved questions to
    the `## Resolved` graveyard, raises new ones, and leaves `TODO.md`
-   uncommitted with a `modified-todo` marker; the edge commits
-   `docs(plan): record TODO.md`. When no questions remain, the agent sets
-   `status: simple` (≤5 files) or `status: complete`. Repeat until the status is
-   set.
+   uncommitted; the edge commits `plan(gtd): grilling` while questions remain,
+   or `plan(gtd): ready complete` once all questions are resolved. Repeat until
+   no open questions remain.
 5. `/gtd` once more — the agent records `TODO.md` (when not already in `HEAD`)
    and decomposes it into work packages in `.gtd/`, deletes `TODO.md`, and
-   leaves the tree uncommitted with a `decompose` marker; the edge commits the
-   plan (`plan(gtd): decompose TODO.md into N packages`).
+   leaves the tree uncommitted; the edge commits the plan
+   (`plan(gtd): decompose TODO.md into N packages`).
 6. `/gtd` again — the edge runs `npm run test` first; on green it names the
    single next package and inlines its task contents in the prompt, and the
    agent executes it: spawns parallel workers (execution model + TDD), then
-   leaves all changes **uncommitted** with an `execute` marker. The next cycle's
-   edge commits the package (using its `COMMIT_MSG.md`), removes the package
-   directory, and verifies by running `npm run test`.
+   leaves all changes **uncommitted**. The next cycle's edge infers `execute`
+   intent (dirty source + package with `COMMIT_MSG.md`), commits using that
+   subject, removes the package directory, and verifies by running `npm run test`.
 7. Repeat `/gtd` for each remaining package — one package per cycle, each
    cycle's edge committing then verifying. A red test run emits the fix-tests
    prompt (one `fix(gtd):` fix per cycle, each carrying a `Gtd-Test-Fix:`
@@ -301,8 +304,9 @@ A typical feature:
    (the `cleanup` step survives only as a safety net for a stray empty `.gtd/`).
    If un-reviewed commits exist relative to the base (parent-branch merge-base
    or last review commit), it resolves to `human-review` and auto-generates
-   `REVIEW.md` + the intent marker and auto-advances; the next cycle's edge
-   commits `REVIEW.md` clean and stops at the `await-review` gate. If everything
+   `REVIEW.md` (uncommitted); the edge infers `human-review` intent from the
+   untracked file, commits `REVIEW.md` clean with subject
+   `review(gtd): create review for <short>`, and stops at the `await-review` gate. If everything
    is already reviewed, it reports the tree healthy and fully reviewed
    (`verified`).
 9. Work `REVIEW.md` (tick boxes, leave notes inline, edit source files) and run
@@ -390,16 +394,14 @@ A single execute cycle (green test gate):
    (with `tdd` skill)
 2. If any worker fails (crash/timeout, not a test failure): ask user to
    retry/skip/abort
-3. Leave all changes **uncommitted** and write `.gtd-commit-intent` containing
-   `execute`. Do **not** commit, do **not** delete the package directory, do
-   **not** run or determine a test command here.
+3. Leave all changes **uncommitted**. Do **not** commit, do **not** delete the
+   package directory, do **not** run or determine a test command here.
 4. Re-run gtd — the next cycle's edge commits all changes (using the package's
-   `COMMIT_MSG.md`), removes the consumed package directory from `.gtd/`, and
-   deletes the marker in one commit. Then it runs `npm run test` to verify what
-   was just committed and advances to the next package. On the **last** package,
-   the edge also removes the now-empty `.gtd/` in the same commit, so the next
-   run proceeds straight to `human-review` — the `cleanup` round-trip is
-   normally skipped.
+   `COMMIT_MSG.md`) and removes the consumed package directory from `.gtd/` in
+   one commit. Then it runs `npm run test` to verify what was just committed and
+   advances to the next package. On the **last** package, the edge also removes
+   the now-empty `.gtd/` in the same commit, so the next run proceeds straight
+   to `human-review` — the `cleanup` round-trip is normally skipped.
 
 When that edge test run fails, the edge emits the `fix-tests` prompt instead:
 loop internally up to three attempts (tracked in an uncommitted `ERRORS.md`),
@@ -419,18 +421,13 @@ transition for that case.
 
 ## Q&A format inside TODO.md
 
-`TODO.md` carries a `status:` frontmatter field that drives the planning phase:
-`grilling` while questions remain, then `simple` (≤5 files) or `complete` once
-resolved:
+The planning phase is encoded in the last commit subject: `plan(gtd): grilling`
+while questions remain, then `plan(gtd): ready complete` once all questions are
+resolved. The edge infers the phase from the commit subject and the presence of
+`### ` entries under `## Open Questions` in TODO.md.
 
-```markdown
----
-status: grilling
----
-```
-
-The `## Open Questions` section lives at the TOP of TODO.md (below the
-frontmatter, before the plan body). Each question looks like this:
+The `## Open Questions` section lives at the TOP of TODO.md (before the plan
+body). Each question looks like this:
 
 ```markdown
 ### What should pagination default to?

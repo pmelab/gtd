@@ -34,7 +34,6 @@ describe("ConfigService", () => {
     expect(cfg.resolveModel("modified-todo")).toBe("claude-opus-4-8")
     expect(cfg.resolveModel("decompose")).toBe("claude-opus-4-8")
     expect(cfg.resolveModel("execute")).toBe("claude-sonnet-4-8")
-    expect(cfg.resolveModel("execute-simple")).toBe("claude-sonnet-4-8")
   })
 
   it("reads testCommand from a single .gtdrc.yaml in cwd", async () => {
@@ -87,7 +86,6 @@ describe("ConfigService", () => {
     // (2) tier when no state override
     expect(cfg.resolveModel("new-todo")).toBe("tier-planner")
     expect(cfg.resolveModel("execute")).toBe("tier-executor")
-    expect(cfg.resolveModel("execute-simple")).toBe("tier-executor")
   })
 
   it("fails to decode with a readable error on unknown models.states key", async () => {

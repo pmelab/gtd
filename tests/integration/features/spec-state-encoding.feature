@@ -1,11 +1,11 @@
 # Aspirational — covers example.md "State encoding" table.
-# State lives in the control files; file presence selects the phase and an
-# in-file marker selects the sub-state. At most one phase is active at a time.
+# State lives in the commit subject; the last plan commit subject selects the
+# sub-state. At most one phase is active at a time.
 # These scenarios are allowed to fail until the spec is implemented.
 
-Feature: Phase is inferred from control files and in-file markers
+Feature: Phase is inferred from commit subjects and working-tree shape
 
-  Scenario: Committed TODO.md with no status frontmatter is verbatim, not yet grilled
+  Scenario: Committed TODO.md with no plan commit subject is verbatim, not yet grilled
     Given a test project
     And a commit "docs: capture plan" that adds "TODO.md" with:
       """
@@ -16,14 +16,10 @@ Feature: Phase is inferred from control files and in-file markers
     And stdout contains "## Task: Develop the plan in `TODO.md`"
     And stdout does not contain "## Task: Decompose"
 
-  Scenario: status grilling with non-empty Open Questions is an awaiting-answers gate
+  Scenario: plan(gtd):grilling commit with non-empty Open Questions is an awaiting-answers gate
     Given a test project
-    And a commit "docs: grill plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): grilling" that adds "TODO.md" with:
       """
-      ---
-      status: grilling
-      ---
-
       ## Open Questions
 
       ### Which operations?
@@ -42,14 +38,10 @@ Feature: Phase is inferred from control files and in-file markers
     And stdout does not contain "Re-run gtd immediately"
     And stdout does not contain "## Task: Decompose"
 
-  Scenario: status complete routes to decompose
+  Scenario: plan(gtd):ready complete routes to decompose
     Given a test project
-    And a commit "docs: finalize plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       ## Plan
 
       - build a math library
@@ -58,22 +50,6 @@ Feature: Phase is inferred from control files and in-file markers
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Decompose"
-    And stdout does not contain "## Task: Execute simple task"
-
-  Scenario: status simple routes to single-agent execute, never decompose
-    Given a test project
-    And a commit "docs: finalize plan" that adds "TODO.md" with:
-      """
-      ---
-      status: simple
-      ---
-
-      Add a greeting to the CLI output.
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "## Task: Execute simple task"
-    And stdout does not contain "## Task: Decompose"
 
   Scenario: Present work packages route to execute
     Given a test project
@@ -114,7 +90,6 @@ Feature: Phase is inferred from control files and in-file markers
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
       # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
 
       ## Add foo helper
 

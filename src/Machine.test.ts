@@ -3,13 +3,16 @@ import {
   type GtdEvent,
   MAX_NO_AGENT_HOPS,
   MAX_VERIFY_ITERATIONS,
-  type PendingCommitIntent,
   type ResolvePayload,
   resolve,
   start,
 } from "./Machine.js"
 
-const commit = (isTestFix: boolean): GtdEvent => ({ type: "COMMIT", isTestFix })
+const commit = (isTestFix: boolean, isPlanGrill = false): GtdEvent => ({
+  type: "COMMIT",
+  isTestFix,
+  isPlanGrill,
+})
 
 const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
   errorsPresent: false,
@@ -22,7 +25,7 @@ const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
   gtdDirExists: false,
   todoDirty: null,
   todoExists: false,
-  todoStatus: null,
+  planPhase: null,
   todoOpenQuestionsPresent: false,
   reviewPresent: false,
   reviewBasePresent: false,
@@ -30,6 +33,7 @@ const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
   workingTreeClean: true,
   packages: [],
   diff: "",
+  reviewDirty: null,
   ...overrides,
 })
 
@@ -57,6 +61,28 @@ describe("resolve — COMMIT counter folding", () => {
   it("[fix, fix, fix] → 3", () => {
     const { context } = resolve([commit(true), commit(true), commit(true)])
     expect(context.verifyIterations).toBe(3)
+  })
+})
+
+describe("resolve — planEverGrilled fold", () => {
+  it("no COMMIT events → planEverGrilled false", () => {
+    const { context } = resolve([])
+    expect(context.planEverGrilled).toBe(false)
+  })
+
+  it("COMMIT with isPlanGrill:false → planEverGrilled stays false", () => {
+    const { context } = resolve([commit(false, false), commit(true, false)])
+    expect(context.planEverGrilled).toBe(false)
+  })
+
+  it("COMMIT with isPlanGrill:true → planEverGrilled becomes true (sticky)", () => {
+    const { context } = resolve([commit(false, false), commit(false, true), commit(false, false)])
+    expect(context.planEverGrilled).toBe(true)
+  })
+
+  it("planEverGrilled stays true after a non-grill COMMIT follows a grill one", () => {
+    const { context } = resolve([commit(false, true), commit(false, false)])
+    expect(context.planEverGrilled).toBe(true)
   })
 })
 
@@ -127,17 +153,9 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
     expect(autoAdvance).toBe(true)
   })
 
-  it("todoStatus simple → execute-simple, autoAdvance true", () => {
+  it("planPhase complete → decompose, autoAdvance true", () => {
     const { value, autoAdvance } = resolve([
-      resolveEvent({ todoExists: true, todoStatus: "simple" }),
-    ])
-    expect(value).toBe("execute-simple")
-    expect(autoAdvance).toBe(true)
-  })
-
-  it("todoStatus complete → decompose, autoAdvance true", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({ todoExists: true, todoStatus: "complete" }),
+      resolveEvent({ todoExists: true, planPhase: "complete" }),
     ])
     expect(value).toBe("decompose")
     expect(autoAdvance).toBe(true)
@@ -149,11 +167,11 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
     expect(autoAdvance).toBe(false)
   })
 
-  it("grilling + clean + open questions → await-answers gate, autoAdvance false", () => {
+  it("planPhase grilling + clean + open questions → await-answers gate, autoAdvance false", () => {
     const { value, autoAdvance } = resolve([
       resolveEvent({
         todoExists: true,
-        todoStatus: "grilling",
+        planPhase: "grilling",
         todoDirty: null,
         todoOpenQuestionsPresent: true,
       }),
@@ -162,18 +180,22 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
     expect(autoAdvance).toBe(false)
   })
 
-  it("grilling + dirty → modified-todo (re-grill)", () => {
-    const { value } = resolve([
-      resolveEvent({ todoExists: true, todoStatus: "grilling", todoDirty: "modified" }),
-    ])
+  it("todoDirty modified → modified-todo (re-grill)", () => {
+    const { value } = resolve([resolveEvent({ todoExists: true, todoDirty: "modified" })])
     expect(value).toBe("modified-todo")
   })
 
-  it("markerless clean committed TODO → new-todo (first grill)", () => {
-    const { value } = resolve([
-      resolveEvent({ todoExists: true, todoStatus: null, todoDirty: null }),
-    ])
+  it("todoExists + no planEverGrilled + not modified → new-todo (first grill)", () => {
+    const { value } = resolve([resolveEvent({ todoExists: true, todoDirty: null })])
     expect(value).toBe("new-todo")
+  })
+
+  it("todoExists + planEverGrilled (from COMMIT) + not modified → verified (no re-grill)", () => {
+    const { value } = resolve([
+      commit(false, true),
+      resolveEvent({ todoExists: true, todoDirty: null }),
+    ])
+    expect(value).toBe("verified")
   })
 
   it("reviewUnmodified → await-review gate, autoAdvance false", () => {
@@ -220,6 +242,14 @@ describe("resolve — RESOLVE leaf + tag priority", () => {
     const { value, autoAdvance } = resolve([resolveEvent({ todoExists: true, todoDirty: "new" })])
     expect(value).toBe("new-todo")
     expect(autoAdvance).toBe(true)
+  })
+
+  it('todoDirty "new" + planEverGrilled → new-todo (fresh TODO.md after review cycle)', () => {
+    const { value } = resolve([
+      commit(false, true),
+      resolveEvent({ todoExists: true, todoDirty: "new" }),
+    ])
+    expect(value).toBe("new-todo")
   })
 
   it('todoDirty "modified" → modified-todo, autoAdvance true', () => {
@@ -432,82 +462,6 @@ describe("no-agent action leaves — edgeAction + loop-back", () => {
   })
 })
 
-describe("commit-pending — intent-disambiguated commit (Part B)", () => {
-  it("dirty tree with NO intent → code-changes (Part A regression)", () => {
-    const r = resolve([resolveEvent({ codeDirty: true, reviewPresent: false })])
-    expect(r.value).toBe("code-changes")
-    expect(r.edgeAction).toEqual({ kind: "commitPending" })
-  })
-
-  // Per-intent: a dirty-tree RESOLVE carrying that marker → commit-pending leaf
-  // with the expected commitPending payload (machine-only; message/flags assert).
-  const cases: Array<{
-    readonly intent: PendingCommitIntent
-    readonly expected: Record<string, unknown>
-  }> = [
-    {
-      intent: "execute",
-      expected: { kind: "commitPending", removeLastPackage: true, restorePaths: [] },
-    },
-    { intent: "decompose", expected: { kind: "commitPending", restorePaths: [] } },
-    { intent: "human-review", expected: { kind: "commitPending", restorePaths: [] } },
-    { intent: "execute-simple", expected: { kind: "commitPending", restorePaths: [] } },
-    {
-      intent: "new-todo",
-      expected: { kind: "commitPending", message: "docs(plan): record TODO.md", restorePaths: [] },
-    },
-    {
-      intent: "modified-todo",
-      expected: { kind: "commitPending", message: "docs(plan): record TODO.md", restorePaths: [] },
-    },
-    { intent: "fix-tests", expected: { kind: "commitPending", restorePaths: ["TODO.md"] } },
-  ]
-
-  for (const { intent, expected } of cases) {
-    it(`intent "${intent}" → commit-pending emitting ${JSON.stringify(expected)}`, () => {
-      const r = resolve([resolveEvent({ codeDirty: true, pendingCommitIntent: intent })])
-      expect(r.value).toBe("commit-pending")
-      expect(r.edgeAction).toEqual(expected)
-    })
-  }
-
-  it("intent routes to commit-pending AHEAD of code-changes even with codeDirty", () => {
-    const r = resolve([resolveEvent({ codeDirty: true, pendingCommitIntent: "execute" })])
-    expect(r.value).toBe("commit-pending")
-  })
-
-  it("commit-pending bumps noAgentHops; cleared intent on next RESOLVE advances", () => {
-    const handle = start([resolveEvent({ codeDirty: true, pendingCommitIntent: "decompose" })])
-    expect(handle.current.value).toBe("commit-pending")
-    const after = handle.advance([resolveEvent({ codeDirty: false, reviewBasePresent: false })])
-    expect(after.value).toBe("verified")
-    expect(after.context.noAgentHops).toBe(1)
-  })
-
-  it("stuck: marker persists after the commit (tree never cleared) → escalate", () => {
-    const handle = start([resolveEvent({ codeDirty: true, pendingCommitIntent: "execute" })])
-    expect(handle.current.value).toBe("commit-pending")
-    const after = handle.advance([
-      resolveEvent({ codeDirty: true, pendingCommitIntent: "execute" }),
-    ])
-    expect(after.value).toBe("escalate")
-  })
-
-  it("noAgentHops cap bounds a commit that keeps making progress but never finishes", () => {
-    // Alternate intent ↔ generic code-changes so each hop progresses (no stuck)
-    // and the hop counter climbs to the cap → escalate.
-    const intent = resolveEvent({ codeDirty: true, pendingCommitIntent: "decompose" })
-    const code = resolveEvent({ codeDirty: true })
-    const handle = start([intent])
-    let last = handle.current
-    for (let i = 0; i < MAX_NO_AGENT_HOPS; i++) {
-      last = handle.advance([i % 2 === 0 ? code : intent])
-      if (last.value === "escalate") break
-    }
-    expect(last.value).toBe("escalate")
-  })
-})
-
 describe("no-agent loop — cap + stuck escalation", () => {
   it("noAgentHops >= MAX_NO_AGENT_HOPS → escalate", () => {
     // Alternate code-changes ↔ cleanup so each hop makes progress (no `stuck`)
@@ -607,6 +561,87 @@ describe("runTestGate — TEST_RESULT fold (moved from selectPrompt)", () => {
     ])
     expect(hr.current.value).toBe("human-review")
     expect(hr.current.edgeAction).toBeUndefined()
+  })
+})
+
+describe("commit-pending — inferred intent routing", () => {
+  it("execute intent → commit-pending with removeLastPackage + packageCommitMsg", () => {
+    const handle = start([
+      resolveEvent({
+        commitIntent: "execute",
+        packageCommitMsg: "feat: implement it\n",
+        codeDirty: true,
+      }),
+    ])
+    expect(handle.current.value).toBe("commit-pending")
+    expect(handle.current.edgeAction).toEqual({
+      kind: "commitPending",
+      intent: "execute",
+      packageCommitMsg: "feat: implement it\n",
+      removeLastPackage: true,
+      restorePaths: [],
+    })
+  })
+
+  it("execute intent beats plain codeDirty (code-changes would also fire)", () => {
+    // codeDirty=true would normally route to code-changes, but execute intent comes first
+    const { value } = resolve([resolveEvent({ commitIntent: "execute", codeDirty: true })])
+    expect(value).toBe("commit-pending")
+  })
+
+  it("decompose intent → commit-pending with packageCount", () => {
+    const handle = start([resolveEvent({ commitIntent: "decompose", packageCount: 3 })])
+    expect(handle.current.value).toBe("commit-pending")
+    expect(handle.current.edgeAction).toEqual({
+      kind: "commitPending",
+      intent: "decompose",
+      packageCount: 3,
+      restorePaths: [],
+    })
+  })
+
+  it("human-review intent → commit-pending with reviewBaseHash; beats reviewIncomplete", () => {
+    const handle = start([
+      resolveEvent({
+        commitIntent: "human-review",
+        reviewBaseHash: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        reviewDirty: "new",
+        reviewModified: true,
+        reviewHasUncheckedBoxes: true,
+      }),
+    ])
+    expect(handle.current.value).toBe("commit-pending")
+    expect(handle.current.edgeAction).toEqual({
+      kind: "commitPending",
+      intent: "human-review",
+      base: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      restorePaths: [],
+    })
+  })
+
+  it("fix-tests loop (verifyIterations > 0 + codeDirty, no packages) → commit-pending", () => {
+    const handle = start([
+      commit(true),
+      resolveEvent({ codeDirty: true, hasPackages: false }),
+    ])
+    expect(handle.current.value).toBe("commit-pending")
+    expect(handle.current.edgeAction).toEqual({
+      kind: "commitPending",
+      intent: "fix-tests",
+      restorePaths: ["TODO.md"],
+    })
+  })
+
+  it("verifyIterations === 0 + codeDirty + no commitIntent → code-changes (not commit-pending)", () => {
+    const { value } = resolve([resolveEvent({ codeDirty: true, hasPackages: false })])
+    expect(value).toBe("code-changes")
+  })
+
+  it("stuckCommitPending: re-RESOLVE with commitIntent still set escalates", () => {
+    const handle = start([resolveEvent({ commitIntent: "execute", codeDirty: true })])
+    expect(handle.current.value).toBe("commit-pending")
+    const after = handle.advance([resolveEvent({ commitIntent: "execute", codeDirty: true })])
+    expect(after.value).toBe("escalate")
   })
 })
 

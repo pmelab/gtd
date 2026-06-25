@@ -66,14 +66,10 @@ Feature: gtd prints a structured prompt for the agent based on git state
     Then it succeeds
     And stdout contains "## Task: Incorporate edits to `TODO.md`"
 
-  Scenario: A status:complete TODO.md triggers decompose
+  Scenario: A plan(gtd):ready-complete commit triggers decompose
     Given a test project
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       - build the multiply function
       """
     When I run gtd
@@ -81,49 +77,16 @@ Feature: gtd prints a structured prompt for the agent based on git state
     And stdout contains "## Task: Decompose `TODO.md` into work packages"
     And stdout contains "planning-model subagent"
 
-  Scenario: Decompose prompt instructs leaving work uncommitted with a decompose marker
+  Scenario: Decompose prompt instructs leaving work uncommitted for the next cycle
     Given a test project
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       - build the multiply function
       """
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Decompose"
-    And stdout contains ".gtd-commit-intent"
     And stdout contains "plan(gtd): decompose TODO.md into N work packages"
-
-  Scenario: TODO.md with simple marker triggers execute-simple
-    Given a test project
-    And a commit "docs: seed plan" that adds "TODO.md" with:
-      """
-      Add a greeting to the CLI output
-
-      <!-- simple -->
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "## Task: Execute simple task"
-    And stdout does not contain "## Task: Decompose"
-
-  Scenario: A status:complete TODO.md decomposes rather than execute-simple
-    Given a test project
-    And a commit "docs: seed plan" that adds "TODO.md" with:
-      """
-      ---
-      status: complete
-      ---
-
-      Refactor authentication to use JWT
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "## Task: Decompose"
-    And stdout does not contain "## Task: Execute simple task"
 
   Scenario: Existing .gtd with packages triggers execute
     Given a test project

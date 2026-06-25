@@ -7,12 +7,8 @@ Feature: Auto-invoke continues until a human gate; no escape hatches exist
 
   Scenario: A progress state instructs an immediate re-run
     Given a test project
-    And a commit "docs: finalize plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       ## Plan
 
       - build a math library
@@ -25,12 +21,8 @@ Feature: Auto-invoke continues until a human gate; no escape hatches exist
 
   Scenario: An open-questions gate STOPs and does not auto-advance
     Given a test project
-    And a commit "docs: grill plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): grilling" that adds "TODO.md" with:
       """
-      ---
-      status: grilling
-      ---
-
       ## Open Questions
 
       ### Which operations?
@@ -66,12 +58,8 @@ Feature: Auto-invoke continues until a human gate; no escape hatches exist
 
   Scenario: There is no cancel/abort escape hatch
     Given a test project
-    And a commit "docs: finalize plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       ## Plan
 
       - build a math library

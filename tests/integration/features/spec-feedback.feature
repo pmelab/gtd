@@ -7,19 +7,23 @@ Feature: Any working-tree change during review is feedback (markerless)
 
   Scenario: A REVIEW.md prose note routes to review-process
     Given a test project
+    And a default branch "main"
+    And a branch "feature"
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
       # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
 
       ## Add foo helper
 
       - [ ] ./src/foo.ts#1
       """
+    And a commit "feat: add foo helper" that adds "src/foo.ts" with:
+      """
+      export function foo() {}
+      """
     And "REVIEW.md" is modified to:
       """
       # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
 
       ## Add foo helper
 
@@ -34,23 +38,23 @@ Feature: Any working-tree change during review is feedback (markerless)
 
   Scenario: A plain source-file edit routes to review-process
     Given a test project
-    And a commit "feat: app" that adds "src/app.ts" with:
-      """
-      export const app = () => 1
-      """
+    And a default branch "main"
+    And a branch "feature"
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
       # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
 
       ## App
 
       - [ ] ./src/app.ts#1
       """
+    And a commit "feat: app" that adds "src/app.ts" with:
+      """
+      export const app = () => 1
+      """
     And "REVIEW.md" is modified to:
       """
       # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
 
       ## App
 
@@ -67,23 +71,23 @@ Feature: Any working-tree change during review is feedback (markerless)
 
   Scenario: A `// !!` comment is ordinary feedback, not a special divert
     Given a test project
-    And a commit "feat: app" that adds "src/app.ts" with:
-      """
-      export const app = () => 1
-      """
+    And a default branch "main"
+    And a branch "feature"
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
       # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
 
       ## App
 
       - [ ] ./src/app.ts#1
       """
+    And a commit "feat: app" that adds "src/app.ts" with:
+      """
+      export const app = () => 1
+      """
     And "REVIEW.md" is modified to:
       """
       # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
 
       ## App
 
@@ -101,20 +105,24 @@ Feature: Any working-tree change during review is feedback (markerless)
 
   Scenario: All boxes ticked with no other changes routes to close-review
     Given a test project
+    And a default branch "main"
+    And a branch "feature"
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
       # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
 
       ## Add foo helper
 
       - [ ] ./src/foo.ts#1
       - [ ] ./src/bar.ts#5
       """
+    And a commit "feat: add foo helper" that adds "src/foo.ts" with:
+      """
+      export function foo() {}
+      """
     And "REVIEW.md" is modified to:
       """
       # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
 
       ## Add foo helper
 
@@ -123,7 +131,7 @@ Feature: Any working-tree change during review is feedback (markerless)
       """
     When I run gtd
     Then it succeeds
-    And the last commit subject is "chore(gtd): close approved review for abc1234"
+    And the git log contains "chore(gtd): close approved review for"
     And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
     And stdout does not contain "## Task: Close the approved review"
     And stdout does not contain "# Process Review Feedback"

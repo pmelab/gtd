@@ -3,7 +3,6 @@ import newTodo from "./prompts/new-todo.md"
 import modifiedTodo from "./prompts/modified-todo.md"
 import decompose from "./prompts/decompose.md"
 import execute from "./prompts/execute.md"
-import executeSimple from "./prompts/execute-simple.md"
 import escalate from "./prompts/escalate.md"
 import humanReview from "./prompts/human-review.md"
 import verified from "./prompts/verified.md"
@@ -17,7 +16,7 @@ import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdContext, GtdPackageFact, LeafState, ResolveResult } from "./Machine.js"
 
 /**
- * The five leaf states whose prompts spawn subagents and therefore carry a
+ * The four leaf states whose prompts spawn subagents and therefore carry a
  * `{{MODEL}}` placeholder. These coincide with `ModelState` from `Config.ts`.
  */
 const MODEL_STATES = new Set<LeafState>([
@@ -25,7 +24,6 @@ const MODEL_STATES = new Set<LeafState>([
   "modified-todo",
   "decompose",
   "execute",
-  "execute-simple",
 ])
 
 /**
@@ -43,7 +41,6 @@ const SECTIONS: Record<
   "modified-todo": modifiedTodo,
   decompose,
   execute,
-  "execute-simple": executeSimple,
   escalate,
   "human-review": humanReview,
   verified,

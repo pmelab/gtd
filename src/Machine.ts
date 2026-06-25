@@ -31,7 +31,6 @@ export type PendingCommitIntent =
   | "decompose"
   | "new-todo"
   | "modified-todo"
-  | "execute-simple"
   | "human-review"
   | "fix-tests"
 
@@ -70,23 +69,20 @@ export interface ResolvePayload {
   readonly todoDirty: "new" | "modified" | null
   /** TODO.md exists at all. */
   readonly todoExists: boolean
-  /** TODO.md `status:` frontmatter value (folds legacy `<!-- simple -->`). */
-  readonly todoStatus: "simple" | "complete" | "grilling" | null
+  /** Plan phase derived from `lastCommitSubject` (`plan(gtd): grilling` / `plan(gtd): ready complete`). */
+  readonly planPhase: "grilling" | "complete" | null
   /** TODO.md has unanswered questions under `## Open Questions`. */
   readonly todoOpenQuestionsPresent: boolean
   /** A review base ref is available to diff against. */
   readonly reviewBasePresent: boolean
   /** A REVIEW.md is present (committed and/or dirty) — the review path owns routing. */
   readonly reviewPresent: boolean
-  /**
-   * Intent descriptor an agent left for the NEXT cycle's edge to commit. Read
-   * READ-ONLY from the `.gtd-commit-intent` sentinel marker (see Events.ts).
-   * When present, the dirty tree is routed to a disambiguated `commitPending`
-   * action AHEAD of the generic `code-changes` leaf; the machine maps the kind
-   * to the action+cleanup flags but NEVER reads files or computes content-derived
-   * messages (the edge fills those).
-   */
-  readonly pendingCommitIntent?: PendingCommitIntent
+  /** Uncommitted state of REVIEW.md, if any. */
+  readonly reviewDirty: "new" | "modified" | null
+  readonly commitIntent?: PendingCommitIntent
+  readonly packageCommitMsg?: string
+  readonly packageCount?: number
+  readonly reviewBaseHash?: string
   // passthrough
   readonly lastCommitSubject: string
   readonly workingTreeClean: boolean
@@ -97,7 +93,7 @@ export interface ResolvePayload {
 }
 
 export type GtdEvent =
-  | { type: "COMMIT"; isTestFix: boolean }
+  | { type: "COMMIT"; isTestFix: boolean; isPlanGrill: boolean }
   | { type: "RESOLVE"; payload: ResolvePayload }
   | { type: "TEST_RESULT"; exitCode: number; output: string }
   | { type: "REVIEW_RECORDED"; diff: string; recordSha: string }
@@ -112,61 +108,31 @@ export type EdgeAction =
    * The disambiguated form carries:
    *   - `message` — a FIXED subject the machine knows; ABSENT for content-derived
    *     intents (execute=COMMIT_MSG.md, decompose=count N, human-review=base
-   *     short-sha, execute-simple=from TODO.md) which the EDGE computes.
+   *     short-sha, new-todo/modified-todo=grilling or ready-complete from
+   *     TODO.md) which the EDGE computes.
    *   - `removeLastPackage` — also `git rm -r` the lowest-numbered remaining
    *     `.gtd/NN-…` package dir in the SAME commit (set by the `execute` intent).
    *   - `restorePaths` — paths to keep uncommitted (default ["TODO.md","REVIEW.md"]).
-   * The edge also deletes the intent sentinel as part of the same commit.
    */
   | {
       kind: "commitPending"
       message?: string
       removeLastPackage?: boolean
       restorePaths?: ReadonlyArray<string>
+      intent?: PendingCommitIntent
+      packageCommitMsg?: string
+      packageCount?: number
+      base?: string
     }
   | { kind: "runTestGate" }
   | { kind: "reviewPreRender"; base: string }
 
-/**
- * Pure intent→action mapping. The machine NEVER reads files or derives content
- * messages — it only selects the FIXED-string message (when one exists) and the
- * cleanup flags. Intents with content-derived messages leave `message` undefined
- * so the edge fills it.
- *
- *   execute        → message: undefined (edge reads COMMIT_MSG.md); removeLastPackage
- *   decompose      → message: undefined (edge counts packages → N)
- *   human-review   → message: undefined (edge derives base short-sha)
- *   execute-simple → message: undefined (edge derives from TODO.md heading)
- *   new-todo       → FIXED "docs(plan): record TODO.md"
- *   modified-todo  → FIXED "docs(plan): record TODO.md"
- *   fix-tests      → message: undefined (edge writes fixed subject + Gtd-Test-Fix trailer)
- *
- * `restorePaths` is intent-specific. Unlike the generic `code-changes` commit
- * (which keeps TODO.md/REVIEW.md uncommitted), an agent-output commit must
- * capture the agent's full output — including TODO.md/REVIEW.md edits and
- * deletions — so most intents restore NOTHING (`[]`). The sole exception is
- * `fix-tests`, which must leave TODO.md dirty (a fix commit never touches the
- * plan), so it restores `["TODO.md"]`.
- */
-const commitActionForIntent = (intent: PendingCommitIntent): EdgeAction => {
-  switch (intent) {
-    case "execute":
-      return { kind: "commitPending", removeLastPackage: true, restorePaths: [] }
-    case "new-todo":
-    case "modified-todo":
-      return { kind: "commitPending", message: "docs(plan): record TODO.md", restorePaths: [] }
-    case "decompose":
-    case "human-review":
-    case "execute-simple":
-      return { kind: "commitPending", restorePaths: [] }
-    case "fix-tests":
-      return { kind: "commitPending", restorePaths: ["TODO.md"] }
-  }
-}
 
 export interface GtdContext {
   verifyIterations: number
   maxVerifyIterations: number
+  /** True once any COMMIT with `isPlanGrill:true` has been seen; sticky OR. */
+  planEverGrilled: boolean
   /** Consecutive no-agent action hops; independent of `verifyIterations`. */
   noAgentHops: number
   /** The no-agent leaf settled on the previous hop, for the `stuck` guard. */
@@ -177,6 +143,10 @@ export interface GtdContext {
   diff: string
   baseRef?: string
   refDiff?: string
+  commitIntent?: PendingCommitIntent
+  packageCommitMsg?: string
+  packageCount?: number
+  reviewBaseHash?: string
   /** Captured red-test output for the `fix-tests` render. */
   testOutput?: string
   /** REVIEW_RECORDED synthesis diff for the review-process render. */
@@ -185,8 +155,6 @@ export interface GtdContext {
   recordSha?: string
   /** The action a settled action-leaf wants the edge to perform; else cleared. */
   edgeAction?: EdgeAction
-  /** Intent marker the current RESOLVE carried, for the disambiguated commit. */
-  pendingCommitIntent?: PendingCommitIntent
 }
 
 /** Terminal leaf-state ids. These are the only non-`replaying` states. */
@@ -196,11 +164,9 @@ export type LeafState =
   | "review-incomplete"
   | "await-review"
   | "code-changes"
-  | "commit-pending"
   | "execute"
   | "cleanup"
   | "decompose"
-  | "execute-simple"
   | "escalate"
   | "new-todo"
   | "modified-todo"
@@ -208,10 +174,12 @@ export type LeafState =
   | "human-review"
   | "verified"
   | "fix-tests"
+  | "commit-pending"
 
 const initialContext: GtdContext = {
   verifyIterations: 0,
   maxVerifyIterations: MAX_VERIFY_ITERATIONS,
+  planEverGrilled: false,
   noAgentHops: 0,
   lastAdvancedLeaf: null,
   lastCommitSubject: "",
@@ -236,14 +204,26 @@ const resolveChain = (actions: ReadonlyArray<string>, stuckLeaf?: LeafState) => 
     ...(stuckLeaf === "commit-pending"
       ? [{ guard: { type: "stuckCommitPending", params: p }, target: "escalate", actions }]
       : []),
-    // Intent-bearing dirty tree → disambiguated commit, AHEAD of the generic
-    // `code-changes` leaf. A dirty tree with NO intent still routes to
-    // `code-changes` below (Part A regression).
-    { guard: { type: "hasCommitIntent", params: p }, target: "commit-pending", actions },
     ...(stuckLeaf === "code-changes"
       ? [{ guard: { type: "stuckCodeChanges", params: p }, target: "escalate", actions }]
       : []),
+    // intent: execute — BEFORE the codeDirty branch
+    {
+      guard: ({ event }: { event: GtdEvent }) =>
+        event.type === "RESOLVE" && event.payload.commitIntent === "execute",
+      target: "commit-pending",
+      actions,
+    },
+    // isFixTestsLoop — BEFORE the codeDirty branch
+    { guard: { type: "isFixTestsLoop", params: p }, target: "commit-pending", actions },
     { guard: { type: "codeDirty", params: p }, target: "code-changes", actions },
+    // intent: human-review — BEFORE the review guards (reviewUnmodified/reviewIncomplete etc.)
+    {
+      guard: ({ event }: { event: GtdEvent }) =>
+        event.type === "RESOLVE" && event.payload.commitIntent === "human-review",
+      target: "commit-pending",
+      actions,
+    },
     { guard: { type: "reviewUnmodified", params: p }, target: "await-review", actions },
     { guard: { type: "reviewIncomplete", params: p }, target: "review-incomplete", actions },
     ...(stuckLeaf === "close-review"
@@ -251,12 +231,18 @@ const resolveChain = (actions: ReadonlyArray<string>, stuckLeaf?: LeafState) => 
       : []),
     { guard: { type: "closeReview", params: p }, target: "close-review", actions },
     { guard: { type: "reviewModified", params: p }, target: "review-process", actions },
+    // intent: decompose — BEFORE hasPackages/gtdDirExists branches
+    {
+      guard: ({ event }: { event: GtdEvent }) =>
+        event.type === "RESOLVE" && event.payload.commitIntent === "decompose",
+      target: "commit-pending",
+      actions,
+    },
     { guard: { type: "hasPackages", params: p }, target: "runTestGate", actions },
     ...(stuckLeaf === "cleanup"
       ? [{ guard: { type: "stuckCleanup", params: p }, target: "escalate", actions }]
       : []),
     { guard: { type: "gtdDirExists", params: p }, target: "cleanup", actions },
-    { guard: { type: "todoSimple", params: p }, target: "execute-simple", actions },
     { guard: { type: "todoComplete", params: p }, target: "decompose", actions },
     { guard: "capReached", target: "escalate", actions },
     { guard: { type: "todoAwaitAnswers", params: p }, target: "await-answers", actions },
@@ -285,27 +271,21 @@ const machine = setup({
     reviewModified: (_, params: ResolvePayload) => params.reviewModified,
     reviewUnmodified: (_, params: ResolvePayload) => params.reviewUnmodified,
     codeDirty: (_, params: ResolvePayload) => params.codeDirty && !params.reviewPresent,
-    // An intent marker is present — the agent left output for the edge to commit.
-    hasCommitIntent: (_, params: ResolvePayload) => params.pendingCommitIntent !== undefined,
     hasPackages: (_, params: ResolvePayload) => params.hasPackages,
     gtdDirExists: (_, params: ResolvePayload) => params.gtdDirExists,
-    todoSimple: (_, params: ResolvePayload) => params.todoStatus === "simple",
-    todoComplete: (_, params: ResolvePayload) => params.todoStatus === "complete",
+    todoComplete: (_, params: ResolvePayload) => params.planPhase === "complete",
     capReached: ({ context }) => context.verifyIterations >= context.maxVerifyIterations,
     // Grilled plan, committed, with open questions still pending → human gate.
     todoAwaitAnswers: (_, params: ResolvePayload) =>
-      params.todoStatus === "grilling" &&
+      params.planPhase === "grilling" &&
       params.todoDirty === null &&
       params.todoOpenQuestionsPresent,
-    // Re-grill: a grilling plan the user edited, or a markerless plan modified
-    // in place.
-    todoRegrill: (_, params: ResolvePayload) =>
-      (params.todoStatus === "grilling" &&
-        (params.todoDirty !== null || !params.todoOpenQuestionsPresent)) ||
-      (params.todoStatus === null && params.todoDirty === "modified"),
-    // First grill: a markerless plan (fresh sketch), committed or newly added.
-    todoInitial: (_, params: ResolvePayload) =>
-      params.todoExists && params.todoStatus === null && params.todoDirty !== "modified",
+    // Re-grill: user touched a committed plan.
+    todoRegrill: (_, params: ResolvePayload) => params.todoDirty === "modified",
+    // First grill: untracked TODO.md (any history), OR committed+clean with no plan commits yet.
+    todoInitial: ({ context }, params: ResolvePayload) =>
+      params.todoDirty === "new" ||
+      (params.todoExists && params.todoDirty === null && !context.planEverGrilled),
     humanReview: (_, params: ResolvePayload) =>
       params.reviewBasePresent && (params.refDiff ?? "").trim().length > 0,
     // No-agent action loop escalation guards (checked on re-entering an action
@@ -322,10 +302,11 @@ const machine = setup({
       !params.reviewHasRealFeedback,
     stuckCodeChanges: ({ context }, params: ResolvePayload) =>
       context.lastAdvancedLeaf === "code-changes" && params.codeDirty && !params.reviewPresent,
-    // `commit-pending` made no progress: the marker still present after the
-    // edge's commit (the commit failed to clear the tree) → escalate.
+    hasCommitIntent: (_, params: ResolvePayload) => params.commitIntent !== undefined,
+    isFixTestsLoop: ({ context }, params: ResolvePayload) =>
+      params.codeDirty && !params.reviewPresent && !params.hasPackages && context.verifyIterations > 0,
     stuckCommitPending: ({ context }, params: ResolvePayload) =>
-      context.lastAdvancedLeaf === "commit-pending" && params.pendingCommitIntent !== undefined,
+      context.lastAdvancedLeaf === "commit-pending" && params.commitIntent !== undefined,
     // Test-gate fold (mirrors the retired `selectPrompt`).
     testGreen: ({ event }) => event.type === "TEST_RESULT" && event.exitCode === 0,
     testRedBelowCap: ({ context, event }) =>
@@ -343,6 +324,10 @@ const machine = setup({
         if (event.type !== "COMMIT") return context.verifyIterations
         return event.isTestFix ? context.verifyIterations + 1 : 0
       },
+      planEverGrilled: ({ context, event }) => {
+        if (event.type !== "COMMIT") return context.planEverGrilled
+        return context.planEverGrilled || event.isPlanGrill
+      },
     }),
     // Mirror of `foldCommit` for the no-agent loop: bump the hop counter and
     // record which action leaf we just left, so the next settle can detect lack
@@ -357,13 +342,16 @@ const machine = setup({
       return {
         // Cleared here; action-leaf entry actions re-set it afterwards.
         edgeAction: undefined,
-        pendingCommitIntent: p.pendingCommitIntent,
         lastCommitSubject: p.lastCommitSubject,
         workingTreeClean: p.workingTreeClean,
         packages: p.packages,
         diff: p.diff,
         ...(p.baseRef !== undefined ? { baseRef: p.baseRef } : {}),
         ...(p.refDiff !== undefined ? { refDiff: p.refDiff } : {}),
+        ...(p.commitIntent !== undefined ? { commitIntent: p.commitIntent } : {}),
+        ...(p.packageCommitMsg !== undefined ? { packageCommitMsg: p.packageCommitMsg } : {}),
+        ...(p.packageCount !== undefined ? { packageCount: p.packageCount } : {}),
+        ...(p.reviewBaseHash !== undefined ? { reviewBaseHash: p.reviewBaseHash } : {}),
       }
     }),
   },
@@ -402,17 +390,45 @@ const machine = setup({
       always: [{ guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" }],
       on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "code-changes") },
     },
-    // Disambiguated commit: an agent left an intent marker. The entry maps the
-    // marker kind → a `commitPending` action (fixed-string message and/or
-    // cleanup flags); content-derived messages are filled by the edge.
     "commit-pending": {
       tags: ["auto-advance"],
       entry: assign({
-        edgeAction: ({ context }) =>
-          context.pendingCommitIntent !== undefined
-            ? commitActionForIntent(context.pendingCommitIntent)
-            : ({ kind: "commitPending" } satisfies EdgeAction),
         lastAdvancedLeaf: () => "commit-pending" as LeafState,
+        edgeAction: ({ context, event }) => {
+          // Determine intent: from context (set by applyPayload) or isFixTestsLoop (no commitIntent)
+          const intent = context.commitIntent
+          if (intent === "human-review") {
+            return {
+              kind: "commitPending",
+              intent: "human-review",
+              ...(context.reviewBaseHash !== undefined ? { base: context.reviewBaseHash } : {}),
+              restorePaths: [],
+            } satisfies EdgeAction
+          }
+          if (intent === "execute") {
+            return {
+              kind: "commitPending",
+              intent: "execute",
+              ...(context.packageCommitMsg !== undefined ? { packageCommitMsg: context.packageCommitMsg } : {}),
+              removeLastPackage: true,
+              restorePaths: [],
+            } satisfies EdgeAction
+          }
+          if (intent === "decompose") {
+            return {
+              kind: "commitPending",
+              intent: "decompose",
+              ...(context.packageCount !== undefined ? { packageCount: context.packageCount } : {}),
+              restorePaths: [],
+            } satisfies EdgeAction
+          }
+          // fix-tests: comes from isFixTestsLoop (no commitIntent) or explicit intent
+          return {
+            kind: "commitPending",
+            intent: "fix-tests",
+            restorePaths: ["TODO.md"],
+          } satisfies EdgeAction
+        },
       }),
       always: [{ guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" }],
       on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "commit-pending") },
@@ -477,7 +493,6 @@ const machine = setup({
     execute: { tags: ["auto-advance"], type: "final" },
     "fix-tests": { type: "final" },
     decompose: { tags: ["auto-advance"], type: "final" },
-    "execute-simple": { tags: ["auto-advance"], type: "final" },
     "new-todo": { tags: ["auto-advance"], type: "final" },
     "modified-todo": { tags: ["auto-advance"], type: "final" },
     "await-answers": { type: "final" },

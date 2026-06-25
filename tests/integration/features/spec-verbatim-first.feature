@@ -42,20 +42,24 @@ Feature: Human changes are committed verbatim before any gate is evaluated
 
   Scenario: Review gate routes human edits to review-process when REVIEW.md is present and all boxes ticked
     Given a test project
+    And a default branch "main"
+    And a branch "feature"
     And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
       """
       # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
 
       ## Add foo helper
 
       - [ ] ./src/foo.ts#1
       - [ ] ./src/bar.ts#5
       """
+    And a commit "feat: add foo helper" that adds "src/foo.ts" with:
+      """
+      export function foo() {}
+      """
     And "REVIEW.md" is modified to:
       """
       # Review: abc1234
-      <!-- base: abc1234567890abcdef1234 -->
 
       ## Add foo helper
 

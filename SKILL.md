@@ -52,9 +52,9 @@ filenames: `.gtdrc`, `.gtdrc.json`, `.gtdrc.yaml`, `.gtdrc.yml`,
   `execute` (default `npm run test`). The test-fix cap stays fixed and is not
   overridable.
 - **`models`** — `planning` (default `claude-opus-4-8`), `execution` (default
-  `claude-sonnet-4-8`), and `states.*` per-state overrides for the 5
-  subagent-spawning states (`new-todo`, `modified-todo`, `decompose`, `execute`,
-  `execute-simple`). Unknown `models.states` keys are rejected.
+  `claude-sonnet-4-8`), and `states.*` per-state overrides for the 4
+  subagent-spawning states (`new-todo`, `modified-todo`, `decompose`, `execute`).
+  Unknown `models.states` keys are rejected.
 
 Lookup walks from cwd up to the home dir (or filesystem root when cwd is outside
 home); all found levels merge, **innermost (cwd) wins**. A `.gtdrc` in a shared
@@ -143,14 +143,15 @@ order:
 - `cleanup` — `.gtd/` is empty; remove it and verify. Safety net for a stray
   empty `.gtd/` — the normal tail skips it because execute removes `.gtd/` on
   the last package
-- `execute-simple` — `TODO.md` `status: simple` (≤5 files, or legacy
-  `<!-- simple -->`); implement directly without decomposition
-- `decompose` — `TODO.md` `status: complete`; break it into ordinal,
-  dependency-ordered work packages
-- `await-answers` — `TODO.md` `status: grilling`, committed, with open questions
-  remaining; human gate, STOP
-- `new-todo` / `modified-todo` — a markerless `TODO.md` (first grill, sets
-  `status: grilling`) / a grilling-or-markerless `TODO.md` edited (re-grill)
+- `decompose` — last commit subject is `plan(gtd): ready complete`; break
+  `TODO.md` into ordinal, dependency-ordered work packages
+- `await-answers` — last commit subject is `plan(gtd): grilling`, TODO.md
+  committed, with open questions remaining under `## Open Questions`; human
+  gate, STOP
+- `new-todo` / `modified-todo` — a `TODO.md` exists with no prior plan commit
+  in history (first grill) / `TODO.md` edited (re-grill); edge commits
+  `plan(gtd): grilling` while questions remain, `plan(gtd): ready complete`
+  once resolved
 - `human-review` — clean tree with un-reviewed commits; the edge runs
   `npm run test` first (green → auto-generate `REVIEW.md`; red → fix-tests, or
   `escalate` at the cap)
@@ -172,9 +173,9 @@ of the normal loop:
 
 1. **human-review**: When the tree is clean and there are un-reviewed commits
    relative to the auto-computed base (parent-branch merge-base, last
-   `<!-- base: … -->` review commit, or last `chore(gtd): close approved review`
-   commit), gtd generates `REVIEW.md` with structured feedback sections and a
-   `<!-- base: <sha> -->` marker, then stops.
+   `review(gtd):` commit, or last `chore(gtd): close approved review` commit —
+   computed via `computeReviewBase`, no marker in `REVIEW.md`), gtd generates
+   `REVIEW.md` with structured feedback sections, then stops.
 2. The user edits `REVIEW.md` with feedback (and may edit source files to
    illustrate desired changes).
 3. **review-process**: On the next run gtd folds all feedback (comments, source

@@ -64,16 +64,11 @@ sequential work package:
 ### After the subagent completes
 
 1. Delete `TODO.md` (it's now captured in the work packages).
-2. Leave all changes **uncommitted** and write the intent marker file
-   `.gtd-commit-intent` at the repository root containing exactly:
+2. Leave all changes **uncommitted**.
 
-   ```
-   decompose
-   ```
-
-   Re-run gtd — the next cycle commits `.gtd/` (and the `TODO.md` deletion) with
-   the message `plan(gtd): decompose TODO.md into N work packages` (N derived by
-   the edge from the package count) and deletes the marker, preserving the
-   user's plan and its full Q&A history in git history.
+Re-run gtd — the next cycle commits `.gtd/` (and the `TODO.md` deletion) with
+the message `plan(gtd): decompose TODO.md into N work packages` (N derived by
+the edge from the package count), preserving the user's plan and its full Q&A
+history in git history.
 
 The plan is now executable.

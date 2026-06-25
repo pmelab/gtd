@@ -7,12 +7,8 @@ Feature: Decomposition produces a frozen, ordered package set
 
   Scenario: Decompose emits ordinal-prefixed packages in dependency order
     Given a test project
-    And a commit "docs: finalize plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       ## Plan
 
       - build the parser, then the evaluator that depends on it
@@ -25,12 +21,8 @@ Feature: Decomposition produces a frozen, ordered package set
 
   Scenario: Decompose instructs that each package must leave the tree green on its own
     Given a test project
-    And a commit "docs: finalize plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       ## Plan
 
       - build a multi-part feature
@@ -42,12 +34,8 @@ Feature: Decomposition produces a frozen, ordered package set
 
   Scenario: Decompose instructs file-disjoint tasks, merging tasks that share files
     Given a test project
-    And a commit "docs: finalize plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       ## Plan
 
       - build a multi-part feature
@@ -58,14 +46,10 @@ Feature: Decomposition produces a frozen, ordered package set
     And stdout contains "file-disjoint"
     And stdout contains "merge"
 
-  Scenario: Decompose leaves work uncommitted with a decompose marker for the edge to record
+  Scenario: Decompose leaves work uncommitted for the next cycle to commit
     Given a test project
-    And a commit "docs: finalize plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       ## Plan
 
       - build the multiply function
@@ -73,7 +57,6 @@ Feature: Decomposition produces a frozen, ordered package set
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Decompose"
-    And stdout contains ".gtd-commit-intent"
     And stdout contains "plan(gtd): decompose TODO.md into N work packages"
 
   Scenario: An existing package set is frozen — decomposition does not run again

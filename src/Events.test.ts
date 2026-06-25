@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -8,9 +9,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   computeReviewHasRealFeedback,
   computeReviewHasUncheckedBoxes,
+  gatherEvents,
   getPackages,
-  readCommitIntent,
+  parsePlanPhase,
 } from "./Events.js"
+import { GitService } from "./Git.js"
 
 const run = <A>(eff: Effect.Effect<A, Error, FileSystem.FileSystem>) =>
   Effect.runPromise(eff.pipe(Effect.provide(NodeContext.layer)))
@@ -97,47 +100,6 @@ describe("getPackages — inlined task contents + commit-msg flag", () => {
   })
 })
 
-describe("readCommitIntent — commit-intent sentinel (READ-ONLY)", () => {
-  it("execute marker → 'execute'", async () => {
-    writeFileSync(join(repoDir, ".gtd-commit-intent"), "execute\n")
-    const intent = await withFs((fs) => readCommitIntent(fs))
-    expect(intent).toBe("execute")
-  })
-
-  it("decompose marker → 'decompose'", async () => {
-    writeFileSync(join(repoDir, ".gtd-commit-intent"), "decompose")
-    const intent = await withFs((fs) => readCommitIntent(fs))
-    expect(intent).toBe("decompose")
-  })
-
-  it("no marker → undefined (Part A code-changes path)", async () => {
-    const intent = await withFs((fs) => readCommitIntent(fs))
-    expect(intent).toBeUndefined()
-  })
-
-  it("unrecognized marker content → undefined", async () => {
-    writeFileSync(join(repoDir, ".gtd-commit-intent"), "bogus-intent\n")
-    const intent = await withFs((fs) => readCommitIntent(fs))
-    expect(intent).toBeUndefined()
-  })
-
-  it("all seven intent kinds round-trip", async () => {
-    for (const kind of [
-      "execute",
-      "decompose",
-      "new-todo",
-      "modified-todo",
-      "execute-simple",
-      "human-review",
-      "fix-tests",
-    ]) {
-      writeFileSync(join(repoDir, ".gtd-commit-intent"), kind)
-      const intent = await withFs((fs) => readCommitIntent(fs))
-      expect(intent).toBe(kind)
-    }
-  })
-})
-
 const runEffect = <A>(eff: Effect.Effect<A, Error>) =>
   Effect.runPromise(eff.pipe(Effect.provide(NodeContext.layer)))
 
@@ -195,5 +157,151 @@ describe("computeReviewHasRealFeedback", () => {
       }),
     )
     expect(result).toBe(true)
+  })
+})
+
+function git(dir: string, ...args: string[]) {
+  execFileSync("git", args, { cwd: dir, stdio: "pipe" })
+}
+
+const runGatherEvents = () =>
+  Effect.runPromise(
+    gatherEvents().pipe(Effect.provide(GitService.Live), Effect.provide(NodeContext.layer)),
+  )
+
+describe("gatherEvents — commitIntent and reviewDirty inference", { timeout: 30_000 }, () => {
+  let gitRepoDir: string
+  let savedCwd: string
+
+  beforeEach(() => {
+    savedCwd = process.cwd()
+    gitRepoDir = mkdtempSync(join(tmpdir(), "gtd-events-git-"))
+    git(gitRepoDir, "init", "-q")
+    git(gitRepoDir, "config", "user.name", "Test")
+    git(gitRepoDir, "config", "user.email", "test@test.com")
+    git(gitRepoDir, "config", "commit.gpgsign", "false")
+    writeFileSync(join(gitRepoDir, "README.md"), "# test\n")
+    git(gitRepoDir, "add", "-A")
+    git(gitRepoDir, "commit", "-q", "-m", "chore: init")
+    process.chdir(gitRepoDir)
+  })
+
+  afterEach(() => {
+    process.chdir(savedCwd)
+    rmSync(gitRepoDir, { recursive: true, force: true })
+  })
+
+  it("fresh untracked REVIEW.md → commitIntent=human-review, reviewDirty=new, reviewBaseHash parsed", async () => {
+    const baseHash = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    writeFileSync(
+      join(gitRepoDir, "REVIEW.md"),
+      `# Review\n\n<!-- base: ${baseHash} -->\n\n- [ ] item\n`,
+    )
+    const events = await runGatherEvents()
+    const resolve = events.find((e) => e.type === "RESOLVE")!
+    if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+    const p = resolve.payload
+    expect(p.commitIntent).toBe("human-review")
+    expect(p.reviewDirty).toBe("new")
+    expect(p.reviewBaseHash).toBe(baseHash)
+  })
+
+  it("human-edited (tracked M) REVIEW.md → no commitIntent, reviewDirty=modified", async () => {
+    const baseHash = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    writeFileSync(
+      join(gitRepoDir, "REVIEW.md"),
+      `# Review\n\n<!-- base: ${baseHash} -->\n\n- [ ] item\n`,
+    )
+    git(gitRepoDir, "add", "REVIEW.md")
+    git(gitRepoDir, "commit", "-q", "-m", "review(gtd): create review for abc1234")
+    // Human edits REVIEW.md (tracked file, now modified)
+    writeFileSync(
+      join(gitRepoDir, "REVIEW.md"),
+      `# Review\n\n<!-- base: ${baseHash} -->\n\n- [x] item\n\nFeedback here.\n`,
+    )
+    const events = await runGatherEvents()
+    const resolve = events.find((e) => e.type === "RESOLVE")!
+    if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+    const p = resolve.payload
+    expect(p.commitIntent).toBeUndefined()
+    expect(p.reviewDirty).toBe("modified")
+    expect(p.reviewBaseHash).toBe(baseHash)
+  })
+
+  it("TODO.md deleted + packages present → commitIntent=decompose, packageCount=N", async () => {
+    writeFileSync(join(gitRepoDir, "TODO.md"), "# plan\n")
+    git(gitRepoDir, "add", "TODO.md")
+    git(gitRepoDir, "commit", "-q", "-m", "plan(gtd): ready complete")
+    // Simulate post-decompose state: TODO.md deleted, packages created
+    git(gitRepoDir, "rm", "TODO.md")
+    mkdirSync(join(gitRepoDir, ".gtd", "01-foo"), { recursive: true })
+    writeFileSync(join(gitRepoDir, ".gtd", "01-foo", "COMMIT_MSG.md"), "feat: foo\n")
+    mkdirSync(join(gitRepoDir, ".gtd", "02-bar"), { recursive: true })
+    writeFileSync(join(gitRepoDir, ".gtd", "02-bar", "COMMIT_MSG.md"), "feat: bar\n")
+    const events = await runGatherEvents()
+    const resolve = events.find((e) => e.type === "RESOLVE")!
+    if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+    const p = resolve.payload
+    expect(p.commitIntent).toBe("decompose")
+    expect(p.packageCount).toBe(2)
+  })
+
+  it("dirty source + lowest package has COMMIT_MSG.md → commitIntent=execute, packageCommitMsg", async () => {
+    mkdirSync(join(gitRepoDir, ".gtd", "01-work"), { recursive: true })
+    writeFileSync(join(gitRepoDir, ".gtd", "01-work", "COMMIT_MSG.md"), "feat: implement thing\n")
+    writeFileSync(join(gitRepoDir, "src.ts"), "export const x = 1\n")
+    const events = await runGatherEvents()
+    const resolve = events.find((e) => e.type === "RESOLVE")!
+    if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+    const p = resolve.payload
+    expect(p.commitIntent).toBe("execute")
+    expect(p.packageCommitMsg).toBe("feat: implement thing\n")
+  })
+
+  it("dirty source + NO packages → no commitIntent (fix-tests/generic is machine's job)", async () => {
+    writeFileSync(join(gitRepoDir, "src.ts"), "export const x = 1\n")
+    const events = await runGatherEvents()
+    const resolve = events.find((e) => e.type === "RESOLVE")!
+    if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+    const p = resolve.payload
+    expect(p.commitIntent).toBeUndefined()
+  })
+
+  it("<!-- base --> parsed even when reviewBasePresent path would not fire (HEAD is review commit)", async () => {
+    const baseHash = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    // Commit REVIEW.md so HEAD is the review commit (frontier guard returns none)
+    writeFileSync(
+      join(gitRepoDir, "REVIEW.md"),
+      `# Review\n\n<!-- base: ${baseHash} -->\n\n- [ ] item\n`,
+    )
+    git(gitRepoDir, "add", "REVIEW.md")
+    git(gitRepoDir, "commit", "-q", "-m", "review(gtd): create review for abc1234")
+    const events = await runGatherEvents()
+    const resolve = events.find((e) => e.type === "RESOLVE")!
+    if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+    // reviewBaseHash should be set even when reviewBasePresent=false (frontier guard)
+    expect(resolve.payload.reviewBaseHash).toBe(baseHash)
+  })
+})
+
+describe("parsePlanPhase", () => {
+  it('grilling subject → "grilling"', () => {
+    expect(parsePlanPhase("plan(gtd): grilling")).toBe("grilling")
+  })
+
+  it('ready complete subject → "complete"', () => {
+    expect(parsePlanPhase("plan(gtd): ready complete")).toBe("complete")
+  })
+
+  it("decompose subject → null", () => {
+    expect(parsePlanPhase("plan(gtd): decompose TODO.md into 3 work packages")).toBe(null)
+  })
+
+  it("unrelated subject → null", () => {
+    expect(parsePlanPhase("docs(plan): record TODO.md")).toBe(null)
+  })
+
+  it("empty string → null", () => {
+    expect(parsePlanPhase("")).toBe(null)
   })
 })

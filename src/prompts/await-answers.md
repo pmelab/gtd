@@ -1,8 +1,8 @@
 ## Task: Wait for the human to answer the open questions in `TODO.md`
 
-`TODO.md` is being grilled (`status: grilling`) and still has unanswered
-questions under `## Open Questions`. This is a human gate — the plan cannot
-advance until the questions are answered.
+`TODO.md` is being grilled (HEAD is `plan(gtd): grilling`) and still has
+unanswered questions under `## Open Questions`. This is a human gate — the plan
+cannot advance until the questions are answered.
 
 ### What the human must do
 

@@ -4,8 +4,8 @@ import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
 
-/** The five planning/execution states a model can be resolved for. */
-export type ModelState = "new-todo" | "modified-todo" | "decompose" | "execute" | "execute-simple"
+/** The four planning/execution states a model can be resolved for. */
+export type ModelState = "new-todo" | "modified-todo" | "decompose" | "execute"
 
 /** Which tier a state belongs to. The single source of state→tier mapping. */
 export type ModelTier = "planning" | "execution"
@@ -19,7 +19,6 @@ export const stateTier: Record<ModelState, ModelTier> = {
   "modified-todo": "planning",
   decompose: "planning",
   execute: "execution",
-  "execute-simple": "execution",
 }
 
 /** Built-in tier defaults, used when nothing is configured. */
@@ -30,7 +29,7 @@ export const builtinTierDefault: Record<ModelTier, string> = {
 
 const DEFAULT_TEST_COMMAND = "npm run test"
 
-// Closed struct for models.states: exactly the five known keys, each optional.
+// Closed struct for models.states: exactly the four known keys, each optional.
 // Using a plain Struct (not Record) means unknown keys are rejected during
 // decode rather than silently stripped.
 const ModelStatesSchema = Schema.Struct({
@@ -38,7 +37,6 @@ const ModelStatesSchema = Schema.Struct({
   "modified-todo": Schema.optional(Schema.String),
   decompose: Schema.optional(Schema.String),
   execute: Schema.optional(Schema.String),
-  "execute-simple": Schema.optional(Schema.String),
 })
 
 const ModelsSchema = Schema.Struct({

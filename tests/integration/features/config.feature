@@ -41,12 +41,8 @@ Feature: .gtdrc config system
         planning: my-planner-model
         execution: my-executor-model
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       - build the multiply function
       """
     When I run gtd
@@ -87,12 +83,8 @@ Feature: .gtdrc config system
         states:
           decompose: state-decompose-model
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       - build the multiply function
       """
     When I run gtd
@@ -103,12 +95,8 @@ Feature: .gtdrc config system
 
   Scenario: Built-in defaults apply with no config present
     Given a test project
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       - build the multiply function
       """
     When I run gtd
@@ -177,12 +165,8 @@ Feature: .gtdrc config system
         planning: ancestor-planner-model
         execution: ancestor-executor-model
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       - build the multiply function
       """
     When I run gtd
@@ -201,12 +185,8 @@ Feature: .gtdrc config system
       models:
         planning: shared-parent-planner
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "plan(gtd): ready complete" that adds "TODO.md" with:
       """
-      ---
-      status: complete
-      ---
-
       - build the multiply function
       """
     When I run gtd

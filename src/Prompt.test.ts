@@ -11,6 +11,7 @@ const baseContext = (overrides: Partial<GtdContext> = {}): GtdContext => ({
   workingTreeClean: true,
   packages: [],
   diff: "",
+  planEverGrilled: false,
   ...overrides,
 })
 
@@ -202,7 +203,7 @@ describe("buildPrompt", () => {
     expect(out).not.toContain("remove the now-empty `.gtd/` directory")
   })
 
-  it("execute prompt instructs writing the `execute` intent marker", () => {
+  it("execute prompt instructs leaving work uncommitted (no intent marker)", () => {
     const out = buildPrompt(
       result("execute", {
         context: {
@@ -217,7 +218,8 @@ describe("buildPrompt", () => {
         },
       }),
     )
-    expect(out).toContain(".gtd-commit-intent")
+    expect(out).toContain("Leave all changes uncommitted")
+    expect(out).not.toContain(".gtd-commit-intent")
   })
 
   it("execute prompt fences backtick-containing task content with a long-enough fence", () => {
@@ -257,13 +259,6 @@ describe("buildPrompt", () => {
     expect(out).not.toContain("Delete the empty `.gtd/` directory")
   })
 
-  it("execute-simple prompt renders its section and the auto-advance partial", () => {
-    const out = buildPrompt(result("execute-simple", { autoAdvance: true }))
-    expect(out).toContain("marked with `<!-- simple -->`")
-    expect(out).toContain("Re-run gtd immediately")
-    expect(out).not.toContain("Decompose `TODO.md` into work packages")
-  })
-
   it("fix-tests override emits the fix(gtd) instruction and fences the captured output", () => {
     const out = buildPrompt(result("human-review"), {
       kind: "fix-tests",
@@ -300,7 +295,7 @@ describe("buildPrompt", () => {
 
   describe("model injection", () => {
     const planningStates: ReadonlyArray<LeafState> = ["new-todo", "modified-todo", "decompose"]
-    const executionStates: ReadonlyArray<LeafState> = ["execute", "execute-simple"]
+    const executionStates: ReadonlyArray<LeafState> = ["execute"]
     const subagentStates = [...planningStates, ...executionStates]
 
     for (const state of planningStates) {
@@ -362,14 +357,6 @@ describe("buildPrompt", () => {
         expect(out).not.toContain("{{MODEL}}")
       })
     }
-
-    it("a per-state override beats its tier default", () => {
-      const out = buildPrompt(result("execute-simple", { autoAdvance: true }), undefined, (s) =>
-        s === "execute-simple" ? "custom-simple-model" : "claude-sonnet-4-8",
-      )
-      expect(out).toContain("custom-simple-model")
-      expect(out).not.toContain("claude-sonnet-4-8")
-    })
 
     it("the five subagent prompts no longer carry the AGENTS.md model-preference prose", () => {
       for (const state of subagentStates) {

@@ -18,67 +18,17 @@ const GTD_DIR = ".gtd"
 const REVIEW_FILE = "REVIEW.md"
 const ERRORS_FILE = "ERRORS.md"
 const UNANSWERED_MARKER = "<!-- user answers here -->"
-const SIMPLE_MARKER = "<!-- simple -->"
 
 /**
- * Commit-intent sentinel marker (the on-disk contract Part B introduces).
- *
- * An agent leaves its output UNCOMMITTED and writes this top-level file whose
- * sole content is the intent-kind string (one of `PendingCommitIntent`). It
- * lives at the repo ROOT — NOT inside `.gtd/` — so the same location works for
- * every intent regardless of whether `.gtd/` exists (e.g. new-todo / human-review
- * have no `.gtd/`). The next `gtd` cycle reads it here (READ-ONLY) into
- * `payload.pendingCommitIntent`; the machine folds it to a disambiguated
- * `commitPending` action, and the edge deletes this file as part of that commit.
+ * Parse the plan phase from a commit subject line.
+ * - `"plan(gtd): grilling"` → `"grilling"`
+ * - `"plan(gtd): ready complete"` → `"complete"`
+ * - anything else → `null`
  */
-const COMMIT_INTENT_FILE = ".gtd-commit-intent"
-
-const COMMIT_INTENTS: ReadonlyArray<PendingCommitIntent> = [
-  "execute",
-  "decompose",
-  "new-todo",
-  "modified-todo",
-  "execute-simple",
-  "human-review",
-  "fix-tests",
-]
-
-const parseCommitIntent = (raw: string): PendingCommitIntent | undefined => {
-  const v = raw.trim()
-  return COMMIT_INTENTS.find((k) => k === v)
-}
-
-/**
- * Read the commit-intent sentinel (READ-ONLY) into a `PendingCommitIntent`.
- * Absent marker (or unrecognized content) → `undefined` (the Part A
- * `code-changes` path). Exported for unit testing the gather contract.
- */
-export const readCommitIntent = (
-  fs: FileSystem.FileSystem,
-): Effect.Effect<PendingCommitIntent | undefined, Error> =>
-  Effect.gen(function* () {
-    const exists = yield* fs.exists(COMMIT_INTENT_FILE)
-    if (!exists) return undefined
-    const raw = yield* fs
-      .readFileString(COMMIT_INTENT_FILE)
-      .pipe(Effect.mapError((e) => new Error(String(e))))
-    return parseCommitIntent(raw)
-  }).pipe(Effect.mapError((e) => new Error(String(e))))
-
-/**
- * Parse the `status:` value from a leading YAML frontmatter block. Folds the
- * legacy `<!-- simple -->` marker into `"simple"` for backward compatibility.
- */
-const parseTodoStatus = (content: string): "simple" | "complete" | "grilling" | null => {
-  const fm = content.match(/^---\n([\s\S]*?)\n---/)
-  if (fm) {
-    const m = fm[1]!.match(/^\s*status:\s*(\w+)/m)
-    if (m) {
-      const v = m[1]
-      if (v === "simple" || v === "complete" || v === "grilling") return v
-    }
-  }
-  if (content.includes(SIMPLE_MARKER)) return "simple"
+export const parsePlanPhase = (subject: string): "grilling" | "complete" | null => {
+  const s = subject.trim()
+  if (s === "plan(gtd): grilling") return "grilling"
+  if (s === "plan(gtd): ready complete") return "complete"
   return null
 }
 
@@ -274,6 +224,7 @@ export const gatherEvents = (): Effect.Effect<
     const commitEvents: Array<GtdEvent> = messages.map((message) => ({
       type: "COMMIT",
       isTestFix: /^Gtd-Test-Fix:/m.test(message),
+      isPlanGrill: /^plan\(gtd\):/.test(message.split("\n")[0] ?? ""),
     }))
 
     // --- RESOLVE payload (working-tree snapshot) -----------------------------
@@ -297,6 +248,7 @@ export const gatherEvents = (): Effect.Effect<
       : null
 
     const lastCommitSubject = hasCommits ? yield* git.lastCommitSubject() : ""
+    const planPhase = parsePlanPhase(lastCommitSubject)
     const diff = entries.length > 0 ? yield* git.diffHead() : ""
 
     const packages = yield* getPackages(fs)
@@ -306,19 +258,12 @@ export const gatherEvents = (): Effect.Effect<
     // A committed ERRORS.md means the test loop escalated; it is a human gate.
     const errorsPresent = yield* fs.exists(ERRORS_FILE)
 
-    // Commit-intent sentinel (READ-ONLY): an agent left output uncommitted plus
-    // this marker naming which state produced it, so the next edge can emit a
-    // disambiguated commit. Absent → Part A generic `code-changes` path.
-    const pendingCommitIntent = yield* readCommitIntent(fs)
-
-    // TODO.md state is driven by its `status:` frontmatter (source of truth),
-    // with open-questions presence gating the await-answers branch.
+    // TODO.md open-questions probe.
     const todoExists = yield* fs.exists(TODO_FILE)
     const todoContent = todoExists
       ? yield* fs.readFileString(TODO_FILE).pipe(Effect.mapError((e) => new Error(String(e))))
       : ""
     const stripped = stripCode(todoContent)
-    const todoStatus = todoExists ? parseTodoStatus(stripped) : null
     const todoOpenQuestionsPresent = todoExists && hasOpenQuestions(stripped)
 
     // REVIEW.md probing.
@@ -326,33 +271,28 @@ export const gatherEvents = (): Effect.Effect<
     let reviewUnmodified = false
     let reviewHasUncheckedBoxes = false
     let reviewHasRealFeedback = false
-    let reviewBaseRef: string | undefined
+    let reviewContent: string | undefined
     const reviewExists = yield* fs.exists(REVIEW_FILE)
     if (reviewExists) {
       reviewModified = entries.some((e) => e.path === REVIEW_FILE)
       // A committed, unmodified REVIEW.md is the review gate: the human has not
       // recorded any feedback yet. Wait for them rather than erroring.
       reviewUnmodified = !reviewModified
-      const reviewContent = yield* fs
+      reviewContent = yield* fs
         .readFileString(REVIEW_FILE)
         .pipe(Effect.mapError((e) => new Error(String(e))))
 
-      const baseMatch = reviewContent.match(/<!--\s*base:\s*([a-f0-9]+)\s*-->/)
-      if (!baseMatch) {
-        yield* Effect.fail(
-          new Error(
-            "REVIEW.md is corrupted: missing base ref. Delete REVIEW.md and re-run with git ref to restart review.",
-          ),
-        )
-      }
-      reviewBaseRef = baseMatch![1] as string
-
       reviewHasUncheckedBoxes = computeReviewHasUncheckedBoxes(reviewContent)
 
+      const reviewEntry0 = entries.find((e) => e.path === REVIEW_FILE)
+      const reviewTrackedModified =
+        reviewEntry0 !== undefined &&
+        !reviewEntry0.status.includes("?") &&
+        !reviewEntry0.status.includes("A")
       const otherDirtyPathsExist = !entries.every((e) => e.path === REVIEW_FILE)
       if (otherDirtyPathsExist) {
         reviewHasRealFeedback = true
-      } else if (reviewModified) {
+      } else if (reviewModified && reviewTrackedModified) {
         const committedContent = yield* git
           .showHead(REVIEW_FILE)
           .pipe(Effect.mapError((e) => new Error(String(e))))
@@ -362,6 +302,21 @@ export const gatherEvents = (): Effect.Effect<
           workingContent: reviewContent,
         })
       }
+    }
+
+    // reviewDirty: mirrors todoDirty but for REVIEW.md
+    const reviewEntry = entries.find((e) => e.path === REVIEW_FILE)
+    const reviewDirty: "new" | "modified" | null = reviewEntry
+      ? reviewEntry.status.includes("?") || reviewEntry.status.includes("A")
+        ? "new"
+        : "modified"
+      : null
+
+    // Parse <!-- base: hash --> comment from REVIEW.md unconditionally (when present).
+    let reviewBaseHash: string | undefined
+    if (reviewContent !== undefined) {
+      const m = reviewContent.match(/<!--\s*base:\s*([0-9a-f]{40})\s*-->/)
+      if (m) reviewBaseHash = m[1]
     }
 
     // Review base for the human-review branch.
@@ -377,6 +332,38 @@ export const gatherEvents = (): Effect.Effect<
         refDiff = candidateDiff
       }
     }
+    // Fallback: when HEAD is the review commit, computeReviewBase returns none
+    // (frontier guard). Read the <!-- base: hash --> comment the human-review
+    // agent writes into REVIEW.md so review-process can still get a base ref.
+    if (computedBaseRef === undefined && reviewBaseHash !== undefined) {
+      const candidateDiff = yield* git.diffRef(reviewBaseHash)
+      if (candidateDiff.trim().length > 0) {
+        reviewBasePresent = true
+        computedBaseRef = reviewBaseHash
+        refDiff = candidateDiff
+      }
+    }
+
+    // Compute commitIntent and related fields.
+    let commitIntent: PendingCommitIntent | undefined
+    let packageCommitMsg: string | undefined
+    let packageCount: number | undefined
+
+    if (reviewDirty === "new") {
+      // human-review: a new REVIEW.md was written by the agent
+      commitIntent = "human-review"
+    } else if (todoEntry?.status.includes("D") && hasPackages) {
+      // decompose: TODO.md was deleted AND packages exist
+      commitIntent = "decompose"
+      packageCount = packages.length
+    } else if (codeDirty && packages.length > 0 && packages[0]!.hasCommitMsg) {
+      // execute: code is dirty and lowest package has a COMMIT_MSG.md
+      commitIntent = "execute"
+      packageCommitMsg = yield* fs
+        .readFileString(`${GTD_DIR}/${packages[0]!.name}/COMMIT_MSG.md`)
+        .pipe(Effect.mapError((e) => new Error(String(e))))
+    }
+    // codeDirty && no packages => commitIntent left UNSET
 
     const payload: ResolvePayload = {
       errorsPresent,
@@ -389,21 +376,21 @@ export const gatherEvents = (): Effect.Effect<
       gtdDirExists,
       todoDirty,
       todoExists,
-      todoStatus,
+      planPhase,
       todoOpenQuestionsPresent,
       reviewPresent: reviewExists,
       reviewBasePresent,
-      ...(pendingCommitIntent !== undefined ? { pendingCommitIntent } : {}),
+      reviewDirty,
       lastCommitSubject,
       workingTreeClean,
       packages,
       diff,
-      ...(reviewBaseRef !== undefined
-        ? { baseRef: reviewBaseRef }
-        : computedBaseRef !== undefined
-          ? { baseRef: computedBaseRef }
-          : {}),
+      ...(computedBaseRef !== undefined ? { baseRef: computedBaseRef } : {}),
       ...(refDiff !== undefined ? { refDiff } : {}),
+      ...(commitIntent !== undefined ? { commitIntent } : {}),
+      ...(packageCommitMsg !== undefined ? { packageCommitMsg } : {}),
+      ...(packageCount !== undefined ? { packageCount } : {}),
+      ...(reviewBaseHash !== undefined ? { reviewBaseHash } : {}),
     }
 
     return [...commitEvents, { type: "RESOLVE", payload }] as ReadonlyArray<GtdEvent>

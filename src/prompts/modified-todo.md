@@ -58,24 +58,11 @@ The subagent should:
    bottom, migrate it: move the section to the top and create a `## Resolved`
    section at the bottom
 
-6. **Set the frontmatter `status:`** — the `status:` field is the source of
-   truth for what happens next:
-   - If `## Open Questions` is now empty (all questions resolved), decide scope:
-     - **`status: simple`** if the change is confined to **five files or fewer**
-       (single, obvious implementation) — executed directly, no decomposition.
-     - **`status: complete`** otherwise — decomposed into work packages.
-   - If questions still remain, keep `status: grilling`.
-
 ### After the subagent completes
 
 Run `node scripts/gtd.js format TODO.md` (use the same `scripts/gtd.js` path you
 invoked to get this prompt) to normalize formatting.
 
-Leave `TODO.md` **uncommitted** and write the intent marker file
-`.gtd-commit-intent` at the repository root containing exactly:
-
-```
-modified-todo
-```
-
-The next cycle commits `TODO.md` and deletes the marker.
+Leave `TODO.md` **uncommitted**. The next cycle commits it, inferring the plan
+subject (`plan(gtd): grilling` while open questions remain, otherwise
+`plan(gtd): ready complete`) from the `## Open Questions` content.

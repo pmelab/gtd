@@ -43,10 +43,9 @@ export interface GitOperations {
    */
   readonly closeReview: (base: string) => Effect.Effect<void, Error>
   /**
-   * Stages all changes, unstages `restorePaths` (default ["TODO.md","REVIEW.md"]),
-   * also stages the deletion of the commit-intent sentinel and — when
-   * `removeLastPackage` is set — `git rm -r` the lowest-numbered remaining
-   * `.gtd/NN-…` package dir, then commits with `message` (default
+   * Stages all changes, unstages `restorePaths` (default ["TODO.md","REVIEW.md"])
+   * and — when `removeLastPackage` is set — `git rm -r` the lowest-numbered
+   * remaining `.gtd/NN-…` package dir, then commits with `message` (default
    * `chore(gtd): commit pending changes`). Skips the commit when nothing remains
    * staged after the restores.
    */
@@ -65,32 +64,31 @@ export interface CommitMessageInputs {
   readonly packageCount?: number
   /** Review base ref (human-review → short sha). */
   readonly base?: string
-  /** `TODO.md` content (execute-simple → first heading). */
+  /** `TODO.md` content (plan intents → grilling/ready-complete subject). */
   readonly todoContent?: string
   /** Current verify attempt number (fix-tests → `Gtd-Test-Fix: <n>` trailer). */
   readonly verifyIteration?: number
 }
 
-const firstHeading = (markdown: string): string | undefined => {
-  for (const line of markdown.split("\n")) {
-    const m = line.match(/^#+\s+(.+?)\s*$/)
-    if (m) return m[1]
-  }
-  return undefined
+const UNANSWERED_MARKER = "<!-- user answers here -->"
+
+const hasOpenQuestions = (content: string): boolean => {
+  if (content.includes(UNANSWERED_MARKER)) return true
+  const m = content.match(/^##\s+Open Questions\s*\n([\s\S]*?)(?=\n##\s|\n---|\s*$)/m)
+  return m ? /^###\s+/m.test(m[1]!) : false
 }
 
 /**
  * Deterministic, edge-side message derivation for the content-derived intents.
  * The machine leaves `message` undefined for these and the edge fills it here:
  *
- *   - `execute`        → the selected package's `COMMIT_MSG.md` verbatim.
- *   - `decompose`      → `plan(gtd): decompose TODO.md into N work packages`.
- *   - `human-review`   → `review(gtd): create review for <short>` (7-char base).
- *   - `execute-simple` → `feat(gtd): <TODO.md first heading>` (deterministic).
- *   - `fix-tests`      → `fix(gtd): apply test fix` PLUS a `Gtd-Test-Fix: <n>`
+ *   - `execute`       → the selected package's `COMMIT_MSG.md` verbatim.
+ *   - `decompose`     → `plan(gtd): decompose TODO.md into N work packages`.
+ *   - `human-review`  → `review(gtd): create review for <short>` (7-char base).
+ *   - `new-todo` / `modified-todo` → `plan(gtd): grilling` if TODO.md has
+ *     unanswered open questions, else `plan(gtd): ready complete`.
+ *   - `fix-tests`     → `fix(gtd): apply test fix` PLUS a `Gtd-Test-Fix: <n>`
  *     trailer (load-bearing — the verify/escalate gate counts the trailer).
- *   - `new-todo` / `modified-todo` carry a FIXED message from the machine and
- *     never reach this helper; included for totality.
  */
 export const deriveCommitMessage = (
   intent: PendingCommitIntent,
@@ -109,17 +107,15 @@ export const deriveCommitMessage = (
       const short = (inputs.base ?? "").slice(0, 7)
       return `review(gtd): create review for ${short}`
     }
-    case "execute-simple": {
-      const heading = firstHeading(inputs.todoContent ?? "")
-      return heading !== undefined ? `feat(gtd): ${heading}` : "feat(gtd): execute simple task"
-    }
     case "fix-tests": {
       const n = inputs.verifyIteration ?? 1
       return `fix(gtd): apply test fix\n\nGtd-Test-Fix: ${n}`
     }
     case "new-todo":
     case "modified-todo":
-      return "docs(plan): record TODO.md"
+      return hasOpenQuestions(inputs.todoContent ?? "")
+        ? "plan(gtd): grilling"
+        : "plan(gtd): ready complete"
   }
 }
 
@@ -140,14 +136,6 @@ const run = (
     Command.string,
     Effect.mapError((e) => new Error(String(e))),
   )
-
-/**
- * Commit-intent sentinel path — MUST match `Events.ts` (`COMMIT_INTENT_FILE`).
- * The edge deletes it as part of the disambiguated commit so the dirty tree
- * clears and the loop advances. Top-level (not inside `.gtd/`) so it works for
- * every intent regardless of whether `.gtd/` exists.
- */
-const COMMIT_INTENT_FILE = ".gtd-commit-intent"
 
 /**
  * Lowest-numbered remaining `.gtd/NN-…` package directory, or undefined. This is
@@ -368,14 +356,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
               }
             }
 
-            // Delete the intent sentinel from disk FIRST so the subsequent
-            // `git add -A` stages its removal as part of this same commit
-            // (works whether the sentinel was tracked or untracked).
-            yield* exec("rm", "-f", "--", COMMIT_INTENT_FILE).pipe(
-              Effect.asVoid,
-              Effect.catchAll(() => Effect.void),
-            )
-            // Stage all changes (including the sentinel deletion above).
+            // Stage all changes.
             yield* exec("git", "add", "-A")
             // Unstage the restore paths individually (tolerate failure when not staged)
             for (const path of restorePaths) {
