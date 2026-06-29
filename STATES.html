@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gtd · state machine review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0b1120;
+    --bg-soft: #0f1830;
+    --card: #111c34;
+    --card-2: #0e1830;
+    --border: #1e2b48;
+    --border-soft: #1a2640;
+    --text: #e6edf6;
+    --muted: #9fb0c9;
+    --faint: #6c7e9c;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    /* phase palette */
+    --entry: #94a3b8;   --entry-bg: #334155;
+    --grill: #a78bfa;   --grill-bg: #4c1d95;
+    --build: #38bdf8;   --build-bg: #0c4a6e;
+    --review: #34d399;  --review-bg: #065f46;
+    --human: #fbbf24;   --human-bg: #854d0e;
+    --stop: #fb7185;    --stop-bg: #7f1d1d;
+    --term: #64748b;    --term-bg: #1e293b;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    background: radial-gradient(1200px 600px at 80% -10%, #16224150, transparent),
+                radial-gradient(900px 500px at -10% 10%, #1b163f40, transparent),
+                var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  code, .mono { font-family: var(--mono); }
+
+  /* layout */
+  .wrap { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
+  header.hero {
+    padding: 80px 0 56px;
+    border-bottom: 1px solid var(--border);
+    background:
+      linear-gradient(180deg, #0d1730 0%, transparent 100%);
+  }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: 18px;
+  }
+  h1 {
+    font-size: clamp(34px, 5vw, 56px); line-height: 1.05; margin: 0 0 18px;
+    font-weight: 800; letter-spacing: -0.02em;
+    background: linear-gradient(100deg, #c4b5fd 0%, #7dd3fc 45%, #6ee7b7 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lede { font-size: 18px; color: var(--muted); max-width: 760px; }
+  .lede strong { color: var(--text); font-weight: 600; }
+
+  nav.toc {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(11,17,32,.82); backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border); margin-top: 0;
+  }
+  nav.toc .wrap { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 12px; padding-bottom: 12px; }
+  nav.toc a {
+    font-size: 13px; color: var(--muted); text-decoration: none;
+    padding: 6px 12px; border-radius: 999px; border: 1px solid transparent;
+    transition: .15s;
+  }
+  nav.toc a:hover { color: var(--text); background: var(--card); border-color: var(--border); }
+
+  section { padding: 64px 0 8px; }
+  .sec-head { margin-bottom: 28px; }
+  .sec-head h2 {
+    font-size: 13px; font-family: var(--mono); letter-spacing: .14em;
+    text-transform: uppercase; color: var(--build); margin: 0 0 10px; font-weight: 600;
+  }
+  .sec-head h3 { font-size: clamp(24px, 3vw, 32px); margin: 0 0 8px; font-weight: 700; letter-spacing: -0.01em; }
+  .sec-head p { color: var(--muted); margin: 0; max-width: 760px; }
+
+  .card {
+    background: linear-gradient(180deg, var(--card) 0%, var(--card-2) 100%);
+    border: 1px solid var(--border); border-radius: 16px; padding: 22px;
+  }
+  .grid { display: grid; gap: 18px; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 860px) { .grid-3, .grid-2 { grid-template-columns: 1fr; } }
+
+  /* steps */
+  .steps { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; }
+  @media (max-width: 860px){ .steps { grid-template-columns: 1fr; } }
+  .step { position: relative; }
+  .step .n { font-family: var(--mono); font-size: 12px; color: var(--build); margin-bottom: 8px; }
+  .step h4 { margin: 0 0 6px; font-size: 17px; }
+  .step p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  /* precedence ladder */
+  .ladder { display: flex; flex-direction: column; gap: 8px; }
+  .rung {
+    display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 16px;
+    padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--card-2);
+  }
+  .rung:hover { border-color: #2b3c63; }
+  .rung .rank {
+    width: 30px; height: 30px; display: grid; place-items: center;
+    border-radius: 8px; font-family: var(--mono); font-weight: 600; font-size: 14px;
+    background: #0b1428; border: 1px solid var(--border); color: var(--muted);
+  }
+  .rung .cond { font-size: 14.5px; }
+  .rung .cond code { font-size: 13px; color: #cfe6ff; background: #0b1d33; padding: 2px 7px; border-radius: 6px; border: 1px solid #143049; }
+  .rung .badges { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .arrow { color: var(--faint); margin: 0 4px; }
+
+  /* badges */
+  .badge {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600;
+    padding: 4px 11px; border-radius: 999px; border: 1px solid; white-space: nowrap;
+  }
+  .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .b-entry  { color: var(--entry);  border-color: #3c4a63; background: #1c2438; }
+  .b-grill  { color: var(--grill);  border-color: #4a3a7a; background: #221a3d; }
+  .b-build  { color: var(--build);  border-color: #1c4663; background: #0c2336; }
+  .b-review { color: var(--review); border-color: #1d5b48; background: #0a2c22; }
+  .b-human  { color: var(--human);  border-color: #6a531a; background: #2c2208; }
+  .b-stop   { color: var(--stop);   border-color: #6e2733; background: #2c1014; }
+  .b-term   { color: var(--term);   border-color: #38465e; background: #141d2e; }
+
+  /* taxonomy cards */
+  .tax h4 { margin: 0 0 4px; font-size: 18px; }
+  .tax .sub { color: var(--muted); font-size: 13.5px; margin: 0 0 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip {
+    font-family: var(--mono); font-size: 12px; padding: 4px 9px; border-radius: 7px;
+    border: 1px solid var(--border); background: #0b1428; color: #c7d6ec;
+  }
+  .tax.entry  { border-top: 3px solid var(--entry); }
+  .tax.build  { border-top: 3px solid var(--build); }
+  .tax.trans  { border-top: 3px solid var(--human); }
+
+  /* steering chain */
+  .chain { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+  .chain .node {
+    font-family: var(--mono); font-size: 13px; font-weight: 600; padding: 9px 14px;
+    border-radius: 10px; border: 1px solid var(--border); background: var(--card-2);
+  }
+  .chain .gt { color: var(--faint); font-weight: 700; }
+  .chain .node:nth-child(1){ color:var(--stop); border-color:#5e2730; }
+  .chain .node:nth-child(3){ color:#fca5a5; border-color:#5e3030; }
+  .chain .node:nth-child(5){ color:var(--build); border-color:#1c4663; }
+  .chain .node:nth-child(7){ color:var(--review); border-color:#1d5b48; }
+  .chain .node:nth-child(9){ color:var(--grill); border-color:#4a3a7a; }
+  .illegal { display: flex; flex-wrap: wrap; gap: 8px; }
+  .illegal .x {
+    font-family: var(--mono); font-size: 12.5px; padding: 6px 11px; border-radius: 8px;
+    border: 1px dashed #5e2730; background: #1c0f12; color: #fca5a5;
+  }
+  .illegal .x b { color: #fecaca; font-weight: 600; }
+
+  /* mermaid */
+  .diagram { overflow-x: auto; padding: 14px; }
+  .diagram pre.mermaid { background: transparent; text-align: center; margin: 0; min-width: 520px; }
+  .cap { font-size: 13px; color: var(--faint); margin: 12px 2px 0; font-family: var(--mono); }
+
+  /* legend */
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+
+  /* table */
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 720px; }
+  thead th {
+    text-align: left; font-weight: 600; color: var(--muted); font-size: 12px;
+    text-transform: uppercase; letter-spacing: .06em; padding: 13px 14px;
+    border-bottom: 1px solid var(--border); background: #0d1830; position: sticky; top: 0;
+  }
+  tbody td { padding: 12px 14px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #0e1830; }
+  td .mono, td code { font-family: var(--mono); font-size: 12.5px; color: #bcd2ee; }
+  .pill { font-size: 11.5px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .pill.auto { color: var(--review); border-color: #1d5b48; background:#0a2c22; }
+  .pill.human { color: var(--human); border-color: #6a531a; background:#2c2208; }
+  .pill.edge { color: var(--build); border-color: #1c4663; background:#0c2336; }
+  .pill.term { color: var(--term); border-color: #38465e; background:#141d2e; }
+
+  /* callout */
+  .callout {
+    border-left: 3px solid var(--human); background: #18130a; border-radius: 0 12px 12px 0;
+    padding: 14px 18px; color: #f3e6c4; font-size: 14px;
+  }
+  .callout b { color: #fde9b5; }
+
+  footer { padding: 50px 0 70px; color: var(--faint); font-size: 13px; border-top: 1px solid var(--border); margin-top: 60px; }
+  .kbd { font-family: var(--mono); font-size: 12px; color: #cfe6ff; background:#0b1d33; border:1px solid #143049; padding: 1px 6px; border-radius: 5px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">gtd · target state machine · design review</div>
+    <h1>One repo state in,<br/>one prompt out.</h1>
+    <p class="lede">
+      Every invocation derives a <strong>single</strong> state from three inputs — the working tree,
+      the steering files present, and the last commit message — runs deterministic actions, and prints the next prompt.
+      <strong>Auto-advance</strong> states tell the agent to re-run <code>gtd</code>, so deterministic chains run hands-free;
+      <strong>human gates</strong> stop and wait. This is the redesign in <code>STATES.md</code> — not yet implemented.
+    </p>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="wrap">
+    <a href="#procedure">Procedure</a>
+    <a href="#detection">Detection</a>
+    <a href="#taxonomy">Commit taxonomy</a>
+    <a href="#steering">Steering</a>
+    <a href="#lifecycle">Lifecycle</a>
+    <a href="#loops">Loops</a>
+    <a href="#states">States</a>
+    <a href="#prefixes">Prefixes</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <!-- PROCEDURE -->
+  <section id="procedure">
+    <div class="sec-head">
+      <h2>How a run works</h2>
+      <h3>The three-step procedure</h3>
+      <p>The previous agent always leaves its output <em>uncommitted</em>. The next <code>gtd</code> run infers what just happened, commits it, and hands off.</p>
+    </div>
+    <div class="steps">
+      <div class="card step">
+        <div class="n">01 — DERIVE</div>
+        <h4>Read the repo</h4>
+        <p>Working-tree status + steering files present + last commit message → exactly one active state.</p>
+      </div>
+      <div class="card step">
+        <div class="n">02 — ACT</div>
+        <h4>Deterministic side effects</h4>
+        <p>Commit pending work, revert, edit steering files, or run the test command. No model judgement.</p>
+      </div>
+      <div class="card step">
+        <div class="n">03 — PROMPT</div>
+        <h4>Emit the next instruction</h4>
+        <p>Print the prompt for that state. Auto-advance states append “run gtd again”; gates stop for a human.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- DETECTION -->
+  <section id="detection">
+    <div class="sec-head">
+      <h2>Detection model</h2>
+      <h3>Precedence ladder — first match wins</h3>
+      <p>Overlapping filesystem shapes are made deterministic by a fixed priority order. Steering files are authoritative; the last commit message disambiguates what the tree alone cannot.</p>
+    </div>
+    <div class="ladder">
+      <div class="rung"><span class="rank">0</span><span class="cond">HEAD is <code>gtd: transport</code></span><span class="badge b-entry">Transport</span></div>
+      <div class="rung"><span class="rank">1</span><span class="cond"><code>ERRORS.md</code> present</span><span class="badge b-stop">Escalate · STOP</span></div>
+      <div class="rung"><span class="rank">2</span><span class="cond"><code>FEEDBACK.md</code> present — content / empty</span><span class="badges"><span class="badge b-build">Fixing</span><span class="badge b-review">Close pkg</span></span></div>
+      <div class="rung"><span class="rank">3</span><span class="cond"><code>.gtd/</code> present — routed by tree + HEAD</span><span class="badge b-build">Build lifecycle</span></div>
+      <div class="rung"><span class="rank">4</span><span class="cond"><code>REVIEW.md</code> present — routed by commit + tree</span><span class="badge b-review">Review lifecycle</span></div>
+      <div class="rung"><span class="rank">5</span><span class="cond">Boundary HEAD + pending changes <span class="arrow">·</span> no <code>.gtd</code>/<code>REVIEW</code>/<code>FEEDBACK</code></span><span class="badge b-entry">New Feature</span></div>
+      <div class="rung"><span class="rank">6</span><span class="cond"><code>TODO.md</code> present</span><span class="badge b-grill">Grilling / Grilled</span></div>
+      <div class="rung"><span class="rank">7</span><span class="cond">Boundary / <code>package done</code> HEAD + clean tree</span><span class="badges"><span class="badge b-review">Clean</span><span class="badge b-term">Idle</span></span></div>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <strong>“Code changes”</strong> <span style="color:var(--muted)">means pending working-tree changes (tracked or untracked, respecting <code>.gitignore</code>) <em>outside</em> the steering set
+      (<code>TODO.md</code>, <code>REVIEW.md</code>, <code>FEEDBACK.md</code>, <code>ERRORS.md</code>, <code>.gtd/</code>). Steering-file changes are detected separately.</span>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <strong>Linear history</strong> <span style="color:var(--muted)">— state is folded from <em>first-parent</em> history; gtd assumes a single writer. Distribute by <strong>sequential handoff</strong> (one active machine at a time) over <strong>rebase / fast-forward</strong> — a merge commit as HEAD breaks the counter folds, the review base, and last-commit detection. <code>gtd: transport</code> carries uncommitted work across machines (commit, push, reset on the far side).</span>
+    </div>
+  </section>
+
+  <!-- TAXONOMY -->
+  <section id="taxonomy">
+    <div class="sec-head">
+      <h2>Commit taxonomy</h2>
+      <h3>Two buckets for the last commit</h3>
+      <p>The last commit message is the discriminator that resolves states the filesystem can’t separate. A non-gtd commit means “cold start”.</p>
+    </div>
+    <div class="grid grid-2">
+      <div class="card tax entry">
+        <h4>Boundary</h4>
+        <p class="sub">Cold start — no workflow in progress. Route by tree.</p>
+        <div class="chips"><span class="chip">non-gtd commit</span><span class="chip">gtd: done</span></div>
+      </div>
+      <div class="card tax build">
+        <h4>Mid-phase</h4>
+        <p class="sub">Identifies the exact in-progress phase. The disambiguator.</p>
+        <div class="chips">
+          <span class="chip">new task</span><span class="chip">grilling</span><span class="chip">grilled</span><span class="chip">planning</span>
+          <span class="chip">building</span><span class="chip">errors</span><span class="chip">fixing</span>
+          <span class="chip">feedback</span><span class="chip">package done</span>
+          <span class="chip">awaiting review</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEERING -->
+  <section id="steering">
+    <div class="sec-head">
+      <h2>Steering files</h2>
+      <h3>Authoritative — and strictly ordered</h3>
+      <p>While any steering file exists, <code>gtd</code> resumes that workflow regardless of the last commit. They are never garbage-collected: a stale file is resumed exactly like a live one, so abandon a workflow by <span class="kbd">rm</span>-ing its files.</p>
+    </div>
+    <div class="card">
+      <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Precedence when several coexist — higher wins:</div>
+      <div class="chain">
+        <span class="node">ERRORS.md</span><span class="gt">›</span>
+        <span class="node">FEEDBACK.md</span><span class="gt">›</span>
+        <span class="node">.gtd/</span><span class="gt">›</span>
+        <span class="node">REVIEW.md</span><span class="gt">›</span>
+        <span class="node">TODO.md</span>
+      </div>
+      <div style="color:var(--faint);font-size:13px;margin-top:10px">
+        Legal coexistence: <code>.gtd</code>+<code>TODO.md</code> (plan + packages during build), <code>FEEDBACK.md</code>+<code>.gtd</code> (fix during build).
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Illegal combinations — these never occur in normal flow, so <code>gtd</code> hard-errors instead of guessing:</div>
+      <div class="illegal">
+        <span class="x"><b>REVIEW.md</b> + <b>.gtd</b></span>
+        <span class="x"><b>REVIEW.md</b> + <b>TODO.md</b></span>
+        <span class="x"><b>FEEDBACK.md</b> + <b>REVIEW.md</b></span>
+        <span class="x"><b>FEEDBACK.md</b> without <b>.gtd</b></span>
+        <span class="x"><b>ERRORS.md</b> + <b>FEEDBACK.md</b></span>
+        <span class="x"><b>ERRORS.md</b> without <b>.gtd</b></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIFECYCLE -->
+  <section id="lifecycle">
+    <div class="sec-head">
+      <h2>Full lifecycle</h2>
+      <h3>From raw change to reviewed &amp; done</h3>
+      <p>Diamonds are branch points; rounded amber/rose nodes are human stops. Edge labels show the trigger or commit emitted.</p>
+    </div>
+    <div class="card diagram">
+<pre class="mermaid">
+graph TD
+  START(["change committed / pending<br/>boundary HEAD · no steering"]):::entry
+  NF["New Feature<br/>commit gtd: new task · revert + seed TODO.md"]:::entry
+  GR{"Grilling<br/>TODO.md present"}:::grill
+  GRA["await answers · STOP"]:::human
+  GRD["Grilled<br/>commit gtd: grilled"]:::grill
+  PL["Planning<br/>commit gtd: planning"]:::build
+  BU["Building<br/>pick next package · subagents build"]:::build
+  TE{"Testing<br/>commit gtd: building · run tests"}:::build
+  FI["Fixing<br/>fixer agent"]:::build
+  ES["Escalate · ERRORS.md<br/>STOP"]:::stop
+  AR{"Agentic Review<br/>write FEEDBACK (empty=ok)"}:::review
+  CP["Close package<br/>delete pkg dir · commit gtd: package done"]:::review
+  CL["Clean<br/>create REVIEW.md"]:::review
+  AW["Await Review · STOP<br/>commit gtd: awaiting review"]:::human
+  ACC["Accept Review<br/>discard edits · seed TODO.md"]:::review
+  DO["Done<br/>remove REVIEW · gtd: done"]:::term
+  ID["Idle<br/>nothing to do"]:::term
+
+  START -->|"dirty + boundary"| NF
+  NF -->|"seeded TODO · auto-advance"| GR
+  GR -->|"open ? markers"| GRA
+  GRA -->|"user answers inline"| GR
+  GR -->|"no markers · pending<br/>agent reacts"| GR
+  GR -->|"no markers · clean"| GRD
+  GRD --> PL
+  PL -->|"more package files"| PL
+  PL -->|".gtd clean"| BU
+  BU -->|"code changes"| TE
+  TE -->|"red · under cap"| FI
+  TE -->|"red · at cap"| ES
+  FI -->|"fix → retest"| TE
+  ES -->|"human clears ERRORS.md"| TE
+  TE -->|"green"| AR
+  AR -->|"findings → FEEDBACK.md"| FI
+  AR -->|"empty FEEDBACK"| CP
+  CP -->|"packages remain"| BU
+  CP -->|"none remain · .gtd empty"| CL
+  CL --> AW
+  AW -->|"human edits"| ACC
+  AW -->|"no edits = approve"| DO
+  ACC -->|"seeded TODO · auto-advance"| GR
+  DO --> ID
+
+  classDef entry fill:#334155,stroke:#94a3b8,color:#e2e8f0;
+  classDef grill fill:#4c1d95,stroke:#a78bfa,color:#ede9fe;
+  classDef build fill:#0c4a6e,stroke:#38bdf8,color:#e0f2fe;
+  classDef review fill:#065f46,stroke:#34d399,color:#d1fae5;
+  classDef human fill:#854d0e,stroke:#fbbf24,color:#fef9c3;
+  classDef stop fill:#7f1d1d,stroke:#fb7185,color:#fee2e2;
+  classDef term fill:#1e293b,stroke:#64748b,color:#cbd5e1;
+</pre>
+    </div>
+    <div class="legend">
+      <span class="badge b-entry">Entry / meta</span>
+      <span class="badge b-grill">Grill</span>
+      <span class="badge b-build">Build</span>
+      <span class="badge b-review">Review</span>
+      <span class="badge b-human">Human gate</span>
+      <span class="badge b-stop">Escalate / stop</span>
+      <span class="badge b-term">Terminal</span>
+    </div>
+  </section>
+
+  <!-- LOOPS -->
+  <section id="loops">
+    <div class="sec-head">
+      <h2>The loops up close</h2>
+      <h3>Where the design earns its keep</h3>
+      <p>Three sub-machines that previously had ambiguous or non-terminating conditions. Each now converges on a distinct commit signal.</p>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="diagram">
+<pre class="mermaid">
+graph TD
+  G{"Grilling<br/>pending × ? markers"}:::grill
+  A["STOP<br/>answer inline in TODO.md"]:::human
+  B["agent reacts<br/>incorporate · push back"]:::grill
+  C["Grilled → Planning"]:::build
+  G -->|"open ? markers"| A
+  A -->|"user edits"| G
+  G -->|"no markers · pending"| B
+  B -->|"commit gtd: grilling"| G
+  G -->|"no markers · clean tree"| C
+  classDef grill fill:#4c1d95,stroke:#a78bfa,color:#ede9fe;
+  classDef build fill:#0c4a6e,stroke:#38bdf8,color:#e0f2fe;
+  classDef human fill:#854d0e,stroke:#fbbf24,color:#fef9c3;
+</pre>
+        </div>
+        <div class="cap">// grilling — 3-way · advance only on clean + no markers</div>
+      </div>
+
+      <div class="card">
+        <div class="diagram">
+<pre class="mermaid">
+graph TD
+  T{"Testing<br/>run tests"}:::build
+  OK["→ Agentic Review"]:::review
+  F["Fixing<br/>FEEDBACK.md → fixer agent"]:::build
+  E["Escalate · ERRORS.md<br/>STOP for human"]:::stop
+  T -->|"green"| OK
+  T -->|"red · under cap"| F
+  F -->|"fix (or no-op) → re-test"| T
+  T -->|"red · at cap"| E
+  E -->|"human clears ERRORS.md<br/>budget resets → another N"| T
+  classDef build fill:#0c4a6e,stroke:#38bdf8,color:#e0f2fe;
+  classDef review fill:#065f46,stroke:#34d399,color:#d1fae5;
+  classDef stop fill:#7f1d1d,stroke:#fb7185,color:#fee2e2;
+</pre>
+        </div>
+        <div class="cap">// test / fix — up to N agentic fixes (default 3) per sub-loop · budget resets per package, on each review-fix &amp; ERRORS.md clear · cap → human stop</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="diagram">
+<pre class="mermaid">
+graph LR
+  R{"Agentic Review<br/>write FEEDBACK (empty=ok)"}:::review
+  F["Fixing → Testing"]:::build
+  C["Close package<br/>delete pkg · commit gtd: package done"]:::review
+  N["Building<br/>next package"]:::build
+  CL["Clean<br/>create REVIEW.md"]:::review
+  R -->|"findings → FEEDBACK.md"| F
+  F -->|"gtd: feedback → retest → re-review"| R
+  R -->|"empty FEEDBACK"| C
+  C -->|"packages remain"| N
+  C -->|"none remain · .gtd empty"| CL
+  classDef review fill:#065f46,stroke:#34d399,color:#d1fae5;
+  classDef build fill:#0c4a6e,stroke:#38bdf8,color:#e0f2fe;
+</pre>
+      </div>
+      <div class="cap">// review / fix · per-package — review writes FEEDBACK (empty = approve → Close); a pending review re-reviews, never skips</div>
+    </div>
+
+    <div class="callout" style="margin-top:18px">
+      <b>Two fix loops, one Fixing state.</b> FEEDBACK arriving <b>committed</b> (<code>gtd: errors</code>, from Testing) is the test loop;
+      arriving <b>uncommitted</b> (from Agentic Review) is the review loop, consumed as <code>gtd: feedback</code>.
+      Both counters walk back to the package start <em>through</em> any non-gtd commits, so a manual commit can’t defeat escalation.
+      The two counters never combine — test counts <code>gtd: errors</code>, review counts <code>gtd: feedback</code>. The test count resets at each <code>gtd: feedback</code> (the start of a review-fix) and each <code>ERRORS.md</code> clear, so build-phase and review-phase failures don’t accumulate and a human resume grants another N attempts.
+    </div>
+  </section>
+
+  <!-- STATES -->
+  <section id="states">
+    <div class="sec-head">
+      <h2>State reference</h2>
+      <h3>All 16 states</h3>
+      <p>Type — <span class="pill auto">auto-advance</span> re-runs gtd · <span class="pill human">human gate</span> stops · <span class="pill edge">edge</span> commits/reverts with no agent prompt · <span class="pill term">terminal</span>.</p>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>State</th><th>Phase</th><th>Wins when</th><th>Type</th><th>Acts / emits</th></tr></thead>
+        <tbody>
+          <tr><td><b>Transport</b></td><td><span class="badge b-entry">meta</span></td><td>HEAD <code>gtd: transport</code></td><td><span class="pill edge">edge</span></td><td>mixed-reset, re-derive</td></tr>
+          <tr><td><b>New Feature</b></td><td><span class="badge b-entry">entry</span></td><td>boundary HEAD + dirty, no steering</td><td><span class="pill auto">auto</span></td><td>commit <code>gtd: new task</code>; revert + seed TODO.md</td></tr>
+          <tr><td><b>Grilling</b></td><td><span class="badge b-grill">grill</span></td><td>TODO.md, open <code>?</code> markers <em>or</em> pending</td><td><span class="pill human">gate</span> / <span class="pill auto">auto</span></td><td><code>gtd: grilling</code>; await answers or react</td></tr>
+          <tr><td><b>Grilled</b></td><td><span class="badge b-grill">grill</span></td><td>TODO.md, no markers, clean tree</td><td><span class="pill auto">auto</span></td><td><code>gtd: grilled</code> → Planning</td></tr>
+          <tr><td><b>Planning</b></td><td><span class="badge b-build">build</span></td><td><code>.gtd</code> modified, HEAD grilled/planning</td><td><span class="pill auto">auto</span></td><td><code>gtd: planning</code> (may loop)</td></tr>
+          <tr><td><b>Building</b></td><td><span class="badge b-build">build</span></td><td><code>.gtd</code> clean, HEAD planning/package&nbsp;done</td><td><span class="pill auto">auto</span></td><td>pick package; parallel subagents build</td></tr>
+          <tr><td><b>Testing</b></td><td><span class="badge b-build">build</span></td><td><code>.gtd</code> clean + code changes (or re-test signal)</td><td><span class="pill auto">auto</span></td><td><code>gtd: building</code>; run tests; route on exit</td></tr>
+          <tr><td><b>Fixing</b></td><td><span class="badge b-build">build</span></td><td><b>non-empty</b> <code>FEEDBACK.md</code></td><td><span class="pill auto">auto</span></td><td><code>gtd: feedback</code>/<code>gtd: fixing</code>; prompt fixer</td></tr>
+          <tr><td><b>Escalate</b></td><td><span class="badge b-stop">stop</span></td><td><code>ERRORS.md</code> present</td><td><span class="pill human">gate</span></td><td>STOP — human investigates, then <code>rm ERRORS.md</code> (resets the fix budget → another N tries)</td></tr>
+          <tr><td><b>Agentic Review</b></td><td><span class="badge b-review">review</span></td><td><code>.gtd</code> clean, HEAD <code>gtd: building</code></td><td><span class="pill auto">auto</span></td><td>review; write FEEDBACK (empty=approve, content=issues)</td></tr>
+          <tr><td><b>Close package</b></td><td><span class="badge b-review">review</span></td><td><b>empty</b> <code>FEEDBACK.md</code> (clean review)</td><td><span class="pill auto">auto</span></td><td>rm FEEDBACK; delete pkg dir (+ empty <code>.gtd</code>); commit <code>gtd: package done</code></td></tr>
+          <tr><td><b>Clean</b></td><td><span class="badge b-review">review</span></td><td>no steering, clean, non-gtd / <code>package done</code></td><td><span class="pill edge">edge</span></td><td>compute base; create REVIEW.md</td></tr>
+          <tr><td><b>Await Review</b></td><td><span class="badge b-human">human</span></td><td><code>REVIEW.md</code> uncommitted</td><td><span class="pill human">gate</span></td><td><code>gtd: awaiting review</code>; STOP</td></tr>
+          <tr><td><b>Accept Review</b></td><td><span class="badge b-review">review</span></td><td><code>REVIEW.md</code> committed + pending edits</td><td><span class="pill auto">auto</span></td><td>discard edits; seed TODO.md; rm REVIEW.md (no commit)</td></tr>
+          <tr><td><b>Done</b></td><td><span class="badge b-term">terminal</span></td><td><code>REVIEW.md</code> committed + clean</td><td><span class="pill edge">edge</span></td><td>remove REVIEW.md; <code>gtd: done</code></td></tr>
+          <tr><td><b>Idle</b></td><td><span class="badge b-term">terminal</span></td><td>no steering, clean, HEAD <code>gtd: done</code></td><td><span class="pill term">terminal</span></td><td>nothing to do</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- PREFIXES -->
+  <section id="prefixes">
+    <div class="sec-head">
+      <h2>Commit prefixes</h2>
+      <h3>The history is the state</h3>
+      <p>Shorthand <code>gtd: &lt;phase&gt;</code> notation (kept deliberately — this is a full redesign). Counters fold from these.</p>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Prefix</th><th>Bucket</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>gtd: transport</code></td><td><span class="pill">external</span></td><td>work parked to move across machines/branches → reset on next run</td></tr>
+          <tr><td><code>gtd: new task</code></td><td><span class="pill edge">mid-phase</span></td><td>raw input captured (durable); revert + seeded TODO.md follow uncommitted → fold into first <code>gtd: grilling</code></td></tr>
+          <tr><td><code>gtd: grilling</code></td><td><span class="pill edge">mid-phase</span></td><td>a grill round committed</td></tr>
+          <tr><td><code>gtd: grilled</code></td><td><span class="pill edge">mid-phase</span></td><td>plan converged → decompose</td></tr>
+          <tr><td><code>gtd: planning</code></td><td><span class="pill edge">mid-phase</span></td><td>decomposition into <code>.gtd/</code> packages</td></tr>
+          <tr><td><code>gtd: building</code></td><td><span class="pill edge">mid-phase</span></td><td>built package code committed (by Testing)</td></tr>
+          <tr><td><code>gtd: errors</code></td><td><span class="pill edge">mid-phase</span></td><td>test failure recorded — counts the test loop</td></tr>
+          <tr><td><code>gtd: fixing</code></td><td><span class="pill edge">mid-phase</span></td><td>test-loop FEEDBACK consumed</td></tr>
+          <tr><td><code>gtd: feedback</code></td><td><span class="pill edge">mid-phase</span></td><td>review finding consumed — counts the review loop</td></tr>
+          <tr><td><code>gtd: package done</code></td><td><span class="pill edge">mid-phase</span></td><td>finished package removed</td></tr>
+          <tr><td><code>gtd: awaiting review</code></td><td><span class="pill human">mid-phase</span></td><td>REVIEW.md committed — human gate</td></tr>
+          <tr><td><code>gtd: done</code></td><td><span class="pill term">boundary</span></td><td>review approved, REVIEW.md removed → Idle</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    Generated from <code>STATES.md</code> · target redesign, not yet implemented · the shipped machine (and the README) still differ.
+    Open this file in a browser; diagrams render via Mermaid (CDN).
+  </footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'dark',
+    securityLevel: 'loose',
+    flowchart: { htmlLabels: true, curve: 'basis', padding: 14, nodeSpacing: 46, rankSpacing: 52 },
+    themeVariables: { fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif', fontSize: '14px', lineColor: '#5b6c8c' }
+  });
+  window.addEventListener('DOMContentLoaded', () => { mermaid.run(); });
+</script>
+</body>
+</html>
