@@ -1,152 +1,189 @@
-# gtd — aspirational workflow spec
+# gtd — worked example
 
-"U" marks actions by the user, "A" marks actions by the agent.
+"U" marks user actions, "A" marks agent actions.
 
-gtd is a resumable state machine driven by the repo itself. Each invocation:
-**commit human changes verbatim first, infer the current state, take exactly one
-step, then auto-invoke again** — until it hits a state that needs a human (a
-gate) or the cycle concludes.
+A complete cycle walking a feature through the 16-state machine, from raw input
+to an approved review. Each step shows the `gtd: <phase>` commit subject it
+lands, the state resolved, and which actor acts next.
 
-## State encoding
+---
 
-State lives **in the control files** (in-file markers are the source of truth,
-robust to rebase/amend). File presence selects the phase; markers select the
-sub-state. At most one phase is active at a time.
+## New Feature
 
-| Signal                                                       | State                                       |
-| ------------------------------------------------------------ | ------------------------------------------- |
-| `TODO.md`, no `status:` frontmatter                          | verbatim, not yet grilled                   |
-| `TODO.md`, `status: grilling`, `## Open Questions` non-empty | awaiting user answers **(gate)**            |
-| `TODO.md`, `status: complete`                                | ready to decompose                          |
-| `TODO.md`, `status: simple`                                  | ready for single-agent implement (≤5 files) |
-| `NN-*.md` work packages present                              | execution in progress                       |
-| `ERRORS.md` present                                          | fix loop escalated **(gate)**               |
-| `REVIEW.md` present, boxes unchecked                         | awaiting review **(gate)**                  |
-| none of the above                                            | idle — ready for a new `TODO.md`            |
+U makes code changes (or creates a rough TODO.md) on a clean baseline, then
+runs `gtd`:
 
-## Rules
+- A resolves: boundary HEAD + pending changes → **New Feature** (edge-only)
+- A commits raw input: `gtd: new task`
+- A reverts the commit back into the working tree (uncommitted), seeds `TODO.md`
+  from the diff
+- A auto-advances → Grilling (TODO.md present + pending changes)
 
-1. **Verbatim first.** Every invocation begins with `git add -A` of whatever the
-   human changed, committed verbatim, _before_ any gate is evaluated.
-2. **Auto-invoke until a gate.** The agent re-invokes itself to advance; it
-   stops only at a human gate (open questions, escalation, unchecked review) or
-   at conclusion.
-3. **Grilling** ensures an `## Open Questions` section exists, moves answered
-   Q&A to a `## Resolved` graveyard at the bottom, and adds new questions at the
-   top. When no questions remain it sets `status: simple` if the change is
-   confined to **≤5 files**, otherwise `status: complete`.
-4. **Decomposition** emits ordinal-prefixed packages (`01-*.md`, `02-*.md`, …)
-   in **dependency order**. The set is **frozen** — no re-decomposition after
-   this point. Each package must be able to leave the tree **green on its own**.
-   A task = a file-disjoint unit owned by one subagent; tasks that would share
-   files are merged into one task.
-5. **Execution** runs packages sequentially by ordinal. Per package: launch a
-   subagent per task (file-disjointness is **best-effort**, not enforced — no
-   worktrees), wait, commit, then run the test loop. On success remove the
-   package and continue; packages are never run in parallel.
-6. **Test loop** runs whenever there are committed-but-untested code changes
-   (after a package, or after human code edits). It retains the error + attempt
-   log across attempts (scratchpad in `ERRORS.md`, **uncommitted**), and **does
-   not commit per attempt** — only on success (commit fixes, discard
-   `ERRORS.md`) or escalation. Escalate after **3 attempts** _or_ immediately if
-   an error signature recurs (no progress); escalation commits `ERRORS.md` as a
-   human gate. So `ERRORS.md` only ever appears in history as an escalation
-   artifact.
-7. **Resume** is from committed state, with a **hard reset** of the working
-   tree. The test loop is the one non-checkpointed span: interrupted mid-loop
-   resumes from the package-execution commit and restarts the loop cold (attempt
-   memory is lost — accepted trade for a clean history).
-8. **Review** generates `REVIEW.md` covering the diff since the last `REVIEW.md`
-   was removed (the baseline). It is a gate until every box is checked.
-9. **Conclude vs. loop.** Once all boxes are checked, scan for leftover work
-   since the baseline: leftover `REVIEW.md` notes, `!!` comments (`// !! …`,
-   `# !! …`, etc.), or human code changes. None ⇒ remove `REVIEW.md` and
-   conclude. Any ⇒ consolidate leftover notes + harvested `!!` comments into a
-   new `TODO.md` (intent is not parsed — the user deletes what they didn't
-   mean), strip the `!!` comments and `REVIEW.md`, and loop.
+---
 
-## Walkthrough
+## Grilling — first round
 
-### Plan
+- A resolves: TODO.md present, no marker yet, pending changes →
+  **Grilling (iterate)** (edge-only commit + prompt)
+- A commits reverted code + seeded TODO.md: `gtd: grilling`
+- A grilling agent develops the plan, adds `<!-- user answers here -->` markers
+  for unresolved questions, re-runs `gtd`
 
-- U: creates `TODO.md`; invokes gtd
-- A: commits `TODO.md` verbatim
-- A: grilling agent fleshes it out, adds `## Open Questions`, sets
-  `status: grilling`; commits **(gate)**
-- U: answers questions inline; invokes gtd
-- A: commits verbatim
-- A: grilling agent moves answered Q to `## Resolved`, adds new questions;
-  commits **(gate)**
-- U: answers the rest; invokes gtd
-- A: commits verbatim
-- A: grilling agent empties Open Questions, judges >5 files →
-  `status: complete`; commits
-- A: auto-invokes
+- A resolves: TODO.md present, marker found → **Grilling (STOP)**
+- A commits agent's TODO.md edits: `gtd: grilling`
+- A emits: STOP — answer the open questions inline in `TODO.md`
 
-### Decompose
+---
 
-- A: sees `status: complete` → decomposition agent emits `01-*.md`, `02-*.md`
-  (frozen, dependency order)
-- A: commits packages, removes `TODO.md`
-- A: auto-invokes
+## Grilling — user answers
 
-### Execute 01
+U opens TODO.md, fills in the answers, removes the `<!-- user answers here -->`
+sentinel, runs `gtd`:
 
-- A: picks lowest ordinal (01); launches a subagent per task; waits; commits
-  (package-execution commit)
-- A: test loop → fail → fix subagent (sees error+attempt log) → fail again, same
-  signature → **escalate**? no — different error → fix → pass
-- A: commits fixes, removes `01`, discards `ERRORS.md`
-- A: auto-invokes
+- A resolves: TODO.md present, no marker, pending edits →
+  **Grilling (iterate)**
+- A commits user's answers: `gtd: grilling`
+- A grilling agent incorporates the answers, finds nothing unresolved, makes
+  no further edits, re-runs `gtd`
 
-### Execute 02
+- A resolves: TODO.md present, no marker, clean tree → **Grilled** (auto-advance)
+- A commits converged plan: `gtd: grilled`
+- A emits: decompose prompt to planning-model subagent
 
-- A: picks 02; subagents; commits
-- A: test loop → passes first try
-- A: removes `02`; commits
-- A: auto-invokes
+---
 
-### Review
+## Planning
 
-- A: idle of packages → generates `REVIEW.md` (baseline = branch start); commits
-  **(gate)**
-- U: works the list but leaves 1 box unchecked, adds a note, makes a code fix in
-  source, leaves a `// !! …` comment; invokes gtd
-- A: commits everything verbatim (`git add -A`) **first**
-- A: review gate: unchecked box remains → halts, tells user to check all boxes
-  **(gate)**
-- U: checks the last box; invokes gtd
-- A: commits verbatim
-- A: gate satisfied; human code changed → test loop → fail → fix → pass; commits
-  fixes
-- A: auto-invokes
-- A: leftover work exists (note + `!!` comment) → consolidates them into a new
-  `TODO.md`; strips the `!!` comment and `REVIEW.md`; commits
-- A: auto-invokes
+The decompose subagent creates the `.gtd/` package tree:
 
-### Loop (simple)
+```
+.gtd/
+  01-auth-service/
+    01-types.md
+    02-login-handler.md
+  02-api-routes/
+    01-endpoints.md
+```
 
-- A: grilling agent inspects new `TODO.md`: no open questions, ≤5 files →
-  `status: simple`; commits
-- A: auto-invokes
-- A: `status: simple` → single implementation agent (no decompose); commits;
-  removes `TODO.md`
-- A: auto-invokes
-- A: untested changes → test loop → pass
-- A: generates `REVIEW.md` (baseline = since last `REVIEW.md` removed); commits
-  **(gate)**
-- U: reviews, checks all boxes; invokes gtd
-- A: commits verbatim
-- A: gate satisfied; no leftover notes / `!!` comments / untested changes →
-  removes `REVIEW.md`, commits removal
-- A: informs the user the cycle concluded; ready for a new `TODO.md`
+- A resolves: .gtd/ modified → **Planning** (auto-advance)
+- A commits package files: `gtd: planning`
+- A emits: continue-or-advance prompt; .gtd/ complete, re-runs `gtd`
 
-## Principles
+- A resolves: .gtd/ clean + HEAD `gtd: planning` → **Building**
 
-1. The process is resumable from any commit (the test loop excepted — it resets
-   to its starting commit).
-2. The agent auto-invokes to resume itself as far as it can, stopping only at
-   human gates.
-3. All human input is captured in git history verbatim, before anything else.
-4. There are no escape hatches: no cancel/abort, and gtd does not run
-   concurrently with an in-flight auto-invoke chain.
+---
+
+## Building — package 01
+
+- A resolves: .gtd/ clean + HEAD `gtd: planning` → **Building** (auto-advance)
+- A inlines `01-auth-service/` task files into the prompt
+- A spawns one subagent for `01-types.md` and one for `02-login-handler.md`
+  in parallel; subagents write code
+
+---
+
+## Testing (red) → Fixing loop
+
+- A resolves: code changes → **Testing** (edge-only)
+- A commits code: `gtd: building`
+- A runs `npm run test` → **FAIL** (testFixCount = 1, below cap of 3)
+- A writes `FEEDBACK.md` with test output, commits: `gtd: errors`
+- A auto-advances → Fixing
+
+### Fix round 1
+
+- A resolves: FEEDBACK.md non-empty, committed → **Fixing** (auto-advance)
+- A commits FEEDBACK.md removal: `gtd: fixing`  _(committed = from Testing)_
+- A fixer agent reads inlined failure output, patches the code, re-runs `gtd`
+
+- A resolves: code changes → **Testing** (edge-only)
+- A commits: `gtd: building`
+- A runs tests → **PASS**
+- A auto-advances → Agentic Review
+
+---
+
+## Agentic Review — package 01
+
+- A resolves: .gtd/ clean + HEAD `gtd: building` → **Agentic Review** (auto-advance)
+- A reviewFixCount = 0 (below threshold 3) + agenticReview: true → run review
+- A planning-model subagent diffs the package (since `gtd: planning`), finds
+  issues, writes non-empty `FEEDBACK.md`, re-runs `gtd`
+
+- A resolves: FEEDBACK.md non-empty, uncommitted → **Fixing** (auto-advance)
+- A commits FEEDBACK.md removal: `gtd: feedback`  _(uncommitted = from Agentic Review)_
+- A fixer agent addresses the review findings, re-runs `gtd`
+
+- A resolves: code changes → **Testing** (edge-only)
+- A commits: `gtd: building`
+- A runs tests → **PASS**
+- A auto-advances → Agentic Review (reviewFixCount = 1)
+
+- A agentic-review subagent reviews the updated code, finds it clean, writes
+  **empty** `FEEDBACK.md`, re-runs `gtd`
+
+- A resolves: FEEDBACK.md present + empty → **Close package** (edge-only)
+- A removes FEEDBACK.md, removes `.gtd/01-auth-service/`
+- A commits: `gtd: package done`
+- A auto-advances → Building (`.gtd/02-api-routes/` remains)
+
+---
+
+## Building — package 02
+
+- A resolves: .gtd/ clean + HEAD `gtd: package done` → **Building** (auto-advance)
+- A inlines `02-api-routes/` tasks, spawns subagent for `01-endpoints.md`
+
+- A resolves: code changes → **Testing** (edge-only)
+- A commits: `gtd: building`
+- A runs tests → **PASS** on first try
+- A auto-advances → Agentic Review (reviewFixCount = 0, fresh budget)
+
+- A review subagent finds the package clean, writes empty `FEEDBACK.md`
+- A resolves: FEEDBACK.md empty → **Close package** (edge-only)
+- A removes FEEDBACK.md + `.gtd/02-api-routes/` + now-empty `.gtd/`
+- A commits: `gtd: package done`
+- A auto-advances → Clean (no steering files, reviewable diff since merge-base)
+
+---
+
+## Clean
+
+- A resolves: no steering files, clean tree, HEAD `gtd: package done`,
+  reviewable diff → **Clean**
+- A planning-model subagent generates `REVIEW.md` covering the full feature
+  diff since the merge-base with the default branch
+- A auto-advances → Await Review
+
+---
+
+## Await Review
+
+- A resolves: REVIEW.md uncommitted → **Await Review**
+- A commits: `gtd: awaiting review`
+- A emits: STOP — "Review the changes in REVIEW.md; run gtd when done"
+
+---
+
+### Path A — Human approves (no edits)
+
+U reads REVIEW.md, makes no changes, runs `gtd`:
+
+- A resolves: REVIEW.md committed, clean tree → **Done** (edge-only)
+- A removes REVIEW.md, commits: `gtd: done`
+- A auto-advances → **Idle**
+
+- A resolves: no steering files, clean tree, HEAD `gtd: done` → **Idle**
+- A emits: nothing to do — ready for a new feature
+
+---
+
+### Path B — Human requests changes
+
+U annotates REVIEW.md with comments and/or edits source files, runs `gtd`:
+
+- A resolves: REVIEW.md committed, dirty tree → **Accept Review** (edge-only)
+- A seeds `TODO.md` from the pending changeset (REVIEW.md notes + code edits)
+- A discards code edits back to the reviewed baseline, removes REVIEW.md
+- A auto-advances → Grilling (TODO.md present + pending changes)
+- _Loop restarts from Grilling with the review feedback as the new plan seed_
