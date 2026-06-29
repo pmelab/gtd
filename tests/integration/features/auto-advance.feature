@@ -60,6 +60,10 @@ Feature: Auto-advance and STOP markers in prompts
 
   Scenario: Human-review prompt auto-advances and contains no STOP
     Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      agenticReview: false
+      """
     And a default branch "main"
     And a branch "feature"
     And a commit "feat: add feature" that adds "src/feature.ts" with:

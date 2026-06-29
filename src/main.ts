@@ -50,7 +50,7 @@ const program = Effect.gen(function* () {
   // Driver loop: ask the machine for an EdgeAction, execute it, re-feed events,
   // repeat until the machine settles with no action — then emit the single prompt.
   // Effect.suspend breaks the recursive type cycle; explicit R annotation fixes inference.
-  const loop = (): Effect.Effect<void, Error, GitService | FileSystem.FileSystem> =>
+  const loop = (): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | ConfigService> =>
     Effect.suspend(() =>
       Effect.gen(function* () {
         const r = handle.current
@@ -75,6 +75,9 @@ const program = Effect.gen(function* () {
                   ...(action.packageCommitMsg !== undefined ? { packageCommitMsg: action.packageCommitMsg } : {}),
                   ...(action.packageCount !== undefined ? { packageCount: action.packageCount } : {}),
                   ...(action.base !== undefined ? { base: action.base } : {}),
+                  ...(action.specReviewNumber !== undefined
+                    ? { specReviewNumber: action.specReviewNumber }
+                    : {}),
                   verifyIteration: r.context.verifyIterations,
                 })
               : action.message
@@ -90,6 +93,12 @@ const program = Effect.gen(function* () {
           case "runTestGate": {
             const t = yield* runner.run()
             handle.advance([{ type: "TEST_RESULT", exitCode: t.exitCode, output: t.output }])
+            yield* loop()
+            break
+          }
+          case "approveSpecReview": {
+            yield* git.approveSpecReview(action.pkg)
+            handle.advance(yield* gatherEvents())
             yield* loop()
             break
           }

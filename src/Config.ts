@@ -4,8 +4,19 @@ import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
 
-/** The four planning/execution states a model can be resolved for. */
-export type ModelState = "new-todo" | "modified-todo" | "decompose" | "execute"
+/**
+ * Planning/execution states a model can be resolved for.
+ * `spec-review` and `spec-fix` drive the per-package spec-review gate;
+ * `agenticReview` / `agenticReviewMaxCycles` act as the kill-switch and
+ * per-package cycle cap for that gate.
+ */
+export type ModelState =
+  | "new-todo"
+  | "modified-todo"
+  | "decompose"
+  | "execute"
+  | "spec-review"
+  | "spec-fix"
 
 /** Which tier a state belongs to. The single source of state→tier mapping. */
 export type ModelTier = "planning" | "execution"
@@ -19,6 +30,8 @@ export const stateTier: Record<ModelState, ModelTier> = {
   "modified-todo": "planning",
   decompose: "planning",
   execute: "execution",
+  "spec-review": "planning",
+  "spec-fix": "execution",
 }
 
 /** Built-in tier defaults, used when nothing is configured. */
@@ -28,6 +41,8 @@ export const builtinTierDefault: Record<ModelTier, string> = {
 }
 
 const DEFAULT_TEST_COMMAND = "npm run test"
+const DEFAULT_AGENTIC_REVIEW = true
+const DEFAULT_AGENTIC_REVIEW_MAX_CYCLES = 3
 
 // Closed struct for models.states: exactly the four known keys, each optional.
 // Using a plain Struct (not Record) means unknown keys are rejected during
@@ -37,6 +52,8 @@ const ModelStatesSchema = Schema.Struct({
   "modified-todo": Schema.optional(Schema.String),
   decompose: Schema.optional(Schema.String),
   execute: Schema.optional(Schema.String),
+  "spec-review": Schema.optional(Schema.String),
+  "spec-fix": Schema.optional(Schema.String),
 })
 
 const ModelsSchema = Schema.Struct({
@@ -48,6 +65,8 @@ const ModelsSchema = Schema.Struct({
 const ConfigSchema = Schema.Struct({
   testCommand: Schema.optional(Schema.String),
   models: Schema.optional(ModelsSchema),
+  agenticReview: Schema.optional(Schema.Boolean),
+  agenticReviewMaxCycles: Schema.optional(Schema.Number),
 })
 
 type DecodedConfig = Schema.Schema.Type<typeof ConfigSchema>
@@ -55,6 +74,8 @@ type DecodedConfig = Schema.Schema.Type<typeof ConfigSchema>
 export interface ConfigOperations {
   readonly testCommand: string
   readonly resolveModel: (state: ModelState) => string
+  readonly agenticReview: boolean
+  readonly agenticReviewMaxCycles: number
 }
 
 /**
@@ -165,6 +186,8 @@ const toOperations = (decoded: DecodedConfig): ConfigOperations => {
   return {
     testCommand: decoded.testCommand ?? DEFAULT_TEST_COMMAND,
     resolveModel,
+    agenticReview: decoded.agenticReview ?? DEFAULT_AGENTIC_REVIEW,
+    agenticReviewMaxCycles: decoded.agenticReviewMaxCycles ?? DEFAULT_AGENTIC_REVIEW_MAX_CYCLES,
   }
 }
 

@@ -11,6 +11,8 @@ import awaitReview from "./prompts/await-review.md"
 import reviewIncomplete from "./prompts/review-incomplete.md"
 import awaitAnswers from "./prompts/await-answers.md"
 import fixTests from "./prompts/fix-tests.md"
+import specReview from "./prompts/spec-review.md"
+import specFix from "./prompts/spec-fix.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdContext, GtdPackageFact, LeafState, ResolveResult } from "./Machine.js"
@@ -24,6 +26,8 @@ const MODEL_STATES = new Set<LeafState>([
   "modified-todo",
   "decompose",
   "execute",
+  "spec-review",
+  "spec-fix",
 ])
 
 /**
@@ -49,6 +53,8 @@ const SECTIONS: Record<
   "await-answers": awaitAnswers,
   "review-incomplete": reviewIncomplete,
   "fix-tests": fixTests,
+  "spec-review": specReview,
+  "spec-fix": specFix,
 }
 
 const buildContext = (context: GtdContext): string => {
@@ -173,6 +179,18 @@ export const buildPrompt = (
       parts.push(renderPackage(selectedPackage), "")
       // `.gtd/` removal (including the last-package case) is handled by the
       // edge's `commitPending({ removeLastPackage })` action, not the prompt.
+    }
+    if (value === "spec-review" && selectedPackage !== undefined) {
+      parts.push(renderPackage(selectedPackage), "")
+      const specDiff = (result.context as GtdContext & { specDiff?: string }).specDiff
+      if (specDiff !== undefined && specDiff !== "") {
+        const fence = fenceFor(specDiff)
+        parts.push("### Package diff", "")
+        parts.push(fence, specDiff.replace(/\n$/, ""), fence, "")
+      }
+    }
+    if (value === "spec-fix" && selectedPackage !== undefined) {
+      parts.push(renderPackage(selectedPackage), "")
     }
     if (result.autoAdvance) {
       parts.push(autoAdvance, "")

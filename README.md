@@ -92,12 +92,14 @@ committed verbatim **first**, before any gate is evaluated.
 | `review-incomplete` | `REVIEW.md` dirty and at least one checkbox is still unchecked                                                                    | Human gate — report that the review is unfinished and stop; the human must tick all boxes before re-running gtd                                                                                                                                                                                                                 |
 | `close-review`      | `REVIEW.md` dirty, ALL boxes ticked, and no other change (no non-tick REVIEW.md edits, no dirty source, no untracked files)       | EDGE-DRIVEN: the edge discards the ticks, deletes `REVIEW.md`, and commits the close; no agent prompt                                                                                                                                                                                                                           |
 | `review-process`    | `REVIEW.md` dirty, all boxes ticked, AND real feedback present (non-tick REVIEW.md edits, dirty source files, or untracked files) | EDGE-DRIVEN: the edge commits the verbatim dirty tree (`docs(review): record raw feedback for <base>`), captures the diff, `git revert`s that commit, removes `REVIEW.md`, and closes (`chore(gtd): close approved review for <sha>`) — all before the agent runs. The agent only synthesizes `TODO.md` from the injected diff. |
-| `execute`           | `.gtd/` contains numbered work packages                                                                                           | Edge runs `npm run test` first; on green, name the single next package and inline its tasks (one subagent per task), then leave the work **uncommitted**; the edge infers `execute` intent and commits using the package's `COMMIT_MSG.md` subject, removing the consumed package dir in the same commit; on red, fix-tests (or escalate) |
+| `execute`           | `.gtd/` contains numbered work packages and the lowest package has a `COMMIT_MSG.md`                                              | Edge runs `npm run test` first; on green, name the single next package and inline its tasks (one subagent per task), then leave the work **uncommitted**; the edge infers `execute` intent and commits using the package's `COMMIT_MSG.md` subject, removing `COMMIT_MSG.md` only (spec files stay in `.gtd/<pkg>/` as awaiting-review signal); on red, fix-tests (or escalate) |
 | `cleanup`           | `.gtd/` exists but holds no packages                                                                                              | EDGE-DRIVEN: the edge removes the empty `.gtd/` directory; no agent prompt — vestigial safety net                                                                                                                                                                                                                               |
 | `decompose`         | Last commit subject is `plan(gtd): ready complete`                                                                                | Record `TODO.md`, then decompose into ordinal, dependency-ordered packages                                                                                                                                                                                                                                                      |
 | `await-answers`     | Last commit subject is `plan(gtd): grilling`, TODO.md committed, with open questions remaining under `## Open Questions`          | Human gate — wait for the user to answer the open questions; **STOP**                                                                                                                                                                                                                                                           |
 | `modified-todo`     | `TODO.md` edited (any plan phase — re-grill on changes)                                                                           | Incorporate edits, re-grill, move resolved Q&A to `## Resolved`; edge commits `plan(gtd): grilling` or `plan(gtd): ready complete` based on remaining open questions                                                                                                                                                           |
 | `new-todo`          | A `TODO.md` exists, no prior plan commit in history                                                                               | Develop the plan: add `## Open Questions`; edge commits `plan(gtd): grilling`                                                                                                                                                                                                                                                   |
+| `spec-fix`          | Committed content-bearing `FEEDBACK.md` present (spec-review cycle)                                                               | Corrective loop — fix agent reads `FEEDBACK.md` + package specs, applies fixes in place, deletes `FEEDBACK.md`; edge commits `fix(gtd): apply spec review fix` + `Gtd-Spec-Review: N` trailer and re-runs tests; on green, `spec-review` re-evaluates; loop bounded by `agenticReviewMaxCycles` (default 3); cap or kill-switch falls through (removes pkg dir, advances to next package) |
+| `spec-review`       | Clean tree, lowest `.gtd/<pkg>/` has spec files but no `COMMIT_MSG.md` (committed-unreviewed package); `agenticReview` enabled, `Gtd-Spec-Review:` trailer count below `agenticReviewMaxCycles` | Per-package gate — reviewer reads package specs + `base..HEAD` diff, writes `FEEDBACK.md`; empty `FEEDBACK.md` = approval (edge commits `chore(gtd): approve spec review for <pkg>`, removes pkg dir, advances to next package); content-bearing `FEEDBACK.md` — edge commits it, next cycle runs `spec-fix`; disabled / cap reached → falls through (removes pkg dir, advances as if approved) |
 | `human-review`      | Clean tree, a review base exists, and `base..HEAD` has a non-empty diff                                                           | Generate `REVIEW.md` (leave uncommitted); the edge infers `human-review` intent from the untracked REVIEW.md, commits it with `review(gtd): create review for <short>`, and resolves to the `await-review` human gate                                                                                                           |
 | `verified`          | Nothing else matched — tree clean, nothing left to review                                                                         | Report the working tree healthy and reviewed                                                                                                                                                                                                                                                                                    |
 
@@ -112,6 +114,42 @@ committed verbatim **first**, before any gate is evaluated.
 > exactly ONE fix, leave it uncommitted with a `fix-tests` marker (the edge then
 > commits it with a `fix(gtd): …` subject and the `Gtd-Test-Fix: <n>` trailer),
 > then re-run gtd so the gate re-evaluates.
+
+> **`spec-review` is a per-package, post-test gate** inserted between a
+> committed package and the next package's execution. The full per-package loop
+> is:
+>
+> ```
+> execute → commit (removes COMMIT_MSG.md only, specs stay in .gtd/<pkg>/) → test → spec-review → (spec-fix → commit → test → spec-review)* → approve → next
+> ```
+>
+> **Deferred COMMIT_MSG-only removal**: when the edge commits an executed
+> package it removes only `COMMIT_MSG.md`; the spec files (task `.md` files)
+> remain in `.gtd/<pkg>/` as an awaiting-review signal. The next cycle sees a
+> clean tree with a package dir containing spec files but no `COMMIT_MSG.md`
+> and resolves to `spec-review`.
+>
+> **`spec-fix`** fires when a committed content-bearing `FEEDBACK.md` is
+> present (evaluated before `spec-review`). The fix agent reads `FEEDBACK.md`
+> + the package specs, applies fixes in place, deletes `FEEDBACK.md`, and
+> leaves the tree dirty; the edge commits `fix(gtd): apply spec review fix`
+> with a `Gtd-Spec-Review: N` trailer (N = total spec-fix commits for this
+> package) and re-runs tests. On green, `spec-review` re-evaluates; on red,
+> `fix-tests` fires.
+>
+> **Approval**: when the reviewer writes an empty `FEEDBACK.md`, the edge
+> commits `chore(gtd): approve spec review for <pkg>`, removes the pkg dir,
+> and advances to the next package (or to `human-review` when none remain).
+>
+> **Kill-switch and cap**: `agenticReview` (default `true`) and
+> `agenticReviewMaxCycles` (default `3`) are reused with per-package semantics.
+> When `agenticReview` is `false` or the `Gtd-Spec-Review:` trailer count for
+> the package reaches the cap, the gate falls through — the pkg dir is removed
+> and execution advances as if approved. The end-of-branch `human-review` gate
+> is unchanged.
+>
+> **BC**: old `review(gtd): agentic review|approved` commits in history are
+> parsed by the type system but are inert — they do not trigger any live gate.
 
 > **Review base**: the closest-to-HEAD of {parent-branch merge-base, last
 > `review(gtd):` commit, last `chore(gtd): close approved review` commit},
@@ -200,6 +238,21 @@ built-in defaults apply. Supported filenames (searched in this order):
   test-gated and settles directly). Previously hardcoded to `npm run test`; now
   overridable. (The per-edge test-fix cap — `MAX_VERIFY_ITERATIONS` — stays
   fixed and is **not** overridable.)
+- **`agenticReview`** (boolean, default `true`) — kill-switch for the
+  per-package `spec-review` gate. Set to `false` to skip spec review entirely;
+  every package advances as if approved and the branch proceeds directly to
+  `human-review`.
+- **`agenticReviewMaxCycles`** (number, default `3`) — maximum number of
+  `Gtd-Spec-Review:`-trailer commits allowed **per package** before the
+  `spec-review` gate stops firing for that package and falls through (removes
+  pkg dir, advances as if approved). Counted as a total for the package, not a
+  trailing run (overridable via `.gtdrc`).
+
+  > **BC note**: these keys and defaults are unchanged from the previous
+  > whole-branch agentic-review feature. Repos that have old
+  > `review(gtd): agentic review|approved` commits in history will continue to
+  > parse them correctly (type system recognises the prefixes) but those commits
+  > are inert — they do not trigger any live gate.
 - **`models`** — model selection for subagent-spawning states:
   - `planning` — high-reasoning model for developing plans, grilling, and
     decomposing work packages.
@@ -212,6 +265,8 @@ built-in defaults apply. Supported filenames (searched in this order):
 ### Defaults (no config)
 
 - `testCommand`: `npm run test`
+- `agenticReview`: `true`
+- `agenticReviewMaxCycles`: `3`
 - `models.planning`: `claude-opus-4-8`
 - `models.execution`: `claude-sonnet-4-8`
 
@@ -255,11 +310,17 @@ flowchart TD
     Resolve -->|"REVIEW.md all boxes ticked, no other change"| CloseReview["close-review: edge discards ticks, deletes REVIEW.md, commits close"]:::edge
     CloseReview -.->|re-gather + re-evaluate| Resolve
     Resolve -->|"all boxes ticked + real feedback present"| ReviewProcess["review-process: edge records verbatim tree → captures diff → git revert → close → agent synthesizes TODO.md"]:::terminal
-    Resolve -->|.gtd/ has packages| ExecuteTest{execute: edge runs npm run test}
+    Resolve -->|".gtd/ has packages with COMMIT_MSG.md"| ExecuteTest{execute: edge runs npm run test}
     ExecuteTest -->|green| Execute[execute next package]:::terminal
     ExecuteTest -->|"red, below cap"| FixTests[fix-tests prompt]:::terminal
     ExecuteTest -->|red, at cap| Escalate
-    Execute -.->|"leave uncommitted; next cycle edge infers intent + commits + removes package"| Resolve
+    Execute -.->|"leave uncommitted; next cycle edge commits using COMMIT_MSG.md, removes COMMIT_MSG.md only (spec files stay in .gtd/<pkg>/)"| Resolve
+    Resolve -->|"committed content-bearing FEEDBACK.md present (spec-review cycle)"| SpecFix["spec-fix: fix agent reads FEEDBACK.md + specs, applies fixes, deletes FEEDBACK.md"]:::terminal
+    SpecFix -.->|"edge commits fix(gtd): apply spec review fix + Gtd-Spec-Review: N; re-runs tests"| Resolve
+    Resolve -->|"clean, .gtd/<pkg>/ has spec files but no COMMIT_MSG.md; agenticReview enabled, below cap"| SpecReview["spec-review: reviewer reads specs + diff, writes FEEDBACK.md"]:::terminal
+    SpecReview -.->|"empty FEEDBACK.md = approval; edge commits chore(gtd): approve spec review for <pkg>, removes pkg dir"| Resolve
+    SpecReview -.->|"content-bearing FEEDBACK.md; edge commits it (bounded by agenticReviewMaxCycles)"| SpecFix
+    SpecReview -.->|"disabled / cap reached; removes pkg dir, falls through"| Resolve
     Resolve -->|"stray empty .gtd/ safety net"| Cleanup["cleanup: edge removes empty .gtd/"]:::edge
     Cleanup -.->|re-gather + re-evaluate| Resolve
     Resolve -->|"plan(gtd): ready complete at HEAD"| Decompose[decompose into packages]:::terminal
@@ -304,15 +365,37 @@ A typical feature:
    trailer) until green or the cap escalates. On the **last** package the edge
    also removes the empty `.gtd/` in the same commit, so cleanup is normally
    skipped.
-8. With `.gtd/` already gone, the next `/gtd` proceeds straight to human-review
-   (the `cleanup` step survives only as a safety net for a stray empty `.gtd/`).
-   If un-reviewed commits exist relative to the base (parent-branch merge-base
-   or last review commit), it resolves to `human-review` and auto-generates
-   `REVIEW.md` (uncommitted); the edge infers `human-review` intent from the
-   untracked file, commits `REVIEW.md` clean with subject
-   `review(gtd): create review for <short>`, and stops at the `await-review` gate. If everything
-   is already reviewed, it reports the tree healthy and fully reviewed
-   (`verified`).
+8. After each package commit the edge keeps the spec files (task `.md` files)
+   in `.gtd/<pkg>/` and removes only `COMMIT_MSG.md`. The next `/gtd` sees a
+   clean tree with the package dir still present (spec files but no
+   `COMMIT_MSG.md`) and resolves to `spec-review` (if `agenticReview` is
+   enabled and the per-package `Gtd-Spec-Review:` count is below
+   `agenticReviewMaxCycles`, default 3):
+
+   - **Approval path** — reviewer writes an empty `FEEDBACK.md`; edge commits
+     `chore(gtd): approve spec review for <pkg>`, removes the pkg dir, and
+     advances to the next package (or `human-review` when none remain).
+   - **Feedback path** — reviewer writes a content-bearing `FEEDBACK.md`; edge
+     commits it. The next `/gtd` resolves to `spec-fix`: the fix agent reads
+     `FEEDBACK.md` + the package specs, applies fixes in place, deletes
+     `FEEDBACK.md`; edge commits `fix(gtd): apply spec review fix` with a
+     `Gtd-Spec-Review: N` trailer and re-runs tests. On green, `spec-review`
+     re-evaluates; on red, the normal `fix-tests` loop fires.
+
+   This corrective loop repeats until the reviewer approves or the
+   `Gtd-Spec-Review:` trailer count for the package reaches
+   `agenticReviewMaxCycles`. On cap or when `agenticReview` is `false`, the
+   gate falls through — the pkg dir is removed and execution advances as if
+   approved.
+
+   Once all packages are approved and `.gtd/` is gone, the branch proceeds to
+   `human-review`. If un-reviewed commits exist relative to the base
+   (parent-branch merge-base or last review commit), it resolves to
+   `human-review` and auto-generates `REVIEW.md` (uncommitted); the edge infers
+   `human-review` intent from the untracked file, commits `REVIEW.md` clean
+   with subject `review(gtd): create review for <short>`, and stops at the
+   `await-review` gate. If everything is already reviewed, it reports the tree
+   healthy and fully reviewed (`verified`).
 9. Work `REVIEW.md` (tick boxes, leave notes inline, edit source files) and run
    `/gtd`. There is no marker convention — any working-tree change is feedback.
    Source prose comments are local feedback; source code changes are
@@ -400,14 +483,32 @@ A single execute cycle (green test gate):
    retry/skip/abort
 3. Leave all changes **uncommitted**. Do **not** commit, do **not** delete the
    package directory, do **not** run or determine a test command here.
-4. Re-run gtd — the next cycle's edge commits all changes (using the package's
-   `COMMIT_MSG.md`) and removes the consumed package directory from `.gtd/` in
-   one commit. Then it runs `npm run test` to verify what was just committed and
-   advances to the next package. On the **last** package, the edge also removes
-   the now-empty `.gtd/` in the same commit, so the next run proceeds straight
-   to `human-review` — the `cleanup` round-trip is normally skipped.
+4. Re-run gtd — the next cycle's edge commits all changes using the package's
+   `COMMIT_MSG.md` subject, then runs `npm run test` to verify. **Deferred
+   spec removal**: the edge removes only `COMMIT_MSG.md` from `.gtd/<pkg>/`;
+   the spec files (task `.md` files) remain as an awaiting-review signal.
 
-When that edge test run fails, the edge emits the `fix-tests` prompt instead:
+After a green test run the next cycle resolves to `spec-review` (when
+`agenticReview` is enabled and the per-package cap has not been reached). The
+reviewer reads the package specs and the `base..HEAD` diff and writes
+`FEEDBACK.md` — empty for approval, content-bearing for issues:
+
+- **Approval**: edge commits `chore(gtd): approve spec review for <pkg>`,
+  removes the pkg dir (including the remaining spec files), and advances to the
+  next package.
+- **Feedback**: edge commits `FEEDBACK.md`; next cycle resolves to `spec-fix` —
+  the fix agent reads `FEEDBACK.md` + package specs, applies fixes, deletes
+  `FEEDBACK.md`; edge commits `fix(gtd): apply spec review fix` +
+  `Gtd-Spec-Review: N` trailer, re-runs tests, and loops back to `spec-review`.
+
+The loop is bounded by `agenticReviewMaxCycles` (default 3, per package). On
+cap or when `agenticReview` is `false`, the gate falls through — pkg dir is
+removed and the next package starts. On the **last** package, after spec review
+the now-empty `.gtd/` is removed in the approve/fall-through commit, so the
+next run proceeds straight to `human-review` — the `cleanup` round-trip is
+normally skipped.
+
+When an edge test run fails, the edge emits the `fix-tests` prompt instead:
 loop internally up to three attempts (tracked in an uncommitted `ERRORS.md`),
 committing only on success (`fix(gtd): <desc>` with a `Gtd-Test-Fix:` trailer)
 or escalation. Three consecutive commits carrying a `Gtd-Test-Fix:` trailer, a

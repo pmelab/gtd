@@ -9,6 +9,10 @@ Feature: Review gate and the conclude-vs-loop decision
 
   Scenario: Review generation covers the diff since the baseline
     Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      agenticReview: false
+      """
     And a default branch "feature"
     And a prior review commit for "prev1234"
     And a commit "chore: add package.json" that adds "package.json" with:

@@ -33,6 +33,8 @@ export type PendingCommitIntent =
   | "modified-todo"
   | "human-review"
   | "fix-tests"
+  | "spec-fix"
+  | "spec-approved"
 
 export interface GtdPackageFact {
   readonly name: string
@@ -77,12 +79,20 @@ export interface ResolvePayload {
   readonly reviewBasePresent: boolean
   /** A REVIEW.md is present (committed and/or dirty) — the review path owns routing. */
   readonly reviewPresent: boolean
+  /** Agentic review is enabled via config. */
+  readonly agenticReviewEnabled: boolean
+  /** Maximum number of agentic review cycles before falling back to human review. */
+  readonly maxAgenticCycles: number
+  /** A committed, content-bearing FEEDBACK.md is present — agent should fix based on spec feedback. */
+  readonly specFixPending: boolean
   /** Uncommitted state of REVIEW.md, if any. */
   readonly reviewDirty: "new" | "modified" | null
   readonly commitIntent?: PendingCommitIntent
   readonly packageCommitMsg?: string
   readonly packageCount?: number
   readonly reviewBaseHash?: string
+  readonly specDiff?: string
+  readonly specReviewNumber?: number
   // passthrough
   readonly lastCommitSubject: string
   readonly workingTreeClean: boolean
@@ -93,7 +103,13 @@ export interface ResolvePayload {
 }
 
 export type GtdEvent =
-  | { type: "COMMIT"; isTestFix: boolean; isPlanGrill: boolean }
+  | {
+      type: "COMMIT"
+      isTestFix: boolean
+      isPlanGrill: boolean
+      isSpecReview: boolean
+      isWorkflowCommit: boolean
+    }
   | { type: "RESOLVE"; payload: ResolvePayload }
   | { type: "TEST_RESULT"; exitCode: number; output: string }
   | { type: "REVIEW_RECORDED"; diff: string; recordSha: string }
@@ -101,6 +117,7 @@ export type GtdEvent =
 export type EdgeAction =
   | { kind: "removeGtdDir" }
   | { kind: "closeReview"; base: string }
+  | { kind: "approveSpecReview"; pkg: string }
   /**
    * Commit the agent's (or generic) pending changes. The bare Part A form (all
    * optional fields absent) = the generic `code-changes` commit: default message
@@ -122,6 +139,7 @@ export type EdgeAction =
       intent?: PendingCommitIntent
       packageCommitMsg?: string
       packageCount?: number
+      specReviewNumber?: number
       base?: string
     }
   | { kind: "runTestGate" }
@@ -146,6 +164,8 @@ export interface GtdContext {
   packageCommitMsg?: string
   packageCount?: number
   reviewBaseHash?: string
+  specReviewNumber?: number
+  specDiff?: string
   /** Captured red-test output for the `fix-tests` render. */
   testOutput?: string
   /** REVIEW_RECORDED synthesis diff for the review-process render. */
@@ -154,6 +174,12 @@ export interface GtdContext {
   recordSha?: string
   /** The action a settled action-leaf wants the edge to perform; else cleared. */
   edgeAction?: EdgeAction
+  /** Consecutive `Gtd-Spec-Review:` markers seen since last non-spec-review/non-test-fix commit. */
+  specReviewIterations: number
+  /** Agentic review enabled (from config, applied via ResolvePayload). */
+  agenticReviewEnabled: boolean
+  /** Max agentic cycles before falling back (from config, applied via ResolvePayload). */
+  maxAgenticCycles: number
 }
 
 /** Terminal leaf-state ids. These are the only non-`replaying` states. */
@@ -174,6 +200,8 @@ export type LeafState =
   | "verified"
   | "fix-tests"
   | "commit-pending"
+  | "spec-review"
+  | "spec-fix"
 
 const initialContext: GtdContext = {
   verifyIterations: 0,
@@ -185,6 +213,9 @@ const initialContext: GtdContext = {
   workingTreeClean: true,
   packages: [],
   diff: "",
+  specReviewIterations: 0,
+  agenticReviewEnabled: false,
+  maxAgenticCycles: 3,
 }
 
 /**
@@ -210,6 +241,22 @@ const resolveChain = (actions: ReadonlyArray<string>, stuckLeaf?: LeafState) => 
     {
       guard: ({ event }: { event: GtdEvent }) =>
         event.type === "RESOLVE" && event.payload.commitIntent === "execute",
+      target: "commit-pending",
+      actions,
+    },
+    // intent: spec-fix — BEFORE the codeDirty branch
+    {
+      guard: ({ event }: { event: GtdEvent }) =>
+        event.type === "RESOLVE" && event.payload.commitIntent === "spec-fix",
+      target: "commit-pending",
+      actions,
+    },
+    // specFixPending — BEFORE the codeDirty branch (FEEDBACK.md would be codeDirty)
+    { guard: { type: "specFixPending", params: p }, target: "spec-fix", actions },
+    // intent: spec-approved — BEFORE the codeDirty branch
+    {
+      guard: ({ event }: { event: GtdEvent }) =>
+        event.type === "RESOLVE" && event.payload.commitIntent === "spec-approved",
       target: "commit-pending",
       actions,
     },
@@ -292,6 +339,7 @@ const machine = setup({
         !context.planEverGrilled &&
         params.planPhase === null &&
         !params.reviewBasePresent),
+    specFixPending: (_, params: ResolvePayload) => params.specFixPending,
     humanReview: (_, params: ResolvePayload) =>
       params.reviewBasePresent && (params.refDiff ?? "").trim().length > 0,
     // No-agent action loop escalation guards (checked on re-entering an action
@@ -317,7 +365,23 @@ const machine = setup({
     stuckCommitPending: ({ context }, params: ResolvePayload) =>
       context.lastAdvancedLeaf === "commit-pending" && params.commitIntent !== undefined,
     // Test-gate fold (mirrors the retired `selectPrompt`).
-    testGreen: ({ event }) => event.type === "TEST_RESULT" && event.exitCode === 0,
+    testGreenHasCommitMsg: ({ context, event }) =>
+      event.type === "TEST_RESULT" &&
+      event.exitCode === 0 &&
+      (context.packages[0] === undefined || context.packages[0].hasCommitMsg === true),
+    testGreenSpecReview: ({ context, event }) =>
+      event.type === "TEST_RESULT" &&
+      event.exitCode === 0 &&
+      context.packages[0] !== undefined &&
+      !context.packages[0].hasCommitMsg &&
+      context.agenticReviewEnabled &&
+      context.specReviewIterations < context.maxAgenticCycles,
+    testGreenSpecApprove: ({ context, event }) =>
+      event.type === "TEST_RESULT" &&
+      event.exitCode === 0 &&
+      context.packages[0] !== undefined &&
+      !context.packages[0].hasCommitMsg &&
+      (!context.agenticReviewEnabled || context.specReviewIterations >= context.maxAgenticCycles),
     testRedBelowCap: ({ context, event }) =>
       event.type === "TEST_RESULT" &&
       event.exitCode !== 0 &&
@@ -337,6 +401,12 @@ const machine = setup({
         if (event.type !== "COMMIT") return context.planEverGrilled
         return context.planEverGrilled || event.isPlanGrill
       },
+      specReviewIterations: ({ context, event }) => {
+        if (event.type !== "COMMIT") return context.specReviewIterations
+        if (event.isSpecReview) return context.specReviewIterations + 1
+        if (event.isTestFix) return context.specReviewIterations
+        return 0
+      },
     }),
     // Mirror of `foldCommit` for the no-agent loop: bump the hop counter and
     // record which action leaf we just left, so the next settle can detect lack
@@ -345,7 +415,7 @@ const machine = setup({
       noAgentHops: ({ context }) => context.noAgentHops + 1,
     }),
     clearEdgeAction: assign({ edgeAction: () => undefined }),
-    applyPayload: assign(({ event }) => {
+    applyPayload: assign(({ context, event }) => {
       if (event.type !== "RESOLVE") return {}
       const p = event.payload
       return {
@@ -355,12 +425,16 @@ const machine = setup({
         workingTreeClean: p.workingTreeClean,
         packages: p.packages,
         diff: p.diff,
+        agenticReviewEnabled: p.agenticReviewEnabled,
+        maxAgenticCycles: p.maxAgenticCycles,
         ...(p.baseRef !== undefined ? { baseRef: p.baseRef } : {}),
         ...(p.refDiff !== undefined ? { refDiff: p.refDiff } : {}),
         ...(p.commitIntent !== undefined ? { commitIntent: p.commitIntent } : {}),
         ...(p.packageCommitMsg !== undefined ? { packageCommitMsg: p.packageCommitMsg } : {}),
         ...(p.packageCount !== undefined ? { packageCount: p.packageCount } : {}),
         ...(p.reviewBaseHash !== undefined ? { reviewBaseHash: p.reviewBaseHash } : {}),
+        ...(p.specDiff !== undefined ? { specDiff: p.specDiff } : {}),
+        ...(p.specReviewNumber !== undefined ? { specReviewNumber: p.specReviewNumber } : {}),
       }
     }),
   },
@@ -433,6 +507,19 @@ const machine = setup({
               restorePaths: [],
             } satisfies EdgeAction
           }
+          if (intent === "spec-fix") {
+            return {
+              kind: "commitPending",
+              intent: "spec-fix",
+              ...(context.specReviewNumber !== undefined
+                ? { specReviewNumber: context.specReviewNumber }
+                : {}),
+              restorePaths: ["TODO.md"],
+            } satisfies EdgeAction
+          }
+          if (intent === "spec-approved") {
+            return { kind: "approveSpecReview", pkg: context.packages[0]!.name } satisfies EdgeAction
+          }
           // fix-tests: comes from isFixTestsLoop (no commitIntent) or explicit intent
           return {
             kind: "commitPending",
@@ -462,7 +549,16 @@ const machine = setup({
       }),
       on: {
         TEST_RESULT: [
-          { guard: "testGreen", target: "execute", actions: "clearEdgeAction" },
+          { guard: "testGreenHasCommitMsg", target: "execute", actions: "clearEdgeAction" },
+          { guard: "testGreenSpecReview", target: "spec-review", actions: "clearEdgeAction" },
+          {
+            guard: "testGreenSpecApprove",
+            target: "commit-pending",
+            actions: assign({
+              edgeAction: () => undefined,
+              commitIntent: () => "spec-approved" as PendingCommitIntent,
+            }),
+          },
           {
             guard: "testRedBelowCap",
             target: "fix-tests",
@@ -508,6 +604,8 @@ const machine = setup({
     "modified-todo": { tags: ["auto-advance"], type: "final" },
     "await-answers": { type: "final" },
     "human-review": { tags: ["auto-advance"], type: "final" },
+    "spec-review": { tags: ["auto-advance"], type: "final" },
+    "spec-fix": { type: "final" },
     verified: { type: "final" },
     escalate: { type: "final" },
   },

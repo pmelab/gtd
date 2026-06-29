@@ -110,4 +110,108 @@ describe("ConfigService", () => {
 
     expect(cfg.testCommand).toBe("json test")
   })
+
+
+  it("agenticReview defaults to true and agenticReviewMaxCycles defaults to 3 with no config", async () => {
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.agenticReview).toBe(true)
+    expect(cfg.agenticReviewMaxCycles).toBe(3)
+  })
+
+  it("agenticReview and agenticReviewMaxCycles are overridable", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`agenticReview: false`, `agenticReviewMaxCycles: 5`, ``].join("\n"),
+    )
+
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.agenticReview).toBe(false)
+    expect(cfg.agenticReviewMaxCycles).toBe(5)
+  })
+
+  it("resolveModel returns planning default for spec-review with no config", async () => {
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.resolveModel("spec-review")).toBe("claude-opus-4-8")
+  })
+
+  it("resolveModel returns execution default for spec-fix with no config", async () => {
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.resolveModel("spec-fix")).toBe("claude-sonnet-4-8")
+  })
+
+  it("models.planning override applies to spec-review; models.states.spec-review override beats tier", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [
+        `models:`,
+        `  planning: "tier-planner"`,
+        `  states:`,
+        `    spec-review: "state-spec-reviewer"`,
+        ``,
+      ].join("\n"),
+    )
+
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    // state override wins
+    expect(cfg.resolveModel("spec-review")).toBe("state-spec-reviewer")
+    // tier override applies to other planning states
+    expect(cfg.resolveModel("decompose")).toBe("tier-planner")
+  })
+
+  it("models.execution override applies to spec-fix; models.states.spec-fix override beats tier", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [
+        `models:`,
+        `  execution: "tier-executor"`,
+        `  states:`,
+        `    spec-fix: "state-spec-fixer"`,
+        ``,
+      ].join("\n"),
+    )
+
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    // state override wins
+    expect(cfg.resolveModel("spec-fix")).toBe("state-spec-fixer")
+    // tier override applies to other execution states
+    expect(cfg.resolveModel("execute")).toBe("tier-executor")
+  })
+
+  it("spec-review and spec-fix in models.states decode without excess-property error", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [
+        `models:`,
+        `  states:`,
+        `    spec-review: "my-reviewer"`,
+        `    spec-fix: "my-fixer"`,
+        ``,
+      ].join("\n"),
+    )
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value.resolveModel("spec-review")).toBe("my-reviewer")
+      expect(exit.value.resolveModel("spec-fix")).toBe("my-fixer")
+    }
+  })
+
+  it("a .gtdrc with agenticReview: false decodes without excess-property error", async () => {
+    writeFileSync(join(projectDir, ".gtdrc"), `agenticReview: false\n`)
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value.agenticReview).toBe(false)
+    }
+  })
 })

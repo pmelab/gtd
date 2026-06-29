@@ -12,6 +12,8 @@ const baseContext = (overrides: Partial<GtdContext> = {}): GtdContext => ({
   packages: [],
   diff: "",
   planEverGrilled: false,
+  agenticCount: 0,
+  agenticConverged: false,
   ...overrides,
 })
 
@@ -252,6 +254,124 @@ describe("buildPrompt", () => {
     expect(out).toContain("01-foo/COMMIT_MSG.md")
   })
 
+  it("spec-review prompt has the correct header", () => {
+    const out = buildPrompt(
+      result("spec-review", {
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "Acceptance criterion A" }],
+              hasCommitMsg: false,
+            },
+          ],
+          specDiff: "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n",
+        },
+      }),
+    )
+    expect(out).toContain("## Task: Spec review of the committed package")
+  })
+
+  it("spec-review inlines the lowest package's task specs", () => {
+    const out = buildPrompt(
+      result("spec-review", {
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "Acceptance criterion A" }],
+              hasCommitMsg: false,
+            },
+          ],
+          specDiff: "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n",
+        },
+      }),
+    )
+    expect(out).toContain("### Package: `01-foo/`")
+    expect(out).toContain("01-task.md")
+    expect(out).toContain("Acceptance criterion A")
+  })
+
+  it("spec-review inlines specDiff under ### Package diff", () => {
+    const specDiff = "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n"
+    const out = buildPrompt(
+      result("spec-review", {
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "task content" }],
+              hasCommitMsg: false,
+            },
+          ],
+          specDiff,
+        },
+      }),
+    )
+    expect(out).toContain("### Package diff")
+    expect(out).toContain("+export const foo = 1")
+  })
+
+  it("spec-fix prompt has the correct header", () => {
+    const out = buildPrompt(
+      result("spec-fix", {
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "Acceptance criterion A" }],
+              hasCommitMsg: false,
+            },
+          ],
+        },
+      }),
+    )
+    expect(out).toContain("## Task: Fix the package against spec-review feedback")
+  })
+
+  it("spec-fix inlines the lowest package's task specs", () => {
+    const out = buildPrompt(
+      result("spec-fix", {
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "Acceptance criterion B" }],
+              hasCommitMsg: false,
+            },
+          ],
+        },
+      }),
+    )
+    expect(out).toContain("### Package: `01-foo/`")
+    expect(out).toContain("01-task.md")
+    expect(out).toContain("Acceptance criterion B")
+  })
+
+  it("spec-fix does NOT inline specDiff", () => {
+    const out = buildPrompt(
+      result("spec-fix", {
+        context: {
+          packages: [
+            {
+              name: "01-foo",
+              tasks: ["01-task.md"],
+              taskContents: [{ name: "01-task.md", content: "task content" }],
+              hasCommitMsg: false,
+            },
+          ],
+          specDiff: "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n",
+        },
+      }),
+    )
+    expect(out).not.toContain("### Package diff")
+  })
+
   it("decompose prompt renders its section and the auto-advance partial", () => {
     const out = buildPrompt(result("decompose", { autoAdvance: true }))
     expect(out).toContain("Decompose `TODO.md` into work packages")
@@ -425,6 +545,88 @@ describe("buildPrompt", () => {
         recordSha: "abc1234",
       })
       expect(out).toContain("````\nsee `code` and ```block``` here\n````")
+    })
+
+    it("spec-review injects the planning model and leaves no {{MODEL}}", () => {
+      const out = buildPrompt(
+        result("spec-review", {
+          context: {
+            packages: [
+              {
+                name: "01-foo",
+                tasks: ["01-task.md"],
+                taskContents: [{ name: "01-task.md", content: "First task" }],
+                hasCommitMsg: false,
+              },
+            ],
+            specDiff: "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n",
+          },
+        }),
+      )
+      expect(out).toContain("claude-opus-4-8")
+      expect(out).not.toContain("{{MODEL}}")
+    })
+
+    it("spec-review honors a custom resolveModel", () => {
+      const out = buildPrompt(
+        result("spec-review", {
+          context: {
+            packages: [
+              {
+                name: "01-foo",
+                tasks: ["01-task.md"],
+                taskContents: [{ name: "01-task.md", content: "First task" }],
+                hasCommitMsg: false,
+              },
+            ],
+            specDiff: "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n",
+          },
+        }),
+        undefined,
+        (s) => `MODEL-FOR-${s}`,
+      )
+      expect(out).toContain("MODEL-FOR-spec-review")
+      expect(out).not.toContain("{{MODEL}}")
+    })
+
+    it("spec-fix injects the execution model and leaves no {{MODEL}}", () => {
+      const out = buildPrompt(
+        result("spec-fix", {
+          context: {
+            packages: [
+              {
+                name: "01-foo",
+                tasks: ["01-task.md"],
+                taskContents: [{ name: "01-task.md", content: "First task" }],
+                hasCommitMsg: false,
+              },
+            ],
+          },
+        }),
+      )
+      expect(out).toContain("claude-sonnet-4-8")
+      expect(out).not.toContain("{{MODEL}}")
+    })
+
+    it("spec-fix honors a custom resolveModel", () => {
+      const out = buildPrompt(
+        result("spec-fix", {
+          context: {
+            packages: [
+              {
+                name: "01-foo",
+                tasks: ["01-task.md"],
+                taskContents: [{ name: "01-task.md", content: "First task" }],
+                hasCommitMsg: false,
+              },
+            ],
+          },
+        }),
+        undefined,
+        (s) => `MODEL-FOR-${s}`,
+      )
+      expect(out).toContain("MODEL-FOR-spec-fix")
+      expect(out).not.toContain("{{MODEL}}")
     })
 
     it("fix-tests override carries no injected model and no {{MODEL}} leak", () => {

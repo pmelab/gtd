@@ -8,10 +8,19 @@ import {
   start,
 } from "./Machine.js"
 
-const commit = (isTestFix: boolean, isPlanGrill = false): GtdEvent => ({
+const commit = (
+  isTestFix: boolean,
+  isPlanGrill = false,
+  extra: {
+    isSpecReview?: boolean
+    isWorkflowCommit?: boolean
+  } = {},
+): GtdEvent => ({
   type: "COMMIT",
   isTestFix,
   isPlanGrill,
+  isSpecReview: extra.isSpecReview ?? false,
+  isWorkflowCommit: extra.isWorkflowCommit ?? true,
 })
 
 const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
@@ -29,6 +38,9 @@ const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
   todoOpenQuestionsPresent: false,
   reviewPresent: false,
   reviewBasePresent: false,
+  agenticReviewEnabled: false,
+  maxAgenticCycles: 3,
+  specFixPending: false,
   lastCommitSubject: "chore: init",
   workingTreeClean: true,
   packages: [],
@@ -642,6 +654,158 @@ describe("commit-pending — inferred intent routing", () => {
     expect(handle.current.value).toBe("commit-pending")
     const after = handle.advance([resolveEvent({ commitIntent: "execute", codeDirty: true })])
     expect(after.value).toBe("escalate")
+  })
+})
+
+describe("spec-review — guard + fold", () => {
+  it("specReviewIterations fold: N isSpecReview COMMITs → specReviewIterations === N", () => {
+    const { context } = resolve([
+      commit(false, false, { isSpecReview: true }),
+      commit(false, false, { isSpecReview: true }),
+      commit(false, false, { isSpecReview: true }),
+    ])
+    expect(context.specReviewIterations).toBe(3)
+  })
+
+  it("non-spec-review/non-test-fix commit resets specReviewIterations to 0", () => {
+    const { context } = resolve([
+      commit(false, false, { isSpecReview: true }),
+      commit(false, false, { isSpecReview: true }),
+      commit(false), // workflow commit, not spec-review, not test-fix → reset
+      commit(false, false, { isSpecReview: true }),
+    ])
+    expect(context.specReviewIterations).toBe(1)
+  })
+
+  it("isTestFix commit leaves specReviewIterations unchanged", () => {
+    const { context } = resolve([
+      commit(false, false, { isSpecReview: true }),
+      commit(false, false, { isSpecReview: true }),
+      commit(true), // test fix, leaves specReviewIterations unchanged
+    ])
+    expect(context.specReviewIterations).toBe(2)
+  })
+
+  it("runTestGate green + packages[0].hasCommitMsg === true → execute", () => {
+    const handle = start([
+      resolveEvent({
+        hasPackages: true,
+        gtdDirExists: true,
+        packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: true }],
+      }),
+    ])
+    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
+    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
+    expect(after.value).toBe("execute")
+    expect(after.edgeAction).toBeUndefined()
+  })
+
+  it("runTestGate green + packages[0].hasCommitMsg === false + agenticReviewEnabled + below cap → spec-review", () => {
+    const handle = start([
+      resolveEvent({
+        hasPackages: true,
+        gtdDirExists: true,
+        agenticReviewEnabled: true,
+        maxAgenticCycles: 3,
+        packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: false }],
+      }),
+    ])
+    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
+    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
+    expect(after.value).toBe("spec-review")
+    expect(after.autoAdvance).toBe(true)
+    expect(after.edgeAction).toBeUndefined()
+  })
+
+  it("runTestGate green + packages[0].hasCommitMsg === false + agenticReviewEnabled disabled → commit-pending emitting approveSpecReview", () => {
+    const handle = start([
+      resolveEvent({
+        hasPackages: true,
+        gtdDirExists: true,
+        agenticReviewEnabled: false,
+        maxAgenticCycles: 3,
+        packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: false }],
+      }),
+    ])
+    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
+    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
+    expect(after.value).toBe("commit-pending")
+    expect(after.edgeAction).toEqual({ kind: "approveSpecReview", pkg: "01-foo" })
+  })
+
+  it("runTestGate green + packages[0].hasCommitMsg === false + at cap → commit-pending emitting approveSpecReview", () => {
+    const events: Array<GtdEvent> = [
+      commit(false, false, { isSpecReview: true }),
+      commit(false, false, { isSpecReview: true }),
+      commit(false, false, { isSpecReview: true }),
+      resolveEvent({
+        hasPackages: true,
+        gtdDirExists: true,
+        agenticReviewEnabled: true,
+        maxAgenticCycles: 3,
+        packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: false }],
+      }),
+    ]
+    const handle = start(events)
+    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
+    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
+    expect(after.value).toBe("commit-pending")
+    expect(after.edgeAction).toEqual({ kind: "approveSpecReview", pkg: "01-foo" })
+  })
+
+  it("resolveEvent({ specFixPending: true }) → spec-fix leaf, autoAdvance false", () => {
+    const { value, autoAdvance } = resolve([resolveEvent({ specFixPending: true })])
+    expect(value).toBe("spec-fix")
+    expect(autoAdvance).toBe(false)
+  })
+
+  it("commitIntent: spec-fix → commit-pending emitting spec-fix action with specReviewNumber", () => {
+    const handle = start([
+      resolveEvent({
+        commitIntent: "spec-fix",
+        specReviewNumber: 2,
+        codeDirty: true,
+      }),
+    ])
+    expect(handle.current.value).toBe("commit-pending")
+    expect(handle.current.edgeAction).toEqual({
+      kind: "commitPending",
+      intent: "spec-fix",
+      specReviewNumber: 2,
+      restorePaths: ["TODO.md"],
+    })
+  })
+
+  it("commitIntent: spec-approved → commit-pending emitting approveSpecReview", () => {
+    const handle = start([
+      resolveEvent({
+        commitIntent: "spec-approved",
+        packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: false }],
+      }),
+    ])
+    expect(handle.current.value).toBe("commit-pending")
+    expect(handle.current.edgeAction).toEqual({ kind: "approveSpecReview", pkg: "01-foo" })
+  })
+
+  it("spec-fix intent routes ahead of plain codeDirty", () => {
+    const { value } = resolve([resolveEvent({ commitIntent: "spec-fix", codeDirty: true })])
+    expect(value).toBe("commit-pending")
+  })
+
+  it("no live branch resolves to agentic-review or agentic-feedback (both removed)", () => {
+    // agenticReviewEnabled + reviewBasePresent falls through to human-review (no agentic-review leaf)
+    const { value } = resolve([
+      resolveEvent({
+        agenticReviewEnabled: true,
+        reviewBasePresent: true,
+        refDiff: "diff --git a/x b/x\n+hello\n",
+        maxAgenticCycles: 3,
+        baseRef: "abc123",
+      }),
+    ])
+    expect(value).toBe("human-review")
+    expect(value).not.toBe("agentic-review")
+    expect(value).not.toBe("agentic-feedback")
   })
 })
 

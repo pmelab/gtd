@@ -33,6 +33,30 @@ entirely risks breaking existing repos that have those commits in history.
 - Follow the `QuietMode` pattern (Context tag + `static layer`) for any new
   boolean mode flags that need to flow through the Effect dependency graph
 
+### Config Values vs. Mode Flags: `agenticReview` / `agenticReviewMaxCycles`
+
+`agenticReview` and `agenticReviewMaxCycles` are read from `ConfigService` at
+the Effect edge (`gatherEvents` in `src/Events.ts`) and passed to the pure
+machine as `ResolvePayload` fields (`agenticReviewEnabled`,
+`maxAgenticCycles`) — NOT as a `Context`-tag layer.
+
+**Rule of thumb**:
+- Render/IO modes (cross-cutting, affect how side effects behave everywhere) →
+  `QuietMode` Context tag + `static layer`
+- Pure-decision inputs (consumed by a guard on a specific resolve event, not
+  needed elsewhere) → field on the `ResolvePayload`
+
+`agenticReview` is a per-resolve guard input, not a cross-cutting IO mode, so
+it travels as payload rather than as a Context service.
+
+### Agentic Cycle Count Fold
+
+The agentic cycle count and convergence status are **folded in the machine**
+from flags on `COMMIT` events (`isAgenticReview` / `isAgenticApproved` /
+`isWorkflowCommit`), not recomputed at the Effect edge. This mirrors the
+`Gtd-Test-Fix:` verify-counter fold: derived counters accumulate inside the
+state machine from event flags, keeping the edge thin.
+
 ### Stdout / Newline Handling
 
 - `ensureNewline` only flushes a `\n` when the state it tracks is `dirty`; any

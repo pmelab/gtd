@@ -10,6 +10,10 @@ Feature: Human-review is no longer test-gated
 
   Scenario: Human-review reaches REVIEW.md generation without running the suite
     Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      agenticReview: false
+      """
     And a default branch "feature"
     And a prior review commit for "prev1234"
     And a commit "chore: add package.json" that adds "package.json" with:
@@ -36,6 +40,7 @@ Feature: Human-review is no longer test-gated
     And a gtd config file at "." with:
       """
       testCommand: touch RUNNER_RAN
+      agenticReview: false
       """
     And a commit "feat: add parser" that adds "src/parser.ts" with:
       """

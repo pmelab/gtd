@@ -669,12 +669,19 @@ describe("GitService", () => {
       expect(git("status", "--porcelain").trim()).toBe("")
     })
 
-    it("{removeLastPackage} removes the lowest-numbered .gtd/ package dir", async () => {
+    it("{removeLastPackage} removes only COMMIT_MSG.md from the lowest-numbered .gtd/ package", async () => {
       mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
       mkdirSync(join(repoDir, ".gtd", "02-bar"), { recursive: true })
       writeFileSync(join(repoDir, ".gtd", "01-foo", "COMMIT_MSG.md"), "feat: foo\n")
+      writeFileSync(join(repoDir, ".gtd", "01-foo", "task-a.md"), "# Task A\n")
+      writeFileSync(join(repoDir, ".gtd", "01-foo", "task-b.md"), "# Task B\n")
       writeFileSync(join(repoDir, ".gtd", "02-bar", "COMMIT_MSG.md"), "feat: bar\n")
       writeFileSync(join(repoDir, "src.ts"), "export const y = 2")
+      // Track the files so git add -A sees them
+      git("add", "-A")
+      git(`commit -m "chore: setup packages"`)
+      // Now make the src change to commit
+      writeFileSync(join(repoDir, "src.ts"), "export const y = 3")
 
       await run(
         Effect.flatMap(GitService, (g) =>
@@ -682,8 +689,13 @@ describe("GitService", () => {
         ),
       )
 
-      // Lowest-numbered package removed; the higher one survives.
-      expect(existsSync(join(repoDir, ".gtd", "01-foo"))).toBe(false)
+      // COMMIT_MSG.md is gone; task .md files in 01-foo survive
+      expect(existsSync(join(repoDir, ".gtd", "01-foo", "COMMIT_MSG.md"))).toBe(false)
+      expect(existsSync(join(repoDir, ".gtd", "01-foo", "task-a.md"))).toBe(true)
+      expect(existsSync(join(repoDir, ".gtd", "01-foo", "task-b.md"))).toBe(true)
+      // Directory itself survives (still has task files)
+      expect(existsSync(join(repoDir, ".gtd", "01-foo"))).toBe(true)
+      // Higher-numbered package untouched
       expect(existsSync(join(repoDir, ".gtd", "02-bar"))).toBe(true)
       expect(git("log", "-1", "--format=%s")).toBe("feat: foo")
     })
@@ -756,6 +768,83 @@ describe("GitService", () => {
       expect(deriveCommitMessage("modified-todo", { todoContent: todoNoQuestions })).toBe(
         "plan(gtd): ready complete",
       )
+    })
+
+    it("spec-fix → fix(gtd): apply spec review fix + Gtd-Spec-Review trailer with supplied number", () => {
+      const msg = deriveCommitMessage("spec-fix", { specReviewNumber: 2 })
+      expect(msg).toBe("fix(gtd): apply spec review fix\n\nGtd-Spec-Review: 2")
+    })
+
+    it("spec-fix → defaults specReviewNumber to 1 when omitted", () => {
+      const msg = deriveCommitMessage("spec-fix", {})
+      expect(msg).toBe("fix(gtd): apply spec review fix\n\nGtd-Spec-Review: 1")
+    })
+  })
+
+  describe("approveSpecReview", () => {
+    it("removes the pkg dir, removes FEEDBACK.md, creates approval commit", async () => {
+      mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
+      writeFileSync(join(repoDir, ".gtd", "01-foo", "COMMIT_MSG.md"), "feat: foo\n")
+      writeFileSync(join(repoDir, ".gtd", "01-foo", "task.md"), "# Task\n")
+      writeFileSync(join(repoDir, "FEEDBACK.md"), "# Feedback\n")
+      git("add", "-A")
+      git(`commit -m "chore: setup"`)
+
+      await run(Effect.flatMap(GitService, (g) => g.approveSpecReview(".gtd/01-foo")))
+
+      expect(existsSync(join(repoDir, ".gtd", "01-foo"))).toBe(false)
+      expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(false)
+      expect(git("log", "-1", "--format=%s")).toBe("chore(gtd): approve spec review for 01-foo")
+    })
+
+    it("is idempotent when FEEDBACK.md is absent", async () => {
+      mkdirSync(join(repoDir, ".gtd", "02-bar"), { recursive: true })
+      writeFileSync(join(repoDir, ".gtd", "02-bar", "task.md"), "# Task\n")
+      git("add", "-A")
+      git(`commit -m "chore: setup"`)
+      // no FEEDBACK.md present
+
+      await run(Effect.flatMap(GitService, (g) => g.approveSpecReview(".gtd/02-bar")))
+
+      expect(existsSync(join(repoDir, ".gtd", "02-bar"))).toBe(false)
+      expect(git("log", "-1", "--format=%s")).toBe("chore(gtd): approve spec review for 02-bar")
+    })
+  })
+
+  describe("diffRefExcludingGtd", () => {
+    it("returns diff between ref and HEAD excluding .gtd/ paths", async () => {
+      mkdirSync(join(repoDir, ".gtd"), { recursive: true })
+      writeFileSync(join(repoDir, "src.ts"), "export const a = 1")
+      writeFileSync(join(repoDir, ".gtd", "notes.md"), "gtd notes")
+      git("add", "-A")
+      git(`commit -m "feat: baseline"`)
+      const base = git("rev-parse HEAD")
+
+      writeFileSync(join(repoDir, "src.ts"), "export const a = 2")
+      writeFileSync(join(repoDir, ".gtd", "notes.md"), "updated gtd notes")
+      git("add", "-A")
+      git(`commit -m "feat: changes"`)
+
+      const diff = await run(Effect.flatMap(GitService, (g) => g.diffRefExcludingGtd(base)))
+
+      expect(diff).toContain("src.ts")
+      expect(diff).not.toContain(".gtd/")
+    })
+
+    it("returns empty string when only .gtd/ files changed since ref", async () => {
+      mkdirSync(join(repoDir, ".gtd"), { recursive: true })
+      writeFileSync(join(repoDir, ".gtd", "state.md"), "initial")
+      git("add", "-A")
+      git(`commit -m "feat: baseline"`)
+      const base = git("rev-parse HEAD")
+
+      writeFileSync(join(repoDir, ".gtd", "state.md"), "updated")
+      git("add", "-A")
+      git(`commit -m "chore: gtd state update"`)
+
+      const diff = await run(Effect.flatMap(GitService, (g) => g.diffRefExcludingGtd(base)))
+
+      expect(diff.trim()).toBe("")
     })
   })
 

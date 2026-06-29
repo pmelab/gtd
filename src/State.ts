@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { gatherEvents } from "./Events.js"
 import type { GitService } from "./Git.js"
 import { type Handle, type ResolveResult, start } from "./Machine.js"
+import type { ConfigService } from "./Config.js"
 
 // Re-export the canonical types the edge (main.ts / driver loop) consumes via
 // `State.js`. `ResolveResult` + `EdgeAction` come from the machine; `TestResult`
@@ -22,7 +23,11 @@ export type { TestResult } from "./TestRunner.js"
  *
  * `State.ts` performs NO git writes; `gatherEvents` is the only IO here.
  */
-export const startDetect = (): Effect.Effect<Handle, Error, GitService | FileSystem.FileSystem> =>
+export const startDetect = (): Effect.Effect<
+  Handle,
+  Error,
+  GitService | FileSystem.FileSystem | ConfigService
+> =>
   Effect.gen(function* () {
     const events = yield* gatherEvents()
     return start(events)
@@ -33,5 +38,8 @@ export const startDetect = (): Effect.Effect<Handle, Error, GitService | FileSys
  * (a one-shot `ResolveResult`) rather than the live handle — e.g. `main.ts`
  * until the driver loop (package 03) switches to `startDetect`.
  */
-export const detect = (): Effect.Effect<ResolveResult, Error, GitService | FileSystem.FileSystem> =>
-  Effect.map(startDetect(), (handle) => handle.current)
+export const detect = (): Effect.Effect<
+  ResolveResult,
+  Error,
+  GitService | FileSystem.FileSystem | ConfigService
+> => Effect.map(startDetect(), (handle) => handle.current)

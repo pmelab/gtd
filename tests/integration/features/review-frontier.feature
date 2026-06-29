@@ -24,6 +24,10 @@ Feature: Review frontier — gtd-workflow commits above a closed review
 
   Scenario: Real code commit on top of a close re-opens review
     Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      agenticReview: false
+      """
     And a prior close commit for "abc1234"
     And a commit "feat: real change" that adds "src/real.ts" with:
       """
@@ -35,6 +39,10 @@ Feature: Review frontier — gtd-workflow commits above a closed review
 
   Scenario: Plan commit then real code on top of a close still re-opens review
     Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      agenticReview: false
+      """
     And a prior close commit for "abc1234"
     And a commit "plan(gtd): grilling" that adds "TODO.md" with:
       """

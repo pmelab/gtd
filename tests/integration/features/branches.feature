@@ -193,6 +193,10 @@ Feature: gtd prints a structured prompt for the agent based on git state
 
   Scenario: Parent-branch merge-base behind HEAD triggers human-review
     Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      agenticReview: false
+      """
     And a default branch "main"
     And a branch "feature"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -211,6 +215,10 @@ Feature: gtd prints a structured prompt for the agent based on git state
 
   Scenario: Prior review commit behind HEAD triggers human-review
     Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      agenticReview: false
+      """
     And a default branch "feature"
     And a prior review commit for "prev1234"
     And a commit "feat: add parser" that adds "src/parser.ts" with:
@@ -228,6 +236,10 @@ Feature: gtd prints a structured prompt for the agent based on git state
 
   Scenario: Both parent-branch and prior-review present, closer one wins
     Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      agenticReview: false
+      """
     And a default branch "main"
     And a branch "feature"
     And a commit "feat: old-module" that adds "src/old-module.ts" with:

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { NodeContext } from "@effect/platform-node"
 import { FileSystem } from "@effect/platform"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   computeReviewBase,
@@ -15,6 +15,7 @@ import {
   parsePlanPhase,
 } from "./Events.js"
 import { GitService } from "./Git.js"
+import { ConfigService } from "./Config.js"
 
 const run = <A>(eff: Effect.Effect<A, Error, FileSystem.FileSystem>) =>
   Effect.runPromise(eff.pipe(Effect.provide(NodeContext.layer)))
@@ -165,10 +166,23 @@ function git(dir: string, ...args: string[]) {
   execFileSync("git", args, { cwd: dir, stdio: "pipe" })
 }
 
-const runGatherEvents = () =>
-  Effect.runPromise(
-    gatherEvents().pipe(Effect.provide(GitService.Live), Effect.provide(NodeContext.layer)),
+const runGatherEvents = (configOverrides?: Partial<{ agenticReview: boolean; agenticReviewMaxCycles: number }>) => {
+  const configLayer = configOverrides
+    ? Layer.succeed(ConfigService, {
+        testCommand: "npm run test",
+        resolveModel: () => "claude-opus-4-8",
+        agenticReview: configOverrides.agenticReview ?? true,
+        agenticReviewMaxCycles: configOverrides.agenticReviewMaxCycles ?? 3,
+      })
+    : ConfigService.Live
+  return Effect.runPromise(
+    gatherEvents().pipe(
+      Effect.provide(GitService.Live),
+      Effect.provide(NodeContext.layer),
+      Effect.provide(configLayer),
+    ),
   )
+}
 
 describe("gatherEvents — commitIntent and reviewDirty inference", { timeout: 30_000 }, () => {
   let gitRepoDir: string
@@ -390,3 +404,308 @@ describe("parsePlanPhase", () => {
     expect(parsePlanPhase("")).toBe(null)
   })
 })
+
+describe(
+  "gatherEvents — COMMIT flags: isAgenticReview, isAgenticApproved, isWorkflowCommit",
+  { timeout: 30_000 },
+  () => {
+    let gitRepoDir: string
+    let savedCwd: string
+
+    const gitInDir = (...args: string[]) => {
+      execFileSync("git", args, { cwd: gitRepoDir, stdio: "pipe" })
+    }
+
+    const commit = (msg: string, file = "code.ts", content = `// ${msg}\n`) => {
+      writeFileSync(join(gitRepoDir, file), content)
+      gitInDir("add", "-A")
+      gitInDir("commit", "-q", "-m", msg)
+    }
+
+    const commitWithBody = (subject: string, body: string, file = "code.ts", content = `// ${subject}\n`) => {
+      writeFileSync(join(gitRepoDir, file), content)
+      gitInDir("add", "-A")
+      gitInDir("commit", "-q", "-m", `${subject}\n\n${body}`)
+    }
+
+    beforeEach(() => {
+      savedCwd = process.cwd()
+      gitRepoDir = mkdtempSync(join(tmpdir(), "gtd-events-flags-"))
+      gitInDir("init", "-q")
+      gitInDir("config", "user.name", "Test")
+      gitInDir("config", "user.email", "test@test.com")
+      gitInDir("config", "commit.gpgsign", "false")
+      writeFileSync(join(gitRepoDir, "README.md"), "# test\n")
+      gitInDir("add", "-A")
+      gitInDir("commit", "-q", "-m", "chore: init")
+      // Branch off main so that commitMessages(main..HEAD) returns the test commits.
+      // The production code resolves "main" as defaultBranch; mergeBase("main","HEAD")
+      // returns the main tip, and commitMessages(mainTip..HEAD) gives us what we want.
+      gitInDir("checkout", "-q", "-b", "feature")
+      process.chdir(gitRepoDir)
+    })
+
+    afterEach(() => {
+      process.chdir(savedCwd)
+      rmSync(gitRepoDir, { recursive: true, force: true })
+    })
+
+    it("N agentic review commits (subject) → N COMMIT events with isAgenticReview=true", async () => {
+      commit("review(gtd): agentic review", "a.ts")
+      commit("review(gtd): agentic review", "b.ts")
+      commit("review(gtd): agentic review", "c.ts")
+      const events = await runGatherEvents()
+      const agenticReviewCommits = events.filter(
+        (e) => e.type === "COMMIT" && e.isAgenticReview,
+      )
+      expect(agenticReviewCommits).toHaveLength(3)
+    })
+
+    it("agentic review detected via Gtd-Agentic-Review trailer (body-only)", async () => {
+      commitWithBody("feat: some change", "Gtd-Agentic-Review: 1", "d.ts")
+      const events = await runGatherEvents()
+      const agenticReviewCommits = events.filter(
+        (e) => e.type === "COMMIT" && e.isAgenticReview,
+      )
+      expect(agenticReviewCommits).toHaveLength(1)
+    })
+
+    it("review(gtd): agentic approved → isAgenticApproved=true", async () => {
+      commit("review(gtd): agentic approved", "e.ts")
+      const events = await runGatherEvents()
+      const approvedCommits = events.filter(
+        (e) => e.type === "COMMIT" && e.isAgenticApproved,
+      )
+      expect(approvedCommits).toHaveLength(1)
+      // Should not also be isAgenticReview
+      const c = approvedCommits[0]!
+      if (c.type === "COMMIT") {
+        expect(c.isAgenticReview).toBe(false)
+      }
+    })
+
+    it("isWorkflowCommit true for plan|review|chore(gtd): subjects", async () => {
+      commit("plan(gtd): grilling", "f.ts")
+      commit("review(gtd): create review for abc1234", "g.ts")
+      commit("chore(gtd): close approved review for xyz", "h.ts")
+      commit("feat: real work", "i.ts")
+      const events = await runGatherEvents()
+      const commitEvents = events.filter((e) => e.type === "COMMIT")
+      // The init commit is also included; get only the 4 we added
+      // (commitMessages returns from merge-base, which for a repo without
+      // default-branch tracking falls back to whole history)
+      const workflowFlags = commitEvents
+        .filter((e) => e.type === "COMMIT")
+        .map((e) => (e.type === "COMMIT" ? e.isWorkflowCommit : null))
+      // chore: init → false, plan(gtd) → true, review(gtd) → true, chore(gtd) → true, feat → false
+      expect(workflowFlags).toContain(true)
+      expect(workflowFlags).toContain(false)
+      // Specifically feat: should be false
+      const featCommit = commitEvents.find(
+        (e) => e.type === "COMMIT" && !e.isPlanGrill && !e.isWorkflowCommit && !e.isAgenticReview,
+      )
+      expect(featCommit).toBeDefined()
+    })
+
+    it("Gtd-Spec-Review: trailer → isSpecReview=true (BC: existing agentic flags unaffected)", async () => {
+      commitWithBody("fix(gtd): apply spec review fix", "Gtd-Spec-Review: 1", "s.ts")
+      const events = await runGatherEvents()
+      const specReviewCommits = events.filter(
+        (e) => e.type === "COMMIT" && (e as any).isSpecReview === true,
+      )
+      expect(specReviewCommits).toHaveLength(1)
+      // BC: other agentic flags unaffected
+      const c = specReviewCommits[0]!
+      if (c.type === "COMMIT") {
+        expect(c.isAgenticReview).toBe(false)
+        expect(c.isAgenticApproved).toBe(false)
+      }
+    })
+
+    it("commit without Gtd-Spec-Review: trailer → isSpecReview=false", async () => {
+      commit("feat: something", "z.ts")
+      const events = await runGatherEvents()
+      const commitEvents = events.filter((e) => e.type === "COMMIT")
+      expect(commitEvents.every((e) => (e as any).isSpecReview === false)).toBe(true)
+    })
+  },
+)
+
+describe(
+  "gatherEvents — spec-review: FEEDBACK.md + committed-unreviewed package",
+  { timeout: 30_000 },
+  () => {
+    let gitRepoDir: string
+    let savedCwd: string
+
+    const gitInDir = (...args: string[]) => {
+      execFileSync("git", args, { cwd: gitRepoDir, stdio: "pipe" })
+    }
+
+    const commit = (msg: string, file = "code.ts", content = `// ${msg}\n`) => {
+      writeFileSync(join(gitRepoDir, file), content)
+      gitInDir("add", "-A")
+      gitInDir("commit", "-q", "-m", msg)
+    }
+
+    const commitWithBody = (subject: string, body: string, file = "code.ts", content = `// ${subject}\n`) => {
+      writeFileSync(join(gitRepoDir, file), content)
+      gitInDir("add", "-A")
+      gitInDir("commit", "-q", "-m", `${subject}\n\n${body}`)
+    }
+
+    /**
+     * Simulate the decompose→execute lifecycle to produce a committed-unreviewed
+     * package. After this call:
+     *   - `.gtd/01-work/01-task.md` is COMMITTED (tracked, clean)
+     *   - No `COMMIT_MSG.md` → `hasCommitMsg=false`
+     *   - `impl.ts` is committed (the "execute" commit)
+     *   - `diffRefExcludingGtd("HEAD~1")` returns the impl.ts diff (non-empty)
+     */
+    const setupCommittedUnreviewedPackage = () => {
+      // Decompose phase: create package WITH COMMIT_MSG.md and commit
+      mkdirSync(join(gitRepoDir, ".gtd", "01-work"), { recursive: true })
+      writeFileSync(join(gitRepoDir, ".gtd", "01-work", "01-task.md"), "# Task\n")
+      writeFileSync(join(gitRepoDir, ".gtd", "01-work", "COMMIT_MSG.md"), "feat: implement\n")
+      gitInDir("add", "-A")
+      gitInDir("commit", "-q", "-m", "plan(gtd): decompose TODO.md into 1 work package")
+      // Execute phase: implement the work, remove COMMIT_MSG.md in same commit
+      writeFileSync(join(gitRepoDir, "impl.ts"), "export const impl = 1\n")
+      gitInDir("rm", "--", ".gtd/01-work/COMMIT_MSG.md")
+      gitInDir("add", "-A")
+      gitInDir("commit", "-q", "-m", "feat: implement work")
+      // State: HEAD = "feat: implement work", .gtd/01-work/01-task.md committed,
+      // no COMMIT_MSG.md → committed-unreviewed; git status is clean
+    }
+
+    beforeEach(() => {
+      savedCwd = process.cwd()
+      gitRepoDir = mkdtempSync(join(tmpdir(), "gtd-events-specreview-"))
+      gitInDir("init", "-q")
+      gitInDir("config", "user.name", "Test")
+      gitInDir("config", "user.email", "test@test.com")
+      gitInDir("config", "commit.gpgsign", "false")
+      writeFileSync(join(gitRepoDir, "README.md"), "# test\n")
+      gitInDir("add", "-A")
+      gitInDir("commit", "-q", "-m", "chore: init")
+      // Branch off main so tests don't pollute the main baseline.
+      gitInDir("checkout", "-q", "-b", "feature")
+      process.chdir(gitRepoDir)
+    })
+
+    afterEach(() => {
+      process.chdir(savedCwd)
+      rmSync(gitRepoDir, { recursive: true, force: true })
+    })
+
+    it("empty untracked FEEDBACK.md + committed-unreviewed package → commitIntent=spec-approved, codeDirty=false", async () => {
+      setupCommittedUnreviewedPackage()
+      writeFileSync(join(gitRepoDir, "FEEDBACK.md"), "")
+      const events = await runGatherEvents()
+      const resolve = events.find((e) => e.type === "RESOLVE")!
+      if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+      const p = resolve.payload as any
+      expect(p.commitIntent).toBe("spec-approved")
+      expect(p.codeDirty).toBe(false)
+    })
+
+    it("whitespace-only untracked FEEDBACK.md + committed-unreviewed package → commitIntent=spec-approved", async () => {
+      setupCommittedUnreviewedPackage()
+      writeFileSync(join(gitRepoDir, "FEEDBACK.md"), "   \n\n  ")
+      const events = await runGatherEvents()
+      const resolve = events.find((e) => e.type === "RESOLVE")!
+      if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+      const p = resolve.payload as any
+      expect(p.commitIntent).toBe("spec-approved")
+    })
+
+    it("content-bearing untracked FEEDBACK.md + committed-unreviewed package → specFixPending=true, no spec-approved commitIntent", async () => {
+      setupCommittedUnreviewedPackage()
+      writeFileSync(join(gitRepoDir, "FEEDBACK.md"), "# Feedback\n\nSome real feedback here.\n")
+      const events = await runGatherEvents()
+      const resolve = events.find((e) => e.type === "RESOLVE")!
+      if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+      const p = resolve.payload as any
+      expect(p.specFixPending).toBe(true)
+      expect(p.commitIntent).not.toBe("spec-approved")
+    })
+
+    it("codeDirty + committed-unreviewed package + no FEEDBACK.md → commitIntent=spec-fix, specReviewNumber=1", async () => {
+      setupCommittedUnreviewedPackage()
+      // No trailing Gtd-Spec-Review commits → specReviewNumber=1
+      writeFileSync(join(gitRepoDir, "extra.ts"), "export const x = 1\n")
+      const events = await runGatherEvents()
+      const resolve = events.find((e) => e.type === "RESOLVE")!
+      if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+      const p = resolve.payload as any
+      expect(p.commitIntent).toBe("spec-fix")
+      expect(p.specReviewNumber).toBe(1)
+    })
+
+    it("codeDirty + committed-unreviewed + 2 trailing Gtd-Spec-Review commits → specReviewNumber=3", async () => {
+      // Setup first, then add spec-review fix commits (so they are trailing/newest)
+      setupCommittedUnreviewedPackage()
+      commitWithBody("fix(gtd): apply spec review fix", "Gtd-Spec-Review: 1", "b.ts")
+      commitWithBody("fix(gtd): apply spec review fix", "Gtd-Spec-Review: 2", "c.ts")
+      writeFileSync(join(gitRepoDir, "extra.ts"), "export const x = 1\n")
+      const events = await runGatherEvents()
+      const resolve = events.find((e) => e.type === "RESOLVE")!
+      if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+      const p = resolve.payload as any
+      expect(p.commitIntent).toBe("spec-fix")
+      expect(p.specReviewNumber).toBe(3)
+    })
+
+    it("committed-unreviewed package → specDiff populated from diffRefExcludingGtd", async () => {
+      // k=0 → specDiff = diffRefExcludingGtd("HEAD~1") = impl.ts diff (non-empty)
+      setupCommittedUnreviewedPackage()
+      writeFileSync(join(gitRepoDir, "extra.ts"), "export const x = 1\n")
+      const events = await runGatherEvents()
+      const resolve = events.find((e) => e.type === "RESOLVE")!
+      if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+      const p = resolve.payload as any
+      expect(typeof p.specDiff).toBe("string")
+      expect(p.specDiff.length).toBeGreaterThan(0)
+    })
+
+    it("1 trailing Gtd-Spec-Review + 1 trailing Gtd-Test-Fix → k=2, specReviewNumber=1 (test-fix breaks trailing spec-review chain)", async () => {
+      // Setup first so spec-fix / test-fix commits are trailing (newest)
+      setupCommittedUnreviewedPackage()
+      commitWithBody("fix(gtd): apply spec review fix", "Gtd-Spec-Review: 1", "b.ts")
+      commitWithBody("fix(gtd): apply test fix", "Gtd-Test-Fix: 1", "c.ts")
+      writeFileSync(join(gitRepoDir, "extra.ts"), "export const x = 1\n")
+      const events = await runGatherEvents()
+      const resolve = events.find((e) => e.type === "RESOLVE")!
+      if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+      const p = resolve.payload as any
+      // k=2 (Gtd-Test-Fix: + Gtd-Spec-Review: both counted), specReviewNumber=1
+      // (newest commit is test-fix which breaks the trailing Gtd-Spec-Review chain)
+      expect(p.commitIntent).toBe("spec-fix")
+      expect(p.specReviewNumber).toBe(1)
+      expect(p.specDiff.length).toBeGreaterThan(0)
+    })
+
+    it("FEEDBACK.md without committed-unreviewed package (execute path) → execute intent, no specFixPending", async () => {
+      // Package WITH COMMIT_MSG.md → execute path, not spec-review path
+      mkdirSync(join(gitRepoDir, ".gtd", "01-work"), { recursive: true })
+      writeFileSync(join(gitRepoDir, ".gtd", "01-work", "COMMIT_MSG.md"), "feat: thing\n")
+      writeFileSync(join(gitRepoDir, "FEEDBACK.md"), "# Feedback\n\nSome feedback.\n")
+      writeFileSync(join(gitRepoDir, "src.ts"), "export const x = 1\n")
+      const events = await runGatherEvents()
+      const resolve = events.find((e) => e.type === "RESOLVE")!
+      if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+      const p = resolve.payload as any
+      expect(p.commitIntent).toBe("execute")
+      expect(p.specFixPending).toBeFalsy()
+    })
+
+    it("agenticReviewEnabled and maxAgenticCycles reflect config (BC)", async () => {
+      const events = await runGatherEvents({ agenticReview: false, agenticReviewMaxCycles: 5 })
+      const resolve = events.find((e) => e.type === "RESOLVE")!
+      if (resolve.type !== "RESOLVE") throw new Error("no RESOLVE")
+      const p = resolve.payload
+      expect(p.agenticReviewEnabled).toBe(false)
+      expect(p.maxAgenticCycles).toBe(5)
+    })
+  },
+)

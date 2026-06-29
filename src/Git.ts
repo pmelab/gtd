@@ -43,6 +43,14 @@ export interface GitOperations {
    */
   readonly closeReview: (base: string) => Effect.Effect<void, Error>
   /**
+   * Removes `pkgDir` (rm -rf + git add -A), removes FEEDBACK.md if present,
+   * then commits `chore(gtd): approve spec review for <basename of pkgDir>`.
+   * Idempotent when FEEDBACK.md is absent.
+   */
+  readonly approveSpecReview: (pkgDir: string) => Effect.Effect<void, Error>
+  /** Returns `git diff <ref> HEAD` with all `.gtd/` paths excluded. */
+  readonly diffRefExcludingGtd: (ref: string) => Effect.Effect<string, Error>
+  /**
    * Stages all changes, unstages `restorePaths` (default ["TODO.md","REVIEW.md"])
    * and — when `removeLastPackage` is set — `git rm -r` the lowest-numbered
    * remaining `.gtd/NN-…` package dir, then commits with `message` (default
@@ -68,6 +76,8 @@ export interface CommitMessageInputs {
   readonly todoContent?: string
   /** Current verify attempt number (fix-tests → `Gtd-Test-Fix: <n>` trailer). */
   readonly verifyIteration?: number
+  /** Spec review iteration number (spec-fix → `Gtd-Spec-Review: <n>` trailer). */
+  readonly specReviewNumber?: number
 }
 
 const UNANSWERED_MARKER = "<!-- user answers here -->"
@@ -110,6 +120,10 @@ export const deriveCommitMessage = (
     case "fix-tests": {
       const n = inputs.verifyIteration ?? 1
       return `fix(gtd): apply test fix\n\nGtd-Test-Fix: ${n}`
+    }
+    case "spec-fix": {
+      const n = inputs.specReviewNumber ?? 1
+      return `fix(gtd): apply spec review fix\n\nGtd-Spec-Review: ${n}`
     }
     case "new-todo":
     case "modified-todo":
@@ -334,6 +348,21 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
 
         closeReview: closeReviewImpl,
 
+        approveSpecReview: (pkgDir: string) =>
+          Effect.gen(function* () {
+            const base = pkgDir.split("/").at(-1) ?? pkgDir
+            // Remove pkg dir from disk and stage the deletion
+            yield* exec("rm", "-rf", "--", pkgDir).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void))
+            yield* exec("git", "add", "-A")
+            // Remove FEEDBACK.md if present (tolerate absent/untracked)
+            yield* exec("rm", "-f", "FEEDBACK.md").pipe(Effect.asVoid, Effect.catchAll(() => Effect.void))
+            yield* exec("git", "add", "-A")
+            yield* exec("git", "commit", "-m", `chore(gtd): approve spec review for ${base}`)
+          }),
+
+        diffRefExcludingGtd: (ref: string) =>
+          exec("git", "diff", ref, "HEAD", "--", ".", ":(exclude).gtd"),
+
         removeGtdDir: () => exec("rm", "-rf", ".gtd").pipe(Effect.asVoid),
 
         commitPending: (opts?: CommitPendingOptions) =>
@@ -346,10 +375,9 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             if (opts?.removeLastPackage) {
               const dir = yield* lowestPackageDir(exec)
               if (dir !== undefined) {
-                // Remove from disk; the `git add -A` below stages the deletion
-                // (tracked) or simply records the absence (untracked). Works
-                // uniformly without depending on `git rm`'s tracked-only behavior.
-                yield* exec("rm", "-rf", "--", dir).pipe(
+                // Remove only the COMMIT_MSG.md sentinel; task .md files stay.
+                // The `git add -A` below stages the deletion.
+                yield* exec("rm", "-f", "--", `${dir}/COMMIT_MSG.md`).pipe(
                   Effect.asVoid,
                   Effect.catchAll(() => Effect.void),
                 )

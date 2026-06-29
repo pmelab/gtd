@@ -3,6 +3,7 @@ import { Effect, Option } from "effect"
 import { type GitOperations, GitService } from "./Git.js"
 import { formatString } from "./Format.js"
 import type { GtdEvent, GtdPackageFact, PendingCommitIntent, ResolvePayload } from "./Machine.js"
+import { ConfigService } from "./Config.js"
 
 /**
  * The Effect "edge": all git/filesystem IO lives here. It probes the working
@@ -16,6 +17,7 @@ import type { GtdEvent, GtdPackageFact, PendingCommitIntent, ResolvePayload } fr
 const TODO_FILE = "TODO.md"
 const GTD_DIR = ".gtd"
 const REVIEW_FILE = "REVIEW.md"
+const FEEDBACK_FILE = "FEEDBACK.md"
 const ERRORS_FILE = "ERRORS.md"
 const UNANSWERED_MARKER = "<!-- user answers here -->"
 
@@ -209,6 +211,19 @@ export const computeReviewHasRealFeedback = (opts: {
 }
 
 /**
+ * Count consecutive commits from the END of `msgs` (newest-first) that satisfy
+ * `pred`. Used to compute trailing spec-review / test-fix counts.
+ */
+const countTrailing = (msgs: readonly string[], pred: (m: string) => boolean): number => {
+  let count = 0
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (pred(msgs[i]!)) count++
+    else break
+  }
+  return count
+}
+
+/**
  * Gather ALL git/filesystem facts and produce the typed event stream the pure
  * machine folds: one `COMMIT` per first-parent commit (oldest→newest) followed
  * by a single `RESOLVE` carrying the working-tree snapshot.
@@ -216,11 +231,12 @@ export const computeReviewHasRealFeedback = (opts: {
 export const gatherEvents = (): Effect.Effect<
   ReadonlyArray<GtdEvent>,
   Error,
-  GitService | FileSystem.FileSystem
+  GitService | FileSystem.FileSystem | ConfigService
 > =>
   Effect.gen(function* () {
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
+    const config = yield* ConfigService
 
     // --- COMMIT events -------------------------------------------------------
     // Stream base = merge-base(defaultBranch, HEAD) when both resolve, else
@@ -230,12 +246,24 @@ export const gatherEvents = (): Effect.Effect<
       ? yield* git.mergeBase(defaultBranch.value, "HEAD")
       : Option.none<string>()
 
+    const isGtdWorkflowSubjectMsg = (s: string) =>
+      /^(?:plan|review|chore)\(gtd\):/.test(s)
+
     const messages = yield* git.commitMessages(Option.getOrUndefined(base))
-    const commitEvents: Array<GtdEvent> = messages.map((message) => ({
-      type: "COMMIT",
-      isTestFix: /^Gtd-Test-Fix:/m.test(message),
-      isPlanGrill: /^plan\(gtd\):/.test(message.split("\n")[0] ?? ""),
-    }))
+    const commitEvents: Array<GtdEvent> = messages.map((message) => {
+      const firstLine = message.split("\n")[0] ?? ""
+      return {
+        type: "COMMIT",
+        isTestFix: /^Gtd-Test-Fix:/m.test(message),
+        isPlanGrill: /^plan\(gtd\):/.test(firstLine),
+        isAgenticReview:
+          /^review\(gtd\): agentic review\b/.test(firstLine) ||
+          /^Gtd-Agentic-Review:/m.test(message),
+        isAgenticApproved: firstLine === "review(gtd): agentic approved",
+        isWorkflowCommit: isGtdWorkflowSubjectMsg(firstLine),
+        isSpecReview: /^Gtd-Spec-Review:/m.test(message),
+      } as unknown as GtdEvent
+    })
 
     // --- RESOLVE payload (working-tree snapshot) -----------------------------
     const hasCommits = yield* git.hasCommits()
@@ -245,10 +273,12 @@ export const gatherEvents = (): Effect.Effect<
 
     const todoEntry = entries.find((e) => e.path === TODO_FILE)
     // Verbatim-first: any uncommitted change outside the tool's own control
-    // files (TODO.md, REVIEW.md) is "code" that must be committed before any
-    // gate is evaluated. REVIEW.md checkbox edits are handled by the review
-    // branch, not treated as code.
-    const codeEntries = entries.filter((e) => e.path !== TODO_FILE && e.path !== REVIEW_FILE)
+    // files (TODO.md, REVIEW.md, FEEDBACK.md) is "code" that must be committed
+    // before any gate is evaluated. REVIEW.md checkbox edits are handled by the
+    // review branch; FEEDBACK.md is handled by the agentic-approved path.
+    const codeEntries = entries.filter(
+      (e) => e.path !== TODO_FILE && e.path !== REVIEW_FILE && e.path !== FEEDBACK_FILE,
+    )
     const codeDirty = codeEntries.length > 0
 
     const todoDirty: "new" | "modified" | null = todoEntry
@@ -322,6 +352,22 @@ export const gatherEvents = (): Effect.Effect<
         : "modified"
       : null
 
+    // FEEDBACK.md probing (mirrors REVIEW.md/TODO.md probing).
+    const feedbackExists = yield* fs.exists(FEEDBACK_FILE)
+    let feedbackHasContent = false
+    if (feedbackExists) {
+      const feedbackContent = yield* fs
+        .readFileString(FEEDBACK_FILE)
+        .pipe(Effect.mapError((e) => new Error(String(e))))
+      feedbackHasContent = /\S/.test(feedbackContent)
+    }
+    const feedbackEntry = entries.find((e) => e.path === FEEDBACK_FILE)
+    const feedbackDirty: "new" | "modified" | null = feedbackEntry
+      ? feedbackEntry.status.includes("?") || feedbackEntry.status.includes("A")
+        ? "new"
+        : "modified"
+      : null
+
     // Parse <!-- base: hash --> comment from REVIEW.md unconditionally (when present).
     let reviewBaseHash: string | undefined
     if (reviewContent !== undefined) {
@@ -358,8 +404,35 @@ export const gatherEvents = (): Effect.Effect<
     let commitIntent: PendingCommitIntent | undefined
     let packageCommitMsg: string | undefined
     let packageCount: number | undefined
+    let specFixPending = false
+    let specDiff: string | undefined
+    let specReviewNumber: number | undefined
 
-    if (reviewDirty === "new") {
+    // A "committed-unreviewed package" = packages[0] exists but has no COMMIT_MSG.md.
+    // This is mutually exclusive with the execute path (which requires hasCommitMsg=true).
+    const committedUnreviewedPackage = packages.length > 0 && !packages[0]!.hasCommitMsg
+
+    if (committedUnreviewedPackage) {
+      // Compute specDiff: k = trailing commits with Gtd-Spec-Review: OR Gtd-Test-Fix: trailer
+      const k = countTrailing(
+        messages,
+        (m) => /^Gtd-Spec-Review:/m.test(m) || /^Gtd-Test-Fix:/m.test(m),
+      )
+      specDiff = yield* git.diffRefExcludingGtd(`HEAD~${k + 1}`)
+
+      if (feedbackDirty !== null && feedbackHasContent) {
+        // FEEDBACK.md uncommitted + content-bearing → specFixPending
+        specFixPending = true
+      } else if (feedbackDirty !== null && !feedbackHasContent) {
+        // FEEDBACK.md uncommitted + empty/whitespace → spec-approved
+        commitIntent = "spec-approved" as PendingCommitIntent
+      } else if (codeDirty) {
+        // codeDirty + no FEEDBACK → spec-fix; count trailing Gtd-Spec-Review only
+        const trailingSpecReview = countTrailing(messages, (m) => /^Gtd-Spec-Review:/m.test(m))
+        specReviewNumber = trailingSpecReview + 1
+        commitIntent = "spec-fix" as PendingCommitIntent
+      }
+    } else if (reviewDirty === "new") {
       // human-review: a new REVIEW.md was written by the agent
       commitIntent = "human-review"
     } else if (todoEntry?.status.includes("D") && hasPackages) {
@@ -375,7 +448,7 @@ export const gatherEvents = (): Effect.Effect<
     }
     // codeDirty && no packages => commitIntent left UNSET
 
-    const payload: ResolvePayload = {
+    const payload = {
       errorsPresent,
       reviewModified,
       reviewUnmodified,
@@ -391,6 +464,9 @@ export const gatherEvents = (): Effect.Effect<
       reviewPresent: reviewExists,
       reviewBasePresent,
       reviewDirty,
+      agenticReviewEnabled: config.agenticReview,
+      maxAgenticCycles: config.agenticReviewMaxCycles,
+      specFixPending,
       lastCommitSubject,
       workingTreeClean,
       packages,
@@ -400,8 +476,10 @@ export const gatherEvents = (): Effect.Effect<
       ...(commitIntent !== undefined ? { commitIntent } : {}),
       ...(packageCommitMsg !== undefined ? { packageCommitMsg } : {}),
       ...(packageCount !== undefined ? { packageCount } : {}),
+      ...(specDiff !== undefined ? { specDiff } : {}),
+      ...(specReviewNumber !== undefined ? { specReviewNumber } : {}),
       ...(reviewBaseHash !== undefined ? { reviewBaseHash } : {}),
-    }
+    } as unknown as ResolvePayload
 
     return [...commitEvents, { type: "RESOLVE", payload }] as ReadonlyArray<GtdEvent>
   })

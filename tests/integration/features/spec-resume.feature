@@ -8,6 +8,10 @@ Feature: Resume is from committed state with a hard reset of the working tree
 
   Scenario: A package-execution commit with a dirty tree resumes by hard-resetting to it
     Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      agenticReview: false
+      """
     And a default branch "feature"
     And a prior review commit for "prev1234"
     And a commit "chore: add package.json" that adds "package.json" with:
