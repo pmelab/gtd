@@ -1,74 +1,53 @@
-## Task: Decompose `TODO.md` into work packages
+## Task: Decompose the plan into work packages
 
-The plan in `TODO.md` is finalized (no open questions). It needs to be
-decomposed into executable work packages.
+The plan in `TODO.md` is settled (no open questions). Decompose it into an
+ordered set of executable work packages under `.gtd/`. If `.gtd/` already holds
+packages from an earlier turn, continue and refine them rather than starting
+over.
 
 ### Orchestration
 
-You are running with a work model. Spawn a **planning-model subagent** using
-model `{{MODEL}}` to perform the decomposition.
-
-The subagent should create numbered directories in `.gtd/`, each representing a
-sequential work package:
+Spawn a **planning-model subagent** using model `{{MODEL}}` to perform the
+decomposition. It creates numbered package directories, each holding numbered
+task files:
 
 ```
 .gtd/
   01-<package-name>/
     01-<task-name>.md
     02-<task-name>.md
-    COMMIT_MSG.md
   02-<package-name>/
     ...
 ```
 
 **Rules for the subagent:**
 
-1. **Packages are sequential, in dependency order** — Name directories with an
-   ordinal prefix (`01-`, `02-`, …); they execute in that ordinal, dependency
-   order and the set is frozen once written (no re-decomposition later). Package
-   02 cannot start until 01 is complete, so order them so each package depends
-   only on lower-numbered ones.
+1. **Packages are sequential, in dependency order** — ordinal-prefixed
+   directories (`01-`, `02-`, …) execute in that order and the set is frozen
+   once written. Order them so each package depends only on lower-numbered ones.
 
-2. **Each package must be green on its own** — The project test suite runs after
-   every package. Each package must leave the tree green on its own; never split
-   a feature so the tree stays red until a later package lands.
+2. **Each package is green on its own** — the test suite runs after every
+   package. Never split a feature so the tree stays red until a later package
+   lands.
 
-3. **Tasks within a package are parallel and file-disjoint** — All tasks in a
-   package run simultaneously, each via one subagent, writing to the same
-   working tree with no isolation. Tasks must be file-disjoint: two tasks that
-   would touch the same file must be **merged** into one task. If task B depends
-   on task A, they must be in separate packages.
+3. **Tasks within a package are parallel and file-disjoint** — all tasks in a
+   package run simultaneously, each via one subagent, against the same working
+   tree with no isolation. Two tasks that would touch the same file must be
+   **merged** into one. If task B depends on task A, put them in separate
+   packages.
 
-4. **Vertical slices, not horizontal** — Each package must be a thin vertical
-   slice that cuts through all integration layers end-to-end:
-   - Each package delivers a narrow but COMPLETE path (not "set up
-     infrastructure")
-   - A completed package is demoable or verifiable on its own
-   - Prefer many thin packages over few thick ones
+4. **Vertical slices, not horizontal** — each package is a thin, end-to-end
+   slice that is demoable or verifiable on its own. Prefer many thin packages
+   over few thick ones; never a "set up infrastructure" package.
 
-5. **Task files are self-contained** — Each task `.md` file must include:
-   - Clear description of what to build
-   - Acceptance criteria as checkboxes: `- [ ] Criterion`
-   - Relevant file paths to examine
-   - Any constraints or edge cases
-
-6. **COMMIT_MSG.md** — Each package directory must contain a `COMMIT_MSG.md`
-   with the conventional commit message to use when the package completes:
-
-   ```
-   <type>(<scope>): <subject>
-
-   <body>
-   ```
+5. **Task files are self-contained** — each task `.md` includes a clear
+   description of what to build, acceptance criteria as `- [ ] Criterion`
+   checkboxes, the relevant file paths to examine, and any constraints or edge
+   cases.
 
 ### After the subagent completes
 
-1. Delete `TODO.md` (it's now captured in the work packages).
-2. Leave all changes **uncommitted**.
-
-Re-run gtd — the next cycle commits `.gtd/` (and the `TODO.md` deletion) with
-the message `plan(gtd): decompose TODO.md into N work packages` (N derived by
-the edge from the package count), preserving the user's plan and its full Q&A
-history in git history.
-
-The plan is now executable.
+Leave `TODO.md` in place — it is the plan of record while the packages are
+built. Leave every change **uncommitted**; the next gtd cycle commits `.gtd/` as
+`gtd: planning`, preserving the plan and its full Q&A history in git. The plan
+is now executable.

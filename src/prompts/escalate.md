@@ -1,36 +1,19 @@
-## Task: Escalate to the human — the test gate is stuck
+## Task: Escalate — the test gate is stuck
 
-The test gate cannot make progress. Either the consecutive `fix(gtd):` attempts
-reached the cap, the same failure signature kept recurring with **no progress**,
-or a committed `ERRORS.md` from a previous escalation is still present.
-Automatic fixing has stopped to avoid burning further effort on a problem it
-cannot solve.
+A committed `ERRORS.md` is present: the automatic fix loop hit the fix-attempt
+cap without getting the tests green. Automatic fixing has stopped so it does not
+burn further effort on a problem it cannot solve.
 
-### Steps
+### What to do
 
-1. **Re-run the test suite** so the human sees the current failure. Determine
-   the test command from project configuration (AGENTS.md, `package.json`
-   scripts, Makefile, etc.).
+1. **Surface the failure** — read `ERRORS.md` and show the user the captured
+   failing output verbatim (assertions, stack traces), not a summary.
+2. **Report** that the fix attempts were exhausted and the root cause needs
+   human judgement.
+3. **Tell the user how to resume** — investigate and fix the root cause (or
+   nudge the code), then **delete `ERRORS.md`**. Removing `ERRORS.md` resets the
+   fix-attempt budget: the next gtd run re-tests and grants a fresh round of
+   automatic fixes before escalating again. While `ERRORS.md` exists, every run
+   resolves straight back to this gate.
 
-2. **Record the attempt log in `ERRORS.md`** — if `ERRORS.md` is not already
-   committed, write the failing signature and everything tried so far into it
-   and commit it, so this remains a visible human gate until the human acts.
-
-3. **Surface the latest failure output** verbatim — paste the relevant failing
-   assertions / stack traces so the human has the concrete signal, not a
-   summary.
-
-4. **Report clearly** that the attempts failed to get the tests green and that
-   the root cause needs human judgement.
-
-5. **Tell the human how to resume.** They can either:
-   - Fix the root cause and commit it with **any non-`fix(gtd):` prefix** (e.g.
-     `fix(scope):`, `refactor:`, `chore:`). A non-`fix(gtd):` commit resets the
-     iteration counter to 0 and re-enters the test gate fresh, **or**
-   - Amend or squash the `fix(gtd):` chain into a single corrected commit so the
-     run of consecutive `fix(gtd):` commits no longer trips the cap.
-
-   In all cases, **delete `ERRORS.md`** once the root cause is addressed — while
-   it is committed, every run resolves straight back to this escalation gate.
-
-After reporting, **STOP**. Do **not** re-run gtd — the human must act first.
+After reporting, **STOP**. Do not re-run gtd — the user must act first.

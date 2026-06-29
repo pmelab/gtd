@@ -1,125 +1,89 @@
-import { FileSystem } from "@effect/platform"
 import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { ConfigService } from "./Config.js"
-import { GitService, deriveCommitMessage } from "./Git.js"
-import { gatherEvents } from "./Events.js"
-import { startDetect } from "./State.js"
-import type { ResolveResult } from "./State.js"
-import { TestRunner } from "./TestRunner.js"
-import { buildPrompt } from "./Prompt.js"
-import type { PromptOverride } from "./Prompt.js"
+import { perform } from "./Events.js"
 import * as Format from "./Format.js"
+import { GitService } from "./Git.js"
+import { buildPrompt } from "./Prompt.js"
+import { detect, isEdgeOnly } from "./State.js"
+import { TestRunner } from "./TestRunner.js"
 
-/** Build the PromptOverride from the settled ResolveResult context. */
-const overrideFromContext = (r: ResolveResult): PromptOverride | undefined => {
-  if (r.value === "fix-tests") {
-    return { kind: "fix-tests", testOutput: r.context.testOutput ?? "" }
-  }
-  if (r.value === "review-process" && r.context.reviewDiff !== undefined) {
-    return {
-      kind: "review-process",
-      reviewDiff: r.context.reviewDiff,
-      recordSha: r.context.recordSha ?? "",
-    }
-  }
-  return undefined
-}
+/**
+ * Defensive bound on the auto-advance chain. Each iteration that performs an
+ * edge-only action must make progress (a commit / reset / file write that
+ * changes what `gatherEvents` sees), so a correct machine reaches a
+ * prompt-bearing or STOP state in a handful of hops (longest legitimate chain is
+ * ~3: e.g. Transport → Testing → Close package → Building). Exceeding this is a
+ * machine/edge bug — fail loudly rather than spin forever.
+ */
+const MAX_EDGE_HOPS = 100
 
+/**
+ * The gtd driver.
+ *
+ * Default command (no subcommand): loop over the pure resolver. Each turn
+ * `detect()` gathers the repo facts and folds them through `resolve()`; if the
+ * decision carries an `edgeAction`, `perform` it (commit / reset / run tests /
+ * write steering files). When the resolved state is edge-only it auto-advances —
+ * re-gather + re-resolve, continuing the deterministic chain WITHIN this one
+ * invocation. The loop stops at the first prompt-bearing / human / terminal
+ * state (these may still have performed an `edgeAction`, e.g. Fixing commits its
+ * pending tree first) and writes that state's single prompt to stdout. The agent
+ * reads the prompt, does its turn, and re-runs `gtd`.
+ *
+ * `format <file>` is the only non-default subcommand (no `gtd transport`
+ * command — a `gtd: transport` HEAD is hand-committed by the user and only
+ * consumed by the Transport state). Any other subcommand is rejected.
+ */
 const program = Effect.gen(function* () {
   const sub = process.argv[2]
+
   if (sub === "format") {
     const path = process.argv[3]
-    if (!path) {
+    if (path === undefined || path.length === 0) {
       process.stderr.write("gtd format: missing file path argument\n")
       return
     }
     yield* Format.formatFile(path)
     return
   }
+
   // No escape hatches: gtd takes no command other than `format`. Anything else
-  // (e.g. `abort`, `cancel`) is rejected rather than silently ignored.
+  // (e.g. `transport`, `abort`) is rejected rather than silently ignored.
   if (sub !== undefined) {
-    yield* Effect.fail(new Error(`unknown command '${sub}'`))
+    return yield* Effect.fail(new Error(`unknown command '${sub}'`))
   }
+
   const config = yield* ConfigService
-  const git = yield* GitService
-  const runner = yield* TestRunner
-  const handle = yield* startDetect()
 
-  // Driver loop: ask the machine for an EdgeAction, execute it, re-feed events,
-  // repeat until the machine settles with no action — then emit the single prompt.
-  // Effect.suspend breaks the recursive type cycle; explicit R annotation fixes inference.
-  const loop = (): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | ConfigService> =>
-    Effect.suspend(() =>
-      Effect.gen(function* () {
-        const r = handle.current
-        const action = r.edgeAction
-        switch (action?.kind) {
-          case "removeGtdDir":
-            yield* git.removeGtdDir()
-            handle.advance(yield* gatherEvents())
-            yield* loop()
-            break
-          case "closeReview": {
-            const base = action.base
-            if (!base) yield* Effect.fail(new Error("closeReview: missing base ref"))
-            yield* git.closeReview(base)
-            handle.advance(yield* gatherEvents())
-            yield* loop()
-            break
-          }
-          case "commitPending": {
-            const message = action.intent
-              ? deriveCommitMessage(action.intent, {
-                  ...(action.packageCommitMsg !== undefined ? { packageCommitMsg: action.packageCommitMsg } : {}),
-                  ...(action.packageCount !== undefined ? { packageCount: action.packageCount } : {}),
-                  ...(action.base !== undefined ? { base: action.base } : {}),
-                  ...(action.specReviewNumber !== undefined
-                    ? { specReviewNumber: action.specReviewNumber }
-                    : {}),
-                  verifyIteration: r.context.verifyIterations,
-                })
-              : action.message
-            yield* git.commitPending({
-              ...(message !== undefined ? { message } : {}),
-              ...(action.removeLastPackage ? { removeLastPackage: true } : {}),
-              ...(action.restorePaths !== undefined ? { restorePaths: action.restorePaths } : {}),
-            })
-            handle.advance(yield* gatherEvents())
-            yield* loop()
-            break
-          }
-          case "runTestGate": {
-            const t = yield* runner.run()
-            handle.advance([{ type: "TEST_RESULT", exitCode: t.exitCode, output: t.output }])
-            yield* loop()
-            break
-          }
-          case "approveSpecReview": {
-            yield* git.approveSpecReview(action.pkg)
-            handle.advance(yield* gatherEvents())
-            yield* loop()
-            break
-          }
-          case "reviewPreRender": {
-            const base = action.base
-            if (!base) yield* Effect.fail(new Error("reviewPreRender: missing base ref"))
-            const rec = yield* git.recordAndRevertReview(base)
-            handle.advance([{ type: "REVIEW_RECORDED", diff: rec.diff, recordSha: rec.recordSha }])
-            yield* loop()
-            break
-          }
-          default: {
-            // No edgeAction: machine has settled (or escalated). Emit the single prompt.
-            const prompt = buildPrompt(r, overrideFromContext(r), config.resolveModel)
-            process.stdout.write(prompt)
-          }
-        }
-      }),
-    )
+  // Driver loop: gather → resolve → (perform edgeAction) → auto-advance past
+  // edge-only states, else emit the prompt and stop.
+  let hops = 0
+  while (true) {
+    hops += 1
+    if (hops > MAX_EDGE_HOPS) {
+      return yield* Effect.fail(
+        new Error(`edge loop exceeded ${MAX_EDGE_HOPS} hops without reaching a prompt state`),
+      )
+    }
 
-  yield* loop()
+    const result = yield* detect()
+
+    if (result.edgeAction !== undefined) {
+      yield* perform(result.edgeAction)
+    }
+
+    // Edge-only states render no prompt — re-gather and re-resolve to continue
+    // the deterministic auto-advance chain.
+    if (isEdgeOnly(result.state)) {
+      continue
+    }
+
+    // Prompt-bearing / human / terminal state: emit the single prompt for the
+    // result that decided this state (rendered from its pre-perform context).
+    process.stdout.write(buildPrompt(result, config.resolveModel))
+    return
+  }
 })
 
 program.pipe(

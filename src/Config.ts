@@ -5,21 +5,13 @@ import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
 
 /**
- * Planning/execution states a model can be resolved for.
- * `spec-review` and `spec-fix` drive the per-package spec-review gate;
- * `agenticReview` / `agenticReviewMaxCycles` act as the kill-switch and
- * per-package cycle cap for that gate.
- *
- * New machine states (`grilling`, `building`, `fixing`, `agentic-review`,
- * `clean`) are additive — old keys kept for backward compatibility until cutover.
+ * Planning/execution states a model can be resolved for — the machine's
+ * agent-bearing states. The two decompose states (`grilled`, `planning`) share
+ * the `decompose` tier; the rest map per `stateTier`. `agenticReview` is the
+ * kill-switch for the agentic-review gate.
  */
 export type ModelState =
-  | "new-todo"
-  | "modified-todo"
   | "decompose"
-  | "execute"
-  | "spec-review"
-  | "spec-fix"
   | "grilling"
   | "building"
   | "fixing"
@@ -34,13 +26,7 @@ export type ModelTier = "planning" | "execution"
  * remains the single source of truth for the full resolution algorithm.
  */
 export const stateTier: Record<ModelState, ModelTier> = {
-  "new-todo": "planning",
-  "modified-todo": "planning",
   decompose: "planning",
-  execute: "execution",
-  "spec-review": "planning",
-  "spec-fix": "execution",
-  // New machine states (additive)
   grilling: "planning",
   building: "execution",
   fixing: "execution",
@@ -56,7 +42,6 @@ export const builtinTierDefault: Record<ModelTier, string> = {
 
 const DEFAULT_TEST_COMMAND = "npm run test"
 const DEFAULT_AGENTIC_REVIEW = true
-const DEFAULT_AGENTIC_REVIEW_MAX_CYCLES = 3
 const DEFAULT_FIX_ATTEMPT_CAP = 3
 const DEFAULT_REVIEW_THRESHOLD = 3
 
@@ -64,14 +49,7 @@ const DEFAULT_REVIEW_THRESHOLD = 3
 // Using a plain Struct (not Record) means unknown keys are rejected during
 // decode rather than silently stripped.
 const ModelStatesSchema = Schema.Struct({
-  // Legacy keys (old pipeline — kept until cutover)
-  "new-todo": Schema.optional(Schema.String),
-  "modified-todo": Schema.optional(Schema.String),
   decompose: Schema.optional(Schema.String),
-  execute: Schema.optional(Schema.String),
-  "spec-review": Schema.optional(Schema.String),
-  "spec-fix": Schema.optional(Schema.String),
-  // New machine state keys (additive)
   grilling: Schema.optional(Schema.String),
   building: Schema.optional(Schema.String),
   fixing: Schema.optional(Schema.String),
@@ -89,7 +67,6 @@ const ConfigSchema = Schema.Struct({
   testCommand: Schema.optional(Schema.String),
   models: Schema.optional(ModelsSchema),
   agenticReview: Schema.optional(Schema.Boolean),
-  agenticReviewMaxCycles: Schema.optional(Schema.Number),
   fixAttemptCap: Schema.optional(Schema.Number),
   reviewThreshold: Schema.optional(Schema.Number),
 })
@@ -100,7 +77,6 @@ export interface ConfigOperations {
   readonly testCommand: string
   readonly resolveModel: (state: ModelState) => string
   readonly agenticReview: boolean
-  readonly agenticReviewMaxCycles: number
   readonly fixAttemptCap: number
   readonly reviewThreshold: number
 }
@@ -214,7 +190,6 @@ const toOperations = (decoded: DecodedConfig): ConfigOperations => {
     testCommand: decoded.testCommand ?? DEFAULT_TEST_COMMAND,
     resolveModel,
     agenticReview: decoded.agenticReview ?? DEFAULT_AGENTIC_REVIEW,
-    agenticReviewMaxCycles: decoded.agenticReviewMaxCycles ?? DEFAULT_AGENTIC_REVIEW_MAX_CYCLES,
     fixAttemptCap: decoded.fixAttemptCap ?? DEFAULT_FIX_ATTEMPT_CAP,
     reviewThreshold: decoded.reviewThreshold ?? DEFAULT_REVIEW_THRESHOLD,
   }

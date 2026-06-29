@@ -53,7 +53,6 @@
     "@effect/platform-node": "^0.104.1",
     "cosmiconfig": "^9.0.2",
     "effect": "^3.19.15",
-    "prettier": "^3.8.1",
-    "xstate": "^5.32.1"
+    "prettier": "^3.8.1"
   }
 }

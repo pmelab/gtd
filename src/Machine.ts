@@ -1,688 +1,507 @@
-import { assign, createActor, setup } from "xstate"
-
 /**
- * Pure, event-sourced state machine used as a FOLD over a stream of git facts.
+ * Pure, event-sourced resolver for the gtd state machine.
  *
- * This module is intentionally free of any IO: no git, no filesystem, no
- * Effect. Edge code parses the working tree / commit history into the events
- * below, and `resolve` folds them into a single terminal leaf state plus the
- * context the prompt layer needs. Keeping it pure makes the decision tree
- * trivially unit-testable in isolation.
+ * This module is the **canonical public contract** for the runtime: edge code
+ * (`Events.ts`) parses the working tree + first-parent commit history into the
+ * events below, then `resolve(events)` folds them into a single resolved state,
+ * the counters the prompts need, and an optional `EdgeAction` the driver must
+ * perform before re-gathering and re-resolving.
+ *
+ * It is intentionally free of IO: no git, no filesystem, no Effect, no xstate.
+ * The decision logic is STATES.md § Precedence implemented as a first-match-wins
+ * ladder, plus the two counter folds (`testFixCount` / `reviewFixCount`) over
+ * the `COMMIT[]` stream. Keeping it pure makes the whole decision tree trivially
+ * unit-testable in isolation.
+ *
+ * State is folded from **first-parent** history only (single writer, linear
+ * branch). A merge commit at HEAD is unsupported — it breaks the counter folds,
+ * the review base, and last-commit detection; this is documented, not handled.
  */
 
-/** Hardcoded cap on consecutive `fix(gtd):` verify iterations before escalating. */
-export const MAX_VERIFY_ITERATIONS = 3
+/** The 16 resolved states (STATES.md § States). `Result.state` is one of these. */
+export type GtdState =
+  | "transport"
+  | "new-feature"
+  | "grilling"
+  | "grilled"
+  | "planning"
+  | "building"
+  | "testing"
+  | "fixing"
+  | "escalate"
+  | "agentic-review"
+  | "close-package"
+  | "clean"
+  | "await-review"
+  | "accept-review"
+  | "done"
+  | "idle"
 
 /**
- * Hardcoded cap on consecutive no-agent action hops (cleanup / close-review /
- * code-changes loop-backs) before escalating. Orthogonal to
- * `MAX_VERIFY_ITERATIONS` — a separate counter that never mixes with the verify
- * loop.
+ * One first-parent commit, reduced to the flags the folds consume. The edge
+ * derives every flag from the commit subject (and, for `removedErrors`, the
+ * commit's name-status diff):
+ *   - `isErrors`        — subject is `gtd: errors`
+ *   - `isFeedback`      — subject is `gtd: feedback`
+ *   - `isPackageStart`  — subject is `gtd: planning` OR `gtd: package done`
+ *   - `isWorkflowCommit`— subject starts `gtd: ` (any phase commit)
+ *   - `removedErrors`   — that commit's diff deleted `ERRORS.md`
  */
-export const MAX_NO_AGENT_HOPS = 8
+export interface CommitEvent {
+  readonly type: "COMMIT"
+  readonly isErrors: boolean
+  readonly isFeedback: boolean
+  readonly isPackageStart: boolean
+  readonly isWorkflowCommit: boolean
+  readonly removedErrors: boolean
+}
+
+/** The terminal working-tree snapshot the ladder branches on. */
+export interface ResolveEvent {
+  readonly type: "RESOLVE"
+  readonly payload: ResolvePayload
+}
 
 /**
- * The seven agent-output kinds an intent marker may carry. Each maps to a
- * `commitPending` action; the machine selects the action + cleanup flags, the
- * edge fills any content-derived message.
+ * The event stream `resolve` folds. A typical stream is the first-parent commit
+ * history (`COMMIT[]`, oldest→newest) followed by a single terminal `RESOLVE`
+ * carrying the current working-tree snapshot. The edge never re-enters the
+ * machine with a test result or review record — those are handled at the edge.
  */
-export type PendingCommitIntent =
-  | "execute"
-  | "decompose"
-  | "new-todo"
-  | "modified-todo"
-  | "human-review"
-  | "fix-tests"
-  | "spec-fix"
-  | "spec-approved"
+export type GtdEvent = CommitEvent | ResolveEvent
 
+/** A `.gtd/` work package, reduced to what the prompts list. */
 export interface GtdPackageFact {
   readonly name: string
-  /** Task .md filenames, sorted (UNCHANGED — still drives the Context listing). */
-  readonly tasks: ReadonlyArray<string>
-  /** Full contents of each task .md file, parallel-sorted to `tasks`. */
-  readonly taskContents: ReadonlyArray<{ readonly name: string; readonly content: string }>
-  /** Whether the package dir contains a COMMIT_MSG.md. */
-  readonly hasCommitMsg: boolean
+  /** Task `.md` filenames, sorted. */
+  readonly tasks: readonly string[]
+  /** Full contents of each task `.md`, parallel-sorted to `tasks`. */
+  readonly taskContents: readonly { readonly name: string; readonly content: string }[]
 }
 
 /**
- * Terminal working-tree facts the RESOLVE guards branch on, plus passthrough
- * fields that flow straight onto the resulting leaf context.
+ * The working-tree snapshot carried by a `RESOLVE` event: steering-file presence
+ * and dirtiness, the last commit subject, and prompt passthrough. Presence and
+ * dirtiness only — **no counts** (the counts fold from `COMMIT[]` in the machine).
  */
 export interface ResolvePayload {
-  /** A committed `ERRORS.md` is present — the test loop escalated to the human. */
-  readonly errorsPresent: boolean
-  /** Working-tree REVIEW.md has at least one unchecked `- [ ] ` line. */
-  readonly reviewHasUncheckedBoxes: boolean
-  /** Working-tree delta beyond forward checkbox ticks (non-tick REVIEW.md edits, dirty source, untracked). */
-  readonly reviewHasRealFeedback: boolean
-  /** REVIEW.md exists with user edits. */
-  readonly reviewModified: boolean
-  /** REVIEW.md exists and is committed/unmodified — the review gate. */
-  readonly reviewUnmodified: boolean
-  /** Any uncommitted change outside TODO.md AND REVIEW.md is present. */
-  readonly codeDirty: boolean
-  /** `.gtd/` contains work packages to execute. */
-  readonly hasPackages: boolean
-  /** `.gtd/` exists (possibly empty). */
-  readonly gtdDirExists: boolean
-  /** Uncommitted state of TODO.md, if any. */
-  readonly todoDirty: "new" | "modified" | null
-  /** TODO.md exists at all. */
+  /** `TODO.md` exists (committed or pending). */
   readonly todoExists: boolean
-  /** Plan phase derived from `lastCommitSubject` (`plan(gtd): grilling` / `plan(gtd): ready complete`). */
-  readonly planPhase: "grilling" | "complete" | null
-  /** TODO.md has unanswered questions under `## Open Questions`. */
-  readonly todoOpenQuestionsPresent: boolean
-  /** A review base ref is available to diff against. */
-  readonly reviewBasePresent: boolean
-  /** A REVIEW.md is present (committed and/or dirty) — the review path owns routing. */
+  /** `.gtd/` exists. */
+  readonly gtdDirExists: boolean
+  /** `REVIEW.md` is present (committed and/or pending). */
   readonly reviewPresent: boolean
-  /** Agentic review is enabled via config. */
-  readonly agenticReviewEnabled: boolean
-  /** Maximum number of agentic review cycles before falling back to human review. */
-  readonly maxAgenticCycles: number
-  /** A committed, content-bearing FEEDBACK.md is present — agent should fix based on spec feedback. */
-  readonly specFixPending: boolean
-  /** Uncommitted state of REVIEW.md, if any. */
-  readonly reviewDirty: "new" | "modified" | null
-  readonly commitIntent?: PendingCommitIntent
-  readonly packageCommitMsg?: string
-  readonly packageCount?: number
-  readonly reviewBaseHash?: string
-  readonly specDiff?: string
-  readonly specReviewNumber?: number
-  // passthrough
+  /** `FEEDBACK.md` is present (committed and/or pending). */
+  readonly feedbackPresent: boolean
+  /** A committed `ERRORS.md` is present — the test loop escalated. */
+  readonly errorsPresent: boolean
+  /** `.gtd/` package files were added/edited vs the committed tree. */
+  readonly gtdModified: boolean
+  /** Pending changes outside the steering set (TODO/REVIEW/FEEDBACK/ERRORS/.gtd). */
+  readonly codeDirty: boolean
+  /** The `<!-- user answers here -->` sentinel appears anywhere in `TODO.md` (after code-fence strip). */
+  readonly todoMarkerPresent: boolean
+  /** The present `FEEDBACK.md` is committed (written by Testing as `gtd: errors`). */
+  readonly feedbackCommitted: boolean
+  /** The present `FEEDBACK.md` is whitespace-only (`!/\S/`) — a clean agentic review = approval. */
+  readonly feedbackEmpty: boolean
+  /** Full text of the present `FEEDBACK.md` ("" when absent) — the edge reads it before removal so Fixing can inline it. */
+  readonly feedbackContent: string
+  /** `REVIEW.md` is committed AND the tree is clean (the human ran gtd without edits = approval). */
+  readonly reviewCommitted: boolean
+  /** `REVIEW.md` is committed BUT there are pending edits (to REVIEW or other files). */
+  readonly reviewDirty: boolean
+  /** The working tree deletes a committed `ERRORS.md` (human resume → fresh budget). */
+  readonly pendingErrorsDeletion: boolean
+  /** Subject of HEAD (first-parent). */
   readonly lastCommitSubject: string
+  /** The whole working tree is clean. */
   readonly workingTreeClean: boolean
-  readonly packages: ReadonlyArray<GtdPackageFact>
+  /** `.gtd/` packages, lowest-numbered first; `packages[0]` is the active one. */
+  readonly packages: readonly GtdPackageFact[]
+  /** `git diff HEAD` including untracked — prompt context. */
   readonly diff: string
-  readonly baseRef?: string
+  /** The base commit for a Clean review, if one is available. */
+  readonly reviewBase?: string
+  /** `git diff <reviewBase> HEAD` — non-empty distinguishes Clean from Idle. */
   readonly refDiff?: string
+  /** Agentic review enabled (config kill-switch; false → Agentic Review force-approves). */
+  readonly agenticReviewEnabled: boolean
+  /** Fix-attempt cap (config, default 3). `capReached` = `testFixCount >= fixAttemptCap`. */
+  readonly fixAttemptCap: number
+  /** Review-fix threshold (config, default 3). `reviewFixCount >= reviewThreshold` → force-approve. */
+  readonly reviewThreshold: number
 }
 
-export type GtdEvent =
-  | {
-      type: "COMMIT"
-      isTestFix: boolean
-      isPlanGrill: boolean
-      isSpecReview: boolean
-      isWorkflowCommit: boolean
-    }
-  | { type: "RESOLVE"; payload: ResolvePayload }
-  | { type: "TEST_RESULT"; exitCode: number; output: string }
-  | { type: "REVIEW_RECORDED"; diff: string; recordSha: string }
-
+/**
+ * A side effect the driver performs, then re-gathers + re-resolves until a
+ * prompt-bearing or STOP state. The machine only decides which action; the
+ * semantics live in the Events/driver tasks.
+ *   - `transportReset`   — mixed-reset the `gtd: transport` HEAD, re-derive.
+ *   - `seedNewFeature`   — capture raw input `gtd: new task`, revert it, seed TODO.md.
+ *   - `seedAcceptReview` — seed TODO.md from the review changeset, checkout, rm REVIEW.md.
+ *   - `runTest`          — commit pending `gtd: building`, run tests; on red write
+ *                          FEEDBACK (below cap) or ERRORS (`capReached`), commit `gtd: errors`.
+ *                          A green re-test of a no-op fixer (clean tree, HEAD
+ *                          `gtd: fixing`) commits an empty `gtd: building` to advance HEAD.
+ *   - `commitPending`    — commit the pending tree with a fixed `prefix`
+ *                          (grilling / grilled / planning / fixing). `removeFeedback`
+ *                          deletes FEEDBACK.md first so Fixing lands its removal in the
+ *                          `gtd: fixing` / `gtd: feedback` commit (else Fixing re-fires forever).
+ *   - `closePackage`     — rm the (maybe-empty / maybe-absent) FEEDBACK.md, rm the
+ *                          first package dir (+ empty `.gtd/`), commit `gtd: package done`.
+ *   - `commitReview`     — commit REVIEW.md `gtd: awaiting review`.
+ *   - `done`             — rm REVIEW.md, commit `gtd: done`.
+ */
 export type EdgeAction =
-  | { kind: "removeGtdDir" }
-  | { kind: "closeReview"; base: string }
-  | { kind: "approveSpecReview"; pkg: string }
-  /**
-   * Commit the agent's (or generic) pending changes. The bare Part A form (all
-   * optional fields absent) = the generic `code-changes` commit: default message
-   * `chore(gtd): commit pending changes`, restorePaths `["TODO.md","REVIEW.md"]`.
-   * The disambiguated form carries:
-   *   - `message` — a FIXED subject the machine knows; ABSENT for content-derived
-   *     intents (execute=COMMIT_MSG.md, decompose=count N, human-review=base
-   *     short-sha, new-todo/modified-todo=grilling or ready-complete from
-   *     TODO.md) which the EDGE computes.
-   *   - `removeLastPackage` — also `git rm -r` the lowest-numbered remaining
-   *     `.gtd/NN-…` package dir in the SAME commit (set by the `execute` intent).
-   *   - `restorePaths` — paths to keep uncommitted (default ["TODO.md","REVIEW.md"]).
-   */
-  | {
-      kind: "commitPending"
-      message?: string
-      removeLastPackage?: boolean
-      restorePaths?: ReadonlyArray<string>
-      intent?: PendingCommitIntent
-      packageCommitMsg?: string
-      packageCount?: number
-      specReviewNumber?: number
-      base?: string
-    }
-  | { kind: "runTestGate" }
-  | { kind: "reviewPreRender"; base: string }
+  | { readonly kind: "transportReset" }
+  | { readonly kind: "seedNewFeature" }
+  | { readonly kind: "seedAcceptReview" }
+  | { readonly kind: "runTest"; readonly errorCount: number; readonly capReached: boolean }
+  | { readonly kind: "commitPending"; readonly prefix: string; readonly removeFeedback?: boolean }
+  | { readonly kind: "closePackage" }
+  | { readonly kind: "commitReview" }
+  | { readonly kind: "done" }
 
-export interface GtdContext {
-  verifyIterations: number
-  maxVerifyIterations: number
-  /** True once any COMMIT with `isPlanGrill:true` has been seen; sticky OR. */
-  planEverGrilled: boolean
-  /** Consecutive no-agent action hops; independent of `verifyIterations`. */
-  noAgentHops: number
-  /** The no-agent leaf settled on the previous hop, for the `stuck` guard. */
-  lastAdvancedLeaf: LeafState | null
-  lastCommitSubject: string
-  workingTreeClean: boolean
-  packages: ReadonlyArray<GtdPackageFact>
-  diff: string
-  baseRef?: string
-  refDiff?: string
-  commitIntent?: PendingCommitIntent
-  packageCommitMsg?: string
-  packageCount?: number
-  reviewBaseHash?: string
-  specReviewNumber?: number
-  specDiff?: string
-  /** Captured red-test output for the `fix-tests` render. */
-  testOutput?: string
-  /** REVIEW_RECORDED synthesis diff for the review-process render. */
-  reviewDiff?: string
-  /** REVIEW_RECORDED recovery sha for the review-process render. */
-  recordSha?: string
-  /** The action a settled action-leaf wants the edge to perform; else cleared. */
-  edgeAction?: EdgeAction
-  /** Consecutive `Gtd-Spec-Review:` markers seen since last non-spec-review/non-test-fix commit. */
-  specReviewIterations: number
-  /** Agentic review enabled (from config, applied via ResolvePayload). */
-  agenticReviewEnabled: boolean
-  /** Max agentic cycles before falling back (from config, applied via ResolvePayload). */
-  maxAgenticCycles: number
+/** The folded prompt context carried on every `Result`. */
+export interface ResolveContext {
+  /** `gtd: errors` commits since the most recent of {package-start, `gtd: feedback`, ERRORS.md removal}. */
+  readonly testFixCount: number
+  /** `gtd: feedback` commits since the most recent package-start. */
+  readonly reviewFixCount: number
+  /** `.gtd/` packages (passthrough); `packages[0]` is active. */
+  readonly packages: readonly GtdPackageFact[]
+  /** `git diff HEAD` including untracked (passthrough). */
+  readonly diff: string
+  /** `git diff <reviewBase> HEAD` (passthrough), when present. */
+  readonly refDiff?: string
+  /** Review base commit (passthrough), when present. */
+  readonly reviewBase?: string
+  /** HEAD subject (passthrough). */
+  readonly lastCommitSubject: string
+  /** Whole-tree cleanliness (passthrough). */
+  readonly workingTreeClean: boolean
+  /** Full `FEEDBACK.md` text (passthrough); "" when absent. Inlined into the Fixing prompt. */
+  readonly feedbackContent: string
+  /** Set only for `state:"grilling"`: the STOP-for-answers vs agent-iterate sub-case. */
+  readonly grillingCase?: "stop" | "iterate"
 }
 
-/** Terminal leaf-state ids. These are the only non-`replaying` states. */
-export type LeafState =
-  | "close-review"
-  | "review-process"
-  | "review-incomplete"
-  | "await-review"
-  | "code-changes"
-  | "execute"
-  | "cleanup"
-  | "decompose"
-  | "escalate"
-  | "new-todo"
-  | "modified-todo"
-  | "await-answers"
-  | "human-review"
-  | "verified"
-  | "fix-tests"
-  | "commit-pending"
-  | "spec-review"
-  | "spec-fix"
+/** The resolved decision: the state, whether the agent should re-run, an optional edge action, and context. */
+export interface Result {
+  readonly state: GtdState
+  readonly autoAdvance: boolean
+  readonly edgeAction?: EdgeAction
+  readonly context: ResolveContext
+}
 
-const initialContext: GtdContext = {
-  verifyIterations: 0,
-  maxVerifyIterations: MAX_VERIFY_ITERATIONS,
-  planEverGrilled: false,
-  noAgentHops: 0,
-  lastAdvancedLeaf: null,
+/** The two derived counters folded from the `COMMIT[]` stream. */
+export interface Counters {
+  readonly testFixCount: number
+  readonly reviewFixCount: number
+}
+
+/**
+ * A hard error raised by the resolver. `kind` distinguishes the two documented
+ * throw sites: an `illegal-combination` of steering files, or `corruption`
+ * (no precedence rule matched — the repo is in a state the machine refuses to
+ * guess at).
+ */
+export class GtdStateError extends Error {
+  readonly kind: "illegal-combination" | "corruption"
+  constructor(kind: "illegal-combination" | "corruption", message: string) {
+    super(message)
+    this.name = "GtdStateError"
+    this.kind = kind
+  }
+}
+
+/**
+ * Counter folds over the event stream (oldest→newest), in the machine — the edge
+ * stays thin. Only `COMMIT` events contribute; `RESOLVE` events are ignored here.
+ *
+ * - `testFixCount` resets to 0 on any of {`isPackageStart`, `isFeedback`,
+ *   `removedErrors`} and increments on `isErrors` — so each test-fix sub-loop,
+ *   each review-fix, and a human resume (the `gtd: building` that deleted
+ *   ERRORS.md) each start a fresh budget.
+ * - `reviewFixCount` resets to 0 on `isPackageStart` and increments on
+ *   `isFeedback` — review-fix rounds since the package start.
+ */
+export const foldCounters = (events: readonly GtdEvent[]): Counters => {
+  let testFixCount = 0
+  let reviewFixCount = 0
+  for (const event of events) {
+    if (event.type !== "COMMIT") continue
+    if (event.isPackageStart || event.isFeedback || event.removedErrors) testFixCount = 0
+    if (event.isErrors) testFixCount += 1
+    if (event.isPackageStart) reviewFixCount = 0
+    if (event.isFeedback) reviewFixCount += 1
+  }
+  return { testFixCount, reviewFixCount }
+}
+
+/** A boundary commit: a non-`gtd:` subject, or exactly `gtd: done`. Marks a cold start. */
+const isBoundary = (subject: string): boolean =>
+  !subject.startsWith("gtd: ") || subject === "gtd: done"
+
+const DEFAULT_PAYLOAD: ResolvePayload = {
+  todoExists: false,
+  gtdDirExists: false,
+  reviewPresent: false,
+  feedbackPresent: false,
+  errorsPresent: false,
+  gtdModified: false,
+  codeDirty: false,
+  todoMarkerPresent: false,
+  feedbackCommitted: false,
+  feedbackEmpty: false,
+  feedbackContent: "",
+  reviewCommitted: false,
+  reviewDirty: false,
+  pendingErrorsDeletion: false,
   lastCommitSubject: "",
   workingTreeClean: true,
   packages: [],
   diff: "",
-  specReviewIterations: 0,
-  agenticReviewEnabled: false,
-  maxAgenticCycles: 3,
+  agenticReviewEnabled: true,
+  fixAttemptCap: 3,
+  reviewThreshold: 3,
 }
 
-/**
- * The ordered RESOLVE guard chain, shared by `replaying` and by each no-agent
- * action leaf's loop-back. `actions` are run on every matching branch (e.g.
- * `["applyPayload"]` from `replaying`, `["foldAdvance", "applyPayload"]` on a
- * loop-back so the hop counter bumps). When `stuckLeaf` is set (a loop-back from
- * that action leaf), a `stuck` escalation is injected before the branch that
- * would re-settle on the same leaf — no progress between two consecutive hops.
- */
-const resolveChain = (actions: ReadonlyArray<string>, stuckLeaf?: LeafState) => {
-  const p = ({ event }: { event: GtdEvent }) =>
-    event.type === "RESOLVE" ? event.payload : ({} as ResolvePayload)
-  const chain: Array<unknown> = [
-    { guard: { type: "errorsPresent", params: p }, target: "escalate", actions },
-    ...(stuckLeaf === "commit-pending"
-      ? [{ guard: { type: "stuckCommitPending", params: p }, target: "escalate", actions }]
-      : []),
-    ...(stuckLeaf === "code-changes"
-      ? [{ guard: { type: "stuckCodeChanges", params: p }, target: "escalate", actions }]
-      : []),
-    // intent: execute — BEFORE the codeDirty branch
-    {
-      guard: ({ event }: { event: GtdEvent }) =>
-        event.type === "RESOLVE" && event.payload.commitIntent === "execute",
-      target: "commit-pending",
-      actions,
-    },
-    // intent: spec-fix — BEFORE the codeDirty branch
-    {
-      guard: ({ event }: { event: GtdEvent }) =>
-        event.type === "RESOLVE" && event.payload.commitIntent === "spec-fix",
-      target: "commit-pending",
-      actions,
-    },
-    // specFixPending — BEFORE the codeDirty branch (FEEDBACK.md would be codeDirty)
-    { guard: { type: "specFixPending", params: p }, target: "spec-fix", actions },
-    // intent: spec-approved — BEFORE the codeDirty branch
-    {
-      guard: ({ event }: { event: GtdEvent }) =>
-        event.type === "RESOLVE" && event.payload.commitIntent === "spec-approved",
-      target: "commit-pending",
-      actions,
-    },
-    // isFixTestsLoop — BEFORE the codeDirty branch
-    { guard: { type: "isFixTestsLoop", params: p }, target: "commit-pending", actions },
-    { guard: { type: "codeDirty", params: p }, target: "code-changes", actions },
-    // intent: human-review — BEFORE the review guards (reviewUnmodified/reviewIncomplete etc.)
-    {
-      guard: ({ event }: { event: GtdEvent }) =>
-        event.type === "RESOLVE" && event.payload.commitIntent === "human-review",
-      target: "commit-pending",
-      actions,
-    },
-    { guard: { type: "reviewUnmodified", params: p }, target: "await-review", actions },
-    { guard: { type: "reviewIncomplete", params: p }, target: "review-incomplete", actions },
-    ...(stuckLeaf === "close-review"
-      ? [{ guard: { type: "stuckCloseReview", params: p }, target: "escalate", actions }]
-      : []),
-    { guard: { type: "closeReview", params: p }, target: "close-review", actions },
-    { guard: { type: "reviewModified", params: p }, target: "review-process", actions },
-    // intent: decompose — BEFORE hasPackages/gtdDirExists branches
-    {
-      guard: ({ event }: { event: GtdEvent }) =>
-        event.type === "RESOLVE" && event.payload.commitIntent === "decompose",
-      target: "commit-pending",
-      actions,
-    },
-    { guard: { type: "hasPackages", params: p }, target: "runTestGate", actions },
-    ...(stuckLeaf === "cleanup"
-      ? [{ guard: { type: "stuckCleanup", params: p }, target: "escalate", actions }]
-      : []),
-    { guard: { type: "gtdDirExists", params: p }, target: "cleanup", actions },
-    { guard: { type: "todoComplete", params: p }, target: "decompose", actions },
-    { guard: "capReached", target: "escalate", actions },
-    { guard: { type: "todoAwaitAnswers", params: p }, target: "await-answers", actions },
-    { guard: { type: "todoRegrill", params: p }, target: "modified-todo", actions },
-    { guard: { type: "todoInitial", params: p }, target: "new-todo", actions },
-    { guard: { type: "humanReview", params: p }, target: "human-review", actions },
-    { target: "verified", actions },
-  ]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return chain as any
-}
-
-const machine = setup({
-  types: {
-    context: {} as GtdContext,
-    events: {} as GtdEvent,
-  },
-  guards: {
-    errorsPresent: (_, params: ResolvePayload) => params.errorsPresent,
-    // All boxes checked + no real feedback — safe to close the review.
-    closeReview: (_, params: ResolvePayload) =>
-      params.reviewModified && !params.reviewHasUncheckedBoxes && !params.reviewHasRealFeedback,
-    // REVIEW.md was modified but still has unchecked boxes — human must finish.
-    reviewIncomplete: (_, params: ResolvePayload) =>
-      params.reviewModified && params.reviewHasUncheckedBoxes,
-    reviewModified: (_, params: ResolvePayload) => params.reviewModified,
-    reviewUnmodified: (_, params: ResolvePayload) => params.reviewUnmodified,
-    codeDirty: (_, params: ResolvePayload) => params.codeDirty && !params.reviewPresent,
-    hasPackages: (_, params: ResolvePayload) => params.hasPackages,
-    gtdDirExists: (_, params: ResolvePayload) => params.gtdDirExists,
-    todoComplete: (_, params: ResolvePayload) => params.planPhase === "complete",
-    capReached: ({ context }) => context.verifyIterations >= context.maxVerifyIterations,
-    // Grilled plan, committed, with open questions still pending → human gate.
-    todoAwaitAnswers: (_, params: ResolvePayload) =>
-      params.planPhase === "grilling" &&
-      params.todoDirty === null &&
-      params.todoOpenQuestionsPresent,
-    // Re-grill: user touched a committed plan.
-    todoRegrill: (_, params: ResolvePayload) => params.todoDirty === "modified",
-    // First grill: untracked TODO.md (any history), OR committed+clean with no plan commits yet.
-    // The committed arm additionally requires planPhase===null (so a committed plan(gtd): grilling
-    // commit is never re-triggered as a first grill) and !reviewBasePresent (so the humanReview
-    // gate takes priority when real unreviewed commits exist, regardless of planEverGrilled).
-    todoInitial: ({ context }, params: ResolvePayload) =>
-      params.todoDirty === "new" ||
-      (params.todoExists &&
-        params.todoDirty === null &&
-        !context.planEverGrilled &&
-        params.planPhase === null &&
-        !params.reviewBasePresent),
-    specFixPending: (_, params: ResolvePayload) => params.specFixPending,
-    humanReview: (_, params: ResolvePayload) =>
-      params.reviewBasePresent && (params.refDiff ?? "").trim().length > 0,
-    // No-agent action loop escalation guards (checked on re-entering an action
-    // leaf). Cap is independent of the verify loop.
-    noAgentCapReached: ({ context }) => context.noAgentHops >= MAX_NO_AGENT_HOPS,
-    // `stuck`: the chain would re-settle on the SAME no-agent leaf we just left
-    // (its settle condition still holds), i.e. no progress between two hops.
-    stuckCleanup: ({ context }, params: ResolvePayload) =>
-      context.lastAdvancedLeaf === "cleanup" && params.gtdDirExists,
-    stuckCloseReview: ({ context }, params: ResolvePayload) =>
-      context.lastAdvancedLeaf === "close-review" &&
-      params.reviewModified &&
-      !params.reviewHasUncheckedBoxes &&
-      !params.reviewHasRealFeedback,
-    stuckCodeChanges: ({ context }, params: ResolvePayload) =>
-      context.lastAdvancedLeaf === "code-changes" && params.codeDirty && !params.reviewPresent,
-    hasCommitIntent: (_, params: ResolvePayload) => params.commitIntent !== undefined,
-    isFixTestsLoop: ({ context }, params: ResolvePayload) =>
-      params.codeDirty &&
-      !params.reviewPresent &&
-      !params.hasPackages &&
-      context.verifyIterations > 0,
-    stuckCommitPending: ({ context }, params: ResolvePayload) =>
-      context.lastAdvancedLeaf === "commit-pending" && params.commitIntent !== undefined,
-    // Test-gate fold (mirrors the retired `selectPrompt`).
-    testGreenHasCommitMsg: ({ context, event }) =>
-      event.type === "TEST_RESULT" &&
-      event.exitCode === 0 &&
-      (context.packages[0] === undefined || context.packages[0].hasCommitMsg === true),
-    testGreenSpecReview: ({ context, event }) =>
-      event.type === "TEST_RESULT" &&
-      event.exitCode === 0 &&
-      context.packages[0] !== undefined &&
-      !context.packages[0].hasCommitMsg &&
-      context.agenticReviewEnabled &&
-      context.specReviewIterations < context.maxAgenticCycles,
-    testGreenSpecApprove: ({ context, event }) =>
-      event.type === "TEST_RESULT" &&
-      event.exitCode === 0 &&
-      context.packages[0] !== undefined &&
-      !context.packages[0].hasCommitMsg &&
-      (!context.agenticReviewEnabled || context.specReviewIterations >= context.maxAgenticCycles),
-    testRedBelowCap: ({ context, event }) =>
-      event.type === "TEST_RESULT" &&
-      event.exitCode !== 0 &&
-      context.verifyIterations < context.maxVerifyIterations,
-    testRedAtCap: ({ context, event }) =>
-      event.type === "TEST_RESULT" &&
-      event.exitCode !== 0 &&
-      context.verifyIterations >= context.maxVerifyIterations,
-  },
-  actions: {
-    foldCommit: assign({
-      verifyIterations: ({ context, event }) => {
-        if (event.type !== "COMMIT") return context.verifyIterations
-        return event.isTestFix ? context.verifyIterations + 1 : 0
-      },
-      planEverGrilled: ({ context, event }) => {
-        if (event.type !== "COMMIT") return context.planEverGrilled
-        return context.planEverGrilled || event.isPlanGrill
-      },
-      specReviewIterations: ({ context, event }) => {
-        if (event.type !== "COMMIT") return context.specReviewIterations
-        if (event.isSpecReview) return context.specReviewIterations + 1
-        if (event.isTestFix) return context.specReviewIterations
-        return 0
-      },
-    }),
-    // Mirror of `foldCommit` for the no-agent loop: bump the hop counter and
-    // record which action leaf we just left, so the next settle can detect lack
-    // of progress (`stuck`).
-    foldAdvance: assign({
-      noAgentHops: ({ context }) => context.noAgentHops + 1,
-    }),
-    clearEdgeAction: assign({ edgeAction: () => undefined }),
-    applyPayload: assign(({ context, event }) => {
-      if (event.type !== "RESOLVE") return {}
-      const p = event.payload
-      return {
-        // Cleared here; action-leaf entry actions re-set it afterwards.
-        edgeAction: undefined,
-        lastCommitSubject: p.lastCommitSubject,
-        workingTreeClean: p.workingTreeClean,
-        packages: p.packages,
-        diff: p.diff,
-        agenticReviewEnabled: p.agenticReviewEnabled,
-        maxAgenticCycles: p.maxAgenticCycles,
-        ...(p.baseRef !== undefined ? { baseRef: p.baseRef } : {}),
-        ...(p.refDiff !== undefined ? { refDiff: p.refDiff } : {}),
-        ...(p.commitIntent !== undefined ? { commitIntent: p.commitIntent } : {}),
-        ...(p.packageCommitMsg !== undefined ? { packageCommitMsg: p.packageCommitMsg } : {}),
-        ...(p.packageCount !== undefined ? { packageCount: p.packageCount } : {}),
-        ...(p.reviewBaseHash !== undefined ? { reviewBaseHash: p.reviewBaseHash } : {}),
-        ...(p.specDiff !== undefined ? { specDiff: p.specDiff } : {}),
-        ...(p.specReviewNumber !== undefined ? { specReviewNumber: p.specReviewNumber } : {}),
-      }
-    }),
-  },
-}).createMachine({
-  id: "gtd",
-  initial: "replaying",
-  context: initialContext,
-  states: {
-    replaying: {
-      on: {
-        COMMIT: { actions: "foldCommit" },
-        RESOLVE: resolveChain(["applyPayload"]),
-      },
-    },
-    // ── No-agent action leaves ──────────────────────────────────────────────
-    // No longer `type:"final"`: each emits an `edgeAction` on entry, records
-    // itself as `lastAdvancedLeaf`, and on the NEXT `RESOLVE` runs `foldAdvance`
-    // (bumping `noAgentHops`) then re-evaluates the full guard chain. An `always`
-    // escalation fires when the hop cap is hit or no progress was made (`stuck`).
-    "close-review": {
-      tags: ["auto-advance"],
-      entry: assign({
-        edgeAction: ({ context }) =>
-          ({ kind: "closeReview", base: context.baseRef! }) satisfies EdgeAction,
-        lastAdvancedLeaf: () => "close-review" as LeafState,
-      }),
-      always: [{ guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" }],
-      on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "close-review") },
-    },
-    "code-changes": {
-      tags: ["auto-advance"],
-      entry: assign({
-        edgeAction: () => ({ kind: "commitPending" }) satisfies EdgeAction,
-        lastAdvancedLeaf: () => "code-changes" as LeafState,
-      }),
-      always: [{ guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" }],
-      on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "code-changes") },
-    },
-    "commit-pending": {
-      tags: ["auto-advance"],
-      entry: assign({
-        lastAdvancedLeaf: () => "commit-pending" as LeafState,
-        edgeAction: ({ context, event }) => {
-          // Determine intent: from context (set by applyPayload) or isFixTestsLoop (no commitIntent)
-          const intent = context.commitIntent
-          if (intent === "human-review") {
-            return {
-              kind: "commitPending",
-              intent: "human-review",
-              ...(context.reviewBaseHash !== undefined ? { base: context.reviewBaseHash } : {}),
-              restorePaths: [],
-            } satisfies EdgeAction
-          }
-          if (intent === "execute") {
-            return {
-              kind: "commitPending",
-              intent: "execute",
-              ...(context.packageCommitMsg !== undefined
-                ? { packageCommitMsg: context.packageCommitMsg }
-                : {}),
-              removeLastPackage: true,
-              restorePaths: [],
-            } satisfies EdgeAction
-          }
-          if (intent === "decompose") {
-            return {
-              kind: "commitPending",
-              intent: "decompose",
-              ...(context.packageCount !== undefined ? { packageCount: context.packageCount } : {}),
-              restorePaths: [],
-            } satisfies EdgeAction
-          }
-          if (intent === "spec-fix") {
-            return {
-              kind: "commitPending",
-              intent: "spec-fix",
-              ...(context.specReviewNumber !== undefined
-                ? { specReviewNumber: context.specReviewNumber }
-                : {}),
-              restorePaths: ["TODO.md"],
-            } satisfies EdgeAction
-          }
-          if (intent === "spec-approved") {
-            return { kind: "approveSpecReview", pkg: context.packages[0]!.name } satisfies EdgeAction
-          }
-          // fix-tests: comes from isFixTestsLoop (no commitIntent) or explicit intent
-          return {
-            kind: "commitPending",
-            intent: "fix-tests",
-            restorePaths: ["TODO.md"],
-          } satisfies EdgeAction
-        },
-      }),
-      always: [{ guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" }],
-      on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "commit-pending") },
-    },
-    cleanup: {
-      tags: ["auto-advance"],
-      entry: assign({
-        edgeAction: () => ({ kind: "removeGtdDir" }) satisfies EdgeAction,
-        lastAdvancedLeaf: () => "cleanup" as LeafState,
-      }),
-      always: [{ guard: "noAgentCapReached", target: "escalate", actions: "clearEdgeAction" }],
-      on: { RESOLVE: resolveChain(["foldAdvance", "applyPayload"], "cleanup") },
-    },
-    // ── Test gate (execute only) ────────────────────────────────────────────
-    // Emits `runTestGate`, waits for a `TEST_RESULT`, then folds it exactly as
-    // the retired `selectPrompt` did.
-    runTestGate: {
-      entry: assign({
-        edgeAction: () => ({ kind: "runTestGate" }) satisfies EdgeAction,
-      }),
-      on: {
-        TEST_RESULT: [
-          { guard: "testGreenHasCommitMsg", target: "execute", actions: "clearEdgeAction" },
-          { guard: "testGreenSpecReview", target: "spec-review", actions: "clearEdgeAction" },
-          {
-            guard: "testGreenSpecApprove",
-            target: "commit-pending",
-            actions: assign({
-              edgeAction: () => undefined,
-              commitIntent: () => "spec-approved" as PendingCommitIntent,
-            }),
-          },
-          {
-            guard: "testRedBelowCap",
-            target: "fix-tests",
-            actions: assign({
-              edgeAction: () => undefined,
-              testOutput: ({ event }) => (event.type === "TEST_RESULT" ? event.output : undefined),
-            }),
-          },
-          { guard: "testRedAtCap", target: "escalate", actions: "clearEdgeAction" },
-        ],
-      },
-    },
-    // ── Review pre-render ───────────────────────────────────────────────────
-    // Emits `reviewPreRender`, waits for `REVIEW_RECORDED`, then settles on
-    // `review-process` carrying the synthesis diff + recovery sha.
-    "review-process": {
-      tags: ["auto-advance"],
-      entry: assign({
-        edgeAction: ({ context }) =>
-          ({ kind: "reviewPreRender", base: context.baseRef! }) satisfies EdgeAction,
-      }),
-      on: {
-        REVIEW_RECORDED: {
-          target: "review-process-ready",
-          actions: assign({
-            edgeAction: () => undefined,
-            reviewDiff: ({ event }) => (event.type === "REVIEW_RECORDED" ? event.diff : undefined),
-            recordSha: ({ event }) =>
-              event.type === "REVIEW_RECORDED" ? event.recordSha : undefined,
-          }),
-        },
-      },
-    },
-    // Settled review-process: same `value` as the prompt expects is NOT this id,
-    // so the projection maps it back to "review-process" (see `projectValue`).
-    "review-process-ready": { tags: ["auto-advance"], type: "final" },
-    "review-incomplete": { type: "final" },
-    "await-review": { type: "final" },
-    execute: { tags: ["auto-advance"], type: "final" },
-    "fix-tests": { type: "final" },
-    decompose: { tags: ["auto-advance"], type: "final" },
-    "new-todo": { tags: ["auto-advance"], type: "final" },
-    "modified-todo": { tags: ["auto-advance"], type: "final" },
-    "await-answers": { type: "final" },
-    "human-review": { tags: ["auto-advance"], type: "final" },
-    "spec-review": { tags: ["auto-advance"], type: "final" },
-    "spec-fix": { type: "final" },
-    verified: { type: "final" },
-    escalate: { type: "final" },
-  },
+/** Build the prompt context from the payload passthrough + the folded counters. */
+const buildContext = (
+  p: ResolvePayload,
+  counters: Counters,
+  grillingCase?: "stop" | "iterate",
+): ResolveContext => ({
+  testFixCount: counters.testFixCount,
+  reviewFixCount: counters.reviewFixCount,
+  packages: p.packages,
+  diff: p.diff,
+  ...(p.refDiff !== undefined ? { refDiff: p.refDiff } : {}),
+  ...(p.reviewBase !== undefined ? { reviewBase: p.reviewBase } : {}),
+  lastCommitSubject: p.lastCommitSubject,
+  workingTreeClean: p.workingTreeClean,
+  feedbackContent: p.feedbackContent,
+  ...(grillingCase !== undefined ? { grillingCase } : {}),
 })
 
-export interface ResolveResult {
-  readonly value: LeafState | "replaying"
-  readonly context: GtdContext
-  readonly autoAdvance: boolean
-  /**
-   * Present iff the settled state is an action leaf (or a gate) that wants the
-   * edge to perform a side effect before continuing: removeGtdDir / closeReview
-   * / commitPending / runTestGate / reviewPreRender. Absent once the action has
-   * been performed and the leaf re-settled.
-   */
-  readonly edgeAction?: EdgeAction
-}
-
-type Snapshot = ReturnType<ReturnType<typeof createActor<typeof machine>>["getSnapshot"]>
-
 /**
- * Snapshot → ResolveResult projection. Two internal states are mapped back onto
- * their public leaf value: `runTestGate` projects as `execute` (it gates the
- * execute leaf; its `edgeAction.kind === "runTestGate"` distinguishes the gate),
- * and `review-process-ready` projects as `review-process` (the settled synthesis
- * leaf). Every other value passes through unchanged.
+ * Throw on the STATES.md § Illegal-combinations set. These never arise in normal
+ * flow; if seen, gtd hard-errors rather than guessing. Enforced before the ladder.
  */
-const project = (snapshot: Snapshot): ResolveResult => {
-  const raw = snapshot.value as string
-  const value: LeafState | "replaying" =
-    raw === "runTestGate"
-      ? "execute"
-      : raw === "review-process-ready"
-        ? "review-process"
-        : (raw as LeafState | "replaying")
-  return {
-    value,
-    context: snapshot.context,
-    autoAdvance: snapshot.hasTag("auto-advance"),
-    ...(snapshot.context.edgeAction !== undefined
-      ? { edgeAction: snapshot.context.edgeAction }
-      : {}),
+const assertLegal = (p: ResolvePayload): void => {
+  const fail = (msg: string): never => {
+    throw new GtdStateError("illegal-combination", msg)
   }
+  if (p.reviewPresent && p.gtdDirExists) fail("illegal combination: REVIEW.md + .gtd")
+  if (p.reviewPresent && p.todoExists) fail("illegal combination: REVIEW.md + TODO.md")
+  if (p.feedbackPresent && p.reviewPresent) fail("illegal combination: FEEDBACK.md + REVIEW.md")
+  if (p.feedbackPresent && !p.gtdDirExists) fail("illegal combination: FEEDBACK.md without .gtd")
+  if (p.errorsPresent && p.feedbackPresent) fail("illegal combination: ERRORS.md + FEEDBACK.md")
+  if (p.errorsPresent && !p.gtdDirExists) fail("illegal combination: ERRORS.md without .gtd")
 }
 
 /**
- * A long-lived stepping handle over a single running actor. `current` is the
- * projection after the events passed to `start`; `advance` sends more events to
- * the SAME actor (re-evaluating guards) and returns the new projection.
+ * Resolve the event stream to a single decision. Folds `COMMIT[]` into the two
+ * counters, then runs the STATES.md § Precedence ladder (first match wins) on the
+ * terminal `RESOLVE` payload.
+ *
+ * Throws `GtdStateError` for an illegal steering-file combination (before the
+ * ladder) or for corruption (no rule matched). Every other input — including
+ * `resolve([])` — returns a `Result` without throwing.
  */
-export interface Handle {
-  readonly current: ResolveResult
-  readonly advance: (events: ReadonlyArray<GtdEvent>) => ResolveResult
-}
+export const resolve = (events: readonly GtdEvent[]): Result => {
+  const counters = foldCounters(events)
 
-/**
- * Open a long-lived actor, fold in `events`, and return a stepping `Handle`.
- * The machine is pure: any IO result (test exit code, recorded review diff)
- * flows back in only as a later `TEST_RESULT` / `REVIEW_RECORDED` event.
- */
-export const start = (events: ReadonlyArray<GtdEvent>): Handle => {
-  const actor = createActor(machine)
-  actor.start()
-  for (const event of events) actor.send(event)
-  return {
-    get current() {
-      return project(actor.getSnapshot())
-    },
-    advance: (next) => {
-      for (const event of next) actor.send(event)
-      return project(actor.getSnapshot())
-    },
+  // Use the last RESOLVE payload in the stream; default for a degenerate input.
+  let payload: ResolvePayload = DEFAULT_PAYLOAD
+  for (const event of events) if (event.type === "RESOLVE") payload = event.payload
+  const p = payload
+
+  assertLegal(p)
+
+  const head = p.lastCommitSubject
+  const corrupt = (): never => {
+    throw new GtdStateError(
+      "corruption",
+      `no precedence rule matched (HEAD="${head}", clean=${p.workingTreeClean}); ` +
+        `repo is in an unrecognized state — refusing to guess`,
+    )
   }
-}
 
-/**
- * Pure fold wrapper retained for existing callers that only read
- * `value`/`context`/`autoAdvance`. Equivalent to `start(events).current`.
- */
-export const resolve = (events: ReadonlyArray<GtdEvent>): ResolveResult => start(events).current
+  // ── 0. Transport ──────────────────────────────────────────────────────────
+  if (head === "gtd: transport") {
+    return {
+      state: "transport",
+      autoAdvance: true,
+      edgeAction: { kind: "transportReset" },
+      context: buildContext(p, counters),
+    }
+  }
+
+  // ── 1. ERRORS.md present → Escalate (STOP, no action) ─────────────────────
+  if (p.errorsPresent) {
+    return { state: "escalate", autoAdvance: false, context: buildContext(p, counters) }
+  }
+
+  // ── 2. FEEDBACK.md present → Fixing / Close package ───────────────────────
+  if (p.feedbackPresent) {
+    if (p.feedbackEmpty) {
+      return {
+        state: "close-package",
+        autoAdvance: true,
+        edgeAction: { kind: "closePackage" },
+        context: buildContext(p, counters),
+      }
+    }
+    return {
+      state: "fixing",
+      autoAdvance: true,
+      edgeAction: {
+        kind: "commitPending",
+        prefix: p.feedbackCommitted ? "gtd: fixing" : "gtd: feedback",
+        // Delete FEEDBACK.md so its removal lands in this commit; without it the
+        // next run re-detects FEEDBACK (precedence 2) and Fixing never returns to
+        // Testing (STATES.md § Fixing: "FEEDBACK.md is removed either way").
+        removeFeedback: true,
+      },
+      context: buildContext(p, counters),
+    }
+  }
+
+  // ── 3. .gtd present → build lifecycle (exhaustive: returns or corrupts) ────
+  if (p.gtdDirExists) {
+    if (p.gtdModified) {
+      return {
+        state: "planning",
+        autoAdvance: true,
+        edgeAction: { kind: "commitPending", prefix: "gtd: planning" },
+        context: buildContext(p, counters),
+      }
+    }
+    const noOpFixer = p.workingTreeClean && head === "gtd: fixing"
+    if (p.codeDirty || p.pendingErrorsDeletion || noOpFixer) {
+      // Human resume (pending ERRORS.md deletion) grants a fresh budget: the
+      // testing edge action commits the deletion (`gtd: building`, removedErrors)
+      // before re-counting, so the runTest action carries the post-reset budget.
+      const resume = p.pendingErrorsDeletion
+      return {
+        state: "testing",
+        autoAdvance: true,
+        edgeAction: {
+          kind: "runTest",
+          errorCount: resume ? 0 : counters.testFixCount,
+          capReached: resume ? false : counters.testFixCount >= p.fixAttemptCap,
+        },
+        context: buildContext(p, counters),
+      }
+    }
+    if (p.workingTreeClean) {
+      if (head === "gtd: planning" || head === "gtd: package done") {
+        return { state: "building", autoAdvance: true, context: buildContext(p, counters) }
+      }
+      if (head === "gtd: building") {
+        // Agentic Review, unless force-approved (kill-switch off or threshold hit):
+        // skip the review and close the package directly (closePackage tolerates the
+        // absent FEEDBACK.md). Otherwise prompt the review agent.
+        const forceApprove =
+          !p.agenticReviewEnabled || counters.reviewFixCount >= p.reviewThreshold
+        if (forceApprove) {
+          return {
+            state: "close-package",
+            autoAdvance: true,
+            edgeAction: { kind: "closePackage" },
+            context: buildContext(p, counters),
+          }
+        }
+        return { state: "agentic-review", autoAdvance: true, context: buildContext(p, counters) }
+      }
+    }
+    return corrupt()
+  }
+
+  // ── 4. REVIEW.md present → review lifecycle (exhaustive) ──────────────────
+  if (p.reviewPresent) {
+    if (p.reviewCommitted) {
+      return {
+        state: "done",
+        autoAdvance: true,
+        edgeAction: { kind: "done" },
+        context: buildContext(p, counters),
+      }
+    }
+    if (p.reviewDirty) {
+      return {
+        state: "accept-review",
+        autoAdvance: true,
+        edgeAction: { kind: "seedAcceptReview" },
+        context: buildContext(p, counters),
+      }
+    }
+    // Uncommitted REVIEW.md (freshly written by Clean).
+    return {
+      state: "await-review",
+      autoAdvance: false,
+      edgeAction: { kind: "commitReview" },
+      context: buildContext(p, counters),
+    }
+  }
+
+  // ── 5. New Feature ────────────────────────────────────────────────────────
+  // Boundary HEAD + pending changes (code and/or a new uncommitted TODO.md — the
+  // only steering file possible here), or HEAD `gtd: new task` + clean tree
+  // (a checkout/pull that lost the uncommitted seed — regenerate it).
+  if ((isBoundary(head) && !p.workingTreeClean) || (head === "gtd: new task" && p.workingTreeClean)) {
+    return {
+      state: "new-feature",
+      autoAdvance: true,
+      edgeAction: { kind: "seedNewFeature" },
+      context: buildContext(p, counters),
+    }
+  }
+
+  // ── 6. Grilling / Grilled ─────────────────────────────────────────────────
+  if (p.todoExists) {
+    if (p.todoMarkerPresent) {
+      // Open question marker → STOP for the human to answer inline.
+      return {
+        state: "grilling",
+        autoAdvance: false,
+        edgeAction: { kind: "commitPending", prefix: "gtd: grilling" },
+        context: buildContext(p, counters, "stop"),
+      }
+    }
+    if (!p.workingTreeClean) {
+      // No marker but pending edits → the grilling agent iterates on them.
+      return {
+        state: "grilling",
+        autoAdvance: true,
+        edgeAction: { kind: "commitPending", prefix: "gtd: grilling" },
+        context: buildContext(p, counters, "iterate"),
+      }
+    }
+    // No marker, clean tree → converged.
+    return {
+      state: "grilled",
+      autoAdvance: true,
+      edgeAction: { kind: "commitPending", prefix: "gtd: grilled" },
+      context: buildContext(p, counters),
+    }
+  }
+
+  // ── 7. Clean / Idle ───────────────────────────────────────────────────────
+  // Reached only with no steering files. A clean tree under a boundary or
+  // `gtd: package done` HEAD reviews the work (Clean) when the review base yields
+  // a non-empty diff, else there is nothing to review (Idle).
+  if (p.workingTreeClean && (isBoundary(head) || head === "gtd: package done")) {
+    const reviewable = p.reviewBase !== undefined && (p.refDiff ?? "").trim().length > 0
+    return {
+      state: reviewable ? "clean" : "idle",
+      autoAdvance: false,
+      context: buildContext(p, counters),
+    }
+  }
+
+  return corrupt()
+}

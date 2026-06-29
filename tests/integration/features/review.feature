@@ -1,365 +1,133 @@
-Feature: Review workflow
+Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
 
-  Scenario: Modified REVIEW.md with prose but unchecked boxes routes to review-incomplete
+  With no steering files and a clean tree, unreviewed work since the review base
+  enters Clean (author REVIEW.md). Committing REVIEW.md awaits the user; a later
+  run with no edits approves (`gtd: done` → Idle), while edits to the code or
+  REVIEW.md seed a fresh plan (Accept Review → Grilling). The review base is the
+  merge-base on a feature branch, or the last REVIEW.md deletion on the default
+  branch.
+
+  Scenario: Freshly committed work with a clean tree enters Clean to author REVIEW.md
     Given a test project
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      Adds the foo helper function.
-
-      - [ ] ./src/foo.ts#1
-      """
-    And "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      Adds the foo helper function.
-      This looks good, no changes needed.
-
-      - [ ] ./src/foo.ts#1
+      export const add = (a: number, b: number) => a + b
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Review is incomplete"
-    And stdout contains "STOP"
-    And stdout does not contain "# Process Review Feedback"
+    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "Changes to review"
+    And stdout contains "src/calc.ts"
 
-  Scenario: Review process prompt instructs creating TODO.md and deleting REVIEW.md
+  Scenario: An uncommitted REVIEW.md is committed and awaits the user
     Given a test project
-    And a default branch "main"
-    And a branch "feature"
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      Adds the foo helper function.
-
-      - [ ] ./src/foo.ts#1
+      export const add = (a: number, b: number) => a + b
       """
-    And a commit "feat: add foo helper" that adds "src/foo.ts" with:
+    And a file "REVIEW.md" with:
       """
-      export function foo() {}
-      """
-    And "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
+      # Review
 
-      ## Add foo helper
+      ## Add calculator
 
-      Adds the foo helper function.
-      Please rename foo to bar everywhere.
-
-      - [x] ./src/foo.ts#1
+      - ./src/calc.ts#1
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "TODO.md"
-    And stdout contains "REVIEW.md"
+    And the last commit subject is "gtd: awaiting review"
+    And stdout contains "## Task: Await the user's review"
 
-  Scenario: Review process prompt instructs committing TODO.md and REVIEW.md deletion together
+  Scenario: A committed REVIEW.md approved with no edits finishes as gtd: done
     Given a test project
-    And a default branch "main"
-    And a branch "feature"
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      Adds the foo helper function.
-
-      - [ ] ./src/foo.ts#1
+      export const add = (a: number, b: number) => a + b
       """
-    And a commit "feat: add foo helper" that adds "src/foo.ts" with:
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
       """
-      export function foo() {}
-      """
-    And "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
+      # Review
 
-      ## Add foo helper
+      ## Add calculator
 
-      Adds the foo helper function.
-      Please rename foo to bar everywhere.
-
-      - [x] ./src/foo.ts#1
+      - ./src/calc.ts#1
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "# Process Review Feedback"
+    And the last commit subject is "gtd: done"
+    And the file "REVIEW.md" does not exist
 
-  Scenario: Review process prompt instructs recording raw feedback before reset
+  Scenario: Editing the code under a committed REVIEW.md seeds a fresh plan
+    Given a test project
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+
+      ## Add calculator
+
+      - ./src/calc.ts#1
+      """
+    And "src/calc.ts" is modified to:
+      """
+      export const add = (a: number, b: number) => a + b
+      // reviewer: please also add subtract
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: grilling"
+    And the file "REVIEW.md" does not exist
+    And the file "TODO.md" exists
+    # The reviewer's annotation is captured into the plan but discarded from code.
+    And the file "TODO.md" contains "please also add subtract"
+    And the file "src/calc.ts" does not contain "please also add subtract"
+    And stdout contains "## Task: Grill the plan in `TODO.md`"
+
+  Scenario: A closed review with nothing left to review is Idle
     Given a test project
     And a default branch "main"
     And a branch "feature"
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      Adds the foo helper function.
-
-      - [ ] ./src/foo.ts#1
-      """
-    And a commit "feat: add foo helper" that adds "src/foo.ts" with:
-      """
-      export function foo() {}
-      """
-    And "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      Adds the foo helper function.
-      Please rename foo to bar everywhere.
-
-      - [x] ./src/foo.ts#1
-      """
+    And a commit "gtd: done"
     When I run gtd
     Then it succeeds
-    And stdout contains "# Process Review Feedback"
+    And stdout contains "## Task: Nothing to do"
+    And stdout does not contain "## Task: Create `REVIEW.md`"
 
-  Scenario: Ticking all checkboxes with no other changes routes to close-review
+  Scenario: A coworker's non-gtd commit on a feature branch reviews against the merge-base
     Given a test project
     And a default branch "main"
     And a branch "feature"
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+    And a commit "feat: coworker parser" that adds "src/parser.ts" with:
       """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      - [ ] ./src/foo.ts#1
-      - [ ] ./src/bar.ts#5
-      """
-    And a commit "feat: add foo helper" that adds "src/foo.ts" with:
-      """
-      export function foo() {}
-      """
-    And "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      - [x] ./src/foo.ts#1
-      - [x] ./src/bar.ts#5
+      export const parse = (s: string) => JSON.parse(s)
       """
     When I run gtd
     Then it succeeds
-    And the git log contains "chore(gtd): close approved review for"
-    And stdout contains "## Task: Confirm the working tree is healthy and fully reviewed"
-    And stdout does not contain "## Task: Close the approved review"
-    And stdout does not contain "# Process Review Feedback"
+    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "src/parser.ts"
 
-  Scenario: Un-ticking a checkbox routes to review-incomplete, not close-review
+  Scenario: On the default branch the review base is the last REVIEW.md deletion
     Given a test project
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
+    And a commit "feat: old work" that adds "src/old.ts" with:
       """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      - [x] ./src/foo.ts#1
+      export const old = () => "old"
       """
-    And "REVIEW.md" is modified to:
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
       """
-      # Review: abc1234
+      # Review
 
-      ## Add foo helper
-
-      - [ ] ./src/foo.ts#1
+      - ./src/old.ts#1
+      """
+    And a commit "gtd: done" that deletes "REVIEW.md"
+    And a commit "feat: newer work" that adds "src/newer.ts" with:
+      """
+      export const newer = () => "new"
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Review is incomplete"
-    And stdout contains "STOP"
-    And stdout does not contain "# Process Review Feedback"
-    And stdout does not contain "## Task: Close the approved review"
-
-  Scenario: Ticking a checkbox plus adding prose routes to review-process, not close-review
-    Given a test project
-    And a default branch "main"
-    And a branch "feature"
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      - [ ] ./src/foo.ts#1
-      """
-    And a commit "feat: add foo helper" that adds "src/foo.ts" with:
-      """
-      export function foo() {}
-      """
-    And "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      Please rename foo to bar.
-
-      - [x] ./src/foo.ts#1
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "# Process Review Feedback"
-    And stdout does not contain "## Task: Close the approved review"
-
-  Scenario: Ticking a checkbox plus a source-file edit routes to review-process
-    Given a test project
-    And a default branch "main"
-    And a branch "feature"
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      - [ ] ./src/foo.ts#1
-      """
-    And a commit "feat: add foo helper" that adds "src/foo.ts" with:
-      """
-      export function foo() {}
-      """
-    And "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      - [x] ./src/foo.ts#1
-      """
-    And a file "src/scratch.ts" with:
-      """
-      // scratch notes from review session
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "# Process Review Feedback"
-    And stdout does not contain "## Task: Commit the uncommitted changes"
-
-  Scenario: Note plus dirty source with unchecked boxes routes to review-incomplete
-    Given a test project
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      - [ ] ./src/foo.ts#1
-      """
-    And "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      Looks good so far.
-
-      - [ ] ./src/foo.ts#1
-      """
-    And a file "src/scratch.ts" with:
-      """
-      // scratch notes from review session
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "## Task: Review is incomplete"
-    And stdout contains "STOP"
-    And stdout does not contain "## Task: Commit the uncommitted changes"
-
-  Scenario: Untracked files added during review with unchecked boxes route to review-incomplete
-    Given a test project
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      - [ ] ./src/foo.ts#1
-      """
-    And "REVIEW.md" is modified to:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      Reviewer added a scratch file for context.
-
-      - [ ] ./src/foo.ts#1
-      """
-    And a file "src/scratch.ts" with:
-      """
-      // scratch notes from review session
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "## Task: Review is incomplete"
-    And stdout contains "STOP"
-    And stdout does not contain "## Task: Commit the uncommitted changes"
-
-  Scenario: An unmodified committed REVIEW.md is the review gate
-    Given a test project
-    And a commit "review(gtd): create review for abc1234" that adds "REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      ## Add foo helper
-
-      - [ ] ./src/foo.ts#1
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "Wait for the human to review"
-    And stdout contains "STOP"
-    And stdout does not contain "Re-run gtd immediately"
-
-  Scenario: After closing, the next run reports verified, not a fresh review
-    Given a test project
-    And a commit "feat(gtd): add foo helper" that adds "src/foo.ts" with:
-      """
-      export function foo() {}
-      """
-    And a commit "chore(gtd): close approved review for abc1234" that adds "CLOSE.md" with:
-      """
-      Approved.
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "working tree healthy and fully reviewed"
-    And stdout does not contain "Generate REVIEW.md after successful verification"
-
-  Scenario: Closing reports verified even when a prior review commit exists as a fallback base
-    # Regression: with an earlier `review(gtd): create review for ...` commit in
-    # history, computeReviewBase would otherwise fall back to it once the close
-    # commit (HEAD) is filtered out, and diff that prior commit against HEAD —
-    # re-surfacing the close commit's changes as a fresh review and looping
-    # forever. The frontier-at-HEAD short-circuit must win: HEAD is a close
-    # commit, so nothing is left to review.
-    Given a test project
-    And a commit "feat(gtd): add foo helper" that adds "src/foo.ts" with:
-      """
-      export function foo() {}
-      """
-    And a prior review commit for "abc1234"
-    And a commit "chore(gtd): close approved review for abc1234" that adds "CLOSE.md" with:
-      """
-      Approved.
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "working tree healthy and fully reviewed"
-    And stdout does not contain "Generate REVIEW.md after successful verification"
+    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "src/newer.ts"
+    And stdout does not contain "src/old.ts"

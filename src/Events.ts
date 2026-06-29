@@ -1,17 +1,23 @@
 import { FileSystem } from "@effect/platform"
 import { Effect, Option } from "effect"
-import { type GitOperations, GitService } from "./Git.js"
-import { formatString } from "./Format.js"
-import type { GtdEvent, GtdPackageFact, PendingCommitIntent, ResolvePayload } from "./Machine.js"
+import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
+import { TestRunner } from "./TestRunner.js"
+import type { CommitEvent, EdgeAction, GtdEvent, GtdPackageFact, ResolvePayload } from "./Machine.js"
 
 /**
- * The Effect "edge": all git/filesystem IO lives here. It probes the working
- * tree and commit history, then produces the typed event array
- * (`COMMIT[]` followed by a single `RESOLVE`) that the pure machine folds.
+ * The Effect "edge": all git/filesystem IO lives here. It has two jobs:
+ *
+ *  1. `gatherEvents` probes the working tree + first-parent commit history and
+ *     produces the typed event stream the pure machine folds: one `COMMIT` per
+ *     first-parent commit (oldest→newest) followed by a single `RESOLVE`
+ *     carrying the working-tree snapshot.
+ *  2. `perform` executes the `EdgeAction` the machine's `resolve()` returns
+ *     (commit, revert, run tests, write steering files, …) before the driver
+ *     re-gathers and re-resolves.
  *
  * The machine (src/Machine.ts) stays free of IO; this module is the only place
- * that touches git/fs while building events.
+ * that touches git/fs.
  */
 
 const TODO_FILE = "TODO.md"
@@ -21,29 +27,21 @@ const FEEDBACK_FILE = "FEEDBACK.md"
 const ERRORS_FILE = "ERRORS.md"
 const UNANSWERED_MARKER = "<!-- user answers here -->"
 
-/**
- * Parse the plan phase from a commit subject line.
- * - `"plan(gtd): grilling"` → `"grilling"`
- * - `"plan(gtd): ready complete"` → `"complete"`
- * - anything else → `null`
- */
-export const parsePlanPhase = (subject: string): "grilling" | "complete" | null => {
-  const s = subject.trim()
-  if (s === "plan(gtd): grilling") return "grilling"
-  if (s === "plan(gtd): ready complete") return "complete"
-  return null
-}
+// Flat `gtd: <phase>` taxonomy — the only commit subjects the machine reads or
+// the edge writes. Counters fold from these prefixes + the `removedErrors` flag.
+const NEW_TASK_SUBJECT = "gtd: new task"
+const PLANNING_SUBJECT = "gtd: planning"
+const BUILDING_SUBJECT = "gtd: building"
+const ERRORS_SUBJECT = "gtd: errors"
+const FEEDBACK_SUBJECT = "gtd: feedback"
+const PACKAGE_DONE_SUBJECT = "gtd: package done"
+const AWAITING_REVIEW_SUBJECT = "gtd: awaiting review"
+const DONE_SUBJECT = "gtd: done"
 
-/**
- * Whether TODO.md still has unanswered questions: the legacy answer placeholder,
- * or a `## Open Questions` section that contains at least one `### ` entry
- * before the next `## ` heading.
- */
-const hasOpenQuestions = (content: string): boolean => {
-  if (content.includes(UNANSWERED_MARKER)) return true
-  const m = content.match(/^##\s+Open Questions\s*\n([\s\S]*?)(?=\n##\s|\n---|\s*$)/m)
-  return m ? /^###\s+/m.test(m[1]!) : false
-}
+// git's empty-tree object. `git diff <empty-tree> HEAD` yields the entire tree
+// as additions — the Clean review base when HEAD is on the default branch and
+// no prior REVIEW.md deletion exists ("else the root", STATES.md § Clean).
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 const parsePorcelainPaths = (porcelain: string): ReadonlyArray<{ status: string; path: string }> =>
   porcelain
@@ -54,8 +52,21 @@ const parsePorcelainPaths = (porcelain: string): ReadonlyArray<{ status: string;
 
 const isNumberedDir = (name: string): boolean => /^\d+-/.test(name)
 
-const isTaskFile = (name: string): boolean => name.endsWith(".md") && name !== "COMMIT_MSG.md"
+/** Every `.md` under a numbered package dir is a task file now (no COMMIT_MSG.md). */
+const isTaskFile = (name: string): boolean => name.endsWith(".md")
 
+/**
+ * Strip fenced code blocks and inline code spans so a marker token that appears
+ * inside a code example does not count as a live open-question marker.
+ */
+const stripCode = (content: string): string =>
+  content.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[^\n]*/gm, "").replace(/`[^`\n]+`/g, "")
+
+/**
+ * Read the `.gtd/` work packages, lowest-numbered first. `packages[0]` is the
+ * active one. Each numbered dir contributes its task `.md` files (sorted) and
+ * their full contents.
+ */
 export const getPackages = (
   fs: FileSystem.FileSystem,
 ): Effect.Effect<ReadonlyArray<GtdPackageFact>, Error> =>
@@ -79,149 +90,33 @@ export const getPackages = (
         const content = yield* fs.readFileString(`${packagePath}/${taskFile}`)
         taskContents.push({ name: taskFile, content })
       }
-      const hasCommitMsg = files.includes("COMMIT_MSG.md")
-      packages.push({ name: dir, tasks, taskContents, hasCommitMsg })
+      packages.push({ name: dir, tasks, taskContents })
     }
 
     return packages
-  }).pipe(Effect.mapError((e) => new Error(String(e))))
+  }).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
 
 /**
- * Strip fenced code blocks and inline code spans so that references to marker
- * strings inside code examples don't count toward "finalized" detection.
+ * Deterministic, edge-built TODO.md seed for New Feature / Accept Review. No
+ * agent runs during seeding (both states list `Prompt: none`); the next
+ * Grilling invocation develops this into a real plan. The captured diff is
+ * fenced so any marker it contains is stripped by `stripCode` and does not trip
+ * the open-question gate.
  */
-const stripCode = (content: string): string =>
-  content.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[^\n]*/gm, "").replace(/`[^`\n]+`/g, "")
-
-/**
- * Pick the best review base ref to diff HEAD against: the merge-base with the
- * default branch and the last `review(gtd): create review for ...` commit are
- * candidates; we keep ancestors of HEAD (that aren't HEAD itself) and pick the
- * one closest to HEAD by commit count, tie-breaking toward the descendant.
- *
- * NOTE: this is the canonical home for this logic. State.ts still keeps its own
- * copy until the cutover; keep both identical.
- */
-export const computeReviewBase = (
-  git: GitOperations,
-): Effect.Effect<Option.Option<string>, Error> =>
-  Effect.gen(function* () {
-    // Gather candidates
-    const defaultBranch = yield* git.resolveDefaultBranch()
-    const parentBranchCandidate: Option.Option<string> = Option.isSome(defaultBranch)
-      ? yield* git.mergeBase(defaultBranch.value, "HEAD")
-      : Option.none()
-
-    const lastReviewCandidate = yield* git.lastReviewCommit()
-    const lastCloseCandidate = yield* git.lastCloseCommit()
-
-    // Resolve HEAD hash for equality checks.
-    const headHash = yield* git.resolveRef("HEAD")
-
-    // Frontier-at-HEAD: if the latest review/close bookkeeping commit is either
-    // at HEAD or is followed only by gtd-workflow commits (plan(gtd):,
-    // review(gtd):, chore(gtd):), the review frontier has effectively reached
-    // HEAD — everything up to HEAD is already reviewed. Returning a base here
-    // would fall back to an older candidate whose diff to HEAD is pure workflow
-    // noise, re-surfacing it as a fresh review and looping forever.
-    const isGtdWorkflowSubject = (s: string) =>
-      /^(?:plan|review|chore)\(gtd\):/.test(s)
-
-    for (const candidate of [lastReviewCandidate, lastCloseCandidate]) {
-      if (!Option.isSome(candidate)) continue
-      const candidateHash = candidate.value
-      // Must be ancestor of (or equal to) HEAD
-      if (candidateHash !== headHash) {
-        const ancestor = yield* git.isAncestor(candidateHash, "HEAD")
-        if (!ancestor) continue
-      }
-      // All commits between candidate and HEAD must be gtd-workflow commits
-      const subjects = yield* git.commitSubjects(candidateHash)
-      if (subjects.every(isGtdWorkflowSubject)) {
-        return Option.none<string>()
-      }
-    }
-
-    // Collect present candidates
-    const rawCandidates: Array<string> = []
-    if (Option.isSome(parentBranchCandidate)) rawCandidates.push(parentBranchCandidate.value)
-    if (Option.isSome(lastReviewCandidate)) rawCandidates.push(lastReviewCandidate.value)
-    if (Option.isSome(lastCloseCandidate)) rawCandidates.push(lastCloseCandidate.value)
-
-    if (rawCandidates.length === 0) return Option.none<string>()
-
-    // Filter: must be ancestor of HEAD; equal-to-HEAD means nothing to review
-    const qualified: Array<{ hash: string; count: number }> = []
-    for (const hash of rawCandidates) {
-      if (hash === headHash) continue
-      const ancestor = yield* git.isAncestor(hash, "HEAD")
-      if (!ancestor) continue
-      const count = yield* git.commitCount(hash)
-      qualified.push({ hash, count })
-    }
-
-    if (qualified.length === 0) return Option.none<string>()
-
-    // Pick the one with smallest commitCount (closest to HEAD)
-    let best = qualified[0]!
-    for (let i = 1; i < qualified.length; i++) {
-      const candidate = qualified[i]!
-      if (candidate.count < best.count) {
-        best = candidate
-      } else if (candidate.count === best.count) {
-        // Tie-break: prefer the descendant (if best is ancestor of candidate, candidate is descendant)
-        const bestIsAncestor = yield* git.isAncestor(best.hash, candidate.hash)
-        if (bestIsAncestor) best = candidate
-      }
-    }
-
-    return Option.some(best.hash)
-  })
-
-/**
- * True iff the working-tree REVIEW.md content contains at least one unchecked
- * checkbox line (`- [ ] …`).
- */
-export const computeReviewHasUncheckedBoxes = (reviewContent: string): boolean =>
-  /^- \[ \] /m.test(reviewContent)
-
-/**
- * True iff the REVIEW.md diff represents real feedback (not just forward-ticks).
- *
- * Short-circuits to `true` when other dirty paths exist. Otherwise normalizes
- * the committed copy (replacing `- [ ]` with `- [x]`) and compares formatted
- * strings; returns `true` when they differ.
- */
-export const computeReviewHasRealFeedback = (opts: {
-  otherDirtyPathsExist: boolean
-  committedContent: string
-  workingContent: string
-}): Effect.Effect<boolean, Error> => {
-  if (opts.otherDirtyPathsExist) return Effect.succeed(true)
-  const normalizedCommitted = opts.committedContent.replace(/- \[ \] /g, "- [x] ")
-  return Effect.gen(function* () {
-    const formattedCommitted = yield* formatString(normalizedCommitted).pipe(
-      Effect.mapError((e) => new Error(String(e))),
-    )
-    const formattedWorking = yield* formatString(opts.workingContent).pipe(
-      Effect.mapError((e) => new Error(String(e))),
-    )
-    return formattedCommitted !== formattedWorking
-  })
-}
-
-/**
- * Count consecutive commits from the END of `msgs` (newest-first) that satisfy
- * `pred`. Used to compute trailing spec-review / test-fix counts.
- */
-const countTrailing = (msgs: readonly string[], pred: (m: string) => boolean): number => {
-  let count = 0
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (pred(msgs[i]!)) count++
-    else break
-  }
-  return count
-}
+export const seedTodo = (capturedDiff: string): string =>
+  [
+    "# Plan",
+    "",
+    "## Captured input",
+    "",
+    "These changes were captured as the starting point for this feature. Develop",
+    "them into a concrete plan and surface any open questions for the user.",
+    "",
+    "```diff",
+    capturedDiff.replace(/\n+$/, ""),
+    "```",
+    "",
+  ].join("\n")
 
 /**
  * Gather ALL git/filesystem facts and produce the typed event stream the pure
@@ -246,23 +141,17 @@ export const gatherEvents = (): Effect.Effect<
       ? yield* git.mergeBase(defaultBranch.value, "HEAD")
       : Option.none<string>()
 
-    const isGtdWorkflowSubjectMsg = (s: string) =>
-      /^(?:plan|review|chore)\(gtd\):/.test(s)
-
-    const messages = yield* git.commitMessages(Option.getOrUndefined(base))
-    const commitEvents: Array<GtdEvent> = messages.map((message) => {
-      const firstLine = message.split("\n")[0] ?? ""
+    const history = yield* git.commitHistory(Option.getOrUndefined(base))
+    const commitEvents: Array<CommitEvent> = history.map(({ message, removedErrors }): CommitEvent => {
+      const subject = (message.split("\n")[0] ?? "").trim()
       return {
         type: "COMMIT",
-        isTestFix: /^Gtd-Test-Fix:/m.test(message),
-        isPlanGrill: /^plan\(gtd\):/.test(firstLine),
-        isAgenticReview:
-          /^review\(gtd\): agentic review\b/.test(firstLine) ||
-          /^Gtd-Agentic-Review:/m.test(message),
-        isAgenticApproved: firstLine === "review(gtd): agentic approved",
-        isWorkflowCommit: isGtdWorkflowSubjectMsg(firstLine),
-        isSpecReview: /^Gtd-Spec-Review:/m.test(message),
-      } as unknown as GtdEvent
+        isErrors: subject === ERRORS_SUBJECT,
+        isFeedback: subject === FEEDBACK_SUBJECT,
+        isPackageStart: subject === PLANNING_SUBJECT || subject === PACKAGE_DONE_SUBJECT,
+        isWorkflowCommit: subject.startsWith("gtd: "),
+        removedErrors,
+      }
     })
 
     // --- RESOLVE payload (working-tree snapshot) -----------------------------
@@ -270,216 +159,233 @@ export const gatherEvents = (): Effect.Effect<
     const porcelain = hasCommits ? yield* git.statusPorcelain() : ""
     const entries = parsePorcelainPaths(porcelain)
     const workingTreeClean = entries.length === 0
-
-    const todoEntry = entries.find((e) => e.path === TODO_FILE)
-    // Verbatim-first: any uncommitted change outside the tool's own control
-    // files (TODO.md, REVIEW.md, FEEDBACK.md) is "code" that must be committed
-    // before any gate is evaluated. REVIEW.md checkbox edits are handled by the
-    // review branch; FEEDBACK.md is handled by the agentic-approved path.
-    const codeEntries = entries.filter(
-      (e) => e.path !== TODO_FILE && e.path !== REVIEW_FILE && e.path !== FEEDBACK_FILE,
-    )
-    const codeDirty = codeEntries.length > 0
-
-    const todoDirty: "new" | "modified" | null = todoEntry
-      ? todoEntry.status.includes("?") || todoEntry.status.includes("A")
-        ? "new"
-        : "modified"
-      : null
-
     const lastCommitSubject = hasCommits ? yield* git.lastCommitSubject() : ""
-    const planPhase = parsePlanPhase(lastCommitSubject)
-    const diff = entries.length > 0 ? yield* git.diffHead() : ""
 
-    const packages = yield* getPackages(fs)
-    const hasPackages = packages.length > 0
+    const isGtdPath = (p: string): boolean => p === GTD_DIR || p.startsWith(`${GTD_DIR}/`)
+    const isSteeringFile = (p: string): boolean =>
+      p === TODO_FILE || p === REVIEW_FILE || p === FEEDBACK_FILE || p === ERRORS_FILE
+
+    // `.gtd/` package files added/edited vs the committed tree.
+    const gtdModified = entries.some((e) => isGtdPath(e.path))
+    // Pending changes outside the steering set (TODO/REVIEW/FEEDBACK/ERRORS/.gtd).
+    const codeDirty = entries.some((e) => !isSteeringFile(e.path) && !isGtdPath(e.path))
+
+    // Steering-file presence (committed and/or pending).
+    const todoExists = yield* fs.exists(TODO_FILE)
     const gtdDirExists = yield* fs.exists(GTD_DIR)
-
-    // A committed ERRORS.md means the test loop escalated; it is a human gate.
+    const reviewPresent = yield* fs.exists(REVIEW_FILE)
+    const feedbackPresent = yield* fs.exists(FEEDBACK_FILE)
     const errorsPresent = yield* fs.exists(ERRORS_FILE)
 
-    // TODO.md open-questions probe.
-    const todoExists = yield* fs.exists(TODO_FILE)
-    const todoContent = todoExists
-      ? yield* fs.readFileString(TODO_FILE).pipe(Effect.mapError((e) => new Error(String(e))))
-      : ""
-    const stripped = stripCode(todoContent)
-    const todoOpenQuestionsPresent = todoExists && hasOpenQuestions(stripped)
+    // The `<!-- user answers here -->` sentinel appears anywhere in TODO.md
+    // (after stripping fenced/inline code).
+    const todoContent = todoExists ? yield* fs.readFileString(TODO_FILE) : ""
+    const todoMarkerPresent = todoExists && stripCode(todoContent).includes(UNANSWERED_MARKER)
 
-    // REVIEW.md probing.
-    let reviewModified = false
-    let reviewUnmodified = false
-    let reviewHasUncheckedBoxes = false
-    let reviewHasRealFeedback = false
-    let reviewContent: string | undefined
-    const reviewExists = yield* fs.exists(REVIEW_FILE)
-    if (reviewExists) {
-      reviewModified = entries.some((e) => e.path === REVIEW_FILE)
-      // A committed, unmodified REVIEW.md is the review gate: the human has not
-      // recorded any feedback yet. Wait for them rather than erroring.
-      reviewUnmodified = !reviewModified
-      reviewContent = yield* fs
-        .readFileString(REVIEW_FILE)
-        .pipe(Effect.mapError((e) => new Error(String(e))))
-
-      reviewHasUncheckedBoxes = computeReviewHasUncheckedBoxes(reviewContent)
-
-      const reviewEntry0 = entries.find((e) => e.path === REVIEW_FILE)
-      const reviewTrackedModified =
-        reviewEntry0 !== undefined &&
-        !reviewEntry0.status.includes("?") &&
-        !reviewEntry0.status.includes("A")
-      const otherDirtyPathsExist = !entries.every((e) => e.path === REVIEW_FILE)
-      if (otherDirtyPathsExist) {
-        reviewHasRealFeedback = true
-      } else if (reviewModified && reviewTrackedModified) {
-        const committedContent = yield* git
-          .showHead(REVIEW_FILE)
-          .pipe(Effect.mapError((e) => new Error(String(e))))
-        reviewHasRealFeedback = yield* computeReviewHasRealFeedback({
-          otherDirtyPathsExist: false,
-          committedContent,
-          workingContent: reviewContent,
-        })
-      }
+    // A porcelain entry whose status flags it untracked (`?`) or freshly added
+    // (`A`) is uncommitted; otherwise the file is tracked at HEAD.
+    const isUncommitted = (path: string): boolean => {
+      const entry = entries.find((e) => e.path === path)
+      return entry !== undefined && (entry.status.includes("?") || entry.status.includes("A"))
     }
 
-    // reviewDirty: mirrors todoDirty but for REVIEW.md
-    const reviewEntry = entries.find((e) => e.path === REVIEW_FILE)
-    const reviewDirty: "new" | "modified" | null = reviewEntry
-      ? reviewEntry.status.includes("?") || reviewEntry.status.includes("A")
-        ? "new"
-        : "modified"
-      : null
+    // FEEDBACK.md: committed (Testing wrote it as `gtd: errors`) vs uncommitted
+    // (Agentic Review wrote it), and whitespace-only = empty = approval.
+    const feedbackCommitted = feedbackPresent && !isUncommitted(FEEDBACK_FILE)
+    const feedbackContent = feedbackPresent ? yield* fs.readFileString(FEEDBACK_FILE) : ""
+    const feedbackEmpty = feedbackPresent && !/\S/.test(feedbackContent)
 
-    // FEEDBACK.md probing (mirrors REVIEW.md/TODO.md probing).
-    const feedbackExists = yield* fs.exists(FEEDBACK_FILE)
-    let feedbackHasContent = false
-    if (feedbackExists) {
-      const feedbackContent = yield* fs
-        .readFileString(FEEDBACK_FILE)
-        .pipe(Effect.mapError((e) => new Error(String(e))))
-      feedbackHasContent = /\S/.test(feedbackContent)
-    }
-    const feedbackEntry = entries.find((e) => e.path === FEEDBACK_FILE)
-    const feedbackDirty: "new" | "modified" | null = feedbackEntry
-      ? feedbackEntry.status.includes("?") || feedbackEntry.status.includes("A")
-        ? "new"
-        : "modified"
-      : null
+    // REVIEW.md: committed + clean tree = approval (Done); committed + pending
+    // edits (to REVIEW or any other file) = Accept Review.
+    const reviewTrackedAtHead = reviewPresent && !isUncommitted(REVIEW_FILE)
+    const reviewCommitted = reviewTrackedAtHead && workingTreeClean
+    const reviewDirty = reviewTrackedAtHead && !workingTreeClean
 
-    // Parse <!-- base: hash --> comment from REVIEW.md unconditionally (when present).
-    let reviewBaseHash: string | undefined
-    if (reviewContent !== undefined) {
-      const m = reviewContent.match(/<!--\s*base:\s*([0-9a-f]{40})\s*-->/)
-      if (m) reviewBaseHash = m[1]
-    }
+    // The working tree deletes a committed ERRORS.md (human resume → fresh
+    // budget). A status probe, distinct from the committed `removedErrors` flag.
+    const pendingErrorsDeletion = entries.some(
+      (e) => e.path === ERRORS_FILE && e.status.includes("D"),
+    )
 
-    // Review base for the human-review branch.
-    const reviewBase = yield* computeReviewBase(git)
-    let reviewBasePresent = false
-    let computedBaseRef: string | undefined
+    const packages = yield* getPackages(fs)
+    const diff = entries.length > 0 ? yield* git.diffHead() : ""
+
+    // --- Review base (Clean review) ------------------------------------------
+    // Feature branch → merge-base with the default branch; default branch → last
+    // REVIEW.md deletion, else the root (empty tree). Only set when the diff is
+    // non-empty (non-empty distinguishes Clean from Idle).
+    let reviewBase: string | undefined
     let refDiff: string | undefined
-    if (Option.isSome(reviewBase)) {
-      const candidateDiff = yield* git.diffRef(reviewBase.value)
+    if (hasCommits) {
+      const headHash = yield* git
+        .resolveRef("HEAD")
+        .pipe(Effect.catchAll(() => Effect.succeed("")))
+      let candidate: string | undefined
+      if (Option.isSome(base) && base.value !== headHash) {
+        candidate = base.value // feature branch: merge-base is a proper ancestor
+      } else {
+        const lastDel = yield* git.lastDeletionOf(REVIEW_FILE)
+        candidate = Option.isSome(lastDel) ? lastDel.value : EMPTY_TREE
+      }
+      const candidateDiff = yield* git
+        .diffRef(candidate)
+        .pipe(Effect.catchAll(() => Effect.succeed("")))
       if (candidateDiff.trim().length > 0) {
-        reviewBasePresent = true
-        computedBaseRef = reviewBase.value
+        reviewBase = candidate
         refDiff = candidateDiff
       }
     }
-    // Fallback: when HEAD is the review commit, computeReviewBase returns none
-    // (frontier guard). Read the <!-- base: hash --> comment the human-review
-    // agent writes into REVIEW.md so review-process can still get a base ref.
-    if (computedBaseRef === undefined && reviewBaseHash !== undefined) {
-      const candidateDiff = yield* git.diffRef(reviewBaseHash)
-      if (candidateDiff.trim().length > 0) {
-        reviewBasePresent = true
-        computedBaseRef = reviewBaseHash
-        refDiff = candidateDiff
-      }
-    }
 
-    // Compute commitIntent and related fields.
-    let commitIntent: PendingCommitIntent | undefined
-    let packageCommitMsg: string | undefined
-    let packageCount: number | undefined
-    let specFixPending = false
-    let specDiff: string | undefined
-    let specReviewNumber: number | undefined
-
-    // A "committed-unreviewed package" = packages[0] exists but has no COMMIT_MSG.md.
-    // This is mutually exclusive with the execute path (which requires hasCommitMsg=true).
-    const committedUnreviewedPackage = packages.length > 0 && !packages[0]!.hasCommitMsg
-
-    if (committedUnreviewedPackage) {
-      // Compute specDiff: k = trailing commits with Gtd-Spec-Review: OR Gtd-Test-Fix: trailer
-      const k = countTrailing(
-        messages,
-        (m) => /^Gtd-Spec-Review:/m.test(m) || /^Gtd-Test-Fix:/m.test(m),
-      )
-      specDiff = yield* git.diffRefExcludingGtd(`HEAD~${k + 1}`)
-
-      if (feedbackDirty !== null && feedbackHasContent) {
-        // FEEDBACK.md uncommitted + content-bearing → specFixPending
-        specFixPending = true
-      } else if (feedbackDirty !== null && !feedbackHasContent) {
-        // FEEDBACK.md uncommitted + empty/whitespace → spec-approved
-        commitIntent = "spec-approved" as PendingCommitIntent
-      } else if (codeDirty) {
-        // codeDirty + no FEEDBACK → spec-fix; count trailing Gtd-Spec-Review only
-        const trailingSpecReview = countTrailing(messages, (m) => /^Gtd-Spec-Review:/m.test(m))
-        specReviewNumber = trailingSpecReview + 1
-        commitIntent = "spec-fix" as PendingCommitIntent
-      }
-    } else if (reviewDirty === "new") {
-      // human-review: a new REVIEW.md was written by the agent
-      commitIntent = "human-review"
-    } else if (todoEntry?.status.includes("D") && hasPackages) {
-      // decompose: TODO.md was deleted AND packages exist
-      commitIntent = "decompose"
-      packageCount = packages.length
-    } else if (codeDirty && packages.length > 0 && packages[0]!.hasCommitMsg) {
-      // execute: code is dirty and lowest package has a COMMIT_MSG.md
-      commitIntent = "execute"
-      packageCommitMsg = yield* fs
-        .readFileString(`${GTD_DIR}/${packages[0]!.name}/COMMIT_MSG.md`)
-        .pipe(Effect.mapError((e) => new Error(String(e))))
-    }
-    // codeDirty && no packages => commitIntent left UNSET
-
-    const payload = {
-      errorsPresent,
-      reviewModified,
-      reviewUnmodified,
-      reviewHasUncheckedBoxes,
-      reviewHasRealFeedback,
-      codeDirty,
-      hasPackages,
-      gtdDirExists,
-      todoDirty,
+    const payload: ResolvePayload = {
       todoExists,
-      planPhase,
-      todoOpenQuestionsPresent,
-      reviewPresent: reviewExists,
-      reviewBasePresent,
+      gtdDirExists,
+      reviewPresent,
+      feedbackPresent,
+      errorsPresent,
+      gtdModified,
+      codeDirty,
+      todoMarkerPresent,
+      feedbackCommitted,
+      feedbackEmpty,
+      feedbackContent,
+      reviewCommitted,
       reviewDirty,
-      agenticReviewEnabled: config.agenticReview,
-      maxAgenticCycles: config.agenticReviewMaxCycles,
-      specFixPending,
+      pendingErrorsDeletion,
       lastCommitSubject,
       workingTreeClean,
       packages,
       diff,
-      ...(computedBaseRef !== undefined ? { baseRef: computedBaseRef } : {}),
+      ...(reviewBase !== undefined ? { reviewBase } : {}),
       ...(refDiff !== undefined ? { refDiff } : {}),
-      ...(commitIntent !== undefined ? { commitIntent } : {}),
-      ...(packageCommitMsg !== undefined ? { packageCommitMsg } : {}),
-      ...(packageCount !== undefined ? { packageCount } : {}),
-      ...(specDiff !== undefined ? { specDiff } : {}),
-      ...(specReviewNumber !== undefined ? { specReviewNumber } : {}),
-      ...(reviewBaseHash !== undefined ? { reviewBaseHash } : {}),
-    } as unknown as ResolvePayload
+      agenticReviewEnabled: config.agenticReview,
+      fixAttemptCap: config.fixAttemptCap,
+      reviewThreshold: config.reviewThreshold,
+    }
 
-    return [...commitEvents, { type: "RESOLVE", payload }] as ReadonlyArray<GtdEvent>
-  })
+    const resolveEvent: GtdEvent = { type: "RESOLVE", payload }
+    return [...commitEvents, resolveEvent]
+  }).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
+
+/**
+ * Execute the side effect the machine's `resolve()` chose. The driver performs
+ * this, then re-gathers + re-resolves. Each case maps to the primitives in
+ * Git.ts / the FileSystem; the machine only decides *which* action.
+ */
+export const perform = (
+  action: EdgeAction,
+): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | TestRunner> =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    const fs = yield* FileSystem.FileSystem
+
+    switch (action.kind) {
+      // Transport: mixed-reset the hand-made `gtd: transport` HEAD, keeping the
+      // work in the tree, then re-derive. (No producer command — consume only.)
+      case "transportReset": {
+        yield* git.mixedResetHead()
+        return
+      }
+
+      // New Feature: capture the raw input as `gtd: new task` (unless HEAD is
+      // already there — the lost-seed regenerate case), revert it back to a
+      // clean baseline (inverse staged), and seed TODO.md from that diff.
+      case "seedNewFeature": {
+        const subject = yield* git
+          .lastCommitSubject()
+          .pipe(Effect.catchAll(() => Effect.succeed("")))
+        if (subject !== NEW_TASK_SUBJECT) {
+          yield* git.commitAllWithPrefix(NEW_TASK_SUBJECT)
+        }
+        const captured = yield* git
+          .diffRef("HEAD~1")
+          .pipe(Effect.catchAll(() => Effect.succeed("")))
+        yield* git.revertNoCommit("HEAD")
+        yield* fs.writeFileString(TODO_FILE, seedTodo(captured))
+        return
+      }
+
+      // Accept Review: seed TODO.md from the human's pending changeset, discard
+      // their code edits back to the reviewed baseline, and rm REVIEW.md (which
+      // is what stops Accept Review re-firing). All left uncommitted.
+      case "seedAcceptReview": {
+        const changeset = yield* git
+          .diffHead()
+          .pipe(Effect.catchAll(() => Effect.succeed("")))
+        yield* git.checkoutAll()
+        yield* fs.remove(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.void))
+        yield* fs.writeFileString(TODO_FILE, seedTodo(changeset))
+        return
+      }
+
+      // Testing: commit the pending tree `gtd: building` (nothing pending in the
+      // no-op-fixer case), run tests; on red write FEEDBACK (below cap) or ERRORS
+      // (at cap) and commit `gtd: errors`; on green proceed.
+      case "runTest": {
+        const runner = yield* TestRunner
+        const status = yield* git.statusPorcelain()
+        // A clean tree means nothing was committed as `gtd: building` below — the
+        // only such entry into Testing is the no-op fixer (clean tree, HEAD
+        // `gtd: fixing`).
+        const committedBuilding = status.trim().length > 0
+        if (committedBuilding) {
+          yield* git.commitAllWithPrefix(BUILDING_SUBJECT)
+        }
+        const result = yield* runner.run()
+        if (result.exitCode === 0) {
+          // No-op-fixer green re-test: nothing was committed above, so HEAD is
+          // still `gtd: fixing`; gather→resolve would re-detect Testing forever.
+          // Commit an empty `gtd: building` to advance HEAD off `gtd: fixing` so
+          // the next resolve reaches Agentic Review (STATES.md § Testing "green →
+          // proceed"). The normal green path already committed `gtd: building`.
+          if (!committedBuilding) {
+            yield* git.commitAllWithPrefix(BUILDING_SUBJECT)
+          }
+          return
+        }
+        const target = action.capReached ? ERRORS_FILE : FEEDBACK_FILE
+        yield* fs.writeFileString(target, result.output)
+        yield* git.commitAllWithPrefix(ERRORS_SUBJECT)
+        return
+      }
+
+      // Grilling / Grilled / Planning / Fixing: commit the pending tree under a
+      // fixed phase prefix. Fixing sets `removeFeedback` so FEEDBACK.md's removal
+      // lands in the `gtd: fixing` / `gtd: feedback` commit — otherwise the next
+      // run re-detects FEEDBACK (precedence 2) and Fixing re-fires forever instead
+      // of returning to Testing (STATES.md § Fixing).
+      case "commitPending": {
+        if (action.removeFeedback === true) {
+          yield* fs.remove(FEEDBACK_FILE).pipe(Effect.catchAll(() => Effect.void))
+        }
+        yield* git.commitAllWithPrefix(action.prefix)
+        return
+      }
+
+      // Close package: remove the (maybe-empty / maybe-absent) FEEDBACK.md, rm
+      // the first (finished) package dir (+ the now-empty `.gtd/`), commit
+      // `gtd: package done`. Tolerates an absent FEEDBACK.md (force-approve).
+      case "closePackage": {
+        yield* fs.remove(FEEDBACK_FILE).pipe(Effect.catchAll(() => Effect.void))
+        const packages = yield* getPackages(fs)
+        const first = packages[0]
+        if (first !== undefined) {
+          yield* git.removePackageDir(`${GTD_DIR}/${first.name}`)
+        }
+        yield* git.commitAllWithPrefix(PACKAGE_DONE_SUBJECT)
+        return
+      }
+
+      // Await Review: commit REVIEW.md as `gtd: awaiting review`.
+      case "commitReview": {
+        yield* git.commitAllWithPrefix(AWAITING_REVIEW_SUBJECT)
+        return
+      }
+
+      // Done: rm REVIEW.md, commit `gtd: done`.
+      case "done": {
+        yield* fs.remove(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.void))
+        yield* git.commitAllWithPrefix(DONE_SUBJECT)
+        return
+      }
+    }
+  }).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))

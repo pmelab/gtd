@@ -1,833 +1,472 @@
 import { describe, expect, it } from "vitest"
 import {
+  type EdgeAction,
   type GtdEvent,
-  MAX_NO_AGENT_HOPS,
-  MAX_VERIFY_ITERATIONS,
   type ResolvePayload,
+  foldCounters,
+  GtdStateError,
   resolve,
-  start,
 } from "./Machine.js"
 
+// ── Builders (events constructed directly, like the old basePayload/commit) ──
+
 const commit = (
-  isTestFix: boolean,
-  isPlanGrill = false,
-  extra: {
-    isSpecReview?: boolean
+  flags: {
+    isErrors?: boolean
+    isFeedback?: boolean
+    isPackageStart?: boolean
     isWorkflowCommit?: boolean
+    removedErrors?: boolean
   } = {},
 ): GtdEvent => ({
   type: "COMMIT",
-  isTestFix,
-  isPlanGrill,
-  isSpecReview: extra.isSpecReview ?? false,
-  isWorkflowCommit: extra.isWorkflowCommit ?? true,
+  isErrors: flags.isErrors ?? false,
+  isFeedback: flags.isFeedback ?? false,
+  isPackageStart: flags.isPackageStart ?? false,
+  isWorkflowCommit: flags.isWorkflowCommit ?? true,
+  removedErrors: flags.removedErrors ?? false,
 })
 
-const basePayload = (overrides: Partial<ResolvePayload>): ResolvePayload => ({
-  errorsPresent: false,
-  reviewHasUncheckedBoxes: false,
-  reviewHasRealFeedback: false,
-  reviewModified: false,
-  reviewUnmodified: false,
-  codeDirty: false,
-  hasPackages: false,
-  gtdDirExists: false,
-  todoDirty: null,
+const basePayload = (overrides: Partial<ResolvePayload> = {}): ResolvePayload => ({
   todoExists: false,
-  planPhase: null,
-  todoOpenQuestionsPresent: false,
+  gtdDirExists: false,
   reviewPresent: false,
-  reviewBasePresent: false,
-  agenticReviewEnabled: false,
-  maxAgenticCycles: 3,
-  specFixPending: false,
+  feedbackPresent: false,
+  errorsPresent: false,
+  gtdModified: false,
+  codeDirty: false,
+  todoMarkerPresent: false,
+  feedbackCommitted: false,
+  feedbackEmpty: false,
+  feedbackContent: "",
+  reviewCommitted: false,
+  reviewDirty: false,
+  pendingErrorsDeletion: false,
   lastCommitSubject: "chore: init",
   workingTreeClean: true,
   packages: [],
   diff: "",
-  reviewDirty: null,
+  agenticReviewEnabled: true,
+  fixAttemptCap: 3,
+  reviewThreshold: 3,
   ...overrides,
 })
 
-const resolveEvent = (overrides: Partial<ResolvePayload>): GtdEvent => ({
+const R = (overrides: Partial<ResolvePayload> = {}): GtdEvent => ({
   type: "RESOLVE",
   payload: basePayload(overrides),
 })
 
-describe("resolve — COMMIT counter folding", () => {
+// ── Counter folds ────────────────────────────────────────────────────────────
+
+describe("foldCounters — testFixCount", () => {
   it("empty stream → 0", () => {
-    const { context } = resolve([])
-    expect(context.verifyIterations).toBe(0)
+    expect(foldCounters([]).testFixCount).toBe(0)
+    expect(resolve([]).context.testFixCount).toBe(0)
   })
 
-  it("N trailing isTestFix:true → N", () => {
-    const { context } = resolve([commit(true), commit(true), commit(true)])
-    expect(context.verifyIterations).toBe(3)
+  it("N trailing isErrors → N", () => {
+    const events = [commit({ isErrors: true }), commit({ isErrors: true }), commit({ isErrors: true })]
+    expect(foldCounters(events).testFixCount).toBe(3)
   })
 
-  it("reset: [fix, fix, non-fix, fix] → 1", () => {
-    const { context } = resolve([commit(true), commit(true), commit(false), commit(true)])
-    expect(context.verifyIterations).toBe(1)
+  it("walks through non-error workflow commits without resetting", () => {
+    // gtd: errors, gtd: fixing (walk-through), gtd: errors → 2
+    const events = [commit({ isErrors: true }), commit(), commit({ isErrors: true })]
+    expect(foldCounters(events).testFixCount).toBe(2)
   })
 
-  it("[fix, fix, fix] → 3", () => {
-    const { context } = resolve([commit(true), commit(true), commit(true)])
-    expect(context.verifyIterations).toBe(3)
-  })
-})
-
-describe("resolve — planEverGrilled fold", () => {
-  it("no COMMIT events → planEverGrilled false", () => {
-    const { context } = resolve([])
-    expect(context.planEverGrilled).toBe(false)
+  it("resets on isPackageStart", () => {
+    const events = [commit({ isErrors: true }), commit({ isPackageStart: true }), commit({ isErrors: true })]
+    expect(foldCounters(events).testFixCount).toBe(1)
   })
 
-  it("COMMIT with isPlanGrill:false → planEverGrilled stays false", () => {
-    const { context } = resolve([commit(false, false), commit(true, false)])
-    expect(context.planEverGrilled).toBe(false)
+  it("resets on isFeedback", () => {
+    const events = [commit({ isErrors: true }), commit({ isFeedback: true }), commit({ isErrors: true })]
+    expect(foldCounters(events).testFixCount).toBe(1)
   })
 
-  it("COMMIT with isPlanGrill:true → planEverGrilled becomes true (sticky)", () => {
-    const { context } = resolve([commit(false, false), commit(false, true), commit(false, false)])
-    expect(context.planEverGrilled).toBe(true)
-  })
-
-  it("planEverGrilled stays true after a non-grill COMMIT follows a grill one", () => {
-    const { context } = resolve([commit(false, true), commit(false, false)])
-    expect(context.planEverGrilled).toBe(true)
+  it("resets on removedErrors (human resume) commit", () => {
+    const events = [
+      commit({ isErrors: true }),
+      commit({ isErrors: true }),
+      commit({ removedErrors: true }), // gtd: building that deleted ERRORS.md
+      commit({ isErrors: true }),
+    ]
+    expect(foldCounters(events).testFixCount).toBe(1)
   })
 })
 
-describe("resolve — RESOLVE leaf + tag priority", () => {
-  it("reviewModified + real feedback (no outside code dirty) → review-process, autoAdvance true", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({
-        reviewModified: true,
-        reviewHasUncheckedBoxes: false,
-        reviewHasRealFeedback: true,
-        codeDirty: false,
-        hasPackages: true,
-        gtdDirExists: true,
-      }),
-    ])
-    expect(value).toBe("review-process")
-    expect(autoAdvance).toBe(true)
+describe("foldCounters — reviewFixCount", () => {
+  it("counts isFeedback since the most recent isPackageStart", () => {
+    const events = [
+      commit({ isPackageStart: true }),
+      commit({ isFeedback: true }),
+      commit({ isFeedback: true }),
+    ]
+    expect(foldCounters(events).reviewFixCount).toBe(2)
   })
 
-  it("codeDirty wins over reviewModified (verbatim-first) → code-changes", () => {
-    const { value } = resolve([resolveEvent({ reviewModified: true, codeDirty: true })])
-    expect(value).toBe("code-changes")
+  it("resets on a later isPackageStart", () => {
+    const events = [
+      commit({ isFeedback: true }),
+      commit({ isPackageStart: true }),
+      commit({ isFeedback: true }),
+    ]
+    expect(foldCounters(events).reviewFixCount).toBe(1)
   })
 
-  it("codeDirty → code-changes, autoAdvance true", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({
-        reviewModified: false,
-        codeDirty: true,
-        hasPackages: true,
-        gtdDirExists: true,
-      }),
-    ])
-    expect(value).toBe("code-changes")
-    expect(autoAdvance).toBe(true)
-  })
-
-  it("hasPackages → runTestGate first (edgeAction runTestGate), then green TEST_RESULT → execute", () => {
-    const handle = start([
-      resolveEvent({
-        reviewModified: false,
-        codeDirty: false,
-        hasPackages: true,
-        gtdDirExists: true,
-      }),
-    ])
-    // Settles on the gate, not execute yet.
-    expect(handle.current.value).toBe("execute")
-    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
-    expect(handle.current.autoAdvance).toBe(false)
-    // Green test → execute leaf, no edgeAction, auto-advance.
-    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
-    expect(after.value).toBe("execute")
-    expect(after.edgeAction).toBeUndefined()
-    expect(after.autoAdvance).toBe(true)
-  })
-
-  it("gtdDirExists only → cleanup, autoAdvance true", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({
-        reviewModified: false,
-        codeDirty: false,
-        hasPackages: false,
-        gtdDirExists: true,
-      }),
-    ])
-    expect(value).toBe("cleanup")
-    expect(autoAdvance).toBe(true)
-  })
-
-  it("planPhase complete → decompose, autoAdvance true", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({ todoExists: true, planPhase: "complete" }),
-    ])
-    expect(value).toBe("decompose")
-    expect(autoAdvance).toBe(true)
-  })
-
-  it("errorsPresent → escalate, autoAdvance false", () => {
-    const { value, autoAdvance } = resolve([resolveEvent({ errorsPresent: true })])
-    expect(value).toBe("escalate")
-    expect(autoAdvance).toBe(false)
-  })
-
-  it("planPhase grilling + clean + open questions → await-answers gate, autoAdvance false", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({
-        todoExists: true,
-        planPhase: "grilling",
-        todoDirty: null,
-        todoOpenQuestionsPresent: true,
-      }),
-    ])
-    expect(value).toBe("await-answers")
-    expect(autoAdvance).toBe(false)
-  })
-
-  it("todoDirty modified → modified-todo (re-grill)", () => {
-    const { value } = resolve([resolveEvent({ todoExists: true, todoDirty: "modified" })])
-    expect(value).toBe("modified-todo")
-  })
-
-  it("todoExists + no planEverGrilled + not modified → new-todo (first grill)", () => {
-    const { value } = resolve([resolveEvent({ todoExists: true, todoDirty: null })])
-    expect(value).toBe("new-todo")
-  })
-
-  it("todoExists + planEverGrilled (from COMMIT) + not modified → verified (no re-grill)", () => {
-    const { value } = resolve([
-      commit(false, true),
-      resolveEvent({ todoExists: true, todoDirty: null }),
-    ])
-    expect(value).toBe("verified")
-  })
-
-  it("reviewUnmodified → await-review gate, autoAdvance false", () => {
-    const { value, autoAdvance } = resolve([resolveEvent({ reviewUnmodified: true })])
-    expect(value).toBe("await-review")
-    expect(autoAdvance).toBe(false)
-  })
-
-  it("reviewPresent + reviewModified + codeDirty → review-process (not code-changes)", () => {
-    const { value } = resolve([
-      resolveEvent({
-        reviewPresent: true,
-        reviewModified: true,
-        reviewHasUncheckedBoxes: false,
-        reviewHasRealFeedback: true,
-        codeDirty: true,
-      }),
-    ])
-    expect(value).toBe("review-process")
-  })
-
-  it("reviewPresent + reviewUnmodified + codeDirty → await-review (not code-changes)", () => {
-    const { value } = resolve([
-      resolveEvent({ reviewPresent: true, reviewUnmodified: true, codeDirty: true }),
-    ])
-    expect(value).toBe("await-review")
-  })
-
-  it("codeDirty + !reviewPresent → code-changes (regression)", () => {
-    const { value } = resolve([resolveEvent({ codeDirty: true, reviewPresent: false })])
-    expect(value).toBe("code-changes")
-  })
-
-  it("counter ≥ cap → escalate, autoAdvance false", () => {
-    const events: Array<GtdEvent> = []
-    for (let i = 0; i < MAX_VERIFY_ITERATIONS; i++) events.push(commit(true))
-    events.push(resolveEvent({ todoDirty: "new" }))
-    const { value, autoAdvance } = resolve(events)
-    expect(value).toBe("escalate")
-    expect(autoAdvance).toBe(false)
-  })
-
-  it('todoDirty "new" → new-todo, autoAdvance true', () => {
-    const { value, autoAdvance } = resolve([resolveEvent({ todoExists: true, todoDirty: "new" })])
-    expect(value).toBe("new-todo")
-    expect(autoAdvance).toBe(true)
-  })
-
-  it('todoDirty "new" + planEverGrilled → new-todo (fresh TODO.md after review cycle)', () => {
-    const { value } = resolve([
-      commit(false, true),
-      resolveEvent({ todoExists: true, todoDirty: "new" }),
-    ])
-    expect(value).toBe("new-todo")
-  })
-
-  it('todoDirty "modified" → modified-todo, autoAdvance true', () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({ todoExists: true, todoDirty: "modified" }),
-    ])
-    expect(value).toBe("modified-todo")
-    expect(autoAdvance).toBe(true)
-  })
-
-  it("clean + reviewBasePresent + non-empty refDiff → human-review, autoAdvance true", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({
-        reviewBasePresent: true,
-        refDiff: "diff --git a/x b/x\n+hello\n",
-        baseRef: "abc123",
-      }),
-    ])
-    expect(value).toBe("human-review")
-    expect(autoAdvance).toBe(true)
-  })
-
-  it("clean + no review base → verified, autoAdvance false", () => {
-    const { value, autoAdvance } = resolve([resolveEvent({ reviewBasePresent: false })])
-    expect(value).toBe("verified")
-    expect(autoAdvance).toBe(false)
-  })
-
-  it("reviewBasePresent true but whitespace-only refDiff → verified (not human-review)", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({ reviewBasePresent: true, refDiff: "   \n  ", baseRef: "abc123" }),
-    ])
-    expect(value).toBe("verified")
-    expect(autoAdvance).toBe(false)
-  })
-
-  it("reviewBasePresent true but empty refDiff → verified (not human-review)", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({ reviewBasePresent: true, refDiff: "", baseRef: "abc123" }),
-    ])
-    expect(value).toBe("verified")
-    expect(autoAdvance).toBe(false)
-  })
-
-  it("reviewModified + reviewHasUncheckedBoxes → review-incomplete, autoAdvance false", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({ reviewModified: true, reviewHasUncheckedBoxes: true }),
-    ])
-    expect(value).toBe("review-incomplete")
-    expect(autoAdvance).toBe(false)
-  })
-
-  it("reviewModified + allChecked + no real feedback → close-review, autoAdvance true", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({
-        reviewModified: true,
-        reviewHasUncheckedBoxes: false,
-        reviewHasRealFeedback: false,
-      }),
-    ])
-    expect(value).toBe("close-review")
-    expect(autoAdvance).toBe(true)
-  })
-
-  it("reviewModified + allChecked + real feedback → review-process, autoAdvance true", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({
-        reviewModified: true,
-        reviewHasUncheckedBoxes: false,
-        reviewHasRealFeedback: true,
-      }),
-    ])
-    expect(value).toBe("review-process")
-    expect(autoAdvance).toBe(true)
-  })
-
-  it("ordering regression: unchecked-boxes wins over real feedback → review-incomplete", () => {
-    const { value, autoAdvance } = resolve([
-      resolveEvent({
-        reviewModified: true,
-        reviewHasUncheckedBoxes: true,
-        reviewHasRealFeedback: true,
-      }),
-    ])
-    expect(value).toBe("review-incomplete")
-    expect(autoAdvance).toBe(false)
+  it("is independent of testFixCount (errors don't touch it)", () => {
+    const events = [commit({ isFeedback: true }), commit({ isErrors: true }), commit({ isErrors: true })]
+    const { reviewFixCount, testFixCount } = foldCounters(events)
+    expect(reviewFixCount).toBe(1)
+    expect(testFixCount).toBe(2)
   })
 })
 
-describe("resolve — counter-vs-escalate interaction", () => {
-  it("cap-many fix(gtd) COMMITs then a RESOLVE that would otherwise verify → escalate wins", () => {
-    const events: Array<GtdEvent> = []
-    for (let i = 0; i < MAX_VERIFY_ITERATIONS; i++) events.push(commit(true))
-    events.push(resolveEvent({ reviewBasePresent: false }))
-    const { value } = resolve(events)
-    expect(value).toBe("escalate")
-  })
+// ── Illegal-combination hard-errors ──────────────────────────────────────────
 
-  it("below cap then a verified RESOLVE → verified (not escalate)", () => {
-    const events: Array<GtdEvent> = []
-    for (let i = 0; i < MAX_VERIFY_ITERATIONS - 1; i++) events.push(commit(true))
-    events.push(resolveEvent({ reviewBasePresent: false }))
-    const { value } = resolve(events)
-    expect(value).toBe("verified")
-  })
+describe("illegal-combination hard-errors (throw before the ladder)", () => {
+  const cases: Array<[string, Partial<ResolvePayload>]> = [
+    ["REVIEW + .gtd", { reviewPresent: true, gtdDirExists: true }],
+    ["REVIEW + TODO", { reviewPresent: true, todoExists: true }],
+    ["FEEDBACK + REVIEW", { feedbackPresent: true, reviewPresent: true }],
+    ["FEEDBACK without .gtd", { feedbackPresent: true, gtdDirExists: false }],
+    ["ERRORS + FEEDBACK", { errorsPresent: true, feedbackPresent: true, gtdDirExists: true }],
+    ["ERRORS without .gtd", { errorsPresent: true, gtdDirExists: false }],
+  ]
+  for (const [name, payload] of cases) {
+    it(`throws on ${name}`, () => {
+      expect(() => resolve([R(payload)])).toThrow(GtdStateError)
+      try {
+        resolve([R(payload)])
+      } catch (e) {
+        expect((e as GtdStateError).kind).toBe("illegal-combination")
+      }
+    })
+  }
+})
 
-  it("at cap, escalate wins over human-review", () => {
-    const events: Array<GtdEvent> = []
-    for (let i = 0; i < MAX_VERIFY_ITERATIONS; i++) events.push(commit(true))
-    events.push(
-      resolveEvent({
-        reviewBasePresent: true,
-        refDiff: "diff --git a/x b/x\n+hi\n",
-        baseRef: "abc",
-      }),
+// ── Corruption hard-error ────────────────────────────────────────────────────
+
+describe("corruption hard-error (no rule matched)", () => {
+  it(".gtd present + clean + unrecognized HEAD → corruption", () => {
+    expect(() => resolve([R({ gtdDirExists: true, lastCommitSubject: "gtd: grilled" })])).toThrow(
+      GtdStateError,
     )
-    expect(resolve(events).value).toBe("escalate")
+    try {
+      resolve([R({ gtdDirExists: true, lastCommitSubject: "gtd: grilled" })])
+    } catch (e) {
+      expect((e as GtdStateError).kind).toBe("corruption")
+    }
   })
 
-  it("at cap, escalate wins over modified-todo", () => {
-    const events: Array<GtdEvent> = []
-    for (let i = 0; i < MAX_VERIFY_ITERATIONS; i++) events.push(commit(true))
-    events.push(resolveEvent({ todoDirty: "modified" }))
-    expect(resolve(events).value).toBe("escalate")
+  it("dirty tree + mid-phase HEAD + no steering → corruption", () => {
+    expect(() =>
+      resolve([R({ codeDirty: true, workingTreeClean: false, lastCommitSubject: "gtd: package done" })]),
+    ).toThrow(GtdStateError)
   })
 
-  it("widened packages fact (taskContents + hasCommitMsg) survives applyPayload", () => {
-    const { context } = resolve([
-      resolveEvent({
-        hasPackages: true,
-        gtdDirExists: true,
-        packages: [
-          {
-            name: "01-foo",
-            tasks: ["01-task.md"],
-            taskContents: [{ name: "01-task.md", content: "# Task body\n" }],
-            hasCommitMsg: true,
-          },
-        ],
-      }),
+  it("clean tree + mid-phase non-boundary HEAD + no steering → corruption", () => {
+    expect(() => resolve([R({ lastCommitSubject: "gtd: building" })])).toThrow(GtdStateError)
+  })
+})
+
+// ── The 16 states ────────────────────────────────────────────────────────────
+
+const r = (overrides: Partial<ResolvePayload> = {}): ReturnType<typeof resolve> => resolve([R(overrides)])
+
+describe("rule 0 — Transport", () => {
+  it("HEAD gtd: transport → transport, auto, transportReset", () => {
+    const res = r({ lastCommitSubject: "gtd: transport" })
+    expect(res.state).toBe("transport")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({ kind: "transportReset" } satisfies EdgeAction)
+  })
+
+  it("transport wins even with dirty tree", () => {
+    expect(r({ lastCommitSubject: "gtd: transport", codeDirty: true, workingTreeClean: false }).state).toBe(
+      "transport",
+    )
+  })
+})
+
+describe("rule 1 — Escalate", () => {
+  it("errorsPresent → escalate, STOP, no edgeAction", () => {
+    const res = r({ errorsPresent: true, gtdDirExists: true })
+    expect(res.state).toBe("escalate")
+    expect(res.autoAdvance).toBe(false)
+    expect(res.edgeAction).toBeUndefined()
+  })
+})
+
+describe("rule 2 — Fixing / Close package", () => {
+  it("empty FEEDBACK → close-package, auto, closePackage", () => {
+    const res = r({ feedbackPresent: true, feedbackEmpty: true, gtdDirExists: true })
+    expect(res.state).toBe("close-package")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({ kind: "closePackage" } satisfies EdgeAction)
+  })
+
+  it("uncommitted (agentic) FEEDBACK → fixing, commitPending gtd: feedback (removeFeedback)", () => {
+    const res = r({ feedbackPresent: true, feedbackCommitted: false, gtdDirExists: true })
+    expect(res.state).toBe("fixing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({
+      kind: "commitPending",
+      prefix: "gtd: feedback",
+      removeFeedback: true,
+    })
+  })
+
+  it("committed (testing) FEEDBACK → fixing, commitPending gtd: fixing (removeFeedback)", () => {
+    const res = r({ feedbackPresent: true, feedbackCommitted: true, gtdDirExists: true })
+    expect(res.state).toBe("fixing")
+    expect(res.edgeAction).toEqual({
+      kind: "commitPending",
+      prefix: "gtd: fixing",
+      removeFeedback: true,
+    })
+  })
+})
+
+describe("rule 3 — build lifecycle", () => {
+  it("gtdModified → planning, commitPending gtd: planning", () => {
+    const res = r({ gtdDirExists: true, gtdModified: true, workingTreeClean: false })
+    expect(res.state).toBe("planning")
+    expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: planning" })
+  })
+
+  it("codeDirty → testing, runTest with folded budget", () => {
+    const res = resolve([
+      commit({ isErrors: true }),
+      commit({ isErrors: true }),
+      R({ gtdDirExists: true, codeDirty: true, workingTreeClean: false }),
     ])
-    expect(context.packages[0]!.taskContents).toEqual([
-      { name: "01-task.md", content: "# Task body\n" },
-    ])
-    expect(context.packages[0]!.hasCommitMsg).toBe(true)
+    expect(res.state).toBe("testing")
+    expect(res.edgeAction).toEqual({ kind: "runTest", errorCount: 2, capReached: false })
   })
 
-  it("passthrough context fields are carried onto the leaf", () => {
+  it("testing capReached when testFixCount >= fixAttemptCap", () => {
+    const res = resolve([
+      commit({ isErrors: true }),
+      commit({ isErrors: true }),
+      commit({ isErrors: true }),
+      R({ gtdDirExists: true, codeDirty: true, workingTreeClean: false }),
+    ])
+    expect(res.edgeAction).toEqual({ kind: "runTest", errorCount: 3, capReached: true })
+  })
+
+  it("no-op fixer (clean + HEAD gtd: fixing) → testing", () => {
+    const res = r({ gtdDirExists: true, lastCommitSubject: "gtd: fixing" })
+    expect(res.state).toBe("testing")
+    expect(res.edgeAction).toEqual({ kind: "runTest", errorCount: 0, capReached: false })
+  })
+
+  it("pendingErrorsDeletion (human resume) → testing with a fresh budget (errorCount 0)", () => {
+    // Even with a capped history, resume grants a fresh budget.
+    const res = resolve([
+      commit({ isErrors: true }),
+      commit({ isErrors: true }),
+      commit({ isErrors: true }),
+      R({ gtdDirExists: true, pendingErrorsDeletion: true, workingTreeClean: false }),
+    ])
+    expect(res.state).toBe("testing")
+    expect(res.edgeAction).toEqual({ kind: "runTest", errorCount: 0, capReached: false })
+  })
+
+  it("clean + HEAD gtd: planning → building, no edgeAction", () => {
+    const res = r({ gtdDirExists: true, lastCommitSubject: "gtd: planning" })
+    expect(res.state).toBe("building")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toBeUndefined()
+  })
+
+  it("clean + HEAD gtd: package done → building", () => {
+    expect(r({ gtdDirExists: true, lastCommitSubject: "gtd: package done" }).state).toBe("building")
+  })
+
+  it("clean + HEAD gtd: building → agentic-review, no edgeAction", () => {
+    const res = r({ gtdDirExists: true, lastCommitSubject: "gtd: building" })
+    expect(res.state).toBe("agentic-review")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toBeUndefined()
+  })
+
+  it("force-approve when agenticReview disabled → close-package", () => {
+    const res = r({ gtdDirExists: true, lastCommitSubject: "gtd: building", agenticReviewEnabled: false })
+    expect(res.state).toBe("close-package")
+    expect(res.edgeAction).toEqual({ kind: "closePackage" })
+  })
+
+  it("force-approve when reviewFixCount >= reviewThreshold → close-package", () => {
+    const res = resolve([
+      commit({ isPackageStart: true }),
+      commit({ isFeedback: true }),
+      commit({ isFeedback: true }),
+      commit({ isFeedback: true }),
+      R({ gtdDirExists: true, lastCommitSubject: "gtd: building", agenticReviewEnabled: true }),
+    ])
+    expect(res.state).toBe("close-package")
+  })
+
+  it("below threshold + enabled → still agentic-review (never skipped)", () => {
+    const res = resolve([
+      commit({ isPackageStart: true }),
+      commit({ isFeedback: true }),
+      commit({ isFeedback: true }),
+      R({ gtdDirExists: true, lastCommitSubject: "gtd: building", agenticReviewEnabled: true }),
+    ])
+    expect(res.state).toBe("agentic-review")
+  })
+})
+
+describe("rule 4 — review lifecycle", () => {
+  it("uncommitted REVIEW → await-review, STOP, commitReview", () => {
+    const res = r({ reviewPresent: true, reviewCommitted: false, reviewDirty: false })
+    expect(res.state).toBe("await-review")
+    expect(res.autoAdvance).toBe(false)
+    expect(res.edgeAction).toEqual({ kind: "commitReview" })
+  })
+
+  it("committed + clean REVIEW → done, auto, done", () => {
+    const res = r({ reviewPresent: true, reviewCommitted: true })
+    expect(res.state).toBe("done")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({ kind: "done" })
+  })
+
+  it("committed + dirty REVIEW → accept-review, auto, seedAcceptReview", () => {
+    const res = r({ reviewPresent: true, reviewCommitted: false, reviewDirty: true })
+    expect(res.state).toBe("accept-review")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({ kind: "seedAcceptReview" })
+  })
+})
+
+describe("rule 5 — New Feature", () => {
+  it("boundary HEAD + dirty (code changes) → new-feature, seedNewFeature", () => {
+    const res = r({ lastCommitSubject: "feat: x", codeDirty: true, workingTreeClean: false })
+    expect(res.state).toBe("new-feature")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({ kind: "seedNewFeature" })
+  })
+
+  it("boundary HEAD + new uncommitted TODO.md → new-feature", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      todoExists: true,
+      workingTreeClean: false,
+    })
+    expect(res.state).toBe("new-feature")
+  })
+
+  it("HEAD gtd: new task + clean tree (lost seed) → new-feature (regenerate)", () => {
+    const res = r({ lastCommitSubject: "gtd: new task", workingTreeClean: true })
+    expect(res.state).toBe("new-feature")
+  })
+
+  it("HEAD gtd: new task + dirty tree → grilling (commit the seed), not new-feature", () => {
+    const res = r({ lastCommitSubject: "gtd: new task", todoExists: true, workingTreeClean: false })
+    expect(res.state).toBe("grilling")
+  })
+})
+
+describe("rule 6 — Grilling / Grilled (3-way)", () => {
+  it("marker present → grilling STOP, grillingCase stop", () => {
+    const res = r({ todoExists: true, todoMarkerPresent: true })
+    expect(res.state).toBe("grilling")
+    expect(res.autoAdvance).toBe(false)
+    expect(res.context.grillingCase).toBe("stop")
+    expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilling" })
+  })
+
+  it("no marker + pending (mid-grill HEAD) → grilling iterate, auto", () => {
+    const res = r({
+      todoExists: true,
+      todoMarkerPresent: false,
+      workingTreeClean: false,
+      lastCommitSubject: "gtd: grilling",
+    })
+    expect(res.state).toBe("grilling")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.context.grillingCase).toBe("iterate")
+    expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilling" })
+  })
+
+  it("no marker + clean → grilled, auto, commitPending gtd: grilled", () => {
+    const res = r({
+      todoExists: true,
+      todoMarkerPresent: false,
+      workingTreeClean: true,
+      lastCommitSubject: "gtd: grilling",
+    })
+    expect(res.state).toBe("grilled")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.context.grillingCase).toBeUndefined()
+    expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilled" })
+  })
+})
+
+describe("rule 7 — Clean / Idle", () => {
+  it("boundary HEAD + clean + reviewable diff → clean, STOP, no edgeAction", () => {
+    const res = r({
+      lastCommitSubject: "feat: shipped",
+      reviewBase: "abc123",
+      refDiff: "diff --git a/x b/x\n+hello\n",
+    })
+    expect(res.state).toBe("clean")
+    expect(res.autoAdvance).toBe(false)
+    expect(res.edgeAction).toBeUndefined()
+    expect(res.context.reviewBase).toBe("abc123")
+  })
+
+  it("gtd: package done HEAD + clean + reviewable → clean (finished feature)", () => {
+    const res = r({
+      lastCommitSubject: "gtd: package done",
+      reviewBase: "abc",
+      refDiff: "diff --git a/x b/x\n+y\n",
+    })
+    expect(res.state).toBe("clean")
+  })
+
+  it("HEAD gtd: done + clean + empty diff → idle, no edgeAction", () => {
+    const res = r({ lastCommitSubject: "gtd: done" })
+    expect(res.state).toBe("idle")
+    expect(res.autoAdvance).toBe(false)
+    expect(res.edgeAction).toBeUndefined()
+  })
+
+  it("reviewBase present but whitespace-only refDiff → idle (nothing to review)", () => {
+    const res = r({ lastCommitSubject: "feat: x", reviewBase: "abc", refDiff: "  \n " })
+    expect(res.state).toBe("idle")
+  })
+
+  it("resolve([]) → idle (degenerate input, no throw)", () => {
+    expect(resolve([]).state).toBe("idle")
+  })
+})
+
+// ── Context passthrough ──────────────────────────────────────────────────────
+
+describe("context passthrough + folds", () => {
+  it("carries packages, diff, refDiff, reviewBase, lastCommitSubject, workingTreeClean", () => {
     const { context } = resolve([
-      resolveEvent({
+      commit({ isErrors: true }),
+      R({
         lastCommitSubject: "feat: thing",
         workingTreeClean: false,
-        diff: "some diff",
-        baseRef: "ref1",
-        refDiff: "rd",
-        reviewBasePresent: true,
+        codeDirty: true,
+        gtdDirExists: true,
+        diff: "DIFF",
+        packages: [{ name: "01-foo", tasks: ["01-task.md"], taskContents: [{ name: "01-task.md", content: "body" }] }],
       }),
     ])
+    expect(context.testFixCount).toBe(1)
+    expect(context.reviewFixCount).toBe(0)
+    expect(context.diff).toBe("DIFF")
     expect(context.lastCommitSubject).toBe("feat: thing")
     expect(context.workingTreeClean).toBe(false)
-    expect(context.diff).toBe("some diff")
-    expect(context.baseRef).toBe("ref1")
-    expect(context.refDiff).toBe("rd")
-  })
-})
-
-describe("no-agent action leaves — edgeAction + loop-back", () => {
-  it("cleanup exposes removeGtdDir; next clearing RESOLVE advances + bumps noAgentHops", () => {
-    const handle = start([resolveEvent({ gtdDirExists: true, hasPackages: false })])
-    expect(handle.current.value).toBe("cleanup")
-    expect(handle.current.edgeAction).toEqual({ kind: "removeGtdDir" })
-    expect(handle.current.context.noAgentHops).toBe(0)
-    // .gtd removed → now clean with a review base, settles human-review.
-    const after = handle.advance([
-      resolveEvent({
-        gtdDirExists: false,
-        reviewBasePresent: true,
-        refDiff: "diff --git a/x b/x\n+hi\n",
-        baseRef: "abc",
-      }),
-    ])
-    expect(after.value).toBe("human-review")
-    expect(after.edgeAction).toBeUndefined()
-    expect(after.context.noAgentHops).toBe(1)
-  })
-
-  it("close-review exposes closeReview{base}; next RESOLVE advances + bumps noAgentHops", () => {
-    const handle = start([
-      resolveEvent({
-        reviewModified: true,
-        reviewHasUncheckedBoxes: false,
-        reviewHasRealFeedback: false,
-        baseRef: "base-sha",
-      }),
-    ])
-    expect(handle.current.value).toBe("close-review")
-    expect(handle.current.edgeAction).toEqual({ kind: "closeReview", base: "base-sha" })
-    const after = handle.advance([resolveEvent({ reviewBasePresent: false })])
-    expect(after.value).toBe("verified")
-    expect(after.context.noAgentHops).toBe(1)
-  })
-
-  it("code-changes exposes commitPending; next clean RESOLVE advances + bumps noAgentHops", () => {
-    const handle = start([resolveEvent({ codeDirty: true, reviewPresent: false })])
-    expect(handle.current.value).toBe("code-changes")
-    expect(handle.current.edgeAction).toEqual({ kind: "commitPending" })
-    const after = handle.advance([resolveEvent({ codeDirty: false, reviewBasePresent: false })])
-    expect(after.value).toBe("verified")
-    expect(after.context.noAgentHops).toBe(1)
-  })
-})
-
-describe("no-agent loop — cap + stuck escalation", () => {
-  it("noAgentHops >= MAX_NO_AGENT_HOPS → escalate", () => {
-    // Alternate code-changes ↔ cleanup so each hop makes progress (no `stuck`)
-    // and the hop counter climbs to the cap.
-    const codeChanges = resolveEvent({ codeDirty: true })
-    const cleanup = resolveEvent({ codeDirty: false, gtdDirExists: true })
-    const handle = start([codeChanges])
-    expect(handle.current.value).toBe("code-changes")
-    let last = handle.current
-    for (let i = 0; i < MAX_NO_AGENT_HOPS; i++) {
-      last = handle.advance([i % 2 === 0 ? cleanup : codeChanges])
-      if (last.value === "escalate") break
-    }
-    expect(last.value).toBe("escalate")
-    expect(last.context.noAgentHops).toBeGreaterThanOrEqual(MAX_NO_AGENT_HOPS)
-    expect(last.edgeAction).toBeUndefined()
-  })
-
-  it("stuck: re-settling on the same no-agent leaf with no progress → escalate", () => {
-    // close-review → next RESOLVE still close-review (no progress) → escalate.
-    const handle = start([
-      resolveEvent({
-        reviewModified: true,
-        reviewHasUncheckedBoxes: false,
-        reviewHasRealFeedback: false,
-        baseRef: "b",
-      }),
-    ])
-    expect(handle.current.value).toBe("close-review")
-    const after = handle.advance([
-      resolveEvent({
-        reviewModified: true,
-        reviewHasUncheckedBoxes: false,
-        reviewHasRealFeedback: false,
-        baseRef: "b",
-      }),
-    ])
-    expect(after.value).toBe("escalate")
-  })
-})
-
-describe("runTestGate — TEST_RESULT fold (moved from selectPrompt)", () => {
-  const gate = () => start([resolveEvent({ hasPackages: true, gtdDirExists: true })])
-
-  it("green → execute, no edgeAction", () => {
-    const after = gate().advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
-    expect(after.value).toBe("execute")
-    expect(after.edgeAction).toBeUndefined()
-  })
-
-  it("red below cap → fix-tests carrying testOutput", () => {
-    const after = gate().advance([
-      { type: "TEST_RESULT", exitCode: 1, output: "FAIL src/y.test.ts" },
-    ])
-    expect(after.value).toBe("fix-tests")
-    expect(after.context.testOutput).toBe("FAIL src/y.test.ts")
-    expect(after.edgeAction).toBeUndefined()
-  })
-
-  it("red just below cap (verify = max-1) → fix-tests, not escalate", () => {
-    // capReached precedes hasPackages in the chain, so the gate is only ever
-    // reached while verifyIterations < max; the gate's own red→fix-tests branch
-    // owns this case. (The gate's red≥cap→escalate branch exists for fidelity
-    // with the retired selectPrompt but is shadowed by replaying's capReached.)
-    const handle = start([
-      ...Array.from({ length: MAX_VERIFY_ITERATIONS - 1 }, () => commit(true)),
-      resolveEvent({ hasPackages: true, gtdDirExists: true }),
-    ])
-    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
-    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 1, output: "boom" }])
-    expect(after.value).toBe("fix-tests")
-    expect(after.context.testOutput).toBe("boom")
-  })
-
-  it("red at cap (verify >= max) → escalate via the gate fold", () => {
-    // hasPackages precedes capReached in the chain, so a capped verify count
-    // STILL reaches the gate; the gate fold's red≥cap branch escalates (this is
-    // exactly why the test gate had to move into the machine — see main.ts note).
-    const events: Array<GtdEvent> = []
-    for (let i = 0; i < MAX_VERIFY_ITERATIONS; i++) events.push(commit(true))
-    events.push(resolveEvent({ hasPackages: true, gtdDirExists: true }))
-    const handle = start(events)
-    expect(handle.current.value).toBe("execute")
-    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
-    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 1, output: "still failing" }])
-    expect(after.value).toBe("escalate")
-    expect(after.edgeAction).toBeUndefined()
-  })
-
-  it("human-review settles WITHOUT a runTestGate edgeAction", () => {
-    const hr = start([
-      resolveEvent({
-        reviewBasePresent: true,
-        refDiff: "diff --git a/x b/x\n+hi\n",
-        baseRef: "abc",
-      }),
-    ])
-    expect(hr.current.value).toBe("human-review")
-    expect(hr.current.edgeAction).toBeUndefined()
-  })
-})
-
-describe("commit-pending — inferred intent routing", () => {
-  it("execute intent → commit-pending with removeLastPackage + packageCommitMsg", () => {
-    const handle = start([
-      resolveEvent({
-        commitIntent: "execute",
-        packageCommitMsg: "feat: implement it\n",
-        codeDirty: true,
-      }),
-    ])
-    expect(handle.current.value).toBe("commit-pending")
-    expect(handle.current.edgeAction).toEqual({
-      kind: "commitPending",
-      intent: "execute",
-      packageCommitMsg: "feat: implement it\n",
-      removeLastPackage: true,
-      restorePaths: [],
-    })
-  })
-
-  it("execute intent beats plain codeDirty (code-changes would also fire)", () => {
-    // codeDirty=true would normally route to code-changes, but execute intent comes first
-    const { value } = resolve([resolveEvent({ commitIntent: "execute", codeDirty: true })])
-    expect(value).toBe("commit-pending")
-  })
-
-  it("decompose intent → commit-pending with packageCount", () => {
-    const handle = start([resolveEvent({ commitIntent: "decompose", packageCount: 3 })])
-    expect(handle.current.value).toBe("commit-pending")
-    expect(handle.current.edgeAction).toEqual({
-      kind: "commitPending",
-      intent: "decompose",
-      packageCount: 3,
-      restorePaths: [],
-    })
-  })
-
-  it("human-review intent → commit-pending with reviewBaseHash; beats reviewIncomplete", () => {
-    const handle = start([
-      resolveEvent({
-        commitIntent: "human-review",
-        reviewBaseHash: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-        reviewDirty: "new",
-        reviewModified: true,
-        reviewHasUncheckedBoxes: true,
-      }),
-    ])
-    expect(handle.current.value).toBe("commit-pending")
-    expect(handle.current.edgeAction).toEqual({
-      kind: "commitPending",
-      intent: "human-review",
-      base: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-      restorePaths: [],
-    })
-  })
-
-  it("fix-tests loop (verifyIterations > 0 + codeDirty, no packages) → commit-pending", () => {
-    const handle = start([
-      commit(true),
-      resolveEvent({ codeDirty: true, hasPackages: false }),
-    ])
-    expect(handle.current.value).toBe("commit-pending")
-    expect(handle.current.edgeAction).toEqual({
-      kind: "commitPending",
-      intent: "fix-tests",
-      restorePaths: ["TODO.md"],
-    })
-  })
-
-  it("verifyIterations === 0 + codeDirty + no commitIntent → code-changes (not commit-pending)", () => {
-    const { value } = resolve([resolveEvent({ codeDirty: true, hasPackages: false })])
-    expect(value).toBe("code-changes")
-  })
-
-  it("stuckCommitPending: re-RESOLVE with commitIntent still set escalates", () => {
-    const handle = start([resolveEvent({ commitIntent: "execute", codeDirty: true })])
-    expect(handle.current.value).toBe("commit-pending")
-    const after = handle.advance([resolveEvent({ commitIntent: "execute", codeDirty: true })])
-    expect(after.value).toBe("escalate")
-  })
-})
-
-describe("spec-review — guard + fold", () => {
-  it("specReviewIterations fold: N isSpecReview COMMITs → specReviewIterations === N", () => {
-    const { context } = resolve([
-      commit(false, false, { isSpecReview: true }),
-      commit(false, false, { isSpecReview: true }),
-      commit(false, false, { isSpecReview: true }),
-    ])
-    expect(context.specReviewIterations).toBe(3)
-  })
-
-  it("non-spec-review/non-test-fix commit resets specReviewIterations to 0", () => {
-    const { context } = resolve([
-      commit(false, false, { isSpecReview: true }),
-      commit(false, false, { isSpecReview: true }),
-      commit(false), // workflow commit, not spec-review, not test-fix → reset
-      commit(false, false, { isSpecReview: true }),
-    ])
-    expect(context.specReviewIterations).toBe(1)
-  })
-
-  it("isTestFix commit leaves specReviewIterations unchanged", () => {
-    const { context } = resolve([
-      commit(false, false, { isSpecReview: true }),
-      commit(false, false, { isSpecReview: true }),
-      commit(true), // test fix, leaves specReviewIterations unchanged
-    ])
-    expect(context.specReviewIterations).toBe(2)
-  })
-
-  it("runTestGate green + packages[0].hasCommitMsg === true → execute", () => {
-    const handle = start([
-      resolveEvent({
-        hasPackages: true,
-        gtdDirExists: true,
-        packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: true }],
-      }),
-    ])
-    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
-    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
-    expect(after.value).toBe("execute")
-    expect(after.edgeAction).toBeUndefined()
-  })
-
-  it("runTestGate green + packages[0].hasCommitMsg === false + agenticReviewEnabled + below cap → spec-review", () => {
-    const handle = start([
-      resolveEvent({
-        hasPackages: true,
-        gtdDirExists: true,
-        agenticReviewEnabled: true,
-        maxAgenticCycles: 3,
-        packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: false }],
-      }),
-    ])
-    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
-    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
-    expect(after.value).toBe("spec-review")
-    expect(after.autoAdvance).toBe(true)
-    expect(after.edgeAction).toBeUndefined()
-  })
-
-  it("runTestGate green + packages[0].hasCommitMsg === false + agenticReviewEnabled disabled → commit-pending emitting approveSpecReview", () => {
-    const handle = start([
-      resolveEvent({
-        hasPackages: true,
-        gtdDirExists: true,
-        agenticReviewEnabled: false,
-        maxAgenticCycles: 3,
-        packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: false }],
-      }),
-    ])
-    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
-    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
-    expect(after.value).toBe("commit-pending")
-    expect(after.edgeAction).toEqual({ kind: "approveSpecReview", pkg: "01-foo" })
-  })
-
-  it("runTestGate green + packages[0].hasCommitMsg === false + at cap → commit-pending emitting approveSpecReview", () => {
-    const events: Array<GtdEvent> = [
-      commit(false, false, { isSpecReview: true }),
-      commit(false, false, { isSpecReview: true }),
-      commit(false, false, { isSpecReview: true }),
-      resolveEvent({
-        hasPackages: true,
-        gtdDirExists: true,
-        agenticReviewEnabled: true,
-        maxAgenticCycles: 3,
-        packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: false }],
-      }),
-    ]
-    const handle = start(events)
-    expect(handle.current.edgeAction).toEqual({ kind: "runTestGate" })
-    const after = handle.advance([{ type: "TEST_RESULT", exitCode: 0, output: "" }])
-    expect(after.value).toBe("commit-pending")
-    expect(after.edgeAction).toEqual({ kind: "approveSpecReview", pkg: "01-foo" })
-  })
-
-  it("resolveEvent({ specFixPending: true }) → spec-fix leaf, autoAdvance false", () => {
-    const { value, autoAdvance } = resolve([resolveEvent({ specFixPending: true })])
-    expect(value).toBe("spec-fix")
-    expect(autoAdvance).toBe(false)
-  })
-
-  it("commitIntent: spec-fix → commit-pending emitting spec-fix action with specReviewNumber", () => {
-    const handle = start([
-      resolveEvent({
-        commitIntent: "spec-fix",
-        specReviewNumber: 2,
-        codeDirty: true,
-      }),
-    ])
-    expect(handle.current.value).toBe("commit-pending")
-    expect(handle.current.edgeAction).toEqual({
-      kind: "commitPending",
-      intent: "spec-fix",
-      specReviewNumber: 2,
-      restorePaths: ["TODO.md"],
-    })
-  })
-
-  it("commitIntent: spec-approved → commit-pending emitting approveSpecReview", () => {
-    const handle = start([
-      resolveEvent({
-        commitIntent: "spec-approved",
-        packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: false }],
-      }),
-    ])
-    expect(handle.current.value).toBe("commit-pending")
-    expect(handle.current.edgeAction).toEqual({ kind: "approveSpecReview", pkg: "01-foo" })
-  })
-
-  it("spec-fix intent routes ahead of plain codeDirty", () => {
-    const { value } = resolve([resolveEvent({ commitIntent: "spec-fix", codeDirty: true })])
-    expect(value).toBe("commit-pending")
-  })
-
-  it("no live branch resolves to agentic-review or agentic-feedback (both removed)", () => {
-    // agenticReviewEnabled + reviewBasePresent falls through to human-review (no agentic-review leaf)
-    const { value } = resolve([
-      resolveEvent({
-        agenticReviewEnabled: true,
-        reviewBasePresent: true,
-        refDiff: "diff --git a/x b/x\n+hello\n",
-        maxAgenticCycles: 3,
-        baseRef: "abc123",
-      }),
-    ])
-    expect(value).toBe("human-review")
-    expect(value).not.toBe("agentic-review")
-    expect(value).not.toBe("agentic-feedback")
-  })
-})
-
-describe("review-process — reviewPreRender then REVIEW_RECORDED", () => {
-  it("emits reviewPreRender{base}, then settles carrying reviewDiff/recordSha", () => {
-    const handle = start([
-      resolveEvent({
-        reviewModified: true,
-        reviewHasUncheckedBoxes: false,
-        reviewHasRealFeedback: true,
-        baseRef: "rev-base",
-      }),
-    ])
-    expect(handle.current.value).toBe("review-process")
-    expect(handle.current.edgeAction).toEqual({ kind: "reviewPreRender", base: "rev-base" })
-    const after = handle.advance([
-      { type: "REVIEW_RECORDED", diff: "DIFF-BODY", recordSha: "sha123" },
-    ])
-    expect(after.value).toBe("review-process")
-    expect(after.edgeAction).toBeUndefined()
-    expect(after.autoAdvance).toBe(true)
-    expect(after.context.reviewDiff).toBe("DIFF-BODY")
-    expect(after.context.recordSha).toBe("sha123")
+    expect(context.packages[0]!.taskContents).toEqual([{ name: "01-task.md", content: "body" }])
   })
 })

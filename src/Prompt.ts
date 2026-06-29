@@ -1,63 +1,125 @@
 import header from "./prompts/header.md"
-import newTodo from "./prompts/new-todo.md"
-import modifiedTodo from "./prompts/modified-todo.md"
-import decompose from "./prompts/decompose.md"
-import execute from "./prompts/execute.md"
-import escalate from "./prompts/escalate.md"
-import humanReview from "./prompts/human-review.md"
-import verified from "./prompts/verified.md"
-import reviewProcess from "./prompts/review-process.md"
-import awaitReview from "./prompts/await-review.md"
-import reviewIncomplete from "./prompts/review-incomplete.md"
-import awaitAnswers from "./prompts/await-answers.md"
-import fixTests from "./prompts/fix-tests.md"
-import specReview from "./prompts/spec-review.md"
-import specFix from "./prompts/spec-fix.md"
+import grillingMd from "./prompts/grilling.md"
+import decomposeMd from "./prompts/decompose.md"
+import buildingMd from "./prompts/building.md"
+import fixingMd from "./prompts/fixing.md"
+import agenticReviewMd from "./prompts/agentic-review.md"
+import cleanMd from "./prompts/clean.md"
+import awaitReviewMd from "./prompts/await-review.md"
+import escalateMd from "./prompts/escalate.md"
+import idleMd from "./prompts/idle.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
-import type { GtdContext, GtdPackageFact, LeafState, ResolveResult } from "./Machine.js"
+import type { GtdPackageFact, GtdState, ResolveContext, Result } from "./Machine.js"
 
 /**
- * The four leaf states whose prompts spawn subagents and therefore carry a
- * `{{MODEL}}` placeholder. These coincide with `ModelState` from `Config.ts`.
+ * The six edge-only states: the driver performs their `edgeAction`, re-gathers,
+ * and re-resolves without ever rendering a prompt. Asking `buildPrompt` to render
+ * one is a driver bug, so it throws.
  */
-const MODEL_STATES = new Set<LeafState>([
-  "new-todo",
-  "modified-todo",
-  "decompose",
-  "execute",
-  "spec-review",
-  "spec-fix",
+const EDGE_ONLY_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
+  "transport",
+  "new-feature",
+  "testing",
+  "accept-review",
+  "close-package",
+  "done",
 ])
 
+/** The agent/human-facing states `buildPrompt` renders a section for. */
+type PromptState = Exclude<
+  GtdState,
+  "transport" | "new-feature" | "testing" | "accept-review" | "close-package" | "done"
+>
+
 /**
- * Built-in resolver used when no caller-supplied resolver is given. Reuses the
- * single source of truth in `Config.ts` (state→tier map + built-in tier
- * defaults) so it can never drift from `ConfigService`'s defaults.
+ * Which `ModelState` a prompt-bearing state resolves `{{MODEL}}` against. The two
+ * decompose states (`grilled`, `planning`) share the `decompose` tier; the STOP
+ * states (`await-review`, `escalate`, `idle`) spawn no subagent and carry none.
+ */
+const MODEL_STATE: Partial<Record<PromptState, ModelState>> = {
+  grilling: "grilling",
+  grilled: "decompose",
+  planning: "decompose",
+  building: "building",
+  fixing: "fixing",
+  "agentic-review": "agentic-review",
+  clean: "clean",
+}
+
+/** The static section for each non-grilling prompt state (grilling renders specially). */
+const SECTIONS: Record<Exclude<PromptState, "grilling">, string> = {
+  grilled: decomposeMd,
+  planning: decomposeMd,
+  building: buildingMd,
+  fixing: fixingMd,
+  "agentic-review": agenticReviewMd,
+  clean: cleanMd,
+  "await-review": awaitReviewMd,
+  escalate: escalateMd,
+  idle: idleMd,
+}
+
+// Grilling carries both tails in one file, delimited by HTML comments:
+//   <base> <!-- gtd:iterate --> <iterate tail> <!-- gtd:stop --> <stop tail>
+// `{{MODEL}}` lives only in the iterate tail, so the STOP variant spawns no agent.
+const [GRILL_BASE = "", GRILL_AFTER_ITERATE = ""] = grillingMd.split("<!-- gtd:iterate -->")
+const [GRILL_ITERATE_TAIL = "", GRILL_STOP_TAIL = ""] =
+  GRILL_AFTER_ITERATE.split("<!-- gtd:stop -->")
+
+/**
+ * Built-in model resolver, reusing the single source of truth in `Config.ts`
+ * (state→tier map + built-in tier defaults) so it can never drift from
+ * `ConfigService`'s defaults.
  */
 const builtinResolveModel = (state: ModelState): string => builtinTierDefault[stateTier[state]]
 
-const SECTIONS: Record<
-  Exclude<LeafState, "cleanup" | "close-review" | "code-changes" | "commit-pending">,
-  string
-> = {
-  "new-todo": newTodo,
-  "modified-todo": modifiedTodo,
-  decompose,
-  execute,
-  escalate,
-  "human-review": humanReview,
-  verified,
-  "review-process": reviewProcess,
-  "await-review": awaitReview,
-  "await-answers": awaitAnswers,
-  "review-incomplete": reviewIncomplete,
-  "fix-tests": fixTests,
-  "spec-review": specReview,
-  "spec-fix": specFix,
+/**
+ * Picks a code fence long enough to safely wrap `content`, even when the content
+ * itself contains runs of backticks (mirrors GitHub-flavored Markdown fencing).
+ */
+const fenceFor = (content: string): string => {
+  let longest = 0
+  for (const match of content.matchAll(/`+/g)) longest = Math.max(longest, match[0].length)
+  return "`".repeat(Math.max(3, longest + 1))
 }
 
-const buildContext = (context: GtdContext): string => {
+/** A fenced `diff` block under a `### heading`, fence-sized to survive backticks. */
+const renderDiff = (heading: string, diff: string): ReadonlyArray<string> => {
+  const body = diff.replace(/\n$/, "")
+  const fence = fenceFor(body)
+  return ["", `### ${heading}`, "", `${fence}diff`, body, fence, ""]
+}
+
+/**
+ * Inlines the FEEDBACK.md text into the Fixing prompt under a heading, fenced so
+ * backtick-bearing test output / review findings survive. The edge has already
+ * committed FEEDBACK.md's removal by the time the fixer runs, so the content must
+ * travel in the prompt rather than be read from disk (STATES.md § Fixing).
+ */
+const renderFeedback = (content: string): ReadonlyArray<string> => {
+  const body = content.replace(/\n$/, "")
+  const fence = fenceFor(body)
+  return ["", "### Feedback to address", "", fence, body, fence, ""]
+}
+
+/**
+ * Inlines the selected package: names it and fences each task `.md`'s raw content
+ * via `fenceFor` so backtick-bearing specs survive. No `COMMIT_MSG.md` — packages
+ * no longer carry one; the edge commits them `gtd: building`.
+ */
+const renderPackage = (pkg: GtdPackageFact): string => {
+  const lines: Array<string> = ["", `### Package: \`${pkg.name}/\``, ""]
+  for (const task of pkg.taskContents) {
+    lines.push(`#### \`${task.name}\``, "")
+    const fence = fenceFor(task.content)
+    lines.push(fence, task.content.replace(/\n$/, ""), fence, "")
+  }
+  return lines.join("\n")
+}
+
+/** The `## Context` block: last commit, working-tree status, packages, and diff. */
+const buildContextBlock = (context: ResolveContext): string => {
   const lines: Array<string> = ["## Context", ""]
   lines.push(
     context.lastCommitSubject === ""
@@ -65,137 +127,80 @@ const buildContext = (context: GtdContext): string => {
       : `Last commit: \`${context.lastCommitSubject}\``,
   )
   lines.push(`Working tree: ${context.workingTreeClean ? "clean" : "dirty"}`)
-
   if (context.packages.length > 0) {
-    lines.push("")
-    lines.push("### Work packages in `.gtd/`")
-    lines.push("")
+    lines.push("", "### Work packages in `.gtd/`", "")
     for (const pkg of context.packages) {
       lines.push(`- \`${pkg.name}/\``)
-      for (const task of pkg.tasks) {
-        lines.push(`  - \`${task}\``)
-      }
+      for (const task of pkg.tasks) lines.push(`  - \`${task}\``)
     }
   }
-
-  if (context.refDiff) {
-    lines.push("")
-    lines.push(`### Diff (\`git diff ${context.baseRef} HEAD\`)`)
-    lines.push("")
-    lines.push("```diff")
-    lines.push(context.refDiff.replace(/\n$/, ""))
-    lines.push("```")
-    lines.push("")
-  }
-  lines.push("")
   if (context.diff !== "") {
-    lines.push("### Diff (`git diff HEAD`, with untracked files included)")
-    lines.push("")
-    lines.push("```diff")
-    lines.push(context.diff.replace(/\n$/, ""))
-    lines.push("```")
-    lines.push("")
+    lines.push(
+      ...renderDiff("Working-tree diff (`git diff HEAD`, untracked included)", context.diff),
+    )
   }
   return lines.join("\n")
 }
 
-export type PromptOverride =
-  | { readonly kind: "fix-tests"; readonly testOutput: string }
-  | { readonly kind: "review-process"; readonly reviewDiff: string; readonly recordSha: string }
-
-/**
- * Picks a code fence long enough to safely wrap `content`, even when the
- * content itself contains runs of backticks (mirrors GitHub-flavored Markdown
- * fencing rules).
- */
-const fenceFor = (content: string): string => {
-  let longest = 0
-  for (const match of content.matchAll(/`+/g)) {
-    longest = Math.max(longest, match[0].length)
-  }
-  return "`".repeat(Math.max(3, longest + 1))
+/** Renders grilling's shared base plus the STOP or iterate tail per `grillingCase`. */
+const renderGrilling = (
+  context: ResolveContext,
+  resolveModel: (state: ModelState) => string,
+): string => {
+  const tail = context.grillingCase === "stop" ? GRILL_STOP_TAIL : GRILL_ITERATE_TAIL
+  return `${GRILL_BASE}${tail}`.replaceAll("{{MODEL}}", resolveModel("grilling"))
 }
 
 /**
- * Renders the inlined, self-contained block for the single package gtd selected
- * for this execute run. Names the package, notes its `COMMIT_MSG.md` (without
- * inlining its contents), and inlines each task file's raw content fenced via
- * `fenceFor` so backtick-bearing content survives.
+ * Assemble the full prompt for a resolved, prompt-bearing state: the shared
+ * `header`, a `## Context` block, the state's section (with `{{MODEL}}` resolved
+ * for the six model states and the selected package / diffs inlined where the
+ * state needs them), and the `auto-advance` partial when `result.autoAdvance`.
+ *
+ * Throws for the six edge-only states — they are performed by the driver and must
+ * never reach here.
  */
-const renderPackage = (pkg: GtdPackageFact): string => {
-  const lines: Array<string> = ["", `### Package: \`${pkg.name}/\``, ""]
-  if (pkg.hasCommitMsg) {
-    lines.push(`The next cycle's edge commits this package using \`${pkg.name}/COMMIT_MSG.md\`.`)
-    lines.push("")
-  }
-  for (const task of pkg.taskContents) {
-    lines.push(`#### \`${task.name}\``)
-    lines.push("")
-    const fence = fenceFor(task.content)
-    lines.push(fence)
-    lines.push(task.content.replace(/\n$/, ""))
-    lines.push(fence)
-    lines.push("")
-  }
-  return lines.join("\n")
-}
-
 export const buildPrompt = (
-  result: ResolveResult,
-  override?: PromptOverride,
+  result: Result,
   resolveModel: (state: ModelState) => string = builtinResolveModel,
 ): string => {
-  const parts: Array<string> = [header, "", buildContext(result.context)]
-  if (override?.kind === "fix-tests") {
-    const fence = fenceFor(override.testOutput)
-    parts.push(fixTests, "", fence, override.testOutput.replace(/\n$/, ""), fence, "")
-  } else if (override?.kind === "review-process") {
-    const fence = fenceFor(override.reviewDiff)
-    parts.push(SECTIONS["review-process"], "")
-    parts.push("### Review feedback diff", "")
-    parts.push(fence, override.reviewDiff.replace(/\n$/, ""), fence, "")
-    parts.push(`If you lose this diff, recover it with \`git show ${override.recordSha}\`.`, "")
-    if (result.autoAdvance) {
-      parts.push(autoAdvance, "")
-    }
+  const { state, context } = result
+  if (EDGE_ONLY_STATES.has(state)) {
+    throw new Error(`State "${state}" is performed by the edge and must never reach buildPrompt`)
+  }
+  const promptState = state as PromptState
+  const parts: Array<string> = [header, "", buildContextBlock(context)]
+
+  if (promptState === "grilling") {
+    parts.push(renderGrilling(context, resolveModel), "")
   } else {
-    const value = result.value as LeafState
-    if (
-      value === "cleanup" ||
-      value === "close-review" ||
-      value === "code-changes" ||
-      value === "commit-pending"
-    ) {
-      throw new Error(
-        `Action leaf "${value}" is executed by the edge and must never reach buildPrompt`,
-      )
+    const modelState = MODEL_STATE[promptState]
+    const raw = SECTIONS[promptState]
+    parts.push(
+      modelState !== undefined ? raw.replaceAll("{{MODEL}}", resolveModel(modelState)) : raw,
+      "",
+    )
+
+    const pkg = context.packages[0]
+    if (promptState === "building" && pkg !== undefined) {
+      parts.push(renderPackage(pkg), "")
     }
-    const section = MODEL_STATES.has(value)
-      ? SECTIONS[value].replaceAll("{{MODEL}}", resolveModel(value as ModelState))
-      : SECTIONS[value]
-    parts.push(section, "")
-    const selectedPackage = result.context.packages[0]
-    if (value === "execute" && selectedPackage !== undefined) {
-      parts.push(renderPackage(selectedPackage), "")
-      // `.gtd/` removal (including the last-package case) is handled by the
-      // edge's `commitPending({ removeLastPackage })` action, not the prompt.
+    if (promptState === "fixing" && context.feedbackContent.trim() !== "") {
+      parts.push(...renderFeedback(context.feedbackContent), "")
     }
-    if (value === "spec-review" && selectedPackage !== undefined) {
-      parts.push(renderPackage(selectedPackage), "")
-      const specDiff = (result.context as GtdContext & { specDiff?: string }).specDiff
-      if (specDiff !== undefined && specDiff !== "") {
-        const fence = fenceFor(specDiff)
-        parts.push("### Package diff", "")
-        parts.push(fence, specDiff.replace(/\n$/, ""), fence, "")
+    if (promptState === "agentic-review" && pkg !== undefined) {
+      parts.push(renderPackage(pkg), "")
+      if (context.refDiff !== undefined && context.refDiff.trim() !== "") {
+        parts.push(...renderDiff("Package diff", context.refDiff))
       }
     }
-    if (value === "spec-fix" && selectedPackage !== undefined) {
-      parts.push(renderPackage(selectedPackage), "")
-    }
-    if (result.autoAdvance) {
-      parts.push(autoAdvance, "")
+    if (promptState === "clean" && context.refDiff !== undefined && context.refDiff.trim() !== "") {
+      parts.push(...renderDiff("Changes to review (`git diff <base> HEAD`)", context.refDiff))
     }
   }
+
+  if (result.autoAdvance) parts.push(autoAdvance, "")
+
   return (
     parts
       .join("\n")

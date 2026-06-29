@@ -1,45 +1,65 @@
 import type { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
+import type { ConfigService } from "./Config.js"
 import { gatherEvents } from "./Events.js"
 import type { GitService } from "./Git.js"
-import { type Handle, type ResolveResult, start } from "./Machine.js"
-import type { ConfigService } from "./Config.js"
-
-// Re-export the canonical types the edge (main.ts / driver loop) consumes via
-// `State.js`. `ResolveResult` + `EdgeAction` come from the machine; `TestResult`
-// is owned by `TestRunner` (the layer that actually produces it).
-export type { EdgeAction, Handle, ResolveResult } from "./Machine.js"
-export type { TestResult } from "./TestRunner.js"
+import { type GtdState, resolve, type Result } from "./Machine.js"
 
 /**
- * Open the gtd stepping machine for the current repository.
+ * The thin decision core the driver loop in `main.ts` calls. There is no
+ * long-lived actor any more: `resolve` (src/Machine.ts) is a pure function, so
+ * "stepping" the machine is just `gatherEvents()` (the Effect edge) folded
+ * through `resolve()`. The driver performs the returned `edgeAction`
+ * (`Events.perform`), then calls `detect()` again — gather → resolve is the unit
+ * of progress, not an `advance(event)` on a stateful handle.
  *
- * Gathers git/filesystem facts (the Effect edge in `src/Events.ts`) and folds
- * the resulting events through a single long-lived actor, returning the live
- * `Handle`. All IO happens while gathering events; the machine fold and the
- * handle's `advance` are pure and synchronous. The driver advances the handle
- * with `TEST_RESULT` / `REVIEW_RECORDED` (and re-gathered `RESOLVE`) events as
- * it performs the side effects the machine's `edgeAction` requests.
- *
- * `State.ts` performs NO git writes; `gatherEvents` is the only IO here.
+ * The old long-lived actor (its open/step/advance surface), the test-result and
+ * review-record feedback events it consumed, and the duplicated review-base
+ * computation are all gone — those results are handled at the edge and never
+ * re-enter the machine.
  */
-export const startDetect = (): Effect.Effect<
-  Handle,
+
+/**
+ * The six edge-only states: the driver performs their `edgeAction`, then
+ * re-gathers + re-resolves WITHOUT printing a prompt (they auto-advance through
+ * the deterministic chain within one invocation). Mirrors the `EDGE_ONLY_STATES`
+ * set in `Prompt.ts` — these are exactly the states `buildPrompt` refuses to
+ * render. Every other state is prompt-bearing: the driver stops on it and emits
+ * its single prompt (even when it also carries an `edgeAction`, e.g. Fixing /
+ * Grilling / Planning / Await Review commit their pending tree, then prompt).
+ */
+export const EDGE_ONLY_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
+  "transport",
+  "new-feature",
+  "testing",
+  "accept-review",
+  "close-package",
+  "done",
+])
+
+/** True when the driver must auto-advance (re-gather + re-resolve) past `state` rather than prompt. */
+export const isEdgeOnly = (state: GtdState): boolean => EDGE_ONLY_STATES.has(state)
+
+/**
+ * Gather every git/filesystem fact (the only IO, in `Events.gatherEvents`) and
+ * fold it through the pure resolver to a single `Result` (state + optional
+ * `edgeAction` + prompt context).
+ *
+ * `resolve` THROWS `GtdStateError` for an illegal steering-file combination or
+ * for corruption (no precedence rule matched). It runs inside `Effect.try` so
+ * that throw surfaces in the failure channel and is caught by the composition
+ * root's `Effect.catchAll` (→ `gtd: <message>` on stderr, exit 1) rather than
+ * escaping as an unhandled defect.
+ */
+export const detect = (): Effect.Effect<
+  Result,
   Error,
   GitService | FileSystem.FileSystem | ConfigService
 > =>
   Effect.gen(function* () {
     const events = yield* gatherEvents()
-    return start(events)
+    return yield* Effect.try({
+      try: () => resolve(events),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    })
   })
-
-/**
- * Convenience wrapper retained for callers that only need the first projection
- * (a one-shot `ResolveResult`) rather than the live handle — e.g. `main.ts`
- * until the driver loop (package 03) switches to `startDetect`.
- */
-export const detect = (): Effect.Effect<
-  ResolveResult,
-  Error,
-  GitService | FileSystem.FileSystem | ConfigService
-> => Effect.map(startDetect(), (handle) => handle.current)

@@ -1,642 +1,346 @@
 import { describe, expect, it } from "vitest"
 import { buildPrompt } from "./Prompt.js"
-import type { GtdContext, LeafState, ResolveResult } from "./Machine.js"
+import type { GtdPackageFact, GtdState, ResolveContext, Result } from "./Machine.js"
 
-const baseContext = (overrides: Partial<GtdContext> = {}): GtdContext => ({
-  verifyIterations: 0,
-  maxVerifyIterations: 5,
-  noAgentHops: 0,
-  lastAdvancedLeaf: null,
-  lastCommitSubject: "chore: init",
-  workingTreeClean: true,
+const ctx = (overrides: Partial<ResolveContext> = {}): ResolveContext => ({
+  testFixCount: 0,
+  reviewFixCount: 0,
   packages: [],
   diff: "",
-  planEverGrilled: false,
-  agenticCount: 0,
-  agenticConverged: false,
+  lastCommitSubject: "chore: init",
+  workingTreeClean: true,
+  feedbackContent: "",
   ...overrides,
 })
 
 const result = (
-  value: LeafState,
-  overrides: {
-    context?: Partial<GtdContext>
-    autoAdvance?: boolean
-  } = {},
-): ResolveResult => ({
-  value,
-  context: baseContext(overrides.context),
+  state: GtdState,
+  overrides: { context?: Partial<ResolveContext>; autoAdvance?: boolean } = {},
+): Result => ({
+  state,
   autoAdvance: overrides.autoAdvance ?? false,
+  context: ctx(overrides.context),
 })
 
+const onePackage: GtdPackageFact = {
+  name: "01-foo",
+  tasks: ["01-task.md"],
+  taskContents: [{ name: "01-task.md", content: "Acceptance criterion A" }],
+}
+
+const withPackage = (
+  state: GtdState,
+  context: Partial<ResolveContext> = {},
+  autoAdvance = true,
+): Result => result(state, { autoAdvance, context: { packages: [onePackage], ...context } })
+
+const PLANNING_MODEL = "claude-opus-4-8"
+const EXECUTION_MODEL = "claude-sonnet-4-8"
+
 describe("buildPrompt", () => {
-  it("includes the header for every state", () => {
-    const out = buildPrompt(result("verified"))
-    expect(out).toContain("You are an autonomous coding agent")
+  it("includes the shared header for every prompt state", () => {
+    expect(buildPrompt(result("idle"))).toContain("You are an autonomous coding agent")
+    expect(buildPrompt(result("escalate"))).toContain("You are an autonomous coding agent")
   })
 
-  it("new-todo prompt instructs to format TODO.md", () => {
-    const out = buildPrompt(result("new-todo", { autoAdvance: true }))
-    expect(out).toContain("format TODO.md")
-  })
-
-  it("modified-todo prompt instructs to format TODO.md", () => {
-    const out = buildPrompt(
-      result("modified-todo", {
-        autoAdvance: true,
-        context: {
-          workingTreeClean: false,
-          diff: "diff --git a/TODO.md b/TODO.md\n+change\n",
-        },
-      }),
-    )
-    expect(out).toContain("format TODO.md")
-  })
-
-  it("human-review prompt instructs to format REVIEW.md and embeds the base marker", () => {
-    const out = buildPrompt(result("human-review"))
-    expect(out).toContain("format REVIEW.md")
-    expect(out).toContain("<!-- base: <full-hash> -->")
-  })
-
-  it("review-process prompt instructs to format and commit TODO.md without git revert", () => {
-    const out = buildPrompt(result("review-process", { autoAdvance: true }))
-    expect(out).toContain("format TODO.md")
-    expect(out).toContain("git add TODO.md")
-    expect(out).not.toContain("git revert")
-    expect(out).not.toContain("chore(gtd): record raw feedback")
-    expect(out).not.toContain("chore(gtd): close approved review")
-  })
-
-  it("escalate prompt renders its section", () => {
-    const out = buildPrompt(result("escalate"))
-    expect(out).toContain("Escalate to the human")
-  })
-
-  it("escalate does NOT include the auto-advance partial when autoAdvance is false", () => {
-    const out = buildPrompt(result("escalate", { autoAdvance: false }))
-    expect(out).not.toContain("Re-run gtd immediately")
-  })
-
-  it("includes the auto-advance partial when autoAdvance is true", () => {
-    const out = buildPrompt(result("verified", { autoAdvance: true }))
-    expect(out).toContain("Re-run gtd immediately")
-  })
-
-  it("embeds the diff when present", () => {
-    const out = buildPrompt(
-      result("human-review", {
-        context: {
-          workingTreeClean: false,
-          diff: "diff --git a/foo b/foo\n+hello\n",
-        },
-      }),
-    )
-    expect(out).toContain("```diff")
-    expect(out).toContain("+hello")
-  })
-
-  it("action leaf cleanup throws when reaching buildPrompt", () => {
-    expect(() => buildPrompt(result("cleanup"))).toThrow(/Action leaf "cleanup"/)
-  })
-
-  it("action leaf close-review throws when reaching buildPrompt", () => {
-    expect(() => buildPrompt(result("close-review"))).toThrow(/Action leaf "close-review"/)
-  })
-
-  it("action leaf code-changes throws when reaching buildPrompt", () => {
-    expect(() => buildPrompt(result("code-changes"))).toThrow(/Action leaf "code-changes"/)
-  })
-
-  it("human-review (green path) contains format REVIEW.md and no Test gate failed", () => {
-    const out = buildPrompt(result("human-review"))
-    expect(out).toContain("format REVIEW.md")
-    expect(out).not.toContain("Test gate failed")
-  })
-
-  it("fix-tests override contains Test gate failed and the output, no format REVIEW.md", () => {
-    const out = buildPrompt(result("human-review"), {
-      kind: "fix-tests",
-      testOutput: "Test gate failed: npm test exited 1",
+  describe("each prompt-bearing state renders its section", () => {
+    it("grilling renders the grilling section", () => {
+      const out = buildPrompt(
+        result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
+      )
+      expect(out).toContain("Grill the plan in `TODO.md`")
     })
-    expect(out).toContain("Test gate failed")
-    expect(out).toContain("Test gate failed: npm test exited 1")
-    expect(out).not.toContain("format REVIEW.md")
-  })
 
-  it("omits the diff block when the tree is clean", () => {
-    const out = buildPrompt(result("verified"))
-    expect(out).not.toContain("```diff")
-  })
-
-  it("execute prompt renders its section, names the selected package, and inlines its tasks", () => {
-    const out = buildPrompt(
-      result("execute", {
-        autoAdvance: true,
-        context: {
-          packages: [
-            {
-              name: "01-foo",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "First task" }],
-              hasCommitMsg: true,
-            },
-          ],
-        },
-      }),
-    )
-    expect(out).toContain("Execute one work package")
-    expect(out).toContain("### Package: `01-foo/`")
-    expect(out).toContain("01-task.md")
-    expect(out).toContain("First task")
-    expect(out).toContain("01-foo/COMMIT_MSG.md")
-    expect(out).toContain("Re-run gtd immediately")
-    expect(out).not.toContain("EXACTLY ONE package")
-    expect(out).not.toContain("lowest-numbered")
-    expect(out).not.toContain("marked with `<!-- simple -->`")
-    // Verification is now done by the edge at the start of the next cycle,
-    // not by an in-prompt testing subagent.
-    expect(out).not.toContain("testing subagent")
-    expect(out).not.toContain("Determine the test command")
-  })
-
-  it("execute prompt never injects the now-empty .gtd/ removal line (edge owns it now)", () => {
-    const single = buildPrompt(
-      result("execute", {
-        context: {
-          packages: [
-            {
-              name: "01-foo",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "First task" }],
-              hasCommitMsg: true,
-            },
-          ],
-        },
-      }),
-    )
-    // The edge's commitPending({ removeLastPackage }) removes `.gtd/`; the prompt
-    // must no longer instruct the agent to do it (single- OR multi-package).
-    expect(single).not.toContain("remove the now-empty `.gtd/` directory")
-  })
-
-  it("execute prompt for multiple packages does NOT instruct removing the .gtd/ directory", () => {
-    const out = buildPrompt(
-      result("execute", {
-        context: {
-          packages: [
-            {
-              name: "01-foo",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "First task" }],
-              hasCommitMsg: true,
-            },
-            {
-              name: "02-bar",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "Second task" }],
-              hasCommitMsg: true,
-            },
-          ],
-        },
-      }),
-    )
-    expect(out).toContain("### Package: `01-foo/`")
-    expect(out).not.toContain("remove the now-empty `.gtd/` directory")
-  })
-
-  it("execute prompt instructs leaving work uncommitted (no intent marker)", () => {
-    const out = buildPrompt(
-      result("execute", {
-        context: {
-          packages: [
-            {
-              name: "01-foo",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "First task" }],
-              hasCommitMsg: true,
-            },
-          ],
-        },
-      }),
-    )
-    expect(out).toContain("Leave all changes uncommitted")
-    expect(out).not.toContain(".gtd-commit-intent")
-  })
-
-  it("execute prompt fences backtick-containing task content with a long-enough fence", () => {
-    const out = buildPrompt(
-      result("execute", {
-        context: {
-          packages: [
-            {
-              name: "01-foo",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "see ```block``` and - [ ] item" }],
-              hasCommitMsg: true,
-            },
-          ],
-        },
-      }),
-    )
-    expect(out).toContain("````\nsee ```block``` and - [ ] item\n````")
-  })
-
-  it("execute prompt handles a package with zero task files", () => {
-    const out = buildPrompt(
-      result("execute", {
-        context: {
-          packages: [{ name: "01-foo", tasks: [], taskContents: [], hasCommitMsg: true }],
-        },
-      }),
-    )
-    expect(out).toContain("### Package: `01-foo/`")
-    expect(out).toContain("01-foo/COMMIT_MSG.md")
-  })
-
-  it("spec-review prompt has the correct header", () => {
-    const out = buildPrompt(
-      result("spec-review", {
-        context: {
-          packages: [
-            {
-              name: "01-foo",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "Acceptance criterion A" }],
-              hasCommitMsg: false,
-            },
-          ],
-          specDiff: "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n",
-        },
-      }),
-    )
-    expect(out).toContain("## Task: Spec review of the committed package")
-  })
-
-  it("spec-review inlines the lowest package's task specs", () => {
-    const out = buildPrompt(
-      result("spec-review", {
-        context: {
-          packages: [
-            {
-              name: "01-foo",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "Acceptance criterion A" }],
-              hasCommitMsg: false,
-            },
-          ],
-          specDiff: "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n",
-        },
-      }),
-    )
-    expect(out).toContain("### Package: `01-foo/`")
-    expect(out).toContain("01-task.md")
-    expect(out).toContain("Acceptance criterion A")
-  })
-
-  it("spec-review inlines specDiff under ### Package diff", () => {
-    const specDiff = "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n"
-    const out = buildPrompt(
-      result("spec-review", {
-        context: {
-          packages: [
-            {
-              name: "01-foo",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "task content" }],
-              hasCommitMsg: false,
-            },
-          ],
-          specDiff,
-        },
-      }),
-    )
-    expect(out).toContain("### Package diff")
-    expect(out).toContain("+export const foo = 1")
-  })
-
-  it("spec-fix prompt has the correct header", () => {
-    const out = buildPrompt(
-      result("spec-fix", {
-        context: {
-          packages: [
-            {
-              name: "01-foo",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "Acceptance criterion A" }],
-              hasCommitMsg: false,
-            },
-          ],
-        },
-      }),
-    )
-    expect(out).toContain("## Task: Fix the package against spec-review feedback")
-  })
-
-  it("spec-fix inlines the lowest package's task specs", () => {
-    const out = buildPrompt(
-      result("spec-fix", {
-        context: {
-          packages: [
-            {
-              name: "01-foo",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "Acceptance criterion B" }],
-              hasCommitMsg: false,
-            },
-          ],
-        },
-      }),
-    )
-    expect(out).toContain("### Package: `01-foo/`")
-    expect(out).toContain("01-task.md")
-    expect(out).toContain("Acceptance criterion B")
-  })
-
-  it("spec-fix does NOT inline specDiff", () => {
-    const out = buildPrompt(
-      result("spec-fix", {
-        context: {
-          packages: [
-            {
-              name: "01-foo",
-              tasks: ["01-task.md"],
-              taskContents: [{ name: "01-task.md", content: "task content" }],
-              hasCommitMsg: false,
-            },
-          ],
-          specDiff: "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n",
-        },
-      }),
-    )
-    expect(out).not.toContain("### Package diff")
-  })
-
-  it("decompose prompt renders its section and the auto-advance partial", () => {
-    const out = buildPrompt(result("decompose", { autoAdvance: true }))
-    expect(out).toContain("Decompose `TODO.md` into work packages")
-    expect(out).toContain("Re-run gtd immediately")
-    expect(out).not.toContain("Delete the empty `.gtd/` directory")
-  })
-
-  it("fix-tests override emits the fix(gtd) instruction and fences the captured output", () => {
-    const out = buildPrompt(result("human-review"), {
-      kind: "fix-tests",
-      testOutput: "FAIL src/x.test.ts\nexpected 1 got 2",
+    it("grilled renders the decompose section", () => {
+      const out = buildPrompt(result("grilled", { autoAdvance: true }))
+      expect(out).toContain("Decompose the plan into work packages")
     })
-    expect(out).toContain("fix(gtd):")
-    // The captured output is embedded inside a ``` fenced block.
-    expect(out).toContain("```\nFAIL src/x.test.ts\nexpected 1 got 2\n```")
-  })
 
-  it("fix-tests override does NOT include the normal human-review REVIEW.md instructions", () => {
-    const out = buildPrompt(result("human-review"), {
-      kind: "fix-tests",
-      testOutput: "FAIL src/x.test.ts\nexpected 1 got 2",
+    it("planning renders the decompose section", () => {
+      const out = buildPrompt(result("planning", { autoAdvance: true }))
+      expect(out).toContain("Decompose the plan into work packages")
     })
-    expect(out).not.toContain("format REVIEW.md")
-  })
 
-  it("fix-tests override does NOT include the auto-advance partial", () => {
-    const out = buildPrompt(result("human-review", { autoAdvance: true }), {
-      kind: "fix-tests",
-      testOutput: "boom",
+    it("building renders the building section", () => {
+      const out = buildPrompt(withPackage("building"))
+      expect(out).toContain("Build one work package")
     })
-    expect(out).not.toContain("Re-run gtd immediately")
-  })
 
-  it("fix-tests override lengthens the fence when the output contains backticks", () => {
-    const out = buildPrompt(result("human-review"), {
-      kind: "fix-tests",
-      testOutput: "see `code` and ```block``` here",
+    it("fixing renders the fixing section", () => {
+      const out = buildPrompt(result("fixing", { autoAdvance: true }))
+      expect(out).toContain("Fix the package against `FEEDBACK.md`")
     })
-    expect(out).toContain("````\nsee `code` and ```block``` here\n````")
+
+    it("agentic-review renders the agentic-review section", () => {
+      const out = buildPrompt(withPackage("agentic-review"))
+      expect(out).toContain("Agentic review of the built package")
+    })
+
+    it("clean renders the clean section", () => {
+      const out = buildPrompt(result("clean"))
+      expect(out).toContain("Create `REVIEW.md` for the finished work")
+    })
+
+    it("await-review renders the await-review section", () => {
+      const out = buildPrompt(result("await-review"))
+      expect(out).toContain("Await the user's review")
+    })
+
+    it("escalate renders the escalate section", () => {
+      const out = buildPrompt(result("escalate"))
+      expect(out).toContain("Escalate — the test gate is stuck")
+    })
+
+    it("idle renders the idle section", () => {
+      const out = buildPrompt(result("idle"))
+      expect(out).toContain("Nothing to do")
+    })
   })
 
-  describe("model injection", () => {
-    const planningStates: ReadonlyArray<LeafState> = ["new-todo", "modified-todo", "decompose"]
-    const executionStates: ReadonlyArray<LeafState> = ["execute"]
-    const subagentStates = [...planningStates, ...executionStates]
+  describe("edge-only states throw", () => {
+    const edgeOnly: ReadonlyArray<GtdState> = [
+      "transport",
+      "new-feature",
+      "testing",
+      "accept-review",
+      "close-package",
+      "done",
+    ]
+    for (const state of edgeOnly) {
+      it(`${state} throws instead of rendering`, () => {
+        expect(() => buildPrompt(result(state))).toThrow(
+          new RegExp(`State "${state}" is performed by the edge and must never reach buildPrompt`),
+        )
+      })
+    }
+  })
 
+  describe("{{MODEL}} substitution", () => {
+    const planningStates: ReadonlyArray<GtdState> = ["grilled", "planning", "clean"]
     for (const state of planningStates) {
-      it(`${state} emits the built-in planning model by default`, () => {
+      it(`${state} injects the planning model and leaves no {{MODEL}}`, () => {
         const out = buildPrompt(result(state, { autoAdvance: true }))
-        expect(out).toContain("claude-opus-4-8")
+        expect(out).toContain(PLANNING_MODEL)
         expect(out).not.toContain("{{MODEL}}")
       })
     }
 
-    for (const state of executionStates) {
-      it(`${state} emits the built-in execution model by default`, () => {
-        const out = buildPrompt(
-          result(state, {
-            autoAdvance: true,
-            context:
-              state === "execute"
-                ? {
-                    packages: [
-                      {
-                        name: "01-foo",
-                        tasks: ["01-task.md"],
-                        taskContents: [{ name: "01-task.md", content: "First task" }],
-                        hasCommitMsg: true,
-                      },
-                    ],
-                  }
-                : {},
-          }),
-        )
-        expect(out).toContain("claude-sonnet-4-8")
-        expect(out).not.toContain("{{MODEL}}")
-      })
-    }
+    it("grilling (iterate) injects the planning model and leaves no {{MODEL}}", () => {
+      const out = buildPrompt(
+        result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
+      )
+      expect(out).toContain(PLANNING_MODEL)
+      expect(out).not.toContain("{{MODEL}}")
+    })
 
-    for (const state of subagentStates) {
-      it(`${state} honors a custom resolveModel`, () => {
-        const out = buildPrompt(
-          result(state, {
-            autoAdvance: true,
-            context:
-              state === "execute"
-                ? {
-                    packages: [
-                      {
-                        name: "01-foo",
-                        tasks: ["01-task.md"],
-                        taskContents: [{ name: "01-task.md", content: "First task" }],
-                        hasCommitMsg: true,
-                      },
-                    ],
-                  }
-                : {},
-          }),
-          undefined,
-          (s) => `MODEL-FOR-${s}`,
-        )
-        expect(out).toContain(`MODEL-FOR-${state}`)
-        expect(out).not.toContain("{{MODEL}}")
-      })
-    }
+    it("agentic-review injects the planning model and leaves no {{MODEL}}", () => {
+      const out = buildPrompt(withPackage("agentic-review"))
+      expect(out).toContain(PLANNING_MODEL)
+      expect(out).not.toContain("{{MODEL}}")
+    })
 
-    it("the five subagent prompts no longer carry the AGENTS.md model-preference prose", () => {
-      for (const state of subagentStates) {
+    it("building injects the execution model and leaves no {{MODEL}}", () => {
+      const out = buildPrompt(withPackage("building"))
+      expect(out).toContain(EXECUTION_MODEL)
+      expect(out).not.toContain("{{MODEL}}")
+    })
+
+    it("fixing injects the execution model and leaves no {{MODEL}}", () => {
+      const out = buildPrompt(result("fixing", { autoAdvance: true }))
+      expect(out).toContain(EXECUTION_MODEL)
+      expect(out).not.toContain("{{MODEL}}")
+    })
+
+    it("honors a custom resolveModel for the six model states", () => {
+      const custom = (s: string): string => `MODEL-FOR-${s}`
+      expect(
+        buildPrompt(
+          result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
+          custom,
+        ),
+      ).toContain("MODEL-FOR-grilling")
+      expect(buildPrompt(result("grilled", { autoAdvance: true }), custom)).toContain(
+        "MODEL-FOR-decompose",
+      )
+      expect(buildPrompt(result("planning", { autoAdvance: true }), custom)).toContain(
+        "MODEL-FOR-decompose",
+      )
+      expect(buildPrompt(withPackage("building"), custom)).toContain("MODEL-FOR-building")
+      expect(buildPrompt(result("fixing", { autoAdvance: true }), custom)).toContain(
+        "MODEL-FOR-fixing",
+      )
+      expect(buildPrompt(withPackage("agentic-review"), custom)).toContain(
+        "MODEL-FOR-agentic-review",
+      )
+      expect(buildPrompt(result("clean"), custom)).toContain("MODEL-FOR-clean")
+    })
+
+    it("STOP states carry no {{MODEL}} and no injected model", () => {
+      const custom = (s: string): string => `SHOULD-NOT-APPEAR-${s}`
+      for (const state of ["await-review", "escalate", "idle"] as const) {
+        const out = buildPrompt(result(state), custom)
+        expect(out).not.toContain("{{MODEL}}")
+        expect(out).not.toContain("SHOULD-NOT-APPEAR")
+      }
+    })
+  })
+
+  describe("grilling stop vs iterate tail", () => {
+    it("both tails document the convergence marker and the sentinel", () => {
+      for (const grillingCase of ["stop", "iterate"] as const) {
         const out = buildPrompt(
-          result(state, {
-            context:
-              state === "execute"
-                ? {
-                    packages: [
-                      {
-                        name: "01-foo",
-                        tasks: ["01-task.md"],
-                        taskContents: [{ name: "01-task.md", content: "First task" }],
-                        hasCommitMsg: true,
-                      },
-                    ],
-                  }
-                : {},
+          result("grilling", {
+            autoAdvance: grillingCase === "iterate",
+            context: { grillingCase },
           }),
         )
-        expect(out).not.toContain("AGENTS.md for model preferences")
+        expect(out).toContain("<!-- user answers here -->")
+        expect(out).toContain("no open questions — run gtd to plan")
       }
     })
 
-    it("the dropped header prose is gone", () => {
-      const out = buildPrompt(result("verified"))
-      expect(out).not.toContain("AGENTS.md for model preferences")
-      expect(out).not.toContain("Check your user/project AGENTS.md")
-    })
-
-    it("review-incomplete prompt renders its section and does NOT leak another leaf's section", () => {
-      const out = buildPrompt(result("review-incomplete", { autoAdvance: false }))
-      expect(out).toContain("at least one checkbox is still unticked")
+    it("stop tail is a human gate: STOP, no subagent, no auto-advance, no model", () => {
+      const out = buildPrompt(
+        result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
+      )
+      expect(out).toContain("Open questions await the user")
       expect(out).toContain("STOP")
-      // Must not leak the await-review section
-      expect(out).not.toContain("has not recorded any feedback")
-      // Must not include auto-advance
       expect(out).not.toContain("Re-run gtd immediately")
+      expect(out).not.toContain(PLANNING_MODEL)
+      expect(out).not.toContain("Develop the plan")
     })
 
-    it("review-process override renders the section, fences the diff, includes auto-advance, and surfaces recordSha", () => {
-      const out = buildPrompt(result("review-process", { autoAdvance: true }), {
-        kind: "review-process",
-        reviewDiff: "diff --git a/x b/x\n+hi\n",
-        recordSha: "deadbee",
-      })
-      // Section rendered
-      expect(out).toContain("format TODO.md")
-      expect(out).toContain("git add TODO.md")
-      // No git revert in the slim prompt
-      expect(out).not.toContain("git revert")
-      // Fenced diff
-      expect(out).toContain("### Review feedback diff")
-      expect(out).toContain("```\ndiff --git a/x b/x\n+hi\n```")
-      // auto-advance partial
+    it("iterate tail develops the plan with a subagent and auto-advances", () => {
+      const out = buildPrompt(
+        result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
+      )
+      expect(out).toContain("Develop the plan")
+      expect(out).toContain(PLANNING_MODEL)
       expect(out).toContain("Re-run gtd immediately")
-      // recovery hint with recordSha
-      expect(out).toContain("deadbee")
-      expect(out).toContain("git show deadbee")
+      expect(out).not.toContain("Open questions await the user")
+    })
+  })
+
+  describe("package rendering", () => {
+    const richPackage: GtdPackageFact = {
+      name: "01-foo",
+      tasks: ["01-task.md", "02-task.md"],
+      taskContents: [
+        { name: "01-task.md", content: "First task" },
+        { name: "02-task.md", content: "see ```block``` and - [ ] item" },
+      ],
+    }
+
+    it("building inlines the selected package's tasks with no COMMIT_MSG reference", () => {
+      const out = buildPrompt(withPackage("building", { packages: [richPackage] }))
+      expect(out).toContain("### Package: `01-foo/`")
+      expect(out).toContain("#### `01-task.md`")
+      expect(out).toContain("First task")
+      expect(out).not.toContain("COMMIT_MSG")
     })
 
-    it("review-process override lengthens the fence when diff contains backticks", () => {
-      const out = buildPrompt(result("review-process", { autoAdvance: true }), {
-        kind: "review-process",
-        reviewDiff: "see `code` and ```block``` here",
-        recordSha: "abc1234",
-      })
-      expect(out).toContain("````\nsee `code` and ```block``` here\n````")
-    })
-
-    it("spec-review injects the planning model and leaves no {{MODEL}}", () => {
+    it("agentic-review inlines the package and shows the package diff, no COMMIT_MSG", () => {
       const out = buildPrompt(
-        result("spec-review", {
-          context: {
-            packages: [
-              {
-                name: "01-foo",
-                tasks: ["01-task.md"],
-                taskContents: [{ name: "01-task.md", content: "First task" }],
-                hasCommitMsg: false,
-              },
-            ],
-            specDiff: "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n",
-          },
+        withPackage("agentic-review", {
+          packages: [richPackage],
+          refDiff: "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n",
+          reviewBase: "deadbee",
         }),
       )
-      expect(out).toContain("claude-opus-4-8")
-      expect(out).not.toContain("{{MODEL}}")
+      expect(out).toContain("### Package: `01-foo/`")
+      expect(out).toContain("### Package diff")
+      expect(out).toContain("+export const foo = 1")
+      expect(out).not.toContain("COMMIT_MSG")
     })
 
-    it("spec-review honors a custom resolveModel", () => {
-      const out = buildPrompt(
-        result("spec-review", {
-          context: {
-            packages: [
-              {
-                name: "01-foo",
-                tasks: ["01-task.md"],
-                taskContents: [{ name: "01-task.md", content: "First task" }],
-                hasCommitMsg: false,
-              },
-            ],
-            specDiff: "diff --git a/src/foo.ts b/src/foo.ts\n+export const foo = 1\n",
-          },
-        }),
-        undefined,
-        (s) => `MODEL-FOR-${s}`,
-      )
-      expect(out).toContain("MODEL-FOR-spec-review")
-      expect(out).not.toContain("{{MODEL}}")
+    it("fences backtick-bearing task content with a long-enough fence", () => {
+      const out = buildPrompt(withPackage("building", { packages: [richPackage] }))
+      expect(out).toContain("````\nsee ```block``` and - [ ] item\n````")
     })
 
-    it("spec-fix injects the execution model and leaves no {{MODEL}}", () => {
+    it("handles a package with zero task files", () => {
+      const empty: GtdPackageFact = { name: "01-foo", tasks: [], taskContents: [] }
+      const out = buildPrompt(withPackage("building", { packages: [empty] }))
+      expect(out).toContain("### Package: `01-foo/`")
+    })
+  })
+
+  describe("fixing feedback inlining", () => {
+    it("inlines the feedbackContent under a heading so the fixer needn't read FEEDBACK.md", () => {
       const out = buildPrompt(
-        result("spec-fix", {
-          context: {
-            packages: [
-              {
-                name: "01-foo",
-                tasks: ["01-task.md"],
-                taskContents: [{ name: "01-task.md", content: "First task" }],
-                hasCommitMsg: false,
-              },
-            ],
-          },
+        result("fixing", {
+          autoAdvance: true,
+          context: { feedbackContent: "FAIL: expected 1 to equal 2\n" },
         }),
       )
-      expect(out).toContain("claude-sonnet-4-8")
-      expect(out).not.toContain("{{MODEL}}")
+      expect(out).toContain("### Feedback to address")
+      expect(out).toContain("FAIL: expected 1 to equal 2")
     })
 
-    it("spec-fix honors a custom resolveModel", () => {
+    it("fences backtick-bearing feedback with a long-enough fence", () => {
       const out = buildPrompt(
-        result("spec-fix", {
-          context: {
-            packages: [
-              {
-                name: "01-foo",
-                tasks: ["01-task.md"],
-                taskContents: [{ name: "01-task.md", content: "First task" }],
-                hasCommitMsg: false,
-              },
-            ],
-          },
+        result("fixing", {
+          autoAdvance: true,
+          context: { feedbackContent: "see ```snippet``` here" },
         }),
-        undefined,
-        (s) => `MODEL-FOR-${s}`,
       )
-      expect(out).toContain("MODEL-FOR-spec-fix")
-      expect(out).not.toContain("{{MODEL}}")
+      expect(out).toContain("````\nsee ```snippet``` here\n````")
     })
 
-    it("fix-tests override carries no injected model and no {{MODEL}} leak", () => {
+    it("omits the Feedback block when feedbackContent is empty", () => {
+      const out = buildPrompt(result("fixing", { autoAdvance: true }))
+      expect(out).not.toContain("### Feedback to address")
+    })
+  })
+
+  describe("diff context", () => {
+    it("clean inlines refDiff under a review heading", () => {
       const out = buildPrompt(
-        result("execute"),
-        { kind: "fix-tests", testOutput: "boom" },
-        () => "SHOULD-NOT-APPEAR",
+        result("clean", {
+          context: { refDiff: "diff --git a/x b/x\n+hello\n", reviewBase: "abc1234" },
+        }),
       )
-      expect(out).not.toContain("{{MODEL}}")
-      expect(out).not.toContain("SHOULD-NOT-APPEAR")
+      expect(out).toContain("Changes to review")
+      expect(out).toContain("```diff")
+      expect(out).toContain("+hello")
+    })
+
+    it("renders the working-tree diff in Context when present", () => {
+      const out = buildPrompt(
+        result("fixing", {
+          autoAdvance: true,
+          context: { workingTreeClean: false, diff: "diff --git a/foo b/foo\n+changed\n" },
+        }),
+      )
+      expect(out).toContain("Working-tree diff")
+      expect(out).toContain("+changed")
+    })
+
+    it("omits the diff block when there is no diff", () => {
+      const out = buildPrompt(result("idle"))
+      expect(out).not.toContain("```diff")
+    })
+  })
+
+  describe("auto-advance partial", () => {
+    it("is appended when result.autoAdvance is true", () => {
+      expect(buildPrompt(result("grilled", { autoAdvance: true }))).toContain(
+        "Re-run gtd immediately",
+      )
+    })
+
+    it("is omitted when result.autoAdvance is false", () => {
+      expect(buildPrompt(result("escalate", { autoAdvance: false }))).not.toContain(
+        "Re-run gtd immediately",
+      )
+      expect(buildPrompt(result("await-review"))).not.toContain("Re-run gtd immediately")
+      expect(buildPrompt(result("idle"))).not.toContain("Re-run gtd immediately")
+    })
+
+    it("clean is not-auto-advance but carries its own re-run instruction", () => {
+      const out = buildPrompt(result("clean"))
+      expect(out).not.toContain("Re-run gtd immediately")
+      expect(out).toContain("Re-run gtd")
     })
   })
 })
