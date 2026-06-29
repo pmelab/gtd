@@ -58,6 +58,33 @@ export interface GitOperations {
    * staged after the restores.
    */
   readonly commitPending: (opts?: CommitPendingOptions) => Effect.Effect<void, Error>
+  /** `git revert --no-commit <ref>` — stages the inverse of ref into the working tree, no commit. */
+  readonly revertNoCommit: (ref: string) => Effect.Effect<void, Error>
+  /** `git reset HEAD~1` (mixed) — undoes the last commit, keeping changes in the working tree. */
+  readonly mixedResetHead: () => Effect.Effect<void, Error>
+  /** `git checkout -- .` — discards tracked working-tree edits back to HEAD. */
+  readonly checkoutAll: () => Effect.Effect<void, Error>
+  /**
+   * `git log --first-parent --diff-filter=D --format=%H -- <path>` — returns the
+   * most recent commit that deleted `path` as `Option.some(sha)`, or `Option.none()`.
+   */
+  readonly lastDeletionOf: (path: string) => Effect.Effect<Option.Option<string>, Error>
+  /**
+   * First-parent history from `base..HEAD` (or all commits if no base), oldest→newest.
+   * Each entry carries the full commit message and `removedErrors: true` iff that
+   * commit's name-status diff contains a deletion (`D`) of `ERRORS.md`.
+   * Returns `[]` for an empty repo.
+   */
+  readonly commitHistory: (
+    base?: string,
+  ) => Effect.Effect<ReadonlyArray<{ readonly message: string; readonly removedErrors: boolean }>, Error>
+  /**
+   * `git rm -r <dir>` (stage the deletion); then if `.gtd/` is now empty, removes
+   * the empty directory too. Idempotent/tolerant if the dir is already absent.
+   */
+  readonly removePackageDir: (dir: string) => Effect.Effect<void, Error>
+  /** `git add -A` then `git commit -m "<prefix>"`. */
+  readonly commitAllWithPrefix: (prefix: string) => Effect.Effect<void, Error>
 }
 
 /**
@@ -478,6 +505,98 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             Effect.catchAll(() => Effect.succeed([] as ReadonlyArray<string>)),
           )
         },
+
+        revertNoCommit: (ref: string) =>
+          exec("git", "revert", "--no-commit", ref).pipe(Effect.asVoid),
+
+        mixedResetHead: () => exec("git", "reset", "HEAD~1").pipe(Effect.asVoid),
+
+        checkoutAll: () => exec("git", "checkout", "--", ".").pipe(Effect.asVoid),
+
+        lastDeletionOf: (path: string) =>
+          exec(
+            "git",
+            "log",
+            "--first-parent",
+            "--diff-filter=D",
+            "--format=%H",
+            "--",
+            path,
+          ).pipe(
+            Effect.map((out) => {
+              const hash = out
+                .split("\n")
+                .map((l) => l.trim())
+                .filter((l) => l.length > 0)[0]
+              return hash !== undefined ? Option.some(hash) : Option.none<string>()
+            }),
+            Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+          ),
+
+        commitHistory: (base?: string) => {
+          const range = base !== undefined ? `${base}..HEAD` : undefined
+          const args: [string, ...Array<string>] = [
+            "git",
+            "log",
+            "--first-parent",
+            "--reverse",
+            "--format=%x01%H%x00%B%x00",
+            "--name-status",
+            ...(range !== undefined ? [range] : []),
+          ]
+          return exec(...args).pipe(
+            Effect.map((out) =>
+              out
+                .split("\x01")
+                .filter((chunk) => chunk.trim().length > 0)
+                .map((chunk) => {
+                  const parts = chunk.split("\x00")
+                  const message = (parts[1] ?? "").trim()
+                  const nameStatusBlock = parts.slice(2).join("")
+                  const removedErrors = /^D\tERRORS\.md$/m.test(nameStatusBlock)
+                  return { message, removedErrors }
+                }),
+            ),
+            // Empty repo (no HEAD) makes `git log` fail; treat as no commits.
+            Effect.catchAll(() =>
+              Effect.succeed(
+                [] as ReadonlyArray<{ readonly message: string; readonly removedErrors: boolean }>,
+              ),
+            ),
+          )
+        },
+
+        removePackageDir: (dir: string) =>
+          Effect.gen(function* () {
+            // Stage deletion; tolerate failure if already absent or untracked
+            yield* Command.make("git", "rm", "-r", "--", dir).pipe(
+              Command.exitCode,
+              Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+              Effect.mapError((e) => new Error(String(e))),
+            )
+            // If .gtd/ is now empty, remove the empty directory too
+            const gtdEntries = yield* exec("ls", "-1", ".gtd").pipe(
+              Effect.map((out) =>
+                out
+                  .split("\n")
+                  .map((s) => s.trim())
+                  .filter((s) => s.length > 0),
+              ),
+              Effect.catchAll(() => Effect.succeed<string[]>([])),
+            )
+            if (gtdEntries.length === 0) {
+              yield* exec("rm", "-rf", ".gtd").pipe(
+                Effect.asVoid,
+                Effect.catchAll(() => Effect.void),
+              )
+            }
+          }),
+
+        commitAllWithPrefix: (prefix: string) =>
+          Effect.gen(function* () {
+            yield* exec("git", "add", "-A")
+            yield* exec("git", "commit", "-m", prefix)
+          }).pipe(Effect.asVoid),
       }
     }),
   )

@@ -848,6 +848,202 @@ describe("GitService", () => {
     })
   })
 
+  describe("revertNoCommit", () => {
+    it("stages the inverse of HEAD without creating a new commit", async () => {
+      commit("feat: add file", "target.txt", "hello world")
+      const headBefore = git("rev-parse HEAD")
+
+      await run(Effect.flatMap(GitService, (g) => g.revertNoCommit("HEAD")))
+
+      // HEAD must not have changed
+      expect(git("rev-parse HEAD")).toBe(headBefore)
+      // The deletion should be staged
+      const status = git("status", "--porcelain")
+      expect(status).toContain("target.txt")
+    })
+  })
+
+  describe("mixedResetHead", () => {
+    it("undoes the last commit while keeping changes in the working tree", async () => {
+      const headAfterInit = git("rev-parse HEAD")
+      commit("feat: second", "b.txt", "beta")
+
+      await run(Effect.flatMap(GitService, (g) => g.mixedResetHead()))
+
+      // HEAD is back to the commit before "feat: second"
+      expect(git("rev-parse HEAD")).toBe(headAfterInit)
+      // b.txt still exists in the working tree (changes kept)
+      const status = git("status", "--porcelain")
+      expect(status).toContain("b.txt")
+    })
+  })
+
+  describe("checkoutAll", () => {
+    it("discards tracked working-tree edits back to HEAD", async () => {
+      commit("feat: add src", "src.ts", "original content")
+      writeFileSync(join(repoDir, "src.ts"), "modified content")
+
+      const statusBefore = git("status", "--porcelain")
+      expect(statusBefore).toContain("src.ts")
+
+      await run(Effect.flatMap(GitService, (g) => g.checkoutAll()))
+
+      const statusAfter = git("status", "--porcelain")
+      expect(statusAfter.trim()).toBe("")
+    })
+  })
+
+  describe("lastDeletionOf", () => {
+    it("returns Option.none when the file has never been deleted", async () => {
+      commit("feat: add review", "REVIEW.md", "# Review")
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.lastDeletionOf("REVIEW.md")))
+      expect(result._tag).toBe("None")
+    })
+
+    it("returns Option.some with the sha of the deleting commit", async () => {
+      commit("feat: add review", "REVIEW.md", "# Review")
+      git("rm", "REVIEW.md")
+      git(`commit -m "chore: remove REVIEW.md"`)
+      const deletionSha = git("rev-parse HEAD")
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.lastDeletionOf("REVIEW.md")))
+      expect(result._tag).toBe("Some")
+      expect(Option.getOrNull(result)).toBe(deletionSha)
+    })
+
+    it("returns the most recent deletion when the file was deleted multiple times", async () => {
+      // First add+delete cycle
+      commit("feat: first add", "REVIEW.md", "first")
+      git("rm", "REVIEW.md")
+      git(`commit -m "chore: first delete"`)
+      // Second add+delete cycle
+      commit("feat: second add", "REVIEW.md", "second")
+      git("rm", "REVIEW.md")
+      git(`commit -m "chore: second delete"`)
+      const latestDeletion = git("rev-parse HEAD")
+      // Commit after the deletion
+      commit("feat: after", "after.txt", "after")
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.lastDeletionOf("REVIEW.md")))
+      expect(result._tag).toBe("Some")
+      expect(Option.getOrNull(result)).toBe(latestDeletion)
+    })
+  })
+
+  describe("commitHistory", () => {
+    it("returns [] for an empty repo", async () => {
+      const emptyDir = mkdtempSync(join(tmpdir(), "gtd-git-empty-history-"))
+      try {
+        execSync("git init", { cwd: emptyDir })
+        process.chdir(emptyDir)
+        const result = await run(Effect.flatMap(GitService, (g) => g.commitHistory()))
+        expect(result).toEqual([])
+      } finally {
+        process.chdir(repoDir)
+        rmSync(emptyDir, { recursive: true, force: true })
+      }
+    })
+
+    it("returns all commits oldest to newest with their messages", async () => {
+      commit("feat: second", "b.txt", "b")
+      commit("feat: third", "c.txt", "c")
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.commitHistory()))
+      expect(result.length).toBe(3)
+      expect(result[0]?.message).toBe("init: first commit")
+      expect(result[2]?.message).toBe("feat: third")
+    })
+
+    it("sets removedErrors=true only for the commit that deleted ERRORS.md", async () => {
+      // Add ERRORS.md
+      writeFileSync(join(repoDir, "ERRORS.md"), "some errors")
+      git("add", "-A")
+      git(`commit -m "gtd: errors"`)
+
+      // Delete ERRORS.md — this commit must have removedErrors=true
+      git("rm", "ERRORS.md")
+      git(`commit -m "gtd: building"`)
+
+      // Another commit with no ERRORS.md involvement
+      commit("feat: after", "after.txt", "after")
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.commitHistory()))
+      // result[0] = init: first commit
+      // result[1] = gtd: errors      (adds ERRORS.md, not a deletion)
+      // result[2] = gtd: building    (deletes ERRORS.md → removedErrors=true)
+      // result[3] = feat: after
+      expect(result[0]?.removedErrors).toBe(false)
+      expect(result[1]?.removedErrors).toBe(false)
+      expect(result[2]?.removedErrors).toBe(true)
+      expect(result[3]?.removedErrors).toBe(false)
+    })
+
+    it("limits to base..HEAD range when base is provided", async () => {
+      commit("feat: second", "b.txt", "b")
+      const base = git("rev-parse HEAD")
+      commit("feat: third", "c.txt", "c")
+
+      const result = await run(Effect.flatMap(GitService, (g) => g.commitHistory(base)))
+      expect(result.length).toBe(1)
+      expect(result[0]?.message).toBe("feat: third")
+      expect(result[0]?.removedErrors).toBe(false)
+    })
+  })
+
+  describe("removePackageDir", () => {
+    it("removes the package dir and keeps .gtd/ when other packages remain", async () => {
+      mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
+      mkdirSync(join(repoDir, ".gtd", "02-bar"), { recursive: true })
+      writeFileSync(join(repoDir, ".gtd", "01-foo", "task.md"), "task content")
+      writeFileSync(join(repoDir, ".gtd", "02-bar", "task.md"), "another task")
+      git("add", "-A")
+      git(`commit -m "chore: setup packages"`)
+
+      await run(Effect.flatMap(GitService, (g) => g.removePackageDir(".gtd/01-foo")))
+
+      expect(existsSync(join(repoDir, ".gtd", "01-foo"))).toBe(false)
+      expect(existsSync(join(repoDir, ".gtd", "02-bar"))).toBe(true)
+      expect(existsSync(join(repoDir, ".gtd"))).toBe(true)
+      // Deletion staged
+      const status = git("status", "--porcelain")
+      expect(status).toContain(".gtd/01-foo/task.md")
+    })
+
+    it("removes .gtd/ itself when the last package is removed", async () => {
+      mkdirSync(join(repoDir, ".gtd", "01-only"), { recursive: true })
+      writeFileSync(join(repoDir, ".gtd", "01-only", "task.md"), "task content")
+      git("add", "-A")
+      git(`commit -m "chore: setup one package"`)
+
+      await run(Effect.flatMap(GitService, (g) => g.removePackageDir(".gtd/01-only")))
+
+      expect(existsSync(join(repoDir, ".gtd", "01-only"))).toBe(false)
+      expect(existsSync(join(repoDir, ".gtd"))).toBe(false)
+    })
+
+    it("is tolerant when the directory is already absent", async () => {
+      // Should not throw even if the dir does not exist
+      await run(Effect.flatMap(GitService, (g) => g.removePackageDir(".gtd/01-nonexistent")))
+    })
+  })
+
+  describe("commitAllWithPrefix", () => {
+    it("stages all pending changes and commits with the given prefix as the message", async () => {
+      writeFileSync(join(repoDir, "new.ts"), "export const x = 1")
+      writeFileSync(join(repoDir, "TODO.md"), "# Plan")
+      const headBefore = git("rev-parse HEAD")
+
+      await run(Effect.flatMap(GitService, (g) => g.commitAllWithPrefix("gtd: building")))
+
+      const headAfter = git("rev-parse HEAD")
+      expect(headAfter).not.toBe(headBefore)
+      expect(git("log", "-1", "--format=%s")).toBe("gtd: building")
+      // All files committed — working tree clean
+      expect(git("status", "--porcelain").trim()).toBe("")
+    })
+  })
+
   describe("commitCount distance comparison (integration of primitives)", () => {
     it("review commit is closer to HEAD than the merge-base with parent branch", async () => {
       // History layout:

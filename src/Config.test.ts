@@ -214,4 +214,118 @@ describe("ConfigService", () => {
       expect(exit.value.agenticReview).toBe(false)
     }
   })
+
+  it("fixAttemptCap defaults to 3 with no config", async () => {
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.fixAttemptCap).toBe(3)
+  })
+
+  it("fixAttemptCap is overridable via config", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `fixAttemptCap: 5\n`)
+
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.fixAttemptCap).toBe(5)
+  })
+
+  it("reviewThreshold defaults to 3 with no config", async () => {
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.reviewThreshold).toBe(3)
+  })
+
+  it("reviewThreshold is overridable via config", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `reviewThreshold: 7\n`)
+
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.reviewThreshold).toBe(7)
+  })
+
+  it("resolveModel returns planning default for grilling, agentic-review, clean with no config", async () => {
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.resolveModel("grilling")).toBe("claude-opus-4-8")
+    expect(cfg.resolveModel("agentic-review")).toBe("claude-opus-4-8")
+    expect(cfg.resolveModel("clean")).toBe("claude-opus-4-8")
+  })
+
+  it("resolveModel returns execution default for building and fixing with no config", async () => {
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.resolveModel("building")).toBe("claude-sonnet-4-8")
+    expect(cfg.resolveModel("fixing")).toBe("claude-sonnet-4-8")
+  })
+
+  it("models.planning override applies to grilling, agentic-review, clean", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`models:`, `  planning: "tier-planner"`, ``].join("\n"),
+    )
+
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.resolveModel("grilling")).toBe("tier-planner")
+    expect(cfg.resolveModel("agentic-review")).toBe("tier-planner")
+    expect(cfg.resolveModel("clean")).toBe("tier-planner")
+  })
+
+  it("models.execution override applies to building and fixing", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`models:`, `  execution: "tier-executor"`, ``].join("\n"),
+    )
+
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.resolveModel("building")).toBe("tier-executor")
+    expect(cfg.resolveModel("fixing")).toBe("tier-executor")
+  })
+
+  it("models.states per-state overrides for new states beat tier", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [
+        `models:`,
+        `  planning: "tier-planner"`,
+        `  execution: "tier-executor"`,
+        `  states:`,
+        `    grilling: "state-griller"`,
+        `    building: "state-builder"`,
+        `    fixing: "state-fixer"`,
+        `    agentic-review: "state-reviewer"`,
+        `    clean: "state-cleaner"`,
+        ``,
+      ].join("\n"),
+    )
+
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.resolveModel("grilling")).toBe("state-griller")
+    expect(cfg.resolveModel("building")).toBe("state-builder")
+    expect(cfg.resolveModel("fixing")).toBe("state-fixer")
+    expect(cfg.resolveModel("agentic-review")).toBe("state-reviewer")
+    expect(cfg.resolveModel("clean")).toBe("state-cleaner")
+  })
+
+  it("new model state keys decode without excess-property error", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [
+        `models:`,
+        `  states:`,
+        `    grilling: "g"`,
+        `    building: "b"`,
+        `    fixing: "f"`,
+        `    agentic-review: "ar"`,
+        `    clean: "cl"`,
+        ``,
+      ].join("\n"),
+    )
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(Exit.isSuccess(exit)).toBe(true)
+  })
 })
