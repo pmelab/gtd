@@ -12,29 +12,6 @@ replay/distribute invariants. The body below is the implementation projection of
 that spec; the **Resolved** decisions at the bottom (and any remaining **Open
 Questions** at the top) are the choices that shape it.
 
-## Open Questions
-
-### Transport has no producer (Q5) — build the consumer now, or defer it?
-
-**Recommendation:** **Keep it (build now).** STATES.md lists Transport as
-precedence-0 of the 16 states, and the cost is ~15 LOC: precedence rule 0 in
-`resolve()`, a `mixedResetHead()` Git primitive (`git reset HEAD~1`), one
-`main.ts` driver case, and one cucumber scenario. Deferring is the worse failure
-mode: without rule 0 a hand-made `gtd: transport` HEAD (the documented manual
-handoff from Q5) matches **no** precedence rule — `gtd: transport` is a
-mid-phase prefix, so rule 5 (boundary HEAD) skips it and rule 7 (boundary/
-`package done`) skips it, leaving either a mis-route (Grilling, if a stray
-TODO.md is around) or the corruption hard-error. I.e. the one workflow the
-manual producer exists for would crash. Keeping the consumer makes the manual
-`git add -A && git commit -m "gtd: transport"` round-trip work end-to-end, and
-the mixed reset cleanly re-exposes the carried work as pending changes for the
-re-derive. The only argument to defer is first-cut surface area, but
-precedence-0 + a single edge action is negligible. If kept, decompose Transport
-into the `Machine.ts`/`Git.ts` packages (migration order steps 1-2), not a
-separate phase.
-
-<!-- user answers here -->
-
 ## Plan body
 
 ### State → action → commit-prefix map (the spec, tabulated)
@@ -467,3 +444,16 @@ Escalate, Await Review, Accept Review, Done, Close package, Idle) carry no
 `{{MODEL}}`.
 
 **Answer:** agreed
+
+### Transport has no producer (Q5) — build the consumer now, or defer it?
+
+**Recommendation:** **Keep it (build now).** Transport is precedence-0; the cost
+is ~15 LOC (rule 0 in `resolve()`, a `mixedResetHead()` Git primitive, one
+`main.ts` case, one scenario). Deferring is worse: without rule 0 a hand-made
+`gtd: transport` HEAD (a mid-phase prefix) matches no precedence rule, so the
+documented manual handoff would mis-route or hit the corruption hard-error.
+Keeping the consumer makes the manual
+`git add -A && git commit -m "gtd: transport"` round-trip work end-to-end.
+Decompose into the `Machine.ts`/`Git.ts` packages (migration steps 1-2).
+
+**Answer:** yes, build it now. producer is in the future
