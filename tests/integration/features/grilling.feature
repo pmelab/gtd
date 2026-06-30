@@ -60,3 +60,51 @@ Feature: Grilling — the 3-way convergence gate on TODO.md
     And the last commit subject is "gtd: grilled"
     And stdout contains "## Task: Decompose the plan into work packages"
     And stdout does not contain "Open questions await the user"
+
+  Scenario: Marker inside an unclosed code fence does not stop for the user
+    Given a test project
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+
+      Build a calculator.
+
+      ```
+      <!-- user answers here -->
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: grilled"
+    And stdout does not contain "Open questions await the user"
+
+  Scenario: Marker inside a closed code fence is ignored
+    Given a test project
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+
+      Build a calculator.
+
+      ```
+      <!-- user answers here -->
+      ```
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: grilled"
+    And stdout does not contain "Open questions await the user"
+
+  Scenario: A .gtd package file whose name contains a space is classified as gtd, not code
+    Given a test project
+    And a commit "gtd: planning" that adds ".gtd/01-feature/my task.md" with:
+      """
+      - [ ] implement the thing
+      """
+    And ".gtd/01-feature/my task.md" is modified to:
+      """
+      - [x] implement the thing
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: planning"
+    And stdout does not contain "## Task: Run tests"
