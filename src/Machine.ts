@@ -504,9 +504,9 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
       return {
         state: "grilling",
         autoAdvance: false,
-        edgeAction: alreadyAtGrillingStop
-          ? undefined
-          : { kind: "commitPending", prefix: "gtd: grilling" },
+        ...(alreadyAtGrillingStop
+          ? {}
+          : { edgeAction: { kind: "commitPending", prefix: "gtd: grilling" } }),
         context: buildContext(p, counters, "stop"),
       }
     }
