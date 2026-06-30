@@ -551,6 +551,25 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, "feature.ts"))).toBe(false)
   })
 
+  it("seedNewFeature (no baseline commit): commits gtd: new task and captures change in TODO.md", async () => {
+    // Inline setup: repo with NO chore: init baseline — HEAD~1 does not exist.
+    cleanup()
+    repoDir = mkdtempSync(join(tmpdir(), "gtd-events-nobase-"))
+    savedCwd = process.cwd()
+    execFileSync("git", ["init", "-q"], { cwd: repoDir })
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: repoDir })
+    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: repoDir })
+    execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: repoDir })
+    process.chdir(repoDir)
+
+    writeFileSync(join(repoDir, "feature.ts"), "export const raw = 1\n")
+    await runPerform({ kind: "seedNewFeature" })
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: new task")
+    expect(existsSync(join(repoDir, "TODO.md"))).toBe(true)
+    expect(readFileSync(join(repoDir, "TODO.md"), "utf8")).toContain("export const raw = 1")
+    expect(existsSync(join(repoDir, "feature.ts"))).toBe(false) // reverted to baseline
+  })
+
   it("seedAcceptReview: discards code edits, seeds TODO.md from the changeset, removes REVIEW.md", async () => {
     writeFileSync(join(repoDir, "code.ts"), "v1\n")
     git("add", "-A")
