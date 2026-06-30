@@ -148,7 +148,35 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
         revertNoCommit: (ref: string) =>
           exec("git", "revert", "--no-commit", ref).pipe(Effect.asVoid),
 
-        mixedResetHead: () => exec("git", "reset", "HEAD~1").pipe(Effect.asVoid),
+        mixedResetHead: () =>
+          Effect.gen(function* () {
+            const parentCode = yield* Command.make(
+              "git",
+              "rev-parse",
+              "--verify",
+              "--quiet",
+              "HEAD~1",
+            ).pipe(
+              Command.exitCode,
+              Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+              Effect.mapError((e) => new Error(String(e))),
+            )
+            if (parentCode !== 0) {
+              return yield* Effect.fail(
+                new Error(
+                  "cannot reset transport commit: it is the repository root commit (no parent to reset to)",
+                ),
+              )
+            }
+            const resetCode = yield* Command.make("git", "reset", "HEAD~1").pipe(
+              Command.exitCode,
+              Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+              Effect.mapError((e) => new Error(String(e))),
+            )
+            if (resetCode !== 0) {
+              return yield* Effect.fail(new Error(`git reset HEAD~1 failed (exit ${resetCode})`))
+            }
+          }),
 
         checkoutAll: () => exec("git", "checkout", "--", ".").pipe(Effect.asVoid),
 

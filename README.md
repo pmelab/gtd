@@ -215,7 +215,9 @@ git push                                        # … then pull on the far side
 There is **no `gtd transport` subcommand** — you make this commit by hand. The
 **Transport** state consumes it: on the far side, the next `gtd` run sees the
 `gtd: transport` HEAD, mixed-resets it (`git reset HEAD~1`) to drop the work
-back into the working tree uncommitted, and re-derives state from scratch.
+back into the working tree uncommitted, and re-derives state from scratch. If
+the transport commit is the repository's root commit (no parent), `gtd` fails
+immediately with a clear error instead of looping.
 
 ## The 16 states
 
