@@ -67,8 +67,8 @@ const ConfigSchema = Schema.Struct({
   testCommand: Schema.optional(Schema.String),
   models: Schema.optional(ModelsSchema),
   agenticReview: Schema.optional(Schema.Boolean),
-  fixAttemptCap: Schema.optional(Schema.Number),
-  reviewThreshold: Schema.optional(Schema.Number),
+  fixAttemptCap: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(0))),
+  reviewThreshold: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(1))),
 })
 
 type DecodedConfig = Schema.Schema.Type<typeof ConfigSchema>
