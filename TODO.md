@@ -51,6 +51,23 @@ format:
   Do **not** add any "you must check all boxes" language — the boxes are
   navigational aids for the human, not a gate.
 
+**Question handling — same as the grilling/TODO.md convention.** REVIEW.md must
+structure its comments/questions the same way `TODO.md` does in
+`src/prompts/grilling.md`:
+
+- **Open/unresolved comments and questions go at the top** of REVIEW.md (above
+  or before the resolved material), so the human sees what still needs their
+  attention first.
+- **Resolved/answered items are retained at the bottom** in a trailing section
+  (mirroring the `## Resolved` section grilling uses for answered questions) —
+  they are kept for the record, not deleted.
+
+So as the user works through the review and resolves a comment, it moves from
+the top region down into the retained-at-bottom section rather than being
+removed. The clean.md format block and rules must spell this ordering out
+explicitly, matching the open-on-top / resolved-at-bottom discipline already in
+`grilling.md`.
+
 ### 2. `src/Prompt.ts` — surface the base hash to the clean prompt
 
 The prompt needs the full + short base hash to fill the marker/heading.
@@ -77,7 +94,8 @@ change is needed.
 
 Update `README.md` REVIEW.md description (L62 and the Clean row ~L235) to
 mention the restored hash marker and hunk checkboxes, noting they are
-informational and not enforced.
+informational and not enforced. Also note the open-on-top / resolved-at-bottom
+question-handling convention for REVIEW.md, consistent with TODO.md grilling.
 
 ## Notes
 
@@ -88,6 +106,12 @@ informational and not enforced.
 
 ## Open questions
 
+no open questions — run gtd to plan
+
+## Resolved
+
+### Revive the old `review(gtd): ...` commit message?
+
 The old format committed REVIEW.md with the agent-authored message
 `review(gtd): create review for <short-hash>`. The current flow instead leaves
 REVIEW.md uncommitted and the **edge** commits it as `gtd: awaiting review`.
@@ -95,5 +119,9 @@ This plan keeps the current `gtd: awaiting review` edge commit and only restores
 the file _format_. Confirm you do NOT also want the old `review(gtd): ...`
 commit message revived.
 
-confirmed, but also make sure that the question handling is the same as before:
-open questions on top, answered questions retained at the bottom.
+**Answer:** Confirmed — keep the current `gtd: awaiting review` edge commit; do
+not revive the old `review(gtd): ...` message. Additional requirement: REVIEW.md
+must use the same question handling as before — open questions on top, answered
+questions retained at the bottom (the same open-on-top / resolved-at-bottom
+convention `grilling.md` applies to TODO.md). This is now captured in change 1
+(`src/prompts/clean.md`).
