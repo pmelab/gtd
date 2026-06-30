@@ -387,9 +387,10 @@ export const perform = (
         if (subject !== NEW_TASK_SUBJECT) {
           yield* git.commitAllWithPrefix(NEW_TASK_SUBJECT)
         }
-        const captured = yield* git
-          .diffRef("HEAD~1")
-          .pipe(Effect.catchAll(() => Effect.succeed("")))
+        const base = yield* git
+          .resolveRef("HEAD~1")
+          .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
+        const captured = yield* git.diffRef(base).pipe(Effect.catchAll(() => Effect.succeed("")))
         yield* git.revertNoCommit("HEAD")
         yield* fs.writeFileString(TODO_FILE, seedTodo(captured))
         return
