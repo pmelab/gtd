@@ -125,6 +125,64 @@ export const seedTodo = (capturedDiff: string): string =>
   ].join("\n")
 
 /**
+ * Returns true iff the diff contains at least one change and every changed
+ * line is a checkbox flip (`- [ ]` ↔ `- [x]`, case-insensitive). Diff header
+ * lines (`---`, `+++`, `@@`, file metadata) are ignored; only actual `+`/`-`
+ * content lines are evaluated. Removed lines must be paired with added lines
+ * that differ only in the box marker.
+ */
+export const isCheckboxOnlyDiff = (diff: string): boolean => {
+  if (diff.trim() === "") return false
+
+  const checkboxRe = /^(\s*- \[)([xX ])\](.*)$/
+  const removedLines: string[] = []
+  const addedLines: string[] = []
+
+  for (const raw of diff.split("\n")) {
+    // Skip diff header lines
+    if (
+      raw.startsWith("---") ||
+      raw.startsWith("+++") ||
+      raw.startsWith("@@") ||
+      raw.startsWith("diff ") ||
+      raw.startsWith("index ") ||
+      raw.startsWith("new file") ||
+      raw.startsWith("deleted file") ||
+      raw.startsWith("similarity") ||
+      raw.startsWith("rename")
+    )
+      continue
+
+    if (raw.startsWith("-")) {
+      const content = raw.slice(1)
+      if (!checkboxRe.test(content)) return false
+      removedLines.push(content)
+    } else if (raw.startsWith("+")) {
+      const content = raw.slice(1)
+      if (!checkboxRe.test(content)) return false
+      addedLines.push(content)
+    }
+  }
+
+  // Must have actual changes and removed/added counts must match
+  if (removedLines.length === 0 && addedLines.length === 0) return false
+  if (removedLines.length !== addedLines.length) return false
+
+  // Each pair must differ only in the checkbox marker
+  for (let i = 0; i < removedLines.length; i++) {
+    const rm = removedLines[i]!
+    const add = addedLines[i]!
+    const rmNorm = rm.replace(/\[[ xX]\]/, "[ ]")
+    const addNorm = add.replace(/\[[ xX]\]/, "[ ]")
+    if (rmNorm !== addNorm) return false
+    // Must actually be a flip (not identical)
+    if (rm === add) return false
+  }
+
+  return true
+}
+
+/**
  * Gather ALL git/filesystem facts and produce the typed event stream the pure
  * machine folds: one `COMMIT` per first-parent commit (oldest→newest) followed
  * by a single `RESOLVE` carrying the working-tree snapshot.
@@ -218,6 +276,15 @@ export const gatherEvents = (): Effect.Effect<
     const packages = yield* getPackages(fs)
     const diff = entries.length > 0 ? yield* git.diffHead() : ""
 
+    // When REVIEW.md is committed and the tree is dirty, check whether the only
+    // pending change is checkbox ticks/un-ticks in REVIEW.md (no new text lines).
+    const onlyReviewDirty = entries.length > 0 && entries.every((e) => e.path === REVIEW_FILE)
+    const reviewCheckboxOnly =
+      onlyReviewDirty &&
+      isCheckboxOnlyDiff(
+        yield* git.diffPath(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.succeed(""))),
+      )
+
     // --- Review base (Clean review) ------------------------------------------
     // Two candidate bases: the merge-base with the default branch (a proper
     // ancestor on a feature branch) and the last REVIEW.md deletion (the most
@@ -268,7 +335,7 @@ export const gatherEvents = (): Effect.Effect<
       feedbackContent,
       reviewCommitted,
       reviewDirty,
-      reviewCheckboxOnly: false,
+      reviewCheckboxOnly,
       pendingErrorsDeletion,
       lastCommitSubject,
       workingTreeClean,

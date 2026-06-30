@@ -6,7 +6,7 @@ import { NodeContext } from "@effect/platform-node"
 import { FileSystem } from "@effect/platform"
 import { Effect, Layer } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { gatherEvents, getPackages, perform, seedTodo } from "./Events.js"
+import { gatherEvents, getPackages, isCheckboxOnlyDiff, perform, seedTodo } from "./Events.js"
 import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import type { ConfigOperations } from "./Config.js"
@@ -110,6 +110,67 @@ describe("seedTodo", () => {
     expect(out).toContain("- old line")
     expect(out).toContain("+ new line")
     expect(out).not.toContain("<!-- user answers here -->")
+  })
+})
+
+// ── isCheckboxOnlyDiff (pure) ────────────────────────────────────────────────
+
+describe("isCheckboxOnlyDiff", () => {
+  it("pure tick diff (- [ ] → - [x]) → true", () => {
+    const diff = [
+      "--- a/REVIEW.md",
+      "+++ b/REVIEW.md",
+      "@@ -1,3 +1,3 @@",
+      " # Review",
+      " ",
+      "-  - [ ] item one",
+      "+  - [x] item one",
+    ].join("\n")
+    expect(isCheckboxOnlyDiff(diff)).toBe(true)
+  })
+
+  it("un-tick diff (- [x] → - [ ]) → true", () => {
+    const diff = [
+      "--- a/REVIEW.md",
+      "+++ b/REVIEW.md",
+      "@@ -1,3 +1,3 @@",
+      " # Review",
+      " ",
+      "-  - [x] item one",
+      "+  - [ ] item one",
+    ].join("\n")
+    expect(isCheckboxOnlyDiff(diff)).toBe(true)
+  })
+
+  it("diff that also changes text → false", () => {
+    const diff = [
+      "--- a/REVIEW.md",
+      "+++ b/REVIEW.md",
+      "@@ -1,4 +1,5 @@",
+      " # Review",
+      " ",
+      "-  - [ ] item one",
+      "+  - [x] item one",
+      "+  <!-- this is a comment -->",
+    ].join("\n")
+    expect(isCheckboxOnlyDiff(diff)).toBe(false)
+  })
+
+  it("diff adding a new non-checkbox line → false", () => {
+    const diff = [
+      "--- a/REVIEW.md",
+      "+++ b/REVIEW.md",
+      "@@ -1,3 +1,4 @@",
+      " # Review",
+      " ",
+      " - [ ] item one",
+      "+  new annotation here",
+    ].join("\n")
+    expect(isCheckboxOnlyDiff(diff)).toBe(false)
+  })
+
+  it("empty diff → false", () => {
+    expect(isCheckboxOnlyDiff("")).toBe(false)
   })
 })
 
@@ -328,6 +389,22 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
     commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n")
     writeFileSync(join(repoDir, "code.ts"), "human edit\n")
     expect(resolveOf(await runGather()).reviewDirty).toBe(true)
+  })
+
+  it("committed REVIEW + checkbox-only edit → reviewCheckboxOnly true, reviewDirty true", async () => {
+    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n\n- [ ] item one\n- [ ] item two\n")
+    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n\n- [x] item one\n- [ ] item two\n")
+    const p = resolveOf(await runGather())
+    expect(p.reviewDirty).toBe(true)
+    expect(p.reviewCheckboxOnly).toBe(true)
+  })
+
+  it("committed REVIEW + textual annotation → reviewCheckboxOnly false, reviewDirty true", async () => {
+    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n\n- [ ] item one\n")
+    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n\n- [x] item one\n\nhuman comment here\n")
+    const p = resolveOf(await runGather())
+    expect(p.reviewDirty).toBe(true)
+    expect(p.reviewCheckboxOnly).toBe(false)
   })
 
   it("pendingErrorsDeletion reflects a working-tree ERRORS.md deletion", async () => {
