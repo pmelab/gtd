@@ -211,21 +211,33 @@ export const gatherEvents = (): Effect.Effect<
     const diff = entries.length > 0 ? yield* git.diffHead() : ""
 
     // --- Review base (Clean review) ------------------------------------------
-    // Feature branch → merge-base with the default branch; default branch → last
-    // REVIEW.md deletion, else the root (empty tree). Only set when the diff is
-    // non-empty (non-empty distinguishes Clean from Idle).
+    // Two candidate bases: the merge-base with the default branch (a proper
+    // ancestor on a feature branch) and the last REVIEW.md deletion (the most
+    // recent completed review, on ANY branch). Pick whichever is the more recent
+    // ancestor of HEAD — the deletion when it post-dates the merge-base — so a
+    // finished branch review (`gtd: done` removed REVIEW.md) advances the base
+    // and the next run settles in Idle instead of re-reviewing the whole branch.
+    // Fall back to the root (empty tree) when neither candidate exists. Only set
+    // when the diff is non-empty (non-empty distinguishes Clean from Idle).
     let reviewBase: string | undefined
     let refDiff: string | undefined
     if (hasCommits) {
       const headHash = yield* git
         .resolveRef("HEAD")
         .pipe(Effect.catchAll(() => Effect.succeed("")))
-      let candidate: string | undefined
-      if (Option.isSome(base) && base.value !== headHash) {
-        candidate = base.value // feature branch: merge-base is a proper ancestor
+      const mergeBaseCandidate =
+        Option.isSome(base) && base.value !== headHash ? base.value : undefined
+      const lastDel = yield* git.lastDeletionOf(REVIEW_FILE)
+      const lastDelCandidate = Option.isSome(lastDel) ? lastDel.value : undefined
+
+      let candidate: string
+      if (mergeBaseCandidate !== undefined && lastDelCandidate !== undefined) {
+        // Both exist: prefer the deletion when the merge-base is its ancestor
+        // (i.e. the review finished after this branch diverged).
+        const mergeBaseIsOlder = yield* git.isAncestor(mergeBaseCandidate, lastDelCandidate)
+        candidate = mergeBaseIsOlder ? lastDelCandidate : mergeBaseCandidate
       } else {
-        const lastDel = yield* git.lastDeletionOf(REVIEW_FILE)
-        candidate = Option.isSome(lastDel) ? lastDel.value : EMPTY_TREE
+        candidate = mergeBaseCandidate ?? lastDelCandidate ?? EMPTY_TREE
       }
       const candidateDiff = yield* git
         .diffRef(candidate)

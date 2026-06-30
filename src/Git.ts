@@ -10,6 +10,8 @@ export interface GitOperations {
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
   readonly resolveDefaultBranch: () => Effect.Effect<Option.Option<string>, Error>
   readonly mergeBase: (a: string, b: string) => Effect.Effect<Option.Option<string>, Error>
+  /** `git merge-base --is-ancestor a b` — true iff `a` is an ancestor of `b` (or equal). */
+  readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
   /** Removes the `.gtd/` directory idempotently (no error if absent). */
   readonly removeGtdDir: () => Effect.Effect<void, Error>
   /** `git revert --no-commit <ref>` — stages the inverse of ref into the working tree, no commit. */
@@ -125,6 +127,14 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
           exec("git", "merge-base", a, b).pipe(
             Effect.map((s) => Option.some(s.trim())),
             Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+          ),
+
+        isAncestor: (a: string, b: string) =>
+          Command.make("git", "merge-base", "--is-ancestor", a, b).pipe(
+            Command.exitCode,
+            Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+            Effect.map((code) => code === 0),
+            Effect.catchAll(() => Effect.succeed(false)),
           ),
 
         removeGtdDir: () => exec("rm", "-rf", ".gtd").pipe(Effect.asVoid),

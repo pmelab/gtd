@@ -284,12 +284,17 @@ Clean.)_
 freshly committed work) or HEAD `gtd: package done` with `.gtd` gone (review the
 finished feature).
 
-**Actions:** determine the base commit for the review:
+**Actions:** determine the base commit for the review — the **more recent
+ancestor of HEAD** of these two candidates:
 
-- HEAD on the default branch → the last commit that deleted REVIEW.md (`gtd:
-  done`, or the first `gtd: grilling` after an accepted review); if none, the
-  root.
-- HEAD on a feature branch → the merge-base with the default branch.
+- the last commit that deleted REVIEW.md (`gtd: done`, or the first `gtd:
+  grilling` after an accepted review), on **any** branch;
+- the merge-base with the default branch (a proper ancestor on a feature
+  branch).
+
+The deletion wins whenever it post-dates the merge-base, so a completed branch
+review advances the base past `gtd: done` instead of re-reviewing the whole
+branch. If neither candidate exists, the base is the root.
 
 **Prompt:** create REVIEW.md for the changes since the base commit. _(not
 auto-advance; agent writes REVIEW.md → Await Review.)_

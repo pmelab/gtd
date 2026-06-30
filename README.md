@@ -232,7 +232,7 @@ action and re-resolves silently.
 | **New Feature** | edge-only, auto | boundary HEAD + pending changes (code and/or a new uncommitted TODO.md), **or** HEAD `gtd: new task` + clean tree (lost-seed regen) | commit the raw input verbatim `gtd: new task` (unless already there), `git revert --no-commit` it back to a clean baseline, seed TODO.md from that diff — revert + seed left **uncommitted** | Grilling |
 | **Grilling** | agent (iterate) / STOP (answers) | TODO.md present, not New Feature | commit pending edits `gtd: grilling`. Open-question markers present → STOP for the human to answer inline; no markers but dirty → grilling agent iterates | converge (no markers, clean tree) → Grilled |
 | **Grilled** | agent, auto | TODO.md present, no markers, clean tree | commit pending `gtd: grilled` | decompose into `.gtd/` → Planning |
-| **Clean** | agent | no steering files, clean tree, boundary or `gtd: package done` HEAD, and the review base yields a **non-empty** diff | compute the review base; agent writes REVIEW.md **uncommitted** | Await Review |
+| **Clean** | agent | no steering files, clean tree, boundary or `gtd: package done` HEAD, and the review base yields a **non-empty** diff | compute the review base (the more recent ancestor of HEAD of: the last `REVIEW.md` deletion, or the merge-base with the default branch); agent writes REVIEW.md **uncommitted** | Await Review |
 | **Idle** | STOP | no steering files, clean tree, and nothing to review (HEAD `gtd: done`, or no reviewable diff) | none | — |
 
 Every prompt also embeds the current `git diff HEAD` (untracked files included)

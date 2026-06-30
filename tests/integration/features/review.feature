@@ -96,6 +96,29 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And stdout contains "## Task: Nothing to do"
     And stdout does not contain "## Task: Create `REVIEW.md`"
 
+  Scenario: A completed branch review settles in Idle, not a fresh review
+    Given a test project
+    And a default branch "main"
+    And a branch "feature"
+    And a commit "feat: branch work" that adds "src/feat.ts" with:
+      """
+      export const feat = () => "feat"
+      """
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+
+      - ./src/feat.ts#1
+      """
+    When I run gtd
+    Then it succeeds
+    # Approves the review (gtd: done), then must NOT re-review the whole branch:
+    # the last REVIEW.md deletion now outranks the merge-base as the review base.
+    And the last commit subject is "gtd: done"
+    And the file "REVIEW.md" does not exist
+    And stdout contains "## Task: Nothing to do"
+    And stdout does not contain "## Task: Create `REVIEW.md`"
+
   Scenario: A coworker's non-gtd commit on a feature branch reviews against the merge-base
     Given a test project
     And a default branch "main"
