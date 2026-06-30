@@ -550,6 +550,20 @@ The grilling and clean prompts instruct the agent to run this command after
 every edit to `TODO.md` or `REVIEW.md`, so those files stay consistently
 formatted regardless of the host project's toolchain.
 
+### Error handling
+
+All errors exit with **code 1** and write a message to **stderr**:
+
+- **Missing path** — `gtd format` with no argument:
+  `gtd format: missing file path argument`
+- **Extra arguments** — `gtd format a.md b.md`:
+  `gtd format: too many arguments — expected one path, got: …`
+- **Non-markdown file** — any extension other than `.md` or `.markdown`
+  (case-insensitive):
+  `gtd format: <file> is not a markdown file (expected .md or .markdown)`
+- **File not found** — the path does not exist:
+  `gtd: skipped formatting <file>: not found`
+
 > [!NOTE] Upgrading gtd may reflow existing `TODO.md` files if the bundled
 > prettier major version changes.
 

@@ -39,12 +39,16 @@ const program = Effect.gen(function* () {
   const sub = process.argv[2]
 
   if (sub === "format") {
-    const path = process.argv[3]
-    if (path === undefined || path.length === 0) {
-      process.stderr.write("gtd format: missing file path argument\n")
-      return
+    const args = process.argv.slice(3).filter((a) => a.length > 0)
+    if (args.length === 0) {
+      return yield* Effect.fail(new Error("gtd format: missing file path argument"))
     }
-    yield* Format.formatFile(path)
+    if (args.length > 1) {
+      return yield* Effect.fail(
+        new Error(`gtd format: too many arguments — expected one path, got: ${args.join(", ")}`),
+      )
+    }
+    yield* Format.formatFile(args[0])
     return
   }
 
