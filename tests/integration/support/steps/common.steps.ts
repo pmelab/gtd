@@ -1,6 +1,7 @@
 import { Given, Then, When } from "@cucumber/cucumber"
 import { execFileSync } from "node:child_process"
-import { writeFileSync, mkdirSync, readFileSync } from "node:fs"
+import { writeFileSync, mkdirSync, readFileSync, mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
@@ -63,6 +64,26 @@ Given(
     writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
     execFileSync("git", ["add", path], { cwd: this.repoDir, stdio: "pipe" })
     execFileSync("git", ["commit", "-q", "-m", message], { cwd: this.repoDir, stdio: "pipe" })
+  },
+)
+
+// Initialises a brand-new empty repo (no prior commit) so that `message` becomes
+// the root commit. Mirrors "a commit … that adds … with:" but starts from a
+// fresh mkdtemp rather than reusing this.repoDir.
+Given(
+  "a root commit {string} that adds {string} with:",
+  function (this: GtdWorld, message: string, path: string, content: string) {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-test-"))
+    execFileSync("git", ["init", "-q"], { cwd: dir, stdio: "pipe" })
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir, stdio: "pipe" })
+    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: dir, stdio: "pipe" })
+    execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir, stdio: "pipe" })
+    const full = join(dir, path)
+    mkdirSync(join(full, ".."), { recursive: true })
+    writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
+    execFileSync("git", ["add", path], { cwd: dir, stdio: "pipe" })
+    execFileSync("git", ["commit", "-q", "-m", message], { cwd: dir, stdio: "pipe" })
+    this.repoDir = dir
   },
 )
 
