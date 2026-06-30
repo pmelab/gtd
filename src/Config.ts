@@ -180,6 +180,9 @@ const loadMerged = (): Effect.Effect<Record<string, unknown>, Error> =>
       for (let i = chain.length - 1; i >= 0; i--) {
         const dir = chain[i]
         const result = await explorer.search(dir)
+        if (result && result.config === null) {
+          throw new Error(`${result.filepath}: config must be a plain object, got null`)
+        }
         if (result && !result.isEmpty) {
           if (!isPlainObject(result.config)) {
             throw new Error(

@@ -299,6 +299,20 @@ Feature: .gtdrc config system
     And stderr contains "Invalid gtd config"
     And stderr does not contain "readonly"
 
+  Scenario: A null-root config is rejected and names the offending file
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      null
+      """
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Build the multiply function.
+      """
+    When I run gtd
+    Then it fails
+    And stderr contains ".gtdrc"
+
   Scenario: A config in a shared parent directory cascades down to a repo beneath it
     # Only the shared (non-git-root) parent carries a .gtdrc; the repo has none.
     # The ancestor's planning model must still reach the decompose prompt, proving
