@@ -297,7 +297,7 @@ Feature: .gtdrc config system
     When I run gtd
     Then it fails
     And stderr contains "Invalid gtd config"
-    And stderr does not contain "Struct"
+    And stderr does not contain "readonly"
 
   Scenario: A config in a shared parent directory cascades down to a repo beneath it
     # Only the shared (non-git-root) parent carries a .gtdrc; the repo has none.

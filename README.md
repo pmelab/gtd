@@ -370,11 +370,12 @@ built-in defaults apply. Supported filenames (searched in this order):
 
 - **`testCommand`** (string, default `npm run test`) — the command the edge runs
   in the Testing state to verify a built package.
-- **`fixAttemptCap`** (number, default `3`) — the test-fix budget: how many
-  `gtd: errors` attempts are allowed per sub-loop before the failure is
-  escalated to ERRORS.md (Escalate).
-- **`reviewThreshold`** (number, default `3`) — the review-fix budget: how many
-  `gtd: feedback` rounds are allowed per package before Agentic Review
+- **`fixAttemptCap`** (non-negative integer, default `3`) — the test-fix budget:
+  how many `gtd: errors` attempts are allowed per sub-loop before the failure is
+  escalated to ERRORS.md (Escalate). `0` disables the cap (escalates immediately
+  on the first red run).
+- **`reviewThreshold`** (integer ≥ 1, default `3`) — the review-fix budget: how
+  many `gtd: feedback` rounds are allowed per package before Agentic Review
   force-approves.
 - **`agenticReview`** (boolean, default `true`) — kill-switch for the
   per-package Agentic Review gate. Set to `false` to skip agentic review
@@ -388,6 +389,19 @@ built-in defaults apply. Supported filenames (searched in this order):
   - `states.*` — per-state overrides keyed by the six agent states: `decompose`
     (shared by the Grilled and Planning states), `grilling`, `building`,
     `fixing`, `agentic-review`, `clean`. Unknown `states` keys are **rejected**.
+
+### Validation and errors
+
+If a config file fails to load or is invalid, gtd **exits with code 1** and
+writes a human-readable error to **stderr** (never stdout):
+
+- **Parse errors** (malformed YAML/JSON) — message includes the offending
+  filename, e.g. `gtd: /path/to/.gtdrc: unexpected token`.
+- **Non-object top-level** — a YAML list or `null` at the root is rejected with
+  the filename in the message.
+- **Schema violations** — unknown keys or out-of-range values emit
+  `Invalid gtd config: <field>: <reason>`. The message is concise and does not
+  dump the full type tree.
 
 ### Lookup and precedence
 
