@@ -37,7 +37,11 @@ helper, per AGENTS.md):
   commit`.
 
 Match the indentation, imports (`mkdtempSync`, `tmpdir`), and `execFileSync`
-patterns already present in `common.steps.ts` / `project-setup.ts`.
+patterns already present in `common.steps.ts` /
+`tests/integration/helpers/project-setup.ts`. Note `common.steps.ts` currently
+imports only `writeFileSync, mkdirSync, readFileSync` from `node:fs` and does
+not import `tmpdir` — add `mkdtempSync` to the `node:fs` import and a
+`import { tmpdir } from "node:os"` line.
 
 ## 2. New scenario in `transport.feature`
 
