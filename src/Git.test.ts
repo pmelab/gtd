@@ -45,6 +45,39 @@ afterEach(() => {
 })
 
 describe("GitService", () => {
+  describe("diffPath", () => {
+    it("returns the working-tree diff scoped to the given path", async () => {
+      commit("feat: add target", "target.txt", "original content")
+      writeFileSync(join(repoDir, "target.txt"), "modified content")
+
+      const diff = await run(Effect.flatMap(GitService, (g) => g.diffPath("target.txt")))
+
+      expect(diff).toContain("target.txt")
+      expect(diff).toContain("original content")
+      expect(diff).toContain("modified content")
+    })
+
+    it("excludes changes to unrelated paths", async () => {
+      commit("feat: add files", "target.txt", "target content")
+      commit("feat: add other", "other.txt", "other content")
+      writeFileSync(join(repoDir, "target.txt"), "target modified")
+      writeFileSync(join(repoDir, "other.txt"), "other modified")
+
+      const diff = await run(Effect.flatMap(GitService, (g) => g.diffPath("target.txt")))
+
+      expect(diff).toContain("target.txt")
+      expect(diff).not.toContain("other.txt")
+    })
+
+    it("returns empty string when the path is unchanged", async () => {
+      commit("feat: add target", "target.txt", "stable content")
+
+      const diff = await run(Effect.flatMap(GitService, (g) => g.diffPath("target.txt")))
+
+      expect(diff.trim()).toBe("")
+    })
+  })
+
   describe("diffRef", () => {
     it("returns diff between ref and HEAD after a change", async () => {
       commit("feat: second commit", "foo.txt", "foo content")

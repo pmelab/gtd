@@ -7,6 +7,7 @@ export interface GitOperations {
   readonly lastCommitSubject: () => Effect.Effect<string, Error>
   readonly hasCommits: () => Effect.Effect<boolean, Error>
   readonly diffRef: (ref: string) => Effect.Effect<string, Error>
+  readonly diffPath: (path: string) => Effect.Effect<string, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
   readonly resolveDefaultBranch: () => Effect.Effect<Option.Option<string>, Error>
   readonly mergeBase: (a: string, b: string) => Effect.Effect<Option.Option<string>, Error>
@@ -94,6 +95,8 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
           ),
 
         diffRef: (ref: string) => exec("git", "diff", ref, "HEAD"),
+
+        diffPath: (path: string) => exec("git", "diff", "HEAD", "--", path),
 
         resolveRef: (ref: string) =>
           exec("git", "rev-parse", "--verify", ref).pipe(
