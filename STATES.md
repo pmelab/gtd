@@ -273,7 +273,9 @@ approval); `.gtd` present.
 
 **Actions:** remove the empty FEEDBACK.md, delete the first (finished) package
 directory — plus the now-empty `.gtd/` if it was the last — and commit
-`gtd: package done`.
+`gtd: package done`. When it was the last package, also remove TODO.md so the
+next run falls through rule 6 (TODO.md present → Grilling) to rule 7
+(Clean/Idle) instead of re-entering the Grilling loop.
 
 **Prompt:** proceed. _(Next: `.gtd` still has packages → Building; `.gtd` gone →
 Clean.)_
