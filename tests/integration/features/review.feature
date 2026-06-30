@@ -57,6 +57,28 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And the last commit subject is "gtd: done"
     And the file "REVIEW.md" does not exist
 
+  Scenario: A committed REVIEW.md with base marker and unchecked boxes still finishes as gtd: done
+    Given a test project
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: abc1234deadbeefabc1234deadbeefabc1234de -->
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1 — export statement
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: done"
+    And the file "REVIEW.md" does not exist
+
   Scenario: Editing the code under a committed REVIEW.md seeds a fresh plan
     Given a test project
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

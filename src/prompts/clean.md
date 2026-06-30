@@ -16,26 +16,40 @@ review. It must:
 3. **Write `REVIEW.md`** in the repo root in this format:
 
    ```markdown
-   # Review
+   # Review: <short-hash>
+
+   <!-- base: <full-hash> -->
 
    ## <Chunk Title>
 
    <What this chunk changes and why>
 
-   - ./path/to/file.ts#42
-   - ./path/to/file.ts#99
+   - [ ] ./path/to/file.ts#42
+   - [ ] ./path/to/file.ts#99
 
    ## <Another Chunk Title>
 
    <Explanation>
 
-   - ./path/to/another.ts#1
+   - [ ] ./path/to/another.ts#1
+
+   ## Resolved
+
+   <!-- resolved items move here as the user works through the review -->
    ```
 
+   - `<short-hash>` is the first 7 characters of the review base SHA; `<full-hash>`
+     is the full SHA. Both are read from the `Review base:` line / diff label in
+     the prompt context.
    - Chunk titles are short imperative phrases (≤ 6 words).
    - Explanations describe _what_ changed and _why_, not just where.
    - File pointers are relative, prefixed with `./`; the line numbers (`#42`)
      are creation-time hints that will drift — not authoritative.
+   - Checkboxes (`- [ ]`) are **navigational aids** — they help the user track
+     progress, not a gate.
+   - **Open/unresolved comments stay at the top** of the file. As the user
+     resolves a comment, it **moves** into the `## Resolved` section at the
+     bottom — it is not deleted.
 
 4. Normalize formatting (run `gtd format REVIEW.md` with the same gtd you
    invoked), then leave `REVIEW.md` **uncommitted**.

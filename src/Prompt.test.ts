@@ -305,6 +305,15 @@ describe("buildPrompt", () => {
       expect(out).toContain("+hello")
     })
 
+    it("clean prompt contains literal reviewBase hash", () => {
+      const out = buildPrompt(
+        result("clean", {
+          context: { refDiff: "diff --git a/y b/y\n+world\n", reviewBase: "abc1234def" },
+        }),
+      )
+      expect(out).toContain("abc1234def")
+    })
+
     it("renders the working-tree diff in Context when present", () => {
       const out = buildPrompt(
         result("fixing", {
