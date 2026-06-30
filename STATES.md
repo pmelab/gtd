@@ -313,8 +313,10 @@ auto-advance — human turn.)_
 
 ### Accept Review (auto-advance)
 
-**Conditions:** REVIEW.md present and **committed**, with pending changes (the
-human edited code, added comments, or annotated REVIEW.md).
+**Conditions:** REVIEW.md present and **committed**, with pending
+**non-checkbox** changes — code edits, inline code comments, or textual
+annotations added to REVIEW.md. Checkbox-only edits (`- [ ]` ↔ `- [x]`) do
+**not** qualify and route to Done instead.
 
 **Actions:** (all left uncommitted — no commit of its own)
 
@@ -331,14 +333,21 @@ needed.)_
 
 ### Done
 
-**Conditions:** REVIEW.md present and **committed**, clean tree (the human ran
-`gtd` without making changes = approval).
+**Conditions:** REVIEW.md present and **committed**, and either:
+
+- clean tree (no changes at all — the human ran `gtd` without editing anything),
+  or
+- only checkbox-flip edits in REVIEW.md (`- [ ]` ↔ `- [x]`), with no other
+  pending changes.
+
+Checkbox-only flips are treated as approval signals, not as review feedback
+requiring a new work cycle.
 
 **Actions:** remove REVIEW.md, commit `gtd: done`.
 
-**Prompt:** none. _(Approval is the absence of changes — `gtd` cannot
-distinguish "approved" from "not yet looked at", so a premature run closes the
-review.)_
+**Prompt:** none. _(Approval is the absence of substantive changes — `gtd`
+cannot distinguish "approved" from "not yet looked at", so a premature run
+closes the review.)_
 
 ### Idle
 

@@ -79,6 +79,68 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And the last commit subject is "gtd: done"
     And the file "REVIEW.md" does not exist
 
+  Scenario: Checking off REVIEW.md checkboxes approves the review
+    Given a test project
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1 — new add function
+      - [ ] ./src/calc.ts#1 — export statement
+      """
+    And "REVIEW.md" is modified to:
+      """
+      # Review
+
+      ## Add calculator
+
+      - [x] ./src/calc.ts#1 — new add function
+      - [x] ./src/calc.ts#1 — export statement
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: done"
+    And the file "REVIEW.md" does not exist
+    And the file "TODO.md" does not exist
+    And stdout does not contain "Grilling"
+
+  Scenario: A textual annotation in REVIEW.md (non-checkbox edit) requests changes
+    Given a test project
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1 — new add function
+      """
+    And "REVIEW.md" is modified to:
+      """
+      # Review
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1 — new add function
+
+      Please also add a subtract function.
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: grilling"
+    And the file "REVIEW.md" does not exist
+    And the file "TODO.md" exists
+    And stdout contains "## Task: Grill the plan in `TODO.md`"
+
   Scenario: Editing the code under a committed REVIEW.md seeds a fresh plan
     Given a test project
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

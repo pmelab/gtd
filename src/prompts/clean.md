@@ -41,8 +41,9 @@ review. It must:
    - Explanations describe _what_ changed and _why_, not just where.
    - File pointers are relative, prefixed with `./`; the line numbers (`#42`)
      are creation-time hints that will drift — not authoritative.
-   - Checkboxes (`- [ ]`) are **navigational aids** — they help the user track
-     progress, not a gate.
+   - Checkboxes (`- [ ]`) signal approval — ticking them (with no other edits)
+     counts as approving the review (`gtd: done`). Only non-checkbox edits to
+     `REVIEW.md` (or any code edits) are treated as a change-request.
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
 

@@ -338,10 +338,12 @@ loop before the next one starts.
    the diff since the review base (uncommitted); **Await Review** commits it
    `gtd: awaiting review` and STOPs.
 8. **Approve or revise.** Re-run `/gtd` with **no** changes to approve →
-   **Done** (`gtd: done`) → **Idle**. Or edit code / annotate `REVIEW.md` →
-   **Accept Review** seeds a fresh `TODO.md` from your feedback, discards your
-   code edits, removes `REVIEW.md`, and re-enters Grilling — the loop starts
-   over.
+   **Done** (`gtd: done`) → **Idle**. Checking off REVIEW.md checkboxes (`- [ ]`
+   → `- [x]`) also counts as approval and routes to **Done** — they are
+   navigation aids, not feedback. Only **non-checkbox** edits (code changes,
+   inline comments, textual annotations in REVIEW.md) trigger **Accept Review**,
+   which seeds a fresh `TODO.md` from your feedback, discards your code edits,
+   removes `REVIEW.md`, and re-enters Grilling — the loop starts over.
 
 ## Configuration
 
