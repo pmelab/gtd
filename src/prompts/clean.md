@@ -32,10 +32,6 @@ review. It must:
    <Explanation>
 
    - [ ] ./path/to/another.ts#1
-
-   ## Resolved
-
-   <!-- resolved items move here as the user works through the review -->
    ```
 
    - `<short-hash>` is the first 7 characters of the review base SHA; `<full-hash>`
@@ -47,9 +43,7 @@ review. It must:
      are creation-time hints that will drift — not authoritative.
    - Checkboxes (`- [ ]`) are **navigational aids** — they help the user track
      progress, not a gate.
-   - **Open/unresolved comments stay at the top** of the file. As the user
-     resolves a comment, it **moves** into the `## Resolved` section at the
-     bottom — it is not deleted.
+   - The user checks off or edits items in place as they work through the review; there is no separate Resolved section.
 
 4. Normalize formatting (run `gtd format REVIEW.md` with the same gtd you
    invoked), then leave `REVIEW.md` **uncommitted**.
