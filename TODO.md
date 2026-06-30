@@ -25,17 +25,31 @@ SHA `EMPTY_TREE` (`4b825dc642cb6eb9a060e54bf8d69288fbee4904`, already defined at
 as additions.
 
 Detect the presence of a parent commit with the existing
-`git.resolveRef("HEAD~1")` (`src/Git.ts:101`), which returns an `Option` and
-already handles non-resolving refs. Concretely, replace:
+`git.resolveRef("HEAD~1")` (`src/Git.ts:101`), which runs
+`git rev-parse --verify` and returns an `Effect` that **fails** on a
+non-resolving ref (matching the existing `resolveRef("HEAD")` usage at
+`src/Events.ts:204`, which wraps it in `catchAll`). Concretely, replace:
 
 ```ts
 const captured =
   yield * git.diffRef("HEAD~1").pipe(Effect.catchAll(() => Effect.succeed("")))
 ```
 
-with logic that resolves `HEAD~1`; if `Option.isSome`, diff against `"HEAD~1"`,
-else diff against `EMPTY_TREE`. Keep the `catchAll(() => "")` guard as a final
-safety net. This mirrors the existing `... ?? EMPTY_TREE` fallback pattern at
+with logic that resolves `HEAD~1` to a base ref, falling back to `EMPTY_TREE`
+when it fails, then diffs against that base — e.g.
+
+```ts
+const base =
+  yield *
+  git
+    .resolveRef("HEAD~1")
+    .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
+const captured =
+  yield * git.diffRef(base).pipe(Effect.catchAll(() => Effect.succeed("")))
+```
+
+Keep the `catchAll(() => "")` guard on `diffRef` as a final safety net. This
+mirrors the existing `... ?? EMPTY_TREE` fallback pattern at
 `src/Events.ts:318`.
 
 Note: at this point `gtd: new task` is always HEAD — the case either commits it
