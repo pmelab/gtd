@@ -111,6 +111,8 @@ export interface ResolvePayload {
   readonly reviewCommitted: boolean
   /** `REVIEW.md` is committed BUT there are pending edits (to REVIEW or other files). */
   readonly reviewDirty: boolean
+  /** Pending REVIEW.md change is a pure checkbox-state flip (`- [ ]` ↔ `- [x]`) and nothing else is dirty. */
+  readonly reviewCheckboxOnly: boolean
   /** The working tree deletes a committed `ERRORS.md` (human resume → fresh budget). */
   readonly pendingErrorsDeletion: boolean
   /** Subject of HEAD (first-parent). */
@@ -266,6 +268,7 @@ const DEFAULT_PAYLOAD: ResolvePayload = {
   feedbackContent: "",
   reviewCommitted: false,
   reviewDirty: false,
+  reviewCheckboxOnly: false,
   pendingErrorsDeletion: false,
   lastCommitSubject: "",
   workingTreeClean: true,
@@ -443,6 +446,14 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   // ── 4. REVIEW.md present → review lifecycle (exhaustive) ──────────────────
   if (p.reviewPresent) {
     if (p.reviewCommitted) {
+      return {
+        state: "done",
+        autoAdvance: true,
+        edgeAction: { kind: "done" },
+        context: buildContext(p, counters),
+      }
+    }
+    if (p.reviewDirty && p.reviewCheckboxOnly) {
       return {
         state: "done",
         autoAdvance: true,

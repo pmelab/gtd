@@ -41,6 +41,7 @@ const basePayload = (overrides: Partial<ResolvePayload> = {}): ResolvePayload =>
   feedbackContent: "",
   reviewCommitted: false,
   reviewDirty: false,
+  reviewCheckboxOnly: false,
   pendingErrorsDeletion: false,
   lastCommitSubject: "chore: init",
   workingTreeClean: true,
@@ -377,6 +378,18 @@ describe("rule 4 — review lifecycle", () => {
     expect(res.state).toBe("accept-review")
     expect(res.autoAdvance).toBe(true)
     expect(res.edgeAction).toEqual({ kind: "seedAcceptReview" })
+  })
+
+  it("reviewDirty + reviewCheckboxOnly → done, auto, done", () => {
+    const res = r({
+      reviewPresent: true,
+      reviewCommitted: false,
+      reviewDirty: true,
+      reviewCheckboxOnly: true,
+    })
+    expect(res.state).toBe("done")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({ kind: "done" })
   })
 })
 

@@ -268,6 +268,7 @@ export const gatherEvents = (): Effect.Effect<
       feedbackContent,
       reviewCommitted,
       reviewDirty,
+      reviewCheckboxOnly: false,
       pendingErrorsDeletion,
       lastCommitSubject,
       workingTreeClean,
