@@ -128,19 +128,29 @@ const walkUp = (from: string, home: string): ReadonlyArray<string> => {
 }
 
 const yamlLoader = (filepath: string, content: string): unknown => {
+  let result: unknown
   try {
-    return parseYaml(content) as unknown
+    result = parseYaml(content) as unknown
   } catch (e) {
     throw new Error(`${filepath}: ${e instanceof Error ? e.message : String(e)}`)
   }
+  if (result === null) {
+    throw new Error(`${filepath}: config must be a plain object, got null`)
+  }
+  return result
 }
 
 const jsonLoader = (filepath: string, content: string): unknown => {
+  let result: unknown
   try {
-    return JSON.parse(content) as unknown
+    result = JSON.parse(content) as unknown
   } catch (e) {
     throw new Error(`${filepath}: ${e instanceof Error ? e.message : String(e)}`)
   }
+  if (result === null) {
+    throw new Error(`${filepath}: config must be a plain object, got null`)
+  }
+  return result
 }
 
 const SEARCH_PLACES = [
@@ -180,9 +190,6 @@ const loadMerged = (): Effect.Effect<Record<string, unknown>, Error> =>
       for (let i = chain.length - 1; i >= 0; i--) {
         const dir = chain[i]
         const result = await explorer.search(dir)
-        if (result && result.config === null) {
-          throw new Error(`${result.filepath}: config must be a plain object, got null`)
-        }
         if (result && !result.isEmpty) {
           if (!isPlainObject(result.config)) {
             throw new Error(
