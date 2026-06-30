@@ -402,6 +402,11 @@ writes a human-readable error to **stderr** (never stdout):
 - **Schema violations** — unknown keys or out-of-range values emit
   `Invalid gtd config: <field>: <reason>`. The message is concise and does not
   dump the full type tree.
+- **Missing test binary** — if `testCommand` names an executable that cannot be
+  found (`ENOENT`), gtd exits with code 1 and writes
+  `gtd: test command not found: <command>` to **stderr**. No stack trace is
+  emitted to stdout. A non-zero test exit is _not_ an error — it drives the
+  normal red-path (FEEDBACK → Fixing).
 
 ### Lookup and precedence
 

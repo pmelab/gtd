@@ -13,6 +13,7 @@ export class GtdWorld extends World {
     stdout: "",
     stderr: "",
   }
+  savedCommitCount: number | undefined = undefined
 
   runGtd(...args: string[]) {
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
@@ -68,6 +69,16 @@ export class GtdWorld extends World {
       cwd: this.repoDir,
       encoding: "utf-8",
     }).trim()
+  }
+
+  commitCount(): number {
+    return parseInt(
+      execSync("git rev-list --count HEAD", {
+        cwd: this.repoDir,
+        encoding: "utf-8",
+      }).trim(),
+      10,
+    )
   }
 
   execInRepo(cmd: string, args: string[] = []): string {

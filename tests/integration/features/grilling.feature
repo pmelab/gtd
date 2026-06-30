@@ -94,6 +94,29 @@ Feature: Grilling — the 3-way convergence gate on TODO.md
     And the last commit subject is "gtd: grilled"
     And stdout does not contain "Open questions await the user"
 
+  Scenario: Re-running at a grilling STOP is idempotent — no extra commit
+    Given a test project
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+
+      Build a calculator.
+
+      ## Which operations?
+
+      <!-- user answers here -->
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: grilling"
+    And stdout contains "Open questions await the user"
+    Then I record the commit count
+    When I run gtd
+    Then it succeeds
+    And the commit count is unchanged
+    And the last commit subject is "gtd: grilling"
+    And stdout contains "Open questions await the user"
+
   Scenario: A .gtd package file whose name contains a space is classified as gtd, not code
     Given a test project
     And a commit "gtd: planning" that adds ".gtd/01-feature/my task.md" with:

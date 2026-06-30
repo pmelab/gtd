@@ -223,6 +223,51 @@ Feature: Testing — the bounded test/fix loop and escalation
     And the last commit subject is "gtd: building"
     And stdout contains "## Task: Agentic review of the built package"
 
+  Scenario: A nonexistent test command produces a clean error on stderr
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: this-binary-does-not-exist
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a file "src/helper.ts" with:
+      """
+      export const helper = (x: string) => x
+      """
+    When I run gtd
+    Then it fails
+    And stderr contains "test command not found: this-binary-does-not-exist"
+    And stdout does not contain "at "
+    And stdout does not contain "Error:"
+
+  Scenario: A test command that exits non-zero still drives the normal fixing path
+    Given a test project
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo STILL_FAILING
+      exit 1
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a file "src/helper.ts" with:
+      """
+      export const helper = (x: string) => x
+      """
+    When I run gtd
+    Then it succeeds
+    And the git log contains "gtd: errors"
+    And the last commit subject is "gtd: fixing"
+    And stdout contains "STILL_FAILING"
+
   Scenario: A red gate at the cap on the default branch (trunk) writes ERRORS.md and escalates
     Given a test project
     And a default branch "main"

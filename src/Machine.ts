@@ -403,7 +403,7 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
         edgeAction: {
           kind: "runTest",
           errorCount: resume ? 0 : counters.testFixCount,
-          capReached: resume ? false : counters.testFixCount >= p.fixAttemptCap,
+          capReached: (resume ? 0 : counters.testFixCount) >= p.fixAttemptCap,
         },
         context: buildContext(p, counters),
       }
@@ -498,10 +498,15 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   if (p.todoExists) {
     if (p.todoMarkerPresent) {
       // Open question marker → STOP for the human to answer inline.
+      // If tree is already clean and HEAD is already `gtd: grilling`, this is a
+      // re-run at the STOP gate — skip the commit so it's a no-op.
+      const alreadyAtGrillingStop = p.workingTreeClean && head === "gtd: grilling"
       return {
         state: "grilling",
         autoAdvance: false,
-        edgeAction: { kind: "commitPending", prefix: "gtd: grilling" },
+        edgeAction: alreadyAtGrillingStop
+          ? undefined
+          : { kind: "commitPending", prefix: "gtd: grilling" },
         context: buildContext(p, counters, "stop"),
       }
     }

@@ -186,3 +186,21 @@ Then(
     )
   },
 )
+
+Then("I record the commit count", function (this: GtdWorld) {
+  this.savedCommitCount = this.commitCount()
+})
+
+Then("the commit count is unchanged", function (this: GtdWorld) {
+  const current = this.commitCount()
+  assert.strictEqual(
+    current,
+    this.savedCommitCount,
+    `Expected commit count to remain ${this.savedCommitCount}, got ${current}`,
+  )
+})
+
+Then("the commit count is {int}", function (this: GtdWorld, expected: number) {
+  const current = this.commitCount()
+  assert.strictEqual(current, expected, `Expected commit count ${expected}, got ${current}`)
+})

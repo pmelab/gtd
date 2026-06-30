@@ -44,6 +44,38 @@ Feature: Fixing — consume FEEDBACK.md with a provenance-tagged commit
   # in the `gtd: fixing` commit, so once the fixer applies its change the tree
   # re-detects Testing, not Fixing. Without the removal FEEDBACK persists at
   # precedence 2 and Fixing re-fires forever, never returning to the test gate.
+  Scenario: fixAttemptCap=0 with human-resume (pending ERRORS.md deletion) escalates immediately
+    # With cap=0, even a fresh-budget resume must escalate — 0 >= 0 is true.
+    # The bug was: `resume ? false : count >= cap` hardcoded false on resume,
+    # granting one unintended FEEDBACK attempt even when cap=0.
+    Given a test project
+    And a default branch "main"
+    And a branch "feature"
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo STILL_BROKEN
+      exit 1
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      fixAttemptCap: 0
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a commit "gtd: errors" that adds "ERRORS.md" with:
+      """
+      Earlier escalation output.
+      """
+    And a deleted committed file "ERRORS.md"
+    When I run gtd
+    Then it succeeds
+    And the file "ERRORS.md" exists
+    And stdout contains "## Task: Escalate"
+    And stdout does not contain "## Task: Fix the package against"
+
   Scenario: Fixing removes FEEDBACK.md so the fixed tree returns to Testing
     Given a test project
     And a commit "chore: test gate" that adds "gate.sh" with:
