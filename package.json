@@ -9,10 +9,11 @@
     "url": "https://github.com/pmelab/gtd.git"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "type": "module",
   "scripts": {
+    "prepare": "husky",
     "dev": "node dev/run.mjs",
     "build": "tsup",
     "postbuild": "node -e \"require('fs').copyFileSync('dist/gtd.bundle.mjs','scripts/gtd.bundle.mjs')\"",
@@ -26,6 +27,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
+  "lint-staged": {
+    "*": "prettier --ignore-unknown --write"
+  },
   "devDependencies": {
     "@cucumber/cucumber": "^12.6.0",
     "@effect/eslint-plugin": "^0.3.2",
@@ -37,7 +41,9 @@
     "@semantic-release/github": "^12.0.8",
     "@types/node": "^25.9.3",
     "eslint": "^9.39.2",
+    "husky": "^9.1.7",
     "jiti": "^2.6.1",
+    "lint-staged": "^17.0.8",
     "semantic-release": "^25.0.5",
     "tsup": "^8.4.0",
     "tsx": "^4.19.0",
