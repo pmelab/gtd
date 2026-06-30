@@ -18,8 +18,8 @@ This is a mechanical, formatting-only change — no logic edits.
 - `AGENTS.md`, `example.md`, `README.md`, `SKILL.md`
 - `src/Config.test.ts`, `src/Events.test.ts`, `src/Events.ts`, `src/Git.ts`
 - `src/Machine.test.ts`, `src/Machine.ts`, `src/Prompt.ts`
-- `src/prompts/building.md`, `src/prompts/clean.md`,
-  `src/prompts/decompose.md`, `src/prompts/fixing.md`
+- `src/prompts/building.md`, `src/prompts/clean.md`, `src/prompts/decompose.md`,
+  `src/prompts/fixing.md`
 - `STATES.html`, `STATES.md`
 
 ## Acceptance criteria

@@ -66,7 +66,11 @@ describe("foldCounters — testFixCount", () => {
   })
 
   it("N trailing isErrors → N", () => {
-    const events = [commit({ isErrors: true }), commit({ isErrors: true }), commit({ isErrors: true })]
+    const events = [
+      commit({ isErrors: true }),
+      commit({ isErrors: true }),
+      commit({ isErrors: true }),
+    ]
     expect(foldCounters(events).testFixCount).toBe(3)
   })
 
@@ -77,12 +81,20 @@ describe("foldCounters — testFixCount", () => {
   })
 
   it("resets on isPackageStart", () => {
-    const events = [commit({ isErrors: true }), commit({ isPackageStart: true }), commit({ isErrors: true })]
+    const events = [
+      commit({ isErrors: true }),
+      commit({ isPackageStart: true }),
+      commit({ isErrors: true }),
+    ]
     expect(foldCounters(events).testFixCount).toBe(1)
   })
 
   it("resets on isFeedback", () => {
-    const events = [commit({ isErrors: true }), commit({ isFeedback: true }), commit({ isErrors: true })]
+    const events = [
+      commit({ isErrors: true }),
+      commit({ isFeedback: true }),
+      commit({ isErrors: true }),
+    ]
     expect(foldCounters(events).testFixCount).toBe(1)
   })
 
@@ -117,7 +129,11 @@ describe("foldCounters — reviewFixCount", () => {
   })
 
   it("is independent of testFixCount (errors don't touch it)", () => {
-    const events = [commit({ isFeedback: true }), commit({ isErrors: true }), commit({ isErrors: true })]
+    const events = [
+      commit({ isFeedback: true }),
+      commit({ isErrors: true }),
+      commit({ isErrors: true }),
+    ]
     const { reviewFixCount, testFixCount } = foldCounters(events)
     expect(reviewFixCount).toBe(1)
     expect(testFixCount).toBe(2)
@@ -163,7 +179,9 @@ describe("corruption hard-error (no rule matched)", () => {
 
   it("dirty tree + mid-phase HEAD + no steering → corruption", () => {
     expect(() =>
-      resolve([R({ codeDirty: true, workingTreeClean: false, lastCommitSubject: "gtd: package done" })]),
+      resolve([
+        R({ codeDirty: true, workingTreeClean: false, lastCommitSubject: "gtd: package done" }),
+      ]),
     ).toThrow(GtdStateError)
   })
 
@@ -174,7 +192,8 @@ describe("corruption hard-error (no rule matched)", () => {
 
 // ── The 16 states ────────────────────────────────────────────────────────────
 
-const r = (overrides: Partial<ResolvePayload> = {}): ReturnType<typeof resolve> => resolve([R(overrides)])
+const r = (overrides: Partial<ResolvePayload> = {}): ReturnType<typeof resolve> =>
+  resolve([R(overrides)])
 
 describe("rule 0 — Transport", () => {
   it("HEAD gtd: transport → transport, auto, transportReset", () => {
@@ -185,9 +204,9 @@ describe("rule 0 — Transport", () => {
   })
 
   it("transport wins even with dirty tree", () => {
-    expect(r({ lastCommitSubject: "gtd: transport", codeDirty: true, workingTreeClean: false }).state).toBe(
-      "transport",
-    )
+    expect(
+      r({ lastCommitSubject: "gtd: transport", codeDirty: true, workingTreeClean: false }).state,
+    ).toBe("transport")
   })
 })
 
@@ -307,7 +326,11 @@ describe("rule 3 — build lifecycle", () => {
   })
 
   it("force-approve when agenticReview disabled → close-package", () => {
-    const res = r({ gtdDirExists: true, lastCommitSubject: "gtd: building", agenticReviewEnabled: false })
+    const res = r({
+      gtdDirExists: true,
+      lastCommitSubject: "gtd: building",
+      agenticReviewEnabled: false,
+    })
     expect(res.state).toBe("close-package")
     expect(res.edgeAction).toEqual({ kind: "closePackage" })
   })
@@ -472,7 +495,13 @@ describe("context passthrough + folds", () => {
         codeDirty: true,
         gtdDirExists: true,
         diff: "DIFF",
-        packages: [{ name: "01-foo", tasks: ["01-task.md"], taskContents: [{ name: "01-task.md", content: "body" }] }],
+        packages: [
+          {
+            name: "01-foo",
+            tasks: ["01-task.md"],
+            taskContents: [{ name: "01-task.md", content: "body" }],
+          },
+        ],
       }),
     ])
     expect(context.testFixCount).toBe(1)

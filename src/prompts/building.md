@@ -25,9 +25,9 @@ retry the failed tasks, skip and continue, or abort.
 
 ### No TODO.md during the build loop
 
-`TODO.md` was deleted at the start of the build loop (committed under `gtd:
-planning`). Its absence is intentional — the `.gtd/` task files are the sole
-source of truth from here on.
+`TODO.md` was deleted at the start of the build loop (committed under
+`gtd: planning`). Its absence is intentional — the `.gtd/` task files are the
+sole source of truth from here on.
 
 ### Leave the work uncommitted
 

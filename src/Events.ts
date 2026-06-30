@@ -3,7 +3,13 @@ import { Effect, Option } from "effect"
 import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import { TestRunner } from "./TestRunner.js"
-import type { CommitEvent, EdgeAction, GtdEvent, GtdPackageFact, ResolvePayload } from "./Machine.js"
+import type {
+  CommitEvent,
+  EdgeAction,
+  GtdEvent,
+  GtdPackageFact,
+  ResolvePayload,
+} from "./Machine.js"
 
 /**
  * The Effect "edge": all git/filesystem IO lives here. It has two jobs:
@@ -142,17 +148,19 @@ export const gatherEvents = (): Effect.Effect<
       : Option.none<string>()
 
     const history = yield* git.commitHistory(Option.getOrUndefined(base))
-    const commitEvents: Array<CommitEvent> = history.map(({ message, removedErrors }): CommitEvent => {
-      const subject = (message.split("\n")[0] ?? "").trim()
-      return {
-        type: "COMMIT",
-        isErrors: subject === ERRORS_SUBJECT,
-        isFeedback: subject === FEEDBACK_SUBJECT,
-        isPackageStart: subject === PLANNING_SUBJECT || subject === PACKAGE_DONE_SUBJECT,
-        isWorkflowCommit: subject.startsWith("gtd: "),
-        removedErrors,
-      }
-    })
+    const commitEvents: Array<CommitEvent> = history.map(
+      ({ message, removedErrors }): CommitEvent => {
+        const subject = (message.split("\n")[0] ?? "").trim()
+        return {
+          type: "COMMIT",
+          isErrors: subject === ERRORS_SUBJECT,
+          isFeedback: subject === FEEDBACK_SUBJECT,
+          isPackageStart: subject === PLANNING_SUBJECT || subject === PACKAGE_DONE_SUBJECT,
+          isWorkflowCommit: subject.startsWith("gtd: "),
+          removedErrors,
+        }
+      },
+    )
 
     // --- RESOLVE payload (working-tree snapshot) -----------------------------
     const hasCommits = yield* git.hasCommits()
@@ -222,9 +230,7 @@ export const gatherEvents = (): Effect.Effect<
     let reviewBase: string | undefined
     let refDiff: string | undefined
     if (hasCommits) {
-      const headHash = yield* git
-        .resolveRef("HEAD")
-        .pipe(Effect.catchAll(() => Effect.succeed("")))
+      const headHash = yield* git.resolveRef("HEAD").pipe(Effect.catchAll(() => Effect.succeed("")))
       const mergeBaseCandidate =
         Option.isSome(base) && base.value !== headHash ? base.value : undefined
       const lastDel = yield* git.lastDeletionOf(REVIEW_FILE)
@@ -320,9 +326,7 @@ export const perform = (
       // their code edits back to the reviewed baseline, and rm REVIEW.md (which
       // is what stops Accept Review re-firing). All left uncommitted.
       case "seedAcceptReview": {
-        const changeset = yield* git
-          .diffHead()
-          .pipe(Effect.catchAll(() => Effect.succeed("")))
+        const changeset = yield* git.diffHead().pipe(Effect.catchAll(() => Effect.succeed("")))
         yield* git.checkoutAll()
         yield* fs.remove(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.void))
         yield* fs.writeFileString(TODO_FILE, seedTodo(changeset))

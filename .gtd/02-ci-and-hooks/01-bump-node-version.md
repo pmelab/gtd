@@ -28,7 +28,7 @@ test workflow on `22` and raise the `engines` floor to `>=22` to match.
 
 ## Constraints
 
-- Do NOT touch `scripts`, `devDependencies`, or `lint-staged` in
-  `package.json` — those belong to task `02-add-precommit-hook.md` (runs in
-  parallel; keep edits file-region-disjoint to `engines`).
+- Do NOT touch `scripts`, `devDependencies`, or `lint-staged` in `package.json`
+  — those belong to task `02-add-precommit-hook.md` (runs in parallel; keep
+  edits file-region-disjoint to `engines`).
 - Leave all changes uncommitted.

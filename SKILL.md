@@ -44,8 +44,8 @@ resolves to exactly one active state per invocation.
   files
 - **FEEDBACK.md** — test output or agentic-review findings to fix; an **empty**
   FEEDBACK.md signals a clean review (→ Close package)
-- **ERRORS.md** — escalation gate: committed test failure output; the loop
-  halts until a human removes it
+- **ERRORS.md** — escalation gate: committed test failure output; the loop halts
+  until a human removes it
 - **REVIEW.md** — guided human review; committed while awaiting input
 
 Steering files are authoritative: while any exist, gtd resumes that workflow
@@ -59,30 +59,30 @@ Detection combines:
 1. **Steering-file presence/absence** — which files exist on disk
 2. **Committed vs. uncommitted** — git status (e.g. REVIEW.md freshly written
    vs. already tracked at HEAD)
-3. **Last commit subject** — the `gtd: <phase>` subject disambiguates states
-   the filesystem alone cannot separate
+3. **Last commit subject** — the `gtd: <phase>` subject disambiguates states the
+   filesystem alone cannot separate
 
 Precedence ladder:
 
-| Priority | Condition | State |
-|----------|-----------|-------|
-| 0 | HEAD `gtd: transport` | Transport |
-| 1 | ERRORS.md present | Escalate (STOP) |
-| 2 | FEEDBACK.md present, non-empty | Fixing |
-| 2 | FEEDBACK.md present, empty | Close package |
-| 3 | .gtd/ modified | Planning |
-| 3 | .gtd/ + code dirty / pending ERRORS.md deletion / no-op fixer | Testing |
-| 3 | .gtd/ clean + HEAD `gtd: planning` or `gtd: package done` | Building |
-| 3 | .gtd/ clean + HEAD `gtd: building` | Agentic Review |
-| 4 | REVIEW.md committed + clean tree | Done |
-| 4 | REVIEW.md committed + dirty tree | Accept Review |
-| 4 | REVIEW.md uncommitted | Await Review |
-| 5 | Boundary HEAD + pending changes | New Feature |
-| 6 | TODO.md + `<!-- user answers here -->` marker | Grilling (STOP) |
-| 6 | TODO.md + no marker + dirty | Grilling (iterate) |
-| 6 | TODO.md + no marker + clean | Grilled |
-| 7 | Clean tree + boundary/`package done` HEAD + reviewable diff | Clean |
-| 7 | Clean tree + boundary/`package done` HEAD + no diff | Idle |
+| Priority | Condition                                                     | State              |
+| -------- | ------------------------------------------------------------- | ------------------ |
+| 0        | HEAD `gtd: transport`                                         | Transport          |
+| 1        | ERRORS.md present                                             | Escalate (STOP)    |
+| 2        | FEEDBACK.md present, non-empty                                | Fixing             |
+| 2        | FEEDBACK.md present, empty                                    | Close package      |
+| 3        | .gtd/ modified                                                | Planning           |
+| 3        | .gtd/ + code dirty / pending ERRORS.md deletion / no-op fixer | Testing            |
+| 3        | .gtd/ clean + HEAD `gtd: planning` or `gtd: package done`     | Building           |
+| 3        | .gtd/ clean + HEAD `gtd: building`                            | Agentic Review     |
+| 4        | REVIEW.md committed + clean tree                              | Done               |
+| 4        | REVIEW.md committed + dirty tree                              | Accept Review      |
+| 4        | REVIEW.md uncommitted                                         | Await Review       |
+| 5        | Boundary HEAD + pending changes                               | New Feature        |
+| 6        | TODO.md + `<!-- user answers here -->` marker                 | Grilling (STOP)    |
+| 6        | TODO.md + no marker + dirty                                   | Grilling (iterate) |
+| 6        | TODO.md + no marker + clean                                   | Grilled            |
+| 7        | Clean tree + boundary/`package done` HEAD + reviewable diff   | Clean              |
+| 7        | Clean tree + boundary/`package done` HEAD + no diff           | Idle               |
 
 A "boundary" commit is any non-`gtd:` subject, or exactly `gtd: done`.
 
@@ -91,30 +91,30 @@ A "boundary" commit is any non-`gtd:` subject, or exactly `gtd: done`.
 **Six edge-only states** (no prompt — driver performs their action, then
 re-gathers and re-resolves automatically):
 
-| State | Action |
-|-------|--------|
-| Transport | Mixed-reset the `gtd: transport` HEAD into the working tree |
-| New Feature | Commit raw input `gtd: new task`, revert it, seed TODO.md |
-| Testing | Commit pending code `gtd: building`; run tests; on red write FEEDBACK.md or ERRORS.md and commit `gtd: errors` |
-| Accept Review | Seed TODO.md from the pending changeset, discard code edits, remove REVIEW.md |
-| Close package | Remove FEEDBACK.md + finished package dir + empty .gtd/, commit `gtd: package done` |
-| Done | Remove REVIEW.md, commit `gtd: done` |
+| State         | Action                                                                                                         |
+| ------------- | -------------------------------------------------------------------------------------------------------------- |
+| Transport     | Mixed-reset the `gtd: transport` HEAD into the working tree                                                    |
+| New Feature   | Commit raw input `gtd: new task`, revert it, seed TODO.md                                                      |
+| Testing       | Commit pending code `gtd: building`; run tests; on red write FEEDBACK.md or ERRORS.md and commit `gtd: errors` |
+| Accept Review | Seed TODO.md from the pending changeset, discard code edits, remove REVIEW.md                                  |
+| Close package | Remove FEEDBACK.md + finished package dir + empty .gtd/, commit `gtd: package done`                            |
+| Done          | Remove REVIEW.md, commit `gtd: done`                                                                           |
 
 **Ten prompt-bearing states**:
 
-| State | Auto-advance | Human gate |
-|-------|-------------|------------|
-| Grilling (iterate) | yes | — |
-| Grilling (STOP) | — | answer `<!-- user answers here -->` markers inline in TODO.md |
-| Grilled | yes | — |
-| Planning | yes | — |
-| Building | yes | — |
-| Fixing | yes | — |
-| Agentic Review | yes | — |
-| Clean | — | — (agent writes REVIEW.md, then stops) |
-| Await Review | — | human reviews and edits (or approves by running gtd clean) |
-| Escalate | — | human fixes tests, removes ERRORS.md to resume |
-| Idle | — | terminal — nothing to do |
+| State              | Auto-advance | Human gate                                                    |
+| ------------------ | ------------ | ------------------------------------------------------------- |
+| Grilling (iterate) | yes          | —                                                             |
+| Grilling (STOP)    | —            | answer `<!-- user answers here -->` markers inline in TODO.md |
+| Grilled            | yes          | —                                                             |
+| Planning           | yes          | —                                                             |
+| Building           | yes          | —                                                             |
+| Fixing             | yes          | —                                                             |
+| Agentic Review     | yes          | —                                                             |
+| Clean              | —            | — (agent writes REVIEW.md, then stops)                        |
+| Await Review       | —            | human reviews and edits (or approves by running gtd clean)    |
+| Escalate           | —            | human fixes tests, removes ERRORS.md to resume                |
+| Idle               | —            | terminal — nothing to do                                      |
 
 Auto-advance states append a directive telling the agent to re-run `gtd`
 immediately after completing the step. STOP states halt for human input.
@@ -138,22 +138,21 @@ the build loop runs:
        01-<task>.md
    ```
 
-2. **Building**: Selects the first remaining package, inlines all its task
-   `.md` files into the prompt, and spawns one execution-model subagent per
-   task in parallel. The agent commits code; Testing verifies it.
+2. **Building**: Selects the first remaining package, inlines all its task `.md`
+   files into the prompt, and spawns one execution-model subagent per task in
+   parallel. The agent commits code; Testing verifies it.
 
 3. **Testing** (edge-only): Commits pending code `gtd: building`, runs
    `testCommand`. On green → Agentic Review. On red → writes FEEDBACK.md,
    commits `gtd: errors`; when `testFixCount >= fixAttemptCap` (default 3)
    writes ERRORS.md instead → Escalate.
 
-4. **Fixing**: Commits FEEDBACK.md removal (`gtd: fixing` if the FEEDBACK.md
-   was committed by Testing; `gtd: feedback` if uncommitted from Agentic
-   Review), inlines the feedback content into the fixer prompt. Returns to
-   Testing.
+4. **Fixing**: Commits FEEDBACK.md removal (`gtd: fixing` if the FEEDBACK.md was
+   committed by Testing; `gtd: feedback` if uncommitted from Agentic Review),
+   inlines the feedback content into the fixer prompt. Returns to Testing.
 
-5. **Agentic Review**: Reviews the package diff since the last `gtd: planning`
-   / `gtd: package done`. Always writes FEEDBACK.md — empty for approval, with
+5. **Agentic Review**: Reviews the package diff since the last `gtd: planning` /
+   `gtd: package done`. Always writes FEEDBACK.md — empty for approval, with
    findings otherwise. If `reviewFixCount >= reviewThreshold` (default 3) or
    `agenticReview: false`, force-approves (writes empty FEEDBACK.md and skips
    the review prompt).
@@ -182,18 +181,18 @@ After all packages close (or for any committed code with no active workflow),
 ## Configuration
 
 `gtd` reads `.gtdrc` / `.gtdrc.json` / `.gtdrc.yaml` / `.gtdrc.yml` /
-`gtd.config.json` / `gtd.config.yaml` via cosmiconfig. Lookup walks from cwd
-to the home dir; innermost wins.
+`gtd.config.json` / `gtd.config.yaml` via cosmiconfig. Lookup walks from cwd to
+the home dir; innermost wins.
 
 ```yaml
-testCommand: npm run test          # default
-agenticReview: true                # false = skip agentic review, force-approve
-fixAttemptCap: 3                   # gtd: errors commits before escalating
-reviewThreshold: 3                 # gtd: feedback rounds before force-approving
+testCommand: npm run test # default
+agenticReview: true # false = skip agentic review, force-approve
+fixAttemptCap: 3 # gtd: errors commits before escalating
+reviewThreshold: 3 # gtd: feedback rounds before force-approving
 models:
-  planning: claude-opus-4-8        # tier for grilling, decompose, agentic-review, clean
-  execution: claude-sonnet-4-8     # tier for building, fixing
-  states:                          # per-state overrides (exact state names only)
+  planning: claude-opus-4-8 # tier for grilling, decompose, agentic-review, clean
+  execution: claude-sonnet-4-8 # tier for building, fixing
+  states: # per-state overrides (exact state names only)
     grilling: claude-opus-4-8
     decompose: claude-opus-4-8
     building: claude-sonnet-4-8
@@ -206,17 +205,17 @@ models:
 
 All machine-written commits use the flat `gtd: <phase>` format:
 
-| Subject | Written when |
-|---------|-------------|
-| `gtd: new task` | New Feature captures raw input |
-| `gtd: grilling` | Grilling commits pending TODO.md edits |
-| `gtd: grilled` | Grilled commits the converged plan |
-| `gtd: planning` | Planning commits .gtd/ package files |
-| `gtd: building` | Testing commits code before running tests |
-| `gtd: errors` | Testing commits FEEDBACK.md (or ERRORS.md) on failure |
-| `gtd: fixing` | Fixing removes a **committed** FEEDBACK.md |
-| `gtd: feedback` | Fixing removes an **uncommitted** (agentic-review) FEEDBACK.md |
-| `gtd: package done` | Close package removes the finished package dir |
-| `gtd: awaiting review` | Await Review commits REVIEW.md |
-| `gtd: done` | Done removes REVIEW.md |
-| `gtd: transport` | **Hand-made by the user** — carries uncommitted work across machines/branches; consumed by Transport, never produced by the machine |
+| Subject                | Written when                                                                                                                        |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `gtd: new task`        | New Feature captures raw input                                                                                                      |
+| `gtd: grilling`        | Grilling commits pending TODO.md edits                                                                                              |
+| `gtd: grilled`         | Grilled commits the converged plan                                                                                                  |
+| `gtd: planning`        | Planning commits .gtd/ package files                                                                                                |
+| `gtd: building`        | Testing commits code before running tests                                                                                           |
+| `gtd: errors`          | Testing commits FEEDBACK.md (or ERRORS.md) on failure                                                                               |
+| `gtd: fixing`          | Fixing removes a **committed** FEEDBACK.md                                                                                          |
+| `gtd: feedback`        | Fixing removes an **uncommitted** (agentic-review) FEEDBACK.md                                                                      |
+| `gtd: package done`    | Close package removes the finished package dir                                                                                      |
+| `gtd: awaiting review` | Await Review commits REVIEW.md                                                                                                      |
+| `gtd: done`            | Done removes REVIEW.md                                                                                                              |
+| `gtd: transport`       | **Hand-made by the user** — carries uncommitted work across machines/branches; consumed by Transport, never produced by the machine |

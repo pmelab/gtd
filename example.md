@@ -10,8 +10,8 @@ lands, the state resolved, and which actor acts next.
 
 ## New Feature
 
-U makes code changes (or creates a rough TODO.md) on a clean baseline, then
-runs `gtd`:
+U makes code changes (or creates a rough TODO.md) on a clean baseline, then runs
+`gtd`:
 
 - A resolves: boundary HEAD + pending changes → **New Feature** (edge-only)
 - A commits raw input: `gtd: new task`
@@ -23,8 +23,8 @@ runs `gtd`:
 
 ## Grilling — first round
 
-- A resolves: TODO.md present, no marker yet, pending changes →
-  **Grilling (iterate)** (edge-only commit + prompt)
+- A resolves: TODO.md present, no marker yet, pending changes → **Grilling
+  (iterate)** (edge-only commit + prompt)
 - A commits reverted code + seeded TODO.md: `gtd: grilling`
 - A grilling agent develops the plan, adds `<!-- user answers here -->` markers
   for unresolved questions, re-runs `gtd`
@@ -40,13 +40,13 @@ runs `gtd`:
 U opens TODO.md, fills in the answers, removes the `<!-- user answers here -->`
 sentinel, runs `gtd`:
 
-- A resolves: TODO.md present, no marker, pending edits →
-  **Grilling (iterate)**
+- A resolves: TODO.md present, no marker, pending edits → **Grilling (iterate)**
 - A commits user's answers: `gtd: grilling`
-- A grilling agent incorporates the answers, finds nothing unresolved, makes
-  no further edits, re-runs `gtd`
+- A grilling agent incorporates the answers, finds nothing unresolved, makes no
+  further edits, re-runs `gtd`
 
-- A resolves: TODO.md present, no marker, clean tree → **Grilled** (auto-advance)
+- A resolves: TODO.md present, no marker, clean tree → **Grilled**
+  (auto-advance)
 - A commits converged plan: `gtd: grilled`
 - A emits: decompose prompt to planning-model subagent
 
@@ -77,8 +77,8 @@ The decompose subagent creates the `.gtd/` package tree:
 
 - A resolves: .gtd/ clean + HEAD `gtd: planning` → **Building** (auto-advance)
 - A inlines `01-auth-service/` task files into the prompt
-- A spawns one subagent for `01-types.md` and one for `02-login-handler.md`
-  in parallel; subagents write code
+- A spawns one subagent for `01-types.md` and one for `02-login-handler.md` in
+  parallel; subagents write code
 
 ---
 
@@ -93,7 +93,7 @@ The decompose subagent creates the `.gtd/` package tree:
 ### Fix round 1
 
 - A resolves: FEEDBACK.md non-empty, committed → **Fixing** (auto-advance)
-- A commits FEEDBACK.md removal: `gtd: fixing`  _(committed = from Testing)_
+- A commits FEEDBACK.md removal: `gtd: fixing` _(committed = from Testing)_
 - A fixer agent reads inlined failure output, patches the code, re-runs `gtd`
 
 - A resolves: code changes → **Testing** (edge-only)
@@ -105,13 +105,15 @@ The decompose subagent creates the `.gtd/` package tree:
 
 ## Agentic Review — package 01
 
-- A resolves: .gtd/ clean + HEAD `gtd: building` → **Agentic Review** (auto-advance)
+- A resolves: .gtd/ clean + HEAD `gtd: building` → **Agentic Review**
+  (auto-advance)
 - A reviewFixCount = 0 (below threshold 3) + agenticReview: true → run review
 - A planning-model subagent diffs the package (since `gtd: planning`), finds
   issues, writes non-empty `FEEDBACK.md`, re-runs `gtd`
 
 - A resolves: FEEDBACK.md non-empty, uncommitted → **Fixing** (auto-advance)
-- A commits FEEDBACK.md removal: `gtd: feedback`  _(uncommitted = from Agentic Review)_
+- A commits FEEDBACK.md removal: `gtd: feedback` _(uncommitted = from Agentic
+  Review)_
 - A fixer agent addresses the review findings, re-runs `gtd`
 
 - A resolves: code changes → **Testing** (edge-only)
@@ -131,7 +133,8 @@ The decompose subagent creates the `.gtd/` package tree:
 
 ## Building — package 02
 
-- A resolves: .gtd/ clean + HEAD `gtd: package done` → **Building** (auto-advance)
+- A resolves: .gtd/ clean + HEAD `gtd: package done` → **Building**
+  (auto-advance)
 - A inlines `02-api-routes/` tasks, spawns subagent for `01-endpoints.md`
 
 - A resolves: code changes → **Testing** (edge-only)
@@ -151,8 +154,8 @@ The decompose subagent creates the `.gtd/` package tree:
 
 - A resolves: no steering files, clean tree, HEAD `gtd: package done`,
   reviewable diff → **Clean**
-- A planning-model subagent generates `REVIEW.md` covering the full feature
-  diff since the merge-base with the default branch
+- A planning-model subagent generates `REVIEW.md` covering the full feature diff
+  since the merge-base with the default branch
 - A auto-advances → Await Review
 
 ---

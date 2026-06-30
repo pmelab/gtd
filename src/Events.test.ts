@@ -92,7 +92,8 @@ const runPerform = (
 
 const resolveOf = (events: ReadonlyArray<GtdEvent>): ResolvePayload => {
   const last = events[events.length - 1]
-  if (last === undefined || last.type !== "RESOLVE") throw new Error("expected a trailing RESOLVE event")
+  if (last === undefined || last.type !== "RESOLVE")
+    throw new Error("expected a trailing RESOLVE event")
   return last.payload
 }
 
@@ -182,12 +183,27 @@ describe("gatherEvents — COMMIT flags from the flat gtd: taxonomy", { timeout:
 
     const commits = commitsOf(await runGather())
     expect(commits).toHaveLength(6)
-    expect(commits[0]).toMatchObject({ isPackageStart: true, isWorkflowCommit: true, isErrors: false, isFeedback: false })
-    expect(commits[1]).toMatchObject({ isWorkflowCommit: true, isPackageStart: false, isErrors: false, isFeedback: false })
+    expect(commits[0]).toMatchObject({
+      isPackageStart: true,
+      isWorkflowCommit: true,
+      isErrors: false,
+      isFeedback: false,
+    })
+    expect(commits[1]).toMatchObject({
+      isWorkflowCommit: true,
+      isPackageStart: false,
+      isErrors: false,
+      isFeedback: false,
+    })
     expect(commits[2]).toMatchObject({ isErrors: true, isWorkflowCommit: true, isFeedback: false })
     expect(commits[3]).toMatchObject({ isFeedback: true, isWorkflowCommit: true, isErrors: false })
     expect(commits[4]).toMatchObject({ isPackageStart: true, isWorkflowCommit: true })
-    expect(commits[5]).toMatchObject({ isWorkflowCommit: false, isErrors: false, isFeedback: false, isPackageStart: false })
+    expect(commits[5]).toMatchObject({
+      isWorkflowCommit: false,
+      isErrors: false,
+      isFeedback: false,
+      isPackageStart: false,
+    })
   })
 
   it("sets removedErrors only on the commit whose diff deletes ERRORS.md", async () => {
@@ -199,7 +215,11 @@ describe("gatherEvents — COMMIT flags from the flat gtd: taxonomy", { timeout:
     const commits = commitsOf(await runGather())
     expect(commits).toHaveLength(3)
     expect(commits[0]).toMatchObject({ isErrors: true, removedErrors: false })
-    expect(commits[1]).toMatchObject({ isErrors: false, removedErrors: true, isWorkflowCommit: true })
+    expect(commits[1]).toMatchObject({
+      isErrors: false,
+      removedErrors: true,
+      isWorkflowCommit: true,
+    })
     expect(commits[2]).toMatchObject({ removedErrors: false })
   })
 })
@@ -332,7 +352,9 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
   })
 
   it("config passthrough: agenticReviewEnabled / fixAttemptCap / reviewThreshold", async () => {
-    const p = resolveOf(await runGather({ agenticReview: false, fixAttemptCap: 5, reviewThreshold: 2 }))
+    const p = resolveOf(
+      await runGather({ agenticReview: false, fixAttemptCap: 5, reviewThreshold: 2 }),
+    )
     expect(p.agenticReviewEnabled).toBe(false)
     expect(p.fixAttemptCap).toBe(5)
     expect(p.reviewThreshold).toBe(2)
@@ -444,7 +466,10 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
     writeFileSync(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
     writeFileSync(join(repoDir, "impl.ts"), "export const i = 1\n")
-    await runPerform({ kind: "runTest", errorCount: 0, capReached: false }, { exitCode: 0, output: "pass" })
+    await runPerform(
+      { kind: "runTest", errorCount: 0, capReached: false },
+      { exitCode: 0, output: "pass" },
+    )
     expect(git("log", "-1", "--format=%s")).toBe("gtd: building")
     expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(false)
     expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(false)
@@ -453,7 +478,10 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
 
   it("runTest red under cap: writes FEEDBACK.md and commits gtd: errors", async () => {
     writeFileSync(join(repoDir, "impl.ts"), "export const i = 1\n")
-    await runPerform({ kind: "runTest", errorCount: 1, capReached: false }, { exitCode: 1, output: "FAIL: boom\n" })
+    await runPerform(
+      { kind: "runTest", errorCount: 1, capReached: false },
+      { exitCode: 1, output: "FAIL: boom\n" },
+    )
     expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(true)
     expect(readFileSync(join(repoDir, "FEEDBACK.md"), "utf8")).toContain("FAIL: boom")
     expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(false)
@@ -462,7 +490,10 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
 
   it("runTest red at cap: writes ERRORS.md (not FEEDBACK.md) and commits gtd: errors", async () => {
     writeFileSync(join(repoDir, "impl.ts"), "export const i = 1\n")
-    await runPerform({ kind: "runTest", errorCount: 3, capReached: true }, { exitCode: 1, output: "FAIL: persistent\n" })
+    await runPerform(
+      { kind: "runTest", errorCount: 3, capReached: true },
+      { exitCode: 1, output: "FAIL: persistent\n" },
+    )
     expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(true)
     expect(readFileSync(join(repoDir, "ERRORS.md"), "utf8")).toContain("FAIL: persistent")
     expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(false)
@@ -472,7 +503,10 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
   it("runTest no-op fixer (clean tree, green): commits an empty gtd: building to advance HEAD off gtd: fixing", async () => {
     git("commit", "-q", "--allow-empty", "-m", "gtd: fixing") // clean tree, HEAD gtd: fixing
     const countBefore = Number(git("rev-list", "--count", "HEAD"))
-    await runPerform({ kind: "runTest", errorCount: 0, capReached: false }, { exitCode: 0, output: "" })
+    await runPerform(
+      { kind: "runTest", errorCount: 0, capReached: false },
+      { exitCode: 0, output: "" },
+    )
     // Without this advance HEAD stays `gtd: fixing`, the next resolve re-detects
     // Testing, and the driver loops to MAX_EDGE_HOPS. The empty commit moves HEAD
     // to `gtd: building` so the next resolve reaches Agentic Review.

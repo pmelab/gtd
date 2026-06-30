@@ -51,8 +51,8 @@ Leave every change **uncommitted**; the next gtd cycle commits `.gtd/` as
 `gtd: planning`, preserving the plan and its full Q&A history in git. The plan
 is now executable.
 
-`TODO.md` is **deleted** at the first Building turn (when HEAD is `gtd:
-planning` and TODO.md is still present) — committed under the same `gtd:
-planning` prefix so HEAD advances correctly. The Q&A history lives in git from
-that point on; build subagents receive only their concrete `.gtd/` task files
-and never see TODO.md.
+`TODO.md` is **deleted** at the first Building turn (when HEAD is
+`gtd: planning` and TODO.md is still present) — committed under the same
+`gtd: planning` prefix so HEAD advances correctly. The Q&A history lives in git
+from that point on; build subagents receive only their concrete `.gtd/` task
+files and never see TODO.md.

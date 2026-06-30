@@ -198,9 +198,10 @@ export const buildPrompt = (
       if (context.reviewBase !== undefined) {
         parts.push(`Review base: ${context.reviewBase}`, "")
       }
-      const diffLabel = context.reviewBase !== undefined
-        ? `Changes to review (\`git diff ${context.reviewBase} HEAD\`)`
-        : "Changes to review (`git diff <base> HEAD`)"
+      const diffLabel =
+        context.reviewBase !== undefined
+          ? `Changes to review (\`git diff ${context.reviewBase} HEAD\`)`
+          : "Changes to review (`git diff <base> HEAD`)"
       parts.push(...renderDiff(diffLabel, context.refDiff))
     }
   }

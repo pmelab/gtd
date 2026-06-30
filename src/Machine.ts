@@ -425,8 +425,7 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
         // Agentic Review, unless force-approved (kill-switch off or threshold hit):
         // skip the review and close the package directly (closePackage tolerates the
         // absent FEEDBACK.md). Otherwise prompt the review agent.
-        const forceApprove =
-          !p.agenticReviewEnabled || counters.reviewFixCount >= p.reviewThreshold
+        const forceApprove = !p.agenticReviewEnabled || counters.reviewFixCount >= p.reviewThreshold
         if (forceApprove) {
           return {
             state: "close-package",
@@ -472,7 +471,10 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   // Boundary HEAD + pending changes (code and/or a new uncommitted TODO.md — the
   // only steering file possible here), or HEAD `gtd: new task` + clean tree
   // (a checkout/pull that lost the uncommitted seed — regenerate it).
-  if ((isBoundary(head) && !p.workingTreeClean) || (head === "gtd: new task" && p.workingTreeClean)) {
+  if (
+    (isBoundary(head) && !p.workingTreeClean) ||
+    (head === "gtd: new task" && p.workingTreeClean)
+  ) {
     return {
       state: "new-feature",
       autoAdvance: true,

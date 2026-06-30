@@ -34,16 +34,17 @@ review. It must:
    - [ ] ./path/to/another.ts#1
    ```
 
-   - `<short-hash>` is the first 7 characters of the review base SHA; `<full-hash>`
-     is the full SHA. Both are read from the `Review base:` line / diff label in
-     the prompt context.
+   - `<short-hash>` is the first 7 characters of the review base SHA;
+     `<full-hash>` is the full SHA. Both are read from the `Review base:` line /
+     diff label in the prompt context.
    - Chunk titles are short imperative phrases (≤ 6 words).
    - Explanations describe _what_ changed and _why_, not just where.
    - File pointers are relative, prefixed with `./`; the line numbers (`#42`)
      are creation-time hints that will drift — not authoritative.
    - Checkboxes (`- [ ]`) are **navigational aids** — they help the user track
      progress, not a gate.
-   - The user checks off or edits items in place as they work through the review; there is no separate Resolved section.
+   - The user checks off or edits items in place as they work through the
+     review; there is no separate Resolved section.
 
 4. Normalize formatting (run `gtd format REVIEW.md` with the same gtd you
    invoked), then leave `REVIEW.md` **uncommitted**.

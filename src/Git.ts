@@ -33,7 +33,10 @@ export interface GitOperations {
    */
   readonly commitHistory: (
     base?: string,
-  ) => Effect.Effect<ReadonlyArray<{ readonly message: string; readonly removedErrors: boolean }>, Error>
+  ) => Effect.Effect<
+    ReadonlyArray<{ readonly message: string; readonly removedErrors: boolean }>,
+    Error
+  >
   /**
    * `git rm -r <dir>` (stage the deletion); then if `.gtd/` is now empty, removes
    * the empty directory too. Idempotent/tolerant if the dir is already absent.
@@ -147,15 +150,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
         checkoutAll: () => exec("git", "checkout", "--", ".").pipe(Effect.asVoid),
 
         lastDeletionOf: (path: string) =>
-          exec(
-            "git",
-            "log",
-            "--first-parent",
-            "--diff-filter=D",
-            "--format=%H",
-            "--",
-            path,
-          ).pipe(
+          exec("git", "log", "--first-parent", "--diff-filter=D", "--format=%H", "--", path).pipe(
             Effect.map((out) => {
               const hash = out
                 .split("\n")

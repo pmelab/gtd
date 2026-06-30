@@ -48,10 +48,10 @@ The last commit message is bucketed:
 
 - **Boundary** — a non-`gtd:` commit, or `gtd: done`. Marks a cold start: no
   workflow in progress.
-- **Mid-phase** — `gtd: new task | grilling | grilled | planning | building |
-  errors | fixing | feedback | package done | awaiting review`. Identifies the
-  exact phase of an in-progress workflow; disambiguates states the filesystem
-  alone cannot separate.
+- **Mid-phase** —
+  `gtd: new task | grilling | grilled | planning | building | errors | fixing | feedback | package done | awaiting review`.
+  Identifies the exact phase of an in-progress workflow; disambiguates states
+  the filesystem alone cannot separate.
 
 ### Precedence (first match wins)
 
@@ -94,15 +94,15 @@ guessing:
 - ERRORS.md without .gtd
 
 Legal coexistence: `.gtd`+TODO.md (plan + packages during **Planning** only —
-TODO.md is deleted at the first Building turn);
-FEEDBACK.md+`.gtd` (fix during build).
+TODO.md is deleted at the first Building turn); FEEDBACK.md+`.gtd` (fix during
+build).
 
 ## States
 
 ### Transport
 
-**Conditions:** HEAD is `gtd: transport` (produced by the external `gtd
-transport` command that commits in-progress work to move it across
+**Conditions:** HEAD is `gtd: transport` (produced by the external
+`gtd transport` command that commits in-progress work to move it across
 machines/branches — not by the state machine itself).
 
 **Actions:** mixed-reset the `gtd: transport` commit, then re-derive state from
@@ -112,11 +112,11 @@ scratch.
 
 ### New Feature (auto-advance)
 
-**Conditions:** either boundary HEAD (non-gtd or `gtd: done`) with pending **code
-changes and/or a new (uncommitted) TODO.md** and no `.gtd`/REVIEW.md/FEEDBACK.md
-(a _committed_ TODO.md under a boundary HEAD is a resumed grill — see Grilling);
-**or** HEAD `gtd: new task` with a clean tree (a checkout/pull that lost the
-uncommitted seed — regenerate it).
+**Conditions:** either boundary HEAD (non-gtd or `gtd: done`) with pending
+**code changes and/or a new (uncommitted) TODO.md** and no
+`.gtd`/REVIEW.md/FEEDBACK.md (a _committed_ TODO.md under a boundary HEAD is a
+resumed grill — see Grilling); **or** HEAD `gtd: new task` with a clean tree (a
+checkout/pull that lost the uncommitted seed — regenerate it).
 
 **Actions:**
 
@@ -136,8 +136,8 @@ this state survives a checkout/pull — no `gtd: cleanup` needed.)_
 
 TODO.md is present and this is not New Feature. "Pending" = uncommitted at
 invocation. (The first round after New Feature / Accept Review carries the
-reverted code + seeded TODO.md, committed together as the first `gtd: grilling`.)
-Resolves three ways:
+reverted code + seeded TODO.md, committed together as the first
+`gtd: grilling`.) Resolves three ways:
 
 **1 — Open questions** (TODO.md has remaining `?` markers):
 
@@ -176,8 +176,8 @@ packages and parallelizable subtasks.
 **Actions:** commit changes `gtd: planning`.
 
 **Prompt:** continue decomposition if incomplete, otherwise none. _(Planning may
-span multiple turns: each turn commits `gtd: planning`; an unmodified `.gtd` with
-a clean tree advances to Building.)_
+span multiple turns: each turn commits `gtd: planning`; an unmodified `.gtd`
+with a clean tree advances to Building.)_
 
 ### Building (auto-advance)
 
@@ -193,9 +193,9 @@ Then select the first remaining package.
 ### Testing (auto-advance)
 
 **Conditions:** `.gtd` present and clean; no FEEDBACK.md; ERRORS.md not present;
-and a reason to test — **code changes** present, a pending **ERRORS.md deletion**
-(human resume), or a clean tree under HEAD `gtd: fixing` (a fixer that produced
-no change — re-test it).
+and a reason to test — **code changes** present, a pending **ERRORS.md
+deletion** (human resume), or a clean tree under HEAD `gtd: fixing` (a fixer
+that produced no change — re-test it).
 
 **Actions:**
 
@@ -205,9 +205,9 @@ no change — re-test it).
 - exit = 0 → proceed
 - exit ≠ 0 → count `gtd: errors` (fix attempts) since the **most recent of** the
   package start (`gtd: planning`/`gtd: package done`), the last `gtd: feedback`
-  (start of a review-fix), or the last commit that **removed ERRORS.md**, walking
-  through any non-gtd commits — so each test-fix sub-loop, every review-fix, and a
-  human resume each start a fresh budget:
+  (start of a review-fix), or the last commit that **removed ERRORS.md**,
+  walking through any non-gtd commits — so each test-fix sub-loop, every
+  review-fix, and a human resume each start a fresh budget:
   - **under the fix-attempt cap (default 3)** → write output to FEEDBACK.md,
     commit `gtd: errors`
   - **at/over the cap** → write output to ERRORS.md, commit `gtd: errors`
@@ -221,8 +221,8 @@ no change — re-test it).
 
 ### Fixing (auto-advance)
 
-**Conditions:** **non-empty** FEEDBACK.md present (an empty FEEDBACK.md is a clean
-review → Close package). Implies `.gtd` present.
+**Conditions:** **non-empty** FEEDBACK.md present (an empty FEEDBACK.md is a
+clean review → Close package). Implies `.gtd` present.
 
 **Actions:**
 
@@ -252,12 +252,12 @@ fixes before escalating again. _(not auto-advance — human gate.)_
 
 ### Agentic Review (auto-advance)
 
-**Conditions:** `.gtd` present and clean, clean tree, no FEEDBACK.md, HEAD `gtd:
-building`.
+**Conditions:** `.gtd` present and clean, clean tree, no FEEDBACK.md, HEAD
+`gtd: building`.
 
 **Actions:** if the `gtd: feedback` count (review-fix rounds, independent of the
-test-fix `gtd: errors` count) since the package start has reached the threshold →
-write an **empty** FEEDBACK.md (force-approve) and skip the review; otherwise
+test-fix `gtd: errors` count) since the package start has reached the threshold
+→ write an **empty** FEEDBACK.md (force-approve) and skip the review; otherwise
 none.
 
 **Prompt:** (only when not force-approved) review the package's accumulated diff
@@ -290,8 +290,8 @@ finished feature).
 **Actions:** determine the base commit for the review — the **more recent
 ancestor of HEAD** of these two candidates:
 
-- the last commit that deleted REVIEW.md (`gtd: done`, or the first `gtd:
-  grilling` after an accepted review), on **any** branch;
+- the last commit that deleted REVIEW.md (`gtd: done`, or the first
+  `gtd: grilling` after an accepted review), on **any** branch;
 - the merge-base with the default branch (a proper ancestor on a feature
   branch).
 
@@ -320,7 +320,8 @@ human edited code, added comments, or annotated REVIEW.md).
 
 - seed TODO.md with the changeset (REVIEW.md annotations, code comments, change
   suggestions)
-- discard the human's code edits (`git checkout` — back to the reviewed baseline)
+- discard the human's code edits (`git checkout` — back to the reviewed
+  baseline)
 - remove REVIEW.md
 
 **Prompt:** none — auto-advance. _(Next: REVIEW.md gone + TODO.md present →

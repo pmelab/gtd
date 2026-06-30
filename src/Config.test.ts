@@ -111,7 +111,6 @@ describe("ConfigService", () => {
     expect(cfg.testCommand).toBe("json test")
   })
 
-
   it("agenticReview defaults to true with no config", async () => {
     const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
 

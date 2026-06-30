@@ -33,17 +33,18 @@ lint-staged to run Prettier only on staged files.
 
 ## Rationale
 
-`prettier --ignore-unknown --write` matched against `*` formats exactly the
-file types Prettier supports — mirroring `prettier --check .` in CI — and
-silently skips anything Prettier doesn't understand. The `prepare` script runs
-`husky` automatically after `npm install`, so a fresh clone gets the hook with
-no extra steps.
+`prettier --ignore-unknown --write` matched against `*` formats exactly the file
+types Prettier supports — mirroring `prettier --check .` in CI — and silently
+skips anything Prettier doesn't understand. The `prepare` script runs `husky`
+automatically after `npm install`, so a fresh clone gets the hook with no extra
+steps.
 
 ## Acceptance criteria
 
 - [ ] `husky` and `lint-staged` present in `devDependencies`
 - [ ] `package.json` has `"prepare": "husky"` script
-- [ ] `package.json` has `"lint-staged": { "*": "prettier --ignore-unknown --write" }`
+- [ ] `package.json` has
+      `"lint-staged": { "*": "prettier --ignore-unknown --write" }`
 - [ ] `.husky/pre-commit` exists and runs `npx lint-staged`
 - [ ] Staging a deliberately mis-formatted file and committing formats it in
       place (verify the hook fires, then unstage/discard the test artifact)
