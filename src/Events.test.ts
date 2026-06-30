@@ -11,6 +11,7 @@ import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import type { ConfigOperations } from "./Config.js"
 import { TestRunner } from "./TestRunner.js"
+import { foldCounters } from "./Machine.js"
 import type { CommitEvent, EdgeAction, GtdEvent, ResolvePayload } from "./Machine.js"
 
 // ── Repo harness ─────────────────────────────────────────────────────────────
@@ -495,18 +496,22 @@ describe("gatherEvents — COMMIT-stream base folds (issue-7)", { timeout: 30_00
     commitFile("gtd: errors", "ERRORS.md", "error 1\n")
     commitFile("gtd: errors", "ERRORS.md", "error 2\n")
     const events = await runGather()
-    const errorCommits = commitsOf(events).filter((e) => e.isErrors)
-    expect(errorCommits).toHaveLength(2)
+    expect(foldCounters(events).testFixCount).toBe(2)
   })
 
   it("feature-branch control: only post-branch-point gtd: errors commits are included", async () => {
-    initRepo(true)
+    // Set up main with a gtd: errors commit BEFORE the branch point
+    initRepo(false)
+    commitFile("gtd: errors", "ERRORS.md", "pre-branch error\n")
+    // Now branch to feature
+    git("checkout", "-q", "-b", "feature")
+    // Add workflow commits on feature branch
     commitFile("gtd: planning", "TODO.md", "# Plan\n")
     commitFile("gtd: errors", "ERRORS.md", "error 1\n")
     commitFile("gtd: errors", "ERRORS.md", "error 2\n")
     const events = await runGather()
-    const errorCommits = commitsOf(events).filter((e) => e.isErrors)
-    expect(errorCommits).toHaveLength(2)
+    // Only the 2 post-branch errors should be counted, not the pre-branch one
+    expect(foldCounters(events).testFixCount).toBe(2)
   })
 })
 
