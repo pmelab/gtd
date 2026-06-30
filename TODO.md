@@ -95,4 +95,5 @@ This plan keeps the current `gtd: awaiting review` edge commit and only restores
 the file _format_. Confirm you do NOT also want the old `review(gtd): ...`
 commit message revived.
 
-<!-- user answers here -->
+confirmed, but also make sure that the question handling is the same as before:
+open questions on top, answered questions retained at the bottom.
