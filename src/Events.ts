@@ -201,9 +201,15 @@ export const gatherEvents = (): Effect.Effect<
     // Stream base = merge-base(defaultBranch, HEAD) when both resolve, else
     // undefined (whole-history fallback for no-default-branch / no-merge-base).
     const defaultBranch = yield* git.resolveDefaultBranch()
-    const base = Option.isSome(defaultBranch)
+    const headHash = yield* git.resolveRef("HEAD").pipe(Effect.catchAll(() => Effect.succeed("")))
+    const mergeBase = Option.isSome(defaultBranch)
       ? yield* git.mergeBase(defaultBranch.value, "HEAD")
       : Option.none<string>()
+    // Discard the merge-base when it is HEAD itself (trunk-based workflow): the
+    // range main..HEAD would be empty and disable the budgets. Whole-history
+    // fallback is safe because foldCounters resets on every package boundary.
+    const base =
+      Option.isSome(mergeBase) && mergeBase.value !== headHash ? mergeBase : Option.none<string>()
 
     const history = yield* git.commitHistory(Option.getOrUndefined(base))
     const commitEvents: Array<CommitEvent> = history.map(
@@ -297,7 +303,6 @@ export const gatherEvents = (): Effect.Effect<
     let reviewBase: string | undefined
     let refDiff: string | undefined
     if (hasCommits) {
-      const headHash = yield* git.resolveRef("HEAD").pipe(Effect.catchAll(() => Effect.succeed("")))
       const mergeBaseCandidate =
         Option.isSome(base) && base.value !== headHash ? base.value : undefined
       const lastDel = yield* git.lastDeletionOf(REVIEW_FILE)
