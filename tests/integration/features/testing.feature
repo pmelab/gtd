@@ -63,6 +63,32 @@ Feature: Testing — the bounded test/fix loop and escalation
     And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
     And stdout contains "SENTINEL_FAILURE"
 
+  Scenario: A red gate with no output still routes to Fixing, not Close package
+    Given a test project
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      exit 1
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a file "src/helper.ts" with:
+      """
+      export const helper = (x: string) => x
+      """
+    When I run gtd
+    Then it succeeds
+    And the git log contains "gtd: errors"
+    And the last commit subject is "gtd: fixing"
+    And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
+    And stdout does not contain "## Task: Close"
+    And stdout does not contain "gtd: package done"
+
   Scenario: A red gate at the fix-attempt cap writes ERRORS.md and escalates
     Given a test project
     And a default branch "main"

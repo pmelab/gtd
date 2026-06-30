@@ -31,6 +31,7 @@ const GTD_DIR = ".gtd"
 const REVIEW_FILE = "REVIEW.md"
 const FEEDBACK_FILE = "FEEDBACK.md"
 const ERRORS_FILE = "ERRORS.md"
+const EMPTY_FAILURE_SENTINEL = "Test command failed with no output (exit code non-zero)."
 const UNANSWERED_MARKER = "<!-- user answers here -->"
 
 // Flat `gtd: <phase>` taxonomy — the only commit subjects the machine reads or
@@ -432,7 +433,8 @@ export const perform = (
           return
         }
         const target = action.capReached ? ERRORS_FILE : FEEDBACK_FILE
-        yield* fs.writeFileString(target, result.output)
+        const body = /\S/.test(result.output) ? result.output : EMPTY_FAILURE_SENTINEL
+        yield* fs.writeFileString(target, body)
         yield* git.commitAllWithPrefix(ERRORS_SUBJECT)
         return
       }

@@ -608,6 +608,46 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(git("log", "-1", "--format=%s")).toBe("gtd: errors")
   })
 
+  it("runTest red under cap, empty output: FEEDBACK.md exists, non-empty, contains sentinel", async () => {
+    writeFileSync(join(repoDir, "impl.ts"), "export const i = 1\n")
+    await runPerform(
+      { kind: "runTest", errorCount: 1, capReached: false },
+      { exitCode: 1, output: "" },
+    )
+    expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(true)
+    const feedback = readFileSync(join(repoDir, "FEEDBACK.md"), "utf8")
+    expect(/\S/.test(feedback)).toBe(true)
+    expect(feedback).toContain("failed with no output")
+    expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(false)
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: errors")
+  })
+
+  it("runTest red at cap, empty output: ERRORS.md exists, non-empty, contains sentinel; FEEDBACK.md absent", async () => {
+    writeFileSync(join(repoDir, "impl.ts"), "export const i = 1\n")
+    await runPerform(
+      { kind: "runTest", errorCount: 3, capReached: true },
+      { exitCode: 1, output: "" },
+    )
+    expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(true)
+    const errors = readFileSync(join(repoDir, "ERRORS.md"), "utf8")
+    expect(/\S/.test(errors)).toBe(true)
+    expect(errors).toContain("failed with no output")
+    expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(false)
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: errors")
+  })
+
+  it("runTest red under cap, whitespace-only output: FEEDBACK.md non-empty, contains sentinel", async () => {
+    writeFileSync(join(repoDir, "impl.ts"), "export const i = 1\n")
+    await runPerform(
+      { kind: "runTest", errorCount: 1, capReached: false },
+      { exitCode: 1, output: "   \n" },
+    )
+    expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(true)
+    const feedback = readFileSync(join(repoDir, "FEEDBACK.md"), "utf8")
+    expect(/\S/.test(feedback)).toBe(true)
+    expect(feedback).toContain("failed with no output")
+  })
+
   it("runTest no-op fixer (clean tree, green): commits an empty gtd: building to advance HEAD off gtd: fixing", async () => {
     git("commit", "-q", "--allow-empty", "-m", "gtd: fixing") // clean tree, HEAD gtd: fixing
     const countBefore = Number(git("rev-list", "--count", "HEAD"))
