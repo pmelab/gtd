@@ -148,6 +148,8 @@ export interface ResolvePayload {
  *                          (grilling / grilled / planning / fixing). `removeFeedback`
  *                          deletes FEEDBACK.md first so Fixing lands its removal in the
  *                          `gtd: fixing` / `gtd: feedback` commit (else Fixing re-fires forever).
+ *                          `removeTodo` deletes TODO.md first so its removal lands in the
+ *                          `gtd: planning` commit (once-only, at the planning→building edge).
  *   - `closePackage`     — rm the (maybe-empty / maybe-absent) FEEDBACK.md, rm the
  *                          first package dir (+ empty `.gtd/`), commit `gtd: package done`.
  *   - `commitReview`     — commit REVIEW.md `gtd: awaiting review`.
@@ -158,7 +160,13 @@ export type EdgeAction =
   | { readonly kind: "seedNewFeature" }
   | { readonly kind: "seedAcceptReview" }
   | { readonly kind: "runTest"; readonly errorCount: number; readonly capReached: boolean }
-  | { readonly kind: "commitPending"; readonly prefix: string; readonly removeFeedback?: boolean }
+  | {
+      readonly kind: "commitPending"
+      readonly prefix: string
+      readonly removeFeedback?: boolean
+      /** Delete TODO.md first so its removal lands in the `gtd: planning` commit. */
+      readonly removeTodo?: boolean
+    }
   | { readonly kind: "closePackage" }
   | { readonly kind: "commitReview" }
   | { readonly kind: "done" }
@@ -399,6 +407,18 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
     }
     if (p.workingTreeClean) {
       if (head === "gtd: planning" || head === "gtd: package done") {
+        // Once-only TODO.md deletion: when transitioning planning→building for the
+        // first time (TODO.md still present), delete it in the same commit so the
+        // planning commit is self-contained. On re-entry (package done, or planning
+        // without TODO.md) no action is needed.
+        if (head === "gtd: planning" && p.todoExists) {
+          return {
+            state: "building",
+            autoAdvance: true,
+            edgeAction: { kind: "commitPending", prefix: "gtd: planning", removeTodo: true },
+            context: buildContext(p, counters),
+          }
+        }
         return { state: "building", autoAdvance: true, context: buildContext(p, counters) }
       }
       if (head === "gtd: building") {

@@ -23,6 +23,12 @@ Wait for all workers to complete. **If any worker fails** (crash, timeout, error
 — not a test failure): report which tasks failed and ask the user whether to
 retry the failed tasks, skip and continue, or abort.
 
+### No TODO.md during the build loop
+
+`TODO.md` was deleted at the start of the build loop (committed under `gtd:
+planning`). Its absence is intentional — the `.gtd/` task files are the sole
+source of truth from here on.
+
 ### Leave the work uncommitted
 
 Do **not** commit, do **not** delete the package directory, and do **not** touch

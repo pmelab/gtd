@@ -190,7 +190,8 @@ guessing:
 - ERRORS.md + FEEDBACK.md
 - ERRORS.md without .gtd
 
-Legal coexistence: `.gtd` + TODO.md (plan kept alongside packages during build);
+Legal coexistence: `.gtd` + TODO.md (plan kept alongside packages during
+**Planning** only — TODO.md is deleted at the first Building turn);
 FEEDBACK.md + `.gtd` (a fix during build).
 
 ### Single writer, linear branch
@@ -229,7 +230,7 @@ action and re-resolves silently.
 | **Close package** | edge-only, auto | empty FEEDBACK.md present (clean review); also reached from Agentic Review force-approve | rm FEEDBACK.md, rm the first (finished) package dir (+ the now-empty `.gtd/`); commit `gtd: package done` | more packages → Building; `.gtd` gone → Clean |
 | **Planning** | agent, auto | `.gtd` present **and modified**; HEAD `gtd: grilled` or `gtd: planning` | commit the `.gtd/` changes `gtd: planning` | continue decomposing, else → Building |
 | **Testing** | edge-only, auto | `.gtd` present, no FEEDBACK/ERRORS, and a reason to test: code changes, a pending ERRORS.md deletion (human resume), or a clean tree under HEAD `gtd: fixing` (no-op fixer) | commit pending tree `gtd: building`, run `testCommand`; green → proceed; red → write FEEDBACK (below cap) or ERRORS (at cap), commit `gtd: errors` | green → Agentic Review; FEEDBACK → Fixing; ERRORS → Escalate |
-| **Building** | agent, auto | `.gtd` present and clean, clean tree; HEAD `gtd: planning` or `gtd: package done` | select the first package, inline its tasks; agent leaves work **uncommitted** | Testing |
+| **Building** | agent, auto | `.gtd` present and clean, clean tree; HEAD `gtd: planning` or `gtd: package done` | if HEAD `gtd: planning` and TODO.md present, delete TODO.md and commit (prefix unchanged, fires once); select the first package, inline its tasks; agent leaves work **uncommitted** | Testing |
 | **Agentic Review** | agent, auto | `.gtd` present and clean, clean tree; HEAD `gtd: building` | reviewer writes FEEDBACK.md (empty = approval), uncommitted — **unless** force-approved (kill-switch off or review-fix threshold hit), which routes straight to Close package | empty FEEDBACK → Close package; non-empty → Fixing |
 | **Done** | edge-only, auto | REVIEW.md committed + clean tree (human re-ran gtd with no edits = approval) | rm REVIEW.md, commit `gtd: done` | Idle |
 | **Accept Review** | edge-only, auto | REVIEW.md committed + pending edits (human annotated REVIEW.md / edited code) | seed TODO.md from the changeset, `git checkout` to discard the code edits, rm REVIEW.md; **all uncommitted** | Grilling |
@@ -321,7 +322,9 @@ Close` loop before the next one starts.
 4. **Converge.** A clean tree with no markers resolves to **Grilled** (`gtd:
    grilled`), then **Planning** decomposes `TODO.md` into ordered `.gtd/` work
    packages (`gtd: planning`).
-5. **Build.** `/gtd` — **Building** names the single next package and inlines its
+5. **Build.** `/gtd` — **Building** first deletes `TODO.md` (when HEAD is `gtd:
+   planning` and it is still present, committed under the same `gtd: planning`
+   prefix — fires once). It then names the single next package and inlines its
    task files; the agent spawns one parallel subagent per task (execution model +
    TDD) and leaves the work **uncommitted**. The next run is **Testing**: the
    edge commits `gtd: building`, then runs `testCommand`.

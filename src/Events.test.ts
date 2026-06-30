@@ -512,10 +512,21 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
+  it("commitPending removeTodo: deletes TODO.md and lands its removal in the commit", async () => {
+    // Committed TODO.md exists; a pending .gtd change rides along.
+    commitFile("gtd: planning", "TODO.md", "# Plan\n")
+    mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
+    writeFileSync(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
+    await runPerform({ kind: "commitPending", prefix: "gtd: planning", removeTodo: true })
+    expect(existsSync(join(repoDir, "TODO.md"))).toBe(false)
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: planning")
+    expect(git("status", "--porcelain").trim()).toBe("")
+    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\tTODO.md")
+  })
+
   it("closePackage (empty FEEDBACK): removes FEEDBACK + last package + empty .gtd, commits gtd: package done", async () => {
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
     writeFileSync(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
-    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
     git("add", "-A")
     git("commit", "-q", "-m", "gtd: building")
     writeFileSync(join(repoDir, "FEEDBACK.md"), "") // empty, untracked
@@ -526,9 +537,6 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, ".gtd", "01-foo"))).toBe(false)
     expect(existsSync(join(repoDir, ".gtd"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: package done")
-    expect(existsSync(join(repoDir, "TODO.md"))).toBe(false)
-    expect(git("ls-files", "TODO.md").trim()).toBe("")
-    expect(git("status", "--porcelain").trim()).toBe("")
   })
 
   it("closePackage (force-approve, no FEEDBACK): removes first package, keeps the rest", async () => {
@@ -536,7 +544,6 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     mkdirSync(join(repoDir, ".gtd", "02-bar"), { recursive: true })
     writeFileSync(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# A\n")
     writeFileSync(join(repoDir, ".gtd", "02-bar", "01-task.md"), "# B\n")
-    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
     git("add", "-A")
     git("commit", "-q", "-m", "gtd: building")
 
@@ -545,7 +552,6 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, ".gtd", "01-foo"))).toBe(false)
     expect(existsSync(join(repoDir, ".gtd", "02-bar"))).toBe(true)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: package done")
-    expect(existsSync(join(repoDir, "TODO.md"))).toBe(true)
   })
 
   it("commitReview: commits REVIEW.md as gtd: awaiting review", async () => {

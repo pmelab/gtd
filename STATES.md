@@ -93,7 +93,8 @@ guessing:
 - ERRORS.md + FEEDBACK.md
 - ERRORS.md without .gtd
 
-Legal coexistence: `.gtd`+TODO.md (plan + packages during build),
+Legal coexistence: `.gtd`+TODO.md (plan + packages during **Planning** only —
+TODO.md is deleted at the first Building turn);
 FEEDBACK.md+`.gtd` (fix during build).
 
 ## States
@@ -183,7 +184,9 @@ a clean tree advances to Building.)_
 **Conditions:** `.gtd` present and clean, clean tree, HEAD `gtd: planning` or
 `gtd: package done`.
 
-**Actions:** select the first remaining package.
+**Actions:** if HEAD is `gtd: planning` and TODO.md is present, delete TODO.md
+and amend the commit (HEAD prefix stays `gtd: planning`; fires at most once).
+Then select the first remaining package.
 
 **Prompt:** subagents build the subtasks of the first package in parallel.
 
@@ -273,9 +276,7 @@ approval); `.gtd` present.
 
 **Actions:** remove the empty FEEDBACK.md, delete the first (finished) package
 directory — plus the now-empty `.gtd/` if it was the last — and commit
-`gtd: package done`. When it was the last package, also remove TODO.md so the
-next run falls through rule 6 (TODO.md present → Grilling) to rule 7
-(Clean/Idle) instead of re-entering the Grilling loop.
+`gtd: package done`.
 
 **Prompt:** proceed. _(Next: `.gtd` still has packages → Building; `.gtd` gone →
 Clean.)_

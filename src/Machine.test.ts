@@ -275,15 +275,28 @@ describe("rule 3 — build lifecycle", () => {
     expect(res.edgeAction).toEqual({ kind: "runTest", errorCount: 0, capReached: false })
   })
 
-  it("clean + HEAD gtd: planning → building, no edgeAction", () => {
-    const res = r({ gtdDirExists: true, lastCommitSubject: "gtd: planning" })
+  it("clean + HEAD gtd: planning + todoExists → building, commitPending with removeTodo", () => {
+    const res = r({ gtdDirExists: true, lastCommitSubject: "gtd: planning", todoExists: true })
+    expect(res.state).toBe("building")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({
+      kind: "commitPending",
+      prefix: "gtd: planning",
+      removeTodo: true,
+    } satisfies EdgeAction)
+  })
+
+  it("clean + HEAD gtd: planning + !todoExists → building, no edgeAction", () => {
+    const res = r({ gtdDirExists: true, lastCommitSubject: "gtd: planning", todoExists: false })
     expect(res.state).toBe("building")
     expect(res.autoAdvance).toBe(true)
     expect(res.edgeAction).toBeUndefined()
   })
 
-  it("clean + HEAD gtd: package done → building", () => {
-    expect(r({ gtdDirExists: true, lastCommitSubject: "gtd: package done" }).state).toBe("building")
+  it("clean + HEAD gtd: package done → building, no edgeAction", () => {
+    const res = r({ gtdDirExists: true, lastCommitSubject: "gtd: package done" })
+    expect(res.state).toBe("building")
+    expect(res.edgeAction).toBeUndefined()
   })
 
   it("clean + HEAD gtd: building → agentic-review, no edgeAction", () => {

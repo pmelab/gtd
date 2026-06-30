@@ -369,6 +369,9 @@ export const perform = (
         if (action.removeFeedback === true) {
           yield* fs.remove(FEEDBACK_FILE).pipe(Effect.catchAll(() => Effect.void))
         }
+        if (action.removeTodo === true) {
+          yield* fs.remove(TODO_FILE).pipe(Effect.catchAll(() => Effect.void))
+        }
         yield* git.commitAllWithPrefix(action.prefix)
         return
       }
@@ -376,16 +379,12 @@ export const perform = (
       // Close package: remove the (maybe-empty / maybe-absent) FEEDBACK.md, rm
       // the first (finished) package dir (+ the now-empty `.gtd/`), commit
       // `gtd: package done`. Tolerates an absent FEEDBACK.md (force-approve).
-      // When it was the last package, also removes TODO.md.
       case "closePackage": {
         yield* fs.remove(FEEDBACK_FILE).pipe(Effect.catchAll(() => Effect.void))
         const packages = yield* getPackages(fs)
         const first = packages[0]
         if (first !== undefined) {
           yield* git.removePackageDir(`${GTD_DIR}/${first.name}`)
-        }
-        if (packages.length <= 1) {
-          yield* fs.remove(TODO_FILE).pipe(Effect.catchAll(() => Effect.void))
         }
         yield* git.commitAllWithPrefix(PACKAGE_DONE_SUBJECT)
         return
