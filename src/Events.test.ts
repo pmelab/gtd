@@ -484,6 +484,32 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
   })
 })
 
+// ── gatherEvents: COMMIT-stream base folds ───────────────────────────────────
+
+describe("gatherEvents — COMMIT-stream base folds (issue-7)", { timeout: 30_000 }, () => {
+  afterEach(cleanup)
+
+  it("trunk regression: gtd: errors commits after gtd: planning fold into testFixCount == 2, not 0", async () => {
+    initRepo(false)
+    commitFile("gtd: planning", "TODO.md", "# Plan\n")
+    commitFile("gtd: errors", "ERRORS.md", "error 1\n")
+    commitFile("gtd: errors", "ERRORS.md", "error 2\n")
+    const events = await runGather()
+    const errorCommits = commitsOf(events).filter((e) => e.isErrors)
+    expect(errorCommits).toHaveLength(2)
+  })
+
+  it("feature-branch control: only post-branch-point gtd: errors commits are included", async () => {
+    initRepo(true)
+    commitFile("gtd: planning", "TODO.md", "# Plan\n")
+    commitFile("gtd: errors", "ERRORS.md", "error 1\n")
+    commitFile("gtd: errors", "ERRORS.md", "error 2\n")
+    const events = await runGather()
+    const errorCommits = commitsOf(events).filter((e) => e.isErrors)
+    expect(errorCommits).toHaveLength(2)
+  })
+})
+
 // ── perform: EdgeAction execution ────────────────────────────────────────────
 
 describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {

@@ -66,6 +66,23 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
     And the file ".gtd/01-foo/01-task.md" does not exist
     And stdout does not contain "## Task: Agentic review of the built package"
 
+  Scenario: The review-fix threshold force-approves on the default branch (trunk)
+    Given a test project
+    And a default branch "main"
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a commit "gtd: feedback"
+    And a commit "gtd: feedback"
+    And a commit "gtd: feedback"
+    And a commit "gtd: building"
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: package done"
+    And the file ".gtd/01-foo/01-task.md" does not exist
+    And stdout does not contain "## Task: Agentic review of the built package"
+
   Scenario: agenticReview false force-approves without reviewing
     Given a test project
     And a gtd config file at ".gtdrc" with:

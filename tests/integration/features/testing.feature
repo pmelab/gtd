@@ -196,3 +196,35 @@ Feature: Testing — the bounded test/fix loop and escalation
     And the git log contains "gtd: building"
     And the last commit subject is "gtd: building"
     And stdout contains "## Task: Agentic review of the built package"
+
+  Scenario: A red gate at the cap on the default branch (trunk) writes ERRORS.md and escalates
+    Given a test project
+    And a default branch "main"
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo SENTINEL_FAILURE
+      exit 1
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a commit "gtd: errors"
+    And a commit "gtd: errors"
+    And a commit "gtd: errors"
+    And a file "src/helper.ts" with:
+      """
+      export const helper = (x: string) => x
+      """
+    When I run gtd
+    Then it succeeds
+    And the file "ERRORS.md" exists
+    And the file "FEEDBACK.md" does not exist
+    And the last commit subject is "gtd: errors"
+    And stdout contains "## Task: Escalate"
+    And stdout contains "STOP"
+    And stdout does not contain "## Task: Fix the package"

@@ -14,10 +14,11 @@ Internally, gtd is a **pure fold** over git history. The decision core
 xstate, no actor, no Effect**. The Effect "edge" (`src/Events.ts`) does all the
 git/filesystem IO: it reads the **first-parent** commit subjects since the
 merge-base with the default branch (whole-history fallback when there is no
-default branch or merge-base) plus the working tree, turns them into a
-`COMMIT[]` + single terminal `RESOLVE` event stream, and folds them through the
-machine. The fold lands on exactly **one** of 16 states, which selects the
-prompt. A single run resolves to a single state.
+default branch, when HEAD equals the merge-base, or when there is no merge-base
+— i.e. budgets engage on the default branch too) plus the working tree, turns
+them into a `COMMIT[]` + single terminal `RESOLVE` event stream, and folds them
+through the machine. The fold lands on exactly **one** of 16 states, which
+selects the prompt. A single run resolves to a single state.
 
 `resolve()` returns that state plus an optional **`EdgeAction`** (a commit,
 revert, test run, or file write). The driver loop (`src/main.ts`) performs the
