@@ -86,10 +86,9 @@ describe("buildPrompt", () => {
       expect(out).toContain("Await the user's review")
     })
 
-    it.skip("await-review leads with the STOP constraint", () => {
+    it("await-review leads with the STOP constraint", () => {
       const out = buildPrompt(result("await-review"))
       expect(out).toContain("STOP — do not re-run `gtd`")
-      expect(out).toContain("auto-approve the review")
       // constraint must appear before the task heading
       expect(out.indexOf("STOP — do not re-run")).toBeLessThan(
         out.indexOf("Await the user's review"),
@@ -191,6 +190,49 @@ describe("buildPrompt", () => {
         const out = buildPrompt(result(state), custom)
         expect(out).not.toContain("{{MODEL}}")
         expect(out).not.toContain("SHOULD-NOT-APPEAR")
+      }
+    })
+  })
+
+  describe("STOP banner", () => {
+    it("escalate leads with the STOP banner", () => {
+      const out = buildPrompt(result("escalate"))
+      expect(out).toContain("⛔")
+      expect(out.indexOf("⛔")).toBeLessThan(out.indexOf("Escalate — the test gate"))
+    })
+
+    it("idle leads with the STOP banner", () => {
+      const out = buildPrompt(result("idle"))
+      expect(out).toContain("⛔")
+      expect(out.indexOf("⛔")).toBeLessThan(out.indexOf("Nothing to do"))
+    })
+
+    it("grilling stop-case leads with the STOP banner", () => {
+      const out = buildPrompt(
+        result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
+      )
+      expect(out).toContain("⛔")
+      expect(out.indexOf("⛔")).toBeLessThan(out.indexOf("Open questions await the user"))
+    })
+
+    it("clean does NOT get the STOP banner despite autoAdvance: false", () => {
+      const out = buildPrompt(result("clean"))
+      expect(out).not.toContain("⛔")
+    })
+
+    it("auto-advance states do NOT get the STOP banner", () => {
+      for (const out of [
+        buildPrompt(result("grilled")),
+        buildPrompt(result("planning")),
+        buildPrompt(withPackage("building")),
+        buildPrompt(result("fixing")),
+        buildPrompt(withPackage("agentic-review")),
+        buildPrompt(
+          result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
+        ),
+        buildPrompt(result("clean")),
+      ]) {
+        expect(out).not.toContain("⛔")
       }
     })
   })
