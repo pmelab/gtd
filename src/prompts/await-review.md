@@ -1,7 +1,3 @@
-⛔ **STOP — do not re-run `gtd`.** Running `gtd` now with no edits will
-auto-approve the review and commit `gtd: done` without human input. Only the
-user may resume this step.
-
 ## Task: Await the user's review
 
 `REVIEW.md` has been committed (`gtd: awaiting review`). This is a human gate —
