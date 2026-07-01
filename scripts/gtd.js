@@ -8,8 +8,13 @@ import { pathToFileURL } from "node:url"
 const dir = import.meta.dirname
 const bundlePath = join(dir, "gtd.bundle.mjs")
 const tmpPath = bundlePath + ".tmp"
-const pkg = JSON.parse(readFileSync(join(dir, "../package.json"), "utf8"))
-const version = pkg.version
+let version
+try {
+  const pkg = JSON.parse(readFileSync(join(dir, "../package.json"), "utf8"))
+  version = pkg.version
+} catch {
+  version = null
+}
 const downloadUrl =
   version && version !== "0.0.0-development"
     ? `https://github.com/pmelab/gtd/releases/download/v${version}/gtd.bundle.mjs`
