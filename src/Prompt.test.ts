@@ -86,6 +86,15 @@ describe("buildPrompt", () => {
       expect(out).toContain("Await the user's review")
     })
 
+    it("await-review leads with the STOP constraint", () => {
+      const out = buildPrompt(result("await-review"))
+      expect(out).toContain("STOP — do not re-run `gtd`")
+      // constraint must appear after all content
+      expect(out.indexOf("STOP — do not re-run")).toBeGreaterThan(
+        out.indexOf("Await the user's review"),
+      )
+    })
+
     it("escalate renders the escalate section", () => {
       const out = buildPrompt(result("escalate"))
       expect(out).toContain("Escalate — the test gate is stuck")
@@ -181,6 +190,49 @@ describe("buildPrompt", () => {
         const out = buildPrompt(result(state), custom)
         expect(out).not.toContain("{{MODEL}}")
         expect(out).not.toContain("SHOULD-NOT-APPEAR")
+      }
+    })
+  })
+
+  describe("STOP banner", () => {
+    it("escalate leads with the STOP banner", () => {
+      const out = buildPrompt(result("escalate"))
+      expect(out).toContain("⛔")
+      expect(out.indexOf("⛔")).toBeGreaterThan(out.indexOf("Escalate — the test gate"))
+    })
+
+    it("idle leads with the STOP banner", () => {
+      const out = buildPrompt(result("idle"))
+      expect(out).toContain("⛔")
+      expect(out.indexOf("⛔")).toBeGreaterThan(out.indexOf("Nothing to do"))
+    })
+
+    it("grilling stop-case leads with the STOP banner", () => {
+      const out = buildPrompt(
+        result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
+      )
+      expect(out).toContain("⛔")
+      expect(out.indexOf("⛔")).toBeGreaterThan(out.indexOf("Open questions await the user"))
+    })
+
+    it("clean does NOT get the STOP banner despite autoAdvance: false", () => {
+      const out = buildPrompt(result("clean"))
+      expect(out).not.toContain("⛔")
+    })
+
+    it("auto-advance states do NOT get the STOP banner", () => {
+      for (const out of [
+        buildPrompt(result("grilled", { autoAdvance: true })),
+        buildPrompt(result("planning", { autoAdvance: true })),
+        buildPrompt(withPackage("building")),
+        buildPrompt(result("fixing", { autoAdvance: true })),
+        buildPrompt(withPackage("agentic-review")),
+        buildPrompt(
+          result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
+        ),
+        buildPrompt(result("clean")),
+      ]) {
+        expect(out).not.toContain("⛔")
       }
     })
   })
