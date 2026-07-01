@@ -1,53 +1,40 @@
-# Plan
+# Move STOP partial to end of prompt
 
-## Captured input
+Mirror the `auto-advance` pattern: append `stopPartial` after all content
+sections instead of right after the header.
 
-These changes were captured as the starting point for this feature. Develop them
-into a concrete plan and surface any open questions for the user.
+## Work packages
 
-```diff
-diff --git a/REVIEW.md b/REVIEW.md
-index b67b552..214c3d2 100644
---- a/REVIEW.md
-+++ b/REVIEW.md
-@@ -15,8 +15,8 @@ sense in the review state. The new wording generalises to "loop or advance
- without human input", which is accurate for `escalate`, `idle`, and the
- `grilling` stop-case too.
+### WP1: Move stop partial in `src/Prompt.ts`
 
--- [ ] ./src/prompts/partials/stop.md#1
--- [ ] ./src/prompts/await-review.md#1
-+- [x] ./src/prompts/partials/stop.md#1
-+- [x] ./src/prompts/await-review.md#1
+- Remove the TODO comment and the early `stopPartial` push at line 174
+- Add
+  `if (!result.autoAdvance && promptState !== "clean") parts.push(stopPartial, "")`
+  immediately before `if (result.autoAdvance) parts.push(autoAdvance, "")` at
+  the end of `buildPrompt` (line 212), mirroring the `auto-advance` pattern
+  exactly
 
- ## Gate STOP banner in `buildPrompt`
+### WP2: Update position-check assertions in `src/Prompt.test.ts`
 
-@@ -33,7 +33,7 @@ One subtlety: `stopPartial` is pushed with a trailing `""` separator before
- and the context block rather than at the very top — reviewers should confirm
- this ordering is intentional for readability.
+Three tests in the `"STOP banner"` describe block assert that `⛔` appears
+_before_ the task heading (using `toBeLessThan`). After the move, `⛔` appears
+_after_ all content, so flip each `toBeLessThan` to `toBeGreaterThan`:
 
--- [ ] ./src/Prompt.ts#174
-+- [x] ./src/Prompt.ts#174
+- line 201:
+  `expect(out.indexOf("⛔")).toBeLessThan(out.indexOf("Escalate — the test gate"))`
+  → `toBeGreaterThan`
+- line 207:
+  `expect(out.indexOf("⛔")).toBeLessThan(out.indexOf("Nothing to do"))` →
+  `toBeGreaterThan`
+- line 214:
+  `expect(out.indexOf("⛔")).toBeLessThan(out.indexOf("Open questions await the user"))`
+  → `toBeGreaterThan`
 
- ## Update and extend STOP banner tests
+Also update the inline comment on the `await-review` test at line 93:
 
-@@ -54,5 +54,5 @@ Coverage looks complete for the new condition. One minor observation: the
- auto-advance test includes `result("clean")` twice (once standalone, once in the
- loop) — redundant but harmless.
+- line 93–95: comment says "constraint must appear before the task heading" and
+  uses `toBeLessThan` for `"STOP — do not re-run"` vs
+  `"Await the user's review"` → flip comment to "constraint must appear after
+  all content" and change to `toBeGreaterThan`
 
--- [ ] ./src/Prompt.test.ts#89
--- [ ] ./src/Prompt.test.ts#194
-+- [x] ./src/Prompt.test.ts#89
-+- [x] ./src/Prompt.test.ts#194
-diff --git a/src/Prompt.ts b/src/Prompt.ts
-index bdd2038..19d9f0a 100644
---- a/src/Prompt.ts
-+++ b/src/Prompt.ts
-@@ -171,6 +171,7 @@ export const buildPrompt = (
-   }
-   const promptState = state as PromptState
-   const parts: Array<string> = [header, ""]
-+  // TODO: the stop partial should be added at the very end, like the auto-advance partial
-   if (!result.autoAdvance && promptState !== "clean") parts.push(stopPartial, "")
-   parts.push(buildContextBlock(context))
-
-```
+no open questions — run gtd to plan
