@@ -35,7 +35,11 @@ export interface GitOperations {
   readonly commitHistory: (
     base?: string,
   ) => Effect.Effect<
-    ReadonlyArray<{ readonly message: string; readonly removedErrors: boolean }>,
+    ReadonlyArray<{
+      readonly hash: string
+      readonly message: string
+      readonly removedErrors: boolean
+    }>,
     Error
   >
   /**
@@ -210,16 +214,21 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
                 .filter((chunk) => chunk.trim().length > 0)
                 .map((chunk) => {
                   const parts = chunk.split("\x00")
+                  const hash = (parts[0] ?? "").trim()
                   const message = (parts[1] ?? "").trim()
                   const nameStatusBlock = parts.slice(2).join("")
                   const removedErrors = /^D\tERRORS\.md$/m.test(nameStatusBlock)
-                  return { message, removedErrors }
+                  return { hash, message, removedErrors }
                 }),
             ),
             // Empty repo (no HEAD) makes `git log` fail; treat as no commits.
             Effect.catchAll(() =>
               Effect.succeed(
-                [] as ReadonlyArray<{ readonly message: string; readonly removedErrors: boolean }>,
+                [] as ReadonlyArray<{
+                  readonly hash: string
+                  readonly message: string
+                  readonly removedErrors: boolean
+                }>,
               ),
             ),
           )

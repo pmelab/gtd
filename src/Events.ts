@@ -369,37 +369,85 @@ export const gatherEvents = (): Effect.Effect<
       )
 
     // --- Review base (Clean review) ------------------------------------------
-    // Two candidate bases: the merge-base with the default branch (a proper
-    // ancestor on a feature branch) and the last REVIEW.md deletion (the most
-    // recent completed review, on ANY branch). Pick whichever is the more recent
-    // ancestor of HEAD — the deletion when it post-dates the merge-base — so a
-    // finished branch review (`gtd: done` removed REVIEW.md) advances the base
-    // and the next run settles in Idle instead of re-reviewing the whole branch.
-    // Fall back to the root (empty tree) when neither candidate exists. Only set
-    // when the diff is non-empty (non-empty distinguishes Clean from Idle).
+    // Four-rule logic to determine the review base:
+    //
+    // Rule 1: Within a process (has a `gtd: grilling` commit after last
+    //         `gtd: done`), no `gtd: awaiting review` yet → cover the whole
+    //         task: base = first `gtd: grilling` of the current task cycle.
+    // Rule 2: Within a process, `gtd: awaiting review` present → cover only
+    //         changes since the last review: base = last `gtd: awaiting review`
+    //         of the current task cycle (takes precedence over rule 1).
+    // Rule 3: Outside a process, on a feature branch (base is Some) → cover
+    //         the whole branch: base = merge-base(defaultBranch, HEAD).
+    // Rule 4: Outside a process, on the default branch (base is None) → skip
+    //         review: leave reviewBase/refDiff unset so the machine settles Idle.
+    //
+    // Only set reviewBase/refDiff when the resulting diff is non-empty
+    // (non-empty distinguishes Clean from Idle).
     let reviewBase: string | undefined
     let refDiff: string | undefined
     if (hasCommits) {
-      const mergeBaseCandidate =
-        Option.isSome(base) && base.value !== headHash ? base.value : undefined
-      const lastDel = yield* git.lastDeletionOf(REVIEW_FILE)
-      const lastDelCandidate = Option.isSome(lastDel) ? lastDel.value : undefined
+      // Scan ALL commits (no base arg) to properly detect process boundaries
+      // across `gtd: done` commits even on trunk.
+      const allHistory = yield* git.commitHistory()
 
-      let candidate: string
-      if (mergeBaseCandidate !== undefined && lastDelCandidate !== undefined) {
-        // Both exist: prefer the deletion when the merge-base is its ancestor
-        // (i.e. the review finished after this branch diverged).
-        const mergeBaseIsOlder = yield* git.isAncestor(mergeBaseCandidate, lastDelCandidate)
-        candidate = mergeBaseIsOlder ? lastDelCandidate : mergeBaseCandidate
+      // Find the current task cycle: commits after the last `gtd: done`.
+      const lastDoneIdx = (() => {
+        let idx = -1
+        for (let i = 0; i < allHistory.length; i++) {
+          const subject = (allHistory[i]!.message.split("\n")[0] ?? "").trim()
+          if (subject === "gtd: done") idx = i
+        }
+        return idx
+      })()
+      const currentCycle = lastDoneIdx === -1 ? allHistory : allHistory.slice(lastDoneIdx + 1)
+
+      // Find first `gtd: grilling` in the current cycle (task start).
+      const firstGrilling = currentCycle.find(
+        (c) => (c.message.split("\n")[0] ?? "").trim() === "gtd: grilling",
+      )
+      // Find last `gtd: awaiting review` in the current cycle.
+      const lastAwaitingReview = (() => {
+        let found: (typeof currentCycle)[number] | undefined
+        for (const c of currentCycle) {
+          if ((c.message.split("\n")[0] ?? "").trim().startsWith("gtd: awaiting review")) {
+            found = c
+          }
+        }
+        return found
+      })()
+
+      const withinProcess = firstGrilling !== undefined
+
+      let candidate: string | undefined
+      if (withinProcess) {
+        // Rule 2 takes precedence over Rule 1 when awaiting review exists.
+        if (lastAwaitingReview !== undefined) {
+          // Rule 2: base = last `gtd: awaiting review` commit hash.
+          candidate = lastAwaitingReview.hash ?? EMPTY_TREE
+        } else {
+          // Rule 1: base = first `gtd: grilling` commit hash.
+          candidate = firstGrilling.hash ?? EMPTY_TREE
+        }
       } else {
-        candidate = mergeBaseCandidate ?? lastDelCandidate ?? EMPTY_TREE
+        // Outside a process.
+        const mergeBaseCandidate =
+          Option.isSome(base) && base.value !== headHash ? base.value : undefined
+        if (mergeBaseCandidate !== undefined) {
+          // Rule 3: feature branch → use merge-base.
+          candidate = mergeBaseCandidate
+        }
+        // Rule 4: default branch → leave candidate undefined (Idle).
       }
-      const candidateDiff = yield* git
-        .diffRef(candidate)
-        .pipe(Effect.catchAll(() => Effect.succeed("")))
-      if (candidateDiff.trim().length > 0) {
-        reviewBase = candidate
-        refDiff = candidateDiff
+
+      if (candidate !== undefined) {
+        const candidateDiff = yield* git
+          .diffRef(candidate)
+          .pipe(Effect.catchAll(() => Effect.succeed("")))
+        if (candidateDiff.trim().length > 0) {
+          reviewBase = candidate
+          refDiff = candidateDiff
+        }
       }
     }
 
