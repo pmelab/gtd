@@ -3,7 +3,7 @@ import { dirname } from "node:path"
 import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
-import { ArrayFormatter } from "effect/ParseResult"
+import { ArrayFormatter, ParseError } from "effect/ParseResult"
 
 /**
  * Planning/execution states a model can be resolved for — the machine's
@@ -226,7 +226,7 @@ const toOperations = (decoded: DecodedConfig): ConfigOperations => {
   }
 }
 
-const formatSchemaError = (e: Schema.ParseError): string => {
+const formatSchemaError = (e: ParseError): string => {
   const issues = ArrayFormatter.formatErrorSync(e)
   const summary = issues
     .map((i) => (i.path.length > 0 ? i.path.join(".") + ": " : "") + i.message)

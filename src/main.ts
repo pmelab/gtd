@@ -48,7 +48,7 @@ const program = Effect.gen(function* () {
         new Error(`gtd format: too many arguments — expected one path, got: ${args.join(", ")}`),
       )
     }
-    yield* Format.formatFile(args[0])
+    yield* Format.formatFile(args[0]!)
     return
   }
 
