@@ -171,7 +171,6 @@ export const buildPrompt = (
   }
   const promptState = state as PromptState
   const parts: Array<string> = [header, ""]
-  if (!result.autoAdvance && promptState !== "clean") parts.push(stopPartial, "")
   parts.push(buildContextBlock(context))
 
   if (promptState === "grilling") {
@@ -209,6 +208,7 @@ export const buildPrompt = (
     }
   }
 
+  if (!result.autoAdvance && promptState !== "clean") parts.push(stopPartial, "")
   if (result.autoAdvance) parts.push(autoAdvance, "")
 
   return (

@@ -89,8 +89,8 @@ describe("buildPrompt", () => {
     it("await-review leads with the STOP constraint", () => {
       const out = buildPrompt(result("await-review"))
       expect(out).toContain("STOP — do not re-run `gtd`")
-      // constraint must appear before the task heading
-      expect(out.indexOf("STOP — do not re-run")).toBeLessThan(
+      // constraint must appear after all content
+      expect(out.indexOf("STOP — do not re-run")).toBeGreaterThan(
         out.indexOf("Await the user's review"),
       )
     })
@@ -198,13 +198,13 @@ describe("buildPrompt", () => {
     it("escalate leads with the STOP banner", () => {
       const out = buildPrompt(result("escalate"))
       expect(out).toContain("⛔")
-      expect(out.indexOf("⛔")).toBeLessThan(out.indexOf("Escalate — the test gate"))
+      expect(out.indexOf("⛔")).toBeGreaterThan(out.indexOf("Escalate — the test gate"))
     })
 
     it("idle leads with the STOP banner", () => {
       const out = buildPrompt(result("idle"))
       expect(out).toContain("⛔")
-      expect(out.indexOf("⛔")).toBeLessThan(out.indexOf("Nothing to do"))
+      expect(out.indexOf("⛔")).toBeGreaterThan(out.indexOf("Nothing to do"))
     })
 
     it("grilling stop-case leads with the STOP banner", () => {
@@ -212,7 +212,7 @@ describe("buildPrompt", () => {
         result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
       )
       expect(out).toContain("⛔")
-      expect(out.indexOf("⛔")).toBeLessThan(out.indexOf("Open questions await the user"))
+      expect(out.indexOf("⛔")).toBeGreaterThan(out.indexOf("Open questions await the user"))
     })
 
     it("clean does NOT get the STOP banner despite autoAdvance: false", () => {
