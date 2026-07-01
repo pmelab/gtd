@@ -9,6 +9,7 @@ import awaitReviewMd from "./prompts/await-review.md"
 import escalateMd from "./prompts/escalate.md"
 import idleMd from "./prompts/idle.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
+import stopPartial from "./prompts/partials/stop.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdPackageFact, GtdState, ResolveContext, Result } from "./Machine.js"
 
@@ -169,7 +170,9 @@ export const buildPrompt = (
     throw new Error(`State "${state}" is performed by the edge and must never reach buildPrompt`)
   }
   const promptState = state as PromptState
-  const parts: Array<string> = [header, "", buildContextBlock(context)]
+  const parts: Array<string> = [header, ""]
+  if (!result.autoAdvance && promptState !== "clean") parts.push(stopPartial, "")
+  parts.push(buildContextBlock(context))
 
   if (promptState === "grilling") {
     parts.push(renderGrilling(context, resolveModel), "")
