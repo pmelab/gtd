@@ -1,3 +1,7 @@
+⛔ **STOP — do not re-run `gtd`.** Running `gtd` now with no edits will
+auto-approve the review and commit `gtd: done` without human input. Only the
+user may resume this step.
+
 ## Task: Await the user's review
 
 `REVIEW.md` has been committed (`gtd: awaiting review`). This is a human gate —
@@ -13,6 +17,3 @@ Tell the user to:
 3. **To request changes** — edit the code, leave inline comments, or make
    non-checkbox textual edits to `REVIEW.md`, then re-run gtd. gtd captures
    those changes as the seed of a new plan and re-enters grilling.
-
-Report that the review is awaiting the user, then **STOP**. Do not re-run gtd
-yourself — the user must act first.

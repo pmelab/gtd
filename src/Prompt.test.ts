@@ -86,6 +86,16 @@ describe("buildPrompt", () => {
       expect(out).toContain("Await the user's review")
     })
 
+    it("await-review leads with the STOP constraint", () => {
+      const out = buildPrompt(result("await-review"))
+      expect(out).toContain("STOP — do not re-run `gtd`")
+      expect(out).toContain("auto-approve the review")
+      // constraint must appear before the task heading
+      expect(out.indexOf("STOP — do not re-run")).toBeLessThan(
+        out.indexOf("Await the user's review"),
+      )
+    })
+
     it("escalate renders the escalate section", () => {
       const out = buildPrompt(result("escalate"))
       expect(out).toContain("Escalate — the test gate is stuck")
