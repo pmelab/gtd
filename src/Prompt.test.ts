@@ -222,10 +222,10 @@ describe("buildPrompt", () => {
 
     it("auto-advance states do NOT get the STOP banner", () => {
       for (const out of [
-        buildPrompt(result("grilled")),
-        buildPrompt(result("planning")),
+        buildPrompt(result("grilled", { autoAdvance: true })),
+        buildPrompt(result("planning", { autoAdvance: true })),
         buildPrompt(withPackage("building")),
-        buildPrompt(result("fixing")),
+        buildPrompt(result("fixing", { autoAdvance: true })),
         buildPrompt(withPackage("agentic-review")),
         buildPrompt(
           result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
