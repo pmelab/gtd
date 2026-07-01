@@ -7,7 +7,7 @@ import { NodeContext } from "@effect/platform-node"
 import { TestRunner } from "./TestRunner.js"
 import { ConfigService } from "./Config.js"
 
-const run = <A>(eff: Effect.Effect<A, never, TestRunner>) =>
+const run = <A>(eff: Effect.Effect<A, Error, TestRunner>) =>
   Effect.runPromise(
     eff.pipe(
       // `TestRunner.Live` now requires `ConfigService`; provide it here so the

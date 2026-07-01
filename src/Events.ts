@@ -50,12 +50,88 @@ const DONE_SUBJECT = "gtd: done"
 // no prior REVIEW.md deletion exists ("else the root", STATES.md § Clean).
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
+/**
+ * Decode a git C-quoted path field (the `"..."` form git emits for paths
+ * containing non-ASCII, spaces, or other special characters when
+ * `core.quotepath` is on, which is the default).  Plain paths (no surrounding
+ * `"`) are returned as-is.
+ *
+ * Backslash sequences decoded:
+ *   `\\` → `\`   `\"` → `"`   `\n` → LF   `\t` → TAB   `\r` → CR
+ *   `\NNN` (octal) — bytes are accumulated into a buffer and UTF-8 decoded so
+ *   that multi-byte sequences (e.g. a 3-byte UTF-8 emoji) are reconstructed
+ *   correctly rather than decoded per-byte.
+ */
+const unquoteGitPath = (raw: string): string => {
+  if (!raw.startsWith('"')) return raw
+  // Strip surrounding quotes
+  const inner = raw.slice(1, raw.endsWith('"') ? raw.length - 1 : raw.length)
+  const bytes: number[] = []
+  const chars: string[] = []
+
+  const flushBytes = () => {
+    if (bytes.length === 0) return
+    const buf = Buffer.from(bytes)
+    chars.push(buf.toString("utf8"))
+    bytes.length = 0
+  }
+
+  let i = 0
+  while (i < inner.length) {
+    if (inner[i] !== "\\") {
+      flushBytes()
+      chars.push(inner[i]!)
+      i++
+      continue
+    }
+    // Escape sequence
+    const esc = inner[i + 1]
+    if (esc === undefined) {
+      flushBytes()
+      chars.push("\\")
+      i++
+      continue
+    }
+    // Octal escape: accumulate byte into buffer for later UTF-8 decode
+    if (esc >= "0" && esc <= "7") {
+      const oct = inner.slice(i + 1, i + 4)
+      bytes.push(parseInt(oct, 8))
+      i += 4
+      continue
+    }
+    // Non-octal escape: flush any pending bytes first
+    flushBytes()
+    switch (esc) {
+      case "n":
+        chars.push("\n")
+        break
+      case "t":
+        chars.push("\t")
+        break
+      case "r":
+        chars.push("\r")
+        break
+      case "\\":
+        chars.push("\\")
+        break
+      case '"':
+        chars.push('"')
+        break
+      default:
+        chars.push("\\", esc)
+    }
+    i += 2
+  }
+  flushBytes()
+  return chars.join("")
+}
+
 const parsePorcelainPaths = (porcelain: string): ReadonlyArray<{ status: string; path: string }> =>
   porcelain
     .split("\n")
     .map((line) => line.replace(/\r$/, ""))
     .filter((line) => line.length > 0)
-    .map((line) => ({ status: line.slice(0, 2), path: line.slice(3) }))
+    .map((line) => ({ status: line.slice(0, 2), path: unquoteGitPath(line.slice(3)) }))
 
 const isNumberedDir = (name: string): boolean => /^\d+-/.test(name)
 
@@ -67,7 +143,7 @@ const isTaskFile = (name: string): boolean => name.endsWith(".md")
  * inside a code example does not count as a live open-question marker.
  */
 const stripCode = (content: string): string =>
-  content.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n\1[^\n]*/gm, "").replace(/`[^`\n]+`/g, "")
+  content.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n\1[^\n]*|$)/gm, "").replace(/`[^`\n]+`/g, "")
 
 /**
  * Read the `.gtd/` work packages, lowest-numbered first. `packages[0]` is the

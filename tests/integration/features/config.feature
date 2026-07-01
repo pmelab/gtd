@@ -200,6 +200,119 @@ Feature: .gtdrc config system
     And stdout contains "cwd-planner-model"
     And stdout does not contain "ancestor-planner-model"
 
+  Scenario: Negative fixAttemptCap is rejected with an informative message
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      fixAttemptCap: -1
+      """
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Build the multiply function.
+      """
+    When I run gtd
+    Then it fails
+    And stderr contains "Invalid gtd config"
+
+  Scenario: Float fixAttemptCap is rejected with an informative message
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      fixAttemptCap: 1.5
+      """
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Build the multiply function.
+      """
+    When I run gtd
+    Then it fails
+    And stderr contains "Invalid gtd config"
+
+  Scenario: Zero reviewThreshold is rejected with an informative message
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      reviewThreshold: 0
+      """
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Build the multiply function.
+      """
+    When I run gtd
+    Then it fails
+    And stderr contains "Invalid gtd config"
+
+  Scenario: fixAttemptCap of zero is accepted as a valid config
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      fixAttemptCap: 0
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    When I run gtd
+    Then it succeeds
+
+  Scenario: A malformed YAML config file is rejected and names the offending file
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: [unclosed
+      """
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Build the multiply function.
+      """
+    When I run gtd
+    Then it fails
+    And stderr contains ".gtdrc"
+
+  Scenario: A config whose top-level value is a YAML list is rejected and names the offending file
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      - item1
+      - item2
+      """
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Build the multiply function.
+      """
+    When I run gtd
+    Then it fails
+    And stderr contains ".gtdrc"
+
+  Scenario: A schema validation error message is concise and does not dump internal type structures
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      bogusKey: 1
+      """
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Build the multiply function.
+      """
+    When I run gtd
+    Then it fails
+    And stderr contains "Invalid gtd config"
+    And stderr does not contain "readonly"
+
+  Scenario: A null-root config is rejected and names the offending file
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      null
+      """
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Build the multiply function.
+      """
+    When I run gtd
+    Then it fails
+    And stderr contains ".gtdrc"
+
   Scenario: A config in a shared parent directory cascades down to a repo beneath it
     # Only the shared (non-git-root) parent carries a .gtdrc; the repo has none.
     # The ancestor's planning model must still reach the decompose prompt, proving

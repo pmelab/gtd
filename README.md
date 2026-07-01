@@ -370,11 +370,12 @@ built-in defaults apply. Supported filenames (searched in this order):
 
 - **`testCommand`** (string, default `npm run test`) — the command the edge runs
   in the Testing state to verify a built package.
-- **`fixAttemptCap`** (number, default `3`) — the test-fix budget: how many
-  `gtd: errors` attempts are allowed per sub-loop before the failure is
-  escalated to ERRORS.md (Escalate).
-- **`reviewThreshold`** (number, default `3`) — the review-fix budget: how many
-  `gtd: feedback` rounds are allowed per package before Agentic Review
+- **`fixAttemptCap`** (non-negative integer, default `3`) — the test-fix budget:
+  how many `gtd: errors` attempts are allowed per sub-loop before the failure is
+  escalated to ERRORS.md (Escalate). `0` disables the cap (escalates immediately
+  on the first red run).
+- **`reviewThreshold`** (integer ≥ 1, default `3`) — the review-fix budget: how
+  many `gtd: feedback` rounds are allowed per package before Agentic Review
   force-approves.
 - **`agenticReview`** (boolean, default `true`) — kill-switch for the
   per-package Agentic Review gate. Set to `false` to skip agentic review
@@ -388,6 +389,24 @@ built-in defaults apply. Supported filenames (searched in this order):
   - `states.*` — per-state overrides keyed by the six agent states: `decompose`
     (shared by the Grilled and Planning states), `grilling`, `building`,
     `fixing`, `agentic-review`, `clean`. Unknown `states` keys are **rejected**.
+
+### Validation and errors
+
+If a config file fails to load or is invalid, gtd **exits with code 1** and
+writes a human-readable error to **stderr** (never stdout):
+
+- **Parse errors** (malformed YAML/JSON) — message includes the offending
+  filename, e.g. `gtd: /path/to/.gtdrc: unexpected token`.
+- **Non-object top-level** — a YAML list or `null` at the root is rejected with
+  the filename in the message.
+- **Schema violations** — unknown keys or out-of-range values emit
+  `Invalid gtd config: <field>: <reason>`. The message is concise and does not
+  dump the full type tree.
+- **Missing test binary** — if `testCommand` names an executable that cannot be
+  found (`ENOENT`), gtd exits with code 1 and writes
+  `gtd: test command not found: <command>` to **stderr**. No stack trace is
+  emitted to stdout. A non-zero test exit is _not_ an error — it drives the
+  normal red-path (FEEDBACK → Fixing).
 
 ### Lookup and precedence
 
@@ -535,6 +554,20 @@ local style preferences.
 The grilling and clean prompts instruct the agent to run this command after
 every edit to `TODO.md` or `REVIEW.md`, so those files stay consistently
 formatted regardless of the host project's toolchain.
+
+### Error handling
+
+All errors exit with **code 1** and write a message to **stderr**:
+
+- **Missing path** — `gtd format` with no argument:
+  `gtd format: missing file path argument`
+- **Extra arguments** — `gtd format a.md b.md`:
+  `gtd format: too many arguments — expected one path, got: …`
+- **Non-markdown file** — any extension other than `.md` or `.markdown`
+  (case-insensitive):
+  `gtd format: <file> is not a markdown file (expected .md or .markdown)`
+- **File not found** — the path does not exist:
+  `gtd: skipped formatting <file>: not found`
 
 > [!NOTE] Upgrading gtd may reflow existing `TODO.md` files if the bundled
 > prettier major version changes.

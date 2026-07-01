@@ -53,10 +53,11 @@ describe("formatString", () => {
 })
 
 describe("formatFile", () => {
-  it("succeeds and warns when file does not exist", async () => {
+  it("fails when file does not exist", async () => {
     const missing = join(tmpDir, "nonexistent.md")
-    await expect(runFormat(missing)).resolves.toBeUndefined()
-    expect(stderrOutput.join("")).toContain(`gtd: skipped formatting ${missing}: not found`)
+    await expect(runFormat(missing)).rejects.toThrow(
+      `gtd: skipped formatting ${missing}: not found`,
+    )
   })
 
   it("formats a markdown file with long lines", async () => {

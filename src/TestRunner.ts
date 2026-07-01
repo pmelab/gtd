@@ -9,8 +9,12 @@ export interface TestResult {
 }
 
 export interface TestRunnerOperations {
-  /** Runs the configured test command, never fails the Effect — non-zero exit is data, not error. */
-  readonly run: () => Effect.Effect<TestResult>
+  /**
+   * Runs the configured test command.
+   * - Spawn failure (binary missing / ENOENT) → typed `Error` (fails the Effect)
+   * - Non-zero test exit → `TestResult` with non-zero `exitCode` (data, not error)
+   */
+  readonly run: () => Effect.Effect<TestResult, Error>
 }
 
 export class TestRunner extends Context.Tag("TestRunner")<TestRunner, TestRunnerOperations>() {
@@ -56,7 +60,26 @@ export class TestRunner extends Context.Tag("TestRunner")<TestRunner, TestRunner
 
               return { exitCode: Number(exitCode), output: stdout + stderr } satisfies TestResult
             }),
-          ).pipe(Effect.orDie),
+          ).pipe(
+            Effect.catchAll((cause) => {
+              // Distinguish spawn failure (binary missing / ENOENT) from other
+              // errors. @effect/platform surfaces spawn-ENOENT as a SystemError
+              // whose message contains "ENOENT" or whose `reason` is "NotFound".
+              // Both produce a typed Error so main.ts's catchAll surfaces it on
+              // stderr with exit 1.
+              const causeStr = cause instanceof Error ? cause.message : String(cause)
+              const isNotFound =
+                causeStr.includes("ENOENT") ||
+                causeStr.includes("NotFound") ||
+                (cause instanceof Error &&
+                  "code" in cause &&
+                  (cause as NodeJS.ErrnoException).code === "ENOENT")
+              const msg = isNotFound
+                ? `test command not found: ${head}`
+                : `test command failed to start: ${causeStr}`
+              return Effect.fail(new Error(msg))
+            }),
+          ),
       }
     }),
   )

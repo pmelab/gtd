@@ -3,6 +3,7 @@ import { dirname } from "node:path"
 import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
+import { ArrayFormatter, ParseError } from "effect/ParseResult"
 
 /**
  * Planning/execution states a model can be resolved for — the machine's
@@ -67,8 +68,8 @@ const ConfigSchema = Schema.Struct({
   testCommand: Schema.optional(Schema.String),
   models: Schema.optional(ModelsSchema),
   agenticReview: Schema.optional(Schema.Boolean),
-  fixAttemptCap: Schema.optional(Schema.Number),
-  reviewThreshold: Schema.optional(Schema.Number),
+  fixAttemptCap: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(0))),
+  reviewThreshold: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(1))),
 })
 
 type DecodedConfig = Schema.Schema.Type<typeof ConfigSchema>
@@ -126,9 +127,31 @@ const walkUp = (from: string, home: string): ReadonlyArray<string> => {
   return chain
 }
 
-const yamlLoader = (_filepath: string, content: string): unknown => parseYaml(content) as unknown
+const yamlLoader = (filepath: string, content: string): unknown => {
+  let result: unknown
+  try {
+    result = parseYaml(content) as unknown
+  } catch (e) {
+    throw new Error(`${filepath}: ${e instanceof Error ? e.message : String(e)}`)
+  }
+  if (result === null) {
+    throw new Error(`${filepath}: config must be a plain object, got null`)
+  }
+  return result
+}
 
-const jsonLoader = (_filepath: string, content: string): unknown => JSON.parse(content) as unknown
+const jsonLoader = (filepath: string, content: string): unknown => {
+  let result: unknown
+  try {
+    result = JSON.parse(content) as unknown
+  } catch (e) {
+    throw new Error(`${filepath}: ${e instanceof Error ? e.message : String(e)}`)
+  }
+  if (result === null) {
+    throw new Error(`${filepath}: config must be a plain object, got null`)
+  }
+  return result
+}
 
 const SEARCH_PLACES = [
   ".gtdrc",
@@ -143,35 +166,43 @@ const SEARCH_PLACES = [
  * Load and deep-merge every config level from cwd up the directory chain.
  * Innermost (cwd) wins. Returns the merged plain object (undecoded).
  */
-const loadMerged = (): Effect.Effect<Record<string, unknown>> =>
-  Effect.promise(async () => {
-    const home = homedir()
-    const chain = walkUp(process.cwd(), home)
+const loadMerged = (): Effect.Effect<Record<string, unknown>, Error> =>
+  Effect.tryPromise({
+    try: async () => {
+      const home = homedir()
+      const chain = walkUp(process.cwd(), home)
 
-    // `searchStrategy: 'none'` makes `.search(dir)` inspect only that single
-    // directory (no internal walking), so we collect every level deterministically.
-    const explorer = cosmiconfig("gtd", {
-      searchPlaces: SEARCH_PLACES,
-      searchStrategy: "none",
-      loaders: {
-        noExt: yamlLoader, // .gtdrc (extensionless) — YAML is a JSON superset
-        ".json": jsonLoader,
-        ".yaml": yamlLoader,
-        ".yml": yamlLoader,
-      },
-    })
+      // `searchStrategy: 'none'` makes `.search(dir)` inspect only that single
+      // directory (no internal walking), so we collect every level deterministically.
+      const explorer = cosmiconfig("gtd", {
+        searchPlaces: SEARCH_PLACES,
+        searchStrategy: "none",
+        loaders: {
+          noExt: yamlLoader, // .gtdrc (extensionless) — YAML is a JSON superset
+          ".json": jsonLoader,
+          ".yaml": yamlLoader,
+          ".yml": yamlLoader,
+        },
+      })
 
-    // Collect outermost→innermost so merging in order makes innermost win.
-    const levels: Array<Record<string, unknown>> = []
-    for (let i = chain.length - 1; i >= 0; i--) {
-      const dir = chain[i]
-      const result = await explorer.search(dir)
-      if (result && !result.isEmpty && isPlainObject(result.config)) {
-        levels.push(result.config)
+      // Collect outermost→innermost so merging in order makes innermost win.
+      const levels: Array<Record<string, unknown>> = []
+      for (let i = chain.length - 1; i >= 0; i--) {
+        const dir = chain[i]
+        const result = await explorer.search(dir)
+        if (result && !result.isEmpty) {
+          if (!isPlainObject(result.config)) {
+            throw new Error(
+              `${result.filepath}: config must be a plain object, got ${Array.isArray(result.config) ? "array" : String(result.config)}`,
+            )
+          }
+          levels.push(result.config)
+        }
       }
-    }
 
-    return levels.reduce<Record<string, unknown>>((acc, level) => deepMerge(acc, level), {})
+      return levels.reduce<Record<string, unknown>>((acc, level) => deepMerge(acc, level), {})
+    },
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
 const toOperations = (decoded: DecodedConfig): ConfigOperations => {
@@ -195,6 +226,14 @@ const toOperations = (decoded: DecodedConfig): ConfigOperations => {
   }
 }
 
+const formatSchemaError = (e: ParseError): string => {
+  const issues = ArrayFormatter.formatErrorSync(e)
+  const summary = issues
+    .map((i) => (i.path.length > 0 ? i.path.join(".") + ": " : "") + i.message)
+    .join("; ")
+  return `Invalid gtd config: ${summary}`
+}
+
 export class ConfigService extends Context.Tag("ConfigService")<ConfigService, ConfigOperations>() {
   static Live = Layer.effect(
     ConfigService,
@@ -202,7 +241,9 @@ export class ConfigService extends Context.Tag("ConfigService")<ConfigService, C
       const merged = yield* loadMerged()
       const decoded = yield* Schema.decodeUnknown(ConfigSchema)(merged, {
         onExcessProperty: "error",
-      }).pipe(Effect.mapError((e) => new Error(`Invalid gtd config: ${String(e.message ?? e)}`)))
+      })
+        .pipe(Effect.mapError(formatSchemaError))
+        .pipe(Effect.mapError((msg) => new Error(msg)))
       return toOperations(decoded)
     }),
   )
