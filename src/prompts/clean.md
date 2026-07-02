@@ -50,7 +50,9 @@ review. It must:
 4. Normalize formatting (run `gtd format REVIEW.md` with the same gtd you
    invoked), then leave `REVIEW.md` **uncommitted**.
 
-Re-run gtd — the next cycle commits `REVIEW.md` as `gtd: awaiting review` and
-stops for the user. The user then re-runs gtd with **no** changes to approve and
-finish, or edits the code / annotates `REVIEW.md` to request changes (which seed
-a fresh plan).
+Tell the user `REVIEW.md` is ready and that they should run `gtd` to proceed to
+the review.
+
+⛔ **STOP — do not re-run `gtd`.** The next cycle commits `REVIEW.md` as
+`gtd: awaiting review` and stops for the user. Re-running gtd now advances
+without human input.
