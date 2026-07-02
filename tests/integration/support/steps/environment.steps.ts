@@ -4,14 +4,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
+import { git } from "../../helpers/project-setup.js"
 
 // Steps for hostile-environment scenarios: non-repo directories, fresh repos,
 // subdirectory invocation, detached HEAD, merge commits, git config knobs,
 // custom pre-commit hooks, and submodules. Setup is inlined per step (one step
 // = one observable repo mutation) so scenarios spell out the exact environment.
-
-const git = (dir: string, ...args: string[]): string =>
-  execFileSync("git", args, { cwd: dir, encoding: "utf-8" }).trim()
 
 Given("a plain directory that is not a git repository", function (this: GtdWorld) {
   this.repoDir = mkdtempSync(join(tmpdir(), "gtd-norepo-"))
@@ -24,10 +22,6 @@ Given("a fresh git repository with no commits", function (this: GtdWorld) {
   git(dir, "config", "user.email", "test@test.com")
   git(dir, "config", "commit.gpgsign", "false")
   this.repoDir = dir
-})
-
-Given("a subdirectory {string}", function (this: GtdWorld, sub: string) {
-  mkdirSync(join(this.repoDir, sub), { recursive: true })
 })
 
 When("I run gtd from the subdirectory {string}", function (this: GtdWorld, sub: string) {

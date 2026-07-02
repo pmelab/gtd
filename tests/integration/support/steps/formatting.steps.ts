@@ -27,21 +27,6 @@ Then("stdout is empty", function (this: GtdWorld) {
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
 
-// The recommended consumer-repo pre-commit hook: auto-format TODO.md/REVIEW.md
-// with prettier on commit. Inlined as a fixture — the previous source
-// (`PROJECT_ROOT/.git/hooks/pre-commit`) was an untracked local file that does
-// not exist in fresh clones or git worktrees (where `.git` is a pointer file).
-const PRE_COMMIT_HOOK = `#!/bin/sh
-# Auto-format TODO.md and REVIEW.md on commit
-
-FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(TODO|REVIEW)\\.md$')
-
-if [ -n "$FILES" ]; then
-  npx prettier --write $FILES
-  git add $FILES
-fi
-`
-
 Given("prettier is available in the test project", function (this: GtdWorld) {
   const nodeModulesSrc = join(PROJECT_ROOT, "node_modules")
   const nodeModulesDest = join(this.repoDir, "node_modules")
@@ -60,11 +45,6 @@ Given("prettier is available in the test project", function (this: GtdWorld) {
       ],
     }),
   )
-})
-
-Given("the pre-commit hook from the project is installed", function (this: GtdWorld) {
-  const dest = join(this.repoDir, ".git/hooks/pre-commit")
-  writeFileSync(dest, PRE_COMMIT_HOOK, { mode: 0o755 })
 })
 
 Given("{string} is staged", function (this: GtdWorld, path: string) {

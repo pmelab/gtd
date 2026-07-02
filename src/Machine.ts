@@ -275,7 +275,12 @@ export const foldCounters = (events: readonly GtdEvent[]): Counters => {
 const isBoundary = (subject: string): boolean =>
   !subject.startsWith("gtd: ") || subject === "gtd: done"
 
-const DEFAULT_PAYLOAD: ResolvePayload = {
+/**
+ * The payload a degenerate `RESOLVE`-less stream resolves against — also the
+ * canonical field-default table tests spread-override instead of hand-writing
+ * every `ResolvePayload` field.
+ */
+export const DEFAULT_PAYLOAD: ResolvePayload = {
   todoExists: false,
   todoCommitted: false,
   gtdDirExists: false,

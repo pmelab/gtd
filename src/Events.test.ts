@@ -657,9 +657,9 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
 
 // ── gatherEvents: review re-trigger gate ─────────────────────────────────────
 // `hasCommitsAfterLastDone` — the loop fix. The gate decides *whether* a review
-// fires (machine rule 7); the base rules above decide *what it covers*. Both
-// are resolved independently, so a closed gate still carries the whole-branch
-// reviewBase in the payload.
+// fires (machine rule 7); the base rules above decide *what* a fired review
+// covers. When the gate is closed the edge skips computing the (potentially
+// whole-branch-sized) diff entirely — reviewBase/refDiff stay unset.
 
 describe(
   "gatherEvents — review re-trigger gate (hasCommitsAfterLastDone)",
@@ -674,16 +674,15 @@ describe(
       expect(p.hasCommitsAfterLastDone).toBe(true)
     })
 
-    it("HEAD is the last gtd: done → gate closed; whole-branch scope still computed", async () => {
+    it("HEAD is the last gtd: done → gate closed; the unused diff is not computed", async () => {
       initRepo(true)
       commitFile("feat: branch work", "branch.ts", "export const branch = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
-      const mergeBase = git("rev-parse", "main")
       const p = resolveOf(await runGather())
       expect(p.hasCommitsAfterLastDone).toBe(false)
-      // Scope is untouched by the gate: the merge-base diff is still non-empty.
-      expect(p.reviewBase).toBe(mergeBase)
-      expect(p.refDiff).toContain("branch.ts")
+      // A closed gate forces Idle, so the whole-branch diff is skipped entirely.
+      expect(p.reviewBase).toBeUndefined()
+      expect(p.refDiff).toBeUndefined()
     })
 
     it("commits after the last gtd: done → gate reopens; base stays the merge-base (whole branch)", async () => {

@@ -30,8 +30,6 @@ export interface GitOperations {
   readonly revertNoCommit: (ref: string) => Effect.Effect<void, Error>
   /** `git reset HEAD~1` (mixed) — undoes the last commit, keeping changes in the working tree. */
   readonly mixedResetHead: () => Effect.Effect<void, Error>
-  /** `git checkout -- .` — discards tracked working-tree edits back to HEAD. */
-  readonly checkoutAll: () => Effect.Effect<void, Error>
   /**
    * `git reset --hard HEAD` — index and tracked working tree back to HEAD;
    * staged-but-new files are dropped, pure untracked (`??`) files survive.
@@ -69,6 +67,14 @@ export interface GitOperations {
    */
   readonly commitAllWithPrefix: (prefix: string) => Effect.Effect<void, Error>
 }
+
+/**
+ * `:(exclude)` pathspec arguments for a diff command. The `"."` include anchor
+ * is required alongside exclusions; both are cwd-relative, which is correct
+ * only because gtd pins its cwd to the repository root (main.ts).
+ */
+const excludePathspecs = (exclude: ReadonlyArray<string>): ReadonlyArray<string> =>
+  exclude.length === 0 ? [] : ["--", ".", ...exclude.map((path) => `:(exclude)${path}`)]
 
 /**
  * Run a command and return its stdout — FAILING on a non-zero exit code with
@@ -116,8 +122,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
 
         diffHead: (exclude: ReadonlyArray<string> = []) =>
           Effect.gen(function* () {
-            const excludeArgs =
-              exclude.length > 0 ? ["--", ".", ...exclude.map((path) => `:(exclude)${path}`)] : []
+            const excludeArgs = excludePathspecs(exclude)
             // `-z` yields NUL-separated, UNQUOTED paths — the newline format
             // C-quotes non-ASCII/special names, and feeding a quoted string
             // back to `git add` matches nothing.
@@ -146,15 +151,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
           ),
 
         diffRef: (ref: string, exclude: ReadonlyArray<string> = []) =>
-          exec(
-            "git",
-            "diff",
-            ref,
-            "HEAD",
-            ...(exclude.length > 0
-              ? ["--", ".", ...exclude.map((path) => `:(exclude)${path}`)]
-              : []),
-          ),
+          exec("git", "diff", ref, "HEAD", ...excludePathspecs(exclude)),
 
         diffPath: (path: string) => exec("git", "diff", "HEAD", "--", path),
 
@@ -240,8 +237,6 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
               return yield* Effect.fail(new Error(`git reset HEAD~1 failed (exit ${resetCode})`))
             }
           }),
-
-        checkoutAll: () => exec("git", "checkout", "--", ".").pipe(Effect.asVoid),
 
         resetHard: () => exec("git", "reset", "--hard", "HEAD").pipe(Effect.asVoid),
 

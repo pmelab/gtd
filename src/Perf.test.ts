@@ -9,7 +9,7 @@ import { gatherEvents } from "./Events.js"
 import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import { buildPrompt } from "./Prompt.js"
-import { resolve } from "./Machine.js"
+import { DEFAULT_PAYLOAD, resolve } from "./Machine.js"
 
 // Performance smokes (non-blocking budgets, sized generously to avoid CI
 // flake): gatherEvents scans the FULL commit history on every invocation, so a
@@ -40,9 +40,21 @@ describe("performance smoke", { timeout: 180_000 }, () => {
     writeFileSync(join(repoDir, "README.md"), "# perf\n")
     git("add", "-A")
     git("commit", "-q", "-m", "chore: init")
+    git("branch", "-M", "main")
+    // Build the 300-commit history with a single `git fast-import` stream —
+    // one spawn instead of 300, keeping the suite's setup cost negligible.
+    // A commit with no file commands keeps its parent's tree (empty commits).
+    const ident = "T <t@t> 1700000000 +0000"
+    let stream = ""
     for (let i = 0; i < 300; i++) {
-      git("commit", "-q", "--allow-empty", "-m", `feat: change ${i}`)
+      const msg = `feat: change ${i}\n`
+      stream += `commit refs/heads/main\nauthor ${ident}\ncommitter ${ident}\ndata ${Buffer.byteLength(msg)}\n${msg}`
+      if (i === 0) stream += "from refs/heads/main^0\n"
+      stream += "\n"
     }
+    execFileSync("git", ["fast-import", "--quiet"], { cwd: repoDir, input: stream })
+    // fast-import moves the ref without touching the working tree; re-align.
+    git("reset", "-q", "--hard", "main")
     savedCwd = process.cwd()
     process.chdir(repoDir)
 
@@ -80,32 +92,10 @@ describe("performance smoke", { timeout: 180_000 }, () => {
       {
         type: "RESOLVE",
         payload: {
-          todoExists: false,
-          todoCommitted: false,
-          gtdDirExists: false,
-          reviewPresent: false,
-          feedbackPresent: false,
-          errorsPresent: false,
-          gtdModified: false,
-          codeDirty: false,
-          todoMarkerPresent: false,
-          feedbackCommitted: false,
-          feedbackEmpty: false,
-          feedbackContent: "",
-          reviewCommitted: false,
-          reviewDirty: false,
-          reviewCheckboxOnly: false,
-          pendingErrorsDeletion: false,
+          ...DEFAULT_PAYLOAD,
           lastCommitSubject: "feat: shipped",
-          workingTreeClean: true,
-          packages: [],
-          diff: "",
           reviewBase: "abc123",
           refDiff: bigDiff,
-          hasCommitsAfterLastDone: true,
-          agenticReviewEnabled: true,
-          fixAttemptCap: 3,
-          reviewThreshold: 3,
         },
       },
     ])

@@ -133,25 +133,6 @@ const isIllegal = (p: ResolvePayload): boolean =>
   (p.errorsPresent && p.feedbackPresent) ||
   (p.errorsPresent && !p.gtdDirExists)
 
-const STATES: ReadonlySet<GtdState> = new Set<GtdState>([
-  "transport",
-  "new-feature",
-  "grilling",
-  "grilled",
-  "planning",
-  "building",
-  "testing",
-  "fixing",
-  "escalate",
-  "agentic-review",
-  "close-package",
-  "clean",
-  "await-review",
-  "accept-review",
-  "done",
-  "idle",
-])
-
 /** Which edge-action kinds each state may carry ("none" = no action). */
 const ALLOWED: Record<GtdState, ReadonlyArray<EdgeAction["kind"] | "none">> = {
   transport: ["transportReset"],
@@ -171,6 +152,10 @@ const ALLOWED: Record<GtdState, ReadonlyArray<EdgeAction["kind"] | "none">> = {
   done: ["done"],
   idle: ["none"],
 }
+
+// Derived from ALLOWED (whose Record<GtdState, …> typing is exhaustive) so the
+// two can never drift.
+const STATES: ReadonlySet<GtdState> = new Set(Object.keys(ALLOWED) as GtdState[])
 
 const COMMIT_PREFIXES = new Set([
   "gtd: grilling",

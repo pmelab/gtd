@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  DEFAULT_PAYLOAD,
   type EdgeAction,
   type GtdEvent,
   type ResolvePayload,
@@ -28,30 +29,8 @@ const commit = (
 })
 
 const basePayload = (overrides: Partial<ResolvePayload> = {}): ResolvePayload => ({
-  todoExists: false,
-  todoCommitted: false,
-  gtdDirExists: false,
-  reviewPresent: false,
-  feedbackPresent: false,
-  errorsPresent: false,
-  gtdModified: false,
-  codeDirty: false,
-  todoMarkerPresent: false,
-  feedbackCommitted: false,
-  feedbackEmpty: false,
-  feedbackContent: "",
-  reviewCommitted: false,
-  reviewDirty: false,
-  reviewCheckboxOnly: false,
-  pendingErrorsDeletion: false,
+  ...DEFAULT_PAYLOAD,
   lastCommitSubject: "chore: init",
-  workingTreeClean: true,
-  packages: [],
-  diff: "",
-  hasCommitsAfterLastDone: true,
-  agenticReviewEnabled: true,
-  fixAttemptCap: 3,
-  reviewThreshold: 3,
   ...overrides,
 })
 
@@ -399,7 +378,6 @@ describe("rule 4 — review lifecycle", () => {
     // The feedback path never commits `gtd: done` in the same resolve: the one
     // returned edgeAction is the seed, and the two done branches are unreachable
     // (`reviewCommitted` needs a clean tree, checkbox-only is excluded here).
-    expect(res.edgeAction!.kind).not.toBe("done")
   })
 
   it("reviewDirty + reviewCheckboxOnly → done, auto, done", () => {

@@ -1,6 +1,6 @@
 import { FileSystem } from "@effect/platform"
 import { Effect, Option } from "effect"
-import { GitService } from "./Git.js"
+import { GitService, type GitOperations } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import { fenceFor } from "./Prompt.js"
 import { TestRunner } from "./TestRunner.js"
@@ -50,21 +50,22 @@ const DONE_SUBJECT = "gtd: done"
 // Distinct from the exact `gtd: feedback` marker the reviewFixCount fold reads.
 const REVIEW_FEEDBACK_SUBJECT = "gtd: review feedback"
 
-// Workflow plumbing excluded from every review diff (refDiff) and from the
-// grilling-round code capture: neither the reviewer nor a captured suggestion
-// block should ever contain steering-file churn (TODO.md seeded/deleted,
-// REVIEW.md committed/removed, `.gtd/` packages created/closed).
-const WORKFLOW_FILE_EXCLUDES: ReadonlyArray<string> = [
-  REVIEW_FILE,
-  TODO_FILE,
-  FEEDBACK_FILE,
-  ERRORS_FILE,
-  GTD_DIR,
-]
+// The steering-file set, single source of truth: the predicates below and the
+// diff exclusions all derive from it. Workflow plumbing is excluded from every
+// review diff (refDiff) and from the grilling-round code capture — neither the
+// reviewer nor a captured suggestion block should ever contain steering-file
+// churn (TODO.md seeded/deleted, REVIEW.md committed/removed, `.gtd/` packages
+// created/closed).
+const STEERING_FILES: ReadonlyArray<string> = [TODO_FILE, REVIEW_FILE, FEEDBACK_FILE, ERRORS_FILE]
+const WORKFLOW_FILE_EXCLUDES: ReadonlyArray<string> = [...STEERING_FILES, GTD_DIR]
 
 const isGtdPath = (path: string): boolean => path === GTD_DIR || path.startsWith(`${GTD_DIR}/`)
-const isSteeringFile = (path: string): boolean =>
-  path === TODO_FILE || path === REVIEW_FILE || path === FEEDBACK_FILE || path === ERRORS_FILE
+const isSteeringFile = (path: string): boolean => STEERING_FILES.includes(path)
+
+// A porcelain status flagging the entry as untracked (`?`) or freshly added
+// (`A`) — i.e. not tracked at HEAD.
+const isUncommittedStatus = (status: string): boolean =>
+  status.includes("?") || status.includes("A")
 
 // git's empty-tree object. `git diff <empty-tree> HEAD` yields the entire tree
 // as additions — the Clean review base when HEAD is on the default branch and
@@ -298,24 +299,27 @@ export const isCheckboxOnlyDiff = (diff: string): boolean => {
   const addedLines: string[] = []
 
   for (const raw of diff.split("\n")) {
+    // Normalize once before any classification so every use of line content
+    // below is CRLF-agnostic.
+    const line = raw.replace(/\r$/, "")
     // Skip diff header lines
     if (
-      raw.startsWith("---") ||
-      raw.startsWith("+++") ||
-      raw.startsWith("@@") ||
-      raw.startsWith("diff ") ||
-      raw.startsWith("index ") ||
-      raw.startsWith("new file") ||
-      raw.startsWith("deleted file") ||
-      raw.startsWith("similarity") ||
-      raw.startsWith("rename")
+      line.startsWith("---") ||
+      line.startsWith("+++") ||
+      line.startsWith("@@") ||
+      line.startsWith("diff ") ||
+      line.startsWith("index ") ||
+      line.startsWith("new file") ||
+      line.startsWith("deleted file") ||
+      line.startsWith("similarity") ||
+      line.startsWith("rename")
     )
       continue
 
-    if (raw.startsWith("-")) {
-      removedLines.push(raw.slice(1).replace(/\r$/, ""))
-    } else if (raw.startsWith("+")) {
-      addedLines.push(raw.slice(1).replace(/\r$/, ""))
+    if (line.startsWith("-")) {
+      removedLines.push(line.slice(1))
+    } else if (line.startsWith("+")) {
+      addedLines.push(line.slice(1))
     }
   }
 
@@ -410,11 +414,11 @@ export const gatherEvents = (): Effect.Effect<
     const todoContent = todoExists ? yield* fs.readFileString(TODO_FILE) : ""
     const todoMarkerPresent = todoExists && stripCode(todoContent).includes(UNANSWERED_MARKER)
 
-    // A porcelain entry whose status flags it untracked (`?`) or freshly added
-    // (`A`) is uncommitted; otherwise the file is tracked at HEAD.
+    // The file at `path` is uncommitted (untracked or freshly added); otherwise
+    // it is tracked at HEAD.
     const isUncommitted = (path: string): boolean => {
       const entry = entries.find((e) => e.path === path)
-      return entry !== undefined && (entry.status.includes("?") || entry.status.includes("A"))
+      return entry !== undefined && isUncommittedStatus(entry.status)
     }
 
     // FEEDBACK.md: committed (Testing wrote it as `gtd: errors`) vs uncommitted
@@ -474,9 +478,11 @@ export const gatherEvents = (): Effect.Effect<
     // commits exist after the last `gtd: done` (or no `gtd: done` exists).
     // Resolved here at the edge, consumed by the machine's Clean/Idle rule, so
     // an approved review settles Idle instead of immediately re-firing (the
-    // review → approve → done → review loop). It gates *whether*, never *what*.
+    // review → approve → done → review loop). It gates *whether*, never *what*
+    // a fired review covers — and when it is closed, the edge skips computing
+    // the (potentially whole-branch-sized) diff that could never be consumed.
     //
-    // The refDiff excludes workflow files (REVIEW_DIFF_EXCLUDES) so the
+    // The refDiff excludes workflow files (WORKFLOW_FILE_EXCLUDES) so the
     // reviewer never sees plumbing churn. Only set reviewBase/refDiff when the
     // filtered diff is non-empty (non-empty distinguishes Clean from Idle).
     let reviewBase: string | undefined
@@ -484,8 +490,10 @@ export const gatherEvents = (): Effect.Effect<
     let hasCommitsAfterLastDone = true
     if (hasCommits) {
       // Scan ALL commits (no base arg) to properly detect process boundaries
-      // across `gtd: done` commits even on trunk.
-      const allHistory = yield* git.commitHistory()
+      // across `gtd: done` commits even on trunk. When the COMMIT stream above
+      // already scanned the whole history (no merge-base), reuse it rather
+      // than spawning the identical `git log` again.
+      const allHistory = Option.isNone(base) ? history : yield* git.commitHistory()
 
       // Find the current task cycle: commits after the last `gtd: done`.
       const lastDoneIdx = (() => {
@@ -537,7 +545,7 @@ export const gatherEvents = (): Effect.Effect<
         // Rule 4: default branch → leave candidate undefined (Idle).
       }
 
-      if (candidate !== undefined) {
+      if (candidate !== undefined && hasCommitsAfterLastDone) {
         const candidateDiff = yield* git
           .diffRef(candidate, WORKFLOW_FILE_EXCLUDES)
           .pipe(Effect.catchAll(() => Effect.succeed("")))
@@ -582,6 +590,35 @@ export const gatherEvents = (): Effect.Effect<
   }).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
 
 /**
+ * The commit-then-revert capture shared by New Feature and Accept Review:
+ * commit everything pending verbatim under `subject` (a durable capture that
+ * survives checkout/pull; untracked files are dropped by construction — a
+ * plain checkout would leak them), revert the capture into the working tree,
+ * and return its diff for the TODO.md seed. When HEAD already carries the
+ * subject this is the lost-seed regen case: run `onRegen` instead of
+ * committing (discard partial state) and re-derive from the existing commit.
+ */
+const captureAndRevert = (
+  git: GitOperations,
+  subject: string,
+  onRegen: Effect.Effect<void, Error>,
+): Effect.Effect<string, Error> =>
+  Effect.gen(function* () {
+    const head = yield* git.lastCommitSubject().pipe(Effect.catchAll(() => Effect.succeed("")))
+    if (head !== subject) {
+      yield* git.commitAllWithPrefix(subject)
+    } else {
+      yield* onRegen
+    }
+    const base = yield* git
+      .resolveRef("HEAD~1")
+      .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
+    const captured = yield* git.diffRef(base).pipe(Effect.catchAll(() => Effect.succeed("")))
+    yield* git.revertNoCommit("HEAD")
+    return captured
+  })
+
+/**
  * Execute the side effect the machine's `resolve()` chose. The driver performs
  * this, then re-gathers + re-resolves. Each case maps to the primitives in
  * Git.ts / the FileSystem; the machine only decides *which* action.
@@ -605,44 +642,19 @@ export const perform = (
       // already there — the lost-seed regenerate case), revert it back to a
       // clean baseline (inverse staged), and seed TODO.md from that diff.
       case "seedNewFeature": {
-        const subject = yield* git
-          .lastCommitSubject()
-          .pipe(Effect.catchAll(() => Effect.succeed("")))
-        if (subject !== NEW_TASK_SUBJECT) {
-          yield* git.commitAllWithPrefix(NEW_TASK_SUBJECT)
-        }
-        const base = yield* git
-          .resolveRef("HEAD~1")
-          .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
-        const captured = yield* git.diffRef(base).pipe(Effect.catchAll(() => Effect.succeed("")))
-        yield* git.revertNoCommit("HEAD")
+        const captured = yield* captureAndRevert(git, NEW_TASK_SUBJECT, Effect.void)
         yield* fs.writeFileString(TODO_FILE, seedTodo(captured))
         return
       }
 
-      // Accept Review: capture the human's pending changeset durably — commit it
-      // verbatim as `gtd: review feedback` (annotations, code edits, and new
-      // files alike), revert it back to the reviewed baseline, rm REVIEW.md
-      // (which is what stops Accept Review re-firing), and seed TODO.md from the
-      // captured diff. Commit-then-revert mirrors New Feature so untracked files
-      // are dropped by construction (a plain checkout leaks them) and the
-      // changeset survives checkout/pull. When HEAD already carries the capture
-      // subject this is the regen case (the machine's rule-4 carve-out fired):
-      // discard any partial revert/seed state and re-derive from the commit.
+      // Accept Review: capture the human's pending changeset durably as
+      // `gtd: review feedback` (annotations, code edits, and new files alike),
+      // revert it back to the reviewed baseline, rm REVIEW.md (which is what
+      // stops Accept Review re-firing), and seed TODO.md from the captured
+      // diff. The regen case (the machine's rule-4 carve-out fired) discards
+      // any partial revert/seed state with a hard reset first.
       case "seedAcceptReview": {
-        const subject = yield* git
-          .lastCommitSubject()
-          .pipe(Effect.catchAll(() => Effect.succeed("")))
-        if (subject !== REVIEW_FEEDBACK_SUBJECT) {
-          yield* git.commitAllWithPrefix(REVIEW_FEEDBACK_SUBJECT)
-        } else {
-          yield* git.resetHard()
-        }
-        const base = yield* git
-          .resolveRef("HEAD~1")
-          .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
-        const captured = yield* git.diffRef(base).pipe(Effect.catchAll(() => Effect.succeed("")))
-        yield* git.revertNoCommit("HEAD")
+        const captured = yield* captureAndRevert(git, REVIEW_FEEDBACK_SUBJECT, git.resetHard())
         yield* fs.remove(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.void))
         yield* fs.writeFileString(TODO_FILE, seedTodo(captured))
         return
@@ -662,10 +674,7 @@ export const perform = (
         // (`A`) ones are included too in case the hard reset leaves them on
         // disk — fs.remove tolerates either outcome.
         const pendingCodeFiles = entries.filter(
-          (e) =>
-            (e.status.includes("?") || e.status.includes("A")) &&
-            !isSteeringFile(e.path) &&
-            !isGtdPath(e.path),
+          (e) => isUncommittedStatus(e.status) && !isSteeringFile(e.path) && !isGtdPath(e.path),
         )
         // Snapshot TODO.md (with the user's pending plan edits) and the code
         // diff BEFORE the reset discards them.

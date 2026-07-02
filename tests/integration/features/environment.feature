@@ -18,7 +18,7 @@ Feature: Hostile environments and unusual invocations
 
       no open questions — run gtd to plan
       """
-    And a subdirectory "src"
+    And a directory "src"
     When I run gtd from the subdirectory "src"
     Then it fails
     And stderr contains "repository root"
