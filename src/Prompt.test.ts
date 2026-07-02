@@ -215,9 +215,9 @@ describe("buildPrompt", () => {
       expect(out.indexOf("⛔")).toBeGreaterThan(out.indexOf("Open questions await the user"))
     })
 
-    it("clean does NOT get the STOP banner despite autoAdvance: false", () => {
+    it("clean gets the STOP banner", () => {
       const out = buildPrompt(result("clean"))
-      expect(out).not.toContain("⛔")
+      expect(out).toContain("⛔")
     })
 
     it("auto-advance states do NOT get the STOP banner", () => {
@@ -230,7 +230,6 @@ describe("buildPrompt", () => {
         buildPrompt(
           result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
         ),
-        buildPrompt(result("clean")),
       ]) {
         expect(out).not.toContain("⛔")
       }
@@ -398,10 +397,10 @@ describe("buildPrompt", () => {
       expect(buildPrompt(result("idle"))).not.toContain("Re-run gtd immediately")
     })
 
-    it("clean is not-auto-advance but carries its own re-run instruction", () => {
+    it("clean is not-auto-advance and carries a STOP directive", () => {
       const out = buildPrompt(result("clean"))
       expect(out).not.toContain("Re-run gtd immediately")
-      expect(out).toContain("Re-run gtd")
+      expect(out).toContain("⛔")
     })
   })
 })
