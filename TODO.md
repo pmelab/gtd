@@ -9,11 +9,11 @@ across state seams, (2) hostile git environments, (3) capture-path content edge
 cases, and (4) interruption/resume windows. Each case lists the expected
 behavior so a failing test is a spec violation, not a surprise.
 
-**Status: implemented.** Suite now: 269 unit tests (265 pass), 118 e2e scenarios
-(113 pass). The 4 + 5 failures are intentional — expected-fail tests pinning the
-bugs below, left red per the no-fixes instruction.
+**Status: implemented, and all five bugs below are now FIXED** — the nine
+expected-fail tests that pinned them are green and remain in the suite as
+regression guards. Suite: 269 unit tests, 118 e2e scenarios, all passing.
 
-## Bugs found (documented, NOT fixed — tests left failing)
+## Bugs found (pinned first with failing tests, then fixed)
 
 - **B1 — git exit codes are silently swallowed.** `Git.ts`'s `run` helper uses
   `Command.string`, which only collects stdout; non-zero git exits do not fail
@@ -106,28 +106,30 @@ bugs below, left red per the no-fixes instruction.
 - [x] `.gitignore`d files survive capture untouched.
 - [x] Untracked nested directory captured + removed recursively.
 - [x] `git mv` rename during review AND during a grilling round.
-- [x] Unicode/space/emoji filename — **FAILING, documents B1 data loss**.
+- [x] Unicode/space/emoji filename — regression guard for the B1 data loss
+      (fixed).
 - [x] Mixed checkbox-tick + code edit → feedback, not approval
       (`review.feature`).
 - [x] Emptied REVIEW.md → textual change, not approval (`review.feature`).
-- [x] Fence collisions — **FAILING ×3, documents B2 + B3**.
+- [x] Fence collisions — regression guards ×3 for B2 + B3 (fixed).
 - [x] Idempotence false-positive (prose identical to capture) → pinned as
       accepted behavior.
 
 ## 4. Hostile environments — DONE (`environment.feature`)
 
-- [x] Subdirectory invocation — **FAILING, documents B4** (decided: hard error).
-- [x] Not a git repository — **FAILING, documents B1** (exit 0 Idle today).
-- [x] Fresh repo, no commits, dirty tree → seeds correctly (green, via the B1
-      accident — will need attention when B1 is fixed).
+- [x] Subdirectory invocation — regression guard for B4 (fixed: clear repo-root
+      hard error).
+- [x] Not a git repository — regression guard for B1 (fixed: fails fast).
+- [x] Fresh repo, no commits, dirty tree → seeds correctly (now via the real
+      path: the porcelain probe runs unconditionally).
 - [x] Detached HEAD → reviews from merge-base (green).
 - [x] Merge commit at HEAD → graceful Idle, no destructive action (green).
 - [x] Transport commit as root → clear error (green).
 - [x] Reformatting pre-commit hook → flow converges (green).
-- [x] Failing pre-commit hook — **FAILING, documents B1** (silent success
-      today); resume-after-removal part passes.
-- [x] CRLF editor on REVIEW.md checkboxes — **FAILING, documents B5**.
-- [x] Unusable gpg signing — **FAILING, documents B1**.
+- [x] Failing pre-commit hook — regression guard for B1 (fixed: the git error
+      surfaces, exit 1); resume-after-removal covered too.
+- [x] CRLF editor on REVIEW.md checkboxes — regression guard for B5 (fixed).
+- [x] Unusable gpg signing — regression guard for B1 (fixed).
 - [x] Submodule pointer change → routed as code change, no crash (green).
 
 ## 5. Interruption & resume — DONE (`replay.feature`)

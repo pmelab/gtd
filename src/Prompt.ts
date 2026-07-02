@@ -78,8 +78,12 @@ const builtinResolveModel = (state: ModelState): string => builtinTierDefault[st
 /**
  * Picks a code fence long enough to safely wrap `content`, even when the content
  * itself contains runs of backticks (mirrors GitHub-flavored Markdown fencing).
+ * Exported for the TODO.md capture builders in Events.ts: a CommonMark closing
+ * fence must be at least as long as its opener, so sizing the outer fence past
+ * any backtick run in a captured diff keeps formatters (gtd format / prettier)
+ * from closing the block early on an indented ``` context line.
  */
-const fenceFor = (content: string): string => {
+export const fenceFor = (content: string): string => {
   let longest = 0
   for (const match of content.matchAll(/`+/g)) longest = Math.max(longest, match[0].length)
   return "`".repeat(Math.max(3, longest + 1))

@@ -26,10 +26,12 @@ resolves to exactly one active state per invocation.
    ```
 
    Resolve `scripts/gtd.js` relative to this skill's directory, not the user's
-   repo. The script must be invoked with the user's repo as cwd so it can read
-   `git status`, commit history, and diffs. The only supported subcommand is
-   `format <file>`; there is no `gtd transport` command — a `gtd: transport`
-   HEAD is hand-committed by the user and consumed by the Transport state.
+   repo. The script must be invoked with the user's **repository root** as cwd
+   so it can read `git status`, commit history, and diffs — gtd refuses to run
+   from a subdirectory (or outside a repository) with a clear error rather than
+   mis-deriving state. The only supported subcommand is `format <file>`; there
+   is no `gtd transport` command — a `gtd: transport` HEAD is hand-committed by
+   the user and consumed by the Transport state.
 
 2. Treat the script's stdout as a complete, self-contained prompt — read it and
    follow its instructions verbatim. Do not edit, paraphrase, or summarize it

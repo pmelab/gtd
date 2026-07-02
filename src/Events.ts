@@ -2,6 +2,7 @@ import { FileSystem } from "@effect/platform"
 import { Effect, Option } from "effect"
 import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
+import { fenceFor } from "./Prompt.js"
 import { TestRunner } from "./TestRunner.js"
 import type {
   CommitEvent,
@@ -160,10 +161,15 @@ const isTaskFile = (name: string): boolean => name.endsWith(".md")
 
 /**
  * Strip fenced code blocks and inline code spans so a marker token that appears
- * inside a code example does not count as a live open-question marker.
+ * inside a code example does not count as a live open-question marker. The
+ * unclosed-fence fallback is anchored to the END OF INPUT (`$(?![\s\S])`) — a
+ * bare `$` under the `m` flag matches at every line end, which made the lazy
+ * quantifier stop after the first fenced line and leak deeper markers.
  */
 const stripCode = (content: string): string =>
-  content.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n\1[^\n]*|$)/gm, "").replace(/`[^`\n]+`/g, "")
+  content
+    .replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n\1[^\n]*|$(?![\s\S]))/gm, "")
+    .replace(/`[^`\n]+`/g, "")
 
 /**
  * Read the `.gtd/` work packages, lowest-numbered first. `packages[0]` is the
@@ -224,8 +230,13 @@ const CAPTURE_RULES = [
  * fenced so any marker it contains is stripped by `stripCode` and does not trip
  * the open-question gate.
  */
-export const seedTodo = (capturedDiff: string): string =>
-  [
+export const seedTodo = (capturedDiff: string): string => {
+  const body = capturedDiff.replace(/\n+$/, "")
+  // Sized past any backtick run in the diff (fenceFor) so formatters cannot
+  // close the block early on an indented ``` context line and spill the
+  // capture — markers included — out of the fence.
+  const fence = fenceFor(body)
+  return [
     "# Plan",
     "",
     "## Captured input",
@@ -235,11 +246,12 @@ export const seedTodo = (capturedDiff: string): string =>
     "",
     CAPTURE_RULES,
     "",
-    "```diff",
-    capturedDiff.replace(/\n+$/, ""),
-    "```",
+    `${fence}diff`,
+    body,
+    fence,
     "",
   ].join("\n")
+}
 
 /**
  * Append a grilling-round capture to an existing TODO.md: code the user
@@ -252,6 +264,7 @@ export const seedTodo = (capturedDiff: string): string =>
 export const appendCapturedInput = (todo: string, capturedDiff: string): string => {
   const body = capturedDiff.replace(/\n+$/, "")
   if (todo.includes(body)) return todo
+  const fence = fenceFor(body)
   const section = [
     "## Captured input (grilling)",
     "",
@@ -259,20 +272,23 @@ export const appendCapturedInput = (todo: string, capturedDiff: string): string 
     "gtd has reverted them from the working tree.",
     "",
     ...(todo.includes(CAPTURE_RULES) ? [] : [CAPTURE_RULES, ""]),
-    "```diff",
+    `${fence}diff`,
     body,
-    "```",
+    fence,
     "",
   ].join("\n")
   return todo.replace(/\n*$/, "\n\n") + section
 }
 
 /**
- * Returns true iff the diff contains at least one change and every changed
- * line is a checkbox flip (`- [ ]` ↔ `- [x]`, case-insensitive). Diff header
- * lines (`---`, `+++`, `@@`, file metadata) are ignored; only actual `+`/`-`
- * content lines are evaluated. Removed lines must be paired with added lines
- * that differ only in the box marker.
+ * Returns true iff the diff contains at least one checkbox flip (`- [ ]` ↔
+ * `- [x]`, case-insensitive) and every other changed line is pure
+ * line-ending churn. Diff header lines (`---`, `+++`, `@@`, file metadata)
+ * are ignored; only actual `+`/`-` content lines are evaluated. Trailing
+ * `\r` is stripped from line content before comparison, and removed/added
+ * pairs that become identical after the strip are treated as line-ending
+ * conversion noise (a CRLF editor rewrites EVERY line while the user merely
+ * ticks boxes) — approval must survive that churn.
  */
 export const isCheckboxOnlyDiff = (diff: string): boolean => {
   if (diff.trim() === "") return false
@@ -297,32 +313,30 @@ export const isCheckboxOnlyDiff = (diff: string): boolean => {
       continue
 
     if (raw.startsWith("-")) {
-      const content = raw.slice(1)
-      if (!checkboxRe.test(content)) return false
-      removedLines.push(content)
+      removedLines.push(raw.slice(1).replace(/\r$/, ""))
     } else if (raw.startsWith("+")) {
-      const content = raw.slice(1)
-      if (!checkboxRe.test(content)) return false
-      addedLines.push(content)
+      addedLines.push(raw.slice(1).replace(/\r$/, ""))
     }
   }
 
-  // Must have actual changes and removed/added counts must match
-  if (removedLines.length === 0 && addedLines.length === 0) return false
+  // Removed/added counts must match so lines pair up positionally.
   if (removedLines.length !== addedLines.length) return false
 
-  // Each pair must differ only in the checkbox marker
+  let flips = 0
   for (let i = 0; i < removedLines.length; i++) {
     const rm = removedLines[i]!
     const add = addedLines[i]!
+    // Identical after \r-stripping = pure line-ending churn — ignore.
+    if (rm === add) continue
+    // Anything else must be a checkbox flip and nothing more.
+    if (!checkboxRe.test(rm) || !checkboxRe.test(add)) return false
     const rmNorm = rm.replace(/\[[ xX]\]/, "[ ]")
     const addNorm = add.replace(/\[[ xX]\]/, "[ ]")
     if (rmNorm !== addNorm) return false
-    // Must actually be a flip (not identical)
-    if (rm === add) return false
+    flips += 1
   }
 
-  return true
+  return flips > 0
 }
 
 /**
@@ -371,7 +385,10 @@ export const gatherEvents = (): Effect.Effect<
 
     // --- RESOLVE payload (working-tree snapshot) -----------------------------
     const hasCommits = yield* git.hasCommits()
-    const porcelain = hasCommits ? yield* git.statusPorcelain() : ""
+    // Unconditional: `git status` works before the first commit, so a dirty
+    // tree in a freshly initialized repository is visible and seeds New
+    // Feature (it fails fast outside a repository, which is what we want).
+    const porcelain = yield* git.statusPorcelain()
     const entries = parsePorcelainPaths(porcelain)
     const workingTreeClean = entries.length === 0
     const lastCommitSubject = hasCommits ? yield* git.lastCommitSubject() : ""
@@ -424,7 +441,9 @@ export const gatherEvents = (): Effect.Effect<
     )
 
     const packages = yield* getPackages(fs)
-    const diff = entries.length > 0 ? yield* git.diffHead() : ""
+    // `git diff HEAD` needs a HEAD; before the first commit the prompt-context
+    // diff stays empty (the seed action captures the content itself).
+    const diff = hasCommits && entries.length > 0 ? yield* git.diffHead() : ""
 
     // When REVIEW.md is committed and the tree is dirty, check whether the only
     // pending change is checkbox ticks/un-ticks in REVIEW.md (no new text lines).

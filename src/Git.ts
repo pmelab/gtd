@@ -1,5 +1,5 @@
 import { Command, CommandExecutor } from "@effect/platform"
-import { Context, Effect, Layer, Option } from "effect"
+import { Context, Effect, Layer, Option, Stream } from "effect"
 
 export interface GitOperations {
   readonly statusPorcelain: () => Effect.Effect<string, Error>
@@ -18,6 +18,8 @@ export interface GitOperations {
   readonly diffRef: (ref: string, exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly diffPath: (path: string) => Effect.Effect<string, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
+  /** `git rev-parse --show-toplevel` — the working-tree root; fails outside a repository. */
+  readonly topLevel: () => Effect.Effect<string, Error>
   readonly resolveDefaultBranch: () => Effect.Effect<Option.Option<string>, Error>
   readonly mergeBase: (a: string, b: string) => Effect.Effect<Option.Option<string>, Error>
   /** `git merge-base --is-ancestor a b` — true iff `a` is an ancestor of `b` (or equal). */
@@ -68,13 +70,38 @@ export interface GitOperations {
   readonly commitAllWithPrefix: (prefix: string) => Effect.Effect<void, Error>
 }
 
+/**
+ * Run a command and return its stdout — FAILING on a non-zero exit code with
+ * the command line and stderr in the error message. `Command.string` alone
+ * only collects stdout and silently ignores exit codes, which used to make
+ * gtd report success on rejected commits (hooks, gpg), resolve Idle outside a
+ * repository, and lose files whose quoted paths broke a swallowed `git add`.
+ * Callers that expect a probe to fail (missing refs, empty repos) handle it
+ * with an explicit `catchAll`.
+ */
 const run = (
   ...args: [string, ...Array<string>]
 ): Effect.Effect<string, Error, CommandExecutor.CommandExecutor> =>
-  Command.make(...args).pipe(
-    Command.string,
-    Effect.mapError((e) => new Error(String(e))),
-  )
+  Effect.scoped(
+    Effect.gen(function* () {
+      const executor = yield* CommandExecutor.CommandExecutor
+      const process = yield* executor.start(
+        Command.make(...args).pipe(Command.stdout("pipe"), Command.stderr("pipe")),
+      )
+      const collect = (stream: typeof process.stdout) =>
+        stream.pipe(Stream.decodeText(), Stream.mkString)
+      const [stdout, stderr, exitCode] = yield* Effect.all(
+        [collect(process.stdout), collect(process.stderr), process.exitCode],
+        { concurrency: "unbounded" },
+      )
+      if (exitCode !== 0) {
+        return yield* Effect.fail(
+          new Error(`${args.join(" ")} failed (exit ${exitCode}): ${stderr.trim()}`),
+        )
+      }
+      return stdout
+    }),
+  ).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
 
 export class GitService extends Context.Tag("GitService")<GitService, GitOperations>() {
   static Live = Layer.effect(
@@ -91,11 +118,17 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
           Effect.gen(function* () {
             const excludeArgs =
               exclude.length > 0 ? ["--", ".", ...exclude.map((path) => `:(exclude)${path}`)] : []
-            const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard")
-            const untracked = untrackedRaw
-              .split("\n")
-              .map((s) => s.trim())
-              .filter((s) => s !== "")
+            // `-z` yields NUL-separated, UNQUOTED paths — the newline format
+            // C-quotes non-ASCII/special names, and feeding a quoted string
+            // back to `git add` matches nothing.
+            const untrackedRaw = yield* exec(
+              "git",
+              "ls-files",
+              "--others",
+              "--exclude-standard",
+              "-z",
+            )
+            const untracked = untrackedRaw.split("\0").filter((s) => s.length > 0)
             if (untracked.length === 0) return yield* exec("git", "diff", "HEAD", ...excludeArgs)
             yield* exec("git", "add", "--intent-to-add", "--", ...untracked)
             const diff = yield* exec("git", "diff", "HEAD", ...excludeArgs)
@@ -134,6 +167,9 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
                 : Effect.fail(new Error(`Invalid ref: ${ref}`)),
             ),
           ),
+
+        topLevel: () =>
+          exec("git", "rev-parse", "--show-toplevel").pipe(Effect.map((s) => s.trim())),
 
         resolveDefaultBranch: () =>
           exec("git", "rev-parse", "--abbrev-ref", "origin/HEAD").pipe(

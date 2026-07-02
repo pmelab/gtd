@@ -3,16 +3,11 @@ Feature: Hostile environments and unusual invocations
   gtd derives everything from the repository it is invoked in. These scenarios
   pin the behavior at the environment's edges: wrong cwd, missing repo, empty
   repo, unusual HEADs, user hooks, platform line endings, signing, and
-  submodules. Scenarios marked KNOWN BUG assert the intended (spec) behavior
-  and are expected to fail until the bug is fixed — see TODO.md § Bugs found.
+  submodules.
 
-  # KNOWN BUG (documented, not fixed): steering files and diff pathspecs are
-  # resolved against the process cwd, not the repo root. From a subdirectory
-  # the committed TODO.md is invisible and gtd stumbles into a MISLEADING
-  # corruption error ("no precedence rule matched") — or worse, in other
-  # states it would silently mis-derive and commit. Decided spec (grilled
-  # 2026-07-02): hard-error with a clear message naming the repo-root
-  # requirement.
+  # Steering files and diff pathspecs are resolved against the process cwd, so
+  # anywhere but the repo root would silently mis-derive state — gtd refuses
+  # with a clear error instead (decided spec, grilled 2026-07-02).
   Scenario: Running gtd from a subdirectory refuses with a clear repo-root error
     Given a test project
     And a commit "gtd: grilling" that adds "TODO.md" with:
@@ -28,19 +23,12 @@ Feature: Hostile environments and unusual invocations
     Then it fails
     And stderr contains "repository root"
 
-  # KNOWN BUG (documented, not fixed): outside a git repository every git
-  # probe is swallowed by a fallback, so gtd resolves to Idle and prints
-  # "Nothing to do" with exit 0. Spec: fail fast with a clear error.
   Scenario: Running gtd outside a git repository fails cleanly
     Given a plain directory that is not a git repository
     When I run gtd
     Then it fails
     And stderr contains "gtd:"
 
-  # KNOWN BUG (documented, not fixed): with no commits, gatherEvents skips the
-  # porcelain probe entirely (`hasCommits ? statusPorcelain() : ""`), so a
-  # dirty tree in a freshly initialized repository is invisible and gtd
-  # settles Idle instead of seeding the new feature.
   Scenario: A fresh repository with no commits seeds a new feature from the empty tree
     Given a fresh git repository with no commits
     And a file "src/idea.ts" with:
@@ -140,10 +128,8 @@ Feature: Hostile environments and unusual invocations
     And the git log contains "gtd: new task"
     And the last commit subject is "gtd: grilling"
 
-  # KNOWN BUG (documented, not fixed): a CRLF editor rewrites every line
-  # ending, so the checkbox-only detector sees changed line content and treats
-  # pure ticking as substantive feedback (Accept Review) instead of approval.
-  # Spec: checkbox-only ticking approves regardless of line-ending churn.
+  # A CRLF editor rewrites every line ending; the checkbox-only detector
+  # treats identical-after-\r pairs as churn so pure ticking still approves.
   Scenario: Checkbox approval survives a CRLF editor
     Given a test project
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -170,6 +156,10 @@ Feature: Hostile environments and unusual invocations
   Scenario: Unusable commit signing surfaces a clean error
     Given a test project
     And git config "commit.gpgsign" is "true"
+    # Pin the signing mechanism locally: a host-level `gpg.format = ssh` (e.g.
+    # 1Password's signer in the developer's global config) would otherwise
+    # bypass gpg.program entirely and sign successfully.
+    And git config "gpg.format" is "openpgp"
     And git config "gpg.program" is "/nonexistent-gpg-binary"
     And a file "src/idea.ts" with:
       """

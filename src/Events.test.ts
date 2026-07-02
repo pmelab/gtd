@@ -169,27 +169,16 @@ describe("appendCapturedInput", () => {
 })
 
 // ── capture fencing vs the answers gate ──────────────────────────────────────
-// All three tests below assert the documented contract — "the captured diff is
-// fenced so any marker it contains is stripped by stripCode and does not trip
-// the open-question gate" (seedTodo docstring) — and all three FAIL. Two
-// distinct KNOWN BUGS (documented, not fixed — TODO.md § Bugs found):
-//
-// 1. stripCode's fence regex ends with `(?:\n\1[^\n]*|$)` under the `m` flag,
-//    where `$` matches at EVERY line end — the lazy quantifier therefore stops
-//    at the first line end inside the fence, so only the first fenced line is
-//    stripped. A marker anywhere deeper in a fenced block leaks through to the
-//    gate. (This is why even the raw, un-formatted seed fails.) Fix: anchor
-//    the fallback to end-of-input, e.g. `$(?![\s\S])`.
-// 2. The `gtd format` round-trip (the prompts instruct it after every TODO.md
-//    edit; the recommended pre-commit hook runs it on commit): CommonMark
-//    treats a diff CONTEXT line like " ```" (space-prefixed, ≤3-space indent)
-//    as a valid CLOSING fence, so prettier terminates the seed's fixed
-//    three-backtick fence early and rewrites the rest of the captured diff —
-//    marker included — into plain paragraphs. Fix: fenceFor-style fence sizing
-//    in seedTodo / appendCapturedInput (a CommonMark closing fence must be at
-//    least as long as the opener, so a sized-up outer fence survives).
+// Regression guards for two fixed bugs (see the commit history / TODO.md
+// § Bugs found): (1) stripCode's unclosed-fence fallback used a bare `$` under
+// the `m` flag, stopping the strip at the first fenced line and leaking deep
+// markers to the answers gate; (2) seedTodo/appendCapturedInput used a fixed
+// three-backtick fence that the `gtd format` round-trip (prettier) closed
+// early on a space-indented ``` diff-context line, spilling the captured diff
+// — markers included — out of the fence. The fence is now sized past any
+// backtick run (fenceFor) and the strip is anchored to end-of-input.
 
-describe("capture fencing vs the answers gate (KNOWN BUGS)", { timeout: 30_000 }, () => {
+describe("capture fencing vs the answers gate", { timeout: 30_000 }, () => {
   afterEach(cleanup)
 
   const runFormat = (path: string): Promise<void> =>
@@ -210,14 +199,14 @@ describe("capture fencing vs the answers gate (KNOWN BUGS)", { timeout: 30_000 }
     " more text",
   ].join("\n")
 
-  it("KNOWN BUG: a raw seed containing a deep fenced marker keeps the gate inert (stripCode $)", async () => {
+  it("a raw seed containing a deep fenced marker keeps the gate inert", async () => {
     initRepo(false)
     writeFileSync(join(repoDir, "TODO.md"), seedTodo(capturedMarkdownDiff))
     const p = resolveOf(await runGather())
     expect(p.todoMarkerPresent).toBe(false)
   })
 
-  it("KNOWN BUG: the seed survives a gtd-format round-trip without arming the marker gate", async () => {
+  it("the seed survives a gtd-format round-trip without arming the marker gate", async () => {
     initRepo(false)
     writeFileSync(join(repoDir, "TODO.md"), seedTodo(capturedMarkdownDiff))
     await runFormat(join(repoDir, "TODO.md"))
@@ -225,7 +214,7 @@ describe("capture fencing vs the answers gate (KNOWN BUGS)", { timeout: 30_000 }
     expect(p.todoMarkerPresent).toBe(false)
   })
 
-  it("KNOWN BUG: an appended grilling capture survives a gtd-format round-trip", async () => {
+  it("an appended grilling capture survives a gtd-format round-trip", async () => {
     initRepo(false)
     writeFileSync(join(repoDir, "TODO.md"), appendCapturedInput("# Plan\n", capturedMarkdownDiff))
     await runFormat(join(repoDir, "TODO.md"))
@@ -970,15 +959,12 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
-  // KNOWN BUG (documented, not fixed — TODO.md § Bugs found): diffHead's
-  // intent-to-add trick feeds `git ls-files --others` output back to
-  // `git add --intent-to-add` VERBATIM. For non-ASCII/quoted paths ls-files
-  // emits the C-quoted form (`"sketch \303\251..."`), the add matches nothing
-  // (its non-zero exit is swallowed — Command.string does not fail on exit
-  // codes), the diff comes back empty — and captureGrillingEdits then DELETES
-  // the file it failed to capture. Data loss. Fix: unquote ls-files output
-  // (unquoteGitPath) or use `-z` output before feeding paths back to git.
-  it("KNOWN BUG: captureGrillingEdits: a unicode/space/emoji filename round-trips porcelain quoting", async () => {
+  // Regression guard (fixed data-loss bug): diffHead used to feed C-quoted
+  // ls-files output back to `git add --intent-to-add`, whose failure was
+  // silently swallowed — the capture came back empty and the file was then
+  // deleted. Paths now round-trip via `-z` (NUL-separated, unquoted) and git
+  // exit codes fail loudly.
+  it("captureGrillingEdits: a unicode/space/emoji filename round-trips porcelain quoting", async () => {
     writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
     git("add", "-A")
     git("commit", "-q", "-m", "gtd: grilling")
