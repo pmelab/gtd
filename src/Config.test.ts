@@ -125,6 +125,28 @@ describe("ConfigService", () => {
     expect(cfg.agenticReview).toBe(false)
   })
 
+  it("squash defaults to true with no config", async () => {
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.squash).toBe(true)
+  })
+
+  it("squash is overridable to false", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `squash: false\n`)
+
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.squash).toBe(false)
+  })
+
+  it("squash is overridable to true explicitly", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `squash: true\n`)
+
+    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(cfg.squash).toBe(true)
+  })
+
   it("rejects the removed agenticReviewMaxCycles key as an excess property", async () => {
     writeFileSync(join(projectDir, ".gtdrc.yaml"), `agenticReviewMaxCycles: 5\n`)
 

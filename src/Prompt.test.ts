@@ -81,6 +81,11 @@ describe("buildPrompt", () => {
       expect(out).toContain("Create `REVIEW.md` for the finished work")
     })
 
+    it("squashing renders the squashing section", () => {
+      const out = buildPrompt(result("squashing"))
+      expect(out).toContain("Squash all `gtd: *` commits into one conventional-commits message")
+    })
+
     it("await-review renders the await-review section", () => {
       const out = buildPrompt(result("await-review"))
       expect(out).toContain("Await the user's review")
@@ -125,7 +130,7 @@ describe("buildPrompt", () => {
   })
 
   describe("{{MODEL}} substitution", () => {
-    const planningStates: ReadonlyArray<GtdState> = ["grilled", "planning", "clean"]
+    const planningStates: ReadonlyArray<GtdState> = ["grilled", "planning", "clean", "squashing"]
     for (const state of planningStates) {
       it(`${state} injects the planning model and leaves no {{MODEL}}`, () => {
         const out = buildPrompt(result(state, { autoAdvance: true }))
@@ -182,6 +187,15 @@ describe("buildPrompt", () => {
         "MODEL-FOR-agentic-review",
       )
       expect(buildPrompt(result("clean"), custom)).toContain("MODEL-FOR-clean")
+      expect(
+        buildPrompt(
+          result("squashing", {
+            autoAdvance: true,
+            context: { squashBase: "abc1234", squashDiff: "diff --git a/x b/x\n+hello\n" },
+          }),
+          custom,
+        ),
+      ).toContain("MODEL-FOR-clean")
     })
 
     it("STOP states carry no {{MODEL}} and no injected model", () => {
@@ -363,6 +377,49 @@ describe("buildPrompt", () => {
         }),
       )
       expect(out).toContain("abc1234def")
+    })
+
+    it("squashing inlines squashDiff under a full-process heading", () => {
+      const out = buildPrompt(
+        result("squashing", {
+          autoAdvance: true,
+          context: { squashDiff: "diff --git a/x b/x\n+hello\n", squashBase: "abc1234" },
+        }),
+      )
+      expect(out).toContain("Full-process diff")
+      expect(out).toContain("```diff")
+      expect(out).toContain("+hello")
+    })
+
+    it("squashing prompt contains literal squashBase hash", () => {
+      const out = buildPrompt(
+        result("squashing", {
+          autoAdvance: true,
+          context: { squashDiff: "diff --git a/y b/y\n+world\n", squashBase: "abc1234def" },
+        }),
+      )
+      expect(out).toContain("abc1234def")
+    })
+
+    it("squashing with autoAdvance includes auto-advance tail and no STOP tail", () => {
+      const out = buildPrompt(
+        result("squashing", {
+          autoAdvance: true,
+          context: { squashDiff: "diff --git a/x b/x\n+hello\n", squashBase: "abc1234" },
+        }),
+      )
+      expect(out).toContain("Re-run gtd immediately")
+      expect(out).not.toContain("⛔")
+    })
+
+    it("squashing includes git reset --soft instruction", () => {
+      const out = buildPrompt(
+        result("squashing", {
+          autoAdvance: true,
+          context: { squashDiff: "diff --git a/x b/x\n+hello\n", squashBase: "abc1234" },
+        }),
+      )
+      expect(out).toContain("git reset --soft")
     })
 
     it("renders the working-tree diff in Context when present", () => {

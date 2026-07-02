@@ -556,6 +556,51 @@ export const gatherEvents = (): Effect.Effect<
       }
     }
 
+    // --- Squash base + diff (squashing after gtd: done) ----------------------
+    // Only computed when HEAD is `gtd: done` and squash is enabled.
+    // The squash range is the cycle ENDING at HEAD (prevDoneIdx+1 …lastDoneIdx),
+    // not `currentCycle` which is empty when HEAD is `gtd: done`.
+    let squashBase: string | undefined
+    let squashDiff: string | undefined
+    if (hasCommits && lastCommitSubject === DONE_SUBJECT && config.squash) {
+      // allHistory is already resolved above inside the `if (hasCommits)` block.
+      const allHistoryForSquash = Option.isNone(base) ? history : yield* git.commitHistory()
+      const lastDoneIdxForSquash = (() => {
+        let idx = -1
+        for (let i = 0; i < allHistoryForSquash.length; i++) {
+          const subject = (allHistoryForSquash[i]!.message.split("\n")[0] ?? "").trim()
+          if (subject === DONE_SUBJECT) idx = i
+        }
+        return idx
+      })()
+
+      if (lastDoneIdxForSquash !== -1) {
+        // Find the previous `gtd: done` (the cycle boundary before this one).
+        let prevDoneIdx = -1
+        for (let i = 0; i < lastDoneIdxForSquash; i++) {
+          const subject = (allHistoryForSquash[i]!.message.split("\n")[0] ?? "").trim()
+          if (subject === DONE_SUBJECT) prevDoneIdx = i
+        }
+        const squashCycle = allHistoryForSquash.slice(prevDoneIdx + 1, lastDoneIdxForSquash + 1)
+        const squashGrilling = squashCycle.find(
+          (c) => (c.message.split("\n")[0] ?? "").trim() === GRILLING_SUBJECT,
+        )
+
+        if (squashGrilling !== undefined) {
+          const squashGrillingParent = yield* git
+            .resolveRef(`${squashGrilling.hash}~1`)
+            .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
+          const candidateDiff = yield* git
+            .diffRef(squashGrillingParent)
+            .pipe(Effect.catchAll(() => Effect.succeed("")))
+          if (candidateDiff.trim().length > 0) {
+            squashBase = squashGrillingParent
+            squashDiff = candidateDiff
+          }
+        }
+      }
+    }
+
     const payload: ResolvePayload = {
       todoExists,
       todoCommitted,
@@ -583,6 +628,8 @@ export const gatherEvents = (): Effect.Effect<
       agenticReviewEnabled: config.agenticReview,
       fixAttemptCap: config.fixAttemptCap,
       reviewThreshold: config.reviewThreshold,
+      squashEnabled: config.squash,
+      ...(squashBase !== undefined ? { squashBase, squashDiff } : {}),
     }
 
     const resolveEvent: GtdEvent = { type: "RESOLVE", payload }
