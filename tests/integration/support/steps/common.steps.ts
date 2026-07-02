@@ -187,6 +187,20 @@ Then(
   },
 )
 
+// Full-history assertion for journey scenarios: the exact commit subject
+// sequence, oldest → newest, one subject per docstring line.
+Then("the commit subjects from oldest to newest are:", function (this: GtdWorld, doc: string) {
+  const actual = execFileSync("git", ["log", "--reverse", "--format=%s"], {
+    cwd: this.repoDir,
+    encoding: "utf-8",
+  }).trim()
+  assert.strictEqual(
+    actual,
+    doc.trim(),
+    `Commit subject sequence mismatch.\nExpected:\n${doc.trim()}\nActual:\n${actual}`,
+  )
+})
+
 Then("I record the commit count", function (this: GtdWorld) {
   this.savedCommitCount = this.commitCount()
 })

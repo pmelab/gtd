@@ -1,3 +1,4 @@
+import { FileSystem } from "@effect/platform"
 import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { ConfigService } from "./Config.js"
@@ -59,6 +60,25 @@ const program = Effect.gen(function* () {
   }
 
   const config = yield* ConfigService
+
+  // Everything gtd derives — steering files, diffs, pathspecs — is resolved
+  // against the process cwd, so running from anywhere but the repository root
+  // would silently mis-derive state. Refuse with a clear error instead. (Fails
+  // fast outside a repository too: `--show-toplevel` errors there.) Real paths
+  // are compared so symlinked cwds (e.g. macOS /tmp → /private/tmp) match.
+  const git = yield* GitService
+  const fs = yield* FileSystem.FileSystem
+  const topLevel = yield* git.topLevel()
+  const topReal = yield* fs.realPath(topLevel)
+  const cwdReal = yield* fs.realPath(process.cwd())
+  if (topReal !== cwdReal) {
+    return yield* Effect.fail(
+      new Error(
+        `gtd must be run from the repository root (${topLevel}); ` +
+          `the current directory is ${process.cwd()}`,
+      ),
+    )
+  }
 
   // Driver loop: gather → resolve → (perform edgeAction) → auto-advance past
   // edge-only states, else emit the prompt and stop.

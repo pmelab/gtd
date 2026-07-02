@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  DEFAULT_PAYLOAD,
   type EdgeAction,
   type GtdEvent,
   type ResolvePayload,
@@ -28,28 +29,8 @@ const commit = (
 })
 
 const basePayload = (overrides: Partial<ResolvePayload> = {}): ResolvePayload => ({
-  todoExists: false,
-  gtdDirExists: false,
-  reviewPresent: false,
-  feedbackPresent: false,
-  errorsPresent: false,
-  gtdModified: false,
-  codeDirty: false,
-  todoMarkerPresent: false,
-  feedbackCommitted: false,
-  feedbackEmpty: false,
-  feedbackContent: "",
-  reviewCommitted: false,
-  reviewDirty: false,
-  reviewCheckboxOnly: false,
-  pendingErrorsDeletion: false,
+  ...DEFAULT_PAYLOAD,
   lastCommitSubject: "chore: init",
-  workingTreeClean: true,
-  packages: [],
-  diff: "",
-  agenticReviewEnabled: true,
-  fixAttemptCap: 3,
-  reviewThreshold: 3,
   ...overrides,
 })
 
@@ -146,7 +127,8 @@ describe("foldCounters — reviewFixCount", () => {
 describe("illegal-combination hard-errors (throw before the ladder)", () => {
   const cases: Array<[string, Partial<ResolvePayload>]> = [
     ["REVIEW + .gtd", { reviewPresent: true, gtdDirExists: true }],
-    ["REVIEW + TODO", { reviewPresent: true, todoExists: true }],
+    ["REVIEW + committed TODO", { reviewPresent: true, todoExists: true, todoCommitted: true }],
+    ["uncommitted REVIEW + TODO", { reviewPresent: true, todoExists: true }],
     ["FEEDBACK + REVIEW", { feedbackPresent: true, reviewPresent: true }],
     ["FEEDBACK without .gtd", { feedbackPresent: true, gtdDirExists: false }],
     ["ERRORS + FEEDBACK", { errorsPresent: true, feedbackPresent: true, gtdDirExists: true }],
@@ -162,6 +144,21 @@ describe("illegal-combination hard-errors (throw before the ladder)", () => {
       }
     })
   }
+
+  it("committed REVIEW + uncommitted TODO is legal — review feedback (Accept Review)", () => {
+    const res = resolve([
+      R({
+        reviewPresent: true,
+        reviewDirty: true,
+        workingTreeClean: false,
+        todoExists: true,
+        todoCommitted: false,
+        lastCommitSubject: "gtd: awaiting review",
+      }),
+    ])
+    expect(res.state).toBe("accept-review")
+    expect(res.edgeAction).toEqual({ kind: "seedAcceptReview" })
+  })
 })
 
 // ── Corruption hard-error ────────────────────────────────────────────────────
@@ -378,6 +375,9 @@ describe("rule 4 — review lifecycle", () => {
     expect(res.state).toBe("accept-review")
     expect(res.autoAdvance).toBe(true)
     expect(res.edgeAction).toEqual({ kind: "seedAcceptReview" })
+    // The feedback path never commits `gtd: done` in the same resolve: the one
+    // returned edgeAction is the seed, and the two done branches are unreachable
+    // (`reviewCommitted` needs a clean tree, checkbox-only is excluded here).
   })
 
   it("reviewDirty + reviewCheckboxOnly → done, auto, done", () => {
@@ -390,6 +390,31 @@ describe("rule 4 — review lifecycle", () => {
     expect(res.state).toBe("done")
     expect(res.autoAdvance).toBe(true)
     expect(res.edgeAction).toEqual({ kind: "done" })
+  })
+
+  // Regen carve-out: HEAD is the accept-review capture commit and REVIEW.md is
+  // present again (its annotated copy is IN that commit) — the uncommitted seed
+  // was lost. Routing to Done here would silently approve the annotations.
+  it("REVIEW present + HEAD gtd: review feedback + clean → accept-review regen, never done", () => {
+    const res = r({
+      reviewPresent: true,
+      reviewCommitted: true,
+      lastCommitSubject: "gtd: review feedback",
+    })
+    expect(res.state).toBe("accept-review")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({ kind: "seedAcceptReview" })
+  })
+
+  it("REVIEW present + HEAD gtd: review feedback + dirty (partial revert) → accept-review regen", () => {
+    const res = r({
+      reviewPresent: true,
+      reviewDirty: true,
+      workingTreeClean: false,
+      lastCommitSubject: "gtd: review feedback",
+    })
+    expect(res.state).toBe("accept-review")
+    expect(res.edgeAction).toEqual({ kind: "seedAcceptReview" })
   })
 })
 
@@ -418,6 +443,21 @@ describe("rule 5 — New Feature", () => {
   it("HEAD gtd: new task + dirty tree → grilling (commit the seed), not new-feature", () => {
     const res = r({ lastCommitSubject: "gtd: new task", todoExists: true, workingTreeClean: false })
     expect(res.state).toBe("grilling")
+  })
+
+  // A committed TODO.md under a boundary HEAD is a resumed grill — even with a
+  // dirty tree it must route to Grilling (which captures the code edits), not
+  // re-seed and clobber the developed plan (STATES.md § New Feature).
+  it("boundary HEAD + dirty + committed TODO → grilling (resumed grill), not new-feature", () => {
+    const res = r({
+      lastCommitSubject: "feat: unrelated",
+      workingTreeClean: false,
+      codeDirty: true,
+      todoExists: true,
+      todoCommitted: true,
+    })
+    expect(res.state).toBe("grilling")
+    expect(res.edgeAction).toEqual({ kind: "captureGrillingEdits" })
   })
 })
 
@@ -455,6 +495,62 @@ describe("rule 6 — Grilling / Grilled (3-way)", () => {
     expect(res.context.grillingCase).toBeUndefined()
     expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilled" })
   })
+
+  // Later grilling rounds (committed plan) with pending code changes capture
+  // the code into TODO.md as a suggestion block instead of committing it
+  // verbatim — on BOTH the iterate and STOP paths.
+  it("committed TODO + code changes (iterate) → captureGrillingEdits", () => {
+    const res = r({
+      todoExists: true,
+      todoCommitted: true,
+      codeDirty: true,
+      workingTreeClean: false,
+      lastCommitSubject: "gtd: grilling",
+    })
+    expect(res.state).toBe("grilling")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.context.grillingCase).toBe("iterate")
+    expect(res.edgeAction).toEqual({ kind: "captureGrillingEdits" })
+  })
+
+  it("committed TODO + code changes + open marker (STOP) → captureGrillingEdits, still stops", () => {
+    const res = r({
+      todoExists: true,
+      todoCommitted: true,
+      todoMarkerPresent: true,
+      codeDirty: true,
+      workingTreeClean: false,
+      lastCommitSubject: "gtd: grilling",
+    })
+    expect(res.state).toBe("grilling")
+    expect(res.autoAdvance).toBe(false)
+    expect(res.context.grillingCase).toBe("stop")
+    expect(res.edgeAction).toEqual({ kind: "captureGrillingEdits" })
+  })
+
+  it("committed TODO + only TODO edits pending → plain commitPending (no capture)", () => {
+    const res = r({
+      todoExists: true,
+      todoCommitted: true,
+      codeDirty: false,
+      workingTreeClean: false,
+      lastCommitSubject: "gtd: grilling",
+    })
+    expect(res.state).toBe("grilling")
+    expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilling" })
+  })
+
+  it("uncommitted TODO (seed round) + code dirty → plain commitPending (the seed revert)", () => {
+    const res = r({
+      todoExists: true,
+      todoCommitted: false,
+      codeDirty: true,
+      workingTreeClean: false,
+      lastCommitSubject: "gtd: review feedback",
+    })
+    expect(res.state).toBe("grilling")
+    expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilling" })
+  })
 })
 
 describe("rule 7 — Clean / Idle", () => {
@@ -489,6 +585,31 @@ describe("rule 7 — Clean / Idle", () => {
   it("reviewBase present but whitespace-only refDiff → idle (nothing to review)", () => {
     const res = r({ lastCommitSubject: "feat: x", reviewBase: "abc", refDiff: "  \n " })
     expect(res.state).toBe("idle")
+  })
+
+  // The loop fix: after an approved review (`gtd: done` with nothing after it)
+  // the whole-branch diff is still non-empty, but the closed re-trigger gate
+  // keeps the machine Idle instead of re-entering Clean.
+  it("reviewable diff but closed re-trigger gate → idle (no review re-fire after done)", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      reviewBase: "abc123",
+      refDiff: "diff --git a/x b/x\n+hello\n",
+      hasCommitsAfterLastDone: false,
+    })
+    expect(res.state).toBe("idle")
+    expect(res.autoAdvance).toBe(false)
+    expect(res.edgeAction).toBeUndefined()
+  })
+
+  it("open gate + reviewable diff after new commits land → clean (review re-fires)", () => {
+    const res = r({
+      lastCommitSubject: "feat: post-done work",
+      reviewBase: "abc123",
+      refDiff: "diff --git a/x b/x\n+hello\n",
+      hasCommitsAfterLastDone: true,
+    })
+    expect(res.state).toBe("clean")
   })
 
   it("resolve([]) → idle (degenerate input, no throw)", () => {

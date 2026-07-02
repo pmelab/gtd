@@ -33,6 +33,35 @@ Feature: Illegal steering-file combinations hard-error
     Then it fails
     And stderr contains "illegal combination: FEEDBACK.md without .gtd"
 
+  Scenario: A committed TODO.md alongside REVIEW.md hard-errors
+    Given a test project
+    And a file "TODO.md" with:
+      """
+      # Plan
+      """
+    And a file "REVIEW.md" with:
+      """
+      # Review
+      """
+    And the working tree is committed as "feat: both steering files"
+    When I run gtd
+    Then it fails
+    And stderr contains "illegal combination: REVIEW.md + committed TODO.md"
+
+  Scenario: An uncommitted REVIEW.md alongside TODO.md hard-errors
+    Given a test project
+    And a file "TODO.md" with:
+      """
+      # Plan
+      """
+    And a file "REVIEW.md" with:
+      """
+      # Review
+      """
+    When I run gtd
+    Then it fails
+    And stderr contains "illegal combination: uncommitted REVIEW.md + TODO.md"
+
   Scenario: REVIEW.md alongside a .gtd directory hard-errors
     Given a test project
     And a file ".gtd/01-foo/01-task.md" with:

@@ -87,6 +87,12 @@ export interface GtdPackageFact {
 export interface ResolvePayload {
   /** `TODO.md` exists (committed or pending). */
   readonly todoExists: boolean
+  /**
+   * The present `TODO.md` is tracked at HEAD — a committed plan being iterated
+   * (later grilling rounds capture user code sketches) vs a freshly seeded,
+   * uncommitted one (the seed round commits the seed revert verbatim).
+   */
+  readonly todoCommitted: boolean
   /** `.gtd/` exists. */
   readonly gtdDirExists: boolean
   /** `REVIEW.md` is present (committed and/or pending). */
@@ -125,8 +131,16 @@ export interface ResolvePayload {
   readonly diff: string
   /** The base commit for a Clean review, if one is available. */
   readonly reviewBase?: string
-  /** `git diff <reviewBase> HEAD` — non-empty distinguishes Clean from Idle. */
+  /** `git diff <reviewBase> HEAD` (workflow files excluded) — non-empty distinguishes Clean from Idle. */
   readonly refDiff?: string
+  /**
+   * The review re-trigger gate, resolved at the edge: commits exist after the
+   * last `gtd: done` (or no `gtd: done` exists). `false` forces the Clean/Idle
+   * rule to Idle even with a reviewable diff, so an approved review settles
+   * instead of immediately re-firing (the review → approve → done → review loop).
+   * Gates only *whether* a review fires — never what `reviewBase` covers.
+   */
+  readonly hasCommitsAfterLastDone: boolean
   /** Agentic review enabled (config kill-switch; false → Agentic Review force-approves). */
   readonly agenticReviewEnabled: boolean
   /** Fix-attempt cap (config, default 3). `capReached` = `testFixCount >= fixAttemptCap`. */
@@ -141,7 +155,13 @@ export interface ResolvePayload {
  * semantics live in the Events/driver tasks.
  *   - `transportReset`   — mixed-reset the `gtd: transport` HEAD, re-derive.
  *   - `seedNewFeature`   — capture raw input `gtd: new task`, revert it, seed TODO.md.
- *   - `seedAcceptReview` — seed TODO.md from the review changeset, checkout, rm REVIEW.md.
+ *   - `seedAcceptReview` — capture the review changeset `gtd: review feedback`
+ *                          (commit-then-revert), rm REVIEW.md, seed TODO.md. When HEAD
+ *                          already carries the capture subject (regen), discard partial
+ *                          state and re-derive from the commit.
+ *   - `captureGrillingEdits` — fold the pending code diff into TODO.md as a suggestion
+ *                          block, drop the code changes (reset tracked, delete
+ *                          untracked), commit the lot `gtd: grilling`.
  *   - `runTest`          — commit pending `gtd: building`, run tests; on red write
  *                          FEEDBACK (below cap) or ERRORS (`capReached`), commit `gtd: errors`.
  *                          A green re-test of a no-op fixer (clean tree, HEAD
@@ -161,6 +181,7 @@ export type EdgeAction =
   | { readonly kind: "transportReset" }
   | { readonly kind: "seedNewFeature" }
   | { readonly kind: "seedAcceptReview" }
+  | { readonly kind: "captureGrillingEdits" }
   | { readonly kind: "runTest"; readonly errorCount: number; readonly capReached: boolean }
   | {
       readonly kind: "commitPending"
@@ -254,8 +275,14 @@ export const foldCounters = (events: readonly GtdEvent[]): Counters => {
 const isBoundary = (subject: string): boolean =>
   !subject.startsWith("gtd: ") || subject === "gtd: done"
 
-const DEFAULT_PAYLOAD: ResolvePayload = {
+/**
+ * The payload a degenerate `RESOLVE`-less stream resolves against — also the
+ * canonical field-default table tests spread-override instead of hand-writing
+ * every `ResolvePayload` field.
+ */
+export const DEFAULT_PAYLOAD: ResolvePayload = {
   todoExists: false,
+  todoCommitted: false,
   gtdDirExists: false,
   reviewPresent: false,
   feedbackPresent: false,
@@ -274,6 +301,7 @@ const DEFAULT_PAYLOAD: ResolvePayload = {
   workingTreeClean: true,
   packages: [],
   diff: "",
+  hasCommitsAfterLastDone: true,
   agenticReviewEnabled: true,
   fixAttemptCap: 3,
   reviewThreshold: 3,
@@ -306,7 +334,12 @@ const assertLegal = (p: ResolvePayload): void => {
     throw new GtdStateError("illegal-combination", msg)
   }
   if (p.reviewPresent && p.gtdDirExists) fail("illegal combination: REVIEW.md + .gtd")
-  if (p.reviewPresent && p.todoExists) fail("illegal combination: REVIEW.md + TODO.md")
+  // An uncommitted TODO.md under a *committed* REVIEW.md is legal — plan-level
+  // notes written during a review are global feedback; the reviewDirty path
+  // captures them (Accept Review). Everything else stays illegal.
+  if (p.reviewPresent && p.todoCommitted) fail("illegal combination: REVIEW.md + committed TODO.md")
+  if (p.reviewPresent && !(p.reviewCommitted || p.reviewDirty) && p.todoExists)
+    fail("illegal combination: uncommitted REVIEW.md + TODO.md")
   if (p.feedbackPresent && p.reviewPresent) fail("illegal combination: FEEDBACK.md + REVIEW.md")
   if (p.feedbackPresent && !p.gtdDirExists) fail("illegal combination: FEEDBACK.md without .gtd")
   if (p.errorsPresent && p.feedbackPresent) fail("illegal combination: ERRORS.md + FEEDBACK.md")
@@ -445,6 +478,20 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
 
   // ── 4. REVIEW.md present → review lifecycle (exhaustive) ──────────────────
   if (p.reviewPresent) {
+    // Regen carve-out: HEAD is the accept-review capture commit and REVIEW.md
+    // is present again (its annotated copy is IN that commit) — a checkout/pull
+    // or crash lost the uncommitted seed. Without this, `reviewCommitted` +
+    // clean tree would route to Done and silently approve the annotations.
+    // Re-run the seed instead; the perform discards any partial revert/seed
+    // state and re-derives everything from the capture commit.
+    if (head === "gtd: review feedback") {
+      return {
+        state: "accept-review",
+        autoAdvance: true,
+        edgeAction: { kind: "seedAcceptReview" },
+        context: buildContext(p, counters),
+      }
+    }
     if (p.reviewCommitted) {
       return {
         state: "done",
@@ -482,8 +529,11 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   // Boundary HEAD + pending changes (code and/or a new uncommitted TODO.md — the
   // only steering file possible here), or HEAD `gtd: new task` + clean tree
   // (a checkout/pull that lost the uncommitted seed — regenerate it).
+  // A *committed* TODO.md is a resumed grill: route to rule 6 even when the
+  // tree is dirty (grilling captures the code edits) — re-seeding here would
+  // clobber the developed plan with a raw seed.
   if (
-    (isBoundary(head) && !p.workingTreeClean) ||
+    (isBoundary(head) && !p.workingTreeClean && !p.todoCommitted) ||
     (head === "gtd: new task" && p.workingTreeClean)
   ) {
     return {
@@ -496,6 +546,15 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
 
   // ── 6. Grilling / Grilled ─────────────────────────────────────────────────
   if (p.todoExists) {
+    // Later grilling rounds (committed plan) with pending code changes capture
+    // the code into TODO.md as a suggestion block and revert it; the seed round
+    // (uncommitted TODO.md) must instead commit the pending seed revert
+    // verbatim. Applies to BOTH the STOP and iterate paths so code cannot leak
+    // through the answer-questions round.
+    const grillCommit: EdgeAction =
+      p.todoCommitted && p.codeDirty
+        ? { kind: "captureGrillingEdits" }
+        : { kind: "commitPending", prefix: "gtd: grilling" }
     if (p.todoMarkerPresent) {
       // Open question marker → STOP for the human to answer inline.
       // If tree is already clean and HEAD is already `gtd: grilling`, this is a
@@ -504,9 +563,7 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
       return {
         state: "grilling",
         autoAdvance: false,
-        ...(alreadyAtGrillingStop
-          ? {}
-          : { edgeAction: { kind: "commitPending", prefix: "gtd: grilling" } }),
+        ...(alreadyAtGrillingStop ? {} : { edgeAction: grillCommit }),
         context: buildContext(p, counters, "stop"),
       }
     }
@@ -515,7 +572,7 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
       return {
         state: "grilling",
         autoAdvance: true,
-        edgeAction: { kind: "commitPending", prefix: "gtd: grilling" },
+        edgeAction: grillCommit,
         context: buildContext(p, counters, "iterate"),
       }
     }
@@ -530,10 +587,12 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
 
   // ── 7. Clean / Idle ───────────────────────────────────────────────────────
   // Reached only with no steering files. A clean tree under a boundary or
-  // `gtd: package done` HEAD reviews the work (Clean) when the review base yields
-  // a non-empty diff, else there is nothing to review (Idle).
+  // `gtd: package done` HEAD reviews the work (Clean) when the re-trigger gate
+  // is open (commits exist after the last `gtd: done`) AND the review base
+  // yields a non-empty filtered diff, else there is nothing to review (Idle).
   if (p.workingTreeClean && (isBoundary(head) || head === "gtd: package done")) {
-    const reviewable = p.reviewBase !== undefined && (p.refDiff ?? "").trim().length > 0
+    const reviewable =
+      p.hasCommitsAfterLastDone && p.reviewBase !== undefined && (p.refDiff ?? "").trim().length > 0
     return {
       state: reviewable ? "clean" : "idle",
       autoAdvance: false,

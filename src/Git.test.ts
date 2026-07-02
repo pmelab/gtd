@@ -217,21 +217,6 @@ describe("GitService", () => {
     })
   })
 
-  describe("checkoutAll", () => {
-    it("discards tracked working-tree edits back to HEAD", async () => {
-      commit("feat: add src", "src.ts", "original content")
-      writeFileSync(join(repoDir, "src.ts"), "modified content")
-
-      const statusBefore = git("status", "--porcelain")
-      expect(statusBefore).toContain("src.ts")
-
-      await run(Effect.flatMap(GitService, (g) => g.checkoutAll()))
-
-      const statusAfter = git("status", "--porcelain")
-      expect(statusAfter.trim()).toBe("")
-    })
-  })
-
   describe("lastDeletionOf", () => {
     it("returns Option.none when the file has never been deleted", async () => {
       commit("feat: add review", "REVIEW.md", "# Review")

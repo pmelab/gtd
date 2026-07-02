@@ -26,7 +26,6 @@ Then("stdout is empty", function (this: GtdWorld) {
 })
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
-const HOOK_PATH = join(PROJECT_ROOT, ".git/hooks/pre-commit")
 
 Given("prettier is available in the test project", function (this: GtdWorld) {
   const nodeModulesSrc = join(PROJECT_ROOT, "node_modules")
@@ -46,12 +45,6 @@ Given("prettier is available in the test project", function (this: GtdWorld) {
       ],
     }),
   )
-})
-
-Given("the pre-commit hook from the project is installed", function (this: GtdWorld) {
-  const hookContent = readFileSync(HOOK_PATH, "utf-8")
-  const dest = join(this.repoDir, ".git/hooks/pre-commit")
-  writeFileSync(dest, hookContent, { mode: 0o755 })
 })
 
 Given("{string} is staged", function (this: GtdWorld, path: string) {

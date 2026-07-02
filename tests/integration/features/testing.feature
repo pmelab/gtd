@@ -31,6 +31,30 @@ Feature: Testing — the bounded test/fix loop and escalation
     And the last commit subject is "gtd: building"
     And stdout contains "## Task: Agentic review of the built package"
 
+  # The build-phase asymmetry (by design): while .gtd/ exists, pending code is
+  # indistinguishable from builder-agent output, so user edits are ADOPTED into
+  # `gtd: building` and verified by tests + agentic review — never captured as
+  # suggestions the way grilling and review edits are.
+  Scenario: A user code edit during the build is adopted and verified, not captured
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: "true"
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a file "src/hotfix.ts" with:
+      """
+      export const hotfix = () => 1
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: building"
+    And the file "src/hotfix.ts" exists
+    And the file "TODO.md" does not exist
+
   Scenario: A red gate below the cap writes FEEDBACK.md and routes to Fixing
     Given a test project
     And a commit "chore: test gate" that adds "gate.sh" with:

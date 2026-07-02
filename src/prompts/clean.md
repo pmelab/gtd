@@ -2,7 +2,9 @@
 
 The working tree is clean and there is unreviewed work since the review base.
 Produce a `REVIEW.md` that guides the user through it. The diff to review
-(`git diff <base> HEAD`) is inlined below.
+(`git diff <base> HEAD`) is inlined below; workflow files (REVIEW.md, TODO.md,
+FEEDBACK.md, ERRORS.md, `.gtd/`) are already excluded — never write review
+chunks about them.
 
 ### Orchestration
 

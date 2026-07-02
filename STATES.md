@@ -49,9 +49,11 @@ The last commit message is bucketed:
 - **Boundary** — a non-`gtd:` commit, or `gtd: done`. Marks a cold start: no
   workflow in progress.
 - **Mid-phase** —
-  `gtd: new task | grilling | grilled | planning | building | errors | fixing | feedback | package done | awaiting review`.
+  `gtd: new task | grilling | grilled | planning | building | errors | fixing | feedback | package done | awaiting review | review feedback`.
   Identifies the exact phase of an in-progress workflow; disambiguates states
-  the filesystem alone cannot separate.
+  the filesystem alone cannot separate. (`gtd: review feedback` is the
+  accept-review capture commit — distinct from the `gtd: feedback` marker the
+  review-fix counter folds on.)
 
 ### Precedence (first match wins)
 
@@ -66,11 +68,17 @@ The last commit message is bucketed:
    - else clean, by HEAD: `planning`/`package done` → Building; `building` →
      Agentic Review
 4. **REVIEW.md present** → review lifecycle (Await Review / Accept Review /
-   Done), routed by committed-ness + tree.
-5. **Boundary HEAD + pending changes** (no .gtd/REVIEW/FEEDBACK), or HEAD
-   `gtd: new task` + clean tree (regenerate a lost seed) → New Feature.
+   Done), routed by committed-ness + tree. HEAD `gtd: review feedback` (the
+   accept-review capture commit, whose annotated REVIEW.md rematerialized after
+   a checkout/pull lost the uncommitted seed) → Accept Review regen, never Done.
+5. **Boundary HEAD + pending changes** (no .gtd/REVIEW/FEEDBACK, no _committed_
+   TODO.md — that is a resumed grill → rule 6), or HEAD `gtd: new task` + clean
+   tree (regenerate a lost seed) → New Feature.
 6. **TODO.md present** → Grilling / Grilled.
-7. **Boundary/`package done` HEAD + clean tree** → Clean (review) or Idle.
+7. **Boundary/`package done` HEAD + clean tree** → Clean (review) or Idle. A
+   review fires only when the re-trigger gate is open — commits exist after the
+   last `gtd: done` (or none exists) — and the workflow-file-filtered diff from
+   the review base is non-empty.
 
 Anything matching no rule is corruption — hard-error rather than guess.
 
@@ -86,8 +94,9 @@ on the far side).
 These never arise in normal flow; if seen, `gtd` hard-errors rather than
 guessing:
 
+- REVIEW.md + **committed** TODO.md
+- **uncommitted** REVIEW.md + TODO.md
 - REVIEW.md + .gtd
-- REVIEW.md + TODO.md
 - FEEDBACK.md + REVIEW.md
 - FEEDBACK.md without .gtd
 - ERRORS.md + FEEDBACK.md
@@ -95,7 +104,9 @@ guessing:
 
 Legal coexistence: `.gtd`+TODO.md (plan + packages during **Planning** only —
 TODO.md is deleted at the first Building turn); FEEDBACK.md+`.gtd` (fix during
-build).
+build); **committed** REVIEW.md + **uncommitted** TODO.md (plan-level notes
+written during a review are global feedback — the reviewDirty path captures them
+via Accept Review).
 
 ## States
 
@@ -115,8 +126,10 @@ scratch.
 **Conditions:** either boundary HEAD (non-gtd or `gtd: done`) with pending
 **code changes and/or a new (uncommitted) TODO.md** and no
 `.gtd`/REVIEW.md/FEEDBACK.md (a _committed_ TODO.md under a boundary HEAD is a
-resumed grill — see Grilling); **or** HEAD `gtd: new task` with a clean tree (a
-checkout/pull that lost the uncommitted seed — regenerate it).
+resumed grill — see Grilling; that routing holds even with pending code, which
+Grilling captures rather than re-seeding over the developed plan); **or** HEAD
+`gtd: new task` with a clean tree (a checkout/pull that lost the uncommitted
+seed — regenerate it).
 
 **Actions:**
 
@@ -125,7 +138,9 @@ checkout/pull that lost the uncommitted seed — regenerate it).
 - revert `gtd: new task`'s diff into the working tree, uncommitted — back to a
   clean baseline
 - seed TODO.md, uncommitted, from that diff (any prior TODO.md text, code
-  comments, code suggestions)
+  comments, code suggestions). The seed embeds the interpretation rules: code
+  changes are suggestions to re-implement properly (including tests), code
+  comments are positional feedback, TODO.md/REVIEW.md text is global feedback
 
 **Prompt:** none — auto-advance. _(Next: TODO.md present + reverted code →
 Grilling, which commits the revert + seed as the first `gtd: grilling` and
@@ -152,6 +167,17 @@ reverted code + seeded TODO.md, committed together as the first
   still unresolved (re-opening `?` markers if needed). _(auto-advance)_
 
 **3 — Converged** (no markers, clean tree) → **Grilled**.
+
+**Code capture on committed-plan rounds** (cases 1 and 2): when TODO.md is
+already committed (any round after the seed) and the pending changes include
+code, the code diff — untracked files included, steering files excluded — is
+appended to TODO.md as a fenced "Captured input (grilling)" suggestion block and
+the code changes are dropped (tracked paths hard-reset, untracked files deleted)
+before the round commits `gtd: grilling`. Code sketched during grilling is
+feedback to plan and re-implement (with tests), never work that lands verbatim.
+The **seed round** (TODO.md still uncommitted, carrying the seed revert from New
+Feature / Accept Review) commits everything verbatim. Binary edits survive only
+as the diff's "Binary files differ" line — an accepted limitation.
 
 Advance happens only at case 3 — an invocation where nobody changed anything and
 no question is open — so the user (or agent) may iterate indefinitely.
@@ -219,6 +245,12 @@ that produced no change — re-test it).
 - ERRORS.md written → **STOP**, no auto-advance: report that the fix-attempt cap
   was reached and the human must investigate (→ Escalate)
 
+User code edits made while `.gtd/` exists are **adopted**, not captured (by
+design): pending code during a build is indistinguishable from builder-agent
+output, so it is committed `gtd: building` and verified by the test gate and the
+package's agentic review instead. Grilling and review phases capture instead —
+no agent writes code there, so pending code is provably human feedback.
+
 ### Fixing (auto-advance)
 
 **Conditions:** **non-empty** FEEDBACK.md present (an empty FEEDBACK.md is a
@@ -283,21 +315,34 @@ Clean.)_
 
 ### Clean
 
-**Conditions:** no steering files, clean tree, and either non-gtd HEAD (review
-freshly committed work) or HEAD `gtd: package done` with `.gtd` gone (review the
-finished feature).
+**Conditions:** no steering files, clean tree, and either boundary HEAD (review
+committed work) or HEAD `gtd: package done` with `.gtd` gone (review the
+finished feature) — provided the **re-trigger gate** is open: commits exist
+after the last `gtd: done`, or no `gtd: done` exists on the branch. A HEAD
+sitting on `gtd: done` with nothing after it settles Idle instead of re-firing
+the review it just closed (the gate controls _whether_ a review fires, never
+what it covers).
 
-**Actions:** determine the base commit for the review — the **more recent
-ancestor of HEAD** of these two candidates:
+**Actions:** determine the base commit for the review (its scope):
 
-- the last commit that deleted REVIEW.md (`gtd: done`, or the first
-  `gtd: grilling` after an accepted review), on **any** branch;
-- the merge-base with the default branch (a proper ancestor on a feature
-  branch).
+- **within a process** (a `gtd: grilling` commit exists after the last
+  `gtd: done`):
+  - first review — base = the first `gtd: grilling` of the current cycle; the
+    review spans the whole task, across all its work packages;
+  - follow-up review (a `gtd: awaiting review` also exists in the current cycle)
+    — base = the last `gtd: awaiting review`; the review covers only the work
+    packages built after that review (the feedback cycle's output).
+- **outside a process, on a feature branch** — base = the merge-base with the
+  default branch: always the whole branch, even when a prior process completed
+  on it (already-approved work is re-covered by design).
+- **outside a process, on the default branch** — no base: the branch review
+  never fires on trunk (Idle). Everything else still works on trunk — a dirty
+  tree seeds New Feature and open processes continue.
 
-The deletion wins whenever it post-dates the merge-base, so a completed branch
-review advances the base past `gtd: done` instead of re-reviewing the whole
-branch. If neither candidate exists, the base is the root.
+Workflow files (REVIEW.md, TODO.md, FEEDBACK.md, ERRORS.md, `.gtd/`) are
+excluded from the review diff, so the reviewer never writes chunks about
+plumbing churn. If the filtered diff is empty, there is nothing to review
+(Idle).
 
 **Prompt:** create REVIEW.md for the changes since the base commit. _(not
 auto-advance; agent writes REVIEW.md → Await Review.)_
@@ -314,22 +359,31 @@ auto-advance — human turn.)_
 ### Accept Review (auto-advance)
 
 **Conditions:** REVIEW.md present and **committed**, with pending
-**non-checkbox** changes — code edits, inline code comments, or textual
-annotations added to REVIEW.md. Checkbox-only edits (`- [ ]` ↔ `- [x]`) do
-**not** qualify and route to Done instead.
+**non-checkbox** changes — code edits, inline code comments, textual annotations
+added to REVIEW.md, or an uncommitted TODO.md with plan-level notes.
+Checkbox-only edits (`- [ ]` ↔ `- [x]`) do **not** qualify and route to Done
+instead. Also fires as **regen** whenever HEAD is `gtd: review feedback` and
+REVIEW.md is present: the capture commit's annotated REVIEW.md rematerialized
+after a checkout/pull (or crash) lost the uncommitted seed — routing to Done
+here would silently approve the annotations.
 
-**Actions:** (all left uncommitted — no commit of its own)
+**Actions:** (commit-then-revert, mirroring New Feature)
 
-- seed TODO.md with the changeset (REVIEW.md annotations, code comments, change
-  suggestions)
-- discard the human's code edits (`git checkout` — back to the reviewed
-  baseline)
-- remove REVIEW.md
+- commit the whole pending changeset verbatim as `gtd: review feedback` —
+  annotations, code edits, and new (untracked) files alike: a durable capture
+  that survives checkout/pull. (Skipped when HEAD already carries the subject —
+  the regen case discards partial state with a hard reset instead.)
+- revert the capture commit into the working tree, uncommitted — back to the
+  reviewed baseline. Untracked files are dropped by construction; a plain
+  checkout would leak them into the next grilling commit.
+- remove REVIEW.md (which is what stops Accept Review re-firing)
+- seed TODO.md, uncommitted, from the captured diff
 
 **Prompt:** none — auto-advance. _(Next: REVIEW.md gone + TODO.md present →
-Grilling, which commits the lot as the first `gtd: grilling` and synthesizes the
-plan. Removing REVIEW.md is what stops Accept Review re-firing — no commit
-needed.)_
+Grilling, which commits the revert + seed as the first `gtd: grilling` and
+synthesizes the plan. The process stays open: **no `gtd: done` is ever committed
+on the feedback path**; the seeded plan re-enters grilling → planning →
+building, and the follow-up review covers only the new work packages.)_
 
 ### Done
 
@@ -351,9 +405,13 @@ closes the review.)_
 
 ### Idle
 
-**Conditions:** no steering files, clean tree, HEAD `gtd: done`.
+**Conditions:** no steering files, clean tree, and no review to run — the
+re-trigger gate is closed (no commits after the last `gtd: done`), the review
+base's workflow-file-filtered diff is empty, or the trunk rule applies (outside
+a process on the default branch).
 
 **Actions:** none.
 
-**Prompt:** nothing to do. _(Prevents a finished review from spawning a spurious
-empty re-review.)_
+**Prompt:** nothing to do. _(Prevents an approved review from spawning a
+spurious re-review: review → approve → done → review. gtd stays idle until new
+commits land after the `gtd: done`.)_

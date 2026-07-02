@@ -3,7 +3,16 @@ Feature: Automatic markdown formatting on commit
   Scenario: Pre-commit hook wraps long lines in TODO.md
     Given a test project
     And prettier is available in the test project
-    And the pre-commit hook from the project is installed
+    And an executable pre-commit hook with:
+      """
+      #!/bin/sh
+      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(TODO|REVIEW)\.md$')
+
+      if [ -n "$FILES" ]; then
+        npx prettier --write $FILES
+        git add $FILES
+      fi
+      """
     And a file "TODO.md" with:
       """
       This is a very long line that exceeds eighty characters and should be wrapped by prettier when committed.
@@ -15,7 +24,16 @@ Feature: Automatic markdown formatting on commit
   Scenario: Pre-commit hook wraps long lines in REVIEW.md
     Given a test project
     And prettier is available in the test project
-    And the pre-commit hook from the project is installed
+    And an executable pre-commit hook with:
+      """
+      #!/bin/sh
+      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(TODO|REVIEW)\.md$')
+
+      if [ -n "$FILES" ]; then
+        npx prettier --write $FILES
+        git add $FILES
+      fi
+      """
     And a file "REVIEW.md" with:
       """
       This is a very long line that exceeds eighty characters and should be wrapped by prettier when committed.
@@ -90,7 +108,16 @@ Feature: Automatic markdown formatting on commit
   Scenario: Pre-commit hook does not modify other markdown files
     Given a test project
     And prettier is available in the test project
-    And the pre-commit hook from the project is installed
+    And an executable pre-commit hook with:
+      """
+      #!/bin/sh
+      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(TODO|REVIEW)\.md$')
+
+      if [ -n "$FILES" ]; then
+        npx prettier --write $FILES
+        git add $FILES
+      fi
+      """
     And a file "notes.md" with:
       """
       This is a very long line that exceeds eighty characters and should NOT be wrapped because it is not TODO or REVIEW.

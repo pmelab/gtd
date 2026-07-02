@@ -1,14 +1,25 @@
 import { Command, CommandExecutor } from "@effect/platform"
-import { Context, Effect, Layer, Option } from "effect"
+import { Context, Effect, Layer, Option, Stream } from "effect"
 
 export interface GitOperations {
   readonly statusPorcelain: () => Effect.Effect<string, Error>
-  readonly diffHead: () => Effect.Effect<string, Error>
+  /**
+   * `git diff HEAD` including untracked files (via a transient intent-to-add),
+   * optionally with `:(exclude)` pathspecs. Exclusions match repo-root-relative
+   * paths; a directory path excludes everything under it.
+   */
+  readonly diffHead: (exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly lastCommitSubject: () => Effect.Effect<string, Error>
   readonly hasCommits: () => Effect.Effect<boolean, Error>
-  readonly diffRef: (ref: string) => Effect.Effect<string, Error>
+  /**
+   * `git diff <ref> HEAD`, optionally with `:(exclude)` pathspecs. Exclusions
+   * match repo-root-relative paths; a directory path excludes everything under it.
+   */
+  readonly diffRef: (ref: string, exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly diffPath: (path: string) => Effect.Effect<string, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
+  /** `git rev-parse --show-toplevel` — the working-tree root; fails outside a repository. */
+  readonly topLevel: () => Effect.Effect<string, Error>
   readonly resolveDefaultBranch: () => Effect.Effect<Option.Option<string>, Error>
   readonly mergeBase: (a: string, b: string) => Effect.Effect<Option.Option<string>, Error>
   /** `git merge-base --is-ancestor a b` — true iff `a` is an ancestor of `b` (or equal). */
@@ -19,8 +30,11 @@ export interface GitOperations {
   readonly revertNoCommit: (ref: string) => Effect.Effect<void, Error>
   /** `git reset HEAD~1` (mixed) — undoes the last commit, keeping changes in the working tree. */
   readonly mixedResetHead: () => Effect.Effect<void, Error>
-  /** `git checkout -- .` — discards tracked working-tree edits back to HEAD. */
-  readonly checkoutAll: () => Effect.Effect<void, Error>
+  /**
+   * `git reset --hard HEAD` — index and tracked working tree back to HEAD;
+   * staged-but-new files are dropped, pure untracked (`??`) files survive.
+   */
+  readonly resetHard: () => Effect.Effect<void, Error>
   /**
    * `git log --first-parent --diff-filter=D --format=%H -- <path>` — returns the
    * most recent commit that deleted `path` as `Option.some(sha)`, or `Option.none()`.
@@ -54,13 +68,46 @@ export interface GitOperations {
   readonly commitAllWithPrefix: (prefix: string) => Effect.Effect<void, Error>
 }
 
+/**
+ * `:(exclude)` pathspec arguments for a diff command. The `"."` include anchor
+ * is required alongside exclusions; both are cwd-relative, which is correct
+ * only because gtd pins its cwd to the repository root (main.ts).
+ */
+const excludePathspecs = (exclude: ReadonlyArray<string>): ReadonlyArray<string> =>
+  exclude.length === 0 ? [] : ["--", ".", ...exclude.map((path) => `:(exclude)${path}`)]
+
+/**
+ * Run a command and return its stdout — FAILING on a non-zero exit code with
+ * the command line and stderr in the error message. `Command.string` alone
+ * only collects stdout and silently ignores exit codes, which used to make
+ * gtd report success on rejected commits (hooks, gpg), resolve Idle outside a
+ * repository, and lose files whose quoted paths broke a swallowed `git add`.
+ * Callers that expect a probe to fail (missing refs, empty repos) handle it
+ * with an explicit `catchAll`.
+ */
 const run = (
   ...args: [string, ...Array<string>]
 ): Effect.Effect<string, Error, CommandExecutor.CommandExecutor> =>
-  Command.make(...args).pipe(
-    Command.string,
-    Effect.mapError((e) => new Error(String(e))),
-  )
+  Effect.scoped(
+    Effect.gen(function* () {
+      const executor = yield* CommandExecutor.CommandExecutor
+      const process = yield* executor.start(
+        Command.make(...args).pipe(Command.stdout("pipe"), Command.stderr("pipe")),
+      )
+      const collect = (stream: typeof process.stdout) =>
+        stream.pipe(Stream.decodeText(), Stream.mkString)
+      const [stdout, stderr, exitCode] = yield* Effect.all(
+        [collect(process.stdout), collect(process.stderr), process.exitCode],
+        { concurrency: "unbounded" },
+      )
+      if (exitCode !== 0) {
+        return yield* Effect.fail(
+          new Error(`${args.join(" ")} failed (exit ${exitCode}): ${stderr.trim()}`),
+        )
+      }
+      return stdout
+    }),
+  ).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
 
 export class GitService extends Context.Tag("GitService")<GitService, GitOperations>() {
   static Live = Layer.effect(
@@ -73,16 +120,23 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
       return {
         statusPorcelain: () => exec("git", "status", "--porcelain"),
 
-        diffHead: () =>
+        diffHead: (exclude: ReadonlyArray<string> = []) =>
           Effect.gen(function* () {
-            const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard")
-            const untracked = untrackedRaw
-              .split("\n")
-              .map((s) => s.trim())
-              .filter((s) => s !== "")
-            if (untracked.length === 0) return yield* exec("git", "diff", "HEAD")
+            const excludeArgs = excludePathspecs(exclude)
+            // `-z` yields NUL-separated, UNQUOTED paths — the newline format
+            // C-quotes non-ASCII/special names, and feeding a quoted string
+            // back to `git add` matches nothing.
+            const untrackedRaw = yield* exec(
+              "git",
+              "ls-files",
+              "--others",
+              "--exclude-standard",
+              "-z",
+            )
+            const untracked = untrackedRaw.split("\0").filter((s) => s.length > 0)
+            if (untracked.length === 0) return yield* exec("git", "diff", "HEAD", ...excludeArgs)
             yield* exec("git", "add", "--intent-to-add", "--", ...untracked)
-            const diff = yield* exec("git", "diff", "HEAD")
+            const diff = yield* exec("git", "diff", "HEAD", ...excludeArgs)
             yield* exec("git", "reset", "--", ...untracked).pipe(Effect.catchAll(() => Effect.void))
             return diff
           }),
@@ -96,7 +150,8 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             Effect.catchAll(() => Effect.succeed(false)),
           ),
 
-        diffRef: (ref: string) => exec("git", "diff", ref, "HEAD"),
+        diffRef: (ref: string, exclude: ReadonlyArray<string> = []) =>
+          exec("git", "diff", ref, "HEAD", ...excludePathspecs(exclude)),
 
         diffPath: (path: string) => exec("git", "diff", "HEAD", "--", path),
 
@@ -109,6 +164,9 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
                 : Effect.fail(new Error(`Invalid ref: ${ref}`)),
             ),
           ),
+
+        topLevel: () =>
+          exec("git", "rev-parse", "--show-toplevel").pipe(Effect.map((s) => s.trim())),
 
         resolveDefaultBranch: () =>
           exec("git", "rev-parse", "--abbrev-ref", "origin/HEAD").pipe(
@@ -180,7 +238,7 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             }
           }),
 
-        checkoutAll: () => exec("git", "checkout", "--", ".").pipe(Effect.asVoid),
+        resetHard: () => exec("git", "reset", "--hard", "HEAD").pipe(Effect.asVoid),
 
         lastDeletionOf: (path: string) =>
           exec("git", "log", "--first-parent", "--diff-filter=D", "--format=%H", "--", path).pipe(
