@@ -1,6 +1,6 @@
 {
   "name": "gtd",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "private": true,
   "description": "Agent skill that emits the next prompt for an autonomous coding agent based on the current git state",
   "license": "MIT",
