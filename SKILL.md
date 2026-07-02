@@ -74,15 +74,20 @@ Precedence ladder:
 | 3        | .gtd/ + code dirty / pending ERRORS.md deletion / no-op fixer | Testing            |
 | 3        | .gtd/ clean + HEAD `gtd: planning` or `gtd: package done`     | Building           |
 | 3        | .gtd/ clean + HEAD `gtd: building`                            | Agentic Review     |
+| 4        | REVIEW.md + HEAD `gtd: review feedback` (lost seed)           | Accept Review      |
 | 4        | REVIEW.md committed + clean tree                              | Done               |
 | 4        | REVIEW.md committed + dirty tree                              | Accept Review      |
 | 4        | REVIEW.md uncommitted                                         | Await Review       |
-| 5        | Boundary HEAD + pending changes                               | New Feature        |
+| 5        | Boundary HEAD + pending changes (no committed TODO.md)        | New Feature        |
 | 6        | TODO.md + `<!-- user answers here -->` marker                 | Grilling (STOP)    |
 | 6        | TODO.md + no marker + dirty                                   | Grilling (iterate) |
 | 6        | TODO.md + no marker + clean                                   | Grilled            |
-| 7        | Clean tree + boundary/`package done` HEAD + reviewable diff   | Clean              |
-| 7        | Clean tree + boundary/`package done` HEAD + no diff           | Idle               |
+| 7        | Clean tree + boundary/`package done` HEAD + reviewable diff\* | Clean              |
+| 7        | Clean tree + boundary/`package done` HEAD, otherwise          | Idle               |
+
+\* Reviewable = the workflow-file-filtered diff since the review base is
+non-empty AND commits exist after the last `gtd: done` (or none exists) — an
+approved review settles Idle instead of immediately re-firing.
 
 A "boundary" commit is any non-`gtd:` subject, or exactly `gtd: done`.
 
@@ -96,7 +101,7 @@ re-gathers and re-resolves automatically):
 | Transport     | Mixed-reset the `gtd: transport` HEAD into the working tree                                                    |
 | New Feature   | Commit raw input `gtd: new task`, revert it, seed TODO.md                                                      |
 | Testing       | Commit pending code `gtd: building`; run tests; on red write FEEDBACK.md or ERRORS.md and commit `gtd: errors` |
-| Accept Review | Seed TODO.md from the pending changeset, discard code edits, remove REVIEW.md                                  |
+| Accept Review | Capture the changeset `gtd: review feedback` (commit-then-revert), remove REVIEW.md, seed TODO.md              |
 | Close package | Remove FEEDBACK.md + finished package dir + empty .gtd/, commit `gtd: package done`                            |
 | Done          | Remove REVIEW.md, commit `gtd: done`                                                                           |
 
@@ -163,20 +168,43 @@ the build loop runs:
 
 ## Review flow
 
-After all packages close (or for any committed code with no active workflow),
-**Clean** generates REVIEW.md for the diff since the auto-computed base:
+After all packages close (or for any committed branch work with no active
+workflow), **Clean** generates REVIEW.md for the diff since the auto-computed
+base:
 
-- Feature branch → merge-base with the default branch
-- Default branch → last `gtd: done` commit (or the first `gtd: grilling` after
-  the last accepted review), else the repository root
+- Within a process → the first `gtd: grilling` of the current cycle (the whole
+  task); after a feedback cycle → the last `gtd: awaiting review` (only the new
+  work packages)
+- Outside a process, feature branch → merge-base with the default branch —
+  always the whole branch, even after a prior `gtd: done` on it
+- Outside a process, default branch → no review (Idle)
+
+A review only fires when commits exist after the last `gtd: done` (or none
+exists), so an approved review settles Idle until new commits land. Workflow
+files (REVIEW.md, TODO.md, FEEDBACK.md, ERRORS.md, `.gtd/`) are excluded from
+every review diff.
 
 **Await Review** commits REVIEW.md (`gtd: awaiting review`) and STOPs.
 
-- **Human edits** → Accept Review (edge-only): seeds TODO.md from the changeset,
-  discards code edits, removes REVIEW.md. Next state is Grilling, which develops
-  the feedback into a new plan.
-- **No edits (clean tree)** → Done (edge-only): removes REVIEW.md, commits
-  `gtd: done` → Idle.
+- **Substantive edits** (code edits, new files, inline comments, textual
+  REVIEW.md notes, or an uncommitted TODO.md) → Accept Review (edge-only):
+  captures the whole changeset as `gtd: review feedback` (commit-then-revert —
+  untracked files are dropped by construction), removes REVIEW.md, seeds TODO.md
+  from the captured diff. Next state is Grilling, which develops the feedback
+  into a new plan — the process stays open; no `gtd: done` is committed on the
+  feedback path. If a checkout/pull loses the uncommitted seed, HEAD
+  `gtd: review feedback` + REVIEW.md regenerates it (never Done).
+- **No edits (clean tree) or checkbox-only ticks** → Done (edge-only): removes
+  REVIEW.md, commits `gtd: done` → Idle.
+
+Everywhere a change is captured (New Feature, Accept Review, grilling rounds on
+a committed plan — where code sketches are appended to TODO.md and reverted),
+the seed embeds the interpretation rules: code changes are suggestions to
+re-implement properly (including tests), code comments are positional feedback,
+TODO.md/REVIEW.md text is global feedback, checkbox flips are approval noise.
+During the build (`.gtd/` present) user edits are instead adopted and verified
+by tests + agentic review — pending code there is indistinguishable from
+builder-agent output.
 
 ## Configuration
 

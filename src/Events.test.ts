@@ -6,7 +6,14 @@ import { NodeContext } from "@effect/platform-node"
 import { FileSystem } from "@effect/platform"
 import { Effect, Layer } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { gatherEvents, getPackages, isCheckboxOnlyDiff, perform, seedTodo } from "./Events.js"
+import {
+  appendCapturedInput,
+  gatherEvents,
+  getPackages,
+  isCheckboxOnlyDiff,
+  perform,
+  seedTodo,
+} from "./Events.js"
 import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import type { ConfigOperations } from "./Config.js"
@@ -111,6 +118,43 @@ describe("seedTodo", () => {
     expect(out).toContain("- old line")
     expect(out).toContain("+ new line")
     expect(out).not.toContain("<!-- user answers here -->")
+  })
+
+  it("embeds the three-way interpretation rules (code = suggestions incl. tests, comments = positional, steering text = global)", () => {
+    const out = seedTodo("+ x\n")
+    expect(out).toContain("Interpret the captured diff")
+    expect(out).toContain("suggestions, not finished work")
+    expect(out).toContain("including test coverage")
+    expect(out).toContain("positional feedback")
+    expect(out).toContain("global feedback")
+    expect(out).toContain("approval noise")
+  })
+})
+
+// ── appendCapturedInput (pure) ───────────────────────────────────────────────
+
+describe("appendCapturedInput", () => {
+  const todo = "# Plan\n\nBuild it.\n"
+
+  it("appends a fenced grilling capture section with the interpretation rules", () => {
+    const out = appendCapturedInput(todo, "+ sketch\n")
+    expect(out.startsWith("# Plan")).toBe(true)
+    expect(out).toContain("## Captured input (grilling)")
+    expect(out).toContain("```diff\n+ sketch\n```")
+    expect(out).toContain("Interpret the captured diff")
+  })
+
+  it("is idempotent — the exact diff body already present returns the TODO unchanged", () => {
+    const once = appendCapturedInput(todo, "+ sketch\n")
+    expect(appendCapturedInput(once, "+ sketch\n")).toBe(once)
+  })
+
+  it("includes the interpretation rules at most once across appends", () => {
+    const once = appendCapturedInput(todo, "+ first\n")
+    const twice = appendCapturedInput(once, "+ second\n")
+    expect(twice).toContain("+ first")
+    expect(twice).toContain("+ second")
+    expect(twice.split("Interpret the captured diff").length - 1).toBe(1)
   })
 })
 
@@ -408,6 +452,21 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
     expect(p.reviewCheckboxOnly).toBe(false)
   })
 
+  it("todoCommitted: tracked at HEAD → true (even with pending edits)", async () => {
+    commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n\nedited\n")
+    const p = resolveOf(await runGather())
+    expect(p.todoExists).toBe(true)
+    expect(p.todoCommitted).toBe(true)
+  })
+
+  it("todoCommitted: freshly written (untracked) TODO.md → false (seed round)", async () => {
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+    const p = resolveOf(await runGather())
+    expect(p.todoExists).toBe(true)
+    expect(p.todoCommitted).toBe(false)
+  })
+
   it("pendingErrorsDeletion reflects a working-tree ERRORS.md deletion", async () => {
     commitFile("gtd: errors", "ERRORS.md", "boom\n")
     rmSync(join(repoDir, "ERRORS.md")) // human removes the committed ERRORS.md
@@ -452,30 +511,53 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
   afterEach(cleanup)
 
   // Rule 1: within-process, first review — base = first `gtd: grilling` of the
-  // current task cycle; refDiff spans the whole task since grilling started.
+  // current task cycle; refDiff spans the whole task since grilling started,
+  // minus the workflow files (TODO.md's add/delete churn is filtered out).
   it("within-process first review → base is the first gtd: grilling commit; refDiff spans whole task", async () => {
     initRepo(false)
     commitFile("gtd: grilling", "TODO.md", "# Plan\n")
     const grillingHash = git("rev-parse", "HEAD")
+    git("rm", "-q", "TODO.md")
+    git("commit", "-q", "-m", "gtd: planning")
     commitFile("feat: add widget", "widget.ts", "export const widget = 1\n")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBe(grillingHash)
     expect(p.refDiff).toContain("widget.ts")
+    expect(p.refDiff).not.toContain("TODO.md")
   })
 
   // Rule 2: within-process, incremental — `gtd: awaiting review` already present;
-  // base = last `gtd: awaiting review` hash; refDiff spans only post-review changes.
+  // base = last `gtd: awaiting review` hash; refDiff spans only post-review
+  // changes, minus the workflow files (REVIEW.md's removal is filtered out).
   it("within-process incremental review → base is the last gtd: awaiting review commit; refDiff spans only post-review changes", async () => {
     initRepo(false)
     commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+    git("rm", "-q", "TODO.md")
+    git("commit", "-q", "-m", "gtd: planning")
     commitFile("feat: first batch", "first.ts", "export const first = 1\n")
     commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n")
     const lastAwaiting = git("rev-parse", "HEAD")
+    // Accept Review seeds + Grilling commits REVIEW.md's removal (feedback path).
+    git("rm", "-q", "REVIEW.md")
+    git("commit", "-q", "-m", "gtd: grilling")
     commitFile("feat: second batch", "second.ts", "export const second = 2\n")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBe(lastAwaiting)
     expect(p.refDiff).toContain("second.ts")
     expect(p.refDiff).not.toContain("first.ts")
+    expect(p.refDiff).not.toContain("REVIEW.md")
+  })
+
+  // Only workflow-file churn since the base → the filtered diff is empty, so
+  // reviewBase/refDiff stay unset and the machine settles Idle.
+  it("only workflow-file churn since base → reviewBase/refDiff unset (Idle)", async () => {
+    initRepo(false)
+    commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+    git("rm", "-q", "TODO.md")
+    git("commit", "-q", "-m", "gtd: planning")
+    const p = resolveOf(await runGather())
+    expect(p.reviewBase).toBeUndefined()
+    expect(p.refDiff).toBeUndefined()
   })
 
   // Rule 3: outside a process, on a feature branch — base = merge-base(default, HEAD);
@@ -507,6 +589,65 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
     expect(p.refDiff).toBeUndefined()
   })
 })
+
+// ── gatherEvents: review re-trigger gate ─────────────────────────────────────
+// `hasCommitsAfterLastDone` — the loop fix. The gate decides *whether* a review
+// fires (machine rule 7); the base rules above decide *what it covers*. Both
+// are resolved independently, so a closed gate still carries the whole-branch
+// reviewBase in the payload.
+
+describe(
+  "gatherEvents — review re-trigger gate (hasCommitsAfterLastDone)",
+  { timeout: 30_000 },
+  () => {
+    afterEach(cleanup)
+
+    it("no gtd: done in history → gate open", async () => {
+      initRepo(true)
+      commitFile("feat: branch work", "branch.ts", "export const branch = 1\n")
+      const p = resolveOf(await runGather())
+      expect(p.hasCommitsAfterLastDone).toBe(true)
+    })
+
+    it("HEAD is the last gtd: done → gate closed; whole-branch scope still computed", async () => {
+      initRepo(true)
+      commitFile("feat: branch work", "branch.ts", "export const branch = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+      const mergeBase = git("rev-parse", "main")
+      const p = resolveOf(await runGather())
+      expect(p.hasCommitsAfterLastDone).toBe(false)
+      // Scope is untouched by the gate: the merge-base diff is still non-empty.
+      expect(p.reviewBase).toBe(mergeBase)
+      expect(p.refDiff).toContain("branch.ts")
+    })
+
+    it("commits after the last gtd: done → gate reopens; base stays the merge-base (whole branch)", async () => {
+      initRepo(true)
+      commitFile("feat: first slice", "first.ts", "export const first = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+      commitFile("feat: second slice", "second.ts", "export const second = 2\n")
+      const mergeBase = git("rev-parse", "main")
+      const p = resolveOf(await runGather())
+      expect(p.hasCommitsAfterLastDone).toBe(true)
+      // No "since last done" scoping: the approved first slice is re-covered.
+      expect(p.reviewBase).toBe(mergeBase)
+      expect(p.refDiff).toContain("first.ts")
+      expect(p.refDiff).toContain("second.ts")
+    })
+
+    it("empty repo → gate open (degenerate default)", async () => {
+      repoDir = mkdtempSync(join(tmpdir(), "gtd-events-"))
+      git("init", "-q")
+      git("config", "user.name", "Test")
+      git("config", "user.email", "test@test.com")
+      git("config", "commit.gpgsign", "false")
+      savedCwd = process.cwd()
+      process.chdir(repoDir)
+      const p = resolveOf(await runGather())
+      expect(p.hasCommitsAfterLastDone).toBe(true)
+    })
+  },
+)
 
 // ── gatherEvents: COMMIT-stream base folds ───────────────────────────────────
 
@@ -593,7 +734,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, "feature.ts"))).toBe(false) // reverted to baseline
   })
 
-  it("seedAcceptReview: discards code edits, seeds TODO.md from the changeset, removes REVIEW.md", async () => {
+  it("seedAcceptReview: captures the changeset as gtd: review feedback, reverts it, seeds TODO.md, removes REVIEW.md", async () => {
     writeFileSync(join(repoDir, "code.ts"), "v1\n")
     git("add", "-A")
     git("commit", "-q", "-m", "feat: base")
@@ -606,10 +747,80 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
 
     await runPerform({ kind: "seedAcceptReview" })
 
+    // The changeset is durably captured (commit-then-revert, like New Feature).
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: review feedback")
     expect(existsSync(join(repoDir, "REVIEW.md"))).toBe(false)
     expect(existsSync(join(repoDir, "TODO.md"))).toBe(true)
     expect(readFileSync(join(repoDir, "TODO.md"), "utf8")).toContain("HUMAN FEEDBACK")
     expect(readFileSync(join(repoDir, "code.ts"), "utf8")).toBe("v1\n") // edits discarded
+  })
+
+  // The leak regression: a plain `git checkout -- .` discards only tracked
+  // edits, so a reviewer-added NEW file used to survive and get committed
+  // verbatim by the next grilling round while also being re-planned in TODO.md.
+  // Commit-then-revert drops it by construction and preserves it in history.
+  it("seedAcceptReview: drops untracked reviewer-added files (captured, not leaked)", async () => {
+    writeFileSync(join(repoDir, "code.ts"), "v1\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "feat: base")
+    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: awaiting review")
+    writeFileSync(join(repoDir, "newfile.ts"), "export const subtract = 1\n")
+
+    await runPerform({ kind: "seedAcceptReview" })
+
+    expect(existsSync(join(repoDir, "newfile.ts"))).toBe(false) // dropped from the tree
+    expect(readFileSync(join(repoDir, "TODO.md"), "utf8")).toContain("export const subtract = 1")
+    // …and preserved in the capture commit.
+    expect(git("show", "HEAD:newfile.ts")).toBe("export const subtract = 1")
+  })
+
+  // Regen: HEAD already carries the capture commit (checkout/pull or crash lost
+  // the uncommitted seed) — re-derive the seed from the commit, no new commit.
+  it("seedAcceptReview (HEAD gtd: review feedback + clean): regenerates the seed without a new commit", async () => {
+    writeFileSync(join(repoDir, "code.ts"), "v1\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "feat: base")
+    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: awaiting review")
+    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n\nHUMAN FEEDBACK\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: review feedback")
+    const countBefore = git("rev-list", "--count", "HEAD")
+
+    await runPerform({ kind: "seedAcceptReview" })
+
+    expect(git("rev-list", "--count", "HEAD")).toBe(countBefore) // no extra commit
+    expect(existsSync(join(repoDir, "REVIEW.md"))).toBe(false)
+    expect(readFileSync(join(repoDir, "TODO.md"), "utf8")).toContain("HUMAN FEEDBACK")
+  })
+
+  it("captureGrillingEdits: folds code edits into TODO.md, drops them, commits gtd: grilling", async () => {
+    writeFileSync(join(repoDir, "code.ts"), "v1\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "feat: base")
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n\nBuild it.\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: grilling")
+    // User sketches code (tracked edit + untracked file) and refines the plan:
+    writeFileSync(join(repoDir, "code.ts"), "v2 sketch\n")
+    writeFileSync(join(repoDir, "sketch.ts"), "export const sketch = 1\n")
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n\nBuild it with sketches.\n")
+
+    await runPerform({ kind: "captureGrillingEdits" })
+
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: grilling")
+    expect(git("status", "--porcelain").trim()).toBe("") // one commit, clean tree
+    expect(readFileSync(join(repoDir, "code.ts"), "utf8")).toBe("v1\n") // reverted
+    expect(existsSync(join(repoDir, "sketch.ts"))).toBe(false) // dropped
+    const todo = readFileSync(join(repoDir, "TODO.md"), "utf8")
+    expect(todo).toContain("Build it with sketches.") // user's plan edit preserved
+    expect(todo).toContain("## Captured input (grilling)")
+    expect(todo).toContain("v2 sketch")
+    expect(todo).toContain("export const sketch = 1")
+    expect(todo).toContain("Interpret the captured diff")
   })
 
   it("runTest green: commits gtd: building, writes no FEEDBACK/ERRORS", async () => {

@@ -117,6 +117,77 @@ Feature: Grilling — the 3-way convergence gate on TODO.md
     And the last commit subject is "gtd: grilling"
     And stdout contains "Open questions await the user"
 
+  # Later grilling rounds (committed plan) treat user code sketches as
+  # suggestions: the diff is folded into TODO.md and the code is reverted, so
+  # nothing lands on the branch without going through plan → build → test →
+  # review. The seed round (uncommitted TODO.md) still commits the seed revert
+  # verbatim.
+  Scenario: Code sketched during grilling is captured into the plan and reverted
+    Given a test project
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+
+      Build a calculator.
+      """
+    And a file "src/sketch.ts" with:
+      """
+      export const sketch = () => 1
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: grilling"
+    And the file "src/sketch.ts" does not exist
+    And the file "TODO.md" contains "Captured input (grilling)"
+    And the file "TODO.md" contains "export const sketch"
+    And the file "TODO.md" contains "Interpret the captured diff"
+    And stdout contains "## Task: Grill the plan in `TODO.md`"
+
+  Scenario: Code sketched while questions are open is captured and gtd still stops
+    Given a test project
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+
+      ## Which operations?
+
+      <!-- user answers here -->
+      """
+    And a file "src/sketch.ts" with:
+      """
+      export const sketch = () => 1
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: grilling"
+    And the file "src/sketch.ts" does not exist
+    And the file "TODO.md" contains "export const sketch"
+    And stdout contains "Open questions await the user"
+
+  # A committed TODO.md under a boundary HEAD is a resumed grill — even with a
+  # dirty tree it must not re-seed (New Feature would clobber the developed
+  # plan); the code edits are captured instead.
+  Scenario: A resumed grill with code edits does not re-seed over the committed plan
+    Given a test project
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+
+      A carefully developed plan.
+      """
+    And a commit "chore: unrelated housekeeping"
+    And a file "src/sketch.ts" with:
+      """
+      export const sketch = () => 1
+      """
+    When I run gtd
+    Then it succeeds
+    And the git log does not contain "gtd: new task"
+    And the last commit subject is "gtd: grilling"
+    And the file "TODO.md" contains "A carefully developed plan."
+    And the file "TODO.md" contains "export const sketch"
+    And the file "src/sketch.ts" does not exist
+
   Scenario: A .gtd package file whose name contains a space is classified as gtd, not code
     Given a test project
     And a commit "gtd: planning" that adds ".gtd/01-feature/my task.md" with:

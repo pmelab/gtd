@@ -27,13 +27,27 @@ Feature: Close package — one gtd: package done per package
 
   Scenario: Closing the last package removes .gtd and advances to Clean
     Given a test project
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+      - [ ] implement the only helper
+      """
+    And a commit "gtd: planning" that deletes "TODO.md"
     And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the only helper.
+      """
+    And a commit "gtd: building" that adds "src/helper.ts" with:
+      """
+      export const helper = () => 42
       """
     And an empty file "FEEDBACK.md"
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: package done"
     And the file ".gtd" does not exist
+    # The review spans the whole task (base = first gtd: grilling) but the
+    # workflow-file churn (TODO.md, .gtd/) is filtered out of the diff.
     And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "src/helper.ts"
+    And stdout does not contain "a/.gtd/01-foo/01-task.md"

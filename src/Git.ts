@@ -3,10 +3,19 @@ import { Context, Effect, Layer, Option } from "effect"
 
 export interface GitOperations {
   readonly statusPorcelain: () => Effect.Effect<string, Error>
-  readonly diffHead: () => Effect.Effect<string, Error>
+  /**
+   * `git diff HEAD` including untracked files (via a transient intent-to-add),
+   * optionally with `:(exclude)` pathspecs. Exclusions match repo-root-relative
+   * paths; a directory path excludes everything under it.
+   */
+  readonly diffHead: (exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly lastCommitSubject: () => Effect.Effect<string, Error>
   readonly hasCommits: () => Effect.Effect<boolean, Error>
-  readonly diffRef: (ref: string) => Effect.Effect<string, Error>
+  /**
+   * `git diff <ref> HEAD`, optionally with `:(exclude)` pathspecs. Exclusions
+   * match repo-root-relative paths; a directory path excludes everything under it.
+   */
+  readonly diffRef: (ref: string, exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly diffPath: (path: string) => Effect.Effect<string, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
   readonly resolveDefaultBranch: () => Effect.Effect<Option.Option<string>, Error>
@@ -21,6 +30,11 @@ export interface GitOperations {
   readonly mixedResetHead: () => Effect.Effect<void, Error>
   /** `git checkout -- .` — discards tracked working-tree edits back to HEAD. */
   readonly checkoutAll: () => Effect.Effect<void, Error>
+  /**
+   * `git reset --hard HEAD` — index and tracked working tree back to HEAD;
+   * staged-but-new files are dropped, pure untracked (`??`) files survive.
+   */
+  readonly resetHard: () => Effect.Effect<void, Error>
   /**
    * `git log --first-parent --diff-filter=D --format=%H -- <path>` — returns the
    * most recent commit that deleted `path` as `Option.some(sha)`, or `Option.none()`.
@@ -73,16 +87,18 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
       return {
         statusPorcelain: () => exec("git", "status", "--porcelain"),
 
-        diffHead: () =>
+        diffHead: (exclude: ReadonlyArray<string> = []) =>
           Effect.gen(function* () {
+            const excludeArgs =
+              exclude.length > 0 ? ["--", ".", ...exclude.map((path) => `:(exclude)${path}`)] : []
             const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard")
             const untracked = untrackedRaw
               .split("\n")
               .map((s) => s.trim())
               .filter((s) => s !== "")
-            if (untracked.length === 0) return yield* exec("git", "diff", "HEAD")
+            if (untracked.length === 0) return yield* exec("git", "diff", "HEAD", ...excludeArgs)
             yield* exec("git", "add", "--intent-to-add", "--", ...untracked)
-            const diff = yield* exec("git", "diff", "HEAD")
+            const diff = yield* exec("git", "diff", "HEAD", ...excludeArgs)
             yield* exec("git", "reset", "--", ...untracked).pipe(Effect.catchAll(() => Effect.void))
             return diff
           }),
@@ -96,7 +112,16 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             Effect.catchAll(() => Effect.succeed(false)),
           ),
 
-        diffRef: (ref: string) => exec("git", "diff", ref, "HEAD"),
+        diffRef: (ref: string, exclude: ReadonlyArray<string> = []) =>
+          exec(
+            "git",
+            "diff",
+            ref,
+            "HEAD",
+            ...(exclude.length > 0
+              ? ["--", ".", ...exclude.map((path) => `:(exclude)${path}`)]
+              : []),
+          ),
 
         diffPath: (path: string) => exec("git", "diff", "HEAD", "--", path),
 
@@ -181,6 +206,8 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
           }),
 
         checkoutAll: () => exec("git", "checkout", "--", ".").pipe(Effect.asVoid),
+
+        resetHard: () => exec("git", "reset", "--hard", "HEAD").pipe(Effect.asVoid),
 
         lastDeletionOf: (path: string) =>
           exec("git", "log", "--first-parent", "--diff-filter=D", "--format=%H", "--", path).pipe(

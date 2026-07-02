@@ -37,6 +37,7 @@ const UNANSWERED_MARKER = "<!-- user answers here -->"
 // Flat `gtd: <phase>` taxonomy — the only commit subjects the machine reads or
 // the edge writes. Counters fold from these prefixes + the `removedErrors` flag.
 const NEW_TASK_SUBJECT = "gtd: new task"
+const GRILLING_SUBJECT = "gtd: grilling"
 const PLANNING_SUBJECT = "gtd: planning"
 const BUILDING_SUBJECT = "gtd: building"
 const ERRORS_SUBJECT = "gtd: errors"
@@ -44,6 +45,25 @@ const FEEDBACK_SUBJECT = "gtd: feedback"
 const PACKAGE_DONE_SUBJECT = "gtd: package done"
 const AWAITING_REVIEW_SUBJECT = "gtd: awaiting review"
 const DONE_SUBJECT = "gtd: done"
+// The accept-review capture commit (commit-then-revert, like `gtd: new task`).
+// Distinct from the exact `gtd: feedback` marker the reviewFixCount fold reads.
+const REVIEW_FEEDBACK_SUBJECT = "gtd: review feedback"
+
+// Workflow plumbing excluded from every review diff (refDiff) and from the
+// grilling-round code capture: neither the reviewer nor a captured suggestion
+// block should ever contain steering-file churn (TODO.md seeded/deleted,
+// REVIEW.md committed/removed, `.gtd/` packages created/closed).
+const WORKFLOW_FILE_EXCLUDES: ReadonlyArray<string> = [
+  REVIEW_FILE,
+  TODO_FILE,
+  FEEDBACK_FILE,
+  ERRORS_FILE,
+  GTD_DIR,
+]
+
+const isGtdPath = (path: string): boolean => path === GTD_DIR || path.startsWith(`${GTD_DIR}/`)
+const isSteeringFile = (path: string): boolean =>
+  path === TODO_FILE || path === REVIEW_FILE || path === FEEDBACK_FILE || path === ERRORS_FILE
 
 // git's empty-tree object. `git diff <empty-tree> HEAD` yields the entire tree
 // as additions — the Clean review base when HEAD is on the default branch and
@@ -180,6 +200,24 @@ export const getPackages = (
   }).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
 
 /**
+ * How the grilling agent must read a captured diff: the three-way feedback
+ * interpretation. Embedded in every captured section (seed and grilling-round
+ * appends) so the rules travel with TODO.md — they survive checkouts and reach
+ * whichever agent picks the file up, not just the one gtd prompts next.
+ */
+const CAPTURE_RULES = [
+  "Interpret the captured diff with these rules:",
+  "",
+  "- **Code changes** are suggestions, not finished work — plan to re-implement",
+  "  them properly, including test coverage, rather than restoring them verbatim.",
+  "- **Code comments** are positional feedback about the code at that location.",
+  "- **TODO.md / REVIEW.md text changes** are global feedback on the plan or the",
+  "  reviewed work as a whole.",
+  "- **Checkbox flips** in a captured REVIEW.md diff are approval noise — ignore",
+  "  them.",
+].join("\n")
+
+/**
  * Deterministic, edge-built TODO.md seed for New Feature / Accept Review. No
  * agent runs during seeding (both states list `Prompt: none`); the next
  * Grilling invocation develops this into a real plan. The captured diff is
@@ -195,11 +233,39 @@ export const seedTodo = (capturedDiff: string): string =>
     "These changes were captured as the starting point for this feature. Develop",
     "them into a concrete plan and surface any open questions for the user.",
     "",
+    CAPTURE_RULES,
+    "",
     "```diff",
     capturedDiff.replace(/\n+$/, ""),
     "```",
     "",
   ].join("\n")
+
+/**
+ * Append a grilling-round capture to an existing TODO.md: code the user
+ * sketched while the plan was already committed is folded in as a fenced
+ * suggestion block; the edge then drops those changes from the working tree
+ * (STATES.md § Grilling). Idempotent — when the exact diff body is already
+ * present (a crash between append and commit re-runs the capture), the TODO is
+ * returned unchanged. The interpretation rules are included at most once.
+ */
+export const appendCapturedInput = (todo: string, capturedDiff: string): string => {
+  const body = capturedDiff.replace(/\n+$/, "")
+  if (todo.includes(body)) return todo
+  const section = [
+    "## Captured input (grilling)",
+    "",
+    "These code changes were made during grilling and captured as suggestions;",
+    "gtd has reverted them from the working tree.",
+    "",
+    ...(todo.includes(CAPTURE_RULES) ? [] : [CAPTURE_RULES, ""]),
+    "```diff",
+    body,
+    "```",
+    "",
+  ].join("\n")
+  return todo.replace(/\n*$/, "\n\n") + section
+}
 
 /**
  * Returns true iff the diff contains at least one change and every changed
@@ -310,10 +376,6 @@ export const gatherEvents = (): Effect.Effect<
     const workingTreeClean = entries.length === 0
     const lastCommitSubject = hasCommits ? yield* git.lastCommitSubject() : ""
 
-    const isGtdPath = (p: string): boolean => p === GTD_DIR || p.startsWith(`${GTD_DIR}/`)
-    const isSteeringFile = (p: string): boolean =>
-      p === TODO_FILE || p === REVIEW_FILE || p === FEEDBACK_FILE || p === ERRORS_FILE
-
     // `.gtd/` package files added/edited vs the committed tree.
     const gtdModified = entries.some((e) => isGtdPath(e.path))
     // Pending changes outside the steering set (TODO/REVIEW/FEEDBACK/ERRORS/.gtd).
@@ -350,6 +412,11 @@ export const gatherEvents = (): Effect.Effect<
     const reviewCommitted = reviewTrackedAtHead && workingTreeClean
     const reviewDirty = reviewTrackedAtHead && !workingTreeClean
 
+    // TODO.md tracked at HEAD — distinguishes a committed plan being iterated
+    // (later grilling rounds, which capture user code sketches) from a freshly
+    // seeded, uncommitted one (the seed round, which commits the seed revert).
+    const todoCommitted = todoExists && !isUncommitted(TODO_FILE)
+
     // The working tree deletes a committed ERRORS.md (human resume → fresh
     // budget). A status probe, distinct from the committed `removedErrors` flag.
     const pendingErrorsDeletion = entries.some(
@@ -368,8 +435,8 @@ export const gatherEvents = (): Effect.Effect<
         yield* git.diffPath(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.succeed(""))),
       )
 
-    // --- Review base (Clean review) ------------------------------------------
-    // Four-rule logic to determine the review base:
+    // --- Review base + re-trigger gate (Clean review) -------------------------
+    // Scope — what a review covers — is a four-rule logic:
     //
     // Rule 1: Within a process (has a `gtd: grilling` commit after last
     //         `gtd: done`), no `gtd: awaiting review` yet → cover the whole
@@ -378,14 +445,24 @@ export const gatherEvents = (): Effect.Effect<
     //         changes since the last review: base = last `gtd: awaiting review`
     //         of the current task cycle (takes precedence over rule 1).
     // Rule 3: Outside a process, on a feature branch (base is Some) → cover
-    //         the whole branch: base = merge-base(defaultBranch, HEAD).
+    //         the whole branch: base = merge-base(defaultBranch, HEAD) —
+    //         unconditionally, even when a prior process completed on the
+    //         branch (already-approved work is re-covered by design).
     // Rule 4: Outside a process, on the default branch (base is None) → skip
     //         review: leave reviewBase/refDiff unset so the machine settles Idle.
     //
-    // Only set reviewBase/refDiff when the resulting diff is non-empty
-    // (non-empty distinguishes Clean from Idle).
+    // Trigger — whether a review fires — is the `hasCommitsAfterLastDone` gate:
+    // commits exist after the last `gtd: done` (or no `gtd: done` exists).
+    // Resolved here at the edge, consumed by the machine's Clean/Idle rule, so
+    // an approved review settles Idle instead of immediately re-firing (the
+    // review → approve → done → review loop). It gates *whether*, never *what*.
+    //
+    // The refDiff excludes workflow files (REVIEW_DIFF_EXCLUDES) so the
+    // reviewer never sees plumbing churn. Only set reviewBase/refDiff when the
+    // filtered diff is non-empty (non-empty distinguishes Clean from Idle).
     let reviewBase: string | undefined
     let refDiff: string | undefined
+    let hasCommitsAfterLastDone = true
     if (hasCommits) {
       // Scan ALL commits (no base arg) to properly detect process boundaries
       // across `gtd: done` commits even on trunk.
@@ -396,21 +473,22 @@ export const gatherEvents = (): Effect.Effect<
         let idx = -1
         for (let i = 0; i < allHistory.length; i++) {
           const subject = (allHistory[i]!.message.split("\n")[0] ?? "").trim()
-          if (subject === "gtd: done") idx = i
+          if (subject === DONE_SUBJECT) idx = i
         }
         return idx
       })()
       const currentCycle = lastDoneIdx === -1 ? allHistory : allHistory.slice(lastDoneIdx + 1)
+      hasCommitsAfterLastDone = lastDoneIdx === -1 || currentCycle.length > 0
 
       // Find first `gtd: grilling` in the current cycle (task start).
       const firstGrilling = currentCycle.find(
-        (c) => (c.message.split("\n")[0] ?? "").trim() === "gtd: grilling",
+        (c) => (c.message.split("\n")[0] ?? "").trim() === GRILLING_SUBJECT,
       )
       // Find last `gtd: awaiting review` in the current cycle.
       const lastAwaitingReview = (() => {
         let found: (typeof currentCycle)[number] | undefined
         for (const c of currentCycle) {
-          if ((c.message.split("\n")[0] ?? "").trim().startsWith("gtd: awaiting review")) {
+          if ((c.message.split("\n")[0] ?? "").trim().startsWith(AWAITING_REVIEW_SUBJECT)) {
             found = c
           }
         }
@@ -442,7 +520,7 @@ export const gatherEvents = (): Effect.Effect<
 
       if (candidate !== undefined) {
         const candidateDiff = yield* git
-          .diffRef(candidate)
+          .diffRef(candidate, WORKFLOW_FILE_EXCLUDES)
           .pipe(Effect.catchAll(() => Effect.succeed("")))
         if (candidateDiff.trim().length > 0) {
           reviewBase = candidate
@@ -453,6 +531,7 @@ export const gatherEvents = (): Effect.Effect<
 
     const payload: ResolvePayload = {
       todoExists,
+      todoCommitted,
       gtdDirExists,
       reviewPresent,
       feedbackPresent,
@@ -473,6 +552,7 @@ export const gatherEvents = (): Effect.Effect<
       diff,
       ...(reviewBase !== undefined ? { reviewBase } : {}),
       ...(refDiff !== undefined ? { refDiff } : {}),
+      hasCommitsAfterLastDone,
       agenticReviewEnabled: config.agenticReview,
       fixAttemptCap: config.fixAttemptCap,
       reviewThreshold: config.reviewThreshold,
@@ -521,14 +601,63 @@ export const perform = (
         return
       }
 
-      // Accept Review: seed TODO.md from the human's pending changeset, discard
-      // their code edits back to the reviewed baseline, and rm REVIEW.md (which
-      // is what stops Accept Review re-firing). All left uncommitted.
+      // Accept Review: capture the human's pending changeset durably — commit it
+      // verbatim as `gtd: review feedback` (annotations, code edits, and new
+      // files alike), revert it back to the reviewed baseline, rm REVIEW.md
+      // (which is what stops Accept Review re-firing), and seed TODO.md from the
+      // captured diff. Commit-then-revert mirrors New Feature so untracked files
+      // are dropped by construction (a plain checkout leaks them) and the
+      // changeset survives checkout/pull. When HEAD already carries the capture
+      // subject this is the regen case (the machine's rule-4 carve-out fired):
+      // discard any partial revert/seed state and re-derive from the commit.
       case "seedAcceptReview": {
-        const changeset = yield* git.diffHead().pipe(Effect.catchAll(() => Effect.succeed("")))
-        yield* git.checkoutAll()
+        const subject = yield* git
+          .lastCommitSubject()
+          .pipe(Effect.catchAll(() => Effect.succeed("")))
+        if (subject !== REVIEW_FEEDBACK_SUBJECT) {
+          yield* git.commitAllWithPrefix(REVIEW_FEEDBACK_SUBJECT)
+        } else {
+          yield* git.resetHard()
+        }
+        const base = yield* git
+          .resolveRef("HEAD~1")
+          .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
+        const captured = yield* git.diffRef(base).pipe(Effect.catchAll(() => Effect.succeed("")))
+        yield* git.revertNoCommit("HEAD")
         yield* fs.remove(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.void))
-        yield* fs.writeFileString(TODO_FILE, seedTodo(changeset))
+        yield* fs.writeFileString(TODO_FILE, seedTodo(captured))
+        return
+      }
+
+      // Grilling capture: the plan is already committed and the user sketched
+      // code during the round. Fold the code diff (untracked included, steering
+      // files excluded) into TODO.md as a suggestion block, drop the code
+      // changes — reset tracked, delete untracked/added — and commit the lot as
+      // one `gtd: grilling`. TODO.md's own pending edits are preserved verbatim
+      // (snapshotted before the reset). Binary edits survive only as the diff's
+      // "Binary files differ" line — an accepted limitation.
+      case "captureGrillingEdits": {
+        const porcelain = yield* git.statusPorcelain()
+        const entries = parsePorcelainPaths(porcelain)
+        // Untracked (`??`) code files must be deleted explicitly; staged-new
+        // (`A`) ones are included too in case the hard reset leaves them on
+        // disk — fs.remove tolerates either outcome.
+        const pendingCodeFiles = entries.filter(
+          (e) =>
+            (e.status.includes("?") || e.status.includes("A")) &&
+            !isSteeringFile(e.path) &&
+            !isGtdPath(e.path),
+        )
+        // Snapshot TODO.md (with the user's pending plan edits) and the code
+        // diff BEFORE the reset discards them.
+        const todoNow = yield* fs.readFileString(TODO_FILE)
+        const captured = yield* git.diffHead(WORKFLOW_FILE_EXCLUDES)
+        yield* git.resetHard()
+        for (const entry of pendingCodeFiles) {
+          yield* fs.remove(entry.path, { recursive: true }).pipe(Effect.catchAll(() => Effect.void))
+        }
+        yield* fs.writeFileString(TODO_FILE, appendCapturedInput(todoNow, captured))
+        yield* git.commitAllWithPrefix(GRILLING_SUBJECT)
         return
       }
 
