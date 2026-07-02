@@ -15,10 +15,13 @@ export class GtdWorld extends World {
   }
   savedCommitCount: number | undefined = undefined
 
+  /** Directory the next `runGtd` uses as cwd; defaults to the repo root. */
+  runCwd: string | undefined = undefined
+
   runGtd(...args: string[]) {
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
     const result = spawnSync(process.execPath, [GTD_BIN, ...args], {
-      cwd: this.repoDir,
+      cwd: this.runCwd ?? this.repoDir,
       env: { ...process.env },
       encoding: "utf-8",
       timeout: 30_000,

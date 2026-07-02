@@ -262,6 +262,58 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And the file "TODO.md" contains "Please also add a subtract function."
     And stdout contains "## Task: Grill the plan in `TODO.md`"
 
+  # Checkbox ticks are approval signals, but ONLY when nothing else changed:
+  # mixed with a code edit they ride along as feedback into the capture.
+  Scenario: Checkbox ticks mixed with a code edit are feedback, not approval
+    Given a test project
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+
+      - [ ] ./src/calc.ts#1
+      """
+    And "REVIEW.md" is modified to:
+      """
+      # Review
+
+      - [x] ./src/calc.ts#1
+      """
+    And "src/calc.ts" is modified to:
+      """
+      export const add = (a: number, b: number) => a + b
+      export const sub = (a: number, b: number) => a - b
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: grilling"
+    And the git log contains "gtd: review feedback"
+    And the git log does not contain "gtd: done"
+    And the file "TODO.md" contains "export const sub"
+    And the file "src/calc.ts" does not contain "export const sub"
+
+  Scenario: Emptying REVIEW.md's content is a textual change, not an approval
+    Given a test project
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+
+      - [ ] ./src/calc.ts#1
+      """
+    And an empty file "REVIEW.md"
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: grilling"
+    And the git log does not contain "gtd: done"
+    And the file "TODO.md" exists
+
   # An uncommitted TODO.md under a committed REVIEW.md is global feedback, not
   # an illegal combination — the reviewer reached for plan-level notes.
   Scenario: Plan notes written into TODO.md during a review are feedback, not an error

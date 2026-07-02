@@ -14,6 +14,7 @@ import {
   perform,
   seedTodo,
 } from "./Events.js"
+import { formatFile } from "./Format.js"
 import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import type { ConfigOperations } from "./Config.js"
@@ -155,6 +156,81 @@ describe("appendCapturedInput", () => {
     expect(twice).toContain("+ first")
     expect(twice).toContain("+ second")
     expect(twice.split("Interpret the captured diff").length - 1).toBe(1)
+  })
+
+  // Accepted behavior (TODO.md plan): the idempotence check matches the raw
+  // diff body anywhere in the TODO, so prose that happens to contain the exact
+  // same text as a new capture suppresses the append. Pathological in
+  // practice; documented rather than special-cased.
+  it("skips the append when the TODO already contains the diff body as prose (accepted)", () => {
+    const prose = "# Plan\n\nSee this snippet:\n\n+ sketch\n"
+    expect(appendCapturedInput(prose, "+ sketch\n")).toBe(prose)
+  })
+})
+
+// ── capture fencing vs the answers gate ──────────────────────────────────────
+// All three tests below assert the documented contract — "the captured diff is
+// fenced so any marker it contains is stripped by stripCode and does not trip
+// the open-question gate" (seedTodo docstring) — and all three FAIL. Two
+// distinct KNOWN BUGS (documented, not fixed — TODO.md § Bugs found):
+//
+// 1. stripCode's fence regex ends with `(?:\n\1[^\n]*|$)` under the `m` flag,
+//    where `$` matches at EVERY line end — the lazy quantifier therefore stops
+//    at the first line end inside the fence, so only the first fenced line is
+//    stripped. A marker anywhere deeper in a fenced block leaks through to the
+//    gate. (This is why even the raw, un-formatted seed fails.) Fix: anchor
+//    the fallback to end-of-input, e.g. `$(?![\s\S])`.
+// 2. The `gtd format` round-trip (the prompts instruct it after every TODO.md
+//    edit; the recommended pre-commit hook runs it on commit): CommonMark
+//    treats a diff CONTEXT line like " ```" (space-prefixed, ≤3-space indent)
+//    as a valid CLOSING fence, so prettier terminates the seed's fixed
+//    three-backtick fence early and rewrites the rest of the captured diff —
+//    marker included — into plain paragraphs. Fix: fenceFor-style fence sizing
+//    in seedTodo / appendCapturedInput (a CommonMark closing fence must be at
+//    least as long as the opener, so a sized-up outer fence survives).
+
+describe("capture fencing vs the answers gate (KNOWN BUGS)", { timeout: 30_000 }, () => {
+  afterEach(cleanup)
+
+  const runFormat = (path: string): Promise<void> =>
+    Effect.runPromise(
+      formatFile(path).pipe(Effect.provide(NodeContext.layer)) as Effect.Effect<void, never, never>,
+    )
+
+  // A markdown file with its own code fences, captured as a diff: the fence
+  // lines arrive prefixed (" " context, "+" added) — never at line start.
+  const capturedMarkdownDiff = [
+    "diff --git a/doc.md b/doc.md",
+    "--- a/doc.md",
+    "+++ b/doc.md",
+    "@@ -1,3 +1,4 @@",
+    " some text",
+    " ```",
+    "+<!-- user answers here -->",
+    " more text",
+  ].join("\n")
+
+  it("KNOWN BUG: a raw seed containing a deep fenced marker keeps the gate inert (stripCode $)", async () => {
+    initRepo(false)
+    writeFileSync(join(repoDir, "TODO.md"), seedTodo(capturedMarkdownDiff))
+    const p = resolveOf(await runGather())
+    expect(p.todoMarkerPresent).toBe(false)
+  })
+
+  it("KNOWN BUG: the seed survives a gtd-format round-trip without arming the marker gate", async () => {
+    initRepo(false)
+    writeFileSync(join(repoDir, "TODO.md"), seedTodo(capturedMarkdownDiff))
+    await runFormat(join(repoDir, "TODO.md"))
+    const p = resolveOf(await runGather())
+    expect(p.todoMarkerPresent).toBe(false)
+  })
+
+  it("KNOWN BUG: an appended grilling capture survives a gtd-format round-trip", async () => {
+    initRepo(false)
+    writeFileSync(join(repoDir, "TODO.md"), appendCapturedInput("# Plan\n", capturedMarkdownDiff))
+    await runFormat(join(repoDir, "TODO.md"))
+    const p = resolveOf(await runGather())
+    expect(p.todoMarkerPresent).toBe(false)
   })
 })
 
@@ -795,6 +871,143 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(git("rev-list", "--count", "HEAD")).toBe(countBefore) // no extra commit
     expect(existsSync(join(repoDir, "REVIEW.md"))).toBe(false)
     expect(readFileSync(join(repoDir, "TODO.md"), "utf8")).toContain("HUMAN FEEDBACK")
+  })
+
+  it("seedAcceptReview: binary reviewer file is preserved in the capture commit and dropped from the tree", async () => {
+    writeFileSync(join(repoDir, "code.ts"), "v1\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "feat: base")
+    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: awaiting review")
+    writeFileSync(join(repoDir, "logo.bin"), Buffer.from([0, 1, 2, 255, 254, 0, 10]))
+
+    await runPerform({ kind: "seedAcceptReview" })
+
+    expect(existsSync(join(repoDir, "logo.bin"))).toBe(false) // dropped from the tree
+    // …but durably preserved in the capture commit.
+    expect(() => git("cat-file", "-e", "HEAD:logo.bin")).not.toThrow()
+    expect(readFileSync(join(repoDir, "TODO.md"), "utf8")).toContain("Binary files")
+  })
+
+  // Accepted limitation (TODO.md plan): the grilling capture has no commit, so
+  // binary content survives only as the diff's "Binary files differ" line.
+  it("captureGrillingEdits: binary sketch is dropped with only a 'Binary files differ' record", async () => {
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: grilling")
+    writeFileSync(join(repoDir, "logo.bin"), Buffer.from([0, 1, 2, 255, 254, 0, 10]))
+
+    await runPerform({ kind: "captureGrillingEdits" })
+
+    expect(existsSync(join(repoDir, "logo.bin"))).toBe(false)
+    expect(() => git("cat-file", "-e", "HEAD:logo.bin")).toThrow() // content is gone
+    expect(readFileSync(join(repoDir, "TODO.md"), "utf8")).toContain("Binary files")
+  })
+
+  it("captureGrillingEdits: .gitignore'd files are neither captured nor deleted", async () => {
+    writeFileSync(join(repoDir, ".gitignore"), "secret.env\n")
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: grilling")
+    writeFileSync(join(repoDir, "secret.env"), "TOKEN=hunter2\n")
+    writeFileSync(join(repoDir, "sketch.ts"), "export const sketch = 1\n")
+
+    await runPerform({ kind: "captureGrillingEdits" })
+
+    expect(existsSync(join(repoDir, "secret.env"))).toBe(true) // untouched
+    const todo = readFileSync(join(repoDir, "TODO.md"), "utf8")
+    expect(todo).not.toContain("secret.env")
+    expect(todo).toContain("export const sketch = 1")
+    expect(existsSync(join(repoDir, "sketch.ts"))).toBe(false)
+  })
+
+  it("captureGrillingEdits: an untracked nested directory is captured and removed recursively", async () => {
+    mkdirSync(join(repoDir, "src"), { recursive: true })
+    writeFileSync(join(repoDir, "src", "keep.ts"), "export const keep = 1\n")
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: grilling")
+    mkdirSync(join(repoDir, "src", "new", "deep"), { recursive: true })
+    writeFileSync(join(repoDir, "src", "new", "deep", "file.ts"), "export const deep = 1\n")
+
+    await runPerform({ kind: "captureGrillingEdits" })
+
+    expect(existsSync(join(repoDir, "src", "new"))).toBe(false) // whole dir gone
+    expect(existsSync(join(repoDir, "src", "keep.ts"))).toBe(true)
+    expect(readFileSync(join(repoDir, "TODO.md"), "utf8")).toContain("export const deep = 1")
+    expect(git("status", "--porcelain").trim()).toBe("")
+  })
+
+  it("seedAcceptReview: a staged git mv rename is captured and reverted to the original path", async () => {
+    writeFileSync(join(repoDir, "code.ts"), "v1\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "feat: base")
+    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: awaiting review")
+    git("mv", "code.ts", "renamed.ts")
+
+    await runPerform({ kind: "seedAcceptReview" })
+
+    expect(existsSync(join(repoDir, "code.ts"))).toBe(true) // restored
+    expect(readFileSync(join(repoDir, "code.ts"), "utf8")).toBe("v1\n")
+    expect(existsSync(join(repoDir, "renamed.ts"))).toBe(false)
+  })
+
+  it("captureGrillingEdits: a staged git mv rename is captured and reverted", async () => {
+    writeFileSync(join(repoDir, "code.ts"), "v1\n")
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: grilling")
+    git("mv", "code.ts", "renamed.ts")
+
+    await runPerform({ kind: "captureGrillingEdits" })
+
+    expect(existsSync(join(repoDir, "code.ts"))).toBe(true)
+    expect(existsSync(join(repoDir, "renamed.ts"))).toBe(false)
+    expect(readFileSync(join(repoDir, "TODO.md"), "utf8")).toContain("renamed.ts")
+    expect(git("status", "--porcelain").trim()).toBe("")
+  })
+
+  // KNOWN BUG (documented, not fixed — TODO.md § Bugs found): diffHead's
+  // intent-to-add trick feeds `git ls-files --others` output back to
+  // `git add --intent-to-add` VERBATIM. For non-ASCII/quoted paths ls-files
+  // emits the C-quoted form (`"sketch \303\251..."`), the add matches nothing
+  // (its non-zero exit is swallowed — Command.string does not fail on exit
+  // codes), the diff comes back empty — and captureGrillingEdits then DELETES
+  // the file it failed to capture. Data loss. Fix: unquote ls-files output
+  // (unquoteGitPath) or use `-z` output before feeding paths back to git.
+  it("KNOWN BUG: captureGrillingEdits: a unicode/space/emoji filename round-trips porcelain quoting", async () => {
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: grilling")
+    const wild = "sketch émoji 🚀.ts"
+    writeFileSync(join(repoDir, wild), "export const wild = 1\n")
+
+    await runPerform({ kind: "captureGrillingEdits" })
+
+    expect(existsSync(join(repoDir, wild))).toBe(false)
+    expect(readFileSync(join(repoDir, "TODO.md"), "utf8")).toContain("export const wild = 1")
+    expect(git("status", "--porcelain").trim()).toBe("")
+  })
+
+  // Crash window: the previous round appended the capture but the commit was
+  // lost (or the user re-created the identical sketch). Re-running the capture
+  // must not double-append the section.
+  it("captureGrillingEdits: re-capturing an identical diff does not double-append", async () => {
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "gtd: grilling")
+    writeFileSync(join(repoDir, "sketch.ts"), "export const sketch = 1\n")
+    await runPerform({ kind: "captureGrillingEdits" })
+    // Same sketch reappears (crash replay / user re-creates it).
+    writeFileSync(join(repoDir, "sketch.ts"), "export const sketch = 1\n")
+    await runPerform({ kind: "captureGrillingEdits" })
+
+    const todo = readFileSync(join(repoDir, "TODO.md"), "utf8")
+    expect(todo.split("export const sketch = 1").length - 1).toBe(1)
+    expect(existsSync(join(repoDir, "sketch.ts"))).toBe(false)
   })
 
   it("captureGrillingEdits: folds code edits into TODO.md, drops them, commits gtd: grilling", async () => {
