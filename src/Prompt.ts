@@ -208,6 +208,7 @@ export const buildPrompt = (
     }
   }
 
+  // TODO: this should just be a ternary
   if (!result.autoAdvance) parts.push(stopPartial, "")
   if (result.autoAdvance) parts.push(autoAdvance, "")
 
