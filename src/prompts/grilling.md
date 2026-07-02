@@ -18,6 +18,8 @@ genuinely no open questions left, write the sentinel line
 `no open questions — run gtd to plan`
 
 and leave **no** markers — the next gtd run advances the plan to decomposition.
+The sentinel means the plan is fully developed and ready to decompose — it is
+never a substitute for writing the plan.
 
 <!-- gtd:iterate -->
 
@@ -26,11 +28,16 @@ and leave **no** markers — the next gtd run advances the plan to decomposition
 Spawn a **planning-model subagent** using model `{{MODEL}}` to develop the plan.
 The subagent works entirely by editing `TODO.md` (it cannot talk to the user):
 
-1. For every question the user has just answered (the answer written in place of
+1. **Always develop `TODO.md` into a concrete plan.** Replace the captured input
+   / seed template with a real implementation plan — the files to change,
+   exactly what changes, and why — grounded in the codebase. Do this on every
+   iteration, whether or not any questions remain open. A plan that still
+   contains only the seed "Captured input" block is never ready to converge.
+2. For every question the user has just answered (the answer written in place of
    its `<!-- user answers here -->` marker): integrate the answer into the plan
    body, then move the question into a `## Resolved` section at the bottom,
    recording the user's response as `**Answer:** …`.
-2. Continue interviewing the plan with this discipline:
+3. Continue interviewing the plan with this discipline:
    - **Explore before asking** — if the codebase or docs answer it, explore
      instead of asking.
    - **Prioritize high-stakes questions** — hard-to-reverse decisions before
@@ -41,10 +48,12 @@ The subagent works entirely by editing `TODO.md` (it cannot talk to the user):
      change the implementation.
    - Every answer opens new branches; generate fresh questions for any ambiguity
      the answers surface.
-3. Write each new open question near the top of the file, each followed on its
+4. Write each new open question near the top of the file, each followed on its
    own line by the `<!-- user answers here -->` marker.
-4. If the plan is now fully resolved, leave **no** markers and write the
-   sentinel `no open questions — run gtd to plan` instead.
+5. If the plan is now fully resolved, leave **no** markers and write the
+   sentinel `no open questions — run gtd to plan` instead. Only write the
+   sentinel once `TODO.md` holds a concrete plan — the sentinel signals the plan
+   is ready to decompose, not that planning can be skipped.
 
 Normalize formatting (run `gtd format TODO.md` with the same gtd you invoked),
 then leave `TODO.md` **uncommitted** — the next gtd run commits it
