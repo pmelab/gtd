@@ -196,7 +196,7 @@ can configure auto-squash)", implying a default STOP with an opt-in auto mode.
 STOP is safer for a destructive history rewrite; auto-advance is more in the
 spirit of gtd's hands-off loop. Which default?
 
-<!-- user answers here -->
+no, squash immediately and proceed to idle
 
 Should the config flag be opt-in (`squash: false` default — squashing only when
 explicitly enabled) or opt-out (`squash: true` default — squash every finished
@@ -204,7 +204,7 @@ process unless disabled)? A history rewrite is destructive and surprising by
 default, arguing for opt-in; but the feature's whole point is to clean up every
 process, arguing for opt-out. Which default?
 
-<!-- user answers here -->
+opt-out
 
 When a non-gtd commit is interleaved mid-process (the AC's "upstream commits
 interleaved" case), what is the desired behavior: (a) skip the squash entirely
@@ -215,4 +215,4 @@ Option (a) is simplest and safest and satisfies "should not squash those"
 literally; (b) and (c) are more complex and risk conflicts. Confirm (a) is
 acceptable.
 
-<!-- user answers here -->
+squash in-between commits along with the others
