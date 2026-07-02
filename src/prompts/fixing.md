@@ -18,5 +18,3 @@ Spawn a **fix subagent** using model `{{MODEL}}` to apply the fixes:
 3. **Leave every change uncommitted** — do **not** commit or stage. This gtd run
    already removed `FEEDBACK.md`; the next gtd run commits your fix and re-runs
    the tests (and, for a review fix, re-reviews the package).
-
-Re-run gtd once the fix is in place — the fix returns through the test gate.

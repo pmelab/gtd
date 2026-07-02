@@ -52,7 +52,3 @@ review. It must:
 
 Tell the user `REVIEW.md` is ready and that they should run `gtd` to proceed to
 the review.
-
-⛔ **STOP — do not re-run `gtd`.** The next cycle commits `REVIEW.md` as
-`gtd: awaiting review` and stops for the user. Re-running gtd now advances
-without human input.
