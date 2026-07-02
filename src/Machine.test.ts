@@ -188,7 +188,7 @@ describe("corruption hard-error (no rule matched)", () => {
   })
 })
 
-// ── The 16 states ────────────────────────────────────────────────────────────
+// ── The 17 states ────────────────────────────────────────────────────────────
 
 const r = (overrides: Partial<ResolvePayload> = {}): ReturnType<typeof resolve> =>
   resolve([R(overrides)])
