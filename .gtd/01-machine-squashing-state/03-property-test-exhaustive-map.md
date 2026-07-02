@@ -28,16 +28,24 @@ Do NOT touch any other file.
 3. `STATES` is derived from `Object.keys(ALLOWED)`, so it picks up `squashing`
    automatically — no separate edit needed there.
 
-4. The generated-payload arbitrary in this file (check how it builds
-   `ResolvePayload`) may not set the new `squashBase` / `squashDiff` /
-   `squashEnabled` fields. If the payload arbitrary spreads `DEFAULT_PAYLOAD`
-   (or builds from it), `squashEnabled` defaults to `false` and no `squashing`
-   result is generated — the `ALLOWED["squashing"] = ["none"]` entry is then just
-   there to satisfy the exhaustive `Record` type. If the arbitrary constructs the
-   payload field-by-field, ensure it either omits the squash fields (falling back
-   to defaults) or, if it enumerates every field, adds `squashEnabled` (default
-   `false`) so existing invariants hold. Inspect the file and choose the minimal
-   change that keeps it compiling and passing.
+4. The generated-payload arbitrary in this file (`arbPayload`, ~line 51) builds
+   a **full `ResolvePayload` object literal field-by-field** inside `.map(...)`
+   (it returns every field explicitly — it does NOT spread `DEFAULT_PAYLOAD`).
+   `squashEnabled` is a **required** field on `ResolvePayload` after Package 01,
+   so this literal WILL fail to typecheck until you add it. Add exactly:
+
+   ```ts
+   squashEnabled: false,
+   ```
+
+   in the returned object (alongside `agenticReviewEnabled`). Leave `squashBase`
+   / `squashDiff` unset (they are optional). With `squashEnabled: false` the
+   arbitrary never produces a `squashing` result, so the existing invariants
+   (states set, allowed edge actions, determinism) all still hold and the
+   `ALLOWED["squashing"] = ["none"]` entry only satisfies the exhaustive
+   `Record<GtdState, …>` type. Do NOT wire `squashEnabled` to a random boolean —
+   that would require also generating `squashBase`/`gtd: done`-HEAD combinations
+   and updating `ALLOWED`/invariants, which is out of scope for this task.
 
 ## Acceptance criteria
 
