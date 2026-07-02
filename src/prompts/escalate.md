@@ -15,5 +15,3 @@ burn further effort on a problem it cannot solve.
    fix-attempt budget: the next gtd run re-tests and grants a fresh round of
    automatic fixes before escalating again. While `ERRORS.md` exists, every run
    resolves straight back to this gate.
-
-After reporting, **STOP**. Do not re-run gtd — the user must act first.

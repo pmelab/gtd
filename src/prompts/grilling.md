@@ -67,6 +67,4 @@ then leave `TODO.md` **uncommitted** — the next gtd run commits it
 questions. This is a human gate; there is nothing for you to do.
 
 Tell the user to open `TODO.md`, answer each question inline (replacing its
-`<!-- user answers here -->` marker with the answer), and re-run gtd. Then
-**STOP** — do not edit `TODO.md`, spawn a subagent, or re-run gtd yourself. The
-user must answer first.
+`<!-- user answers here -->` marker with the answer), and re-run gtd.

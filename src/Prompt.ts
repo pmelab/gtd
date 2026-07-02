@@ -208,7 +208,7 @@ export const buildPrompt = (
     }
   }
 
-  if (!result.autoAdvance && promptState !== "clean") parts.push(stopPartial, "")
+  if (!result.autoAdvance) parts.push(stopPartial, "")
   if (result.autoAdvance) parts.push(autoAdvance, "")
 
   return (

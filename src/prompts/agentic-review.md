@@ -22,6 +22,3 @@ subagent must:
      agent can act without re-reading the diff.
 4. **Do not edit source files and do not commit** — the reviewer only writes
    `FEEDBACK.md`, left uncommitted.
-
-Re-run gtd — the edge reads `FEEDBACK.md`: an empty file closes the package; a
-content-bearing one routes to a fix cycle and then re-reviews.
