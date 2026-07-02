@@ -32,9 +32,7 @@ export interface GitOperations {
    * commit's name-status diff contains a deletion (`D`) of `ERRORS.md`.
    * Returns `[]` for an empty repo.
    */
-  readonly commitHistory: (
-    base?: string,
-  ) => Effect.Effect<
+  readonly commitHistory: (base?: string) => Effect.Effect<
     ReadonlyArray<{
       readonly hash: string
       readonly message: string
