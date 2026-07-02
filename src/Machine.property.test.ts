@@ -19,7 +19,7 @@ import {
  *
  *  - `resolve` never throws anything but `GtdStateError`, and an
  *    illegal-combination throw only fires on the documented combos;
- *  - exactly one of the 16 states comes back, with an edge action from that
+ *  - exactly one of the 17 states comes back, with an edge action from that
  *    state's allowed set;
  *  - the `done` action is only ever emitted with REVIEW.md present, and the
  *    accept-review regen carve-out shadows Done under a
@@ -105,6 +105,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       ...(raw.hasReviewBase ? { reviewBase: "abc123", refDiff: "diff --git a/x b/x\n+x\n" } : {}),
       hasCommitsAfterLastDone: raw.hasCommitsAfterLastDone,
       agenticReviewEnabled: raw.agenticReviewEnabled,
+      squashEnabled: false,
       fixAttemptCap: raw.fixAttemptCap,
       reviewThreshold: raw.reviewThreshold,
     }
@@ -151,6 +152,7 @@ const ALLOWED: Record<GtdState, ReadonlyArray<EdgeAction["kind"] | "none">> = {
   "accept-review": ["seedAcceptReview"],
   done: ["done"],
   idle: ["none"],
+  squashing: ["none"],
 }
 
 // Derived from ALLOWED (whose Record<GtdState, …> typing is exhaustive) so the

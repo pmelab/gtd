@@ -617,6 +617,52 @@ describe("rule 7 — Clean / Idle", () => {
   })
 })
 
+describe("rule 7 — Squashing", () => {
+  it("HEAD gtd: done + squashEnabled + squashBase set → squashing, auto, no edgeAction", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+    })
+    expect(res.state).toBe("squashing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toBeUndefined()
+  })
+
+  it("HEAD gtd: done + squashEnabled + squashBase set → context carries squashBase/squashDiff", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+      squashDiff: "diff --git a/x b/x\n+hello\n",
+    })
+    expect(res.context.squashBase).toBe("abc123")
+    expect(res.context.squashDiff).toBe("diff --git a/x b/x\n+hello\n")
+  })
+
+  it("HEAD gtd: done + squashEnabled + squashBase unset → idle (nothing to squash)", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+    })
+    expect(res.state).toBe("idle")
+  })
+
+  it("HEAD gtd: done + squashEnabled: false + squashBase set → idle (config opt-out)", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: false,
+      squashBase: "abc123",
+    })
+    expect(res.state).toBe("idle")
+  })
+
+  it("HEAD gtd: done with no squash fields (DEFAULT_PAYLOAD) → idle (default behavior)", () => {
+    const res = r({ lastCommitSubject: "gtd: done" })
+    expect(res.state).toBe("idle")
+  })
+})
+
 // ── Context passthrough ──────────────────────────────────────────────────────
 
 describe("context passthrough + folds", () => {
