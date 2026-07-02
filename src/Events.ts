@@ -629,7 +629,8 @@ export const gatherEvents = (): Effect.Effect<
       fixAttemptCap: config.fixAttemptCap,
       reviewThreshold: config.reviewThreshold,
       squashEnabled: config.squash,
-      ...(squashBase !== undefined ? { squashBase, squashDiff } : {}),
+      ...(squashBase !== undefined ? { squashBase } : {}),
+      ...(squashDiff !== undefined ? { squashDiff } : {}),
     }
 
     const resolveEvent: GtdEvent = { type: "RESOLVE", payload }
