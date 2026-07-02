@@ -451,34 +451,57 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
 describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_000 }, () => {
   afterEach(cleanup)
 
-  it("feature branch → merge-base with the default branch; refDiff non-empty", async () => {
+  // Rule 1: within-process, first review — base = first `gtd: grilling` of the
+  // current task cycle; refDiff spans the whole task since grilling started.
+  it("within-process first review → base is the first gtd: grilling commit; refDiff spans whole task", async () => {
+    initRepo(false)
+    commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+    const grillingHash = git("rev-parse", "HEAD")
+    commitFile("feat: add widget", "widget.ts", "export const widget = 1\n")
+    const p = resolveOf(await runGather())
+    expect(p.reviewBase).toBe(grillingHash)
+    expect(p.refDiff).toContain("widget.ts")
+  })
+
+  // Rule 2: within-process, incremental — `gtd: awaiting review` already present;
+  // base = last `gtd: awaiting review` hash; refDiff spans only post-review changes.
+  it("within-process incremental review → base is the last gtd: awaiting review commit; refDiff spans only post-review changes", async () => {
+    initRepo(false)
+    commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+    commitFile("feat: first batch", "first.ts", "export const first = 1\n")
+    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n")
+    const lastAwaiting = git("rev-parse", "HEAD")
+    commitFile("feat: second batch", "second.ts", "export const second = 2\n")
+    const p = resolveOf(await runGather())
+    expect(p.reviewBase).toBe(lastAwaiting)
+    expect(p.refDiff).toContain("second.ts")
+    expect(p.refDiff).not.toContain("first.ts")
+  })
+
+  // Rule 3: outside a process, on a feature branch — base = merge-base(default, HEAD);
+  // refDiff spans the whole branch.
+  it("outside-process feature branch → base is the merge-base; refDiff spans whole branch", async () => {
     initRepo(true)
-    commitFile("feat: work", "work.ts", "export const w = 1\n")
+    commitFile("feat: branch work", "branch.ts", "export const branch = 1\n")
     const mergeBase = git("rev-parse", "main")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBe(mergeBase)
-    expect(p.refDiff).toContain("work.ts")
+    expect(p.refDiff).toContain("branch.ts")
   })
 
-  it("default branch → last REVIEW.md deletion as the base", async () => {
+  // Rule 4: outside a process, on the default branch — skip review; reviewBase/refDiff unset.
+  it("outside-process default branch → reviewBase/refDiff unset (Idle)", async () => {
     initRepo(false)
-    commitFile("feat: a", "a.ts", "//a\n")
-    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n")
-    git("rm", "REVIEW.md")
-    git("commit", "-q", "-m", "gtd: done")
-    const deletionSha = git("rev-parse", "HEAD")
-    commitFile("feat: more", "b.ts", "//b\n")
+    commitFile("feat: trunk work", "trunk.ts", "export const trunk = 1\n")
     const p = resolveOf(await runGather())
-    expect(p.reviewBase).toBe(deletionSha)
-    expect(p.refDiff).toContain("b.ts")
+    expect(p.reviewBase).toBeUndefined()
+    expect(p.refDiff).toBeUndefined()
   })
 
-  it("base whose diff to HEAD is empty → reviewBase/refDiff unset (Idle)", async () => {
-    initRepo(false)
-    commitFile("feat: a", "a.ts", "//a\n")
-    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n")
-    git("rm", "REVIEW.md")
-    git("commit", "-q", "-m", "gtd: done") // HEAD itself is the REVIEW.md deletion
+  // Edge: diff to HEAD is empty even with a valid base → reviewBase/refDiff unset (Idle).
+  it("valid base but empty diff to HEAD → reviewBase/refDiff unset (Idle)", async () => {
+    initRepo(true)
+    // No commits added after branching — diff from merge-base to HEAD is empty.
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBeUndefined()
     expect(p.refDiff).toBeUndefined()

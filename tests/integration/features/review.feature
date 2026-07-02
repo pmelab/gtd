@@ -3,9 +3,19 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
   With no steering files and a clean tree, unreviewed work since the review base
   enters Clean (author REVIEW.md). Committing REVIEW.md awaits the user; a later
   run with no edits approves (`gtd: done` → Idle), while edits to the code or
-  REVIEW.md seed a fresh plan (Accept Review → Grilling). The review base is the
-  merge-base on a feature branch, or the last REVIEW.md deletion on the default
-  branch.
+  REVIEW.md seed a fresh plan (Accept Review → Grilling).
+
+  The review base is determined by four rules:
+  1. Within a gtd process (a `gtd: grilling` commit exists after the last
+     `gtd: done`), first review → base = first `gtd: grilling` of the current
+     cycle; refDiff spans the whole task.
+  2. Within a process, incremental (a `gtd: awaiting review` also exists in the
+     current cycle) → base = last `gtd: awaiting review`; refDiff spans only
+     post-review changes.
+  3. Outside a process, on a feature branch → base = merge-base with the default
+     branch; refDiff spans the whole branch.
+  4. Outside a process, on the default branch → skip review (Idle;
+     `reviewBase`/`refDiff` unset).
 
   Scenario: Freshly committed work with a clean tree enters Clean to author REVIEW.md
     Given a test project
@@ -196,8 +206,8 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
       """
     When I run gtd
     Then it succeeds
-    # Approves the review (gtd: done), then must NOT re-review the whole branch:
-    # the last REVIEW.md deletion now outranks the merge-base as the review base.
+    # Approves the review (gtd: done). HEAD gtd: done is an Idle boundary — the
+    # machine settles Idle without re-reviewing the branch.
     And the last commit subject is "gtd: done"
     And the file "REVIEW.md" does not exist
     And stdout contains "## Task: Nothing to do"
@@ -216,25 +226,72 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And stdout contains "## Task: Create `REVIEW.md` for the finished work"
     And stdout contains "src/parser.ts"
 
-  Scenario: On the default branch the review base is the last REVIEW.md deletion
+  # Rule 1: within-process first review — base = first gtd: grilling of the
+  # current task cycle; only work committed after grilling appears in the review.
+  Scenario: Within-process first review covers work since gtd: grilling (Rule 1)
     Given a test project
-    And a commit "feat: old work" that adds "src/old.ts" with:
+    And a commit "gtd: grilling" that adds "TODO.md" with:
       """
-      export const old = () => "old"
+      # Plan
+      - [ ] add greeter
       """
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+    And a commit "feat: add greeter" that adds "src/greet.ts" with:
       """
-      # Review
-
-      - ./src/old.ts#1
-      """
-    And a commit "gtd: done" that deletes "REVIEW.md"
-    And a commit "feat: newer work" that adds "src/newer.ts" with:
-      """
-      export const newer = () => "new"
+      export const greet = (name: string) => `Hello, ${name}`
       """
     When I run gtd
     Then it succeeds
     And stdout contains "## Task: Create `REVIEW.md` for the finished work"
-    And stdout contains "src/newer.ts"
-    And stdout does not contain "src/old.ts"
+    And stdout contains "src/greet.ts"
+
+  # Rule 2: within-process incremental review — a `gtd: awaiting review` exists
+  # in the current cycle (no REVIEW.md at HEAD; review already processed); only
+  # work committed after that marker appears in the next review.
+  Scenario: Within-process incremental review covers only post-review changes (Rule 2)
+    Given a test project
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+      - [ ] add greeter
+      - [ ] add farewell
+      """
+    And a commit "feat: add greeter" that adds "src/greet.ts" with:
+      """
+      export const greet = (name: string) => `Hello, ${name}`
+      """
+    And a commit "gtd: awaiting review"
+    And a commit "feat: add farewell" that adds "src/farewell.ts" with:
+      """
+      export const farewell = (name: string) => `Goodbye, ${name}`
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "src/farewell.ts"
+    And stdout does not contain "src/greet.ts"
+
+  # Rule 3: outside a process, feature branch — base = merge-base; whole branch reviewed.
+  Scenario: Outside-process feature branch reviews from the merge-base (Rule 3)
+    Given a test project
+    And a default branch "main"
+    And a branch "feature"
+    And a commit "feat: coworker parser" that adds "src/parser.ts" with:
+      """
+      export const parse = (s: string) => JSON.parse(s)
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "src/parser.ts"
+
+  # Rule 4: outside a process, default branch — skip review (Idle).
+  Scenario: Outside-process default branch skips review and settles Idle (Rule 4)
+    Given a test project
+    And a commit "feat: trunk work" that adds "src/trunk.ts" with:
+      """
+      export const trunk = () => "trunk"
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Nothing to do"
+    And stdout does not contain "## Task: Create `REVIEW.md`"
