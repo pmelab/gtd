@@ -1,5 +1,5 @@
 [tools]
-bun = "latest"
+node = "lts"
 
 [env]
 _.path = ["dist"]
