@@ -589,19 +589,25 @@ export const gatherEvents = (): Effect.Effect<
           if (subject === DONE_SUBJECT) prevDoneIdx = i
         }
         const squashCycle = allHistoryForSquash.slice(prevDoneIdx + 1, lastDoneIdxForSquash + 1)
+        // Prefer gtd: new task as the cycle start (it precedes grilling and must
+        // be included in the squash); fall back to the first gtd: grilling.
+        const squashNewTask = squashCycle.find(
+          (c) => (c.message.split("\n")[0] ?? "").trim() === NEW_TASK_SUBJECT,
+        )
         const squashGrilling = squashCycle.find(
           (c) => (c.message.split("\n")[0] ?? "").trim() === GRILLING_SUBJECT,
         )
+        const squashStart = squashNewTask ?? squashGrilling
 
-        if (squashGrilling !== undefined) {
-          const squashGrillingParent = yield* git
-            .resolveRef(`${squashGrilling.hash}~1`)
+        if (squashStart !== undefined) {
+          const squashStartParent = yield* git
+            .resolveRef(`${squashStart.hash}~1`)
             .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
           const candidateDiff = yield* git
-            .diffRef(squashGrillingParent)
+            .diffRef(squashStartParent)
             .pipe(Effect.catchAll(() => Effect.succeed("")))
           if (candidateDiff.trim().length > 0) {
-            squashBase = squashGrillingParent
+            squashBase = squashStartParent
             squashDiff = candidateDiff
           }
         }
