@@ -18,7 +18,7 @@
  * the review base, and last-commit detection; this is documented, not handled.
  */
 
-/** The 16 resolved states (STATES.md § States). `Result.state` is one of these. */
+/** The 17 resolved states (STATES.md § States). `Result.state` is one of these. */
 export type GtdState =
   | "transport"
   | "new-feature"
@@ -35,6 +35,7 @@ export type GtdState =
   | "await-review"
   | "accept-review"
   | "done"
+  | "squashing"
   | "idle"
 
 /**
@@ -147,6 +148,17 @@ export interface ResolvePayload {
   readonly fixAttemptCap: number
   /** Review-fix threshold (config, default 3). `reviewFixCount >= reviewThreshold` → force-approve. */
   readonly reviewThreshold: number
+  /**
+   * Parent commit of the first persisting cycle commit (the Rule-1 review base).
+   * Set by the edge only when HEAD is `gtd: done` and squash is enabled.
+   */
+  readonly squashBase?: string
+  /** `git diff <squashBase> HEAD`, the whole feature diff, inlined into the squashing prompt. */
+  readonly squashDiff?: string
+  /** Squash enabled (config kill-switch; false → skip squashing after `gtd: done`). */
+  readonly squashEnabled: boolean
+  readonly squashMsgPresent: boolean
+  readonly squashMsgContent: string
 }
 
 /**
@@ -193,6 +205,11 @@ export type EdgeAction =
   | { readonly kind: "closePackage" }
   | { readonly kind: "commitReview" }
   | { readonly kind: "done" }
+  | {
+      readonly kind: "squashCommit"
+      readonly squashBase: string
+      readonly commitMessage: string
+    }
 
 /** The folded prompt context carried on every `Result`. */
 export interface ResolveContext {
@@ -208,6 +225,10 @@ export interface ResolveContext {
   readonly refDiff?: string
   /** Review base commit (passthrough), when present. */
   readonly reviewBase?: string
+  /** Squash base commit (passthrough), when present. */
+  readonly squashBase?: string
+  /** `git diff <squashBase> HEAD` (passthrough), when present. */
+  readonly squashDiff?: string
   /** HEAD subject (passthrough). */
   readonly lastCommitSubject: string
   /** Whole-tree cleanliness (passthrough). */
@@ -305,6 +326,9 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   agenticReviewEnabled: true,
   fixAttemptCap: 3,
   reviewThreshold: 3,
+  squashEnabled: false,
+  squashMsgPresent: false,
+  squashMsgContent: "",
 }
 
 /** Build the prompt context from the payload passthrough + the folded counters. */
@@ -319,6 +343,8 @@ const buildContext = (
   diff: p.diff,
   ...(p.refDiff !== undefined ? { refDiff: p.refDiff } : {}),
   ...(p.reviewBase !== undefined ? { reviewBase: p.reviewBase } : {}),
+  ...(p.squashBase !== undefined ? { squashBase: p.squashBase } : {}),
+  ...(p.squashDiff !== undefined ? { squashDiff: p.squashDiff } : {}),
   lastCommitSubject: p.lastCommitSubject,
   workingTreeClean: p.workingTreeClean,
   feedbackContent: p.feedbackContent,
@@ -591,6 +617,27 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   // is open (commits exist after the last `gtd: done`) AND the review base
   // yields a non-empty filtered diff, else there is nothing to review (Idle).
   if (p.workingTreeClean && (isBoundary(head) || head === "gtd: package done")) {
+    if (head === "gtd: done" && p.squashEnabled && p.squashBase !== undefined) {
+      if (p.squashMsgPresent) {
+        // Agent wrote SQUASH_MSG.md — edge performs the squash commit.
+        return {
+          state: "squashing",
+          autoAdvance: true,
+          edgeAction: {
+            kind: "squashCommit",
+            squashBase: p.squashBase,
+            commitMessage: p.squashMsgContent,
+          },
+          context: buildContext(p, counters),
+        }
+      }
+      // No SQUASH_MSG.md yet — prompt the agent to write the commit message.
+      return {
+        state: "squashing",
+        autoAdvance: true,
+        context: buildContext(p, counters),
+      }
+    }
     const reviewable =
       p.hasCommitsAfterLastDone && p.reviewBase !== undefined && (p.refDiff ?? "").trim().length > 0
     return {

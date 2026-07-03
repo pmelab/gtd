@@ -188,7 +188,7 @@ describe("corruption hard-error (no rule matched)", () => {
   })
 })
 
-// ── The 16 states ────────────────────────────────────────────────────────────
+// ── The 17 states ────────────────────────────────────────────────────────────
 
 const r = (overrides: Partial<ResolvePayload> = {}): ReturnType<typeof resolve> =>
   resolve([R(overrides)])
@@ -614,6 +614,81 @@ describe("rule 7 — Clean / Idle", () => {
 
   it("resolve([]) → idle (degenerate input, no throw)", () => {
     expect(resolve([]).state).toBe("idle")
+  })
+})
+
+describe("rule 7 — Squashing", () => {
+  it("HEAD gtd: done + squashEnabled + squashBase set → squashing, auto, no edgeAction (prompt agent)", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+    })
+    expect(res.state).toBe("squashing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toBeUndefined()
+  })
+
+  it("HEAD gtd: done + squashEnabled + squashBase set → context carries squashBase/squashDiff", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+      squashDiff: "diff --git a/x b/x\n+hello\n",
+    })
+    expect(res.context.squashBase).toBe("abc123")
+    expect(res.context.squashDiff).toBe("diff --git a/x b/x\n+hello\n")
+  })
+
+  it("HEAD gtd: done + squashEnabled + squashBase unset → idle (nothing to squash)", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+    })
+    expect(res.state).toBe("idle")
+  })
+
+  it("HEAD gtd: done + squashEnabled: false + squashBase set → idle (config opt-out)", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: false,
+      squashBase: "abc123",
+    })
+    expect(res.state).toBe("idle")
+  })
+
+  it("HEAD gtd: done with no squash fields (DEFAULT_PAYLOAD) → idle (default behavior)", () => {
+    const res = r({ lastCommitSubject: "gtd: done" })
+    expect(res.state).toBe("idle")
+  })
+
+  it("squashing + squashMsgPresent: true → squashCommit edgeAction with squashBase + commitMessage", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+      squashMsgPresent: true,
+      squashMsgContent: "feat: add calculator\n\nDecided during grilling to use simple addition.",
+    })
+    expect(res.state).toBe("squashing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({
+      kind: "squashCommit",
+      squashBase: "abc123",
+      commitMessage: "feat: add calculator\n\nDecided during grilling to use simple addition.",
+    })
+  })
+
+  it("squashing + squashMsgPresent: false → no edgeAction, autoAdvance true (agent writes file then re-runs)", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+      squashMsgPresent: false,
+    })
+    expect(res.state).toBe("squashing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toBeUndefined()
   })
 })
 

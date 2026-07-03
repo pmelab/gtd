@@ -66,6 +66,7 @@ export interface GitOperations {
    * path can net an empty commit — neither must throw "nothing to commit".
    */
   readonly commitAllWithPrefix: (prefix: string) => Effect.Effect<void, Error>
+  readonly softResetTo: (ref: string) => Effect.Effect<void, Error>
 }
 
 /**
@@ -321,6 +322,8 @@ export class GitService extends Context.Tag("GitService")<GitService, GitOperati
             yield* exec("git", "add", "-A")
             yield* exec("git", "commit", "--allow-empty", "-m", prefix)
           }).pipe(Effect.asVoid),
+
+        softResetTo: (ref: string) => exec("git", "reset", "--soft", ref).pipe(Effect.asVoid),
       }
     }),
   )

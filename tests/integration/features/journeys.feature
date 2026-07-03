@@ -109,18 +109,13 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     Then it succeeds
     And the last commit subject is "gtd: awaiting review"
     And stdout contains "## Task: Await the user's review"
-    # Run 10: the human approves by running gtd with no edits → Done → Idle.
+    # Run 10: the human approves by running gtd with no edits → Done → Squashing.
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: done"
     And the file "REVIEW.md" does not exist
-    And stdout contains "## Task: Nothing to do"
-    And I record the commit count
-    # Run 11: Idle is stable — no loop back into review.
-    When I run gtd
-    Then it succeeds
-    And stdout contains "## Task: Nothing to do"
-    And the commit count is unchanged
+    And stdout contains "## Task: Squash all `gtd: *` commits into one conventional-commits message"
+    And stdout contains "git reset --soft"
     And the commit subjects from oldest to newest are:
       """
       chore: initial commit
@@ -233,11 +228,12 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: awaiting review"
-    # The human approves the follow-up → the process finally closes.
+    # The human approves the follow-up → the process finally closes → Squashing.
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: done"
-    And stdout contains "## Task: Nothing to do"
+    And stdout contains "## Task: Squash all `gtd: *` commits into one conventional-commits message"
+    And stdout contains "git reset --soft"
 
   Scenario: Escalation journey — cap, human resume, fresh budget
     Given a test project

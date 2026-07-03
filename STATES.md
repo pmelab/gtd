@@ -75,7 +75,10 @@ The last commit message is bucketed:
    TODO.md — that is a resumed grill → rule 6), or HEAD `gtd: new task` + clean
    tree (regenerate a lost seed) → New Feature.
 6. **TODO.md present** → Grilling / Grilled.
-7. **Boundary/`package done` HEAD + clean tree** → Clean (review) or Idle. A
+7. **HEAD `gtd: done` + clean tree + `squash` enabled + squash base present** →
+   Squashing (collapses the cycle into one commit). Checked before the
+   Clean/Idle decision so a freshly-closed review always squashes first.
+8. **Boundary/`package done` HEAD + clean tree** → Clean (review) or Idle. A
    review fires only when the re-trigger gate is open — commits exist after the
    last `gtd: done` (or none exists) — and the workflow-file-filtered diff from
    the review base is non-empty.
@@ -402,6 +405,30 @@ requiring a new work cycle.
 **Prompt:** none. _(Approval is the absence of substantive changes — `gtd`
 cannot distinguish "approved" from "not yet looked at", so a premature run
 closes the review.)_
+
+### Squashing (auto-advance)
+
+**Conditions:** no steering files, clean tree, HEAD is `gtd: done`, `squash`
+config is enabled, and a squash base is present (the parent of the first
+`gtd: grilling` of the current cycle — established when the cycle began).
+
+**Actions:** none performed by `gtd`'s `src/`. The agent:
+
+1. Computes the full inlined diff over `<squashBase>..HEAD` (the entire process
+   from grilling through the `gtd: done` merge commit).
+2. Authors a single conventional-commits message that summarises the cycle.
+3. Runs `git reset --soft <squashBase>` — all cycle commits are unstaged back to
+   the index while the working tree is unchanged.
+4. Runs `git commit -m "<message>"` — the whole `<squashBase>..HEAD` range
+   collapses into one commit. This is a pure history rewrite; no code changes.
+
+**Prompt:** squashing task prompt with auto-advance tail (no STOP / human gate).
+
+_Next: Idle. After the squash, HEAD is a single non-`gtd:` boundary commit;
+`isBoundary` treats it as boundary and the re-trigger gate is closed (the
+`gtd: done` is gone, replaced by the squash commit), so the next run settles
+Idle. Idempotent: running gtd again after a squash does not re-squash because
+HEAD is no longer `gtd: done`._
 
 ### Idle
 

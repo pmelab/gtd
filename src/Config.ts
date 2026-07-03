@@ -43,6 +43,7 @@ export const builtinTierDefault: Record<ModelTier, string> = {
 
 const DEFAULT_TEST_COMMAND = "npm run test"
 const DEFAULT_AGENTIC_REVIEW = true
+const DEFAULT_SQUASH = true
 const DEFAULT_FIX_ATTEMPT_CAP = 3
 const DEFAULT_REVIEW_THRESHOLD = 3
 
@@ -68,6 +69,7 @@ const ConfigSchema = Schema.Struct({
   testCommand: Schema.optional(Schema.String),
   models: Schema.optional(ModelsSchema),
   agenticReview: Schema.optional(Schema.Boolean),
+  squash: Schema.optional(Schema.Boolean),
   fixAttemptCap: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(0))),
   reviewThreshold: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(1))),
 })
@@ -78,6 +80,7 @@ export interface ConfigOperations {
   readonly testCommand: string
   readonly resolveModel: (state: ModelState) => string
   readonly agenticReview: boolean
+  readonly squash: boolean
   readonly fixAttemptCap: number
   readonly reviewThreshold: number
 }
@@ -221,6 +224,7 @@ const toOperations = (decoded: DecodedConfig): ConfigOperations => {
     testCommand: decoded.testCommand ?? DEFAULT_TEST_COMMAND,
     resolveModel,
     agenticReview: decoded.agenticReview ?? DEFAULT_AGENTIC_REVIEW,
+    squash: decoded.squash ?? DEFAULT_SQUASH,
     fixAttemptCap: decoded.fixAttemptCap ?? DEFAULT_FIX_ATTEMPT_CAP,
     reviewThreshold: decoded.reviewThreshold ?? DEFAULT_REVIEW_THRESHOLD,
   }

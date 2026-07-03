@@ -5,6 +5,7 @@ import buildingMd from "./prompts/building.md"
 import fixingMd from "./prompts/fixing.md"
 import agenticReviewMd from "./prompts/agentic-review.md"
 import cleanMd from "./prompts/clean.md"
+import squashingMd from "./prompts/squashing.md"
 import awaitReviewMd from "./prompts/await-review.md"
 import escalateMd from "./prompts/escalate.md"
 import idleMd from "./prompts/idle.md"
@@ -46,6 +47,7 @@ const MODEL_STATE: Partial<Record<PromptState, ModelState>> = {
   fixing: "fixing",
   "agentic-review": "agentic-review",
   clean: "clean",
+  squashing: "clean",
 }
 
 /** The static section for each non-grilling prompt state (grilling renders specially). */
@@ -56,6 +58,7 @@ const SECTIONS: Record<Exclude<PromptState, "grilling">, string> = {
   fixing: fixingMd,
   "agentic-review": agenticReviewMd,
   clean: cleanMd,
+  squashing: squashingMd,
   "await-review": awaitReviewMd,
   escalate: escalateMd,
   idle: idleMd,
@@ -209,6 +212,20 @@ export const buildPrompt = (
           ? `Changes to review (\`git diff ${context.reviewBase} HEAD\`)`
           : "Changes to review (`git diff <base> HEAD`)"
       parts.push(...renderDiff(diffLabel, context.refDiff))
+    }
+    if (
+      promptState === "squashing" &&
+      context.squashDiff !== undefined &&
+      context.squashDiff.trim() !== ""
+    ) {
+      if (context.squashBase !== undefined) {
+        parts.push(`Squash base: ${context.squashBase}`, "")
+      }
+      const diffLabel =
+        context.squashBase !== undefined
+          ? `Full-process diff (\`git diff ${context.squashBase} HEAD\`)`
+          : "Full-process diff (`git diff <squashBase> HEAD`)"
+      parts.push(...renderDiff(diffLabel, context.squashDiff))
     }
   }
 

@@ -65,6 +65,7 @@ const fakeConfig = (o: Partial<ConfigOperations> = {}): ConfigOperations => ({
   testCommand: "echo test",
   resolveModel: () => "claude-opus-4-8",
   agenticReview: true,
+  squash: true,
   fixAttemptCap: 3,
   reviewThreshold: 3,
   ...o,
@@ -713,6 +714,165 @@ describe(
   },
 )
 
+// ── gatherEvents: squash payload ─────────────────────────────────────────────
+// `squashEnabled`, `squashBase`, `squashDiff` — populated only when HEAD is
+// `gtd: done` and squash is enabled in config.
+
+describe(
+  "gatherEvents — squash payload (squashBase / squashDiff / squashEnabled)",
+  { timeout: 30_000 },
+  () => {
+    afterEach(cleanup)
+
+    // Scenario 1: standard cycle ending at HEAD gtd: done with squash enabled.
+    // squashBase = parent of first gtd: grilling; squashDiff non-empty.
+    it("HEAD gtd: done after full cycle, squash enabled → squashEnabled true, squashBase = parent of gtd: grilling, squashDiff non-empty", async () => {
+      initRepo(true)
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      const grillingHash = git("rev-parse", "HEAD")
+      const grillingParent = git("rev-parse", "HEAD~1")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.squashEnabled).toBe(true)
+      expect(p.squashBase).toBe(grillingParent)
+      expect(p.squashDiff).toBeDefined()
+      expect(p.squashDiff!.length).toBeGreaterThan(0)
+      // squashBase is parent of grilling, not the grilling commit itself
+      expect(p.squashBase).not.toBe(grillingHash)
+    })
+
+    // Scenario 2: interleaved non-gtd commit between gtd commits.
+    // squashBase = parent of first gtd: grilling; diff includes the interleaved commit's files.
+    it("interleaved non-gtd commit between gtd commits → squashBase = parent of gtd: grilling, diff includes interleaved files", async () => {
+      initRepo(true)
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      const grillingParent = git("rev-parse", "HEAD~1")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: first work", "first.ts", "export const first = 1\n")
+      commitFile("chore: interleaved", "chore.ts", "// chore\n")
+      commitFile("feat: second work", "second.ts", "export const second = 2\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.squashBase).toBe(grillingParent)
+      expect(p.squashDiff).toContain("first.ts")
+      expect(p.squashDiff).toContain("chore.ts")
+      expect(p.squashDiff).toContain("second.ts")
+    })
+
+    // Scenario 3: second process (prior gtd: done, then second cycle gtd: grilling … gtd: done).
+    // squashBase = parent of SECOND cycle's gtd: grilling, not the first.
+    it("second process on branch → squashBase = parent of second cycle's gtd: grilling", async () => {
+      initRepo(true)
+      // First cycle
+      commitFile("gtd: grilling", "TODO.md", "# Plan 1\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: first feature", "first.ts", "export const first = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+      // Second cycle
+      commitFile("gtd: grilling", "TODO.md", "# Plan 2\n")
+      const secondGrillingParent = git("rev-parse", "HEAD~1")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: second feature", "second.ts", "export const second = 2\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.squashBase).toBe(secondGrillingParent)
+      // second.ts is in the squash diff but first.ts is not (prior cycle)
+      expect(p.squashDiff).toContain("second.ts")
+      expect(p.squashDiff).not.toContain("first.ts")
+    })
+
+    // Scenario 4: squash: false in config → squashEnabled false, squashBase unset.
+    it("squash: false in config → squashEnabled false, squashBase unset", async () => {
+      initRepo(true)
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+
+      const p = resolveOf(await runGather({ squash: false }))
+      expect(p.squashEnabled).toBe(false)
+      expect(p.squashBase).toBeUndefined()
+      expect(p.squashDiff).toBeUndefined()
+    })
+
+    // Scenario 5: HEAD NOT gtd: done → squashBase unset.
+    it("HEAD NOT gtd: done → squashBase unset", async () => {
+      initRepo(true)
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      // HEAD is feat: work, not gtd: done
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.squashBase).toBeUndefined()
+      expect(p.squashDiff).toBeUndefined()
+    })
+
+    // Scenario 6: already-squashed (plain feat: HEAD, no gtd: done) → squashBase unset.
+    it("already-squashed (plain feat: HEAD, no gtd: done) → squashBase unset", async () => {
+      initRepo(true)
+      commitFile("feat: squashed work", "work.ts", "export const work = 1\n")
+      // No gtd: done, no gtd: grilling, no workflow
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.squashBase).toBeUndefined()
+      expect(p.squashDiff).toBeUndefined()
+    })
+
+    it("SQUASH_MSG.md present → squashMsgPresent true, squashMsgContent matches file", async () => {
+      initRepo(true)
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+      const msg = "feat: add work\n\nDecision: keep it simple.\n"
+      writeFileSync(join(repoDir, "SQUASH_MSG.md"), msg)
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.squashMsgPresent).toBe(true)
+      expect(p.squashMsgContent).toBe(msg)
+    })
+
+    it("SQUASH_MSG.md absent → squashMsgPresent false, squashMsgContent empty", async () => {
+      initRepo(true)
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.squashMsgPresent).toBe(false)
+      expect(p.squashMsgContent).toBe("")
+    })
+
+    it("SQUASH_MSG.md excluded from codeDirty (not treated as a code change)", async () => {
+      initRepo(true)
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+      writeFileSync(join(repoDir, "SQUASH_MSG.md"), "feat: add work\n")
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.codeDirty).toBe(false)
+    })
+  },
+)
+
 // ── gatherEvents: COMMIT-stream base folds ───────────────────────────────────
 
 describe("gatherEvents — COMMIT-stream base folds (issue-7)", { timeout: 30_000 }, () => {
@@ -1203,5 +1363,32 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, "REVIEW.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: done")
     expect(git("ls-files", "REVIEW.md").trim()).toBe("")
+  })
+
+  it("squashCommit: removes SQUASH_MSG.md, soft-resets to squashBase, re-commits with message", async () => {
+    commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+    git("rm", "-q", "TODO.md")
+    git("commit", "-q", "-m", "gtd: planning")
+    commitFile("feat: work", "work.ts", "export const work = 1\n")
+    git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+    const grillingHash = git("log", "--format=%H", "--reverse", "--grep=gtd: grilling")
+      .split("\n")[0]!
+      .trim()
+    const squashBase = git("rev-parse", `${grillingHash}~1`).trim()
+
+    writeFileSync(join(repoDir, "SQUASH_MSG.md"), "feat: add work\n\nbody\n")
+
+    await runPerform({
+      kind: "squashCommit",
+      squashBase,
+      commitMessage: "feat: add work\n\nbody",
+    })
+
+    expect(existsSync(join(repoDir, "SQUASH_MSG.md"))).toBe(false)
+    expect(git("log", "-1", "--format=%s")).toBe("feat: add work")
+    expect(git("log", "-1", "--format=%b").trim()).toBe("body")
+    expect(git("rev-parse", "HEAD~1").trim()).toBe(squashBase)
+    expect(git("diff", "--name-only", `${squashBase}..HEAD`)).toContain("work.ts")
+    expect(git("diff", "--name-only", `${squashBase}..HEAD`)).not.toContain("SQUASH_MSG.md")
   })
 })
