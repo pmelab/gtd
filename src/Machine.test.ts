@@ -356,10 +356,10 @@ describe("rule 3 — build lifecycle", () => {
 })
 
 describe("rule 4 — review lifecycle", () => {
-  it("uncommitted REVIEW → await-review, STOP, commitReview", () => {
+  it("uncommitted REVIEW → await-review, auto, commitReview", () => {
     const res = r({ reviewPresent: true, reviewCommitted: false, reviewDirty: false })
     expect(res.state).toBe("await-review")
-    expect(res.autoAdvance).toBe(false)
+    expect(res.autoAdvance).toBe(true)
     expect(res.edgeAction).toEqual({ kind: "commitReview" })
   })
 
@@ -671,7 +671,7 @@ describe("rule 7 — Squashing", () => {
       squashMsgContent: "feat: add calculator\n\nDecided during grilling to use simple addition.",
     })
     expect(res.state).toBe("squashing")
-    expect(res.autoAdvance).toBe(true)
+    expect(res.autoAdvance).toBe(false)
     expect(res.edgeAction).toEqual({
       kind: "squashCommit",
       squashBase: "abc123",
@@ -705,7 +705,7 @@ describe("rule 7 — Squashing", () => {
       codeDirty: false,
     })
     expect(res.state).toBe("squashing")
-    expect(res.autoAdvance).toBe(true)
+    expect(res.autoAdvance).toBe(false)
     expect(res.edgeAction).toEqual({
       kind: "squashCommit",
       squashBase: "abc123",
@@ -738,7 +738,7 @@ describe("rule 7 — Squashing", () => {
       squashMsgContent: "feat: add calculator\n\nDecided during grilling to use simple addition.",
     })
     expect(res.state).toBe("squashing")
-    expect(res.autoAdvance).toBe(true)
+    expect(res.autoAdvance).toBe(false)
     expect(res.edgeAction).toEqual({
       kind: "squashCommit",
       squashBase: "abc123",

@@ -6,7 +6,6 @@ import fixingMd from "./prompts/fixing.md"
 import agenticReviewMd from "./prompts/agentic-review.md"
 import cleanMd from "./prompts/clean.md"
 import squashingMd from "./prompts/squashing.md"
-import awaitReviewMd from "./prompts/await-review.md"
 import escalateMd from "./prompts/escalate.md"
 import idleMd from "./prompts/idle.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
@@ -15,7 +14,7 @@ import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdPackageFact, GtdState, ResolveContext, Result } from "./Machine.js"
 
 /**
- * The six edge-only states: the driver performs their `edgeAction`, re-gathers,
+ * The seven edge-only states: the driver performs their `edgeAction`, re-gathers,
  * and re-resolves without ever rendering a prompt. Asking `buildPrompt` to render
  * one is a driver bug, so it throws.
  */
@@ -26,18 +25,25 @@ const EDGE_ONLY_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
   "accept-review",
   "close-package",
   "done",
+  "await-review",
 ])
 
 /** The agent/human-facing states `buildPrompt` renders a section for. */
 type PromptState = Exclude<
   GtdState,
-  "transport" | "new-feature" | "testing" | "accept-review" | "close-package" | "done"
+  | "transport"
+  | "new-feature"
+  | "testing"
+  | "accept-review"
+  | "close-package"
+  | "done"
+  | "await-review"
 >
 
 /**
  * Which `ModelState` a prompt-bearing state resolves `{{MODEL}}` against. The two
  * decompose states (`grilled`, `planning`) share the `decompose` tier; the STOP
- * states (`await-review`, `escalate`, `idle`) spawn no subagent and carry none.
+ * states (`escalate`, `idle`) spawn no subagent and carry none.
  */
 const MODEL_STATE: Partial<Record<PromptState, ModelState>> = {
   grilling: "grilling",
@@ -59,7 +65,6 @@ const SECTIONS: Record<Exclude<PromptState, "grilling">, string> = {
   "agentic-review": agenticReviewMd,
   clean: cleanMd,
   squashing: squashingMd,
-  "await-review": awaitReviewMd,
   escalate: escalateMd,
   idle: idleMd,
 }
@@ -162,10 +167,10 @@ const renderGrilling = (
 /**
  * Assemble the full prompt for a resolved, prompt-bearing state: the shared
  * `header`, a `## Context` block, the state's section (with `{{MODEL}}` resolved
- * for the six model states and the selected package / diffs inlined where the
+ * for the seven model states and the selected package / diffs inlined where the
  * state needs them), and the `auto-advance` partial when `result.autoAdvance`.
  *
- * Throws for the six edge-only states — they are performed by the driver and must
+ * Throws for the seven edge-only states — they are performed by the driver and must
  * never reach here.
  */
 export const buildPrompt = (

@@ -41,7 +41,7 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And stdout contains "Changes to review"
     And stdout contains "src/calc.ts"
 
-  Scenario: An uncommitted REVIEW.md is committed and awaits the user
+  Scenario: An uncommitted REVIEW.md is committed and auto-advances to Done in one run
     Given a test project
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
@@ -57,8 +57,10 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
       """
     When I run gtd
     Then it succeeds
-    And the last commit subject is "gtd: awaiting review"
-    And stdout contains "## Task: Await the user's review"
+    And the last commit subject is "gtd: done"
+    And the git log contains "gtd: awaiting review"
+    And the file "REVIEW.md" does not exist
+    And stdout does not contain "## Task: Await the user's review"
 
   Scenario: A committed REVIEW.md approved with no edits finishes as gtd: done
     Given a test project

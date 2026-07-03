@@ -104,12 +104,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
 
       - [ ] ./src/calc.ts#1
       """
-    # Run 9: Await Review commits it and stops for the human.
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: awaiting review"
-    And stdout contains "## Task: Await the user's review"
-    # Run 10: the human approves by running gtd with no edits → Done → Squashing.
+    # Run 9: Await Review commits REVIEW.md and auto-advances → Done → Squashing in one run.
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: done"
@@ -225,10 +220,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
 
       - [ ] ./src/farewell.ts#1
       """
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: awaiting review"
-    # The human approves the follow-up → the process finally closes → Squashing.
+    # Await Review auto-advances: commits REVIEW.md and closes the process → Squashing in one run.
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: done"
@@ -382,10 +374,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
       - [ ] ./src/first.ts#1
       - [ ] ./src/second.ts#1
       """
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: awaiting review"
-    # Run: approve the second review → done → idle again.
+    # Await Review auto-advances: commits REVIEW.md and advances to Done → idle in one run.
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: done"
