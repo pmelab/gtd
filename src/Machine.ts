@@ -618,9 +618,23 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   // yields a non-empty filtered diff, else there is nothing to review (Idle).
   if (p.workingTreeClean && (isBoundary(head) || head === "gtd: package done")) {
     if (head === "gtd: done" && p.squashEnabled && p.squashBase !== undefined) {
+      if (p.squashMsgPresent) {
+        // Agent wrote SQUASH_MSG.md — edge performs the squash commit.
+        return {
+          state: "squashing",
+          autoAdvance: true,
+          edgeAction: {
+            kind: "squashCommit",
+            squashBase: p.squashBase,
+            commitMessage: p.squashMsgContent,
+          },
+          context: buildContext(p, counters),
+        }
+      }
+      // No SQUASH_MSG.md yet — prompt the agent to write the commit message.
       return {
         state: "squashing",
-        autoAdvance: true,
+        autoAdvance: false,
         context: buildContext(p, counters),
       }
     }
