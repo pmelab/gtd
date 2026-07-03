@@ -36,6 +36,12 @@ Given("a file {string} with:", function (this: GtdWorld, path: string, content: 
   writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
 })
 
+Given("a file {string} with content:", function (this: GtdWorld, path: string, content: string) {
+  const full = join(this.repoDir, path)
+  mkdirSync(join(full, ".."), { recursive: true })
+  writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
+})
+
 Given("{string} is modified to:", function (this: GtdWorld, path: string, content: string) {
   const full = join(this.repoDir, path)
   writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
@@ -150,6 +156,14 @@ Then("the last commit subject is {string}", function (this: GtdWorld, subject: s
   )
 })
 
+Then("the HEAD commit subject is {string}", function (this: GtdWorld, subject: string) {
+  assert.strictEqual(
+    this.lastCommitSubject(),
+    subject,
+    `Expected HEAD commit subject "${subject}". Got "${this.lastCommitSubject()}".\nLog:\n${this.gitLog()}`,
+  )
+})
+
 Then("the git log contains {string}", function (this: GtdWorld, subject: string) {
   const log = this.gitLog()
   assert.ok(log.includes(subject), `Expected git log to contain "${subject}". Got:\n${log}`)
@@ -166,6 +180,14 @@ Then("the file {string} exists", function (this: GtdWorld, path: string) {
 
 Then("the file {string} does not exist", function (this: GtdWorld, path: string) {
   assert.ok(!this.repoFileExists(path), `Expected file "${path}" NOT to exist.`)
+})
+
+Then("{string} exists", function (this: GtdWorld, path: string) {
+  assert.ok(this.repoFileExists(path), `Expected "${path}" to exist.`)
+})
+
+Then("{string} does not exist", function (this: GtdWorld, path: string) {
+  assert.ok(!this.repoFileExists(path), `Expected "${path}" NOT to exist.`)
 })
 
 Then("the file {string} contains {string}", function (this: GtdWorld, path: string, text: string) {

@@ -829,6 +829,47 @@ describe(
       expect(p.squashBase).toBeUndefined()
       expect(p.squashDiff).toBeUndefined()
     })
+
+    it("SQUASH_MSG.md present → squashMsgPresent true, squashMsgContent matches file", async () => {
+      initRepo(true)
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+      const msg = "feat: add work\n\nDecision: keep it simple.\n"
+      writeFileSync(join(repoDir, "SQUASH_MSG.md"), msg)
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.squashMsgPresent).toBe(true)
+      expect(p.squashMsgContent).toBe(msg)
+    })
+
+    it("SQUASH_MSG.md absent → squashMsgPresent false, squashMsgContent empty", async () => {
+      initRepo(true)
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.squashMsgPresent).toBe(false)
+      expect(p.squashMsgContent).toBe("")
+    })
+
+    it("SQUASH_MSG.md excluded from codeDirty (not treated as a code change)", async () => {
+      initRepo(true)
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+      writeFileSync(join(repoDir, "SQUASH_MSG.md"), "feat: add work\n")
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.codeDirty).toBe(false)
+    })
   },
 )
 
@@ -1322,5 +1363,32 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, "REVIEW.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: done")
     expect(git("ls-files", "REVIEW.md").trim()).toBe("")
+  })
+
+  it("squashCommit: removes SQUASH_MSG.md, soft-resets to squashBase, re-commits with message", async () => {
+    commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+    git("rm", "-q", "TODO.md")
+    git("commit", "-q", "-m", "gtd: planning")
+    commitFile("feat: work", "work.ts", "export const work = 1\n")
+    git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+    const grillingHash = git("log", "--format=%H", "--reverse", "--grep=gtd: grilling")
+      .split("\n")[0]!
+      .trim()
+    const squashBase = git("rev-parse", `${grillingHash}~1`).trim()
+
+    writeFileSync(join(repoDir, "SQUASH_MSG.md"), "feat: add work\n\nbody\n")
+
+    await runPerform({
+      kind: "squashCommit",
+      squashBase,
+      commitMessage: "feat: add work\n\nbody",
+    })
+
+    expect(existsSync(join(repoDir, "SQUASH_MSG.md"))).toBe(false)
+    expect(git("log", "-1", "--format=%s")).toBe("feat: add work")
+    expect(git("log", "-1", "--format=%b").trim()).toBe("body")
+    expect(git("rev-parse", "HEAD~1").trim()).toBe(squashBase)
+    expect(git("diff", "--name-only", `${squashBase}..HEAD`)).toContain("work.ts")
+    expect(git("diff", "--name-only", `${squashBase}..HEAD`)).not.toContain("SQUASH_MSG.md")
   })
 })

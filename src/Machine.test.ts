@@ -618,14 +618,14 @@ describe("rule 7 — Clean / Idle", () => {
 })
 
 describe("rule 7 — Squashing", () => {
-  it("HEAD gtd: done + squashEnabled + squashBase set → squashing, auto, no edgeAction", () => {
+  it("HEAD gtd: done + squashEnabled + squashBase set → squashing, no auto, no edgeAction (prompt agent)", () => {
     const res = r({
       lastCommitSubject: "gtd: done",
       squashEnabled: true,
       squashBase: "abc123",
     })
     expect(res.state).toBe("squashing")
-    expect(res.autoAdvance).toBe(true)
+    expect(res.autoAdvance).toBe(false)
     expect(res.edgeAction).toBeUndefined()
   })
 
@@ -660,6 +660,35 @@ describe("rule 7 — Squashing", () => {
   it("HEAD gtd: done with no squash fields (DEFAULT_PAYLOAD) → idle (default behavior)", () => {
     const res = r({ lastCommitSubject: "gtd: done" })
     expect(res.state).toBe("idle")
+  })
+
+  it("squashing + squashMsgPresent: true → squashCommit edgeAction with squashBase + commitMessage", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+      squashMsgPresent: true,
+      squashMsgContent: "feat: add calculator\n\nDecided during grilling to use simple addition.",
+    })
+    expect(res.state).toBe("squashing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({
+      kind: "squashCommit",
+      squashBase: "abc123",
+      commitMessage: "feat: add calculator\n\nDecided during grilling to use simple addition.",
+    })
+  })
+
+  it("squashing + squashMsgPresent: false → no edgeAction, autoAdvance false (prompt agent)", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+      squashMsgPresent: false,
+    })
+    expect(res.state).toBe("squashing")
+    expect(res.autoAdvance).toBe(false)
+    expect(res.edgeAction).toBeUndefined()
   })
 })
 
