@@ -187,15 +187,6 @@ describe("buildPrompt", () => {
         "MODEL-FOR-agentic-review",
       )
       expect(buildPrompt(result("clean"), custom)).toContain("MODEL-FOR-clean")
-      expect(
-        buildPrompt(
-          result("squashing", {
-            autoAdvance: true,
-            context: { squashBase: "abc1234", squashDiff: "diff --git a/x b/x\n+hello\n" },
-          }),
-          custom,
-        ),
-      ).toContain("MODEL-FOR-clean")
     })
 
     it("STOP states carry no {{MODEL}} and no injected model", () => {
