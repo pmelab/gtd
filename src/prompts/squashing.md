@@ -1,42 +1,43 @@
 ## Task: Squash all `gtd: *` commits into one conventional-commits message
 
-The process is **approved and done**. The goal is to collapse every `gtd: *`
-commit (and any interleaved non-gtd commits) in the feature range into a single,
-clean conventional-commits message.
+The process is **approved and done**. Your job is to author a clean
+conventional-commits squash message and hand it off to gtd.
 
-### Authoring the commit message
+### Step 1 — Extract decisions from grilling rounds
 
-Spawn a **planning-model subagent** using model `{{MODEL}}` to author the
-message. It must:
+Scan the inlined full-process diff below. Look for changes to `TODO.md` —
+specifically the `## Captured input (grilling)` sections and any edits to plan
+text. Extract **key decisions, trade-offs, and design choices** made during
+grilling rounds. These will appear in the commit body so the history is
+self-documenting.
 
-1. **Read the inlined full-process diff** — understand the totality of changes
-   made during this feature branch.
-2. **Draft ONE conventional-commits message** in the form:
+### Step 2 — Draft the commit message
 
-   ```
-   type(scope): subject
+Draft ONE conventional-commits message:
 
-   optional body
-   ```
+```
+type(scope): subject
 
-   - **type**: `feat` / `fix` / `refactor` / `chore` / `docs` / `test`
-   - **subject**: imperative mood, ≤ 72 characters, lowercase after the colon
-   - **body** (optional): explain the _why_ — motivation, trade-offs, and
-     context that won't be obvious from the diff alone. Omit if unnecessary.
-
-### Squash commands
-
-Run these commands **unconditionally** — squash the entire range, folding in any
-interleaved non-gtd commits too. No guard, no abort:
-
-```sh
-git reset --soft <squashBase>
-git commit -m "<generated message>"
+body (explain the why — motivation, trade-offs, key decisions from grilling)
 ```
 
-Replace `<squashBase>` with the SHA on the `Squash base:` line and
-`<generated message>` with the authored commit message. Run the commands
-yourself — gtd's `src/` never performs the commit (same handoff pattern as
-`clean.md`).
+- **type**: `feat` / `fix` / `refactor` / `chore` / `docs` / `test`
+- **subject**: imperative mood, ≤ 72 characters, lowercase after the colon
+- **body**: include the important decisions / trade-offs from grilling sessions.
+  Omit if there were no meaningful decisions to capture.
 
-After committing, then re-run gtd to continue.
+### Step 3 — Write SQUASH_MSG.md and hand off
+
+Write the commit message (plain text, no markdown wrapper) to `SQUASH_MSG.md` in
+the repo root.
+
+Then run:
+
+```sh
+node /Users/pmelab/.claude/skills/gtd/scripts/gtd.js format SQUASH_MSG.md
+```
+
+Then re-run gtd to let the edge perform the actual squash commit.
+
+**Do not run `git reset --soft` or `git commit` yourself** — gtd handles the
+squash commit on the next invocation once it sees `SQUASH_MSG.md`.
