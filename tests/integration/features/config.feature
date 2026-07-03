@@ -9,6 +9,7 @@ Feature: .gtdrc config system
   scenarios drive the bundled CLI end-to-end so the merge walk + cosmiconfig
   bundling are exercised for real.
 
+  @inmem
   Scenario: A custom testCommand reaches the runner and beats the default
     # No package.json `test` script exists, so the sentinel surfacing in the fix
     # prompt proves the configured testCommand — not the default `npm run test` —
@@ -36,6 +37,7 @@ Feature: .gtdrc config system
     And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
     And stdout contains "CONFIG_SENTINEL"
 
+  @inmem
   Scenario: The planning-tier model appears in the decompose prompt
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -54,6 +56,7 @@ Feature: .gtdrc config system
     And stdout contains "my-planner-model"
     And stdout does not contain "my-executor-model"
 
+  @inmem
   Scenario: The execution-tier model appears in the build prompt
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -72,6 +75,7 @@ Feature: .gtdrc config system
     And stdout contains "my-executor-model"
     And stdout does not contain "my-planner-model"
 
+  @inmem
   Scenario: A per-state override beats the tier model in the decompose prompt
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -91,6 +95,7 @@ Feature: .gtdrc config system
     And stdout contains "state-decompose-model"
     And stdout does not contain "tier-planner"
 
+  @inmem
   Scenario: Built-in planning default applies with no config present
     Given a test project
     And a commit "docs: seed plan" that adds "TODO.md" with:
@@ -102,6 +107,7 @@ Feature: .gtdrc config system
     And stdout contains "## Task: Decompose the plan into work packages"
     And stdout contains "claude-opus-4-8"
 
+  @inmem
   Scenario: The build prompt uses the built-in execution default with no config
     Given a test project
     And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
@@ -113,6 +119,7 @@ Feature: .gtdrc config system
     And stdout contains "## Task: Build one work package"
     And stdout contains "claude-sonnet-4-8"
 
+  @inmem
   Scenario: A lowered fixAttemptCap escalates sooner
     # With the cap at 1, a single prior `gtd: errors` exhausts the budget, so the
     # next red test writes ERRORS.md and escalates instead of FEEDBACK.md.
@@ -143,6 +150,7 @@ Feature: .gtdrc config system
     And the file "ERRORS.md" exists
     And stdout contains "## Task: Escalate"
 
+  @inmem
   Scenario: A lowered reviewThreshold force-approves sooner
     Given a test project
     And a default branch "main"
@@ -162,6 +170,7 @@ Feature: .gtdrc config system
     And the last commit subject is "gtd: package done"
     And stdout does not contain "## Task: Agentic review of the built package"
 
+  @live
   Scenario: An unknown config key is rejected
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -172,6 +181,7 @@ Feature: .gtdrc config system
     Then it fails
     And stderr contains "Invalid gtd config"
 
+  @live
   Scenario: cwd config wins over an ancestor for an overlapping key while non-overlapping keys cascade
     # The shared parent sets testCommand AND a planning model; the repo's cwd
     # .gtdrc overrides only the planning model. The decompose prompt must show the
@@ -200,6 +210,7 @@ Feature: .gtdrc config system
     And stdout contains "cwd-planner-model"
     And stdout does not contain "ancestor-planner-model"
 
+  @live
   Scenario: Negative fixAttemptCap is rejected with an informative message
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -214,6 +225,7 @@ Feature: .gtdrc config system
     Then it fails
     And stderr contains "Invalid gtd config"
 
+  @live
   Scenario: Float fixAttemptCap is rejected with an informative message
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -228,6 +240,7 @@ Feature: .gtdrc config system
     Then it fails
     And stderr contains "Invalid gtd config"
 
+  @live
   Scenario: Zero reviewThreshold is rejected with an informative message
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -242,6 +255,7 @@ Feature: .gtdrc config system
     Then it fails
     And stderr contains "Invalid gtd config"
 
+  @inmem
   Scenario: fixAttemptCap of zero is accepted as a valid config
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -255,6 +269,7 @@ Feature: .gtdrc config system
     When I run gtd
     Then it succeeds
 
+  @inmem
   Scenario: A malformed YAML config file is rejected and names the offending file
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -269,6 +284,7 @@ Feature: .gtdrc config system
     Then it fails
     And stderr contains ".gtdrc"
 
+  @inmem
   Scenario: A config whose top-level value is a YAML list is rejected and names the offending file
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -284,6 +300,7 @@ Feature: .gtdrc config system
     Then it fails
     And stderr contains ".gtdrc"
 
+  @live
   Scenario: A schema validation error message is concise and does not dump internal type structures
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -299,6 +316,7 @@ Feature: .gtdrc config system
     And stderr contains "Invalid gtd config"
     And stderr does not contain "readonly"
 
+  @inmem
   Scenario: A null-root config is rejected and names the offending file
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -313,6 +331,7 @@ Feature: .gtdrc config system
     Then it fails
     And stderr contains ".gtdrc"
 
+  @live
   Scenario: A config in a shared parent directory cascades down to a repo beneath it
     # Only the shared (non-git-root) parent carries a .gtdrc; the repo has none.
     # The ancestor's planning model must still reach the decompose prompt, proving

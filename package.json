@@ -39,6 +39,7 @@
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/github": "^12.0.8",
+    "@types/diff": "^7.0.2",
     "@types/node": "^25.9.3",
     "eslint": "^9.39.2",
     "fast-check": "^4.8.0",
@@ -59,6 +60,7 @@
     "@effect/platform": "^0.94.2",
     "@effect/platform-node": "^0.104.1",
     "cosmiconfig": "^9.0.2",
+    "diff": "^9.0.0",
     "effect": "^3.19.15",
     "prettier": "^3.8.1"
   }

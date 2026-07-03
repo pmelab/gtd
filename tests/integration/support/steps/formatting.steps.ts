@@ -5,8 +5,8 @@ import { join, resolve } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 
-When("I run gtd with args {string}", function (this: GtdWorld, args: string) {
-  this.runGtd(...args.split(" "))
+When("I run gtd with args {string}", async function (this: GtdWorld, args: string) {
+  await this.runGtd(...args.split(" "))
 })
 
 Then("the exit code is {int}", function (this: GtdWorld, code: number) {

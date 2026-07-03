@@ -1,3 +1,4 @@
+@inmem
 Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
 
   With no steering files and a clean tree, unreviewed work since the review base

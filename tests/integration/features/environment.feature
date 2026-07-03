@@ -1,3 +1,4 @@
+@live
 Feature: Hostile environments and unusual invocations
 
   gtd derives everything from the repository it is invoked in. These scenarios

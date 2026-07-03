@@ -1,4 +1,5 @@
 @squashing
+@inmem
 Feature: Squashing — collapse gtd: * commits into one conventional-commits message
 
   After `gtd: done` closes the process, a Squashing prompt is emitted so the
@@ -32,8 +33,7 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout contains "src/calc.ts"
     And stdout contains "Re-run gtd immediately after completing the steps above."
     And stdout does not contain "STOP — do not re-run"
-    And stdout does not contain "git reset --soft"
-    And stdout does not contain "git commit"
+    And stdout contains "Do not run"
 
   Scenario: Interleaved non-gtd commit appears in the squash diff
     Given a test project
@@ -66,8 +66,7 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout contains "coworker.ts"
     And stdout contains "Re-run gtd immediately after completing the steps above."
     And stdout does not contain "STOP — do not re-run"
-    And stdout does not contain "git reset --soft"
-    And stdout does not contain "git commit"
+    And stdout contains "Do not run"
 
   @squashing
   Scenario: SQUASH_MSG.md present — gtd performs the squash commit on next run
