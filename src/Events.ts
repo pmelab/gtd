@@ -49,6 +49,7 @@ const DONE_SUBJECT = "gtd: done"
 // The accept-review capture commit (commit-then-revert, like `gtd: new task`).
 // Distinct from the exact `gtd: feedback` marker the reviewFixCount fold reads.
 const REVIEW_FEEDBACK_SUBJECT = "gtd: review feedback"
+const SQUASH_MSG_FILE = "SQUASH_MSG.md"
 
 // The steering-file set, single source of truth: the predicates below and the
 // diff exclusions all derive from it. Workflow plumbing is excluded from every
@@ -56,7 +57,13 @@ const REVIEW_FEEDBACK_SUBJECT = "gtd: review feedback"
 // reviewer nor a captured suggestion block should ever contain steering-file
 // churn (TODO.md seeded/deleted, REVIEW.md committed/removed, `.gtd/` packages
 // created/closed).
-const STEERING_FILES: ReadonlyArray<string> = [TODO_FILE, REVIEW_FILE, FEEDBACK_FILE, ERRORS_FILE]
+const STEERING_FILES: ReadonlyArray<string> = [
+  TODO_FILE,
+  REVIEW_FILE,
+  FEEDBACK_FILE,
+  ERRORS_FILE,
+  SQUASH_MSG_FILE,
+]
 const WORKFLOW_FILE_EXCLUDES: ReadonlyArray<string> = [...STEERING_FILES, GTD_DIR]
 
 const isGtdPath = (path: string): boolean => path === GTD_DIR || path.startsWith(`${GTD_DIR}/`)
@@ -601,6 +608,10 @@ export const gatherEvents = (): Effect.Effect<
       }
     }
 
+    // --- SQUASH_MSG.md presence (squash commit message written by agent) --------
+    const squashMsgPresent = yield* fs.exists(SQUASH_MSG_FILE)
+    const squashMsgContent = squashMsgPresent ? yield* fs.readFileString(SQUASH_MSG_FILE) : ""
+
     const payload: ResolvePayload = {
       todoExists,
       todoCommitted,
@@ -631,6 +642,8 @@ export const gatherEvents = (): Effect.Effect<
       squashEnabled: config.squash,
       ...(squashBase !== undefined ? { squashBase } : {}),
       ...(squashDiff !== undefined ? { squashDiff } : {}),
+      squashMsgPresent,
+      squashMsgContent,
     }
 
     const resolveEvent: GtdEvent = { type: "RESOLVE", payload }
@@ -809,6 +822,15 @@ export const perform = (
       case "done": {
         yield* fs.remove(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.void))
         yield* git.commitAllWithPrefix(DONE_SUBJECT)
+        return
+      }
+
+      // Squash: rm SQUASH_MSG.md, soft-reset to squashBase, commit everything
+      // under the provided commit message.
+      case "squashCommit": {
+        yield* fs.remove(SQUASH_MSG_FILE).pipe(Effect.catchAll(() => Effect.void))
+        yield* git.softResetTo(action.squashBase)
+        yield* git.commitAllWithPrefix(action.commitMessage)
         return
       }
     }
