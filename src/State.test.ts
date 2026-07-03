@@ -32,13 +32,14 @@ const EXPECTED_EDGE_ONLY: ReadonlyArray<GtdState> = [
   "transport",
   "new-feature",
   "testing",
+  "await-review",
   "accept-review",
   "close-package",
   "done",
 ]
 
 describe("edge-only state classification", () => {
-  it("EDGE_ONLY_STATES is exactly the six edge-only states", () => {
+  it("EDGE_ONLY_STATES is exactly the seven edge-only states", () => {
     expect([...EDGE_ONLY_STATES].sort()).toEqual([...EXPECTED_EDGE_ONLY].sort())
   })
 
@@ -50,8 +51,8 @@ describe("edge-only state classification", () => {
 
   it("isEdgeOnly is false for every prompt-bearing state", () => {
     const promptBearing = ALL_STATES.filter((s) => !EXPECTED_EDGE_ONLY.includes(s))
-    // sanity: the eleven remaining states are all prompt-bearing
-    expect(promptBearing).toHaveLength(11)
+    // sanity: the ten remaining states are all prompt-bearing
+    expect(promptBearing).toHaveLength(10)
     for (const state of promptBearing) {
       expect(isEdgeOnly(state)).toBe(false)
     }

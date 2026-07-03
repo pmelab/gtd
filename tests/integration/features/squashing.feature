@@ -100,6 +100,7 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And the HEAD commit subject is "feat(calc): add calculator"
     And "SQUASH_MSG.md" does not exist
     And "src/calc.ts" exists
+    And stdout does not contain "Re-run gtd immediately"
 
   @squashing
   Scenario: SQUASH_MSG.md present alone does not cause codeDirty
@@ -237,3 +238,36 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     Then it succeeds
     And stdout contains "## Task: Nothing to do"
     And stdout does not contain "## Task: Squash all `gtd: *` commits into one conventional-commits message"
+
+  @squashing
+  Scenario: Post-squash on feature branch — manual gtd run triggers review
+    Given a test project
+    And a branch "feature"
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+      - [ ] add calculator
+      """
+    And a commit "gtd: planning" that deletes "TODO.md"
+    And a commit "gtd: building" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: package done"
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+      - [ ] ./src/calc.ts#1
+      """
+    And a commit "gtd: done" that deletes "REVIEW.md"
+    And a file "SQUASH_MSG.md" with content:
+      """
+      feat(calc): add calculator
+      """
+    When I run gtd
+    Then it succeeds
+    And the HEAD commit subject is "feat(calc): add calculator"
+    And stdout does not contain "Re-run gtd immediately"
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Create `REVIEW.md` for the finished work"

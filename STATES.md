@@ -350,14 +350,14 @@ plumbing churn. If the filtered diff is empty, there is nothing to review
 **Prompt:** create REVIEW.md for the changes since the base commit. _(not
 auto-advance; agent writes REVIEW.md → Await Review.)_
 
-### Await Review
+### Await Review (auto-advance)
 
 **Conditions:** REVIEW.md present and **uncommitted**.
 
 **Actions:** commit REVIEW.md `gtd: awaiting review`.
 
-**Prompt:** tell the user to review the changes using REVIEW.md. _(not
-auto-advance — human turn.)_
+**Prompt:** _(auto-advance — commits REVIEW.md, then re-resolves to Done in the
+same run.)_
 
 ### Accept Review (auto-advance)
 

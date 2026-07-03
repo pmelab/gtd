@@ -20,7 +20,7 @@ import { type GtdState, resolve, type Result } from "./Machine.js"
  */
 
 /**
- * The six edge-only states: the driver performs their `edgeAction`, then
+ * The seven edge-only states: the driver performs their `edgeAction`, then
  * re-gathers + re-resolves WITHOUT printing a prompt (they auto-advance through
  * the deterministic chain within one invocation). Mirrors the `EDGE_ONLY_STATES`
  * set in `Prompt.ts` — these are exactly the states `buildPrompt` refuses to
@@ -32,6 +32,7 @@ export const EDGE_ONLY_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
   "transport",
   "new-feature",
   "testing",
+  "await-review",
   "accept-review",
   "close-package",
   "done",

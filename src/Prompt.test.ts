@@ -86,20 +86,6 @@ describe("buildPrompt", () => {
       expect(out).toContain("Squash all `gtd: *` commits into one conventional-commits message")
     })
 
-    it("await-review renders the await-review section", () => {
-      const out = buildPrompt(result("await-review"))
-      expect(out).toContain("Await the user's review")
-    })
-
-    it("await-review leads with the STOP constraint", () => {
-      const out = buildPrompt(result("await-review"))
-      expect(out).toContain("STOP — do not re-run `gtd`")
-      // constraint must appear after all content
-      expect(out.indexOf("STOP — do not re-run")).toBeGreaterThan(
-        out.indexOf("Await the user's review"),
-      )
-    })
-
     it("escalate renders the escalate section", () => {
       const out = buildPrompt(result("escalate"))
       expect(out).toContain("Escalate — the test gate is stuck")
@@ -119,6 +105,7 @@ describe("buildPrompt", () => {
       "accept-review",
       "close-package",
       "done",
+      "await-review",
     ]
     for (const state of edgeOnly) {
       it(`${state} throws instead of rendering`, () => {
@@ -191,7 +178,7 @@ describe("buildPrompt", () => {
 
     it("STOP states carry no {{MODEL}} and no injected model", () => {
       const custom = (s: string): string => `SHOULD-NOT-APPEAR-${s}`
-      for (const state of ["await-review", "escalate", "idle"] as const) {
+      for (const state of ["escalate", "idle"] as const) {
         const out = buildPrompt(result(state), custom)
         expect(out).not.toContain("{{MODEL}}")
         expect(out).not.toContain("SHOULD-NOT-APPEAR")
@@ -441,7 +428,6 @@ describe("buildPrompt", () => {
       expect(buildPrompt(result("escalate", { autoAdvance: false }))).not.toContain(
         "Re-run gtd immediately",
       )
-      expect(buildPrompt(result("await-review"))).not.toContain("Re-run gtd immediately")
       expect(buildPrompt(result("idle"))).not.toContain("Re-run gtd immediately")
     })
 

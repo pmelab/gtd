@@ -545,7 +545,7 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
     // Uncommitted REVIEW.md (freshly written by Clean).
     return {
       state: "await-review",
-      autoAdvance: false,
+      autoAdvance: true,
       edgeAction: { kind: "commitReview" },
       context: buildContext(p, counters),
     }
@@ -571,7 +571,7 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   ) {
     return {
       state: "squashing",
-      autoAdvance: true,
+      autoAdvance: false,
       edgeAction: {
         kind: "squashCommit",
         squashBase: p.squashBase,
@@ -652,7 +652,7 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
         // Agent wrote SQUASH_MSG.md — edge performs the squash commit.
         return {
           state: "squashing",
-          autoAdvance: true,
+          autoAdvance: false,
           edgeAction: {
             kind: "squashCommit",
             squashBase: p.squashBase,
