@@ -69,6 +69,42 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout contains "Do not run"
 
   @squashing
+  Scenario: gtd: new task is included in the squash when present
+    Given a test project
+    And a commit "gtd: new task" that adds "TODO.md" with:
+      """
+      # Plan
+      - [ ] add calculator
+      """
+    And a commit "gtd: grilling" that deletes "TODO.md"
+    And a commit "gtd: planning" that adds ".gtd/01-calc/task.md" with:
+      """
+      Implement add()
+      """
+    And a commit "gtd: building" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: package done" that deletes ".gtd/01-calc/task.md"
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+      - [ ] ./src/calc.ts#1
+      """
+    And a commit "gtd: done" that deletes "REVIEW.md"
+    And a file "SQUASH_MSG.md" with content:
+      """
+      feat(calc): add calculator
+      """
+    When I run gtd
+    Then it succeeds
+    And the HEAD commit subject is "feat(calc): add calculator"
+    And "SQUASH_MSG.md" does not exist
+    And "src/calc.ts" exists
+    And the git log does not contain "gtd: new task"
+    And the git log does not contain "gtd: grilling"
+
+  @squashing
   Scenario: SQUASH_MSG.md present — gtd performs the squash commit on next run
     Given a test project
     And a commit "gtd: grilling" that adds "TODO.md" with:
