@@ -618,14 +618,14 @@ describe("rule 7 — Clean / Idle", () => {
 })
 
 describe("rule 7 — Squashing", () => {
-  it("HEAD gtd: done + squashEnabled + squashBase set → squashing, no auto, no edgeAction (prompt agent)", () => {
+  it("HEAD gtd: done + squashEnabled + squashBase set → squashing, auto, no edgeAction (prompt agent)", () => {
     const res = r({
       lastCommitSubject: "gtd: done",
       squashEnabled: true,
       squashBase: "abc123",
     })
     expect(res.state).toBe("squashing")
-    expect(res.autoAdvance).toBe(false)
+    expect(res.autoAdvance).toBe(true)
     expect(res.edgeAction).toBeUndefined()
   })
 
@@ -679,7 +679,7 @@ describe("rule 7 — Squashing", () => {
     })
   })
 
-  it("squashing + squashMsgPresent: false → no edgeAction, autoAdvance false (prompt agent)", () => {
+  it("squashing + squashMsgPresent: false → no edgeAction, autoAdvance true (agent writes file then re-runs)", () => {
     const res = r({
       lastCommitSubject: "gtd: done",
       squashEnabled: true,
@@ -687,7 +687,7 @@ describe("rule 7 — Squashing", () => {
       squashMsgPresent: false,
     })
     expect(res.state).toBe("squashing")
-    expect(res.autoAdvance).toBe(false)
+    expect(res.autoAdvance).toBe(true)
     expect(res.edgeAction).toBeUndefined()
   })
 })

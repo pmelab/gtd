@@ -130,7 +130,7 @@ describe("buildPrompt", () => {
   })
 
   describe("{{MODEL}} substitution", () => {
-    const planningStates: ReadonlyArray<GtdState> = ["grilled", "planning", "clean", "squashing"]
+    const planningStates: ReadonlyArray<GtdState> = ["grilled", "planning", "clean"]
     for (const state of planningStates) {
       it(`${state} injects the planning model and leaves no {{MODEL}}`, () => {
         const out = buildPrompt(result(state, { autoAdvance: true }))

@@ -634,7 +634,7 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
       // No SQUASH_MSG.md yet — prompt the agent to write the commit message.
       return {
         state: "squashing",
-        autoAdvance: false,
+        autoAdvance: true,
         context: buildContext(p, counters),
       }
     }

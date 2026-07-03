@@ -30,7 +30,8 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout contains "Write the commit message"
     And stdout contains "SQUASH_MSG.md"
     And stdout contains "src/calc.ts"
-    And stdout contains "STOP — do not re-run"
+    And stdout contains "Re-run gtd immediately after completing the steps above."
+    And stdout does not contain "STOP — do not re-run"
     And stdout does not contain "git reset --soft"
     And stdout does not contain "git commit"
 
@@ -63,7 +64,8 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout contains "Write the commit message"
     And stdout contains "SQUASH_MSG.md"
     And stdout contains "coworker.ts"
-    And stdout contains "STOP — do not re-run"
+    And stdout contains "Re-run gtd immediately after completing the steps above."
+    And stdout does not contain "STOP — do not re-run"
     And stdout does not contain "git reset --soft"
     And stdout does not contain "git commit"
 
