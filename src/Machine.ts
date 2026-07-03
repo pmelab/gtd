@@ -551,6 +551,36 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
     }
   }
 
+  // ── 4b. Squash-perform (dirty tree, squash message only) ──────────────────
+  // SQUASH_MSG.md is a steering file, so its presence makes workingTreeClean
+  // false while leaving codeDirty false. Without this block, rule 5 (New
+  // Feature) would fire next — it sees a boundary HEAD with a dirty tree and
+  // seeds a new task from the squash message content. Hoisting the squash-
+  // perform here short-circuits that: when SQUASH_MSG.md is the *only* dirt
+  // we can safely commit the squash immediately.
+  //
+  // Guard on !codeDirty intentionally: if the tree also has unrelated code
+  // edits, fall through to rule 5 so the user addresses those first rather
+  // than having `git add -A` silently fold them into the squash commit.
+  if (
+    head === "gtd: done" &&
+    p.squashEnabled &&
+    p.squashBase !== undefined &&
+    p.squashMsgPresent &&
+    !p.codeDirty
+  ) {
+    return {
+      state: "squashing",
+      autoAdvance: true,
+      edgeAction: {
+        kind: "squashCommit",
+        squashBase: p.squashBase,
+        commitMessage: p.squashMsgContent,
+      },
+      context: buildContext(p, counters),
+    }
+  }
+
   // ── 5. New Feature ────────────────────────────────────────────────────────
   // Boundary HEAD + pending changes (code and/or a new uncommitted TODO.md — the
   // only steering file possible here), or HEAD `gtd: new task` + clean tree

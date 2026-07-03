@@ -690,6 +690,73 @@ describe("rule 7 — Squashing", () => {
     expect(res.autoAdvance).toBe(true)
     expect(res.edgeAction).toBeUndefined()
   })
+
+  // Regression: untracked SQUASH_MSG.md makes workingTreeClean false but
+  // leaves codeDirty false. The squash edge must fire before rule 5 (New
+  // Feature) can seed a new task.
+  it("dirty tree (codeDirty: false) + squashMsgPresent: true → squashing with squashCommit edge", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+      squashMsgPresent: true,
+      squashMsgContent: "feat: add calculator\n\nDecided during grilling to use simple addition.",
+      workingTreeClean: false,
+      codeDirty: false,
+    })
+    expect(res.state).toBe("squashing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({
+      kind: "squashCommit",
+      squashBase: "abc123",
+      commitMessage: "feat: add calculator\n\nDecided during grilling to use simple addition.",
+    })
+  })
+
+  it("dirty tree (codeDirty: true) + squashMsgPresent: true → falls through to new-feature", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+      squashMsgPresent: true,
+      squashMsgContent: "feat: add calculator\n\nDecided during grilling to use simple addition.",
+      workingTreeClean: false,
+      codeDirty: true,
+      todoCommitted: false,
+    })
+    expect(res.state).toBe("new-feature")
+    expect(res.edgeAction).toEqual(expect.objectContaining({ kind: "seedNewFeature" }))
+  })
+
+  // Clean-tree regression guards — ensure existing behavior is unchanged.
+  it("clean tree + squashMsgPresent: true → still squashing with squashCommit edge", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+      squashMsgPresent: true,
+      squashMsgContent: "feat: add calculator\n\nDecided during grilling to use simple addition.",
+    })
+    expect(res.state).toBe("squashing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({
+      kind: "squashCommit",
+      squashBase: "abc123",
+      commitMessage: "feat: add calculator\n\nDecided during grilling to use simple addition.",
+    })
+  })
+
+  it("clean tree + squashMsgPresent: false → still squashing, no edgeAction (prompt path)", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      squashBase: "abc123",
+      squashMsgPresent: false,
+    })
+    expect(res.state).toBe("squashing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toBeUndefined()
+  })
 })
 
 // ── Context passthrough ──────────────────────────────────────────────────────

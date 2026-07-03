@@ -129,6 +129,76 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     Then it succeeds
     And the HEAD commit subject is "feat(calc): add calculator"
 
+  @squashing
+  Scenario: Untracked SQUASH_MSG.md — squash fires, not New Feature
+    Given a test project
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+      - [ ] add calculator
+      """
+    And a commit "gtd: planning" that deletes "TODO.md"
+    And a commit "gtd: building" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: package done"
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+      - [ ] ./src/calc.ts#1
+      """
+    And a commit "gtd: done" that deletes "REVIEW.md"
+    And a file "SQUASH_MSG.md" with content:
+      """
+      feat(calc): add calculator
+
+      Decided during grilling to use simple addition only.
+      """
+    When I run gtd
+    Then it succeeds
+    And the HEAD commit subject is "feat(calc): add calculator"
+    And "SQUASH_MSG.md" does not exist
+    And "src/calc.ts" exists
+    And stdout does not contain "## Task: Grill the plan in `TODO.md`"
+    And "TODO.md" does not exist
+
+  @squashing
+  Scenario: SQUASH_MSG.md plus unrelated dirty code — New Feature, not squash
+    Given a test project
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+      - [ ] add calculator
+      """
+    And a commit "gtd: planning" that deletes "TODO.md"
+    And a commit "gtd: building" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: package done"
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+      - [ ] ./src/calc.ts#1
+      """
+    And a commit "gtd: done" that deletes "REVIEW.md"
+    And a file "SQUASH_MSG.md" with content:
+      """
+      feat(calc): add calculator
+
+      Decided during grilling to use simple addition only.
+      """
+    And a file "src/extra.ts" with content:
+      """
+      export const extra = () => "unrelated dirty code"
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And "TODO.md" exists
+    And stdout does not contain "## Task: Squash all `gtd: *` commits into one conventional-commits message"
+
   Scenario: Squash disabled via config — Idle instead of Squashing
     Given a test project
     And a gtd config file at ".gtdrc" with:
