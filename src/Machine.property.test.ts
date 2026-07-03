@@ -106,6 +106,8 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       hasCommitsAfterLastDone: raw.hasCommitsAfterLastDone,
       agenticReviewEnabled: raw.agenticReviewEnabled,
       squashEnabled: false,
+      squashMsgPresent: false,
+      squashMsgContent: "",
       fixAttemptCap: raw.fixAttemptCap,
       reviewThreshold: raw.reviewThreshold,
     }
