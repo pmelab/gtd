@@ -13,12 +13,15 @@ existing Clean/Idle branch otherwise. Adds
 `squashBase`/`squashDiff` through `ResolveContext` via `buildContext`, and
 defaults `squashEnabled: false` in `DEFAULT_PAYLOAD`.
 
-- [ ] ./src/Machine.ts#38
-- [ ] ./src/Machine.ts#151
-- [ ] ./src/Machine.ts#221
-- [ ] ./src/Machine.ts#322
-- [ ] ./src/Machine.ts#337
-- [ ] ./src/Machine.ts#611
+the commit itself should happen on the edge. the agent should only generate the
+commit message
+
+- [x] ./src/Machine.ts#38
+- [x] ./src/Machine.ts#151
+- [x] ./src/Machine.ts#221
+- [x] ./src/Machine.ts#322
+- [x] ./src/Machine.ts#337
+- [x] ./src/Machine.ts#611
 
 ## Compute squash base and diff at the edge
 
@@ -53,6 +56,9 @@ instructs a planning-model subagent to author one conventional-commits message
 from the full diff, then run `git reset --soft <squashBase>` + `git commit`
 unconditionally, mirroring the `clean.md` handoff pattern with an auto-advance
 tail.
+
+the commit message body should also contain any important decisions from
+grilling sessions
 
 - [ ] ./src/Prompt.ts#8
 - [ ] ./src/Prompt.ts#50
