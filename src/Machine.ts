@@ -157,6 +157,8 @@ export interface ResolvePayload {
   readonly squashDiff?: string
   /** Squash enabled (config kill-switch; false → skip squashing after `gtd: done`). */
   readonly squashEnabled: boolean
+  readonly squashMsgPresent: boolean
+  readonly squashMsgContent: string
 }
 
 /**
@@ -203,6 +205,11 @@ export type EdgeAction =
   | { readonly kind: "closePackage" }
   | { readonly kind: "commitReview" }
   | { readonly kind: "done" }
+  | {
+      readonly kind: "squashCommit"
+      readonly squashBase: string
+      readonly commitMessage: string
+    }
 
 /** The folded prompt context carried on every `Result`. */
 export interface ResolveContext {
@@ -320,6 +327,8 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   fixAttemptCap: 3,
   reviewThreshold: 3,
   squashEnabled: false,
+  squashMsgPresent: false,
+  squashMsgContent: "",
 }
 
 /** Build the prompt context from the payload passthrough + the folded counters. */
