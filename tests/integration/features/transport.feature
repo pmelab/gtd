@@ -1,3 +1,4 @@
+@live
 Feature: Transport — mixed-reset a hand-made gtd: transport HEAD, then re-derive
 
   `gtd: transport` is the primitive for carrying uncommitted work across

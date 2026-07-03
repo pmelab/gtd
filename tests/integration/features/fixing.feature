@@ -1,3 +1,4 @@
+@inmem
 Feature: Fixing — consume FEEDBACK.md with a provenance-tagged commit
 
   A non-empty FEEDBACK.md routes to Fixing. The commit prefix records where the

@@ -1,3 +1,4 @@
+@inmem
 Feature: Close package — one gtd: package done per package
 
   An approved (empty FEEDBACK.md) package is closed: the FEEDBACK.md and the

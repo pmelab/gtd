@@ -1,3 +1,4 @@
+@inmem
 Feature: Illegal steering-file combinations hard-error
 
   Some steering-file combinations never arise in normal flow. Rather than guess,

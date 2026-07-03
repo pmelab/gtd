@@ -1,3 +1,4 @@
+@inmem
 Feature: Build lifecycle — Grilled → Planning → Building
 
   Once the plan is grilled, decomposition writes `.gtd/` packages. A modified

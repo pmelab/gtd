@@ -10,14 +10,29 @@ import { createTestProject } from "../../helpers/project-setup.js"
 // ── Repo / branch setup ──────────────────────────────────────────────────────
 
 Given("a test project", function (this: GtdWorld) {
-  this.repoDir = createTestProject()
+  if (this.tier === "inmem") {
+    // Seed the in-memory repo with the same initial state as createTestProject:
+    // .gitignore, README.md, one "chore: initial commit".
+    const repo = this.repo!
+    repo.writeFile(".gitignore", "node_modules\n")
+    repo.writeFile("README.md", "# test project\n")
+    repo.commitAllWithPrefix("chore: initial commit")
+    // repoDir is not used for inmem tier, but set a sentinel to avoid undefined errors
+    this.repoDir = "/inmem"
+  } else {
+    this.repoDir = createTestProject()
+  }
 })
 
 // Exercises the main/master local-branch fallback in resolveDefaultBranch()
 // (test repos have no remote, so origin/HEAD is unavailable). Renames the
 // current branch, fixing the default-branch name the counter/review base use.
 Given("a default branch {string}", function (this: GtdWorld, branch: string) {
-  execFileSync("git", ["branch", "-M", branch], { cwd: this.repoDir, stdio: "pipe" })
+  if (this.tier === "inmem") {
+    this.repo!.renameBranch(branch)
+  } else {
+    execFileSync("git", ["branch", "-M", branch], { cwd: this.repoDir, stdio: "pipe" })
+  }
 })
 
 // Creates a new branch from the current HEAD and switches to it, leaving the old
@@ -25,36 +40,64 @@ Given("a default branch {string}", function (this: GtdWorld, branch: string) {
 // this step land in `merge-base(default, HEAD)..HEAD` — the range the machine
 // folds the test-fix / review-fix counters over.
 Given("a branch {string}", function (this: GtdWorld, branch: string) {
-  execFileSync("git", ["checkout", "-b", branch], { cwd: this.repoDir, stdio: "pipe" })
+  if (this.tier === "inmem") {
+    this.repo!.createBranch(branch)
+  } else {
+    execFileSync("git", ["checkout", "-b", branch], { cwd: this.repoDir, stdio: "pipe" })
+  }
 })
 
 // ── Working-tree file edits (uncommitted) ────────────────────────────────────
 
 Given("a file {string} with:", function (this: GtdWorld, path: string, content: string) {
-  const full = join(this.repoDir, path)
-  mkdirSync(join(full, ".."), { recursive: true })
-  writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
+  const normalized = content.endsWith("\n") ? content : content + "\n"
+  if (this.tier === "inmem") {
+    this.repo!.writeFile(path, normalized)
+  } else {
+    const full = join(this.repoDir, path)
+    mkdirSync(join(full, ".."), { recursive: true })
+    writeFileSync(full, normalized)
+  }
 })
 
 Given("a file {string} with content:", function (this: GtdWorld, path: string, content: string) {
-  const full = join(this.repoDir, path)
-  mkdirSync(join(full, ".."), { recursive: true })
-  writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
+  const normalized = content.endsWith("\n") ? content : content + "\n"
+  if (this.tier === "inmem") {
+    this.repo!.writeFile(path, normalized)
+  } else {
+    const full = join(this.repoDir, path)
+    mkdirSync(join(full, ".."), { recursive: true })
+    writeFileSync(full, normalized)
+  }
 })
 
 Given("{string} is modified to:", function (this: GtdWorld, path: string, content: string) {
-  const full = join(this.repoDir, path)
-  writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
+  const normalized = content.endsWith("\n") ? content : content + "\n"
+  if (this.tier === "inmem") {
+    this.repo!.writeFile(path, normalized)
+  } else {
+    writeFileSync(join(this.repoDir, path), normalized)
+  }
 })
 
 Given("{string} has appended {string}", function (this: GtdWorld, path: string, text: string) {
-  const full = join(this.repoDir, path)
-  const existing = readFileSync(full, "utf-8")
-  writeFileSync(full, existing + text + "\n")
+  if (this.tier === "inmem") {
+    const worktree = (this.repo as unknown as { worktree: Map<string, string> })["worktree"]
+    const existing = worktree.get(path) ?? ""
+    this.repo!.writeFile(path, existing + text + "\n")
+  } else {
+    const full = join(this.repoDir, path)
+    const existing = readFileSync(full, "utf-8")
+    writeFileSync(full, existing + text + "\n")
+  }
 })
 
 Given("a directory {string}", function (this: GtdWorld, path: string) {
-  mkdirSync(join(this.repoDir, path), { recursive: true })
+  if (this.tier === "inmem") {
+    // Directories are implicit in the in-memory store; no-op.
+  } else {
+    mkdirSync(join(this.repoDir, path), { recursive: true })
+  }
 })
 
 // ── Committed history (one step = one commit) ────────────────────────────────
@@ -65,11 +108,17 @@ Given("a directory {string}", function (this: GtdWorld, path: string) {
 Given(
   "a commit {string} that adds {string} with:",
   function (this: GtdWorld, message: string, path: string, content: string) {
-    const full = join(this.repoDir, path)
-    mkdirSync(join(full, ".."), { recursive: true })
-    writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
-    execFileSync("git", ["add", path], { cwd: this.repoDir, stdio: "pipe" })
-    execFileSync("git", ["commit", "-q", "-m", message], { cwd: this.repoDir, stdio: "pipe" })
+    const normalized = content.endsWith("\n") ? content : content + "\n"
+    if (this.tier === "inmem") {
+      this.repo!.writeFile(path, normalized)
+      this.repo!.commitAllWithPrefix(message)
+    } else {
+      const full = join(this.repoDir, path)
+      mkdirSync(join(full, ".."), { recursive: true })
+      writeFileSync(full, normalized)
+      execFileSync("git", ["add", path], { cwd: this.repoDir, stdio: "pipe" })
+      execFileSync("git", ["commit", "-q", "-m", message], { cwd: this.repoDir, stdio: "pipe" })
+    }
   },
 )
 
@@ -95,8 +144,8 @@ Given(
 
 // ── Invocation ───────────────────────────────────────────────────────────────
 
-When("I run gtd", function (this: GtdWorld) {
-  this.runGtd()
+When("I run gtd", async function (this: GtdWorld) {
+  await this.runGtd()
 })
 
 // ── Assertions ───────────────────────────────────────────────────────────────

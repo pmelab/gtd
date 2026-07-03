@@ -16,14 +16,20 @@ Given(
   "a gtd config file at {string} with:",
   function (this: GtdWorld, pathOrDir: string, content: string) {
     const rel = pathOrDir === "." || pathOrDir.endsWith("/") ? join(pathOrDir, ".gtdrc") : pathOrDir
-    const full = join(this.repoDir, rel)
-    mkdirSync(join(full, ".."), { recursive: true })
-    writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
-    execFileSync("git", ["add", rel], { cwd: this.repoDir, stdio: "pipe" })
-    execFileSync("git", ["commit", "-q", "-m", `chore: add ${rel}`], {
-      cwd: this.repoDir,
-      stdio: "pipe",
-    })
+    const normalized = content.endsWith("\n") ? content : content + "\n"
+    if (this.tier === "inmem") {
+      this.repo!.writeFile(rel, normalized)
+      this.repo!.commitAllWithPrefix(`chore: add ${rel}`)
+    } else {
+      const full = join(this.repoDir, rel)
+      mkdirSync(join(full, ".."), { recursive: true })
+      writeFileSync(full, normalized)
+      execFileSync("git", ["add", rel], { cwd: this.repoDir, stdio: "pipe" })
+      execFileSync("git", ["commit", "-q", "-m", `chore: add ${rel}`], {
+        cwd: this.repoDir,
+        stdio: "pipe",
+      })
+    }
   },
 )
 

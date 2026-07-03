@@ -1,3 +1,4 @@
+@inmem
 Feature: Replay — any committed point resumes deterministically
 
   State is derived from the repository, so re-running gtd at the same committed

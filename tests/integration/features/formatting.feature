@@ -1,3 +1,4 @@
+@live
 Feature: Automatic markdown formatting on commit
 
   Scenario: Pre-commit hook wraps long lines in TODO.md

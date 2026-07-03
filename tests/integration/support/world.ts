@@ -1,13 +1,24 @@
 import { World, setWorldConstructor } from "@cucumber/cucumber"
+import { Effect, Exit, Cause } from "effect"
 import { execSync, spawnSync } from "node:child_process"
 import { readFileSync, existsSync } from "node:fs"
 import { join, resolve } from "node:path"
+import { makeProgram } from "../../../src/program.js"
+import { inMemoryLayers } from "./inmem/layers.js"
+import { InMemRepo } from "./inmem/Repo.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 const GTD_BIN = join(PROJECT_ROOT, "scripts/gtd.js")
 
+export type Tier = "live" | "inmem"
+
 export class GtdWorld extends World {
   repoDir!: string
+  /** In-memory repo for the `inmem` tier. When set, file/git ops use this instead of repoDir. */
+  repo: InMemRepo | undefined = undefined
+  /** Which execution tier is active for this scenario. Set by the Before hook. */
+  tier: Tier = "inmem"
+
   lastResult: { exitCode: number; stdout: string; stderr: string } = {
     exitCode: 0,
     stdout: "",
@@ -18,7 +29,17 @@ export class GtdWorld extends World {
   /** Directory the next `runGtd` uses as cwd; defaults to the repo root. */
   runCwd: string | undefined = undefined
 
-  runGtd(...args: string[]) {
+  /** Dispatch: routes to the live or in-process implementation based on this.tier. */
+  async runGtd(...args: string[]): Promise<void> {
+    if (this.tier === "inmem") {
+      await this.runGtdInMem(...args)
+    } else {
+      this.runGtdLive(...args)
+    }
+  }
+
+  /** Original spawnSync implementation — used for the live tier. */
+  runGtdLive(...args: string[]): void {
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
     const result = spawnSync(process.execPath, [GTD_BIN, ...args], {
       cwd: this.runCwd ?? this.repoDir,
@@ -36,15 +57,72 @@ export class GtdWorld extends World {
     this.lastResult = { exitCode, stdout, stderr }
   }
 
+  /** In-process implementation — runs the exported program Effect with in-memory layers. */
+  async runGtdInMem(...args: string[]): Promise<void> {
+    const repo = this.repo!
+    let stdout = ""
+    const write = (chunk: string) => {
+      stdout += chunk
+    }
+
+    // Compose argv: ["node", "gtd.js", ...args]
+    const argv = ["node", "gtd.js", ...args]
+
+    const program = makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo)))
+
+    const exit = await Effect.runPromiseExit(program)
+    if (Exit.isSuccess(exit)) {
+      this.lastResult = { exitCode: 0, stdout, stderr: "" }
+    } else {
+      // Extract the underlying error message from the Cause
+      const squashed = Cause.squash(exit.cause)
+      const message = squashed instanceof Error ? squashed.message : String(squashed)
+      this.lastResult = { exitCode: 1, stdout, stderr: `gtd: ${message}\n` }
+    }
+  }
+
+  // ── Observation helpers — branch on tier ──────────────────────────────────
+
   repoFile(path: string): string {
+    if (this.repo !== undefined) {
+      // Access the worktree map via the public-ish API: use fileAtRef("HEAD", path)
+      // for committed files, or worktree for unstaged. We need current worktree content.
+      // InMemRepo exposes writeFile/deleteFile but not a direct worktree read.
+      // Use the internal worktree via cast — same pattern as layers.ts.
+      const worktree = (this.repo as unknown as { worktree: Map<string, string> })["worktree"]
+      const content = worktree.get(path)
+      if (content === undefined) throw new Error(`File not found in in-memory repo: ${path}`)
+      return content
+    }
     return readFileSync(join(this.repoDir, path), "utf-8")
   }
 
   repoFileExists(path: string): boolean {
+    if (this.repo !== undefined) {
+      const worktree = (this.repo as unknown as { worktree: Map<string, string> })["worktree"]
+      if (worktree.has(path)) return true
+      // Check for directory prefix
+      const prefix = path.endsWith("/") ? path : `${path}/`
+      for (const key of worktree.keys()) {
+        if (key.startsWith(prefix)) return true
+      }
+      return false
+    }
     return existsSync(join(this.repoDir, path))
   }
 
   gitLog(): string {
+    if (this.repo !== undefined) {
+      const history = this.repo.commitHistory()
+      // Render in oneline format: "<hash_short> <message>" newest→oldest
+      return (
+        history
+          .slice()
+          .reverse()
+          .map((c) => `${c.hash.slice(0, 7)} ${c.message}`)
+          .join("\n") + "\n"
+      )
+    }
     return execSync("git log --oneline", {
       cwd: this.repoDir,
       encoding: "utf-8",
@@ -52,6 +130,9 @@ export class GtdWorld extends World {
   }
 
   lastCommitPrefix(): string {
+    if (this.repo !== undefined) {
+      return this.lastCommitSubject().slice(0, 2)
+    }
     return execSync('git log -1 --format="%s"', {
       cwd: this.repoDir,
       encoding: "utf-8",
@@ -61,6 +142,11 @@ export class GtdWorld extends World {
   }
 
   lastCommitSubject(): string {
+    if (this.repo !== undefined) {
+      const subject = this.repo.lastCommitSubject()
+      if (subject === null) throw new Error("No commits in in-memory repo")
+      return subject
+    }
     return execSync('git log -1 --format="%s"', {
       cwd: this.repoDir,
       encoding: "utf-8",
@@ -68,6 +154,14 @@ export class GtdWorld extends World {
   }
 
   lastCommitBody(): string {
+    if (this.repo !== undefined) {
+      // InMemRepo stores only the full message; extract body (lines after first)
+      const history = this.repo.commitHistory()
+      if (history.length === 0) throw new Error("No commits in in-memory repo")
+      const last = history[history.length - 1]!
+      const lines = last.message.split("\n")
+      return lines.slice(1).join("\n").trim()
+    }
     return execSync('git log -1 --format="%b"', {
       cwd: this.repoDir,
       encoding: "utf-8",
@@ -75,6 +169,9 @@ export class GtdWorld extends World {
   }
 
   commitCount(): number {
+    if (this.repo !== undefined) {
+      return this.repo.commitHistory().length
+    }
     return parseInt(
       execSync("git rev-list --count HEAD", {
         cwd: this.repoDir,

@@ -24,9 +24,9 @@ Given("a fresh git repository with no commits", function (this: GtdWorld) {
   this.repoDir = dir
 })
 
-When("I run gtd from the subdirectory {string}", function (this: GtdWorld, sub: string) {
+When("I run gtd from the subdirectory {string}", async function (this: GtdWorld, sub: string) {
   this.runCwd = join(this.repoDir, sub)
-  this.runGtd()
+  await this.runGtd()
   this.runCwd = undefined
 })
 

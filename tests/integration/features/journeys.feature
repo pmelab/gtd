@@ -6,6 +6,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
   review verdicts) and asserting the exact commit-subject sequence at the end.
   They guard the seams between states that isolated scenarios cannot see.
 
+  @live
   Scenario: Happy path — raw input to approved review and stable idle
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -128,6 +129,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
       gtd: done
       """
 
+  @live
   Scenario: Feedback journey — annotations rebuild within the open process
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -227,6 +229,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     And stdout contains "## Task: Squash all `gtd: *` commits into one conventional-commits message"
     And stdout contains "git reset --soft"
 
+  @inmem
   Scenario: Escalation journey — cap, human resume, fresh budget
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -281,6 +284,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     And the file "ERRORS.md" does not exist
     And stdout contains "## Task: Agentic review of the built package"
 
+  @inmem
   Scenario: Two-package journey — counters reset at the package seam
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -338,6 +342,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     And stdout contains "src/two.ts"
     And stdout does not contain "a/.gtd"
 
+  @inmem
   Scenario: Multi-review branch — approvals gate, new commits re-open
     Given a test project
     And a default branch "main"

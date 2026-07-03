@@ -1,3 +1,4 @@
+@inmem
 Feature: New Feature — capture raw input, revert to baseline, seed TODO.md
 
   A boundary HEAD (non-gtd, or `gtd: done`) with pending changes — or a

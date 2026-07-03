@@ -1,3 +1,4 @@
+@inmem
 Feature: Grilling — the 3-way convergence gate on TODO.md
 
   TODO.md present (and not New Feature) is Grilling. It resolves three ways by
