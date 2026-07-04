@@ -18,22 +18,10 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Format check
-        run: npm run format:check
-
-      - name: Run unit tests
-        run: npm test
-
       - name: Configure git identity for e2e tests
         run: |
           git config --global user.email "ci@gtd.test"
           git config --global user.name "CI"
 
-      - name: Run e2e tests
-        run: npm run test:e2e
+      - name: Run all tests
+        run: npm test
