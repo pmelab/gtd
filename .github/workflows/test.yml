@@ -18,10 +18,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Configure git identity for e2e tests
+      - name: Configure git for e2e tests
         run: |
           git config --global user.email "ci@gtd.test"
           git config --global user.name "CI"
+          git config --global init.defaultBranch main
 
       - name: Run all tests
         run: npm test
