@@ -5,8 +5,6 @@ import { GitService } from "./Git.js"
 import { TestRunner } from "./TestRunner.js"
 import { makeProgram } from "./program.js"
 
-export { makeProgram, type RunOptions } from "./program.js"
-
 makeProgram().pipe(
   Effect.provide(GitService.Live),
   Effect.provide(TestRunner.Live),

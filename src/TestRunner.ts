@@ -8,6 +8,7 @@ export interface TestResult {
   readonly output: string
 }
 
+// fallow-ignore-next-line unused-type -- consumed as Effect Context.Tag type parameter
 export interface TestRunnerOperations {
   /**
    * Runs the configured test command.

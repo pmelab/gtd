@@ -49,35 +49,27 @@ Given("a branch {string}", function (this: GtdWorld, branch: string) {
 
 // ── Working-tree file edits (uncommitted) ────────────────────────────────────
 
-Given("a file {string} with:", function (this: GtdWorld, path: string, content: string) {
+function writeRepoFile(world: GtdWorld, path: string, content: string, createDirs = true): void {
   const normalized = content.endsWith("\n") ? content : content + "\n"
-  if (this.tier === "inmem") {
-    this.repo!.writeFile(path, normalized)
+  if (world.tier === "inmem") {
+    world.repo!.writeFile(path, normalized)
   } else {
-    const full = join(this.repoDir, path)
-    mkdirSync(join(full, ".."), { recursive: true })
+    const full = join(world.repoDir, path)
+    if (createDirs) mkdirSync(join(full, ".."), { recursive: true })
     writeFileSync(full, normalized)
   }
+}
+
+Given("a file {string} with:", function (this: GtdWorld, path: string, content: string) {
+  writeRepoFile(this, path, content)
 })
 
 Given("a file {string} with content:", function (this: GtdWorld, path: string, content: string) {
-  const normalized = content.endsWith("\n") ? content : content + "\n"
-  if (this.tier === "inmem") {
-    this.repo!.writeFile(path, normalized)
-  } else {
-    const full = join(this.repoDir, path)
-    mkdirSync(join(full, ".."), { recursive: true })
-    writeFileSync(full, normalized)
-  }
+  writeRepoFile(this, path, content)
 })
 
 Given("{string} is modified to:", function (this: GtdWorld, path: string, content: string) {
-  const normalized = content.endsWith("\n") ? content : content + "\n"
-  if (this.tier === "inmem") {
-    this.repo!.writeFile(path, normalized)
-  } else {
-    writeFileSync(join(this.repoDir, path), normalized)
-  }
+  writeRepoFile(this, path, content, false)
 })
 
 Given("{string} has appended {string}", function (this: GtdWorld, path: string, text: string) {
