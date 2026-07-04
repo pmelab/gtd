@@ -277,6 +277,7 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
   @squashing
   Scenario: Post-squash on feature branch — manual gtd run triggers review
     Given a test project
+    And a default branch "main"
     And a branch "feature"
     And a commit "gtd: grilling" that adds "TODO.md" with:
       """

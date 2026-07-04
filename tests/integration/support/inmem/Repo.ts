@@ -124,11 +124,12 @@ export class InMemRepo {
       return this.commits.has(ref) ? ref : null
     }
 
-    // HEAD~N notation
-    const tildeMatch = /^HEAD(~(\d+))?$/.exec(ref)
+    // HEAD~N or <hash>~N notation
+    const tildeMatch = /^(HEAD|[0-9a-f]{40})(~(\d+))?$/.exec(ref)
     if (tildeMatch) {
-      const steps = tildeMatch[2] !== undefined ? parseInt(tildeMatch[2], 10) : 0
-      let cur: string | null = this.head
+      const base = tildeMatch[1]!
+      const steps = tildeMatch[3] !== undefined ? parseInt(tildeMatch[3], 10) : 0
+      let cur: string | null = base === "HEAD" ? this.head : this.commits.has(base) ? base : null
       for (let i = 0; i < steps; i++) {
         if (cur === null) return null
         cur = this.getCommit(cur)?.parent ?? null

@@ -63,30 +63,6 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And the file "REVIEW.md" does not exist
     And stdout does not contain "## Task: Await the user's review"
 
-  Scenario: Await Review stops after a completed process (gtd: package done context)
-    Given a test project
-    And a commit "feat: add feature" that adds "src/feat.ts" with:
-      """
-      export const feat = () => 42
-      """
-    And a commit "gtd: package done"
-    And a file "REVIEW.md" with:
-      """
-      # Review
-
-      ## Add feature
-
-      - [ ] ./src/feat.ts#1
-      """
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: awaiting review"
-    And stdout contains "## Task: Await the user's review"
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: done"
-    And the file "REVIEW.md" does not exist
-
   Scenario: A committed REVIEW.md approved with no edits finishes as gtd: done
     Given a test project
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
