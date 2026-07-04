@@ -622,8 +622,8 @@ All errors exit with **code 1** and write a message to **stderr**:
 npm install
 npm run dev          # run from source, no build (node dev/run.mjs)
 npm run build        # tsup → dist/gtd.bundle.mjs (+ copies to scripts/)
-npm test             # vitest unit tests (the pure resolver)
-npm run test:e2e     # cucumber integration tests
+npm test             # vitest unit tests (the pure resolver) — --project unit
+npm run test:e2e     # gherkin e2e via vitest + quickpickle — --project e2e
 npm run typecheck
 npm run lint
 ```

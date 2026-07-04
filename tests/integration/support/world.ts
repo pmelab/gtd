@@ -1,6 +1,11 @@
-import { World, setWorldConstructor } from "@cucumber/cucumber"
+import { QuickPickleWorld, setWorldConstructor } from "quickpickle"
+import type { TestContext } from "vitest"
+import type { InfoConstructor } from "quickpickle"
 import { Effect, Exit, Cause } from "effect"
-import { execSync, spawnSync } from "node:child_process"
+import { execSync, execFile as execFileCb } from "node:child_process"
+import { promisify } from "node:util"
+
+const execFile = promisify(execFileCb)
 import { readFileSync, existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { makeProgram } from "../../../src/program.js"
@@ -12,7 +17,11 @@ const GTD_BIN = join(PROJECT_ROOT, "scripts/gtd.js")
 
 export type Tier = "live" | "inmem"
 
-export class GtdWorld extends World {
+export class GtdWorld extends QuickPickleWorld {
+  constructor(context: TestContext, info: InfoConstructor) {
+    super(context, info)
+  }
+
   repoDir!: string
   /** In-memory repo for the `inmem` tier. When set, file/git ops use this instead of repoDir. */
   repo: InMemRepo | undefined = undefined
@@ -34,27 +43,37 @@ export class GtdWorld extends World {
     if (this.tier === "inmem") {
       await this.runGtdInMem(...args)
     } else {
-      this.runGtdLive(...args)
+      await this.runGtdLive(...args)
     }
   }
 
-  /** Original spawnSync implementation — used for the live tier. */
-  runGtdLive(...args: string[]): void {
+  /** Async execFile implementation — used for the live tier. */
+  // fallow-ignore-next-line complexity
+  async runGtdLive(...args: string[]): Promise<void> {
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
-    const result = spawnSync(process.execPath, [GTD_BIN, ...args], {
-      cwd: this.runCwd ?? this.repoDir,
-      env: { ...process.env, NODE_OPTIONS: undefined },
-      encoding: "utf-8",
-      timeout: 30_000,
-    })
-    const stdout = result.stdout ?? ""
-    const stderr = result.stderr ?? ""
-    const exitCode = result.status ?? 1
-    if (verbose) {
-      process.stderr.write(stdout)
-      process.stderr.write(stderr)
+    try {
+      const { stdout, stderr } = await execFile(process.execPath, [GTD_BIN, ...args], {
+        cwd: this.runCwd ?? this.repoDir,
+        env: { ...process.env, NODE_OPTIONS: undefined },
+        encoding: "utf-8",
+        timeout: 30_000,
+      })
+      if (verbose) {
+        process.stderr.write(stdout)
+        process.stderr.write(stderr)
+      }
+      this.lastResult = { exitCode: 0, stdout, stderr }
+    } catch (err: unknown) {
+      const e = err as { code?: unknown; stdout?: string; stderr?: string }
+      const exitCode = typeof e.code === "number" ? e.code : 1
+      const stdout = e.stdout ?? ""
+      const stderr = e.stderr ?? ""
+      if (verbose) {
+        process.stderr.write(stdout)
+        process.stderr.write(stderr)
+      }
+      this.lastResult = { exitCode, stdout, stderr }
     }
-    this.lastResult = { exitCode, stdout, stderr }
   }
 
   /** In-process implementation — runs the exported program Effect with in-memory layers. */
@@ -97,6 +116,7 @@ export class GtdWorld extends World {
     return readFileSync(join(this.repoDir, path), "utf-8")
   }
 
+  // fallow-ignore-next-line complexity
   repoFileExists(path: string): boolean {
     if (this.repo !== undefined) {
       const worktree = (this.repo as unknown as { worktree: Map<string, string> })["worktree"]

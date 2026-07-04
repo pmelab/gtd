@@ -2,8 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "entry": [
     "src/main.{ts,tsx,js,jsx}",
-    // Cucumber loads all support files via its own import glob — declare them so
-    // fallow treats them as entry points rather than dead files.
+    // Vitest loads support files via setupFiles in vitest.config.ts — declare them
+    // so fallow treats them as entry points rather than dead files.
     "tests/integration/support/**/*.{ts,mjs}",
     // Vitest loads the reporter via a string path in vitest.config.ts.
     "tests/vitest.reporter.ts",
