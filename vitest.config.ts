@@ -16,5 +16,6 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     exclude: ["**/*.integration.test.ts"],
+    reporters: ["./tests/vitest.reporter.ts"],
   },
 })

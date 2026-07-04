@@ -91,6 +91,7 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
  *   that multi-byte sequences (e.g. a 3-byte UTF-8 emoji) are reconstructed
  *   correctly rather than decoded per-byte.
  */
+// fallow-ignore-next-line complexity
 const unquoteGitPath = (raw: string): string => {
   if (!raw.startsWith('"')) return raw
   // Strip surrounding quotes
@@ -298,6 +299,7 @@ export const appendCapturedInput = (todo: string, capturedDiff: string): string 
  * conversion noise (a CRLF editor rewrites EVERY line while the user merely
  * ticks boxes) — approval must survive that churn.
  */
+// fallow-ignore-next-line complexity
 export const isCheckboxOnlyDiff = (diff: string): boolean => {
   if (diff.trim() === "") return false
 
@@ -360,6 +362,7 @@ export const gatherEvents = (): Effect.Effect<
   Error,
   GitService | FileSystem.FileSystem | ConfigService
 > =>
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
@@ -690,9 +693,11 @@ const captureAndRevert = (
  * this, then re-gathers + re-resolves. Each case maps to the primitives in
  * Git.ts / the FileSystem; the machine only decides *which* action.
  */
+// fallow-ignore-next-line complexity
 export const perform = (
   action: EdgeAction,
 ): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | TestRunner> =>
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem

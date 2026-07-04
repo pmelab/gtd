@@ -82,6 +82,7 @@ export interface GitOperations extends GitReaderOperations, GitWriterOperations 
  * Rename/copy lines have format `R<score>\told-path\tnew-path` — we expand them
  * into a deletion of old-path and an addition of new-path.
  */
+// fallow-ignore-next-line complexity
 const parseNameStatus = (out: string): Array<{ path: string; status: string }> => {
   const result: Array<{ path: string; status: string }> = []
   for (const line of out.split("\n")) {

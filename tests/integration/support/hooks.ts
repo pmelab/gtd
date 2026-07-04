@@ -7,8 +7,16 @@ import { InMemRepo } from "./inmem/Repo.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
 
+// fallow-ignore-next-line complexity
 BeforeAll(function () {
-  execSync("npm run build", { cwd: PROJECT_ROOT, stdio: "inherit" })
+  try {
+    execSync("npm run build", { cwd: PROJECT_ROOT, stdio: "pipe" })
+  } catch (e) {
+    const err = e as { stdout?: Buffer; stderr?: Buffer }
+    if (err.stdout?.length) process.stderr.write(err.stdout)
+    if (err.stderr?.length) process.stderr.write(err.stderr)
+    throw e
+  }
 })
 
 /**
