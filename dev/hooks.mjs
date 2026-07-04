@@ -9,6 +9,7 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { fileURLToPath, URL } from "node:url"
 
+// fallow-ignore-next-line complexity
 export async function resolve(specifier, context, nextResolve) {
   if ((specifier.startsWith("./") || specifier.startsWith("../")) && specifier.endsWith(".js")) {
     const tsUrl = new URL(specifier.slice(0, -3) + ".ts", context.parentURL)

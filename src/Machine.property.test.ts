@@ -72,6 +72,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
     fixAttemptCap: fc.integer({ min: 0, max: 4 }),
     reviewThreshold: fc.integer({ min: 1, max: 4 }),
   })
+  // fallow-ignore-next-line complexity
   .map((raw): ResolvePayload => {
     const workingTreeClean = raw.clean
     const codeDirty = !workingTreeClean && raw.codeDirtyRaw
@@ -127,6 +128,7 @@ const arbEvents: fc.Arbitrary<GtdEvent[]> = fc
   .map(([commits, payload]) => [...commits, { type: "RESOLVE", payload }])
 
 /** The documented illegal steering-file combinations (STATES.md). */
+// fallow-ignore-next-line complexity
 const isIllegal = (p: ResolvePayload): boolean =>
   (p.reviewPresent && p.gtdDirExists) ||
   (p.reviewPresent && p.todoCommitted) ||

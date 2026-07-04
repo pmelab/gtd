@@ -59,6 +59,7 @@ export function makeProgram(
   const argv = opts.argv ?? process.argv
   const write = opts.write ?? ((chunk: string) => process.stdout.write(chunk))
 
+  // fallow-ignore-next-line complexity
   return Effect.gen(function* () {
     const sub = argv[2]
 

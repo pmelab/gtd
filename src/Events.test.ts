@@ -30,7 +30,7 @@ let repoDir: string
 let savedCwd: string
 
 const git = (...args: string[]): string =>
-  execFileSync("git", args, { cwd: repoDir, encoding: "utf8" }).trim()
+  execFileSync("git", args, { cwd: repoDir, encoding: "utf8", stdio: "pipe" }).trim()
 
 const commitFile = (msg: string, file: string, content: string): void => {
   writeFileSync(join(repoDir, file), content)

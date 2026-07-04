@@ -18,15 +18,15 @@
     "build": "tsup",
     "postbuild": "node -e \"require('fs').copyFileSync('dist/gtd.bundle.mjs','scripts/gtd.bundle.mjs')\"",
     "watch": "tsup --watch",
-    "test": "npm run format:check && npm run typecheck && npm run lint && vitest run && npm run test:e2e && fallow --skip health",
+    "test": "npm run format:check && npm run typecheck && npm run lint && vitest run && npm run test:e2e && fallow --summary --quiet",
     "test:unit": "vitest run",
     "test:watch": "vitest",
-    "pretest:e2e": "npm run build",
-    "test:e2e": "npx cucumber-js --config tests/integration/cucumber.mjs",
+    "pretest:e2e": "tsup --silent && node -e \"require('fs').copyFileSync('dist/gtd.bundle.mjs','scripts/gtd.bundle.mjs')\"",
+    "test:e2e": "NODE_OPTIONS=--import=tsx npx cucumber-js --config tests/integration/cucumber.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check . --log-level warn"
   },
   "lint-staged": {
     "*": "prettier --ignore-unknown --write"

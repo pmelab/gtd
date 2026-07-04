@@ -246,6 +246,7 @@ const makeInMemoryFileSystem = (repo: InMemRepo): FileSystem.FileSystem => {
     return Effect.void
   }
 
+  // fallow-ignore-next-line complexity
   const remove = (
     path: string,
     options?: FileSystem.RemoveOptions,

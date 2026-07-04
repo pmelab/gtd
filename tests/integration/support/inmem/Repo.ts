@@ -65,6 +65,7 @@ export class InMemRepo {
   // Read methods
   // ---------------------------------------------------------------------------
 
+  // fallow-ignore-next-line complexity
   statusPorcelain(): string {
     const headTree = this.headTree()
     const lines: string[] = []
@@ -118,6 +119,7 @@ export class InMemRepo {
     return this.head !== null
   }
 
+  // fallow-ignore-next-line complexity
   resolveRef(ref: string): string | null {
     // 40-hex hash passthrough
     if (/^[0-9a-f]{40}$/.test(ref)) {
@@ -337,6 +339,7 @@ export class InMemRepo {
     this.worktree = newWorktree
   }
 
+  // fallow-ignore-next-line complexity
   revertNoCommit(ref: string): void {
     const hash = this.resolveRef(ref)
     if (!hash) throw new Error(`Cannot resolve ref: ${ref}`)

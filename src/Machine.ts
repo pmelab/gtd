@@ -355,6 +355,7 @@ const buildContext = (
  * Throw on the STATES.md § Illegal-combinations set. These never arise in normal
  * flow; if seen, gtd hard-errors rather than guessing. Enforced before the ladder.
  */
+// fallow-ignore-next-line complexity
 const assertLegal = (p: ResolvePayload): void => {
   const fail = (msg: string): never => {
     throw new GtdStateError("illegal-combination", msg)
@@ -372,6 +373,207 @@ const assertLegal = (p: ResolvePayload): void => {
   if (p.errorsPresent && !p.gtdDirExists) fail("illegal combination: ERRORS.md without .gtd")
 }
 
+// ── Rule 2: FEEDBACK.md → Fixing or Close package ────────────────────────────
+const resolveFeedback = (p: ResolvePayload, counters: Counters): Result => {
+  if (p.feedbackEmpty) {
+    return {
+      state: "close-package",
+      autoAdvance: true,
+      edgeAction: { kind: "closePackage" },
+      context: buildContext(p, counters),
+    }
+  }
+  return {
+    state: "fixing",
+    autoAdvance: true,
+    edgeAction: {
+      kind: "commitPending",
+      prefix: p.feedbackCommitted ? "gtd: fixing" : "gtd: feedback",
+      // Delete FEEDBACK.md so its removal lands in this commit; without it the
+      // next run re-detects FEEDBACK (precedence 2) and Fixing never returns to
+      // Testing (STATES.md § Fixing: "FEEDBACK.md is removed either way").
+      removeFeedback: true,
+    },
+    context: buildContext(p, counters),
+  }
+}
+
+// ── Rule 3: .gtd present → build lifecycle (exhaustive: returns or throws) ───
+// fallow-ignore-next-line complexity
+const resolveGtdLifecycle = (
+  p: ResolvePayload,
+  counters: Counters,
+  head: string,
+  corrupt: () => never,
+): Result => {
+  if (p.gtdModified) {
+    return {
+      state: "planning",
+      autoAdvance: true,
+      edgeAction: { kind: "commitPending", prefix: "gtd: planning" },
+      context: buildContext(p, counters),
+    }
+  }
+  const noOpFixer = p.workingTreeClean && head === "gtd: fixing"
+  if (p.codeDirty || p.pendingErrorsDeletion || noOpFixer) {
+    // Human resume (pending ERRORS.md deletion) grants a fresh budget: the
+    // testing edge action commits the deletion (`gtd: building`, removedErrors)
+    // before re-counting, so the runTest action carries the post-reset budget.
+    const resume = p.pendingErrorsDeletion
+    return {
+      state: "testing",
+      autoAdvance: true,
+      edgeAction: {
+        kind: "runTest",
+        errorCount: resume ? 0 : counters.testFixCount,
+        capReached: (resume ? 0 : counters.testFixCount) >= p.fixAttemptCap,
+      },
+      context: buildContext(p, counters),
+    }
+  }
+  if (p.workingTreeClean) {
+    if (head === "gtd: planning" || head === "gtd: package done") {
+      // Once-only TODO.md deletion: when transitioning planning→building for the
+      // first time (TODO.md still present), delete it in the same commit so the
+      // planning commit is self-contained. On re-entry (package done, or planning
+      // without TODO.md) no action is needed.
+      if (head === "gtd: planning" && p.todoExists) {
+        return {
+          state: "building",
+          autoAdvance: true,
+          edgeAction: { kind: "commitPending", prefix: "gtd: planning", removeTodo: true },
+          context: buildContext(p, counters),
+        }
+      }
+      return { state: "building", autoAdvance: true, context: buildContext(p, counters) }
+    }
+    if (head === "gtd: building") {
+      // Agentic Review, unless force-approved (kill-switch off or threshold hit):
+      // skip the review and close the package directly (closePackage tolerates the
+      // absent FEEDBACK.md). Otherwise prompt the review agent.
+      const forceApprove = !p.agenticReviewEnabled || counters.reviewFixCount >= p.reviewThreshold
+      if (forceApprove) {
+        return {
+          state: "close-package",
+          autoAdvance: true,
+          edgeAction: { kind: "closePackage" },
+          context: buildContext(p, counters),
+        }
+      }
+      return { state: "agentic-review", autoAdvance: true, context: buildContext(p, counters) }
+    }
+  }
+  return corrupt()
+}
+
+// ── Rule 4: REVIEW.md present → review lifecycle (exhaustive) ────────────────
+const resolveReviewLifecycle = (p: ResolvePayload, counters: Counters, head: string): Result => {
+  // Regen carve-out: HEAD is the accept-review capture commit and REVIEW.md
+  // is present again (its annotated copy is IN that commit) — a checkout/pull
+  // or crash lost the uncommitted seed. Without this, `reviewCommitted` +
+  // clean tree would route to Done and silently approve the annotations.
+  // Re-run the seed instead; the perform discards any partial revert/seed
+  // state and re-derives everything from the capture commit.
+  if (head === "gtd: review feedback") {
+    return {
+      state: "accept-review",
+      autoAdvance: true,
+      edgeAction: { kind: "seedAcceptReview" },
+      context: buildContext(p, counters),
+    }
+  }
+  if (p.reviewCommitted || (p.reviewDirty && p.reviewCheckboxOnly)) {
+    return {
+      state: "done",
+      autoAdvance: true,
+      edgeAction: { kind: "done" },
+      context: buildContext(p, counters),
+    }
+  }
+  if (p.reviewDirty) {
+    return {
+      state: "accept-review",
+      autoAdvance: true,
+      edgeAction: { kind: "seedAcceptReview" },
+      context: buildContext(p, counters),
+    }
+  }
+  // Uncommitted REVIEW.md (freshly written by Clean).
+  return {
+    state: "await-review",
+    autoAdvance: true,
+    edgeAction: { kind: "commitReview" },
+    context: buildContext(p, counters),
+  }
+}
+
+// ── Rule 6: Grilling / Grilled ────────────────────────────────────────────────
+const resolveGrilling = (p: ResolvePayload, counters: Counters, head: string): Result => {
+  // Later grilling rounds (committed plan) with pending code changes capture
+  // the code into TODO.md as a suggestion block and revert it; the seed round
+  // (uncommitted TODO.md) must instead commit the pending seed revert
+  // verbatim. Applies to BOTH the STOP and iterate paths so code cannot leak
+  // through the answer-questions round.
+  const grillCommit: EdgeAction =
+    p.todoCommitted && p.codeDirty
+      ? { kind: "captureGrillingEdits" }
+      : { kind: "commitPending", prefix: "gtd: grilling" }
+  if (p.todoMarkerPresent) {
+    // Open question marker → STOP for the human to answer inline.
+    // If tree is already clean and HEAD is already `gtd: grilling`, this is a
+    // re-run at the STOP gate — skip the commit so it's a no-op.
+    const alreadyAtGrillingStop = p.workingTreeClean && head === "gtd: grilling"
+    return {
+      state: "grilling",
+      autoAdvance: false,
+      ...(alreadyAtGrillingStop ? {} : { edgeAction: grillCommit }),
+      context: buildContext(p, counters, "stop"),
+    }
+  }
+  if (!p.workingTreeClean) {
+    return {
+      state: "grilling",
+      autoAdvance: true,
+      edgeAction: grillCommit,
+      context: buildContext(p, counters, "iterate"),
+    }
+  }
+  return {
+    state: "grilled",
+    autoAdvance: true,
+    edgeAction: { kind: "commitPending", prefix: "gtd: grilled" },
+    context: buildContext(p, counters),
+  }
+}
+
+// ── Rule 7: Clean / Idle ──────────────────────────────────────────────────────
+// fallow-ignore-next-line complexity
+const resolveCleanOrIdle = (p: ResolvePayload, counters: Counters, head: string): Result | null => {
+  if (!p.workingTreeClean || (!isBoundary(head) && head !== "gtd: package done")) return null
+  if (head === "gtd: done" && p.squashEnabled && p.squashBase !== undefined) {
+    if (p.squashMsgPresent) {
+      return {
+        state: "squashing",
+        autoAdvance: false,
+        edgeAction: {
+          kind: "squashCommit",
+          squashBase: p.squashBase,
+          commitMessage: p.squashMsgContent,
+        },
+        context: buildContext(p, counters),
+      }
+    }
+    return { state: "squashing", autoAdvance: true, context: buildContext(p, counters) }
+  }
+  const reviewable =
+    p.hasCommitsAfterLastDone && p.reviewBase !== undefined && (p.refDiff ?? "").trim().length > 0
+  return {
+    state: reviewable ? "clean" : "idle",
+    autoAdvance: false,
+    context: buildContext(p, counters),
+  }
+}
+
 /**
  * Resolve the event stream to a single decision. Folds `COMMIT[]` into the two
  * counters, then runs the STATES.md § Precedence ladder (first match wins) on the
@@ -381,16 +583,13 @@ const assertLegal = (p: ResolvePayload): void => {
  * ladder) or for corruption (no rule matched). Every other input — including
  * `resolve([])` — returns a `Result` without throwing.
  */
+// fallow-ignore-next-line complexity
 export const resolve = (events: readonly GtdEvent[]): Result => {
   const counters = foldCounters(events)
-
-  // Use the last RESOLVE payload in the stream; default for a degenerate input.
   let payload: ResolvePayload = DEFAULT_PAYLOAD
   for (const event of events) if (event.type === "RESOLVE") payload = event.payload
   const p = payload
-
   assertLegal(p)
-
   const head = p.lastCommitSubject
   const corrupt = (): never => {
     throw new GtdStateError(
@@ -409,148 +608,15 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
       context: buildContext(p, counters),
     }
   }
-
-  // ── 1. ERRORS.md present → Escalate (STOP, no action) ─────────────────────
-  if (p.errorsPresent) {
+  // ── 1. ERRORS.md → Escalate ───────────────────────────────────────────────
+  if (p.errorsPresent)
     return { state: "escalate", autoAdvance: false, context: buildContext(p, counters) }
-  }
-
-  // ── 2. FEEDBACK.md present → Fixing / Close package ───────────────────────
-  if (p.feedbackPresent) {
-    if (p.feedbackEmpty) {
-      return {
-        state: "close-package",
-        autoAdvance: true,
-        edgeAction: { kind: "closePackage" },
-        context: buildContext(p, counters),
-      }
-    }
-    return {
-      state: "fixing",
-      autoAdvance: true,
-      edgeAction: {
-        kind: "commitPending",
-        prefix: p.feedbackCommitted ? "gtd: fixing" : "gtd: feedback",
-        // Delete FEEDBACK.md so its removal lands in this commit; without it the
-        // next run re-detects FEEDBACK (precedence 2) and Fixing never returns to
-        // Testing (STATES.md § Fixing: "FEEDBACK.md is removed either way").
-        removeFeedback: true,
-      },
-      context: buildContext(p, counters),
-    }
-  }
-
-  // ── 3. .gtd present → build lifecycle (exhaustive: returns or corrupts) ────
-  if (p.gtdDirExists) {
-    if (p.gtdModified) {
-      return {
-        state: "planning",
-        autoAdvance: true,
-        edgeAction: { kind: "commitPending", prefix: "gtd: planning" },
-        context: buildContext(p, counters),
-      }
-    }
-    const noOpFixer = p.workingTreeClean && head === "gtd: fixing"
-    if (p.codeDirty || p.pendingErrorsDeletion || noOpFixer) {
-      // Human resume (pending ERRORS.md deletion) grants a fresh budget: the
-      // testing edge action commits the deletion (`gtd: building`, removedErrors)
-      // before re-counting, so the runTest action carries the post-reset budget.
-      const resume = p.pendingErrorsDeletion
-      return {
-        state: "testing",
-        autoAdvance: true,
-        edgeAction: {
-          kind: "runTest",
-          errorCount: resume ? 0 : counters.testFixCount,
-          capReached: (resume ? 0 : counters.testFixCount) >= p.fixAttemptCap,
-        },
-        context: buildContext(p, counters),
-      }
-    }
-    if (p.workingTreeClean) {
-      if (head === "gtd: planning" || head === "gtd: package done") {
-        // Once-only TODO.md deletion: when transitioning planning→building for the
-        // first time (TODO.md still present), delete it in the same commit so the
-        // planning commit is self-contained. On re-entry (package done, or planning
-        // without TODO.md) no action is needed.
-        if (head === "gtd: planning" && p.todoExists) {
-          return {
-            state: "building",
-            autoAdvance: true,
-            edgeAction: { kind: "commitPending", prefix: "gtd: planning", removeTodo: true },
-            context: buildContext(p, counters),
-          }
-        }
-        return { state: "building", autoAdvance: true, context: buildContext(p, counters) }
-      }
-      if (head === "gtd: building") {
-        // Agentic Review, unless force-approved (kill-switch off or threshold hit):
-        // skip the review and close the package directly (closePackage tolerates the
-        // absent FEEDBACK.md). Otherwise prompt the review agent.
-        const forceApprove = !p.agenticReviewEnabled || counters.reviewFixCount >= p.reviewThreshold
-        if (forceApprove) {
-          return {
-            state: "close-package",
-            autoAdvance: true,
-            edgeAction: { kind: "closePackage" },
-            context: buildContext(p, counters),
-          }
-        }
-        return { state: "agentic-review", autoAdvance: true, context: buildContext(p, counters) }
-      }
-    }
-    return corrupt()
-  }
-
-  // ── 4. REVIEW.md present → review lifecycle (exhaustive) ──────────────────
-  if (p.reviewPresent) {
-    // Regen carve-out: HEAD is the accept-review capture commit and REVIEW.md
-    // is present again (its annotated copy is IN that commit) — a checkout/pull
-    // or crash lost the uncommitted seed. Without this, `reviewCommitted` +
-    // clean tree would route to Done and silently approve the annotations.
-    // Re-run the seed instead; the perform discards any partial revert/seed
-    // state and re-derives everything from the capture commit.
-    if (head === "gtd: review feedback") {
-      return {
-        state: "accept-review",
-        autoAdvance: true,
-        edgeAction: { kind: "seedAcceptReview" },
-        context: buildContext(p, counters),
-      }
-    }
-    if (p.reviewCommitted) {
-      return {
-        state: "done",
-        autoAdvance: true,
-        edgeAction: { kind: "done" },
-        context: buildContext(p, counters),
-      }
-    }
-    if (p.reviewDirty && p.reviewCheckboxOnly) {
-      return {
-        state: "done",
-        autoAdvance: true,
-        edgeAction: { kind: "done" },
-        context: buildContext(p, counters),
-      }
-    }
-    if (p.reviewDirty) {
-      return {
-        state: "accept-review",
-        autoAdvance: true,
-        edgeAction: { kind: "seedAcceptReview" },
-        context: buildContext(p, counters),
-      }
-    }
-    // Uncommitted REVIEW.md (freshly written by Clean).
-    return {
-      state: "await-review",
-      autoAdvance: true,
-      edgeAction: { kind: "commitReview" },
-      context: buildContext(p, counters),
-    }
-  }
-
+  // ── 2. FEEDBACK.md → Fixing / Close package ───────────────────────────────
+  if (p.feedbackPresent) return resolveFeedback(p, counters)
+  // ── 3. .gtd → build lifecycle ─────────────────────────────────────────────
+  if (p.gtdDirExists) return resolveGtdLifecycle(p, counters, head, corrupt)
+  // ── 4. REVIEW.md → review lifecycle ──────────────────────────────────────
+  if (p.reviewPresent) return resolveReviewLifecycle(p, counters, head)
   // ── 4b. Squash-perform (dirty tree, squash message only) ──────────────────
   // SQUASH_MSG.md is a steering file, so its presence makes workingTreeClean
   // false while leaving codeDirty false. Without this block, rule 5 (New
@@ -580,7 +646,6 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
       context: buildContext(p, counters),
     }
   }
-
   // ── 5. New Feature ────────────────────────────────────────────────────────
   // Boundary HEAD + pending changes (code and/or a new uncommitted TODO.md — the
   // only steering file possible here), or HEAD `gtd: new task` + clean tree
@@ -599,83 +664,12 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
       context: buildContext(p, counters),
     }
   }
-
   // ── 6. Grilling / Grilled ─────────────────────────────────────────────────
-  if (p.todoExists) {
-    // Later grilling rounds (committed plan) with pending code changes capture
-    // the code into TODO.md as a suggestion block and revert it; the seed round
-    // (uncommitted TODO.md) must instead commit the pending seed revert
-    // verbatim. Applies to BOTH the STOP and iterate paths so code cannot leak
-    // through the answer-questions round.
-    const grillCommit: EdgeAction =
-      p.todoCommitted && p.codeDirty
-        ? { kind: "captureGrillingEdits" }
-        : { kind: "commitPending", prefix: "gtd: grilling" }
-    if (p.todoMarkerPresent) {
-      // Open question marker → STOP for the human to answer inline.
-      // If tree is already clean and HEAD is already `gtd: grilling`, this is a
-      // re-run at the STOP gate — skip the commit so it's a no-op.
-      const alreadyAtGrillingStop = p.workingTreeClean && head === "gtd: grilling"
-      return {
-        state: "grilling",
-        autoAdvance: false,
-        ...(alreadyAtGrillingStop ? {} : { edgeAction: grillCommit }),
-        context: buildContext(p, counters, "stop"),
-      }
-    }
-    if (!p.workingTreeClean) {
-      // No marker but pending edits → the grilling agent iterates on them.
-      return {
-        state: "grilling",
-        autoAdvance: true,
-        edgeAction: grillCommit,
-        context: buildContext(p, counters, "iterate"),
-      }
-    }
-    // No marker, clean tree → converged.
-    return {
-      state: "grilled",
-      autoAdvance: true,
-      edgeAction: { kind: "commitPending", prefix: "gtd: grilled" },
-      context: buildContext(p, counters),
-    }
-  }
-
+  if (p.todoExists) return resolveGrilling(p, counters, head)
   // ── 7. Clean / Idle ───────────────────────────────────────────────────────
   // Reached only with no steering files. A clean tree under a boundary or
   // `gtd: package done` HEAD reviews the work (Clean) when the re-trigger gate
   // is open (commits exist after the last `gtd: done`) AND the review base
   // yields a non-empty filtered diff, else there is nothing to review (Idle).
-  if (p.workingTreeClean && (isBoundary(head) || head === "gtd: package done")) {
-    if (head === "gtd: done" && p.squashEnabled && p.squashBase !== undefined) {
-      if (p.squashMsgPresent) {
-        // Agent wrote SQUASH_MSG.md — edge performs the squash commit.
-        return {
-          state: "squashing",
-          autoAdvance: false,
-          edgeAction: {
-            kind: "squashCommit",
-            squashBase: p.squashBase,
-            commitMessage: p.squashMsgContent,
-          },
-          context: buildContext(p, counters),
-        }
-      }
-      // No SQUASH_MSG.md yet — prompt the agent to write the commit message.
-      return {
-        state: "squashing",
-        autoAdvance: true,
-        context: buildContext(p, counters),
-      }
-    }
-    const reviewable =
-      p.hasCommitsAfterLastDone && p.reviewBase !== undefined && (p.refDiff ?? "").trim().length > 0
-    return {
-      state: reviewable ? "clean" : "idle",
-      autoAdvance: false,
-      context: buildContext(p, counters),
-    }
-  }
-
-  return corrupt()
+  return resolveCleanOrIdle(p, counters, head) ?? corrupt()
 }

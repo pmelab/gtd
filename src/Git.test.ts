@@ -17,7 +17,7 @@ let repoDir: string
 let originalCwd: string
 
 function gitExec(...args: string[]) {
-  return execSync(`git ${args.join(" ")}`, { cwd: repoDir, encoding: "utf8" }).trim()
+  return execSync(`git ${args.join(" ")}`, { cwd: repoDir, encoding: "utf8", stdio: "pipe" }).trim()
 }
 
 function liveCommit(message: string, files: Record<string, string> = { "file.txt": message }) {

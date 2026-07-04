@@ -5,6 +5,8 @@
     // Cucumber loads all support files via its own import glob — declare them so
     // fallow treats them as entry points rather than dead files.
     "tests/integration/support/**/*.{ts,mjs}",
+    // Vitest loads the reporter via a string path in vitest.config.ts.
+    "tests/vitest.reporter.ts",
     // CLI shim invoked directly by tests/CI.
     "scripts/gtd.js"
   ],
