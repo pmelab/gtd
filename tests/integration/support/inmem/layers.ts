@@ -121,10 +121,9 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
   commitHistory: (base?: string) => Effect.succeed(repo.commitHistory(base)),
 
   diffHead: (exclude: ReadonlyArray<string> = []) =>
-    Effect.gen(function* () {
+    Effect.sync(() => {
       const allPaths = repo.changedPathsWorktree()
 
-      // Apply exclusions
       const filtered =
         exclude.length === 0
           ? allPaths
@@ -147,7 +146,7 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
     }),
 
   diffRef: (ref: string, exclude: ReadonlyArray<string> = []) =>
-    Effect.gen(function* () {
+    Effect.sync(() => {
       const allPaths = repo.changedPathsBetween(ref, "HEAD")
 
       const filtered =
@@ -172,7 +171,7 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
     }),
 
   diffPath: (path: string) =>
-    Effect.gen(function* () {
+    Effect.sync(() => {
       const before = repo.fileAtRef("HEAD", path)
       const after = repo["worktree"].get(path) ?? null
 
@@ -377,7 +376,7 @@ const makeInMemoryFileSystem = (repo: InMemRepo): FileSystem.FileSystem => {
 // 4. In-memory TestRunner layer
 // ---------------------------------------------------------------------------
 
-const makeInMemoryTestRunner = (
+const _makeInMemoryTestRunner = (
   _repo: InMemRepo,
 ): { run: () => Effect.Effect<TestResult, Error> } => ({
   run: (): Effect.Effect<TestResult, Error> =>
