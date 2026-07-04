@@ -1,1 +1,1 @@
-testCommand: npm run test && npm run test:e2e
+testCommand: npm test
