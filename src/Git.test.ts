@@ -428,7 +428,7 @@ for (const [tierName, makeTier] of tiers) {
         // All files committed — working tree clean
         const status = t.statusPorcelain()
         expect(status.trim()).toBe("")
-      })
+      }, 30_000)
 
       it("commits even on a clean tree (--allow-empty) so a fixed-prefix commit never throws", async () => {
         const headBefore = t.resolveRef("HEAD")

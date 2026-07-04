@@ -1,4 +1,4 @@
-import { Given, Then, When } from "@cucumber/cucumber"
+import { Given, Then, When } from "quickpickle"
 import { execFileSync } from "node:child_process"
 import { writeFileSync, mkdirSync, readFileSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -9,29 +9,29 @@ import { createTestProject } from "../../helpers/project-setup.js"
 
 // ── Repo / branch setup ──────────────────────────────────────────────────────
 
-Given("a test project", function (this: GtdWorld) {
-  if (this.tier === "inmem") {
+Given("a test project", (world: GtdWorld) => {
+  if (world.tier === "inmem") {
     // Seed the in-memory repo with the same initial state as createTestProject:
     // .gitignore, README.md, one "chore: initial commit".
-    const repo = this.repo!
+    const repo = world.repo!
     repo.writeFile(".gitignore", "node_modules\n")
     repo.writeFile("README.md", "# test project\n")
     repo.commitAllWithPrefix("chore: initial commit")
     // repoDir is not used for inmem tier, but set a sentinel to avoid undefined errors
-    this.repoDir = "/inmem"
+    world.repoDir = "/inmem"
   } else {
-    this.repoDir = createTestProject()
+    world.repoDir = createTestProject()
   }
 })
 
 // Exercises the main/master local-branch fallback in resolveDefaultBranch()
 // (test repos have no remote, so origin/HEAD is unavailable). Renames the
 // current branch, fixing the default-branch name the counter/review base use.
-Given("a default branch {string}", function (this: GtdWorld, branch: string) {
-  if (this.tier === "inmem") {
-    this.repo!.renameBranch(branch)
+Given("a default branch {string}", (world: GtdWorld, branch: string) => {
+  if (world.tier === "inmem") {
+    world.repo!.renameBranch(branch)
   } else {
-    execFileSync("git", ["branch", "-M", branch], { cwd: this.repoDir, stdio: "pipe" })
+    execFileSync("git", ["branch", "-M", branch], { cwd: world.repoDir, stdio: "pipe" })
   }
 })
 
@@ -39,11 +39,11 @@ Given("a default branch {string}", function (this: GtdWorld, branch: string) {
 // branch intact so resolveDefaultBranch() still finds it. Commits added AFTER
 // this step land in `merge-base(default, HEAD)..HEAD` — the range the machine
 // folds the test-fix / review-fix counters over.
-Given("a branch {string}", function (this: GtdWorld, branch: string) {
-  if (this.tier === "inmem") {
-    this.repo!.createBranch(branch)
+Given("a branch {string}", (world: GtdWorld, branch: string) => {
+  if (world.tier === "inmem") {
+    world.repo!.createBranch(branch)
   } else {
-    execFileSync("git", ["checkout", "-b", branch], { cwd: this.repoDir, stdio: "pipe" })
+    execFileSync("git", ["checkout", "-b", branch], { cwd: world.repoDir, stdio: "pipe" })
   }
 })
 
@@ -60,35 +60,35 @@ function writeRepoFile(world: GtdWorld, path: string, content: string, createDir
   }
 }
 
-Given("a file {string} with:", function (this: GtdWorld, path: string, content: string) {
-  writeRepoFile(this, path, content)
+Given("a file {string} with:", (world: GtdWorld, path: string, content: string) => {
+  writeRepoFile(world, path, content)
 })
 
-Given("a file {string} with content:", function (this: GtdWorld, path: string, content: string) {
-  writeRepoFile(this, path, content)
+Given("a file {string} with content:", (world: GtdWorld, path: string, content: string) => {
+  writeRepoFile(world, path, content)
 })
 
-Given("{string} is modified to:", function (this: GtdWorld, path: string, content: string) {
-  writeRepoFile(this, path, content, false)
+Given("{string} is modified to:", (world: GtdWorld, path: string, content: string) => {
+  writeRepoFile(world, path, content, false)
 })
 
-Given("{string} has appended {string}", function (this: GtdWorld, path: string, text: string) {
-  if (this.tier === "inmem") {
-    const worktree = (this.repo as unknown as { worktree: Map<string, string> })["worktree"]
+Given("{string} has appended {string}", (world: GtdWorld, path: string, text: string) => {
+  if (world.tier === "inmem") {
+    const worktree = (world.repo as unknown as { worktree: Map<string, string> })["worktree"]
     const existing = worktree.get(path) ?? ""
-    this.repo!.writeFile(path, existing + text + "\n")
+    world.repo!.writeFile(path, existing + text + "\n")
   } else {
-    const full = join(this.repoDir, path)
+    const full = join(world.repoDir, path)
     const existing = readFileSync(full, "utf-8")
     writeFileSync(full, existing + text + "\n")
   }
 })
 
-Given("a directory {string}", function (this: GtdWorld, path: string) {
-  if (this.tier === "inmem") {
+Given("a directory {string}", (world: GtdWorld, path: string) => {
+  if (world.tier === "inmem") {
     // Directories are implicit in the in-memory store; no-op.
   } else {
-    mkdirSync(join(this.repoDir, path), { recursive: true })
+    mkdirSync(join(world.repoDir, path), { recursive: true })
   }
 })
 
@@ -99,27 +99,27 @@ Given("a directory {string}", function (this: GtdWorld, path: string) {
 // subject and the file content, so the landed history is visible in the text.
 Given(
   "a commit {string} that adds {string} with:",
-  function (this: GtdWorld, message: string, path: string, content: string) {
+  (world: GtdWorld, message: string, path: string, content: string) => {
     const normalized = content.endsWith("\n") ? content : content + "\n"
-    if (this.tier === "inmem") {
-      this.repo!.writeFile(path, normalized)
-      this.repo!.commitAllWithPrefix(message)
+    if (world.tier === "inmem") {
+      world.repo!.writeFile(path, normalized)
+      world.repo!.commitAllWithPrefix(message)
     } else {
-      const full = join(this.repoDir, path)
+      const full = join(world.repoDir, path)
       mkdirSync(join(full, ".."), { recursive: true })
       writeFileSync(full, normalized)
-      execFileSync("git", ["add", path], { cwd: this.repoDir, stdio: "pipe" })
-      execFileSync("git", ["commit", "-q", "-m", message], { cwd: this.repoDir, stdio: "pipe" })
+      execFileSync("git", ["add", path], { cwd: world.repoDir, stdio: "pipe" })
+      execFileSync("git", ["commit", "-q", "-m", message], { cwd: world.repoDir, stdio: "pipe" })
     }
   },
 )
 
 // Initialises a brand-new empty repo (no prior commit) so that `message` becomes
 // the root commit. Mirrors "a commit … that adds … with:" but starts from a
-// fresh mkdtemp rather than reusing this.repoDir.
+// fresh mkdtemp rather than reusing world.repoDir.
 Given(
   "a root commit {string} that adds {string} with:",
-  function (this: GtdWorld, message: string, path: string, content: string) {
+  (world: GtdWorld, message: string, path: string, content: string) => {
     const dir = mkdtempSync(join(tmpdir(), "gtd-test-"))
     execFileSync("git", ["init", "-q"], { cwd: dir, stdio: "pipe" })
     execFileSync("git", ["config", "user.name", "Test"], { cwd: dir, stdio: "pipe" })
@@ -130,109 +130,109 @@ Given(
     writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
     execFileSync("git", ["add", path], { cwd: dir, stdio: "pipe" })
     execFileSync("git", ["commit", "-q", "-m", message], { cwd: dir, stdio: "pipe" })
-    this.repoDir = dir
+    world.repoDir = dir
   },
 )
 
 // ── Invocation ───────────────────────────────────────────────────────────────
 
-When("I run gtd", async function (this: GtdWorld) {
-  await this.runGtd()
+When("I run gtd", async (world: GtdWorld) => {
+  await world.runGtd()
 })
 
 // ── Assertions ───────────────────────────────────────────────────────────────
 
-Then("it succeeds", function (this: GtdWorld) {
+Then("it succeeds", (world: GtdWorld) => {
   assert.strictEqual(
-    this.lastResult.exitCode,
+    world.lastResult.exitCode,
     0,
-    `exit ${this.lastResult.exitCode}\nstderr: ${this.lastResult.stderr}`,
+    `exit ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
   )
 })
 
-Then("it fails", function (this: GtdWorld) {
+Then("it fails", (world: GtdWorld) => {
   assert.notStrictEqual(
-    this.lastResult.exitCode,
+    world.lastResult.exitCode,
     0,
-    `Expected non-zero exit code, but got 0.\nstdout: ${this.lastResult.stdout}`,
+    `Expected non-zero exit code, but got 0.\nstdout: ${world.lastResult.stdout}`,
   )
 })
 
-Then("stdout contains {string}", function (this: GtdWorld, text: string) {
+Then("stdout contains {string}", (world: GtdWorld, text: string) => {
   assert.ok(
-    this.lastResult.stdout.includes(text),
-    `Expected stdout to contain "${text}". Got:\n${this.lastResult.stdout}`,
+    world.lastResult.stdout.includes(text),
+    `Expected stdout to contain "${text}". Got:\n${world.lastResult.stdout}`,
   )
 })
 
-Then("stdout does not contain {string}", function (this: GtdWorld, text: string) {
+Then("stdout does not contain {string}", (world: GtdWorld, text: string) => {
   assert.ok(
-    !this.lastResult.stdout.includes(text),
-    `Expected stdout NOT to contain "${text}". Got:\n${this.lastResult.stdout}`,
+    !world.lastResult.stdout.includes(text),
+    `Expected stdout NOT to contain "${text}". Got:\n${world.lastResult.stdout}`,
   )
 })
 
-Then("stderr contains {string}", function (this: GtdWorld, text: string) {
+Then("stderr contains {string}", (world: GtdWorld, text: string) => {
   assert.ok(
-    this.lastResult.stderr.includes(text),
-    `Expected stderr to contain "${text}". Got:\n${this.lastResult.stderr}`,
+    world.lastResult.stderr.includes(text),
+    `Expected stderr to contain "${text}". Got:\n${world.lastResult.stderr}`,
   )
 })
 
-Then("stderr does not contain {string}", function (this: GtdWorld, text: string) {
+Then("stderr does not contain {string}", (world: GtdWorld, text: string) => {
   assert.ok(
-    !this.lastResult.stderr.includes(text),
-    `Expected stderr NOT to contain "${text}". Got:\n${this.lastResult.stderr}`,
+    !world.lastResult.stderr.includes(text),
+    `Expected stderr NOT to contain "${text}". Got:\n${world.lastResult.stderr}`,
   )
 })
 
 // Post-loop observables. Edge-driven auto states emit no prompt — a single `gtd`
 // run performs the git action(s) and drives the loop forward — so assert the
 // landed commit subject instead of a retired prompt string.
-Then("the last commit subject is {string}", function (this: GtdWorld, subject: string) {
+Then("the last commit subject is {string}", (world: GtdWorld, subject: string) => {
   assert.strictEqual(
-    this.lastCommitSubject(),
+    world.lastCommitSubject(),
     subject,
-    `Expected last commit subject "${subject}". Got "${this.lastCommitSubject()}".\nLog:\n${this.gitLog()}`,
+    `Expected last commit subject "${subject}". Got "${world.lastCommitSubject()}".\nLog:\n${world.gitLog()}`,
   )
 })
 
-Then("the HEAD commit subject is {string}", function (this: GtdWorld, subject: string) {
+Then("the HEAD commit subject is {string}", (world: GtdWorld, subject: string) => {
   assert.strictEqual(
-    this.lastCommitSubject(),
+    world.lastCommitSubject(),
     subject,
-    `Expected HEAD commit subject "${subject}". Got "${this.lastCommitSubject()}".\nLog:\n${this.gitLog()}`,
+    `Expected HEAD commit subject "${subject}". Got "${world.lastCommitSubject()}".\nLog:\n${world.gitLog()}`,
   )
 })
 
-Then("the git log contains {string}", function (this: GtdWorld, subject: string) {
-  const log = this.gitLog()
+Then("the git log contains {string}", (world: GtdWorld, subject: string) => {
+  const log = world.gitLog()
   assert.ok(log.includes(subject), `Expected git log to contain "${subject}". Got:\n${log}`)
 })
 
-Then("the git log does not contain {string}", function (this: GtdWorld, subject: string) {
-  const log = this.gitLog()
+Then("the git log does not contain {string}", (world: GtdWorld, subject: string) => {
+  const log = world.gitLog()
   assert.ok(!log.includes(subject), `Expected git log NOT to contain "${subject}". Got:\n${log}`)
 })
 
-Then("the file {string} exists", function (this: GtdWorld, path: string) {
-  assert.ok(this.repoFileExists(path), `Expected file "${path}" to exist.`)
+Then("the file {string} exists", (world: GtdWorld, path: string) => {
+  assert.ok(world.repoFileExists(path), `Expected file "${path}" to exist.`)
 })
 
-Then("the file {string} does not exist", function (this: GtdWorld, path: string) {
-  assert.ok(!this.repoFileExists(path), `Expected file "${path}" NOT to exist.`)
+Then("the file {string} does not exist", (world: GtdWorld, path: string) => {
+  assert.ok(!world.repoFileExists(path), `Expected file "${path}" NOT to exist.`)
 })
 
-Then("{string} exists", function (this: GtdWorld, path: string) {
-  assert.ok(this.repoFileExists(path), `Expected "${path}" to exist.`)
+Then("{string} exists", (world: GtdWorld, path: string) => {
+  assert.ok(world.repoFileExists(path), `Expected "${path}" to exist.`)
 })
 
-Then("{string} does not exist", function (this: GtdWorld, path: string) {
-  assert.ok(!this.repoFileExists(path), `Expected "${path}" NOT to exist.`)
+Then("{string} does not exist", (world: GtdWorld, path: string) => {
+  assert.ok(!world.repoFileExists(path), `Expected "${path}" NOT to exist.`)
 })
 
-Then("the file {string} contains {string}", function (this: GtdWorld, path: string, text: string) {
-  const content = this.repoFile(path)
+Then("the file {string} contains {string}", (world: GtdWorld, path: string, text: string) => {
+  const content = world.repoFile(path)
   assert.ok(
     content.includes(text),
     `Expected file "${path}" to contain "${text}". Got:\n${content}`,
@@ -241,8 +241,8 @@ Then("the file {string} contains {string}", function (this: GtdWorld, path: stri
 
 Then(
   "the file {string} does not contain {string}",
-  function (this: GtdWorld, path: string, text: string) {
-    const content = this.repoFile(path)
+  (world: GtdWorld, path: string, text: string) => {
+    const content = world.repoFile(path)
     assert.ok(
       !content.includes(text),
       `Expected file "${path}" NOT to contain "${text}". Got:\n${content}`,
@@ -252,9 +252,9 @@ Then(
 
 // Full-history assertion for journey scenarios: the exact commit subject
 // sequence, oldest → newest, one subject per docstring line.
-Then("the commit subjects from oldest to newest are:", function (this: GtdWorld, doc: string) {
+Then("the commit subjects from oldest to newest are:", (world: GtdWorld, doc: string) => {
   const actual = execFileSync("git", ["log", "--reverse", "--format=%s"], {
-    cwd: this.repoDir,
+    cwd: world.repoDir,
     encoding: "utf-8",
   }).trim()
   assert.strictEqual(
@@ -264,20 +264,20 @@ Then("the commit subjects from oldest to newest are:", function (this: GtdWorld,
   )
 })
 
-Then("I record the commit count", function (this: GtdWorld) {
-  this.savedCommitCount = this.commitCount()
+Then("I record the commit count", (world: GtdWorld) => {
+  world.savedCommitCount = world.commitCount()
 })
 
-Then("the commit count is unchanged", function (this: GtdWorld) {
-  const current = this.commitCount()
+Then("the commit count is unchanged", (world: GtdWorld) => {
+  const current = world.commitCount()
   assert.strictEqual(
     current,
-    this.savedCommitCount,
-    `Expected commit count to remain ${this.savedCommitCount}, got ${current}`,
+    world.savedCommitCount,
+    `Expected commit count to remain ${world.savedCommitCount}, got ${current}`,
   )
 })
 
-Then("the commit count is {int}", function (this: GtdWorld, expected: number) {
-  const current = this.commitCount()
+Then("the commit count is {int}", (world: GtdWorld, expected: number) => {
+  const current = world.commitCount()
   assert.strictEqual(current, expected, `Expected commit count ${expected}, got ${current}`)
 })
