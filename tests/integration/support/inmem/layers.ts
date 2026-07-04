@@ -13,8 +13,6 @@ import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
 import { renderDiff } from "../../../../src/Diff.js"
 import {
-  GitReader,
-  GitWriter,
   GitService,
   type GitReaderOperations,
   type GitWriterOperations,
@@ -373,86 +371,7 @@ const makeInMemoryFileSystem = (repo: InMemRepo): FileSystem.FileSystem => {
 }
 
 // ---------------------------------------------------------------------------
-// 4. In-memory TestRunner layer
-// ---------------------------------------------------------------------------
-
-const _makeInMemoryTestRunner = (
-  _repo: InMemRepo,
-): { run: () => Effect.Effect<TestResult, Error> } => ({
-  run: (): Effect.Effect<TestResult, Error> =>
-    Effect.fail(
-      new Error(
-        "TestRunner.InMemory.run() called without a configured testCommand. " +
-          "Provide a TestRunner layer with the specific command your test needs.",
-      ),
-    ),
-})
-
-/**
- * Build an in-memory TestRunner layer for a specific command string.
- * Recognizes:
- *   "true"         → exitCode: 0
- *   "false"        → exitCode: 1
- *   "test -f <p>"  → exitCode: 0 if path exists in worktree, 1 otherwise
- *   any other      → throws Error (unrecognized command)
- */
-export const makeTestRunnerForCommand = (
-  repo: InMemRepo,
-  command: string,
-): Layer.Layer<TestRunner> => {
-  const worktreeHasPath = (path: string): boolean => {
-    const worktree = (repo as unknown as { worktree: Map<string, string> })["worktree"]
-    return worktree.has(path)
-  }
-
-  const run = (): Effect.Effect<TestResult, Error> => {
-    const cmd = command.trim()
-
-    if (cmd === "true") {
-      return Effect.succeed({ exitCode: 0, output: "" })
-    }
-    if (cmd === "false") {
-      return Effect.succeed({ exitCode: 1, output: "" })
-    }
-
-    // test -f <path>
-    const testFMatch = /^test -f (.+)$/.exec(cmd)
-    if (testFMatch !== null) {
-      const path = testFMatch[1]!.trim()
-      return Effect.succeed({ exitCode: worktreeHasPath(path) ? 0 : 1, output: "" })
-    }
-
-    // bash -c 'test -f <path>'
-    const bashTestFMatch = /^bash -c 'test -f (.+)'$/.exec(cmd)
-    if (bashTestFMatch !== null) {
-      const path = bashTestFMatch[1]!.trim()
-      return Effect.succeed({ exitCode: worktreeHasPath(path) ? 0 : 1, output: "" })
-    }
-
-    // bash <script.sh>
-    const bashScriptMatch = /^bash\s+(\S+)$/.exec(cmd)
-    if (bashScriptMatch !== null) {
-      const scriptPath = bashScriptMatch[1]!.trim()
-      const worktree = (repo as unknown as { worktree: Map<string, string> })["worktree"]
-      const result = runBashScript(scriptPath, worktree)
-      if (result === null) {
-        return Effect.succeed({
-          exitCode: 1,
-          output: `bash: ${scriptPath}: No such file or directory\n`,
-        })
-      }
-      return Effect.succeed(result)
-    }
-
-    // Unknown command → simulate ENOENT
-    return Effect.fail(new Error(`test command not found: ${cmd}`))
-  }
-
-  return Layer.succeed(TestRunner, { run })
-}
-
-// ---------------------------------------------------------------------------
-// 5. In-memory ConfigService layer
+// 4. In-memory ConfigService layer
 // ---------------------------------------------------------------------------
 
 const SEARCH_PLACES = [
@@ -589,18 +508,6 @@ export function inMemoryLayers(
   return Layer.mergeAll(gitServiceLayer, fsLayer, testRunnerLayer, configLayer)
 }
 
-// Also export individual layers for fine-grained composition
-export const makeGitReaderLayer = (repo: InMemRepo): Layer.Layer<GitReader> =>
-  Layer.succeed(GitReader, makeGitReaderOps(repo))
-
-export const makeGitWriterLayer = (repo: InMemRepo): Layer.Layer<GitWriter> =>
-  Layer.succeed(GitWriter, makeGitWriterOps(repo))
-
+// Fine-grained layer for unit tests that need only the git service.
 export const makeGitServiceLayer = (repo: InMemRepo): Layer.Layer<GitService> =>
   Layer.succeed(GitService, { ...makeGitReaderOps(repo), ...makeGitWriterOps(repo) })
-
-export const makeFileSystemLayer = (repo: InMemRepo): Layer.Layer<FileSystem.FileSystem> =>
-  Layer.succeed(FileSystem.FileSystem, makeInMemoryFileSystem(repo))
-
-export const makeConfigLayer = (repo: InMemRepo): Layer.Layer<ConfigService> =>
-  makeInMemoryConfigService(repo)

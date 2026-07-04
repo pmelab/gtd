@@ -453,14 +453,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor): GitOperations =
 
 const makeLiveEffect = Effect.map(CommandExecutor.CommandExecutor, makeGitImpl)
 
-export class GitReader extends Context.Tag("GitReader")<GitReader, GitReaderOperations>() {
-  static Live = Layer.effect(GitReader, makeLiveEffect)
-}
-
-export class GitWriter extends Context.Tag("GitWriter")<GitWriter, GitWriterOperations>() {
-  static Live = Layer.effect(GitWriter, makeLiveEffect)
-}
-
 export class GitService extends Context.Tag("GitService")<GitService, GitOperations>() {
   static Live = Layer.effect(GitService, makeLiveEffect)
 }

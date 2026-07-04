@@ -41,3 +41,4 @@ test/
 # downloaded/built CLI bundle
 scripts/gtd.bundle.mjs
 scripts/gtd.bundle.mjs.tmp
+.fallow/

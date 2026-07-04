@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "src/main.{ts,tsx,js,jsx}",
+    // Cucumber loads all support files via its own import glob — declare them so
+    // fallow treats them as entry points rather than dead files.
+    "tests/integration/support/**/*.{ts,mjs}",
+    // CLI shim invoked directly by tests/CI.
+    "scripts/gtd.js"
+  ],
+  "duplicates": {
+    // Hide pair-only clones; focus on widespread copy-paste worth refactoring.
+    "minOccurrences": 3
+  },
+  // jiti is a peer requirement of eslint's TypeScript config loader, not a direct import.
+  "ignoreDependencies": ["jiti"]
+}
