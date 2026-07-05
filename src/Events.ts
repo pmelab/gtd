@@ -5,6 +5,7 @@ import { GitService, type GitOperations } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { fenceFor } from "./Prompt.js"
+import { formatFile } from "./Format.js"
 import { TestRunner } from "./TestRunner.js"
 import type {
   CommitEvent,
@@ -817,6 +818,9 @@ export const perform = (
         if (action.removeTodo === true) {
           yield* fs.remove(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
+        if (action.removeTodo !== true) {
+          yield* formatFile(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        }
         yield* git.commitAllWithPrefix(action.prefix)
         return
       }
@@ -837,6 +841,7 @@ export const perform = (
 
       // Await Review: commit REVIEW.md as `gtd: awaiting review`.
       case "commitReview": {
+        yield* formatFile(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))
         yield* git.commitAllWithPrefix(AWAITING_REVIEW_SUBJECT)
         return
       }

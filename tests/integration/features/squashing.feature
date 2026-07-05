@@ -31,7 +31,7 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout contains "Write the commit message"
     And stdout contains "SQUASH_MSG.md"
     And stdout contains "src/calc.ts"
-    And stdout contains "Re-run gtd immediately after completing the steps above."
+    And stdout contains "Continue immediately after completing the steps above — re-run the harness."
     And stdout does not contain "STOP — do not re-run"
     And stdout contains "Do not run"
 
@@ -64,7 +64,7 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout contains "Write the commit message"
     And stdout contains "SQUASH_MSG.md"
     And stdout contains "coworker.ts"
-    And stdout contains "Re-run gtd immediately after completing the steps above."
+    And stdout contains "Continue immediately after completing the steps above — re-run the harness."
     And stdout does not contain "STOP — do not re-run"
     And stdout contains "Do not run"
 

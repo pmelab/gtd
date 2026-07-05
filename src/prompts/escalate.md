@@ -12,6 +12,6 @@ burn further effort on a problem it cannot solve.
    human judgement.
 3. **Tell the user how to resume** — investigate and fix the root cause (or
    nudge the code), then **delete `ERRORS.md`**. Removing `ERRORS.md` resets the
-   fix-attempt budget: the next gtd run re-tests and grants a fresh round of
+   fix-attempt budget: the next cycle re-tests and grants a fresh round of
    automatic fixes before escalating again. While `ERRORS.md` exists, every run
    resolves straight back to this gate.

@@ -47,7 +47,7 @@ task files:
 
 ### After the subagent completes
 
-Leave every change **uncommitted**; the next gtd cycle commits `.gtd/` as
+Leave every change **uncommitted**; the next cycle commits `.gtd/` as
 `gtd: planning`, preserving the plan and its full Q&A history in git. The plan
 is now executable.
 
