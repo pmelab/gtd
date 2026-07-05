@@ -1,6 +1,6 @@
 {
   "name": "@pmelab/gtd",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "private": false,
   "description": "Git-aware CLI that emits the next prompt for an autonomous coding agent based on the current repository state",
   "bin": {
