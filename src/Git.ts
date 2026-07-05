@@ -1,7 +1,9 @@
 import { Command, CommandExecutor } from "@effect/platform"
 import { readFileSync, existsSync } from "node:fs"
+import { join } from "node:path"
 import { Context, Effect, Layer, Option, Stream } from "effect"
 import { renderDiff } from "./Diff.js"
+import { Cwd } from "./Cwd.js"
 
 export interface GitReaderOperations {
   readonly statusPorcelain: () => Effect.Effect<string, Error>
@@ -122,14 +124,15 @@ const applyExcludes = <T extends { path: string }>(
 }
 
 /**
- * Read a file from the current working directory (the worktree root).
+ * Read a file from the worktree root (`root`).
  * Returns `null` if the file does not exist or is a directory (e.g. a submodule
  * gitlink whose worktree entry is a directory, not a regular file).
  */
-const readWorktreeFile = (path: string): string | null => {
-  if (!existsSync(path)) return null
+const readWorktreeFile = (root: string, path: string): string | null => {
+  const resolved = join(root, path)
+  if (!existsSync(resolved)) return null
   try {
-    return readFileSync(path, "utf8")
+    return readFileSync(resolved, "utf8")
   } catch (e) {
     // EISDIR: submodule pointer — treated as a non-text entry
     if (e instanceof Error && "code" in e && e.code === "EISDIR") return null
@@ -147,13 +150,18 @@ const readWorktreeFile = (path: string): string | null => {
  * with an explicit `catchAll`.
  */
 const run = (
+  root: string,
   ...args: [string, ...Array<string>]
 ): Effect.Effect<string, Error, CommandExecutor.CommandExecutor> =>
   Effect.scoped(
     Effect.gen(function* () {
       const executor = yield* CommandExecutor.CommandExecutor
       const process = yield* executor.start(
-        Command.make(...args).pipe(Command.stdout("pipe"), Command.stderr("pipe")),
+        Command.make(...args).pipe(
+          Command.workingDirectory(root),
+          Command.stdout("pipe"),
+          Command.stderr("pipe"),
+        ),
       )
       const collect = (stream: typeof process.stdout) =>
         stream.pipe(Stream.decodeText(), Stream.mkString)
@@ -170,9 +178,11 @@ const run = (
     }),
   ).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
 
-const makeGitImpl = (executor: CommandExecutor.CommandExecutor): GitOperations => {
+const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): GitOperations => {
   const exec = (...args: [string, ...Array<string>]) =>
-    run(...args).pipe(Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)))
+    run(root, ...args).pipe(
+      Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+    )
 
   return {
     statusPorcelain: () => exec("git", "status", "--porcelain"),
@@ -217,7 +227,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor): GitOperations =
                       Effect.map((s) => s),
                       Effect.catchAll(() => Effect.succeed<string | null>(null)),
                     )
-              const after = status === "D" ? null : readWorktreeFile(path)
+              const after = status === "D" ? null : readWorktreeFile(root, path)
               return { path, before, after }
             }),
           ),
@@ -275,7 +285,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor): GitOperations =
         const beforeOrNull = yield* exec("git", "show", `HEAD:${path}`).pipe(
           Effect.catchAll(() => Effect.succeed<string | null>(null)),
         )
-        const after = readWorktreeFile(path)
+        const after = readWorktreeFile(root, path)
 
         if (beforeOrNull === null && after === null) return ""
         if (beforeOrNull === after) return ""
@@ -324,6 +334,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor): GitOperations =
 
     isAncestor: (a: string, b: string) =>
       Command.make("git", "merge-base", "--is-ancestor", a, b).pipe(
+        Command.workingDirectory(root),
         Command.exitCode,
         Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
         Effect.map((code) => code === 0),
@@ -393,6 +404,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor): GitOperations =
           "--quiet",
           "HEAD~1",
         ).pipe(
+          Command.workingDirectory(root),
           Command.exitCode,
           Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
           Effect.mapError((e) => new Error(String(e))),
@@ -405,6 +417,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor): GitOperations =
           )
         }
         const resetCode = yield* Command.make("git", "reset", "HEAD~1").pipe(
+          Command.workingDirectory(root),
           Command.exitCode,
           Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
           Effect.mapError((e) => new Error(String(e))),
@@ -420,6 +433,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor): GitOperations =
       Effect.gen(function* () {
         // Stage deletion; tolerate failure if already absent or untracked
         yield* Command.make("git", "rm", "-r", "--", dir).pipe(
+          Command.workingDirectory(root),
           Command.exitCode,
           Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
           Effect.mapError((e) => new Error(String(e))),
@@ -452,7 +466,11 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor): GitOperations =
   }
 }
 
-const makeLiveEffect = Effect.map(CommandExecutor.CommandExecutor, makeGitImpl)
+const makeLiveEffect = Effect.gen(function* () {
+  const executor = yield* CommandExecutor.CommandExecutor
+  const { root } = yield* Cwd
+  return makeGitImpl(executor, root)
+})
 
 export class GitService extends Context.Tag("GitService")<GitService, GitOperations>() {
   static Live = Layer.effect(GitService, makeLiveEffect)

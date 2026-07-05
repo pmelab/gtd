@@ -1,6 +1,7 @@
 import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { ConfigService } from "./Config.js"
+import { Cwd } from "./Cwd.js"
 import { GitService } from "./Git.js"
 import { TestRunner } from "./TestRunner.js"
 import { makeProgram } from "./program.js"
@@ -10,6 +11,7 @@ makeProgram().pipe(
   Effect.provide(TestRunner.Live),
   // Satisfies `ConfigService`, a requirement of `TestRunner.Live`.
   Effect.provide(ConfigService.Live),
+  Effect.provide(Cwd.Live),
   Effect.provide(NodeContext.layer),
   Effect.catchAll((error) =>
     Effect.sync(() => {

@@ -624,6 +624,7 @@ npm run dev          # run from source, no build (node dev/run.mjs)
 npm run build        # tsup → dist/gtd.bundle.mjs (+ copies to scripts/)
 npm test             # vitest unit tests (the pure resolver) — --project unit
 npm run test:e2e     # gherkin e2e via vitest + quickpickle — --project e2e
+npm run test:mutation # StrykerJS mutation testing
 npm run typecheck
 npm run lint
 ```
@@ -661,6 +662,37 @@ git/filesystem IO is confined to the edge (`src/Events.ts`).
 GitHub release whose tag matches the `version` field in `package.json`. The
 placeholder version `0.0.0-development` falls back to the `latest` release. The
 bundle can also be built locally with `npm run build`.
+
+### Mutation testing
+
+Run mutation testing on-demand with `npm run test:mutation` (StrykerJS, ~2 min).
+The single `stryker.config.json` mutates six core files:
+
+```
+src/Machine.ts  src/Prompt.ts  src/Config.ts
+src/Format.ts   src/State.ts   src/Events.ts
+```
+
+`src/Git.ts` is excluded: the Cucumber harness stubs git at the Effect boundary,
+so Git.ts mutants have zero in-memory coverage. Measuring its post-refactor
+Live-tier kill rate is a follow-up before re-including it.
+
+**`process.chdir()` gotcha (resolved).** `@stryker-mutator/vitest-runner`
+hardcodes `pool: 'threads'` internally, and `process.chdir()` is unsupported in
+worker threads. Before the cwd refactor (package 01), four test files
+(`Events.test.ts`, `Git.test.ts`, `Config.test.ts`, `TestRunner.test.ts`) had to
+be excluded from all Stryker runs. The refactor eliminated those calls, letting
+all four files rejoin the run.
+
+Two additional notes: `vitest.related` is disabled for feature-file runs because
+feature files don't import source files directly (Stryker's coverage-based
+filtering would assign zero tests to every mutant). Compile-error mutants are
+counted as kills by the TypeScript checker — they represent real signal, not a
+configuration problem.
+
+Run `npm run test:mutation` after making changes to the mutated files to check
+whether surviving mutants increased. The HTML report lands in
+`reports/mutation/mutation.html` (git-ignored).
 
 ## Releasing
 

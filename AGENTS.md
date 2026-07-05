@@ -1,5 +1,8 @@
 ## Testing
 
+- `npm run test:mutation` is a deliberate user action — never run it
+  autonomously; it takes 10+ minutes and is only meaningful when triggered on
+  purpose
 - create cucumber.js scenarios for each new feature
 - use composable "Given" steps (small, reusable steps) instead of one-off setup
   steps

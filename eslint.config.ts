@@ -20,5 +20,5 @@ export default tseslint.config(
     files: ["**/*.test.ts"],
     rules: { "require-yield": "off" },
   },
-  { ignores: ["dist", "node_modules", "scripts"] },
+  { ignores: ["dist", "node_modules", "scripts", ".stryker-tmp", "reports"] },
 )

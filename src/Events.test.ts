@@ -18,6 +18,7 @@ import { formatFile } from "./Format.js"
 import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import type { ConfigOperations } from "./Config.js"
+import { Cwd } from "./Cwd.js"
 import { TestRunner } from "./TestRunner.js"
 import { foldCounters } from "./Machine.js"
 import type { CommitEvent, EdgeAction, GtdEvent, ResolvePayload } from "./Machine.js"
@@ -27,7 +28,6 @@ import type { CommitEvent, EdgeAction, GtdEvent, ResolvePayload } from "./Machin
 // resolve their relative paths (".gtd", "TODO.md", …) against it.
 
 let repoDir: string
-let savedCwd: string
 
 const git = (...args: string[]): string =>
   execFileSync("git", args, { cwd: repoDir, encoding: "utf8", stdio: "pipe" }).trim()
@@ -50,12 +50,9 @@ const initRepo = (branch: boolean): void => {
   git("commit", "-q", "-m", "chore: init")
   git("branch", "-M", "main")
   if (branch) git("checkout", "-q", "-b", "feature")
-  savedCwd = process.cwd()
-  process.chdir(repoDir)
 }
 
 const cleanup = (): void => {
-  process.chdir(savedCwd)
   rmSync(repoDir, { recursive: true, force: true })
 }
 
@@ -77,6 +74,7 @@ const runGather = (cfg: Partial<ConfigOperations> = {}): Promise<ReadonlyArray<G
       Effect.provide(GitService.Live),
       Effect.provide(NodeContext.layer),
       Effect.provide(Layer.succeed(ConfigService, fakeConfig(cfg))),
+      Effect.provide(Cwd.layer(repoDir)),
     ),
   )
 
@@ -84,7 +82,7 @@ const runGetPackages = () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
-      return yield* getPackages(fs)
+      return yield* getPackages(fs, repoDir)
     }).pipe(Effect.provide(NodeContext.layer)),
   )
 
@@ -97,6 +95,7 @@ const runPerform = (
       Effect.provide(GitService.Live),
       Effect.provide(NodeContext.layer),
       Effect.provide(Layer.succeed(TestRunner, { run: () => Effect.succeed(testResult) })),
+      Effect.provide(Cwd.layer(repoDir)),
     ),
   )
 
@@ -706,8 +705,6 @@ describe(
       git("config", "user.name", "Test")
       git("config", "user.email", "test@test.com")
       git("config", "commit.gpgsign", "false")
-      savedCwd = process.cwd()
-      process.chdir(repoDir)
       const p = resolveOf(await runGather())
       expect(p.hasCommitsAfterLastDone).toBe(true)
     })
@@ -943,12 +940,10 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     // Inline setup: repo with NO chore: init baseline — HEAD~1 does not exist.
     cleanup()
     repoDir = mkdtempSync(join(tmpdir(), "gtd-events-nobase-"))
-    savedCwd = process.cwd()
     execFileSync("git", ["init", "-q"], { cwd: repoDir })
     execFileSync("git", ["config", "user.name", "Test"], { cwd: repoDir })
     execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: repoDir })
     execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: repoDir })
-    process.chdir(repoDir)
 
     writeFileSync(join(repoDir, "feature.ts"), "export const raw = 1\n")
     await runPerform({ kind: "seedNewFeature" })

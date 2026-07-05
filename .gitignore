@@ -42,3 +42,10 @@ test/
 scripts/gtd.bundle.mjs
 scripts/gtd.bundle.mjs.tmp
 .fallow/
+
+# stryker
+.stryker-tmp/
+stryker-incremental.json
+stryker-incremental.scenarios.json
+stryker-incremental.io-edge.json
+reports/

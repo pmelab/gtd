@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { ConfigService } from "./Config.js"
+import { Cwd } from "./Cwd.js"
 import { perform } from "./Events.js"
 import * as Format from "./Format.js"
 import { GitService } from "./Git.js"
@@ -55,7 +56,11 @@ export interface RunOptions {
  */
 export function makeProgram(
   opts: RunOptions = {},
-): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | TestRunner | ConfigService> {
+): Effect.Effect<
+  void,
+  Error,
+  GitService | FileSystem.FileSystem | TestRunner | ConfigService | Cwd
+> {
   const argv = opts.argv ?? process.argv
   const write = opts.write ?? ((chunk: string) => process.stdout.write(chunk))
 
