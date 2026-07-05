@@ -6,10 +6,11 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "npm version ${nextRelease.version} --no-git-tag-version --allow-same-version && npm run build"
+        "prepareCmd": "npm version ${nextRelease.version} --no-git-tag-version --allow-same-version && npm run build",
+        "publishCmd": "npm publish --access public --provenance"
       }
     ],
-    ["@semantic-release/npm", { "npmPublishOptions": { "provenance": true } }],
+    ["@semantic-release/npm", { "npmPublish": false }],
     [
       "@semantic-release/git",
       {
