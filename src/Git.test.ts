@@ -450,6 +450,28 @@ for (const [tierName, makeTier] of tiers) {
         const history = await t.run(Effect.flatMap(GitService, (g) => g.commitHistory()))
         expect(history[history.length - 1]?.message).toBe("gtd: grilled")
       })
+
+      it("retries with --no-verify when a hook blocks the empty commit", async () => {
+        if (tierName !== "Live") return
+
+        // Simulate lint-staged blocking an empty commit
+        const hookPath = join(repoDir, ".git/hooks/pre-commit")
+        writeFileSync(
+          hookPath,
+          `#!/bin/sh\necho "lint-staged prevented an empty git commit." >&2\nexit 1\n`,
+        )
+        execSync(`chmod +x "${hookPath}"`)
+
+        const headBefore = t.resolveRef("HEAD")
+
+        await t.run(Effect.flatMap(GitService, (g) => g.commitAllWithPrefix("gtd: grilled")))
+
+        const headAfter = t.resolveRef("HEAD")
+        expect(headAfter).not.toBe(headBefore)
+
+        const history = await t.run(Effect.flatMap(GitService, (g) => g.commitHistory()))
+        expect(history[history.length - 1]?.message).toBe("gtd: grilled")
+      })
     })
 
     // -----------------------------------------------------------------------

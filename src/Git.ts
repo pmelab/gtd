@@ -459,7 +459,16 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     commitAllWithPrefix: (prefix: string) =>
       Effect.gen(function* () {
         yield* exec("git", "add", "-A")
-        yield* exec("git", "commit", "--allow-empty", "-m", prefix)
+        yield* exec("git", "commit", "--allow-empty", "-m", prefix).pipe(
+          Effect.catchAll((error) =>
+            // Hooks like lint-staged block empty commits even with --allow-empty.
+            // gtd's workflow commits have nothing for code-quality hooks to validate,
+            // so retry without the pre-commit hook when that guard fires.
+            error.message.includes("empty git commit")
+              ? exec("git", "commit", "--allow-empty", "--no-verify", "-m", prefix)
+              : Effect.fail(error),
+          ),
+        )
       }).pipe(Effect.asVoid),
 
     softResetTo: (ref: string) => exec("git", "reset", "--soft", ref).pipe(Effect.asVoid),
