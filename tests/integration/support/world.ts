@@ -13,7 +13,7 @@ import { inMemoryLayers } from "./inmem/layers.js"
 import { InMemRepo } from "./inmem/Repo.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
-const GTD_BIN = join(PROJECT_ROOT, "scripts/gtd.js")
+const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 
 export type Tier = "live" | "inmem"
 
