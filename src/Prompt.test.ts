@@ -238,7 +238,7 @@ describe("buildPrompt", () => {
           }),
         )
         expect(out).toContain("<!-- user answers here -->")
-        expect(out).toContain("no open questions — run gtd to plan")
+        expect(out).toContain("no open questions — ready to plan")
       }
     })
 
@@ -259,7 +259,7 @@ describe("buildPrompt", () => {
       )
       expect(out).toContain("Develop the plan")
       expect(out).toContain(PLANNING_MODEL)
-      expect(out).toContain("Re-run gtd immediately")
+      expect(out).toContain("re-run the harness")
       expect(out).not.toContain("Open questions await the user")
     })
   })
@@ -386,7 +386,7 @@ describe("buildPrompt", () => {
           context: { squashDiff: "diff --git a/x b/x\n+hello\n", squashBase: "abc1234" },
         }),
       )
-      expect(out).toContain("Re-run gtd immediately")
+      expect(out).toContain("re-run the harness")
       expect(out).not.toContain("⛔")
     })
 
@@ -417,11 +417,70 @@ describe("buildPrompt", () => {
     })
   })
 
+  describe("json output mode", () => {
+    const NEUTRAL =
+      "Complete the steps above, then end your turn — the harness decides what happens"
+
+    describe("tail swap", () => {
+      it("auto-advance state gets neutral line, not ## Auto-advance or ⛔", () => {
+        const out = buildPrompt(withPackage("building"), undefined, "json")
+        expect(out).toContain(NEUTRAL)
+        expect(out).not.toContain("## Auto-advance")
+        expect(out).not.toContain("⛔")
+      })
+
+      it("STOP state gets neutral line, not ⛔", () => {
+        const out = buildPrompt(result("escalate"), undefined, "json")
+        expect(out).toContain(NEUTRAL)
+        expect(out).not.toContain("⛔")
+      })
+
+      it("plain auto-advance state still has ## Auto-advance", () => {
+        const out = buildPrompt(withPackage("building"))
+        expect(out).toContain("## Auto-advance")
+        expect(out).not.toContain("⛔")
+      })
+
+      it("plain STOP state still has ⛔", () => {
+        const out = buildPrompt(result("escalate"))
+        expect(out).toContain("⛔")
+        expect(out).not.toContain("## Auto-advance")
+      })
+    })
+
+    describe("no bare gtd command in any prompt-bearing state", () => {
+      const cases: ReadonlyArray<[string, Result]> = [
+        [
+          "grilling (iterate)",
+          result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
+        ],
+        [
+          "grilling (stop)",
+          result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
+        ],
+        ["grilled", result("grilled", { autoAdvance: true })],
+        ["building", withPackage("building")],
+        ["fixing", result("fixing", { autoAdvance: true })],
+        ["agentic-review", withPackage("agentic-review")],
+        ["clean", result("clean")],
+        ["squashing", result("squashing", { autoAdvance: true })],
+        ["escalate", result("escalate")],
+        ["idle", result("idle")],
+      ]
+
+      for (const [label, res] of cases) {
+        it(`${label} has no bare gtd command`, () => {
+          const text = buildPrompt(res, undefined, "json")
+          const stripped = text.replace(/gtd:/g, "").replace(/\.gtd/g, "")
+          expect(stripped).not.toMatch(/\bgtd\b/)
+        })
+      }
+    })
+  })
+
   describe("auto-advance partial", () => {
     it("is appended when result.autoAdvance is true", () => {
-      expect(buildPrompt(result("grilled", { autoAdvance: true }))).toContain(
-        "Re-run gtd immediately",
-      )
+      expect(buildPrompt(result("grilled", { autoAdvance: true }))).toContain("re-run the harness")
     })
 
     it("is omitted when result.autoAdvance is false", () => {

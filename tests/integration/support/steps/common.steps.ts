@@ -140,6 +140,10 @@ When("I run gtd", async (world: GtdWorld) => {
   await world.runGtd()
 })
 
+When("I run gtd with {string}", async (world: GtdWorld, arg: string) => {
+  await world.runGtd(arg)
+})
+
 // ── Assertions ───────────────────────────────────────────────────────────────
 
 Then("it succeeds", (world: GtdWorld) => {

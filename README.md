@@ -52,6 +52,72 @@ Run `gtd` from your repository's working directory — it prints the next prompt
 to stdout. It takes **no ref argument** — the review base is always
 auto-computed.
 
+## JSON output mode
+
+Pass `--json` to the default `gtd` invocation to receive machine-readable output
+instead of a plain prompt:
+
+```bash
+gtd --json
+```
+
+`--json` applies only to the default command. Passing it to `gtd format` is
+rejected with exit code 1 and an error on stderr. It is orthogonal to all other
+flags (`--verbose`, `--debug`, etc.) — each controls exactly one concern.
+
+### Output shape
+
+In `--json` mode gtd emits a **single-line JSON object** to stdout:
+
+```json
+{ "state": "building", "autoAdvance": true, "prompt": "..." }
+```
+
+- **`state`** — the resolved prompt-bearing `GtdState` (e.g. `"grilling"`,
+  `"building"`, `"fixing"`, `"clean"`).
+- **`autoAdvance`** — the same boolean that selects the loop-tail in plain mode.
+  `true` means the workflow advances automatically after the agent acts; `false`
+  means a STOP state was reached and human input is expected.
+- **`prompt`** — the full markdown prompt, but with **both loop-control tails
+  omitted**. In their place, the prompt ends with:
+  `Complete the steps above, then end your turn — the harness decides what happens next.`
+  The caller is responsible for reading `autoAdvance` and deciding whether to
+  run another cycle.
+
+### Loop-ownership division of labor
+
+In **plain mode** the in-prompt tails own the loop — the prompt instructs the
+agent to re-run `gtd` when `autoAdvance` is true.
+
+In **`--json` mode** the **caller owns the loop** — the tails are stripped and
+the caller reads `autoAdvance` from the JSON object to decide whether to
+iterate.
+
+Example driver script:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+while true; do
+  out="$(gtd --json)"
+  prompt="$(jq -r .prompt <<<"$out")"
+  claude -p "$prompt" --dangerously-skip-permissions
+  jq -e .autoAdvance <<<"$out" >/dev/null || break
+done
+```
+
+### Error behavior
+
+Errors are reported **inside** the JSON object rather than as unstructured text:
+
+```json
+{ "state": "error", "autoAdvance": false, "prompt": "<message>" }
+```
+
+The process still exits with code 1. Exit codes are otherwise unchanged: 0 on
+success, 1 on error.
+
 ## Steering files
 
 `gtd` writes and commits temporary steering files that carry workflow state

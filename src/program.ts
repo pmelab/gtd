@@ -63,13 +63,18 @@ export function makeProgram(
 > {
   const argv = opts.argv ?? process.argv
   const write = opts.write ?? ((chunk: string) => process.stdout.write(chunk))
+  const json = argv.includes("--json")
+  const positional = argv.slice(2).find((a) => !a.startsWith("--"))
 
   // fallow-ignore-next-line complexity
   return Effect.gen(function* () {
-    const sub = argv[2]
+    const sub = positional
 
     if (sub === "format") {
-      const args = argv.slice(3).filter((a) => a.length > 0)
+      if (json) {
+        return yield* Effect.fail(new Error("gtd format does not accept --json"))
+      }
+      const args = argv.slice(3).filter((a) => a.length > 0 && !a.startsWith("--"))
       if (args.length === 0) {
         return yield* Effect.fail(new Error("gtd format: missing file path argument"))
       }
@@ -134,8 +139,29 @@ export function makeProgram(
 
       // Prompt-bearing / human / terminal state: emit the single prompt for the
       // result that decided this state (rendered from its pre-perform context).
-      write(buildPrompt(result, config.resolveModel))
+      const builtPrompt = buildPrompt(result, config.resolveModel, json ? "json" : "plain")
+      if (json) {
+        write(
+          JSON.stringify({
+            state: result.state,
+            autoAdvance: result.autoAdvance,
+            prompt: builtPrompt,
+          }) + "\n",
+        )
+      } else {
+        write(builtPrompt)
+      }
       return
     }
-  })
+  }).pipe(
+    json
+      ? Effect.catchAll((error) =>
+          Effect.sync(() =>
+            write(
+              JSON.stringify({ state: "error", autoAdvance: false, prompt: error.message }) + "\n",
+            ),
+          ).pipe(Effect.zipRight(Effect.fail(error))),
+        )
+      : (x) => x,
+  )
 }

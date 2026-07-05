@@ -9,6 +9,7 @@ import squashingMd from "./prompts/squashing.md"
 import escalateMd from "./prompts/escalate.md"
 import idleMd from "./prompts/idle.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
+import neutral from "./prompts/partials/neutral.md"
 import stopPartial from "./prompts/partials/stop.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdPackageFact, GtdState, ResolveContext, Result } from "./Machine.js"
@@ -229,18 +230,20 @@ const renderStateSection = (
 export const buildPrompt = (
   result: Result,
   resolveModel: (state: ModelState) => string = builtinResolveModel,
+  output: "plain" | "json" = "plain",
 ): string => {
   const { state, context } = result
   if (EDGE_ONLY_STATES.has(state)) {
     throw new Error(`State "${state}" is performed by the edge and must never reach buildPrompt`)
   }
   const promptState = state as PromptState
+  const tail = output === "json" ? neutral : result.autoAdvance ? autoAdvance : stopPartial
   const parts: Array<string> = [
     header,
     "",
     buildContextBlock(context),
     ...renderStateSection(promptState, context, resolveModel),
-    result.autoAdvance ? autoAdvance : stopPartial,
+    tail,
     "",
   ]
   return (

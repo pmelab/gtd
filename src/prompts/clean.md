@@ -49,8 +49,6 @@ review. It must:
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
 
-4. Normalize formatting (run `gtd format REVIEW.md` with the same gtd you
-   invoked), then leave `REVIEW.md` **uncommitted**.
+4. Leave `REVIEW.md` **uncommitted**.
 
-Tell the user `REVIEW.md` is ready and that they should run `gtd` to proceed to
-the review.
+Tell the user `REVIEW.md` is ready and the review continues on the next cycle.

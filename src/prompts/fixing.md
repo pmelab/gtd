@@ -3,7 +3,7 @@
 The feedback is reproduced inline below in the **Feedback to address** section.
 It holds either captured test-failure output (from a failed test run) or
 agentic-review findings — in both cases, the authoritative list of what to fix.
-Do **not** try to read `FEEDBACK.md` from disk: this gtd run has already
+Do **not** try to read `FEEDBACK.md` from disk: the harness has already
 committed its removal, so the inlined copy below is the only source.
 
 ### Orchestration
@@ -15,6 +15,6 @@ Spawn a **fix subagent** using model `{{MODEL}}` to apply the fixes:
    satisfy each finding against the package's task specs.
 2. **Make the fix in place** — change the code to resolve the feedback. Keep the
    change focused; do not refactor unrelated code.
-3. **Leave every change uncommitted** — do **not** commit or stage. This gtd run
-   already removed `FEEDBACK.md`; the next gtd run commits your fix and re-runs
+3. **Leave every change uncommitted** — do **not** commit or stage. The harness
+   already removed `FEEDBACK.md`; the next cycle commits your fix and re-runs
    the tests (and, for a review fix, re-reviews the package).

@@ -1,8 +1,8 @@
 ## Task: Build one work package
 
-gtd selected the package to build this run and inlined its task contents below.
-Build exactly this package — do not browse `.gtd/`, choose a different package,
-or loop over other packages. Leave the work uncommitted; the next gtd run
+The package below was selected for this cycle and its task contents are inlined
+below. Build exactly this package — do not browse `.gtd/`, choose a different
+package, or loop over other packages. Leave the work uncommitted; the next cycle
 commits and tests it.
 
 ### Orchestration
@@ -32,6 +32,6 @@ sole source of truth from here on.
 ### Leave the work uncommitted
 
 Do **not** commit, do **not** delete the package directory, and do **not** touch
-`.gtd/`. Leave every change uncommitted. The next gtd run commits the package as
+`.gtd/`. Leave every change uncommitted. The next cycle commits the package as
 `gtd: building`, then runs the test suite to verify it — do not run or determine
 a test command here.
