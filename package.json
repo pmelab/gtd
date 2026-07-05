@@ -1,8 +1,19 @@
 {
-  "name": "gtd",
+  "name": "@pmelab/gtd",
   "version": "1.4.3",
-  "private": true,
-  "description": "Agent skill that emits the next prompt for an autonomous coding agent based on the current git state",
+  "private": false,
+  "description": "Git-aware CLI that emits the next prompt for an autonomous coding agent based on the current repository state",
+  "bin": {
+    "gtd": "dist/gtd.bundle.mjs"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -16,12 +27,11 @@
     "prepare": "husky",
     "dev": "node dev/run.mjs",
     "build": "tsup",
-    "postbuild": "node -e \"require('fs').copyFileSync('dist/gtd.bundle.mjs','scripts/gtd.bundle.mjs')\"",
     "watch": "tsup --watch",
     "test": "npm run format:check && npm run typecheck && npm run lint && npm run test:unit && npm run test:e2e && fallow --summary --quiet",
     "test:unit": "vitest run --project unit",
     "test:watch": "vitest",
-    "pretest:e2e": "tsup --silent && node -e \"require('fs').copyFileSync('dist/gtd.bundle.mjs','scripts/gtd.bundle.mjs')\"",
+    "pretest:e2e": "tsup --silent",
     "test:e2e": "vitest run --project e2e",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
@@ -39,6 +49,7 @@
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/github": "^12.0.8",
+    "@semantic-release/npm": "^12.0.0",
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/typescript-checker": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",

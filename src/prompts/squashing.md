@@ -34,7 +34,7 @@ the repo root.
 Then run:
 
 ```sh
-node /Users/pmelab/.claude/skills/gtd/scripts/gtd.js format SQUASH_MSG.md
+gtd format SQUASH_MSG.md
 ```
 
 Then re-run gtd to let the edge perform the actual squash commit.
