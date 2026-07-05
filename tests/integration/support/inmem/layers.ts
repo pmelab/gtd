@@ -27,6 +27,7 @@ import {
   type ModelState,
 } from "../../../../src/Config.js"
 import { InMemRepo } from "./Repo.js"
+import { Cwd } from "../../../../src/Cwd.js"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -449,7 +450,7 @@ const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> 
 
 export function inMemoryLayers(
   repo: InMemRepo,
-): Layer.Layer<GitService | FileSystem.FileSystem | TestRunner | ConfigService> {
+): Layer.Layer<GitService | FileSystem.FileSystem | TestRunner | ConfigService | Cwd> {
   // Reader + Writer share the same repo instance
   const readerOps = makeGitReaderOps(repo)
   const writerOps = makeGitWriterOps(repo)
@@ -506,7 +507,7 @@ export function inMemoryLayers(
     }),
   ).pipe(Layer.provide(configLayer))
 
-  return Layer.mergeAll(gitServiceLayer, fsLayer, testRunnerLayer, configLayer)
+  return Layer.mergeAll(gitServiceLayer, fsLayer, testRunnerLayer, configLayer, Cwd.layer(""))
 }
 
 // Fine-grained layer for unit tests that need only the git service.

@@ -3,6 +3,7 @@ import { dirname } from "node:path"
 import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
+import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
 
 /**
@@ -169,11 +170,11 @@ const SEARCH_PLACES = [
  * Load and deep-merge every config level from cwd up the directory chain.
  * Innermost (cwd) wins. Returns the merged plain object (undecoded).
  */
-const loadMerged = (): Effect.Effect<Record<string, unknown>, Error> =>
+const loadMerged = (root: string): Effect.Effect<Record<string, unknown>, Error> =>
   Effect.tryPromise({
     try: async () => {
       const home = homedir()
-      const chain = walkUp(process.cwd(), home)
+      const chain = walkUp(root, home)
 
       // `searchStrategy: 'none'` makes `.search(dir)` inspect only that single
       // directory (no internal walking), so we collect every level deterministically.
@@ -242,7 +243,8 @@ export class ConfigService extends Context.Tag("ConfigService")<ConfigService, C
   static Live = Layer.effect(
     ConfigService,
     Effect.gen(function* () {
-      const merged = yield* loadMerged()
+      const { root } = yield* Cwd
+      const merged = yield* loadMerged(root)
       const decoded = yield* Schema.decodeUnknown(ConfigSchema)(merged, {
         onExcessProperty: "error",
       })

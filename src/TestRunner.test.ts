@@ -6,20 +6,22 @@ import { Effect } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { TestRunner } from "./TestRunner.js"
 import { ConfigService } from "./Config.js"
+import { Cwd } from "./Cwd.js"
+
+let projectDir: string
 
 const run = <A>(eff: Effect.Effect<A, Error, TestRunner>) =>
   Effect.runPromise(
     eff.pipe(
-      // `TestRunner.Live` now requires `ConfigService`; provide it here so the
-      // test exercises the real config-driven command resolution.
+      // `TestRunner.Live` now requires `ConfigService` and `Cwd`; provide both
+      // here so the test exercises the real config-driven command resolution in
+      // the temp project directory.
       Effect.provide(TestRunner.Live),
       Effect.provide(ConfigService.Live),
+      Effect.provide(Cwd.layer(projectDir)),
       Effect.provide(NodeContext.layer),
     ),
   )
-
-let projectDir: string
-let originalCwd: string
 
 /**
  * Writes a minimal package.json whose `test` script runs the given shell
@@ -42,13 +44,10 @@ function writeProject(testScript: string, extraScripts: Record<string, string> =
 }
 
 beforeEach(() => {
-  originalCwd = process.cwd()
   projectDir = mkdtempSync(join(tmpdir(), "gtd-testrunner-"))
-  process.chdir(projectDir)
 })
 
 afterEach(() => {
-  process.chdir(originalCwd)
   rmSync(projectDir, { recursive: true, force: true })
 })
 

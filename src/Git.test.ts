@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Option } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { GitService } from "./Git.js"
+import { Cwd } from "./Cwd.js"
 import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
 import { makeGitServiceLayer } from "../tests/integration/support/inmem/layers.js"
 
@@ -14,7 +15,6 @@ import { makeGitServiceLayer } from "../tests/integration/support/inmem/layers.j
 // ---------------------------------------------------------------------------
 
 let repoDir: string
-let originalCwd: string
 
 function gitExec(...args: string[]) {
   return execSync(`git ${args.join(" ")}`, { cwd: repoDir, encoding: "utf8", stdio: "pipe" }).trim()
@@ -28,26 +28,34 @@ function liveCommit(message: string, files: Record<string, string> = { "file.txt
   gitExec(`commit -m "${message}"`)
 }
 
-const runLive = <A>(eff: Effect.Effect<A, Error, GitService>): Promise<A> =>
-  Effect.runPromise(eff.pipe(Effect.provide(GitService.Live), Effect.provide(NodeContext.layer)))
-
-const runLiveEither = <A>(eff: Effect.Effect<A, Error, GitService>) =>
+const runLive = <A>(eff: Effect.Effect<A, Error, GitService>, dir = repoDir): Promise<A> =>
   Effect.runPromise(
-    eff.pipe(Effect.provide(GitService.Live), Effect.provide(NodeContext.layer), Effect.either),
+    eff.pipe(
+      Effect.provide(GitService.Live),
+      Effect.provide(Cwd.layer(dir)),
+      Effect.provide(NodeContext.layer),
+    ),
+  )
+
+const runLiveEither = <A>(eff: Effect.Effect<A, Error, GitService>, dir = repoDir) =>
+  Effect.runPromise(
+    eff.pipe(
+      Effect.provide(GitService.Live),
+      Effect.provide(Cwd.layer(dir)),
+      Effect.provide(NodeContext.layer),
+      Effect.either,
+    ),
   )
 
 beforeEach(() => {
-  originalCwd = process.cwd()
   repoDir = mkdtempSync(join(tmpdir(), "gtd-git-test-"))
   gitExec("init")
   gitExec(`config user.email "test@test.com"`)
   gitExec(`config user.name "Test"`)
   liveCommit("init: first commit", { "readme.txt": "hello" })
-  process.chdir(repoDir)
 })
 
 afterEach(() => {
-  process.chdir(originalCwd)
   rmSync(repoDir, { recursive: true, force: true })
 })
 
@@ -354,11 +362,12 @@ for (const [tierName, makeTier] of tiers) {
           const emptyDir = mkdtempSync(join(tmpdir(), "gtd-git-empty-history-"))
           try {
             execSync("git init", { cwd: emptyDir })
-            process.chdir(emptyDir)
-            const result = await runLive(Effect.flatMap(GitService, (g) => g.commitHistory()))
+            const result = await runLive(
+              Effect.flatMap(GitService, (g) => g.commitHistory()),
+              emptyDir,
+            )
             expect(result).toEqual([])
           } finally {
-            process.chdir(repoDir)
             rmSync(emptyDir, { recursive: true, force: true })
           }
         } else {
@@ -549,16 +558,11 @@ for (const [tierName, makeTier] of tiers) {
             writeFileSync(join(emptyDir, "init.txt"), "init")
             execSync("git add -A", { cwd: emptyDir })
             execSync(`git commit -m "init"`, { cwd: emptyDir })
-            const savedCwd = process.cwd()
-            process.chdir(emptyDir)
-            try {
-              const result = await runLiveEither(
-                Effect.flatMap(GitService, (g) => g.mixedResetHead()),
-              )
-              expect(result._tag).toBe("Left")
-            } finally {
-              process.chdir(savedCwd)
-            }
+            const result = await runLiveEither(
+              Effect.flatMap(GitService, (g) => g.mixedResetHead()),
+              emptyDir,
+            )
+            expect(result._tag).toBe("Left")
           } finally {
             rmSync(emptyDir, { recursive: true, force: true })
           }
@@ -585,14 +589,11 @@ for (const [tierName, makeTier] of tiers) {
           const emptyDir = mkdtempSync(join(tmpdir(), "gtd-git-empty-hascommits-"))
           try {
             execSync("git init", { cwd: emptyDir })
-            const savedCwd = process.cwd()
-            process.chdir(emptyDir)
-            try {
-              const result = await runLive(Effect.flatMap(GitService, (g) => g.hasCommits()))
-              expect(result).toBe(false)
-            } finally {
-              process.chdir(savedCwd)
-            }
+            const result = await runLive(
+              Effect.flatMap(GitService, (g) => g.hasCommits()),
+              emptyDir,
+            )
+            expect(result).toBe(false)
           } finally {
             rmSync(emptyDir, { recursive: true, force: true })
           }

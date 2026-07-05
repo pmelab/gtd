@@ -1,16 +1,6 @@
-import { readFileSync } from "node:fs"
-import { defineConfig, type Plugin } from "vitest/config"
+import { defineConfig } from "vitest/config"
 import { quickpickle } from "quickpickle"
-
-const rawMd = (): Plugin => ({
-  name: "raw-md",
-  transform(_code, id) {
-    if (id.endsWith(".md")) {
-      const content = readFileSync(id, "utf-8")
-      return { code: `export default ${JSON.stringify(content)};`, map: null }
-    }
-  },
-})
+import { rawMd } from "./tests/vitest.rawMd"
 
 export default defineConfig({
   test: {

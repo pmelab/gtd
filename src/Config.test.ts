@@ -2,26 +2,23 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Exit } from "effect"
+import { Effect, Exit, Layer } from "effect"
 import { ConfigService } from "./Config.js"
+import { Cwd } from "./Cwd.js"
 
-const run = <A>(eff: Effect.Effect<A, Error, ConfigService>) =>
-  Effect.runPromise(eff.pipe(Effect.provide(ConfigService.Live)))
+const run = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string = projectDir) =>
+  Effect.runPromise(eff.pipe(Effect.provide(Layer.provide(ConfigService.Live, Cwd.layer(dir)))))
 
-const runExit = <A>(eff: Effect.Effect<A, Error, ConfigService>) =>
-  Effect.runPromiseExit(eff.pipe(Effect.provide(ConfigService.Live)))
+const runExit = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string = projectDir) =>
+  Effect.runPromiseExit(eff.pipe(Effect.provide(Layer.provide(ConfigService.Live, Cwd.layer(dir)))))
 
 let projectDir: string
-let originalCwd: string
 
 beforeEach(() => {
-  originalCwd = process.cwd()
   projectDir = mkdtempSync(join(tmpdir(), "gtd-config-"))
-  process.chdir(projectDir)
 })
 
 afterEach(() => {
-  process.chdir(originalCwd)
   rmSync(projectDir, { recursive: true, force: true })
 })
 
@@ -58,9 +55,10 @@ describe("ConfigService", () => {
     // Innermost (child = cwd): overrides testCommand, leaves planning untouched.
     writeFileSync(join(child, ".gtdrc.yaml"), `testCommand: "child test"\n`)
 
-    process.chdir(child)
-
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    const cfg = await run(
+      Effect.flatMap(ConfigService, (c) => Effect.succeed(c)),
+      child,
+    )
 
     expect(cfg.testCommand).toBe("child test") // cwd wins
     expect(cfg.resolveModel("decompose")).toBe("ancestor-planner") // ancestor key survives

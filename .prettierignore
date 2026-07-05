@@ -1,2 +1,9 @@
 # Downloaded/built CLI bundle — never format the build artifact.
 scripts/gtd.bundle.mjs
+
+# stryker
+.stryker-tmp/
+stryker-incremental.json
+stryker-incremental.scenarios.json
+stryker-incremental.io-edge.json
+reports/
