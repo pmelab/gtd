@@ -23,6 +23,16 @@ jobs:
         with:
           node-version: "22"
       - run: npm install
+      - name: Authenticate with npm via OIDC
+        run: |
+          OIDC_TOKEN=$(curl -sH "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=npm:registry.npmjs.org" | jq -r .value)
+          PKG_NAME=$(node -p "require('./package.json').name")
+          ENCODED=$(node -e "process.stdout.write(encodeURIComponent('$PKG_NAME'))")
+          NPM_TOKEN=$(curl -sf -X POST \
+            "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/$ENCODED" \
+            -H "Authorization: Bearer $OIDC_TOKEN" | jq -r .token)
+          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
       - run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

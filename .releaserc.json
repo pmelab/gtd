@@ -10,7 +10,6 @@
         "publishCmd": "npm publish --access public --provenance"
       }
     ],
-    ["@semantic-release/npm", { "npmPublish": false }],
     [
       "@semantic-release/git",
       {
