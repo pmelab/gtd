@@ -275,6 +275,49 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout does not contain "## Task: Squash all `gtd: *` commits into one conventional-commits message"
 
   @squashing
+  Scenario: Stray gtd: new task below the branch point — squash never rewrites previous features
+    Given a test project
+    And a default branch "main"
+    And a commit "gtd: new task"
+    And a commit "feat: previous feature" that adds "previous.ts" with:
+      """
+      export const previous = 1
+      """
+    And a branch "feature"
+    And a commit "gtd: new task"
+    And a commit "gtd: grilling" that adds "TODO.md" with:
+      """
+      # Plan
+      - [ ] add calculator
+      """
+    And a commit "gtd: planning" that deletes "TODO.md"
+    And a commit "gtd: building" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: package done"
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+      - [ ] ./src/calc.ts#1
+      """
+    And a commit "gtd: done" that deletes "REVIEW.md"
+    And a file "SQUASH_MSG.md" with content:
+      """
+      feat(calc): add calculator
+      """
+    When I run gtd
+    Then it succeeds
+    And the HEAD commit subject is "feat(calc): add calculator"
+    And the git log contains "feat: previous feature"
+    # The stray marker sits on main, below the merge-base — the squash reset
+    # must not rewrite it (or anything else on the default branch).
+    And the git log contains "gtd: new task"
+    And the git log does not contain "gtd: grilling"
+    And "previous.ts" exists
+    And "src/calc.ts" exists
+
+  @squashing
   Scenario: Post-squash on feature branch — manual gtd run triggers review
     Given a test project
     And a default branch "main"

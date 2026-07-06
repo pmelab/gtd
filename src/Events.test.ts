@@ -855,6 +855,72 @@ describe(
       expect(p.squashMsgContent).toBe("")
     })
 
+    // Regression: stray `gtd: new task` markers from older, already-squashed
+    // cycles (their `gtd: done` boundary was deleted by the squash itself) must
+    // not drag the squash base past prior features.
+
+    it("stray gtd: new task below the branch point → squashBase stays within the branch", async () => {
+      initRepo(false)
+      // On main: a stray marker left behind by an old squash, then a squashed
+      // previous feature — mirrors the incident history.
+      git("commit", "--allow-empty", "-q", "-m", "gtd: new task")
+      commitFile("feat: previous feature", "previous.ts", "export const previous = 1\n")
+      git("checkout", "-q", "-b", "feature")
+      const branchPoint = git("rev-parse", "HEAD")
+      // Current cycle on the branch.
+      git("commit", "--allow-empty", "-q", "-m", "gtd: new task")
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+
+      const p = resolveOf(await runGather({ squash: true }))
+      // Base = parent of the branch's own gtd: new task = the branch point —
+      // never the stray marker's parent below it.
+      expect(p.squashBase).toBe(branchPoint)
+      expect(p.squashDiff).toContain("work.ts")
+      expect(p.squashDiff).not.toContain("previous.ts")
+    })
+
+    it("stray gtd: new task on trunk → squashBase = parent of the LAST gtd: new task", async () => {
+      initRepo(false)
+      git("commit", "--allow-empty", "-q", "-m", "gtd: new task")
+      commitFile("feat: previous feature", "previous.ts", "export const previous = 1\n")
+      const prevFeatureHash = git("rev-parse", "HEAD")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: new task")
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.squashBase).toBe(prevFeatureHash)
+      expect(p.squashDiff).toContain("work.ts")
+      expect(p.squashDiff).not.toContain("previous.ts")
+    })
+
+    it("stray gtd: grilling on trunk, cycle without gtd: new task → squashBase = start of the LAST contiguous grilling run", async () => {
+      initRepo(false)
+      // Stray grilling left by an ancient squash, then the squashed feature.
+      git("commit", "--allow-empty", "-q", "-m", "gtd: grilling")
+      commitFile("feat: previous feature", "previous.ts", "export const previous = 1\n")
+      const prevFeatureHash = git("rev-parse", "HEAD")
+      // Legacy cycle (no gtd: new task) with a two-commit grilling run.
+      commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+      commitFile("gtd: grilling", "TODO.md", "# Plan v2\n")
+      git("rm", "-q", "TODO.md")
+      git("commit", "-q", "-m", "gtd: planning")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+
+      const p = resolveOf(await runGather({ squash: true }))
+      expect(p.squashBase).toBe(prevFeatureHash)
+      expect(p.squashDiff).toContain("work.ts")
+      expect(p.squashDiff).not.toContain("previous.ts")
+    })
+
     it("SQUASH_MSG.md excluded from codeDirty (not treated as a code change)", async () => {
       initRepo(true)
       commitFile("gtd: grilling", "TODO.md", "# Plan\n")
