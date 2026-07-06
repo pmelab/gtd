@@ -1,4 +1,5 @@
 @squashing
+@inmem
 Feature: Squashing — collapse gtd: * commits into one conventional-commits message
 
   After `gtd: done` closes the process, a Squashing prompt is emitted so the
@@ -30,10 +31,9 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout contains "Write the commit message"
     And stdout contains "SQUASH_MSG.md"
     And stdout contains "src/calc.ts"
-    And stdout contains "Re-run gtd immediately after completing the steps above."
+    And stdout contains "Continue immediately after completing the steps above — re-run the harness."
     And stdout does not contain "STOP — do not re-run"
-    And stdout does not contain "git reset --soft"
-    And stdout does not contain "git commit"
+    And stdout contains "Do not run"
 
   Scenario: Interleaved non-gtd commit appears in the squash diff
     Given a test project
@@ -64,10 +64,45 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout contains "Write the commit message"
     And stdout contains "SQUASH_MSG.md"
     And stdout contains "coworker.ts"
-    And stdout contains "Re-run gtd immediately after completing the steps above."
+    And stdout contains "Continue immediately after completing the steps above — re-run the harness."
     And stdout does not contain "STOP — do not re-run"
-    And stdout does not contain "git reset --soft"
-    And stdout does not contain "git commit"
+    And stdout contains "Do not run"
+
+  @squashing
+  Scenario: gtd: new task is included in the squash when present
+    Given a test project
+    And a commit "gtd: new task" that adds "TODO.md" with:
+      """
+      # Plan
+      - [ ] add calculator
+      """
+    And a commit "gtd: grilling" that deletes "TODO.md"
+    And a commit "gtd: planning" that adds ".gtd/01-calc/task.md" with:
+      """
+      Implement add()
+      """
+    And a commit "gtd: building" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: package done" that deletes ".gtd/01-calc/task.md"
+    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+      """
+      # Review
+      - [ ] ./src/calc.ts#1
+      """
+    And a commit "gtd: done" that deletes "REVIEW.md"
+    And a file "SQUASH_MSG.md" with content:
+      """
+      feat(calc): add calculator
+      """
+    When I run gtd
+    Then it succeeds
+    And the HEAD commit subject is "feat(calc): add calculator"
+    And "SQUASH_MSG.md" does not exist
+    And "src/calc.ts" exists
+    And the git log does not contain "gtd: new task"
+    And the git log does not contain "gtd: grilling"
 
   @squashing
   Scenario: SQUASH_MSG.md present — gtd performs the squash commit on next run
@@ -242,6 +277,7 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
   @squashing
   Scenario: Post-squash on feature branch — manual gtd run triggers review
     Given a test project
+    And a default branch "main"
     And a branch "feature"
     And a commit "gtd: grilling" that adds "TODO.md" with:
       """

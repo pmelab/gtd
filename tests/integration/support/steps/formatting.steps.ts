@@ -1,40 +1,40 @@
-import { Given, When, Then } from "@cucumber/cucumber"
+import { Given, When, Then } from "quickpickle"
 import { execFileSync } from "node:child_process"
 import { readFileSync, writeFileSync, symlinkSync, existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 
-When("I run gtd with args {string}", function (this: GtdWorld, args: string) {
-  this.runGtd(...args.split(" "))
+When("I run gtd with args {string}", async (world: GtdWorld, args: string) => {
+  await world.runGtd(...args.split(" "))
 })
 
-Then("the exit code is {int}", function (this: GtdWorld, code: number) {
+Then("the exit code is {int}", (world: GtdWorld, code: number) => {
   assert.strictEqual(
-    this.lastResult.exitCode,
+    world.lastResult.exitCode,
     code,
-    `Expected exit code ${code}, got ${this.lastResult.exitCode}\nstderr: ${this.lastResult.stderr}`,
+    `Expected exit code ${code}, got ${world.lastResult.exitCode}\nstderr: ${world.lastResult.stderr}`,
   )
 })
 
-Then("stdout is empty", function (this: GtdWorld) {
+Then("stdout is empty", (world: GtdWorld) => {
   assert.strictEqual(
-    this.lastResult.stdout.trim(),
+    world.lastResult.stdout.trim(),
     "",
-    `Expected empty stdout, got:\n${this.lastResult.stdout}`,
+    `Expected empty stdout, got:\n${world.lastResult.stdout}`,
   )
 })
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
 
-Given("prettier is available in the test project", function (this: GtdWorld) {
+Given("prettier is available in the test project", (world: GtdWorld) => {
   const nodeModulesSrc = join(PROJECT_ROOT, "node_modules")
-  const nodeModulesDest = join(this.repoDir, "node_modules")
+  const nodeModulesDest = join(world.repoDir, "node_modules")
   if (!existsSync(nodeModulesDest)) {
     symlinkSync(nodeModulesSrc, nodeModulesDest)
   }
   writeFileSync(
-    join(this.repoDir, ".prettierrc"),
+    join(world.repoDir, ".prettierrc"),
     JSON.stringify({
       printWidth: 100,
       overrides: [
@@ -47,14 +47,14 @@ Given("prettier is available in the test project", function (this: GtdWorld) {
   )
 })
 
-Given("{string} is staged", function (this: GtdWorld, path: string) {
-  execFileSync("git", ["add", path], { cwd: this.repoDir, stdio: "pipe" })
+Given("{string} is staged", (world: GtdWorld, path: string) => {
+  execFileSync("git", ["add", path], { cwd: world.repoDir, stdio: "pipe" })
 })
 
-When("I commit with message {string}", function (this: GtdWorld, message: string) {
+When("I commit with message {string}", (world: GtdWorld, message: string) => {
   try {
     execFileSync("git", ["commit", "-m", message], {
-      cwd: this.repoDir,
+      cwd: world.repoDir,
       stdio: "pipe",
     })
   } catch (err: unknown) {
@@ -67,8 +67,8 @@ When("I commit with message {string}", function (this: GtdWorld, message: string
 
 Then(
   "{string} has no lines longer than {int} characters",
-  function (this: GtdWorld, path: string, limit: number) {
-    const content = readFileSync(join(this.repoDir, path), "utf-8")
+  (world: GtdWorld, path: string, limit: number) => {
+    const content = readFileSync(join(world.repoDir, path), "utf-8")
     const longLines = content.split("\n").filter((line) => line.length > limit)
     assert.strictEqual(
       longLines.length,
@@ -78,14 +78,11 @@ Then(
   },
 )
 
-Then(
-  "{string} still has a line longer than 80 characters",
-  function (this: GtdWorld, path: string) {
-    const content = readFileSync(join(this.repoDir, path), "utf-8")
-    const longLines = content.split("\n").filter((line) => line.length > 80)
-    assert.ok(
-      longLines.length > 0,
-      `Expected at least one line longer than 80 chars in ${path}, but all lines are within limit`,
-    )
-  },
-)
+Then("{string} still has a line longer than 80 characters", (world: GtdWorld, path: string) => {
+  const content = readFileSync(join(world.repoDir, path), "utf-8")
+  const longLines = content.split("\n").filter((line) => line.length > 80)
+  assert.ok(
+    longLines.length > 0,
+    `Expected at least one line longer than 80 chars in ${path}, but all lines are within limit`,
+  )
+})

@@ -1,8 +1,21 @@
 {
-  "name": "gtd",
-  "version": "1.4.2",
-  "private": true,
-  "description": "Agent skill that emits the next prompt for an autonomous coding agent based on the current git state",
+  "name": "@pmelab/gtd",
+  "version": "1.5.3",
+  "private": false,
+  "description": "Git-aware CLI that emits the next prompt for an autonomous coding agent based on the current repository state",
+  "bin": {
+    "gtd": "dist/gtd.bundle.mjs"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "schema.json"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -16,38 +29,44 @@
     "prepare": "husky",
     "dev": "node dev/run.mjs",
     "build": "tsup",
-    "postbuild": "node -e \"require('fs').copyFileSync('dist/gtd.bundle.mjs','scripts/gtd.bundle.mjs')\"",
+    "postbuild": "jiti scripts/generate-schema.ts",
     "watch": "tsup --watch",
-    "test": "vitest run",
+    "test": "npm run format:check && npm run typecheck && npm run lint && npm run test:unit && npm run test:e2e && fallow --summary --quiet",
+    "test:unit": "vitest run --project unit",
     "test:watch": "vitest",
-    "pretest:e2e": "npm run build",
-    "test:e2e": "npx cucumber-js --config tests/integration/cucumber.mjs",
+    "pretest:e2e": "tsup --silent",
+    "test:e2e": "vitest run --project e2e",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check . --log-level warn",
+    "test:mutation": "stryker run"
   },
   "lint-staged": {
     "*": "prettier --ignore-unknown --write"
   },
   "devDependencies": {
-    "@cucumber/cucumber": "^12.6.0",
     "@effect/eslint-plugin": "^0.3.2",
     "@effect/language-service": "^0.72.0",
-    "@effect/vitest": "^0.27.0",
     "@eslint/js": "^9.39.2",
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/github": "^12.0.8",
+    "@semantic-release/npm": "^12.0.0",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/typescript-checker": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
+    "@types/diff": "^7.0.2",
     "@types/node": "^25.9.3",
     "eslint": "^9.39.2",
+    "fallow": "^2.104.0",
     "fast-check": "^4.8.0",
     "husky": "^9.1.7",
-    "jiti": "^2.6.1",
+    "jiti": "^2.7.0",
     "lint-staged": "^17.0.8",
+    "quickpickle": "1.11.2",
     "semantic-release": "^25.0.5",
     "tsup": "^8.4.0",
-    "tsx": "^4.19.0",
     "typescript-eslint": "^8.54.0",
     "vitest": "^3.2.0",
     "yaml": "^2.8.2"
@@ -59,6 +78,7 @@
     "@effect/platform": "^0.94.2",
     "@effect/platform-node": "^0.104.1",
     "cosmiconfig": "^9.0.2",
+    "diff": "^9.0.0",
     "effect": "^3.19.15",
     "prettier": "^3.8.1"
   }

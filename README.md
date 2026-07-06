@@ -4,9 +4,9 @@
 > might be terrible, I don't even know 🤷‍♂️ But otherwise I wouldn't have built it
 > in the first place. Now I have something that actually helps me.
 
-A git-aware agent skill that emits the next prompt for an autonomous coding
-agent based on the current repository state — capture an idea, grill it into a
-plan, decompose it into work packages, execute with parallel subagents, test,
+A git-aware CLI that emits the next prompt for an autonomous coding agent based
+on the current repository state — capture an idea, grill it into a plan,
+decompose it into work packages, execute with parallel subagents, test,
 agentically review each package, and finally walk a human through a review.
 
 Internally, gtd is a **pure fold** over git history. The decision core
@@ -29,30 +29,94 @@ output **uncommitted**, and the edge commits it with the right flat
 `gtd: <phase>` subject on the next hop. The machine stays pure — it only decides
 _which_ action; the semantics live in the edge.
 
-`gtd` ships as an [Agent Skills Spec](https://agentskills.io/specification)
-compliant skill installable via [skills.sh](https://www.skills.sh/). The agent
-runs the bundled script, reads the emitted prompt, and follows it verbatim.
+`gtd` is an npm CLI — install it, run `gtd` in a repo, and it prints the next
+prompt to stdout; a human or any agent reads and follows it.
 
 ## Installation
 
 ```bash
-npx skills add pmelab/gtd -g -y
+npm install -g @pmelab/gtd
 ```
 
-That's it. No npm install, no config file, no setup subcommand. The skill
-bundles its own prebuilt script.
+Or run without installing:
+
+```bash
+npx @pmelab/gtd
+```
+
+No config file, no setup subcommand.
 
 ## Usage
 
-Inside the agent (Claude Code, Codex, etc.), either:
+Run `gtd` from your repository's working directory — it prints the next prompt
+to stdout. It takes **no ref argument** — the review base is always
+auto-computed.
 
-- Type `/gtd` to invoke the skill directly, **or**
-- Say something like "take the next step", "what's next", or "gtd" — the skill's
-  description matcher picks it up.
+## JSON output mode
 
-The agent runs `node scripts/gtd.js` in your current working directory and acts
-on the emitted prompt. The script takes **no ref argument** — the review base is
-always auto-computed.
+Pass `--json` to the default `gtd` invocation to receive machine-readable output
+instead of a plain prompt:
+
+```bash
+gtd --json
+```
+
+`--json` applies only to the default command. Passing it to `gtd format` is
+rejected with exit code 1 and an error on stderr. It is orthogonal to all other
+flags (`--verbose`, `--debug`, etc.) — each controls exactly one concern.
+
+### Output shape
+
+In `--json` mode gtd emits a **single-line JSON object** to stdout:
+
+```json
+{ "state": "building", "autoAdvance": true, "prompt": "..." }
+```
+
+- **`state`** — the resolved prompt-bearing `GtdState` (e.g. `"grilling"`,
+  `"building"`, `"fixing"`, `"clean"`).
+- **`autoAdvance`** — the same boolean that selects the loop-tail in plain mode.
+  `true` means the workflow advances automatically after the agent acts; `false`
+  means a STOP state was reached and human input is expected.
+- **`prompt`** — the full markdown prompt, but with **both loop-control tails
+  omitted**. In their place, the prompt ends with:
+  `Complete the steps above, then end your turn — the harness decides what happens next.`
+  The caller is responsible for reading `autoAdvance` and deciding whether to
+  run another cycle.
+
+### Loop-ownership division of labor
+
+In **plain mode** the in-prompt tails own the loop — the prompt instructs the
+agent to re-run `gtd` when `autoAdvance` is true.
+
+In **`--json` mode** the **caller owns the loop** — the tails are stripped and
+the caller reads `autoAdvance` from the JSON object to decide whether to
+iterate.
+
+Example driver script:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+while true; do
+  out="$(gtd --json)"
+  prompt="$(jq -r .prompt <<<"$out")"
+  claude -p "$prompt" --dangerously-skip-permissions
+  jq -e .autoAdvance <<<"$out" >/dev/null || break
+done
+```
+
+### Error behavior
+
+Errors are reported **inside** the JSON object rather than as unstructured text:
+
+```json
+{ "state": "error", "autoAdvance": false, "prompt": "<message>" }
+```
+
+The process still exits with code 1. Exit codes are otherwise unchanged: 0 on
+success, 1 on error.
 
 ## Steering files
 
@@ -347,21 +411,21 @@ loop before the next one starts.
 ## A typical feature
 
 1. **Capture.** Leave a sketch in `TODO.md` (or just some pending code changes),
-   then `/gtd`. **New Feature** commits the raw input `gtd: new task`, reverts
-   it back to a clean baseline, and seeds an uncommitted `TODO.md` from the
-   diff.
-2. **Grill.** `/gtd` — the **Grilling** agent (planning model) develops the
+   then run `gtd`. **New Feature** commits the raw input `gtd: new task`,
+   reverts it back to a clean baseline, and seeds an uncommitted `TODO.md` from
+   the diff.
+2. **Grill.** Run `gtd` — the **Grilling** agent (planning model) develops the
    plan, appends open questions each marked with a `<!-- user answers here -->`
    line, and leaves `TODO.md` uncommitted; the edge commits `gtd: grilling`.
    While any marker is present, gtd **STOPs** for you.
 3. **Answer.** Open `TODO.md`, replace each `<!-- user answers here -->` with
-   your answer, and `/gtd` again. The agent integrates answers, moves them to
+   your answer, and run `gtd` again. The agent integrates answers, moves them to
    `## Resolved`, and raises fresh questions — repeat until none remain (it
    writes `no open questions — run gtd to plan` with no markers).
 4. **Converge.** A clean tree with no markers resolves to **Grilled**
    (`gtd: grilled`), then **Planning** decomposes `TODO.md` into ordered `.gtd/`
    work packages (`gtd: planning`).
-5. **Build.** `/gtd` — **Building** first deletes `TODO.md` (when HEAD is
+5. **Build.** Run `gtd` — **Building** first deletes `TODO.md` (when HEAD is
    `gtd: planning` and it is still present, committed under the same
    `gtd: planning` prefix — fires once). It then names the single next package
    and inlines its task files; the agent spawns one parallel subagent per task
@@ -374,23 +438,23 @@ loop before the next one starts.
 7. **Human review.** When `.gtd/` is gone, **Clean** writes a `REVIEW.md` for
    the diff since the review base (uncommitted); **Await Review** (edge-only)
    commits it `gtd: awaiting review` and auto-advances to Done in the same run.
-8. **Approve or revise.** Re-run `/gtd` with **no** changes to approve →
-   **Done** (`gtd: done`) → **Squashing** → **Idle**. The Squashing agent
-   authors a conventional-commits message from the full process diff and
-   squashes all intermediate `gtd: *` commits into one with
-   `git reset --soft <base>` + `git commit`, then **gtd STOPs**. Post-squash
-   review does not fire automatically — it fires only on the next manual `gtd`
-   run (when the squash commit is the boundary HEAD and a reviewable diff
-   exists). Squashing fires when the tree has no unrelated code dirty — a lone
-   untracked `SQUASH_MSG.md` is tolerated and deleted before the squash commit.
-   If unrelated code is dirty at `gtd: done`, gtd routes to **New Feature**
-   instead. Set `squash: false` in `.gtdrc` to skip squashing and go straight to
-   Idle. Checking off REVIEW.md checkboxes (`- [ ]` → `- [x]`) also counts as
-   approval and routes to **Done** — they are navigation aids, not feedback.
-   Only **non-checkbox** edits (code changes, inline comments, textual
-   annotations in REVIEW.md) trigger **Accept Review**, which seeds a fresh
-   `TODO.md` from your feedback, discards your code edits, removes `REVIEW.md`,
-   and re-enters Grilling — the loop starts over.
+8. **Approve or revise.** Re-run `gtd` with **no** changes to approve → **Done**
+   (`gtd: done`) → **Squashing** → **Idle**. The Squashing agent authors a
+   conventional-commits message from the full process diff and squashes all
+   intermediate `gtd: *` commits into one with `git reset --soft <base>` +
+   `git commit`, then **gtd STOPs**. Post-squash review does not fire
+   automatically — it fires only on the next manual `gtd` run (when the squash
+   commit is the boundary HEAD and a reviewable diff exists). Squashing fires
+   when the tree has no unrelated code dirty — a lone untracked `SQUASH_MSG.md`
+   is tolerated and deleted before the squash commit. If unrelated code is dirty
+   at `gtd: done`, gtd routes to **New Feature** instead. Set `squash: false` in
+   `.gtdrc` to skip squashing and go straight to Idle. Checking off REVIEW.md
+   checkboxes (`- [ ]` → `- [x]`) also counts as approval and routes to **Done**
+   — they are navigation aids, not feedback. Only **non-checkbox** edits (code
+   changes, inline comments, textual annotations in REVIEW.md) trigger **Accept
+   Review**, which seeds a fresh `TODO.md` from your feedback, discards your
+   code edits, removes `REVIEW.md`, and re-enters Grilling — the loop starts
+   over.
 
 ## Configuration
 
@@ -432,6 +496,11 @@ built-in defaults apply. Supported filenames (searched in this order):
   - `states.*` — per-state overrides keyed by the six agent states: `decompose`
     (shared by the Grilled and Planning states), `grilling`, `building`,
     `fixing`, `agentic-review`, `clean`. Unknown `states` keys are **rejected**.
+- **`$schema`** (string, optional) — a recognized key that is **stripped before
+  validation**, so it never counts as an unknown key. Point it at the published
+  schema to get schema-backed autocompletion and inline docs in your editor. A
+  `schema.json` is generated from the config schema at build time and ships with
+  the package (and is published/committed on release).
 
 ### Validation and errors
 
@@ -461,6 +530,28 @@ finds along the way. All found levels are **deep-merged**, with the **innermost
 This makes the worktree-parent case easy: drop a single `.gtdrc` in a shared
 parent directory and it cascades to **all** checkouts/worktrees beneath it,
 while any individual checkout can still override settings with its own `.gtdrc`.
+
+### Auto-init
+
+On every run, if the cwd→root walk finds **no** config anywhere, gtd creates and
+commits a starter config at the **git root**: a `.gtdrc.json` containing only a
+`$schema` link:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json"
+}
+```
+
+It is committed as `chore: add .gtdrc.json`. This wires up editor autocompletion
+out of the box; add any settings below the `$schema` line to override the
+defaults.
+
+Auto-init is skipped when HEAD is a `gtd: transport` commit: transport is a
+consume-only handoff HEAD (mixed-reset in the Transport pre-pass), so committing
+a config stub on top of it would displace the transport commit — and, when it is
+the repository root, silently mask the "cannot reset transport commit" error.
+The stub is created on a later run, once the transport HEAD has been consumed.
 
 ### Example
 
@@ -587,7 +678,7 @@ gtd ships a `format` subcommand — the **only** subcommand — that formats a
 markdown file in place:
 
 ```bash
-node scripts/gtd.js format <file>
+gtd format <file>
 ```
 
 It uses a bundled prettier with a fixed, gtd-owned config (`parser: "markdown"`,
@@ -621,9 +712,10 @@ All errors exit with **code 1** and write a message to **stderr**:
 ```bash
 npm install
 npm run dev          # run from source, no build (node dev/run.mjs)
-npm run build        # tsup → dist/gtd.bundle.mjs (+ copies to scripts/)
-npm test             # vitest unit tests (the pure resolver)
-npm run test:e2e     # cucumber integration tests
+npm run build        # tsup → dist/gtd.bundle.mjs
+npm test             # vitest unit tests (the pure resolver) — --project unit
+npm run test:e2e     # gherkin e2e via vitest + quickpickle — --project e2e
+npm run test:mutation # StrykerJS mutation testing
 npm run typecheck
 npm run lint
 ```
@@ -656,11 +748,70 @@ The decision core (`src/Machine.ts`) is pure and IO-free, so the whole 17-state
 ladder and both counter folds are trivially unit-testable in isolation; all
 git/filesystem IO is confined to the edge (`src/Events.ts`).
 
-`scripts/gtd.js` is a tiny launcher shim; the real bundle
-(`dist/gtd.bundle.mjs`) is downloaded automatically on first invocation from the
-GitHub release whose tag matches the `version` field in `package.json`. The
-placeholder version `0.0.0-development` falls back to the `latest` release. The
-bundle can also be built locally with `npm run build`.
+`npm run build` produces `dist/gtd.bundle.mjs`, which npm exposes as the `gtd`
+binary via the `bin` field in `package.json`.
+
+### Mutation testing
+
+Run mutation testing on-demand with `npm run test:mutation` (StrykerJS, ~2 min).
+The single `stryker.config.json` mutates six core files:
+
+```
+src/Machine.ts  src/Prompt.ts  src/Config.ts
+src/Format.ts   src/State.ts   src/Events.ts
+```
+
+`src/Git.ts` is excluded: the Cucumber harness stubs git at the Effect boundary,
+so Git.ts mutants have zero in-memory coverage. Measuring its post-refactor
+Live-tier kill rate is a follow-up before re-including it.
+
+**`process.chdir()` gotcha (resolved).** `@stryker-mutator/vitest-runner`
+hardcodes `pool: 'threads'` internally, and `process.chdir()` is unsupported in
+worker threads. Before the cwd refactor (package 01), four test files
+(`Events.test.ts`, `Git.test.ts`, `Config.test.ts`, `TestRunner.test.ts`) had to
+be excluded from all Stryker runs. The refactor eliminated those calls, letting
+all four files rejoin the run.
+
+Two additional notes: `vitest.related` is disabled for feature-file runs because
+feature files don't import source files directly (Stryker's coverage-based
+filtering would assign zero tests to every mutant). Compile-error mutants are
+counted as kills by the TypeScript checker — they represent real signal, not a
+configuration problem.
+
+Run `npm run test:mutation` after making changes to the mutated files to check
+whether surviving mutants increased. The HTML report lands in
+`reports/mutation/mutation.html` (git-ignored).
+
+### Mutation testing
+
+Run mutation testing on-demand with `npm run test:mutation` (StrykerJS, ~2 min).
+The single `stryker.config.json` mutates six core files:
+
+```
+src/Machine.ts  src/Prompt.ts  src/Config.ts
+src/Format.ts   src/State.ts   src/Events.ts
+```
+
+`src/Git.ts` is excluded: the Cucumber harness stubs git at the Effect boundary,
+so Git.ts mutants have zero in-memory coverage. Measuring its post-refactor
+Live-tier kill rate is a follow-up before re-including it.
+
+**`process.chdir()` gotcha (resolved).** `@stryker-mutator/vitest-runner`
+hardcodes `pool: 'threads'` internally, and `process.chdir()` is unsupported in
+worker threads. Before the cwd refactor (package 01), four test files
+(`Events.test.ts`, `Git.test.ts`, `Config.test.ts`, `TestRunner.test.ts`) had to
+be excluded from all Stryker runs. The refactor eliminated those calls, letting
+all four files rejoin the run.
+
+Two additional notes: `vitest.related` is disabled for feature-file runs because
+feature files don't import source files directly (Stryker's coverage-based
+filtering would assign zero tests to every mutant). Compile-error mutants are
+counted as kills by the TypeScript checker — they represent real signal, not a
+configuration problem.
+
+Run `npm run test:mutation` after making changes to the mutated files to check
+whether surviving mutants increased. The HTML report lands in
+`reports/mutation/mutation.html` (git-ignored).
 
 ## Releasing
 

@@ -1,8 +1,11 @@
 import { FileSystem } from "@effect/platform"
 import { Effect, Option } from "effect"
+import { join } from "node:path"
 import { GitService, type GitOperations } from "./Git.js"
 import { ConfigService } from "./Config.js"
+import { Cwd } from "./Cwd.js"
 import { fenceFor } from "./Prompt.js"
+import { formatFile } from "./Format.js"
 import { TestRunner } from "./TestRunner.js"
 import type {
   CommitEvent,
@@ -91,6 +94,7 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
  *   that multi-byte sequences (e.g. a 3-byte UTF-8 emoji) are reconstructed
  *   correctly rather than decoded per-byte.
  */
+// fallow-ignore-next-line complexity
 const unquoteGitPath = (raw: string): string => {
   if (!raw.startsWith('"')) return raw
   // Strip surrounding quotes
@@ -186,25 +190,27 @@ const stripCode = (content: string): string =>
  */
 export const getPackages = (
   fs: FileSystem.FileSystem,
+  root: string,
 ): Effect.Effect<ReadonlyArray<GtdPackageFact>, Error> =>
   Effect.gen(function* () {
-    const gtdExists = yield* fs.exists(GTD_DIR)
+    const resolve = (p: string) => join(root, p)
+    const gtdExists = yield* fs.exists(resolve(GTD_DIR))
     if (!gtdExists) return []
 
-    const entries = yield* fs.readDirectory(GTD_DIR)
+    const entries = yield* fs.readDirectory(resolve(GTD_DIR))
     const packageDirs = entries.filter(isNumberedDir).sort()
 
     const packages: Array<GtdPackageFact> = []
     for (const dir of packageDirs) {
       const packagePath = `${GTD_DIR}/${dir}`
-      const stat = yield* fs.stat(packagePath)
+      const stat = yield* fs.stat(resolve(packagePath))
       if (stat.type !== "Directory") continue
 
-      const files = yield* fs.readDirectory(packagePath)
+      const files = yield* fs.readDirectory(resolve(packagePath))
       const tasks = files.filter(isTaskFile).sort()
       const taskContents: Array<{ name: string; content: string }> = []
       for (const taskFile of tasks) {
-        const content = yield* fs.readFileString(`${packagePath}/${taskFile}`)
+        const content = yield* fs.readFileString(resolve(`${packagePath}/${taskFile}`))
         taskContents.push({ name: taskFile, content })
       }
       packages.push({ name: dir, tasks, taskContents })
@@ -298,6 +304,7 @@ export const appendCapturedInput = (todo: string, capturedDiff: string): string 
  * conversion noise (a CRLF editor rewrites EVERY line while the user merely
  * ticks boxes) — approval must survive that churn.
  */
+// fallow-ignore-next-line complexity
 export const isCheckboxOnlyDiff = (diff: string): boolean => {
   if (diff.trim() === "") return false
 
@@ -358,12 +365,15 @@ export const isCheckboxOnlyDiff = (diff: string): boolean => {
 export const gatherEvents = (): Effect.Effect<
   ReadonlyArray<GtdEvent>,
   Error,
-  GitService | FileSystem.FileSystem | ConfigService
+  GitService | FileSystem.FileSystem | ConfigService | Cwd
 > =>
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
     const config = yield* ConfigService
+    const { root } = yield* Cwd
+    const resolve = (p: string) => join(root, p)
 
     // --- COMMIT events -------------------------------------------------------
     // Stream base = merge-base(defaultBranch, HEAD) when both resolve, else
@@ -410,15 +420,15 @@ export const gatherEvents = (): Effect.Effect<
     const codeDirty = entries.some((e) => !isSteeringFile(e.path) && !isGtdPath(e.path))
 
     // Steering-file presence (committed and/or pending).
-    const todoExists = yield* fs.exists(TODO_FILE)
-    const gtdDirExists = yield* fs.exists(GTD_DIR)
-    const reviewPresent = yield* fs.exists(REVIEW_FILE)
-    const feedbackPresent = yield* fs.exists(FEEDBACK_FILE)
-    const errorsPresent = yield* fs.exists(ERRORS_FILE)
+    const todoExists = yield* fs.exists(resolve(TODO_FILE))
+    const gtdDirExists = yield* fs.exists(resolve(GTD_DIR))
+    const reviewPresent = yield* fs.exists(resolve(REVIEW_FILE))
+    const feedbackPresent = yield* fs.exists(resolve(FEEDBACK_FILE))
+    const errorsPresent = yield* fs.exists(resolve(ERRORS_FILE))
 
     // The `<!-- user answers here -->` sentinel appears anywhere in TODO.md
     // (after stripping fenced/inline code).
-    const todoContent = todoExists ? yield* fs.readFileString(TODO_FILE) : ""
+    const todoContent = todoExists ? yield* fs.readFileString(resolve(TODO_FILE)) : ""
     const todoMarkerPresent = todoExists && stripCode(todoContent).includes(UNANSWERED_MARKER)
 
     // The file at `path` is uncommitted (untracked or freshly added); otherwise
@@ -431,7 +441,7 @@ export const gatherEvents = (): Effect.Effect<
     // FEEDBACK.md: committed (Testing wrote it as `gtd: errors`) vs uncommitted
     // (Agentic Review wrote it), and whitespace-only = empty = approval.
     const feedbackCommitted = feedbackPresent && !isUncommitted(FEEDBACK_FILE)
-    const feedbackContent = feedbackPresent ? yield* fs.readFileString(FEEDBACK_FILE) : ""
+    const feedbackContent = feedbackPresent ? yield* fs.readFileString(resolve(FEEDBACK_FILE)) : ""
     const feedbackEmpty = feedbackPresent && !/\S/.test(feedbackContent)
 
     // REVIEW.md: committed + clean tree = approval (Done); committed + pending
@@ -451,7 +461,7 @@ export const gatherEvents = (): Effect.Effect<
       (e) => e.path === ERRORS_FILE && e.status.includes("D"),
     )
 
-    const packages = yield* getPackages(fs)
+    const packages = yield* getPackages(fs, root)
     // `git diff HEAD` needs a HEAD; before the first commit the prompt-context
     // diff stays empty (the seed action captures the content itself).
     const diff = hasCommits && entries.length > 0 ? yield* git.diffHead() : ""
@@ -589,19 +599,25 @@ export const gatherEvents = (): Effect.Effect<
           if (subject === DONE_SUBJECT) prevDoneIdx = i
         }
         const squashCycle = allHistoryForSquash.slice(prevDoneIdx + 1, lastDoneIdxForSquash + 1)
+        // Prefer gtd: new task as the cycle start (it precedes grilling and must
+        // be included in the squash); fall back to the first gtd: grilling.
+        const squashNewTask = squashCycle.find(
+          (c) => (c.message.split("\n")[0] ?? "").trim() === NEW_TASK_SUBJECT,
+        )
         const squashGrilling = squashCycle.find(
           (c) => (c.message.split("\n")[0] ?? "").trim() === GRILLING_SUBJECT,
         )
+        const squashStart = squashNewTask ?? squashGrilling
 
-        if (squashGrilling !== undefined) {
-          const squashGrillingParent = yield* git
-            .resolveRef(`${squashGrilling.hash}~1`)
+        if (squashStart !== undefined) {
+          const squashStartParent = yield* git
+            .resolveRef(`${squashStart.hash}~1`)
             .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
           const candidateDiff = yield* git
-            .diffRef(squashGrillingParent)
+            .diffRef(squashStartParent)
             .pipe(Effect.catchAll(() => Effect.succeed("")))
           if (candidateDiff.trim().length > 0) {
-            squashBase = squashGrillingParent
+            squashBase = squashStartParent
             squashDiff = candidateDiff
           }
         }
@@ -609,8 +625,10 @@ export const gatherEvents = (): Effect.Effect<
     }
 
     // --- SQUASH_MSG.md presence (squash commit message written by agent) --------
-    const squashMsgPresent = yield* fs.exists(SQUASH_MSG_FILE)
-    const squashMsgContent = squashMsgPresent ? yield* fs.readFileString(SQUASH_MSG_FILE) : ""
+    const squashMsgPresent = yield* fs.exists(resolve(SQUASH_MSG_FILE))
+    const squashMsgContent = squashMsgPresent
+      ? yield* fs.readFileString(resolve(SQUASH_MSG_FILE))
+      : ""
 
     const payload: ResolvePayload = {
       todoExists,
@@ -684,12 +702,16 @@ const captureAndRevert = (
  * this, then re-gathers + re-resolves. Each case maps to the primitives in
  * Git.ts / the FileSystem; the machine only decides *which* action.
  */
+// fallow-ignore-next-line complexity
 export const perform = (
   action: EdgeAction,
-): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | TestRunner> =>
+): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | TestRunner | Cwd> =>
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
+    const { root } = yield* Cwd
+    const resolve = (p: string) => join(root, p)
 
     switch (action.kind) {
       // Transport: mixed-reset the hand-made `gtd: transport` HEAD, keeping the
@@ -704,7 +726,7 @@ export const perform = (
       // clean baseline (inverse staged), and seed TODO.md from that diff.
       case "seedNewFeature": {
         const captured = yield* captureAndRevert(git, NEW_TASK_SUBJECT, Effect.void)
-        yield* fs.writeFileString(TODO_FILE, seedTodo(captured))
+        yield* fs.writeFileString(resolve(TODO_FILE), seedTodo(captured))
         return
       }
 
@@ -716,8 +738,8 @@ export const perform = (
       // any partial revert/seed state with a hard reset first.
       case "seedAcceptReview": {
         const captured = yield* captureAndRevert(git, REVIEW_FEEDBACK_SUBJECT, git.resetHard())
-        yield* fs.remove(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.void))
-        yield* fs.writeFileString(TODO_FILE, seedTodo(captured))
+        yield* fs.remove(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        yield* fs.writeFileString(resolve(TODO_FILE), seedTodo(captured))
         return
       }
 
@@ -739,13 +761,15 @@ export const perform = (
         )
         // Snapshot TODO.md (with the user's pending plan edits) and the code
         // diff BEFORE the reset discards them.
-        const todoNow = yield* fs.readFileString(TODO_FILE)
+        const todoNow = yield* fs.readFileString(resolve(TODO_FILE))
         const captured = yield* git.diffHead(WORKFLOW_FILE_EXCLUDES)
         yield* git.resetHard()
         for (const entry of pendingCodeFiles) {
-          yield* fs.remove(entry.path, { recursive: true }).pipe(Effect.catchAll(() => Effect.void))
+          yield* fs
+            .remove(resolve(entry.path), { recursive: true })
+            .pipe(Effect.catchAll(() => Effect.void))
         }
-        yield* fs.writeFileString(TODO_FILE, appendCapturedInput(todoNow, captured))
+        yield* fs.writeFileString(resolve(TODO_FILE), appendCapturedInput(todoNow, captured))
         yield* git.commitAllWithPrefix(GRILLING_SUBJECT)
         return
       }
@@ -777,7 +801,7 @@ export const perform = (
         }
         const target = action.capReached ? ERRORS_FILE : FEEDBACK_FILE
         const body = /\S/.test(result.output) ? result.output : EMPTY_FAILURE_SENTINEL
-        yield* fs.writeFileString(target, body)
+        yield* fs.writeFileString(resolve(target), body)
         yield* git.commitAllWithPrefix(ERRORS_SUBJECT)
         return
       }
@@ -789,10 +813,13 @@ export const perform = (
       // of returning to Testing (STATES.md § Fixing).
       case "commitPending": {
         if (action.removeFeedback === true) {
-          yield* fs.remove(FEEDBACK_FILE).pipe(Effect.catchAll(() => Effect.void))
+          yield* fs.remove(resolve(FEEDBACK_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
         if (action.removeTodo === true) {
-          yield* fs.remove(TODO_FILE).pipe(Effect.catchAll(() => Effect.void))
+          yield* fs.remove(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        }
+        if (action.removeTodo !== true) {
+          yield* formatFile(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
         yield* git.commitAllWithPrefix(action.prefix)
         return
@@ -802,8 +829,8 @@ export const perform = (
       // the first (finished) package dir (+ the now-empty `.gtd/`), commit
       // `gtd: package done`. Tolerates an absent FEEDBACK.md (force-approve).
       case "closePackage": {
-        yield* fs.remove(FEEDBACK_FILE).pipe(Effect.catchAll(() => Effect.void))
-        const packages = yield* getPackages(fs)
+        yield* fs.remove(resolve(FEEDBACK_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        const packages = yield* getPackages(fs, root)
         const first = packages[0]
         if (first !== undefined) {
           yield* git.removePackageDir(`${GTD_DIR}/${first.name}`)
@@ -814,13 +841,14 @@ export const perform = (
 
       // Await Review: commit REVIEW.md as `gtd: awaiting review`.
       case "commitReview": {
+        yield* formatFile(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))
         yield* git.commitAllWithPrefix(AWAITING_REVIEW_SUBJECT)
         return
       }
 
       // Done: rm REVIEW.md, commit `gtd: done`.
       case "done": {
-        yield* fs.remove(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.void))
+        yield* fs.remove(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))
         yield* git.commitAllWithPrefix(DONE_SUBJECT)
         return
       }
@@ -828,7 +856,7 @@ export const perform = (
       // Squash: rm SQUASH_MSG.md, soft-reset to squashBase, commit everything
       // under the provided commit message.
       case "squashCommit": {
-        yield* fs.remove(SQUASH_MSG_FILE).pipe(Effect.catchAll(() => Effect.void))
+        yield* fs.remove(resolve(SQUASH_MSG_FILE)).pipe(Effect.catchAll(() => Effect.void))
         yield* git.softResetTo(action.squashBase)
         yield* git.commitAllWithPrefix(action.commitMessage)
         return

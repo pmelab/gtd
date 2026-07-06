@@ -1,6 +1,7 @@
 import { Command, CommandExecutor } from "@effect/platform"
 import { Context, Effect, Layer, Stream } from "effect"
 import { ConfigService } from "./Config.js"
+import { Cwd } from "./Cwd.js"
 
 export interface TestResult {
   readonly exitCode: number
@@ -8,6 +9,7 @@ export interface TestResult {
   readonly output: string
 }
 
+// fallow-ignore-next-line unused-type -- consumed as Effect Context.Tag type parameter
 export interface TestRunnerOperations {
   /**
    * Runs the configured test command.
@@ -26,6 +28,7 @@ export class TestRunner extends Context.Tag("TestRunner")<TestRunner, TestRunner
       // `ConfigService` is NOT baked in here — it stays a requirement of this
       // layer, provided at the composition root (main.ts), like `GitService`.
       const config = yield* ConfigService
+      const { root } = yield* Cwd
 
       // Tokenize by whitespace split into argv. NOTE: quoting/escaping is NOT
       // supported (whitespace-split only); the default "npm run test" yields
@@ -42,6 +45,7 @@ export class TestRunner extends Context.Tag("TestRunner")<TestRunner, TestRunner
             Effect.gen(function* () {
               // Pipe both streams so we can capture stdout and stderr combined.
               const command = Command.make(head, ...rest).pipe(
+                Command.workingDirectory(root),
                 Command.stdout("pipe"),
                 Command.stderr("pipe"),
               )

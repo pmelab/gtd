@@ -9,6 +9,7 @@ import squashingMd from "./prompts/squashing.md"
 import escalateMd from "./prompts/escalate.md"
 import idleMd from "./prompts/idle.md"
 import autoAdvance from "./prompts/partials/auto-advance.md"
+import neutral from "./prompts/partials/neutral.md"
 import stopPartial from "./prompts/partials/stop.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdPackageFact, GtdState, ResolveContext, Result } from "./Machine.js"
@@ -164,6 +165,59 @@ const renderGrilling = (
   return `${GRILL_BASE}${tail}`.replaceAll("{{MODEL}}", resolveModel("grilling"))
 }
 
+/** State-specific content sections appended after the context block. */
+// fallow-ignore-next-line complexity
+const renderStateSection = (
+  promptState: PromptState,
+  context: ResolveContext,
+  resolveModel: (state: ModelState) => string,
+): Array<string> => {
+  if (promptState === "grilling") {
+    return [renderGrilling(context, resolveModel), ""]
+  }
+
+  const modelState = MODEL_STATE[promptState]
+  const raw = SECTIONS[promptState]
+  const section =
+    modelState !== undefined ? raw.replaceAll("{{MODEL}}", resolveModel(modelState)) : raw
+  const parts: Array<string> = [section, ""]
+
+  const pkg = context.packages[0]
+  if (promptState === "building" && pkg !== undefined) {
+    parts.push(renderPackage(pkg), "")
+  }
+  if (promptState === "fixing" && context.feedbackContent.trim() !== "") {
+    parts.push(...renderFeedback(context.feedbackContent), "")
+  }
+  if (promptState === "agentic-review" && pkg !== undefined) {
+    parts.push(renderPackage(pkg), "")
+    if (context.refDiff !== undefined && context.refDiff.trim() !== "") {
+      parts.push(...renderDiff("Package diff", context.refDiff))
+    }
+  }
+  if (promptState === "clean" && context.refDiff !== undefined && context.refDiff.trim() !== "") {
+    if (context.reviewBase !== undefined) parts.push(`Review base: ${context.reviewBase}`, "")
+    const diffLabel =
+      context.reviewBase !== undefined
+        ? `Changes to review (\`git diff ${context.reviewBase} HEAD\`)`
+        : "Changes to review (`git diff <base> HEAD`)"
+    parts.push(...renderDiff(diffLabel, context.refDiff))
+  }
+  if (
+    promptState === "squashing" &&
+    context.squashDiff !== undefined &&
+    context.squashDiff.trim() !== ""
+  ) {
+    if (context.squashBase !== undefined) parts.push(`Squash base: ${context.squashBase}`, "")
+    const diffLabel =
+      context.squashBase !== undefined
+        ? `Full-process diff (\`git diff ${context.squashBase} HEAD\`)`
+        : "Full-process diff (`git diff <squashBase> HEAD`)"
+    parts.push(...renderDiff(diffLabel, context.squashDiff))
+  }
+  return parts
+}
+
 /**
  * Assemble the full prompt for a resolved, prompt-bearing state: the shared
  * `header`, a `## Context` block, the state's section (with `{{MODEL}}` resolved
@@ -176,68 +230,22 @@ const renderGrilling = (
 export const buildPrompt = (
   result: Result,
   resolveModel: (state: ModelState) => string = builtinResolveModel,
+  output: "plain" | "json" = "plain",
 ): string => {
   const { state, context } = result
   if (EDGE_ONLY_STATES.has(state)) {
     throw new Error(`State "${state}" is performed by the edge and must never reach buildPrompt`)
   }
   const promptState = state as PromptState
-  const parts: Array<string> = [header, ""]
-  parts.push(buildContextBlock(context))
-
-  if (promptState === "grilling") {
-    parts.push(renderGrilling(context, resolveModel), "")
-  } else {
-    const modelState = MODEL_STATE[promptState]
-    const raw = SECTIONS[promptState]
-    parts.push(
-      modelState !== undefined ? raw.replaceAll("{{MODEL}}", resolveModel(modelState)) : raw,
-      "",
-    )
-
-    const pkg = context.packages[0]
-    if (promptState === "building" && pkg !== undefined) {
-      parts.push(renderPackage(pkg), "")
-    }
-    if (promptState === "fixing" && context.feedbackContent.trim() !== "") {
-      parts.push(...renderFeedback(context.feedbackContent), "")
-    }
-    if (promptState === "agentic-review" && pkg !== undefined) {
-      parts.push(renderPackage(pkg), "")
-      if (context.refDiff !== undefined && context.refDiff.trim() !== "") {
-        parts.push(...renderDiff("Package diff", context.refDiff))
-      }
-    }
-    if (promptState === "clean" && context.refDiff !== undefined && context.refDiff.trim() !== "") {
-      if (context.reviewBase !== undefined) {
-        parts.push(`Review base: ${context.reviewBase}`, "")
-      }
-      const diffLabel =
-        context.reviewBase !== undefined
-          ? `Changes to review (\`git diff ${context.reviewBase} HEAD\`)`
-          : "Changes to review (`git diff <base> HEAD`)"
-      parts.push(...renderDiff(diffLabel, context.refDiff))
-    }
-    if (
-      promptState === "squashing" &&
-      context.squashDiff !== undefined &&
-      context.squashDiff.trim() !== ""
-    ) {
-      if (context.squashBase !== undefined) {
-        parts.push(`Squash base: ${context.squashBase}`, "")
-      }
-      const diffLabel =
-        context.squashBase !== undefined
-          ? `Full-process diff (\`git diff ${context.squashBase} HEAD\`)`
-          : "Full-process diff (`git diff <squashBase> HEAD`)"
-      parts.push(...renderDiff(diffLabel, context.squashDiff))
-    }
-  }
-
-  // TODO: this should just be a ternary
-  if (!result.autoAdvance) parts.push(stopPartial, "")
-  if (result.autoAdvance) parts.push(autoAdvance, "")
-
+  const tail = output === "json" ? neutral : result.autoAdvance ? autoAdvance : stopPartial
+  const parts: Array<string> = [
+    header,
+    "",
+    buildContextBlock(context),
+    ...renderStateSection(promptState, context, resolveModel),
+    tail,
+    "",
+  ]
   return (
     parts
       .join("\n")

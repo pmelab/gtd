@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "src/main.{ts,tsx,js,jsx}",
+    // Vitest loads support files via setupFiles in vitest.config.ts — declare them
+    // so fallow treats them as entry points rather than dead files.
+    "tests/integration/support/**/*.{ts,mjs}",
+    // Vitest loads the reporter via a string path in vitest.config.ts.
+    "tests/vitest.reporter.ts",
+
+    // Vitest config for Stryker mutation testing — loaded by Stryker CLI, not imported.
+    "vitest.stryker.config.ts",
+    // Vitest config for Stryker scenario tests — loaded via npx vitest --config, not imported.
+    "vitest.stryker.scenarios.config.ts"
+  ],
+  "duplicates": {
+    // Hide pair-only clones; focus on widespread copy-paste worth refactoring.
+    "minOccurrences": 3
+  },
+  // jiti is a peer requirement of eslint's TypeScript config loader, not a direct import.
+  // Stryker packages are CLI tools invoked via npx/scripts, not imported in TypeScript source.
+  "ignoreDependencies": [
+    "jiti",
+    "@stryker-mutator/core",
+    "@stryker-mutator/vitest-runner",
+    "@stryker-mutator/typescript-checker"
+  ]
+}

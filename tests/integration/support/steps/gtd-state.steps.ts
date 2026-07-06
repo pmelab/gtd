@@ -1,4 +1,4 @@
-import { Given } from "@cucumber/cucumber"
+import { Given } from "quickpickle"
 import { execFileSync } from "node:child_process"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
@@ -17,8 +17,13 @@ const git = (dir: string, ...args: string[]) =>
 // read (`gtd: errors`, `gtd: feedback`, `gtd: planning`, `gtd: building`,
 // `gtd: fixing`, …). `--allow-empty` keeps the tree untouched so prior pending
 // changes survive as pending.
-Given("a commit {string}", function (this: GtdWorld, message: string) {
-  git(this.repoDir, "commit", "--allow-empty", "-q", "-m", message)
+Given("a commit {string}", (world: GtdWorld, message: string) => {
+  if (world.tier === "inmem") {
+    // Empty commit: just commit the current state (or if clean, still commit with same tree)
+    world.repo!.commitAllWithPrefix(message)
+  } else {
+    git(world.repoDir, "commit", "--allow-empty", "-q", "-m", message)
+  }
 })
 
 // A commit that deletes a tracked file under the given subject — the `gtd: done`
@@ -26,29 +31,46 @@ Given("a commit {string}", function (this: GtdWorld, message: string) {
 // diff removes ERRORS.md (the `removedErrors` reset boundary).
 Given(
   "a commit {string} that deletes {string}",
-  function (this: GtdWorld, message: string, path: string) {
-    git(this.repoDir, "rm", "-q", path)
-    git(this.repoDir, "commit", "-q", "-m", message)
+  (world: GtdWorld, message: string, path: string) => {
+    if (world.tier === "inmem") {
+      world.repo!.deleteFile(path)
+      world.repo!.commitAllWithPrefix(message)
+    } else {
+      git(world.repoDir, "rm", "-q", path)
+      git(world.repoDir, "commit", "-q", "-m", message)
+    }
   },
 )
 
 // Stage the whole pending working tree (tracked + untracked) and commit it under
 // the verbatim subject — for landing a multi-file `.gtd/` package or any
 // many-file change as a single `gtd: …` commit.
-Given("the working tree is committed as {string}", function (this: GtdWorld, message: string) {
-  git(this.repoDir, "add", "-A")
-  git(this.repoDir, "commit", "-q", "-m", message)
+Given("the working tree is committed as {string}", (world: GtdWorld, message: string) => {
+  if (world.tier === "inmem") {
+    world.repo!.commitAllWithPrefix(message)
+  } else {
+    git(world.repoDir, "add", "-A")
+    git(world.repoDir, "commit", "-q", "-m", message)
+  }
 })
 
 // An empty (zero-byte) working-tree file. The agentic-review approval signal is
 // an uncommitted, whitespace-only FEEDBACK.md; this writes one literally empty.
-Given("an empty file {string}", function (this: GtdWorld, path: string) {
-  writeFileSync(join(this.repoDir, path), "")
+Given("an empty file {string}", (world: GtdWorld, path: string) => {
+  if (world.tier === "inmem") {
+    world.repo!.writeFile(path, "")
+  } else {
+    writeFileSync(join(world.repoDir, path), "")
+  }
 })
 
 // Stage the deletion of a committed file, leaving it pending in the working tree
 // (status `D `). Drives Testing's human-resume trigger when the file is
 // ERRORS.md (a pending ERRORS.md deletion → fresh fix-attempt budget).
-Given("a deleted committed file {string}", function (this: GtdWorld, path: string) {
-  git(this.repoDir, "rm", path)
+Given("a deleted committed file {string}", (world: GtdWorld, path: string) => {
+  if (world.tier === "inmem") {
+    world.repo!.deleteFile(path)
+  } else {
+    git(world.repoDir, "rm", path)
+  }
 })

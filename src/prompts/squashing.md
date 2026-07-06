@@ -1,7 +1,7 @@
 ## Task: Squash all `gtd: *` commits into one conventional-commits message
 
 The process is **approved and done**. Your job is to author a clean
-conventional-commits squash message and hand it off to gtd.
+conventional-commits squash message and hand it off to the harness.
 
 ### Step 1 — Extract decisions from grilling rounds
 
@@ -29,15 +29,8 @@ body (explain the why — motivation, trade-offs, key decisions from grilling)
 ### Step 3 — Write SQUASH_MSG.md and hand off
 
 Write the commit message (plain text, no markdown wrapper) to `SQUASH_MSG.md` in
-the repo root.
+the repo root, then leave it uncommitted — the harness handles the squash commit
+on the next cycle once it sees `SQUASH_MSG.md`.
 
-Then run:
-
-```sh
-node /Users/pmelab/.claude/skills/gtd/scripts/gtd.js format SQUASH_MSG.md
-```
-
-Then re-run gtd to let the edge perform the actual squash commit.
-
-**Do not run `git reset --soft` or `git commit` yourself** — gtd handles the
-squash commit on the next invocation once it sees `SQUASH_MSG.md`.
+**Do not run `git reset --soft` or `git commit` yourself** — the harness handles
+the squash commit.

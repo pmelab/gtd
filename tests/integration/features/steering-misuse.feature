@@ -1,3 +1,4 @@
+@inmem
 Feature: Manual steering-file misuse and odd .gtd contents
 
   Users sometimes fight the workflow by hand — deleting a steering file to
@@ -59,8 +60,13 @@ Feature: Manual steering-file misuse and odd .gtd contents
 
   # An empty (untracked) .gtd/ directory under a planning HEAD: gtd must not
   # crash — it resolves Building with no package to offer.
+  @live
   Scenario: An empty .gtd directory does not crash the build loop
     Given a test project
+    And a gtd config file at "." with:
+      """
+      testCommand: npm run test
+      """
     And a commit "gtd: planning"
     And a directory ".gtd"
     When I run gtd

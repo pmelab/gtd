@@ -12,12 +12,12 @@ directly beneath the question:
 `<!-- user answers here -->`
 
 This placeholder is the **convergence marker**. While _any_ marker is present in
-`TODO.md`, gtd **stops** and waits for the user to answer inline. When there are
-genuinely no open questions left, write the sentinel line
+`TODO.md`, the harness **stops** and waits for the user to answer inline. When
+there are genuinely no open questions left, write the sentinel line
 
-`no open questions — run gtd to plan`
+`no open questions — ready to plan`
 
-and leave **no** markers — the next gtd run advances the plan to decomposition.
+and leave **no** markers — the next cycle advances the plan to decomposition.
 The sentinel means the plan is fully developed and ready to decompose — it is
 never a substitute for writing the plan.
 
@@ -39,8 +39,8 @@ The subagent works entirely by editing `TODO.md` (it cannot talk to the user):
    comments are positional feedback about the code at that location;
    TODO.md/REVIEW.md text changes are global feedback on the plan or the
    reviewed work as a whole; checkbox flips in a captured REVIEW.md diff are
-   approval noise — ignore them. gtd has already reverted captured code from the
-   working tree.
+   approval noise — ignore them. the harness has already reverted captured code
+   from the working tree.
 3. For every question the user has just answered (the answer written in place of
    its `<!-- user answers here -->` marker): integrate the answer into the plan
    body, then move the question into a `## Resolved` section at the bottom,
@@ -59,13 +59,12 @@ The subagent works entirely by editing `TODO.md` (it cannot talk to the user):
 5. Write each new open question near the top of the file, each followed on its
    own line by the `<!-- user answers here -->` marker.
 6. If the plan is now fully resolved, leave **no** markers and write the
-   sentinel `no open questions — run gtd to plan` instead. Only write the
-   sentinel once `TODO.md` holds a concrete plan — the sentinel signals the plan
-   is ready to decompose, not that planning can be skipped.
+   sentinel `no open questions — ready to plan` instead. Only write the sentinel
+   once `TODO.md` holds a concrete plan — the sentinel signals the plan is ready
+   to decompose, not that planning can be skipped.
 
-Normalize formatting (run `gtd format TODO.md` with the same gtd you invoked),
-then leave `TODO.md` **uncommitted** — the next gtd run commits it
-`gtd: grilling` and re-derives.
+Leave `TODO.md` **uncommitted** — the next cycle commits it `gtd: grilling` and
+re-derives.
 
 <!-- gtd:stop -->
 

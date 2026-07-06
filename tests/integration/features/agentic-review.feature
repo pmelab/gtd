@@ -1,3 +1,4 @@
+@inmem
 Feature: Agentic Review — verdict-by-file, with force-approve guards
 
   A clean `.gtd/` under a `gtd: building` HEAD reviews the package and records the

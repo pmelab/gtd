@@ -1,3 +1,4 @@
+@live
 Feature: Hostile environments and unusual invocations
 
   gtd derives everything from the repository it is invoked in. These scenarios
@@ -60,6 +61,10 @@ Feature: Hostile environments and unusual invocations
   # no destructive action — on the default branch it settles Idle.
   Scenario: A merge commit at HEAD degrades gracefully
     Given a test project
+    And a gtd config file at "." with:
+      """
+      testCommand: npm run test
+      """
     And a merge commit merging a branch with a commit "feat: side work" that adds "src/side.ts" with:
       """
       export const side = () => 1

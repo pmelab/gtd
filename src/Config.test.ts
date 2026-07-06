@@ -1,27 +1,39 @@
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
+import { execFileSync } from "node:child_process"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Exit } from "effect"
+import { Effect, Exit, Layer } from "effect"
+import { NodeContext } from "@effect/platform-node"
 import { ConfigService } from "./Config.js"
+import { Cwd } from "./Cwd.js"
 
-const run = <A>(eff: Effect.Effect<A, Error, ConfigService>) =>
-  Effect.runPromise(eff.pipe(Effect.provide(ConfigService.Live)))
+// ConfigService.Live now also requires FileSystem + CommandExecutor (auto-init
+// writes and git-commits `.gtdrc.json`); NodeContext.layer satisfies both.
+const layer = (dir: string) =>
+  Layer.provide(ConfigService.Live, Layer.merge(Cwd.layer(dir), NodeContext.layer))
 
-const runExit = <A>(eff: Effect.Effect<A, Error, ConfigService>) =>
-  Effect.runPromiseExit(eff.pipe(Effect.provide(ConfigService.Live)))
+const run = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string = projectDir) =>
+  Effect.runPromise(eff.pipe(Effect.provide(layer(dir))))
+
+const runExit = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string = projectDir) =>
+  Effect.runPromiseExit(eff.pipe(Effect.provide(layer(dir))))
 
 let projectDir: string
-let originalCwd: string
 
 beforeEach(() => {
-  originalCwd = process.cwd()
   projectDir = mkdtempSync(join(tmpdir(), "gtd-config-"))
-  process.chdir(projectDir)
+  // Auto-init writes AND commits `.gtdrc.json`, so the temp dir must be a git
+  // repo with a usable identity. Keep the identity repo-local (no global git
+  // mutation).
+  const git = (...args: Array<string>) =>
+    execFileSync("git", args, { cwd: projectDir, stdio: "ignore" })
+  git("init")
+  git("config", "user.name", "gtd-test")
+  git("config", "user.email", "gtd-test@example.com")
 })
 
 afterEach(() => {
-  process.chdir(originalCwd)
   rmSync(projectDir, { recursive: true, force: true })
 })
 
@@ -58,9 +70,10 @@ describe("ConfigService", () => {
     // Innermost (child = cwd): overrides testCommand, leaves planning untouched.
     writeFileSync(join(child, ".gtdrc.yaml"), `testCommand: "child test"\n`)
 
-    process.chdir(child)
-
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    const cfg = await run(
+      Effect.flatMap(ConfigService, (c) => Effect.succeed(c)),
+      child,
+    )
 
     expect(cfg.testCommand).toBe("child test") // cwd wins
     expect(cfg.resolveModel("decompose")).toBe("ancestor-planner") // ancestor key survives
@@ -258,6 +271,46 @@ describe("ConfigService", () => {
     expect(cfg.resolveModel("fixing")).toBe("state-fixer")
     expect(cfg.resolveModel("agentic-review")).toBe("state-reviewer")
     expect(cfg.resolveModel("clean")).toBe("state-cleaner")
+  })
+
+  it("auto-init: with no config, creates and commits `.gtdrc.json` at the root with the $schema URL", async () => {
+    await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    const rcPath = join(projectDir, ".gtdrc.json")
+    expect(existsSync(rcPath)).toBe(true)
+    const written = JSON.parse(readFileSync(rcPath, "utf8"))
+    expect(written.$schema).toBe("https://raw.githubusercontent.com/pmelab/gtd/main/schema.json")
+  })
+
+  it("strip: a config carrying $schema decodes without an excess-property error", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.json"),
+      JSON.stringify({
+        $schema: "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
+        testCommand: "x",
+      }),
+    )
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) {
+      expect(exit.value.testCommand).toBe("x")
+    }
+  })
+
+  it("idempotency: loading twice succeeds without an `Invalid gtd config` error on excess $schema", async () => {
+    // First load auto-inits (or reads) the stub.
+    const first = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    expect(Exit.isSuccess(first)).toBe(true)
+
+    // The `.gtdrc.json` stub now exists and carries $schema; a second load must
+    // decode it cleanly rather than fail on the excess property.
+    const second = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    expect(Exit.isSuccess(second)).toBe(true)
+    if (Exit.isFailure(second)) {
+      expect(String(second.cause)).not.toMatch(/Invalid gtd config/)
+    }
   })
 
   it("new model state keys decode without excess-property error", async () => {

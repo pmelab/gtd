@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import type { ConfigService } from "./Config.js"
 import { gatherEvents } from "./Events.js"
 import type { GitService } from "./Git.js"
+import { Cwd } from "./Cwd.js"
 import { type GtdState, resolve, type Result } from "./Machine.js"
 
 /**
@@ -55,7 +56,7 @@ export const isEdgeOnly = (state: GtdState): boolean => EDGE_ONLY_STATES.has(sta
 export const detect = (): Effect.Effect<
   Result,
   Error,
-  GitService | FileSystem.FileSystem | ConfigService
+  GitService | FileSystem.FileSystem | ConfigService | Cwd
 > =>
   Effect.gen(function* () {
     const events = yield* gatherEvents()

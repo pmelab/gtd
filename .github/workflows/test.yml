@@ -11,24 +11,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+      - uses: jdx/mise-action@v2
 
       - name: Install dependencies
         run: npm install
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Configure git for e2e tests
+        run: |
+          git config --global user.email "ci@gtd.test"
+          git config --global user.name "CI"
+          git config --global init.defaultBranch main
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Format check
-        run: npm run format:check
-
-      - name: Run unit tests
+      - name: Run all tests
         run: npm test
-
-      # - name: Run e2e tests
-      #   run: npm run test:e2e

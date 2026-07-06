@@ -1,3 +1,4 @@
+@live
 Feature: Transport — mixed-reset a hand-made gtd: transport HEAD, then re-derive
 
   `gtd: transport` is the primitive for carrying uncommitted work across
@@ -17,6 +18,9 @@ Feature: Transport — mixed-reset a hand-made gtd: transport HEAD, then re-deri
     # The transport commit is gone (mixed-reset); the carried work re-derived as a
     # fresh feature seed and advanced into grilling.
     And the git log does not contain "gtd: transport"
+    # Config auto-init is skipped on a transport HEAD, so no stub commit is
+    # planted on top of the handoff commit.
+    And the git log does not contain "chore: add .gtdrc.json"
     And the git log contains "gtd: new task"
     And the last commit subject is "gtd: grilling"
     And stdout contains "## Task: Grill the plan in `TODO.md`"

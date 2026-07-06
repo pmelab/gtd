@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { gatherEvents } from "./Events.js"
 import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
+import { Cwd } from "./Cwd.js"
 import { buildPrompt } from "./Prompt.js"
 import { DEFAULT_PAYLOAD, resolve } from "./Machine.js"
 
@@ -73,6 +74,7 @@ describe("performance smoke", { timeout: 180_000 }, () => {
             reviewThreshold: 3,
           }),
         ),
+        Effect.provide(Cwd.layer(repoDir)),
       ),
     )
     const elapsed = performance.now() - start

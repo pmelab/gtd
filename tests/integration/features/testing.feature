@@ -1,3 +1,4 @@
+@inmem
 Feature: Testing — the bounded test/fix loop and escalation
 
   A clean `.gtd/` with a reason to test (pending code, a pending ERRORS.md

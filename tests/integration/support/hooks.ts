@@ -1,21 +1,38 @@
-import { BeforeAll, After } from "@cucumber/cucumber"
-import { execSync } from "node:child_process"
+import { Before, After } from "quickpickle"
 import { rmSync } from "node:fs"
-import { resolve } from "node:path"
 import type { GtdWorld } from "./world.js"
+import { InMemRepo } from "./inmem/Repo.js"
 
-const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
-
-BeforeAll(function () {
-  execSync("npm run build", { cwd: PROJECT_ROOT, stdio: "inherit" })
+/**
+ * Detect tier from scenario tags.
+ * `@live` → live spawnSync path.
+ * Everything else (untagged or `@inmem`) → in-process path with in-memory layers.
+ */
+Before(async (world: GtdWorld) => {
+  const tags = world.info.tags
+  if (tags.includes("@live")) {
+    world.tier = "live"
+    world.repo = undefined
+  } else {
+    // Default (untagged) and @inmem both use in-process mock tier
+    world.tier = "inmem"
+    world.repo = new InMemRepo()
+  }
 })
 
-After(function (this: GtdWorld) {
-  if (this.repoDir) {
+After(async (world: GtdWorld) => {
+  // In-memory tier: just drop the reference — no temp dir to clean up.
+  if (world.tier === "inmem") {
+    world.repo = undefined
+    return
+  }
+
+  // Live tier: remove the temp repo dir.
+  if (world.repoDir) {
     if (process.env["KEEP_TEST_REPO"] === "1") {
-      process.stderr.write(`Test repo preserved at: ${this.repoDir}\n`)
+      process.stderr.write(`Test repo preserved at: ${world.repoDir}\n`)
     } else {
-      rmSync(this.repoDir, { recursive: true, force: true })
+      rmSync(world.repoDir, { recursive: true, force: true })
     }
   }
 })
