@@ -442,12 +442,17 @@ loop before the next one starts.
    (`gtd: done`) → **Squashing** → **Idle**. The Squashing agent authors a
    conventional-commits message from the full process diff and squashes all
    intermediate `gtd: *` commits into one with `git reset --soft <base>` +
-   `git commit`, then **gtd STOPs**. Post-squash review does not fire
-   automatically — it fires only on the next manual `gtd` run (when the squash
-   commit is the boundary HEAD and a reviewable diff exists). Squashing fires
-   when the tree has no unrelated code dirty — a lone untracked `SQUASH_MSG.md`
-   is tolerated and deleted before the squash commit. If unrelated code is dirty
-   at `gtd: done`, gtd routes to **New Feature** instead. Set `squash: false` in
+   `git commit`, then **gtd STOPs**. The base is the parent of the current
+   cycle's start marker **nearest to HEAD** (the last `gtd: new task`; for
+   legacy cycles the last contiguous `gtd: grilling` run), and on a feature
+   branch it never reaches below the merge-base with the default branch — stray
+   markers left behind by older squashes can never drag the squash into
+   previously shipped features. Post-squash review does not fire automatically —
+   it fires only on the next manual `gtd` run (when the squash commit is the
+   boundary HEAD and a reviewable diff exists). Squashing fires when the tree
+   has no unrelated code dirty — a lone untracked `SQUASH_MSG.md` is tolerated
+   and deleted before the squash commit. If unrelated code is dirty at
+   `gtd: done`, gtd routes to **New Feature** instead. Set `squash: false` in
    `.gtdrc` to skip squashing and go straight to Idle. Checking off REVIEW.md
    checkboxes (`- [ ]` → `- [x]`) also counts as approval and routes to **Done**
    — they are navigation aids, not feedback. Only **non-checkbox** edits (code

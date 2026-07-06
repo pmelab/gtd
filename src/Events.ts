@@ -580,34 +580,53 @@ export const gatherEvents = (): Effect.Effect<
     let squashBase: string | undefined
     let squashDiff: string | undefined
     if (hasCommits && lastCommitSubject === DONE_SUBJECT && config.squash) {
-      // allHistory is already resolved above inside the `if (hasCommits)` block.
-      const allHistoryForSquash = Option.isNone(base) ? history : yield* git.commitHistory()
-      const lastDoneIdxForSquash = (() => {
-        let idx = -1
-        for (let i = 0; i < allHistoryForSquash.length; i++) {
-          const subject = (allHistoryForSquash[i]!.message.split("\n")[0] ?? "").trim()
-          if (subject === DONE_SUBJECT) idx = i
+      // Scan `history` (merge-base..HEAD on a feature branch), NOT the whole
+      // history: commits below the merge-base exist on the default branch, and
+      // a squash reset must never rewrite them. On trunk (no merge-base),
+      // `history` is already the whole history.
+      const squashHistory = history
+      const subjectOf = (c: (typeof squashHistory)[number]): string =>
+        (c.message.split("\n")[0] ?? "").trim()
+      // Last `gtd: done` (= HEAD) and the previous one (cycle boundary), in one
+      // oldest-first pass.
+      let lastDoneIdxForSquash = -1
+      let prevDoneIdx = -1
+      for (let i = 0; i < squashHistory.length; i++) {
+        if (subjectOf(squashHistory[i]!) === DONE_SUBJECT) {
+          prevDoneIdx = lastDoneIdxForSquash
+          lastDoneIdxForSquash = i
         }
-        return idx
-      })()
+      }
 
       if (lastDoneIdxForSquash !== -1) {
-        // Find the previous `gtd: done` (the cycle boundary before this one).
-        let prevDoneIdx = -1
-        for (let i = 0; i < lastDoneIdxForSquash; i++) {
-          const subject = (allHistoryForSquash[i]!.message.split("\n")[0] ?? "").trim()
-          if (subject === DONE_SUBJECT) prevDoneIdx = i
+        const squashCycle = squashHistory.slice(prevDoneIdx + 1, lastDoneIdxForSquash + 1)
+        // Cycle start = the LAST `gtd: new task` in the cycle (nearest HEAD).
+        // Squashing deletes the `gtd: done` boundary it replaces, so stray
+        // markers from older, already-squashed cycles can survive inside the
+        // range — picking the first match would drag the base past them (and
+        // past entire prior features).
+        let startIdx = -1
+        for (let i = squashCycle.length - 1; i >= 0; i--) {
+          if (subjectOf(squashCycle[i]!) === NEW_TASK_SUBJECT) {
+            startIdx = i
+            break
+          }
         }
-        const squashCycle = allHistoryForSquash.slice(prevDoneIdx + 1, lastDoneIdxForSquash + 1)
-        // Prefer gtd: new task as the cycle start (it precedes grilling and must
-        // be included in the squash); fall back to the first gtd: grilling.
-        const squashNewTask = squashCycle.find(
-          (c) => (c.message.split("\n")[0] ?? "").trim() === NEW_TASK_SUBJECT,
-        )
-        const squashGrilling = squashCycle.find(
-          (c) => (c.message.split("\n")[0] ?? "").trim() === GRILLING_SUBJECT,
-        )
-        const squashStart = squashNewTask ?? squashGrilling
+        if (startIdx === -1) {
+          // Legacy fallback (cycles predating `gtd: new task`): the first
+          // grilling of the LAST contiguous grilling run — not the first
+          // grilling in the cycle, which could equally be a stray.
+          for (let i = squashCycle.length - 1; i >= 0; i--) {
+            if (subjectOf(squashCycle[i]!) === GRILLING_SUBJECT) {
+              startIdx = i
+              while (startIdx > 0 && subjectOf(squashCycle[startIdx - 1]!) === GRILLING_SUBJECT) {
+                startIdx--
+              }
+              break
+            }
+          }
+        }
+        const squashStart = startIdx === -1 ? undefined : squashCycle[startIdx]
 
         if (squashStart !== undefined) {
           const squashStartParent = yield* git
