@@ -798,6 +798,59 @@ adding interpretation or extra steps.
 "
 `;
 
+exports[`buildPrompt snapshots > grilled-review json 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+## Context
+
+Last commit: \`chore: init\`
+Working tree: clean
+ The
+plan in \`TODO.md\` has converged — no open questions remain — and has been
+committed as \`gtd: grilled\`.
+
+### Human review gate
+
+This is a human review point. Tell the user to open \`TODO.md\` and review the
+finalized plan:
+
+- To **proceed**, continue with a clean working tree — the plan will be
+  decomposed into \`.gtd/\` work packages.
+- To **revise**, edit \`TODO.md\` (or sketch code) and continue — the changes
+  re-enter the grilling loop for another convergence round.
+
+Complete the tasks above, then end your turn. An outside process will decide
+what to do next.
+"
+`;
+
+exports[`buildPrompt snapshots > grilled-review plain 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+## Context
+
+Last commit: \`chore: init\`
+Working tree: clean
+ The
+plan in \`TODO.md\` has converged — no open questions remain — and has been
+committed as \`gtd: grilled\`.
+
+### Human review gate
+
+This is a human review point. Tell the user to open \`TODO.md\` and review the
+finalized plan:
+
+- To **proceed**, continue with a clean working tree — the plan will be
+  decomposed into \`.gtd/\` work packages.
+- To **revise**, edit \`TODO.md\` (or sketch code) and continue — the changes
+  re-enter the grilling loop for another convergence round.
+
+After the tasks above are done, end your turn and never invoke an additional
+process. This is a human feedback gate and the next step has to be invoked by a
+human manually.
+"
+`;
+
 exports[`buildPrompt snapshots > grilling iterate json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 

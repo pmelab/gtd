@@ -74,7 +74,7 @@ The last commit message is bucketed:
 5. **Boundary HEAD + pending changes** (no .gtd/REVIEW/FEEDBACK, no _committed_
    TODO.md — that is a resumed grill → rule 6), or HEAD `gtd: new task` + clean
    tree (regenerate a lost seed) → New Feature.
-6. **TODO.md present** → Grilling / Grilled.
+6. **TODO.md present** → Grilling / Grilled review / Grilled.
 7. **HEAD `gtd: done` + clean tree + `squash` enabled + squash base present** →
    Squashing (collapses the cycle into one commit). Checked before the
    Clean/Idle decision so a freshly-closed review always squashes first.
@@ -169,7 +169,7 @@ reverted code + seeded TODO.md, committed together as the first
 - **Prompt:** grilling agent — incorporate the edits, push back, ask anything
   still unresolved (re-opening `?` markers if needed). _(auto-advance)_
 
-**3 — Converged** (no markers, clean tree) → **Grilled**.
+**3 — Converged** (no markers, clean tree) → **Grilled review (STOP)**.
 
 **Code capture on committed-plan rounds** (cases 1 and 2): when TODO.md is
 already committed (any round after the seed) and the pending changes include
@@ -188,9 +188,21 @@ Convention: each round ends either leaving `?` markers or writing "no open
 questions — run gtd to plan", so a clean tree with no markers means genuinely
 converged; hold the gate by leaving a marker.
 
+### Grilled review (STOP)
+
+**Conditions:** TODO.md present, no `?` markers, clean tree, HEAD `gtd: grilled`
+(just converged — not yet decomposed).
+
+**Actions:** none.
+
+**Prompt:** **STOP** — human reviews the converged plan. Edit and re-run `gtd`
+to re-enter Grilling (the grilling agent integrates the edits). Re-run `gtd`
+with no changes to advance to decomposition.
+
 ### Grilled (auto-advance)
 
-**Conditions:** TODO.md present, no `?` markers, clean tree.
+**Conditions:** TODO.md present, no `?` markers, clean tree, HEAD `gtd: grilled`
+(returning from Grilled review with no new edits — the plan is approved).
 
 **Actions:** commit any pending changes `gtd: grilled`.
 

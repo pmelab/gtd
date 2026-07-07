@@ -24,6 +24,7 @@ export type GtdState =
   | "new-feature"
   | "grilling"
   | "grilled"
+  | "grilled-review" // NEW: STOP gate — plan converged, awaiting human review
   | "planning"
   | "building"
   | "testing"
@@ -538,9 +539,20 @@ const resolveGrilling = (p: ResolvePayload, counters: Counters, head: string): R
       context: buildContext(p, counters, "iterate"),
     }
   }
+  // Converged: no markers, clean tree.
+  // First convergence (HEAD gtd: grilling) → commit gtd: grilled and STOP for
+  // the human to review TODO.md (issue 51). A re-run after the review (HEAD is
+  // already gtd: grilled, still clean, no markers) proceeds to decomposition.
+  if (head === "gtd: grilled") {
+    return {
+      state: "grilled",
+      autoAdvance: true,
+      context: buildContext(p, counters),
+    }
+  }
   return {
-    state: "grilled",
-    autoAdvance: true,
+    state: "grilled-review",
+    autoAdvance: false,
     edgeAction: { kind: "commitPending", prefix: "gtd: grilled" },
     context: buildContext(p, counters),
   }
