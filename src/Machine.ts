@@ -630,6 +630,11 @@ const resolveGrilling = (p: ResolvePayload, counters: Counters, head: string): R
 }
 
 // ── Rule 7: Clean / Idle / Health-check ──────────────────────────────────────
+// This path is only reached when no gtd process is active (no steering files).
+// Outside a process, no review base is selected for any branch — the
+// whole-branch review path does not fire here. A clean/idle tree either reviews
+// committed work (Clean) when a process-scoped review base and non-empty diff
+// are present, or runs the health check, or settles Idle.
 // fallow-ignore-next-line complexity
 const resolveCleanOrIdle = (p: ResolvePayload, counters: Counters, head: string): Result | null => {
   const isHealthHead = head === "gtd: health-check" || head === "gtd: health-fix"
@@ -797,9 +802,10 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   // ── 6. Grilling / Grilled ─────────────────────────────────────────────────
   if (p.todoExists) return resolveGrilling(p, counters, head)
   // ── 7. Clean / Idle ───────────────────────────────────────────────────────
-  // Reached only with no steering files. A clean tree under a boundary or
-  // `gtd: package done` HEAD reviews the work (Clean) when the re-trigger gate
-  // is open (commits exist after the last `gtd: done`) AND the review base
-  // yields a non-empty filtered diff, else there is nothing to review (Idle).
+  // Reached only with no steering files. Outside a gtd process no branch
+  // review base is chosen — the whole-branch review path is absent here. A
+  // clean tree under a boundary or `gtd: package done` HEAD triggers Clean
+  // only when a process-scoped review base exists and the filtered diff is
+  // non-empty; otherwise the tree runs the health check or settles Idle.
   return resolveCleanOrIdle(p, counters, head) ?? corrupt()
 }

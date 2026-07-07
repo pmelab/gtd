@@ -42,10 +42,14 @@ Feature: Hostile environments and unusual invocations
     And the last commit subject is "gtd: grilling"
     And the file "TODO.md" contains "src/idea.ts"
 
-  Scenario: A detached HEAD on branch work still reviews from the merge-base
+  Scenario: A detached HEAD on branch work settles Idle via the health check
     Given a test project
     And a default branch "main"
     And a branch "feature"
+    And a gtd config file at "." with:
+      """
+      testCommand: "true"
+      """
     And a commit "feat: detached work" that adds "src/work.ts" with:
       """
       export const work = () => 1
@@ -53,8 +57,8 @@ Feature: Hostile environments and unusual invocations
     And the repository is in detached HEAD state
     When I run gtd
     Then it succeeds
-    And stdout contains "help a human to review the changes"
-    And stdout contains "src/work.ts"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "help a human to review the changes"
 
   # A merge commit at HEAD is documented-unsupported (STATES.md): the machine
   # folds first-parent history only. It must degrade gracefully — no crash,

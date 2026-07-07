@@ -318,10 +318,20 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And "src/calc.ts" exists
 
   @squashing
-  Scenario: Post-squash on feature branch — manual gtd run triggers review
+  Scenario: Post-squash on feature branch — a manual gtd run settles Idle (health check), no review
     Given a test project
     And a default branch "main"
     And a branch "feature"
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo ALL_GREEN
+      exit 0
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      squash: true
+      """
     And a commit "gtd: grilling" that adds "TODO.md" with:
       """
       # Plan
@@ -349,4 +359,6 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout does not contain "Re-run gtd immediately"
     When I run gtd
     Then it succeeds
-    And stdout contains "help a human to review the changes"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "help a human to review the changes"
+    And the file "REVIEW.md" does not exist

@@ -483,7 +483,7 @@ export const gatherEvents = (): Effect.Effect<
       )
 
     // --- Review base + re-trigger gate (Clean review) -------------------------
-    // Scope — what a review covers — is a four-rule logic:
+    // Scope — what a review covers — is a three-rule logic:
     //
     // Rule 1: Within a process (has a `gtd: grilling` commit after last
     //         `gtd: done`), no `gtd: awaiting review` yet → cover the whole
@@ -491,12 +491,8 @@ export const gatherEvents = (): Effect.Effect<
     // Rule 2: Within a process, `gtd: awaiting review` present → cover only
     //         changes since the last review: base = last `gtd: awaiting review`
     //         of the current task cycle (takes precedence over rule 1).
-    // Rule 3: Outside a process, on a feature branch (base is Some) → cover
-    //         the whole branch: base = merge-base(defaultBranch, HEAD) —
-    //         unconditionally, even when a prior process completed on the
-    //         branch (already-approved work is re-covered by design).
-    // Rule 4: Outside a process, on the default branch (base is None) → skip
-    //         review: leave reviewBase/refDiff unset so the machine settles Idle.
+    // Rule 3: Outside a process (any branch) → skip review: leave
+    //         reviewBase/refDiff unset so the machine settles Idle.
     //
     // Trigger — whether a review fires — is the `hasCommitsAfterLastDone` gate:
     // commits exist after the last `gtd: done` (or no `gtd: done` exists).
@@ -559,14 +555,7 @@ export const gatherEvents = (): Effect.Effect<
           candidate = firstGrilling.hash ?? EMPTY_TREE
         }
       } else {
-        // Outside a process.
-        const mergeBaseCandidate =
-          Option.isSome(base) && base.value !== headHash ? base.value : undefined
-        if (mergeBaseCandidate !== undefined) {
-          // Rule 3: feature branch → use merge-base.
-          candidate = mergeBaseCandidate
-        }
-        // Rule 4: default branch → leave candidate undefined (Idle).
+        // Outside a process — leave candidate undefined (Idle).
       }
 
       if (candidate !== undefined && hasCommitsAfterLastDone) {

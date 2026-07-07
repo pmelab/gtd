@@ -343,7 +343,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     And stdout does not contain "a/.gtd"
 
   @inmem
-  Scenario: Multi-review branch — approvals gate, new commits re-open
+  Scenario: Multi-review branch — approvals gate, new commits outside a process stay idle
     Given a test project
     And a default branch "main"
     And a branch "feature"
@@ -362,25 +362,13 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     Then it succeeds
     And the last commit subject is "gtd: done"
     And stdout contains "repository is idle — nothing to do"
-    # New work lands after the approval — the whole-branch review re-opens.
+    # New work lands after the approval — but outside a process (no `gtd: grilling`
+    # in the current cycle) no whole-branch review re-opens; the repo settles Idle.
     Given a commit "feat: second slice" that adds "src/second.ts" with:
       """
       export const second = 2
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "help a human to review the changes"
-    And stdout contains "src/first.ts"
-    And stdout contains "src/second.ts"
-    When a file "REVIEW.md" with:
-      """
-      # Review
-
-      - [ ] ./src/first.ts#1
-      - [ ] ./src/second.ts#1
-      """
-    # Await Review auto-advances: commits REVIEW.md and advances to Done → idle in one run.
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: done"
     And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "help a human to review the changes"
