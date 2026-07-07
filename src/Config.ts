@@ -1,8 +1,9 @@
 import { homedir } from "node:os"
-import { dirname } from "node:path"
+import { dirname, join } from "node:path"
 import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
+import { Command, CommandExecutor } from "@effect/platform"
 import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
 
@@ -66,7 +67,7 @@ const ModelsSchema = Schema.Struct({
   states: Schema.optional(ModelStatesSchema),
 })
 
-const ConfigSchema = Schema.Struct({
+export const ConfigSchema = Schema.Struct({
   testCommand: Schema.optional(Schema.String),
   models: Schema.optional(ModelsSchema),
   agenticReview: Schema.optional(Schema.Boolean),
@@ -209,6 +210,51 @@ const loadMerged = (root: string): Effect.Effect<Record<string, unknown>, Error>
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
+const SCHEMA_URL = "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json"
+
+const SCHEMA_STUB = `${JSON.stringify({ $schema: SCHEMA_URL }, null, 2)}\n`
+
+/**
+ * Reuses the same `walkUp` + `searchStrategy: "none"` cosmiconfig explorer as
+ * `loadMerged` to detect whether ANY level of the cwd→root walk carries a gtd
+ * config. Returns `true` on the first non-empty `search(dir)` result.
+ */
+const anyConfigPresent = (root: string): Effect.Effect<boolean, Error> =>
+  Effect.tryPromise({
+    try: async () => {
+      const home = homedir()
+      const chain = walkUp(root, home)
+
+      const explorer = cosmiconfig("gtd", {
+        searchPlaces: SEARCH_PLACES,
+        searchStrategy: "none",
+        loaders: {
+          noExt: yamlLoader,
+          ".json": jsonLoader,
+          ".yaml": yamlLoader,
+          ".yml": yamlLoader,
+        },
+      })
+
+      for (const dir of chain) {
+        const result = await explorer.search(dir)
+        if (result && !result.isEmpty) return true
+      }
+      return false
+    },
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/**
+ * Write a `.gtdrc.json` stub at `root` containing only the `$schema` key, so
+ * editors get schema validation/autocompletion out of the box.
+ */
+const writeSchemaStub = (root: string): Effect.Effect<void, Error, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    yield* fs.writeFileString(join(root, ".gtdrc.json"), SCHEMA_STUB)
+  }).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
+
 const toOperations = (decoded: DecodedConfig): ConfigOperations => {
   const resolveModel = (state: ModelState): string => {
     const stateOverride = decoded.models?.states?.[state]
@@ -244,8 +290,36 @@ export class ConfigService extends Context.Tag("ConfigService")<ConfigService, C
     ConfigService,
     Effect.gen(function* () {
       const { root } = yield* Cwd
+
+      const present = yield* anyConfigPresent(root)
+      if (!present) {
+        const executor = yield* CommandExecutor.CommandExecutor
+        const git = (...args: Array<string>) =>
+          executor.exitCode(Command.make("git", ...args).pipe(Command.workingDirectory(root)))
+
+        // Never disturb a `gtd: transport` HEAD. Transport is precedence-0 and
+        // means "consume/mixed-reset this exact HEAD". Auto-committing a config
+        // stub on top of it (or writing one into the tree it carries) would
+        // corrupt the primitive: the transport commit would no longer be HEAD,
+        // and — when transport is the repo root — the auto-commit silently masks
+        // the "cannot reset transport commit" error the machine must surface.
+        // Skip auto-init entirely here; it fires normally on a later run once the
+        // transport HEAD has been consumed.
+        const headSubject = yield* Command.make("git", "log", "-1", "--pretty=%s")
+          .pipe(Command.workingDirectory(root), Command.string)
+          .pipe(Effect.map((s) => s.trim()))
+          .pipe(Effect.catchAll(() => Effect.succeed("")))
+
+        if (headSubject !== "gtd: transport") {
+          yield* writeSchemaStub(root)
+          yield* git("add", ".gtdrc.json")
+          yield* git("commit", "-m", "chore: add .gtdrc.json")
+        }
+      }
+
       const merged = yield* loadMerged(root)
-      const decoded = yield* Schema.decodeUnknown(ConfigSchema)(merged, {
+      const { $schema: _schema, ...cleaned } = merged
+      const decoded = yield* Schema.decodeUnknown(ConfigSchema)(cleaned, {
         onExcessProperty: "error",
       })
         .pipe(Effect.mapError(formatSchemaError))
