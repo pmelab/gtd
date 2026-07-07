@@ -18,6 +18,8 @@ const commit = (
     isPackageStart?: boolean
     isWorkflowCommit?: boolean
     removedErrors?: boolean
+    isHealthCheck?: boolean
+    isHealthFix?: boolean
   } = {},
 ): GtdEvent => ({
   type: "COMMIT",
@@ -26,6 +28,8 @@ const commit = (
   isPackageStart: flags.isPackageStart ?? false,
   isWorkflowCommit: flags.isWorkflowCommit ?? true,
   removedErrors: flags.removedErrors ?? false,
+  isHealthCheck: flags.isHealthCheck ?? false,
+  isHealthFix: flags.isHealthFix ?? false,
 })
 
 const basePayload = (overrides: Partial<ResolvePayload> = {}): ResolvePayload => ({
@@ -144,6 +148,26 @@ describe("illegal-combination hard-errors (throw before the ladder)", () => {
       }
     })
   }
+
+  it("HEALTH + .gtd → illegal", () => {
+    expect(() => resolve([R({ healthPresent: true, gtdDirExists: true })])).toThrow(GtdStateError)
+  })
+
+  it("HEALTH + REVIEW.md → illegal", () => {
+    expect(() => resolve([R({ healthPresent: true, reviewPresent: true })])).toThrow(GtdStateError)
+  })
+
+  it("HEALTH + FEEDBACK.md → illegal", () => {
+    expect(() =>
+      resolve([R({ healthPresent: true, feedbackPresent: true, gtdDirExists: true })]),
+    ).toThrow(GtdStateError)
+  })
+
+  it("HEALTH + ERRORS.md → illegal", () => {
+    expect(() =>
+      resolve([R({ healthPresent: true, errorsPresent: true, gtdDirExists: true })]),
+    ).toThrow(GtdStateError)
+  })
 
   it("committed REVIEW + uncommitted TODO is legal — review feedback (Accept Review)", () => {
     const res = resolve([
@@ -483,42 +507,17 @@ describe("rule 6 — Grilling / Grilled (3-way)", () => {
     expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilling" })
   })
 
-  it("no marker + clean + HEAD gtd: grilling → grilled-review, STOP, commitPending gtd: grilled", () => {
+  it("no marker + clean → grilled, auto, commitPending gtd: grilled", () => {
     const res = r({
       todoExists: true,
       todoMarkerPresent: false,
       workingTreeClean: true,
       lastCommitSubject: "gtd: grilling",
     })
-    expect(res.state).toBe("grilled-review")
-    expect(res.autoAdvance).toBe(false)
-    expect(res.context.grillingCase).toBeUndefined()
-    expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilled" })
-  })
-
-  it("no marker + clean + HEAD gtd: grilled → grilled, auto, no edgeAction", () => {
-    const res = r({
-      todoExists: true,
-      todoMarkerPresent: false,
-      workingTreeClean: true,
-      lastCommitSubject: "gtd: grilled",
-    })
     expect(res.state).toBe("grilled")
     expect(res.autoAdvance).toBe(true)
-    expect(res.edgeAction).toBeUndefined()
-  })
-
-  it("no marker + dirty + HEAD gtd: grilled → grilling iterate, commitPending gtd: grilling", () => {
-    const res = r({
-      todoExists: true,
-      todoCommitted: true,
-      codeDirty: false,
-      workingTreeClean: false,
-      lastCommitSubject: "gtd: grilled",
-    })
-    expect(res.state).toBe("grilling")
-    expect(res.context.grillingCase).toBe("iterate")
-    expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilling" })
+    expect(res.context.grillingCase).toBeUndefined()
+    expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilled" })
   })
 
   // Later grilling rounds (committed plan) with pending code changes capture
@@ -600,31 +599,35 @@ describe("rule 7 — Clean / Idle", () => {
     expect(res.state).toBe("clean")
   })
 
-  it("HEAD gtd: done + clean + empty diff → idle, no edgeAction", () => {
+  it("HEAD gtd: done + clean + empty diff → health-check, autoAdvance, runHealthCheck edgeAction", () => {
     const res = r({ lastCommitSubject: "gtd: done" })
-    expect(res.state).toBe("idle")
-    expect(res.autoAdvance).toBe(false)
-    expect(res.edgeAction).toBeUndefined()
+    expect(res.state).toBe("health-check")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({
+      kind: "runHealthCheck",
+      errorCount: 0,
+      capReached: false,
+    })
   })
 
-  it("reviewBase present but whitespace-only refDiff → idle (nothing to review)", () => {
+  it("reviewBase present but whitespace-only refDiff → health-check (nothing to review)", () => {
     const res = r({ lastCommitSubject: "feat: x", reviewBase: "abc", refDiff: "  \n " })
-    expect(res.state).toBe("idle")
+    expect(res.state).toBe("health-check")
   })
 
   // The loop fix: after an approved review (`gtd: done` with nothing after it)
   // the whole-branch diff is still non-empty, but the closed re-trigger gate
-  // keeps the machine Idle instead of re-entering Clean.
-  it("reviewable diff but closed re-trigger gate → idle (no review re-fire after done)", () => {
+  // keeps the machine in health-check instead of re-entering Clean.
+  it("reviewable diff but closed re-trigger gate → health-check (no review re-fire after done)", () => {
     const res = r({
       lastCommitSubject: "gtd: done",
       reviewBase: "abc123",
       refDiff: "diff --git a/x b/x\n+hello\n",
       hasCommitsAfterLastDone: false,
     })
-    expect(res.state).toBe("idle")
-    expect(res.autoAdvance).toBe(false)
-    expect(res.edgeAction).toBeUndefined()
+    expect(res.state).toBe("health-check")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toMatchObject({ kind: "runHealthCheck" })
   })
 
   it("open gate + reviewable diff after new commits land → clean (review re-fires)", () => {
@@ -637,8 +640,35 @@ describe("rule 7 — Clean / Idle", () => {
     expect(res.state).toBe("clean")
   })
 
-  it("resolve([]) → idle (degenerate input, no throw)", () => {
-    expect(resolve([]).state).toBe("idle")
+  it("resolve([]) → health-check (degenerate input, no throw)", () => {
+    expect(resolve([]).state).toBe("health-check")
+  })
+
+  it("health-check edgeAction carries healthFixCount as errorCount", () => {
+    // Two prior health-fix commits → healthFixCount = 2
+    const res = resolve([
+      commit({ isHealthCheck: true }),
+      commit({ isHealthCheck: true }),
+      R({ lastCommitSubject: "feat: x", workingTreeClean: true }),
+    ])
+    expect(res.state).toBe("health-check")
+    expect(res.edgeAction).toEqual({
+      kind: "runHealthCheck",
+      errorCount: 2,
+      capReached: false,
+    })
+  })
+
+  it("health-check edgeAction capReached when healthFixCount >= fixAttemptCap", () => {
+    // fixAttemptCap defaults to 3; three isHealthCheck commits → capReached
+    const res = resolve([
+      commit({ isHealthCheck: true }),
+      commit({ isHealthCheck: true }),
+      commit({ isHealthCheck: true }),
+      R({ lastCommitSubject: "feat: x", workingTreeClean: true }),
+    ])
+    expect(res.state).toBe("health-check")
+    expect((res.edgeAction as { kind: string; capReached: boolean }).capReached).toBe(true)
   })
 })
 
@@ -665,26 +695,26 @@ describe("rule 7 — Squashing", () => {
     expect(res.context.squashDiff).toBe("diff --git a/x b/x\n+hello\n")
   })
 
-  it("HEAD gtd: done + squashEnabled + squashBase unset → idle (nothing to squash)", () => {
+  it("HEAD gtd: done + squashEnabled + squashBase unset → health-check (nothing to squash)", () => {
     const res = r({
       lastCommitSubject: "gtd: done",
       squashEnabled: true,
     })
-    expect(res.state).toBe("idle")
+    expect(res.state).toBe("health-check")
   })
 
-  it("HEAD gtd: done + squashEnabled: false + squashBase set → idle (config opt-out)", () => {
+  it("HEAD gtd: done + squashEnabled: false + squashBase set → health-check (config opt-out)", () => {
     const res = r({
       lastCommitSubject: "gtd: done",
       squashEnabled: false,
       squashBase: "abc123",
     })
-    expect(res.state).toBe("idle")
+    expect(res.state).toBe("health-check")
   })
 
-  it("HEAD gtd: done with no squash fields (DEFAULT_PAYLOAD) → idle (default behavior)", () => {
+  it("HEAD gtd: done with no squash fields (DEFAULT_PAYLOAD) → health-check (default behavior)", () => {
     const res = r({ lastCommitSubject: "gtd: done" })
-    expect(res.state).toBe("idle")
+    expect(res.state).toBe("health-check")
   })
 
   it("squashing + squashMsgPresent: true → squashCommit edgeAction with squashBase + commitMessage", () => {
@@ -781,6 +811,129 @@ describe("rule 7 — Squashing", () => {
     expect(res.state).toBe("squashing")
     expect(res.autoAdvance).toBe(true)
     expect(res.edgeAction).toBeUndefined()
+  })
+})
+
+// ── HEALTH.md routing ────────────────────────────────────────────────────────
+
+describe("HEALTH.md present — health-fixing routing", () => {
+  it("uncommitted HEALTH.md → health-fixing, commitPending gtd: health-check, removeHealth", () => {
+    const res = r({ healthPresent: true, healthCommitted: false })
+    expect(res.state).toBe("health-fixing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({
+      kind: "commitPending",
+      prefix: "gtd: health-check",
+      removeHealth: true,
+    })
+  })
+
+  it("committed HEALTH.md + clean tree → health-fixing, no edgeAction (fix agent hasn't run yet)", () => {
+    const res = r({ healthPresent: true, healthCommitted: true, workingTreeClean: true })
+    expect(res.state).toBe("health-fixing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toBeUndefined()
+  })
+
+  it("committed HEALTH.md + code dirty → health-fixing, commitPending gtd: health-fix, removeHealth", () => {
+    const res = r({
+      healthPresent: true,
+      healthCommitted: true,
+      workingTreeClean: false,
+      codeDirty: true,
+    })
+    expect(res.state).toBe("health-fixing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({
+      kind: "commitPending",
+      prefix: "gtd: health-fix",
+      removeHealth: true,
+    })
+  })
+
+  it("HEALTH.md sits BELOW ERRORS (rule 1 wins when both present would be illegal — assertLegal fires first)", () => {
+    // HEALTH + ERRORS is illegal, so assertLegal fires before the ladder
+    expect(() =>
+      resolve([R({ healthPresent: true, errorsPresent: true, gtdDirExists: true })]),
+    ).toThrow(GtdStateError)
+  })
+})
+
+describe("buildContext — healthContent surfaces as feedbackContent", () => {
+  it("HEALTH.md present, no FEEDBACK.md → feedbackContent = healthContent", () => {
+    const res = r({
+      healthPresent: true,
+      healthContent: "fix: missing tests",
+      healthCommitted: false,
+    })
+    expect(res.context.feedbackContent).toBe("fix: missing tests")
+  })
+
+  it("HEALTH.md + FEEDBACK.md both set → feedbackContent from FEEDBACK (existing behaviour)", () => {
+    // HEALTH + FEEDBACK is illegal, so this tests that when feedbackContent is present
+    // it takes precedence over healthContent in buildContext by itself
+    // (We test buildContext indirectly via a pure FEEDBACK path)
+    const res = r({
+      feedbackPresent: true,
+      feedbackContent: "feedback body",
+      feedbackCommitted: false,
+      gtdDirExists: true,
+      healthPresent: false,
+      healthContent: "health body",
+    })
+    expect(res.context.feedbackContent).toBe("feedback body")
+  })
+
+  it("HEALTH.md absent → feedbackContent is empty (no bleed)", () => {
+    const res = r({ healthPresent: false, healthContent: "" })
+    expect(res.context.feedbackContent).toBe("")
+  })
+})
+
+// ── healthFixCount fold ──────────────────────────────────────────────────────
+
+describe("foldCounters — healthFixCount", () => {
+  it("empty stream → 0", () => {
+    expect(foldCounters([]).healthFixCount).toBe(0)
+  })
+
+  it("N trailing isHealthCheck → N", () => {
+    const events = [
+      commit({ isHealthCheck: true }),
+      commit({ isHealthCheck: true }),
+      commit({ isHealthCheck: true }),
+    ]
+    expect(foldCounters(events).healthFixCount).toBe(3)
+  })
+
+  it("resets on removedErrors (human resume)", () => {
+    const events = [
+      commit({ isHealthCheck: true }),
+      commit({ isHealthCheck: true }),
+      commit({ removedErrors: true }),
+      commit({ isHealthCheck: true }),
+    ]
+    expect(foldCounters(events).healthFixCount).toBe(1)
+  })
+
+  it("resets on isPackageStart", () => {
+    const events = [
+      commit({ isHealthCheck: true }),
+      commit({ isPackageStart: true }),
+      commit({ isHealthCheck: true }),
+    ]
+    expect(foldCounters(events).healthFixCount).toBe(1)
+  })
+
+  it("is independent of testFixCount", () => {
+    const events = [
+      commit({ isErrors: true }),
+      commit({ isErrors: true }),
+      commit({ isHealthCheck: true }),
+    ]
+    const { testFixCount, healthFixCount } = foldCounters(events)
+    expect(testFixCount).toBe(2)
+    expect(healthFixCount).toBe(1)
   })
 })
 

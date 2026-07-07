@@ -63,7 +63,7 @@ Feature: Hostile environments and unusual invocations
     Given a test project
     And a gtd config file at "." with:
       """
-      testCommand: npm run test
+      testCommand: 'true'
       """
     And a merge commit merging a branch with a commit "feat: side work" that adds "src/side.ts" with:
       """
@@ -137,6 +137,10 @@ Feature: Hostile environments and unusual invocations
   # treats identical-after-\r pairs as churn so pure ticking still approves.
   Scenario: Checkbox approval survives a CRLF editor
     Given a test project
+    And a gtd config file at "." with:
+      """
+      testCommand: 'true'
+      """
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b

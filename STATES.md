@@ -27,6 +27,12 @@ High-level procedure on every invocation:
 - **ERRORS.md** — escalation gate: persistent test-failure output that stops the
   loop for a human (written instead of FEEDBACK.md once the fix-attempt cap is
   hit; never auto-consumed)
+- **HEALTH.md** — idle health-check failure output: the test output written when
+  the health check fails on a bare idle tree (no `.gtd`, no REVIEW.md, no
+  FEEDBACK.md). Carries the failure while the dedicated health-fix loop repairs
+  it. Analogous to FEEDBACK.md but lives on the default-branch idle path rather
+  than inside a build process. Gated strictly on a clean boundary state — never
+  written while any other steering file is present.
 - **.gtd/** — ordered work packages (one directory each) of parallelizable
   subtasks
 
@@ -49,11 +55,14 @@ The last commit message is bucketed:
 - **Boundary** — a non-`gtd:` commit, or `gtd: done`. Marks a cold start: no
   workflow in progress.
 - **Mid-phase** —
-  `gtd: new task | grilling | grilled | planning | building | errors | fixing | feedback | package done | awaiting review | review feedback`.
+  `gtd: new task | grilling | grilled | planning | building | errors | fixing | feedback | package done | awaiting review | review feedback | health-check | health-fix`.
   Identifies the exact phase of an in-progress workflow; disambiguates states
   the filesystem alone cannot separate. (`gtd: review feedback` is the
   accept-review capture commit — distinct from the `gtd: feedback` marker the
-  review-fix counter folds on.)
+  review-fix counter folds on. `gtd: health-check` and `gtd: health-fix` are
+  written on the idle path by Health check and Health Fixing respectively; both
+  are Mid-phase so they are never mistaken for Boundary, which would incorrectly
+  re-trigger rule 9's clean-tree health check path.)
 
 ### Precedence (first match wins)
 
@@ -61,27 +70,38 @@ The last commit message is bucketed:
 1. **ERRORS.md present** → Escalate (human gate; STOP).
 2. **FEEDBACK.md present** → non-empty → Fixing; **empty** (a clean agentic
    review = approval) → Close package.
-3. **.gtd present** → build lifecycle, routed by tree + HEAD:
+3. **HEALTH.md present** → Health Fixing. Only reachable from a bare idle tree
+   (no `.gtd`, no REVIEW.md, no FEEDBACK.md); sits below ERRORS (rule 1) so
+   escalation still wins, and below FEEDBACK (rule 2) so the build-process fix
+   path is not shadowed.
+4. **.gtd present** → build lifecycle, routed by tree + HEAD:
    - `.gtd` modified (package files added/edited) → Planning
    - code changes present → Testing
    - clean tree + HEAD `gtd: fixing` (no-op fixer) → Testing (re-test)
    - else clean, by HEAD: `planning`/`package done` → Building; `building` →
      Agentic Review
-4. **REVIEW.md present** → review lifecycle (Await Review / Accept Review /
+5. **REVIEW.md present** → review lifecycle (Await Review / Accept Review /
    Done), routed by committed-ness + tree. HEAD `gtd: review feedback` (the
    accept-review capture commit, whose annotated REVIEW.md rematerialized after
    a checkout/pull lost the uncommitted seed) → Accept Review regen, never Done.
-5. **Boundary HEAD + pending changes** (no .gtd/REVIEW/FEEDBACK, no _committed_
-   TODO.md — that is a resumed grill → rule 6), or HEAD `gtd: new task` + clean
+6. **Boundary HEAD + pending changes** (no .gtd/REVIEW/FEEDBACK, no _committed_
+   TODO.md — that is a resumed grill → rule 7), or HEAD `gtd: new task` + clean
    tree (regenerate a lost seed) → New Feature.
-6. **TODO.md present** → Grilling / Grilled review / Grilled.
-7. **HEAD `gtd: done` + clean tree + `squash` enabled + squash base present** →
+7. **TODO.md present** → Grilling / Grilled.
+8. **HEAD `gtd: done` + clean tree + `squash` enabled + squash base present** →
    Squashing (collapses the cycle into one commit). Checked before the
    Clean/Idle decision so a freshly-closed review always squashes first.
-8. **Boundary/`package done` HEAD + clean tree** → Clean (review) or Idle. A
-   review fires only when the re-trigger gate is open — commits exist after the
-   last `gtd: done` (or none exists) — and the workflow-file-filtered diff from
-   the review base is non-empty.
+9. **Boundary/`package done` HEAD + clean tree** → Clean (review) or Idle/Health
+   check. A review fires only when the re-trigger gate is open — commits exist
+   after the last `gtd: done` (or none exists) — and the workflow-file-filtered
+   diff from the review base is non-empty (see Clean). When neither a review nor
+   a feature-branch Clean fires (the `!reviewable` case: default branch or empty
+   diff), the **health check** runs instead of stopping: runs the configured
+   `testCommand` and routes to Health check or Health Fixing based on the
+   result. The in-process Clean path (HEAD `gtd: package done` with a non-empty
+   reviewable diff) and the feature-branch Clean path (rule 3 of Clean's base
+   selection) are **unchanged** — only the bare-idle `!reviewable`
+   default-branch boundary falls through to the health check.
 
 Anything matching no rule is corruption — hard-error rather than guess.
 
@@ -104,6 +124,10 @@ guessing:
 - FEEDBACK.md without .gtd
 - ERRORS.md + FEEDBACK.md
 - ERRORS.md without .gtd
+- HEALTH.md + .gtd (health check only runs from a bare idle tree)
+- HEALTH.md + REVIEW.md (same)
+- HEALTH.md + FEEDBACK.md (same)
+- HEALTH.md + ERRORS.md (escalation wins; HEALTH.md must not coexist)
 
 Legal coexistence: `.gtd`+TODO.md (plan + packages during **Planning** only —
 TODO.md is deleted at the first Building turn); FEEDBACK.md+`.gtd` (fix during
@@ -169,7 +193,7 @@ reverted code + seeded TODO.md, committed together as the first
 - **Prompt:** grilling agent — incorporate the edits, push back, ask anything
   still unresolved (re-opening `?` markers if needed). _(auto-advance)_
 
-**3 — Converged** (no markers, clean tree) → **Grilled review (STOP)**.
+**3 — Converged** (no markers, clean tree) → **Grilled**.
 
 **Code capture on committed-plan rounds** (cases 1 and 2): when TODO.md is
 already committed (any round after the seed) and the pending changes include
@@ -188,21 +212,9 @@ Convention: each round ends either leaving `?` markers or writing "no open
 questions — run gtd to plan", so a clean tree with no markers means genuinely
 converged; hold the gate by leaving a marker.
 
-### Grilled review (STOP)
-
-**Conditions:** TODO.md present, no `?` markers, clean tree, HEAD `gtd: grilled`
-(just converged — not yet decomposed).
-
-**Actions:** none.
-
-**Prompt:** **STOP** — human reviews the converged plan. Edit and re-run `gtd`
-to re-enter Grilling (the grilling agent integrates the edits). Re-run `gtd`
-with no changes to advance to decomposition.
-
 ### Grilled (auto-advance)
 
-**Conditions:** TODO.md present, no `?` markers, clean tree, HEAD `gtd: grilled`
-(returning from Grilled review with no new edits — the plan is approved).
+**Conditions:** TODO.md present, no `?` markers, clean tree.
 
 **Actions:** commit any pending changes `gtd: grilled`.
 
@@ -283,10 +295,56 @@ clean review → Close package). Implies `.gtd` present.
 **Prompt:** fixer agent — fix the code per the feedback. _(Fixer output returns
 through Testing → `gtd: building`.)_
 
+### Health check (auto-advance)
+
+**Conditions:** no steering files, clean tree, boundary or `gtd: package done`
+or `gtd: health-fix` HEAD, default-branch idle — i.e. the `!reviewable` case
+from rule 9: no `.gtd`, no REVIEW.md, no FEEDBACK.md, no ERRORS.md, no
+HEALTH.md, and no review to run. (`gtd: health-fix` is a valid entry point
+because Health Fixing removes HEALTH.md and commits `gtd: health-fix`, leaving a
+clean tree that must loop back here to re-test.)
+
+**Actions:**
+
+- run the configured `testCommand`
+- **green, no prior `gtd: health-fix` commits in this run** → STOP Idle with
+  **zero commits** — the driver loop terminates from inside the edge; every
+  subsequent idle invocation re-tests from the same pristine tree (idempotent)
+- **red, fix-attempt count below `fixAttemptCap`** → write test output to
+  HEALTH.md, commit `gtd: health-check` → routes to Health Fixing on the next
+  run
+- **red, fix-attempt count at or over `fixAttemptCap`** → write test output to
+  ERRORS.md, commit `gtd: health-check` → routes to Escalate (human gate)
+- **green, ≥1 `gtd: health-fix` commit present** → health-fix cycle converged:
+  if `squash` config is enabled → Squashing (squash base = parent of the first
+  `gtd: health-check` of the current run); otherwise → STOP Idle with no commit
+
+The fix-attempt count is folded from `gtd: health-check` commits since the most
+recent commit that removed HEALTH.md (or the start of branch history if none),
+reusing `fixAttemptCap` — no separate config key.
+
+**Prompt:** none (edge-only, auto-advance into the next state).
+
+### Health Fixing (auto-advance)
+
+**Conditions:** HEALTH.md present (no `.gtd`, no REVIEW.md, no FEEDBACK.md — see
+Illegal combinations).
+
+**Actions:**
+
+- read HEALTH.md into the prompt
+- commit HEALTH.md's removal as `gtd: health-fix` — the fixed tree returns to
+  Health check (not Health Fixing), because HEALTH.md is gone after the commit;
+  same removal discipline as FEEDBACK.md in Fixing
+
+**Prompt:** fixer agent — fix the code per the health-check output. _(Fixer
+output returns through Health check → re-runs `testCommand`.)_
+
 ### Escalate
 
 **Conditions:** ERRORS.md present (highest precedence after Transport; implies
-`.gtd` present).
+`.gtd` present when written by Testing; written without `.gtd` by Health check
+when the fix-attempt cap is reached on the idle path).
 
 **Actions:** none.
 
@@ -420,14 +478,23 @@ closes the review.)_
 
 ### Squashing (auto-advance)
 
-**Conditions:** no steering files, clean tree, HEAD is `gtd: done`, `squash`
-config is enabled, and a squash base is present (the parent of the first
-`gtd: grilling` of the current cycle — established when the cycle began).
+**Conditions:** no steering files, clean tree, `squash` config is enabled, and a
+squash base is present. Two entry points share this state:
+
+- **Feature-cycle squash**: HEAD is `gtd: done`; squash base = parent of the
+  first `gtd: grilling` of the current cycle.
+- **Health-fix squash**: HEAD is `gtd: health-fix` (the last fix loop left the
+  tree clean after removing HEALTH.md) and Health check re-ran and found tests
+  green, then routed here; squash base = parent of the first `gtd: health-check`
+  of the current run. The intermediate `gtd: health-fix` HEAD is Mid-phase, not
+  Boundary, so it does not satisfy rule 9 directly — it must pass back through
+  Health check (which accepts `gtd: health-fix` HEAD) and only enters Squashing
+  from inside that edge when tests go green with ≥1 `gtd: health-fix` commit
+  present.
 
 **Actions:** none performed by `gtd`'s `src/`. The agent:
 
-1. Computes the full inlined diff over `<squashBase>..HEAD` (the entire process
-   from grilling through the `gtd: done` merge commit).
+1. Computes the full inlined diff over `<squashBase>..HEAD`.
 2. Authors a single conventional-commits message that summarises the cycle.
 3. Runs `git reset --soft <squashBase>` — all cycle commits are unstaged back to
    the index while the working tree is unchanged.
@@ -444,12 +511,17 @@ HEAD is no longer `gtd: done`._
 
 ### Idle
 
-**Conditions:** no steering files, clean tree, and no review to run — the
-re-trigger gate is closed (no commits after the last `gtd: done`), the review
-base's workflow-file-filtered diff is empty, or the trunk rule applies (outside
-a process on the default branch).
+**Conditions:** no steering files, clean tree, and the health check passed with
+no prior health-fix commits — the terminal green settle. Reached when:
 
-**Actions:** none.
+- the re-trigger gate is closed (no commits after the last `gtd: done`) and the
+  review base's workflow-file-filtered diff is empty, or
+- the trunk rule applies (outside a process on the default branch) and the
+  health check returned green with no `gtd: health-fix` commits in the current
+  run.
+
+**Actions:** none. No commit is written — the health check edge terminates the
+driver loop directly when it reaches this outcome (zero-commit green path).
 
 **Prompt:** nothing to do. _(Prevents an approved review from spawning a
 spurious re-review: review → approve → done → review. gtd stays idle until new

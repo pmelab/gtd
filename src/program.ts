@@ -5,9 +5,26 @@ import { Cwd } from "./Cwd.js"
 import { perform } from "./Events.js"
 import * as Format from "./Format.js"
 import { GitService } from "./Git.js"
+import type { Result } from "./Machine.js"
+import { DEFAULT_PAYLOAD } from "./Machine.js"
 import { buildPrompt } from "./Prompt.js"
 import { detect, isEdgeOnly } from "./State.js"
 import { TestRunner } from "./TestRunner.js"
+
+/** Synthetic idle result emitted when a green health check settles the loop. */
+const IDLE_RESULT: Result = {
+  state: "idle",
+  autoAdvance: false,
+  context: {
+    testFixCount: 0,
+    reviewFixCount: 0,
+    packages: DEFAULT_PAYLOAD.packages,
+    diff: DEFAULT_PAYLOAD.diff,
+    lastCommitSubject: DEFAULT_PAYLOAD.lastCommitSubject,
+    workingTreeClean: DEFAULT_PAYLOAD.workingTreeClean,
+    feedbackContent: DEFAULT_PAYLOAD.feedbackContent,
+  },
+}
 
 /**
  * Defensive bound on the auto-advance chain. Each iteration that performs an
@@ -128,7 +145,25 @@ export function makeProgram(
       const result = yield* detect()
 
       if (result.edgeAction !== undefined) {
-        yield* perform(result.edgeAction)
+        const { stop } = yield* perform(result.edgeAction)
+        // Health-check green-settle: tests passed on an idle tree — emit the idle
+        // prompt and stop. The machine resolved health-check; after a green run
+        // there is nothing left to do, so we surface the idle state to the caller.
+        if (stop) {
+          const builtPrompt = buildPrompt(IDLE_RESULT, config.resolveModel, json ? "json" : "plain")
+          if (json) {
+            write(
+              JSON.stringify({
+                state: "idle",
+                autoAdvance: false,
+                prompt: builtPrompt,
+              }) + "\n",
+            )
+          } else {
+            write(builtPrompt)
+          }
+          return
+        }
       }
 
       // Edge-only states render no prompt — re-gather and re-resolve to continue

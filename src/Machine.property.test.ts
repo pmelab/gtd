@@ -71,6 +71,8 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
     agenticReviewEnabled: fc.boolean(),
     fixAttemptCap: fc.integer({ min: 0, max: 4 }),
     reviewThreshold: fc.integer({ min: 1, max: 4 }),
+    healthPresent: fc.boolean(),
+    healthCommittedRaw: fc.boolean(),
   })
   // fallow-ignore-next-line complexity
   .map((raw): ResolvePayload => {
@@ -111,6 +113,9 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       squashMsgContent: "",
       fixAttemptCap: raw.fixAttemptCap,
       reviewThreshold: raw.reviewThreshold,
+      healthPresent: raw.healthPresent,
+      healthContent: raw.healthPresent ? "health finding" : "",
+      healthCommitted: raw.healthPresent && raw.healthCommittedRaw,
     }
   })
 
@@ -120,6 +125,8 @@ const arbCommit: fc.Arbitrary<GtdEvent> = fc
     isFeedback: fc.boolean(),
     isPackageStart: fc.boolean(),
     removedErrors: fc.boolean(),
+    isHealthCheck: fc.boolean(),
+    isHealthFix: fc.boolean(),
   })
   .map((f) => ({ type: "COMMIT", isWorkflowCommit: true, ...f }))
 
@@ -136,15 +143,18 @@ const isIllegal = (p: ResolvePayload): boolean =>
   (p.feedbackPresent && p.reviewPresent) ||
   (p.feedbackPresent && !p.gtdDirExists) ||
   (p.errorsPresent && p.feedbackPresent) ||
-  (p.errorsPresent && !p.gtdDirExists)
+  (p.errorsPresent && !p.gtdDirExists) ||
+  (p.healthPresent && p.gtdDirExists) ||
+  (p.healthPresent && p.reviewPresent) ||
+  (p.healthPresent && p.feedbackPresent) ||
+  (p.healthPresent && p.errorsPresent)
 
 /** Which edge-action kinds each state may carry ("none" = no action). */
 const ALLOWED: Record<GtdState, ReadonlyArray<EdgeAction["kind"] | "none">> = {
   transport: ["transportReset"],
   "new-feature": ["seedNewFeature"],
   grilling: ["commitPending", "captureGrillingEdits", "none"],
-  grilled: ["none"],
-  "grilled-review": ["commitPending"],
+  grilled: ["commitPending"],
   planning: ["commitPending"],
   building: ["commitPending", "none"],
   testing: ["runTest"],
@@ -158,6 +168,8 @@ const ALLOWED: Record<GtdState, ReadonlyArray<EdgeAction["kind"] | "none">> = {
   done: ["done"],
   idle: ["none"],
   squashing: ["none"],
+  "health-check": ["runHealthCheck"],
+  "health-fixing": ["commitPending", "none"],
 }
 
 // Derived from ALLOWED (whose Record<GtdState, …> typing is exhaustive) so the
@@ -170,6 +182,8 @@ const COMMIT_PREFIXES = new Set([
   "gtd: planning",
   "gtd: fixing",
   "gtd: feedback",
+  "gtd: health-check",
+  "gtd: health-fix",
 ])
 
 describe("resolve — property sweep over edge-consistent payloads", () => {

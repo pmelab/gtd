@@ -21,13 +21,16 @@ import { type GtdState, resolve, type Result } from "./Machine.js"
  */
 
 /**
- * The seven edge-only states: the driver performs their `edgeAction`, then
+ * The eight edge-only states: the driver performs their `edgeAction`, then
  * re-gathers + re-resolves WITHOUT printing a prompt (they auto-advance through
  * the deterministic chain within one invocation). Mirrors the `EDGE_ONLY_STATES`
  * set in `Prompt.ts` — these are exactly the states `buildPrompt` refuses to
  * render. Every other state is prompt-bearing: the driver stops on it and emits
  * its single prompt (even when it also carries an `edgeAction`, e.g. Fixing /
  * Grilling / Planning / Await Review commit their pending tree, then prompt).
+ *
+ * Edge-only states: transport, new-feature, testing, await-review,
+ * accept-review, close-package, done, health-check.
  */
 export const EDGE_ONLY_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
   "transport",
@@ -37,6 +40,7 @@ export const EDGE_ONLY_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
   "accept-review",
   "close-package",
   "done",
+  "health-check",
 ])
 
 /** True when the driver must auto-advance (re-gather + re-resolve) past `state` rather than prompt. */

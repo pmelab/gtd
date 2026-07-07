@@ -95,16 +95,6 @@ describe("buildPrompt", () => {
       const out = buildPrompt(result("idle"))
       expect(out).toContain("repository is idle — nothing to do")
     })
-
-    it("grilled-review renders the human review gate section", () => {
-      const out = buildPrompt(result("grilled-review", { autoAdvance: false }))
-      expect(out).toContain("Human review gate")
-    })
-
-    it("grilled-review does NOT contain the decompose text", () => {
-      const out = buildPrompt(result("grilled-review", { autoAdvance: false }))
-      expect(out).not.toContain("Decompose it into an ordered set of")
-    })
   })
 
   describe("edge-only states throw", () => {
@@ -116,6 +106,7 @@ describe("buildPrompt", () => {
       "close-package",
       "done",
       "await-review",
+      "health-check",
     ]
     for (const state of edgeOnly) {
       it(`${state} throws instead of rendering`, () => {
@@ -124,6 +115,19 @@ describe("buildPrompt", () => {
         )
       })
     }
+  })
+
+  describe("health states", () => {
+    it("health-fixing renders the fixing section", () => {
+      const out = buildPrompt(result("health-fixing", { autoAdvance: true }))
+      expect(out).toContain("Spawn a **fix subagent**")
+    })
+
+    it("health-fixing injects the execution model", () => {
+      const out = buildPrompt(result("health-fixing", { autoAdvance: true }))
+      expect(out).toContain(EXECUTION_MODEL)
+      expect(out).not.toContain("{{MODEL}}")
+    })
   })
 
   describe("{{MODEL}} substitution", () => {
@@ -188,7 +192,7 @@ describe("buildPrompt", () => {
 
     it("STOP states carry no {{MODEL}} and no injected model", () => {
       const custom = (s: string): string => `SHOULD-NOT-APPEAR-${s}`
-      for (const state of ["escalate", "idle", "grilled-review"] as const) {
+      for (const state of ["escalate", "idle"] as const) {
         const out = buildPrompt(result(state), custom)
         expect(out).not.toContain("{{MODEL}}")
         expect(out).not.toContain("SHOULD-NOT-APPEAR")
@@ -225,11 +229,6 @@ describe("buildPrompt", () => {
 
     it("clean gets the STOP banner", () => {
       const out = buildPrompt(result("clean"))
-      expect(out).toContain("This is a human feedback gate")
-    })
-
-    it("grilled-review gets the STOP banner", () => {
-      const out = buildPrompt(result("grilled-review", { autoAdvance: false }))
       expect(out).toContain("This is a human feedback gate")
     })
 
@@ -487,7 +486,6 @@ describe("buildPrompt", () => {
         ["squashing", result("squashing", { autoAdvance: true })],
         ["escalate", result("escalate")],
         ["idle", result("idle")],
-        ["grilled-review", result("grilled-review", { autoAdvance: false })],
       ]
 
       for (const [label, res] of cases) {

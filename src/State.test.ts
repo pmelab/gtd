@@ -13,7 +13,6 @@ const ALL_STATES: ReadonlyArray<GtdState> = [
   "new-feature",
   "grilling",
   "grilled",
-  "grilled-review",
   "planning",
   "building",
   "testing",
@@ -27,6 +26,8 @@ const ALL_STATES: ReadonlyArray<GtdState> = [
   "done",
   "idle",
   "squashing",
+  "health-check",
+  "health-fixing",
 ]
 
 const EXPECTED_EDGE_ONLY: ReadonlyArray<GtdState> = [
@@ -37,10 +38,11 @@ const EXPECTED_EDGE_ONLY: ReadonlyArray<GtdState> = [
   "accept-review",
   "close-package",
   "done",
+  "health-check",
 ]
 
 describe("edge-only state classification", () => {
-  it("EDGE_ONLY_STATES is exactly the seven edge-only states", () => {
+  it("EDGE_ONLY_STATES is exactly the eight edge-only states", () => {
     expect([...EDGE_ONLY_STATES].sort()).toEqual([...EXPECTED_EDGE_ONLY].sort())
   })
 
@@ -48,10 +50,6 @@ describe("edge-only state classification", () => {
     for (const state of EXPECTED_EDGE_ONLY) {
       expect(isEdgeOnly(state)).toBe(true)
     }
-  })
-
-  it("isEdgeOnly is false for grilled-review", () => {
-    expect(isEdgeOnly("grilled-review")).toBe(false)
   })
 
   it("isEdgeOnly is false for every prompt-bearing state", () => {

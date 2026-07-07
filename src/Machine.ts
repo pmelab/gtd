@@ -18,13 +18,12 @@
  * the review base, and last-commit detection; this is documented, not handled.
  */
 
-/** The 17 resolved states (STATES.md § States). `Result.state` is one of these. */
+/** The 19 resolved states (STATES.md § States). `Result.state` is one of these. */
 export type GtdState =
   | "transport"
   | "new-feature"
   | "grilling"
   | "grilled"
-  | "grilled-review" // NEW: STOP gate — plan converged, awaiting human review
   | "planning"
   | "building"
   | "testing"
@@ -38,6 +37,8 @@ export type GtdState =
   | "done"
   | "squashing"
   | "idle"
+  | "health-check"
+  | "health-fixing"
 
 /**
  * One first-parent commit, reduced to the flags the folds consume. The edge
@@ -48,6 +49,8 @@ export type GtdState =
  *   - `isPackageStart`  — subject is `gtd: planning` OR `gtd: package done`
  *   - `isWorkflowCommit`— subject starts `gtd: ` (any phase commit)
  *   - `removedErrors`   — that commit's diff deleted `ERRORS.md`
+ *   - `isHealthCheck`   — subject is `gtd: health-check`
+ *   - `isHealthFix`     — subject is `gtd: health-fix`
  */
 export interface CommitEvent {
   readonly type: "COMMIT"
@@ -56,6 +59,8 @@ export interface CommitEvent {
   readonly isPackageStart: boolean
   readonly isWorkflowCommit: boolean
   readonly removedErrors: boolean
+  readonly isHealthCheck: boolean
+  readonly isHealthFix: boolean
 }
 
 /** The terminal working-tree snapshot the ladder branches on. */
@@ -160,6 +165,17 @@ export interface ResolvePayload {
   readonly squashEnabled: boolean
   readonly squashMsgPresent: boolean
   readonly squashMsgContent: string
+  /** `HEALTH.md` exists (committed or pending). */
+  readonly healthPresent: boolean
+  /** Full text of the present `HEALTH.md` ("" when absent). */
+  readonly healthContent: string
+  /** `HEALTH.md` is tracked at HEAD (committed health check) vs pending. */
+  readonly healthCommitted: boolean
+  /**
+   * Parent commit of the first persisting health-fix cycle commit.
+   * Set by the edge only when squash is enabled.
+   */
+  readonly healthFixBase?: string
 }
 
 /**
@@ -202,6 +218,17 @@ export type EdgeAction =
       readonly removeFeedback?: boolean
       /** Delete TODO.md first so its removal lands in the `gtd: planning` commit. */
       readonly removeTodo?: boolean
+      /** Delete HEALTH.md first so its removal lands in the `gtd: health-check`/`gtd: health-fix` commit. */
+      readonly removeHealth?: boolean
+    }
+  | {
+      readonly kind: "runHealthCheck"
+      readonly errorCount: number
+      readonly capReached: boolean
+      /** Parent commit of the first health-check in the current run (squash base). Only set when squash is enabled and healthFixCount > 0. */
+      readonly healthFixBase?: string
+      /** Commit the pending ERRORS.md deletion (budget reset) before running the test. */
+      readonly commitErrorsReset?: boolean
     }
   | { readonly kind: "closePackage" }
   | { readonly kind: "commitReview" }
@@ -248,10 +275,11 @@ export interface Result {
   readonly context: ResolveContext
 }
 
-/** The two derived counters folded from the `COMMIT[]` stream. */
+/** The three derived counters folded from the `COMMIT[]` stream. */
 export interface Counters {
   readonly testFixCount: number
   readonly reviewFixCount: number
+  readonly healthFixCount: number
 }
 
 /**
@@ -279,18 +307,24 @@ export class GtdStateError extends Error {
  *   ERRORS.md) each start a fresh budget.
  * - `reviewFixCount` resets to 0 on `isPackageStart` and increments on
  *   `isFeedback` — review-fix rounds since the package start.
+ * - `healthFixCount` resets to 0 on `isPackageStart` and `removedErrors`,
+ *   and increments on `isHealthCheck` — health-fix rounds since the last reset.
  */
+// fallow-ignore-next-line complexity
 export const foldCounters = (events: readonly GtdEvent[]): Counters => {
   let testFixCount = 0
   let reviewFixCount = 0
+  let healthFixCount = 0
   for (const event of events) {
     if (event.type !== "COMMIT") continue
     if (event.isPackageStart || event.isFeedback || event.removedErrors) testFixCount = 0
     if (event.isErrors) testFixCount += 1
     if (event.isPackageStart) reviewFixCount = 0
     if (event.isFeedback) reviewFixCount += 1
+    if (event.isPackageStart || event.removedErrors) healthFixCount = 0
+    if (event.isHealthCheck) healthFixCount += 1
   }
-  return { testFixCount, reviewFixCount }
+  return { testFixCount, reviewFixCount, healthFixCount }
 }
 
 /** A boundary commit: a non-`gtd:` subject, or exactly `gtd: done`. Marks a cold start. */
@@ -330,6 +364,9 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   squashEnabled: false,
   squashMsgPresent: false,
   squashMsgContent: "",
+  healthPresent: false,
+  healthContent: "",
+  healthCommitted: false,
 }
 
 /** Build the prompt context from the payload passthrough + the folded counters. */
@@ -348,7 +385,7 @@ const buildContext = (
   ...(p.squashDiff !== undefined ? { squashDiff: p.squashDiff } : {}),
   lastCommitSubject: p.lastCommitSubject,
   workingTreeClean: p.workingTreeClean,
-  feedbackContent: p.feedbackContent,
+  feedbackContent: p.feedbackContent !== "" ? p.feedbackContent : p.healthContent,
   ...(grillingCase !== undefined ? { grillingCase } : {}),
 })
 
@@ -371,7 +408,52 @@ const assertLegal = (p: ResolvePayload): void => {
   if (p.feedbackPresent && p.reviewPresent) fail("illegal combination: FEEDBACK.md + REVIEW.md")
   if (p.feedbackPresent && !p.gtdDirExists) fail("illegal combination: FEEDBACK.md without .gtd")
   if (p.errorsPresent && p.feedbackPresent) fail("illegal combination: ERRORS.md + FEEDBACK.md")
-  if (p.errorsPresent && !p.gtdDirExists) fail("illegal combination: ERRORS.md without .gtd")
+  // ERRORS.md without .gtd is legal after a health-check cap escalation (HEAD is
+  // `gtd: health-check` and the health cycle wrote ERRORS.md as the cap marker).
+  const isHealthCapEscalation =
+    p.lastCommitSubject === "gtd: health-check" || p.lastCommitSubject === "gtd: health-fix"
+  if (p.errorsPresent && !p.gtdDirExists && !isHealthCapEscalation)
+    fail("illegal combination: ERRORS.md without .gtd")
+  if (p.healthPresent && p.gtdDirExists) fail("illegal combination: HEALTH.md + .gtd")
+  if (p.healthPresent && p.reviewPresent) fail("illegal combination: HEALTH.md + REVIEW.md")
+  if (p.healthPresent && p.feedbackPresent) fail("illegal combination: HEALTH.md + FEEDBACK.md")
+  if (p.healthPresent && p.errorsPresent) fail("illegal combination: HEALTH.md + ERRORS.md")
+}
+
+// ── Rule 1b: HEALTH.md → Health Fixing ───────────────────────────────────────
+// Sits BELOW ERRORS (rule 1) so escalation wins. HEALTH.md coexisting with
+// ERRORS.md is illegal and caught by assertLegal before the ladder.
+//
+// edgeAction fires only when there are pending changes to commit:
+//   - `!healthCommitted`: HEALTH.md is new (uncommitted) → commit it as the
+//     health-check marker. HEALTH.md is removed so the next detect route
+//     goes to `resolveCleanOrIdle` (health-check → re-test) rather than
+//     looping back to health-fixing. The health-fixing prompt receives the
+//     failure content from `context.feedbackContent` (captured before perform).
+//   - `healthCommitted && !workingTreeClean`: fix agent's boundary commit
+//     left HEALTH.md on disk; fold its removal into a `gtd: health-fix` commit.
+// When the tree is clean and HEALTH.md is already committed, the fix agent
+// hasn't run yet — emit the prompt without a pre-commit.
+const resolveHealth = (p: ResolvePayload, counters: Counters): Result => {
+  const hasPendingWork = !p.healthCommitted || !p.workingTreeClean
+  const prefix = p.healthCommitted ? "gtd: health-fix" : "gtd: health-check"
+  return {
+    state: "health-fixing",
+    autoAdvance: true,
+    ...(hasPendingWork
+      ? {
+          edgeAction: {
+            kind: "commitPending",
+            prefix,
+            // Always remove HEALTH.md: on gtd: health-check this clears it so
+            // the next run re-enters resolveCleanOrIdle; on gtd: health-fix it
+            // clears the marker left by a prior health-check run.
+            removeHealth: true,
+          } as const,
+        }
+      : {}),
+    context: buildContext(p, counters),
+  }
 }
 
 // ── Rule 2: FEEDBACK.md → Fixing or Close package ────────────────────────────
@@ -539,29 +621,34 @@ const resolveGrilling = (p: ResolvePayload, counters: Counters, head: string): R
       context: buildContext(p, counters, "iterate"),
     }
   }
-  // Converged: no markers, clean tree.
-  // First convergence (HEAD gtd: grilling) → commit gtd: grilled and STOP for
-  // the human to review TODO.md (issue 51). A re-run after the review (HEAD is
-  // already gtd: grilled, still clean, no markers) proceeds to decomposition.
-  if (head === "gtd: grilled") {
-    return {
-      state: "grilled",
-      autoAdvance: true,
-      context: buildContext(p, counters),
-    }
-  }
   return {
-    state: "grilled-review",
-    autoAdvance: false,
+    state: "grilled",
+    autoAdvance: true,
     edgeAction: { kind: "commitPending", prefix: "gtd: grilled" },
     context: buildContext(p, counters),
   }
 }
 
-// ── Rule 7: Clean / Idle ──────────────────────────────────────────────────────
+// ── Rule 7: Clean / Idle / Health-check ──────────────────────────────────────
 // fallow-ignore-next-line complexity
 const resolveCleanOrIdle = (p: ResolvePayload, counters: Counters, head: string): Result | null => {
-  if (!p.workingTreeClean || (!isBoundary(head) && head !== "gtd: package done")) return null
+  const isHealthHead = head === "gtd: health-check" || head === "gtd: health-fix"
+  // Allow `pendingErrorsDeletion` without .gtd to fall through: the
+  // `runHealthCheck` edge action carries `commitErrorsReset: true` so perform
+  // commits the deletion first (resetting healthFixCount via removedErrors),
+  // then runs the test. This is handled below in the normal health-check path.
+  if (!p.workingTreeClean && !p.pendingErrorsDeletion) return null
+  if (!p.workingTreeClean && p.pendingErrorsDeletion && p.gtdDirExists) return null // gtd lifecycle handles it
+  if (
+    !p.workingTreeClean &&
+    p.pendingErrorsDeletion &&
+    !isBoundary(head) &&
+    head !== "gtd: package done" &&
+    !isHealthHead
+  )
+    return null
+  if (p.workingTreeClean && !isBoundary(head) && head !== "gtd: package done" && !isHealthHead)
+    return null
   if (head === "gtd: done" && p.squashEnabled && p.squashBase !== undefined) {
     if (p.squashMsgPresent) {
       return {
@@ -579,9 +666,21 @@ const resolveCleanOrIdle = (p: ResolvePayload, counters: Counters, head: string)
   }
   const reviewable =
     p.hasCommitsAfterLastDone && p.reviewBase !== undefined && (p.refDiff ?? "").trim().length > 0
+  if (reviewable) {
+    return { state: "clean", autoAdvance: false, context: buildContext(p, counters) }
+  }
+  const squashHealth =
+    p.squashEnabled && counters.healthFixCount > 0 && p.healthFixBase !== undefined
   return {
-    state: reviewable ? "clean" : "idle",
-    autoAdvance: false,
+    state: "health-check",
+    autoAdvance: true,
+    edgeAction: {
+      kind: "runHealthCheck",
+      errorCount: counters.healthFixCount,
+      capReached: counters.healthFixCount >= p.fixAttemptCap,
+      ...(squashHealth ? { healthFixBase: p.healthFixBase } : {}),
+      ...(p.pendingErrorsDeletion ? { commitErrorsReset: true } : {}),
+    },
     context: buildContext(p, counters),
   }
 }
@@ -623,6 +722,8 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   // ── 1. ERRORS.md → Escalate ───────────────────────────────────────────────
   if (p.errorsPresent)
     return { state: "escalate", autoAdvance: false, context: buildContext(p, counters) }
+  // ── 1b. HEALTH.md → Health Fixing ────────────────────────────────────────
+  if (p.healthPresent) return resolveHealth(p, counters)
   // ── 2. FEEDBACK.md → Fixing / Close package ───────────────────────────────
   if (p.feedbackPresent) return resolveFeedback(p, counters)
   // ── 3. .gtd → build lifecycle ─────────────────────────────────────────────
@@ -653,6 +754,23 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
       edgeAction: {
         kind: "squashCommit",
         squashBase: p.squashBase,
+        commitMessage: p.squashMsgContent,
+      },
+      context: buildContext(p, counters),
+    }
+  }
+  // ── 4c. Health-squash-perform (dirty tree, SQUASH_MSG.md only, health cycle) ──
+  // Parallel to rule 4b but for the health-check cycle: after a green health run
+  // with prior health-fix commits, `perform(runHealthCheck)` writes SQUASH_MSG.md
+  // (written uncommitted), causing this rule to fire and execute the squash.
+  // Guard on !codeDirty so unrelated edits do not get silently folded in.
+  if (p.squashEnabled && p.healthFixBase !== undefined && p.squashMsgPresent && !p.codeDirty) {
+    return {
+      state: "squashing",
+      autoAdvance: false,
+      edgeAction: {
+        kind: "squashCommit",
+        squashBase: p.healthFixBase,
         commitMessage: p.squashMsgContent,
       },
       context: buildContext(p, counters),

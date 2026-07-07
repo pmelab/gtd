@@ -46,7 +46,7 @@ Feature: Grilling — the 3-way convergence gate on TODO.md
     And stdout contains "holds the plan under development"
     And stdout contains "### Develop the plan"
 
-  Scenario: No marker and a clean tree converges to Grilled and STOPs for human review
+  Scenario: No marker and a clean tree converges to Grilled and prompts decompose
     Given a test project
     And a commit "gtd: grilling" that adds "TODO.md" with:
       """
@@ -59,49 +59,8 @@ Feature: Grilling — the 3-way convergence gate on TODO.md
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: grilled"
-    And stdout contains "Human review gate"
-    And stdout does not contain "Decompose it into an ordered set of"
-
-  Scenario: Re-running after review with a clean tree proceeds to decomposition
-    Given a test project
-    And a commit "gtd: grilled" that adds "TODO.md" with:
-      """
-      # Plan
-
-      Build a calculator with add and subtract.
-
-      no open questions — run gtd to plan
-      """
-    When I run gtd
-    Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
-    And stdout does not contain "Human review gate"
-    Then I record the commit count
-    And the commit count is unchanged
-
-  Scenario: Re-running after review with edits to TODO.md re-enters grilling
-    Given a test project
-    And a commit "gtd: grilled" that adds "TODO.md" with:
-      """
-      # Plan
-
-      Build a calculator with add and subtract.
-
-      no open questions — run gtd to plan
-      """
-    And "TODO.md" is modified to:
-      """
-      # Plan
-
-      Build a calculator with add, subtract, multiply, and divide.
-
-      no open questions — run gtd to plan
-      """
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: grilling"
-    And stdout contains "### Develop the plan"
-    And stdout does not contain "Human review gate"
+    And stdout does not contain "Open questions await the user"
 
   Scenario: Marker inside an unclosed code fence does not stop for the user
     Given a test project
