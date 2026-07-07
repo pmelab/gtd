@@ -13,7 +13,7 @@
     [
       "@semantic-release/git",
       {
-        "assets": ["package.json", "schema.json"],
+        "assets": ["package.json", "package-lock.json", "schema.json"],
         "message": "chore(release): ${nextRelease.version} [skip ci]"
       }
     ],
