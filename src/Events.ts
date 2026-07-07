@@ -56,6 +56,7 @@ const DONE_SUBJECT = "gtd: done"
 // The accept-review capture commit (commit-then-revert, like `gtd: new task`).
 // Distinct from the exact `gtd: feedback` marker the reviewFixCount fold reads.
 const REVIEW_FEEDBACK_SUBJECT = "gtd: review feedback"
+export const REVIEWING_SUBJECT = "gtd: reviewing"
 const SQUASH_MSG_FILE = "SQUASH_MSG.md"
 
 // The steering-file set, single source of truth: the predicates below and the
@@ -603,7 +604,10 @@ export const gatherEvents = (): Effect.Effect<
         // past entire prior features).
         let startIdx = -1
         for (let i = squashCycle.length - 1; i >= 0; i--) {
-          if (subjectOf(squashCycle[i]!) === NEW_TASK_SUBJECT) {
+          if (
+            subjectOf(squashCycle[i]!) === NEW_TASK_SUBJECT ||
+            subjectOf(squashCycle[i]!) === REVIEWING_SUBJECT
+          ) {
             startIdx = i
             break
           }
@@ -751,6 +755,37 @@ const captureAndRevert = (
     const captured = yield* git.diffRef(base).pipe(Effect.catchAll(() => Effect.succeed("")))
     yield* git.revertNoCommit("HEAD")
     return captured
+  })
+
+/**
+ * Compute the review base and diff against an arbitrary git ref (branch, tag,
+ * or commit). Used by `program.ts` for the `--against` flag.
+ *
+ * - Resolves `target` via `git rev-parse`; lets failure propagate so the caller
+ *   can report an unresolvable ref.
+ * - Picks `merge-base(target, HEAD)` as the diff base; falls back to the
+ *   resolved target hash when there is no merge-base or when the merge-base
+ *   equals the target (target is already an ancestor of HEAD).
+ * - Applies `WORKFLOW_FILE_EXCLUDES` to the diff.
+ * - Returns `undefined` when the filtered diff is empty; otherwise
+ *   `{ reviewBase, refDiff }`.
+ */
+export const reviewAgainst = (
+  target: string,
+): Effect.Effect<
+  { reviewBase: string; refDiff: string } | undefined,
+  Error,
+  GitService | FileSystem.FileSystem | Cwd
+> =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    const targetHash = yield* git.resolveRef(target)
+    const mergeBase = yield* git.mergeBase(target, "HEAD")
+    const mergeBaseHash =
+      Option.isNone(mergeBase) || mergeBase.value === targetHash ? targetHash : mergeBase.value
+    const refDiff = yield* git.diffRef(mergeBaseHash, WORKFLOW_FILE_EXCLUDES)
+    if (refDiff.trim().length === 0) return undefined
+    return { reviewBase: mergeBaseHash, refDiff }
   })
 
 /**
