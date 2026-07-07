@@ -21,7 +21,7 @@ Feature: Fixing — consume FEEDBACK.md with a provenance-tagged commit
     Then it succeeds
     And the last commit subject is "gtd: fixing"
     And the file "FEEDBACK.md" does not exist
-    And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
+    And stdout contains "Spawn a **fix subagent**"
     And stdout contains "AssertionError: expected helper('a') to equal 'a'"
 
   Scenario: An uncommitted FEEDBACK.md is consumed as gtd: feedback
@@ -38,7 +38,7 @@ Feature: Fixing — consume FEEDBACK.md with a provenance-tagged commit
     Then it succeeds
     And the last commit subject is "gtd: feedback"
     And the file "FEEDBACK.md" does not exist
-    And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
+    And stdout contains "Spawn a **fix subagent**"
     And stdout contains "Finding: helper must trim whitespace before returning."
 
   # Fixing must DELETE FEEDBACK.md (not just commit around it): the removal lands
@@ -74,8 +74,8 @@ Feature: Fixing — consume FEEDBACK.md with a provenance-tagged commit
     When I run gtd
     Then it succeeds
     And the file "ERRORS.md" exists
-    And stdout contains "## Task: Escalate"
-    And stdout does not contain "## Task: Fix the package against"
+    And stdout contains "was not able to fix all errors on its own"
+    And stdout does not contain "Spawn a **fix subagent**"
 
   Scenario: Fixing removes FEEDBACK.md so the fixed tree returns to Testing
     Given a test project
@@ -111,4 +111,4 @@ Feature: Fixing — consume FEEDBACK.md with a provenance-tagged commit
     Then it succeeds
     And the git log contains "gtd: building"
     And the last commit subject is "gtd: building"
-    And stdout contains "## Task: Agentic review of the built package"
+    And stdout contains "Spawn a **reviewing subagent**"

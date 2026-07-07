@@ -1,13 +1,11 @@
-## Task: Decompose the plan into work packages
+<%~ include("@header") %>
 
-The plan in `TODO.md` is settled (no open questions). Decompose it into an
-ordered set of executable work packages under `.gtd/`. If `.gtd/` already holds
-packages from an earlier turn, continue and refine them rather than starting
-over.
+<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
+`TODO.md` contains an implementation plan. Decompose it into an ordered set of
+executable work packages stored in the `.gtd/` directory. If `.gtd/` already
+holds packages from an earlier turn, immediately abort and raise an error.
 
-### Orchestration
-
-Spawn a **planning-model subagent** using model `{{MODEL}}` to perform the
+Spawn a **planning-model subagent** using model `<%= it.model %>` to perform the
 decomposition. It creates numbered package directories, each holding numbered
 task files:
 
@@ -43,16 +41,10 @@ task files:
 5. **Task files are self-contained** — each task `.md` includes a clear
    description of what to build, acceptance criteria as `- [ ] Criterion`
    checkboxes, the relevant file paths to examine, and any constraints or edge
-   cases.
+   cases. It is the only context building agents will receive to work on the
+   task.
 
-### After the subagent completes
+**DO NOT** commit any changes. This process runs within a larger orchestration
+that depends on uncommitted changes.
 
-Leave every change **uncommitted**; the next cycle commits `.gtd/` as
-`gtd: planning`, preserving the plan and its full Q&A history in git. The plan
-is now executable.
-
-`TODO.md` is **deleted** at the first Building turn (when HEAD is
-`gtd: planning` and TODO.md is still present) — committed under the same
-`gtd: planning` prefix so HEAD advances correctly. The Q&A history lives in git
-from that point on; build subagents receive only their concrete `.gtd/` task
-files and never see TODO.md.
+<%~ include(it.tail) %>

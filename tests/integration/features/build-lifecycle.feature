@@ -21,7 +21,7 @@ Feature: Build lifecycle — Grilled → Planning → Building
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: planning"
-    And stdout contains "## Task: Decompose the plan into work packages"
+    And stdout contains "Decompose it into an ordered set of"
 
   Scenario: A clean .gtd under a gtd: planning HEAD selects the lowest package to build
     Given a test project
@@ -35,7 +35,7 @@ Feature: Build lifecycle — Grilled → Planning → Building
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Build one work package"
+    And stdout contains "Build the package described below"
     And stdout contains "01-add"
     And stdout contains "02-sub"
     # Only the lowest-numbered package's task content is inlined for building.

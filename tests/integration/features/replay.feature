@@ -15,11 +15,11 @@ Feature: Replay — any committed point resumes deterministically
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: planning"
-    And stdout contains "## Task: Build one work package"
+    And stdout contains "Build the package described below"
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: planning"
-    And stdout contains "## Task: Build one work package"
+    And stdout contains "Build the package described below"
 
   # STOP/prompt states with no edge action must be perfectly replayable. (Auto
   # and approval states are intentionally NOT idempotent: re-running at
@@ -37,11 +37,11 @@ Feature: Replay — any committed point resumes deterministically
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Escalate — the test gate is stuck"
+    And stdout contains "was not able to fix all errors on its own"
     And I record the commit count
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Escalate — the test gate is stuck"
+    And stdout contains "was not able to fix all errors on its own"
     And the commit count is unchanged
     And the file "ERRORS.md" exists
 
@@ -55,11 +55,11 @@ Feature: Replay — any committed point resumes deterministically
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And I record the commit count
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And the commit count is unchanged
 
   # Interruption recovery: a run killed between the `gtd: building` commit and
@@ -83,9 +83,9 @@ Feature: Replay — any committed point resumes deterministically
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Agentic review of the built package"
+    And stdout contains "Spawn a **reviewing subagent**"
     And I record the commit count
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Agentic review of the built package"
+    And stdout contains "Spawn a **reviewing subagent**"
     And the commit count is unchanged

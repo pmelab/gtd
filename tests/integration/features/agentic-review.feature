@@ -18,7 +18,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: building"
-    And stdout contains "## Task: Agentic review of the built package"
+    And stdout contains "Spawn a **reviewing subagent**"
     And stdout contains "Implement the helper."
 
   Scenario: An empty FEEDBACK.md approves and closes the package
@@ -47,7 +47,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: feedback"
-    And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
+    And stdout contains "Spawn a **fix subagent**"
 
   Scenario: The review-fix threshold force-approves without reviewing
     Given a test project
@@ -65,7 +65,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
     Then it succeeds
     And the last commit subject is "gtd: package done"
     And the file ".gtd/01-foo/01-task.md" does not exist
-    And stdout does not contain "## Task: Agentic review of the built package"
+    And stdout does not contain "Spawn a **reviewing subagent**"
 
   Scenario: The review-fix threshold force-approves on the default branch (trunk)
     Given a test project
@@ -82,7 +82,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
     Then it succeeds
     And the last commit subject is "gtd: package done"
     And the file ".gtd/01-foo/01-task.md" does not exist
-    And stdout does not contain "## Task: Agentic review of the built package"
+    And stdout does not contain "Spawn a **reviewing subagent**"
 
   Scenario: agenticReview false force-approves without reviewing
     Given a test project
@@ -98,4 +98,4 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
     Then it succeeds
     And the last commit subject is "gtd: package done"
     And the file ".gtd/01-foo/01-task.md" does not exist
-    And stdout does not contain "## Task: Agentic review of the built package"
+    And stdout does not contain "Spawn a **reviewing subagent**"

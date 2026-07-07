@@ -1,5 +1,6 @@
-## Task: Grill the plan in `TODO.md`
+<%~ include("@header") %>
 
+<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
 `TODO.md` holds the plan under development. The grilling loop interviews it —
 surfacing and resolving open questions — until the plan is solid enough to
 decompose into work packages.
@@ -21,11 +22,9 @@ and leave **no** markers — the next cycle advances the plan to decomposition.
 The sentinel means the plan is fully developed and ready to decompose — it is
 never a substitute for writing the plan.
 
-<!-- gtd:iterate -->
-
 ### Develop the plan
 
-Spawn a **planning-model subagent** using model `{{MODEL}}` to develop the plan.
+Spawn a **planning-model subagent** using model `<%= it.model %>` to develop the plan.
 The subagent works entirely by editing `TODO.md` (it cannot talk to the user):
 
 1. **Always develop `TODO.md` into a concrete plan.** Replace the captured input
@@ -66,12 +65,4 @@ The subagent works entirely by editing `TODO.md` (it cannot talk to the user):
 Leave `TODO.md` **uncommitted** — the next cycle commits it `gtd: grilling` and
 re-derives.
 
-<!-- gtd:stop -->
-
-### Open questions await the user
-
-`TODO.md` contains one or more `<!-- user answers here -->` markers — unanswered
-questions. This is a human gate; there is nothing for you to do.
-
-Tell the user to open `TODO.md`, answer each question inline (replacing its
-`<!-- user answers here -->` marker with the answer).
+<%~ include(it.tail) %>

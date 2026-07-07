@@ -1,5 +1,14 @@
-import header from "./prompts/header.md"
-import grillingMd from "./prompts/grilling.md"
+import { Eta } from "eta"
+import headerMd from "./prompts/header.md"
+import contextMd from "./prompts/partials/context.md"
+import diffMd from "./prompts/partials/diff.md"
+import feedbackMd from "./prompts/partials/feedback.md"
+import packageMd from "./prompts/partials/package.md"
+import autoAdvanceMd from "./prompts/partials/auto-advance.md"
+import neutralMd from "./prompts/partials/neutral.md"
+import stopMd from "./prompts/partials/stop.md"
+import grillingIterateMd from "./prompts/grilling-iterate.md"
+import grillingStopMd from "./prompts/grilling-stop.md"
 import decomposeMd from "./prompts/decompose.md"
 import buildingMd from "./prompts/building.md"
 import fixingMd from "./prompts/fixing.md"
@@ -8,11 +17,8 @@ import cleanMd from "./prompts/clean.md"
 import squashingMd from "./prompts/squashing.md"
 import escalateMd from "./prompts/escalate.md"
 import idleMd from "./prompts/idle.md"
-import autoAdvance from "./prompts/partials/auto-advance.md"
-import neutral from "./prompts/partials/neutral.md"
-import stopPartial from "./prompts/partials/stop.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
-import type { GtdPackageFact, GtdState, ResolveContext, Result } from "./Machine.js"
+import type { GtdState, Result } from "./Machine.js"
 
 /**
  * The seven edge-only states: the driver performs their `edgeAction`, re-gathers,
@@ -57,26 +63,6 @@ const MODEL_STATE: Partial<Record<PromptState, ModelState>> = {
   squashing: "clean",
 }
 
-/** The static section for each non-grilling prompt state (grilling renders specially). */
-const SECTIONS: Record<Exclude<PromptState, "grilling">, string> = {
-  grilled: decomposeMd,
-  planning: decomposeMd,
-  building: buildingMd,
-  fixing: fixingMd,
-  "agentic-review": agenticReviewMd,
-  clean: cleanMd,
-  squashing: squashingMd,
-  escalate: escalateMd,
-  idle: idleMd,
-}
-
-// Grilling carries both tails in one file, delimited by HTML comments:
-//   <base> <!-- gtd:iterate --> <iterate tail> <!-- gtd:stop --> <stop tail>
-// `{{MODEL}}` lives only in the iterate tail, so the STOP variant spawns no agent.
-const [GRILL_BASE = "", GRILL_AFTER_ITERATE = ""] = grillingMd.split("<!-- gtd:iterate -->")
-const [GRILL_ITERATE_TAIL = "", GRILL_STOP_TAIL = ""] =
-  GRILL_AFTER_ITERATE.split("<!-- gtd:stop -->")
-
 /**
  * Built-in model resolver, reusing the single source of truth in `Config.ts`
  * (state→tier map + built-in tier defaults) so it can never drift from
@@ -98,134 +84,63 @@ export const fenceFor = (content: string): string => {
   return "`".repeat(Math.max(3, longest + 1))
 }
 
-/** A fenced `diff` block under a `### heading`, fence-sized to survive backticks. */
-const renderDiff = (heading: string, diff: string): ReadonlyArray<string> => {
-  const body = diff.replace(/\n$/, "")
-  const fence = fenceFor(body)
-  return ["", `### ${heading}`, "", `${fence}diff`, body, fence, ""]
+// ---------------------------------------------------------------------------
+// Eta setup — one instance, all templates loaded in-memory at module load.
+// ---------------------------------------------------------------------------
+
+const eta = new Eta()
+
+// Register partials
+eta.loadTemplate("@header", headerMd)
+eta.loadTemplate("@context", contextMd)
+eta.loadTemplate("@diff", diffMd)
+eta.loadTemplate("@feedback", feedbackMd)
+eta.loadTemplate("@package", packageMd)
+
+// Register tail partials
+eta.loadTemplate("@auto-advance", autoAdvanceMd)
+eta.loadTemplate("@neutral", neutralMd)
+eta.loadTemplate("@stop", stopMd)
+
+// Register state templates
+eta.loadTemplate("@grilling-iterate", grillingIterateMd)
+eta.loadTemplate("@grilling-stop", grillingStopMd)
+eta.loadTemplate("@decompose", decomposeMd)
+eta.loadTemplate("@building", buildingMd)
+eta.loadTemplate("@fixing", fixingMd)
+eta.loadTemplate("@agentic-review", agenticReviewMd)
+eta.loadTemplate("@clean", cleanMd)
+eta.loadTemplate("@squashing", squashingMd)
+eta.loadTemplate("@escalate", escalateMd)
+eta.loadTemplate("@idle", idleMd)
+
+// Null out filesystem resolution — all templates must come from in-memory cache.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(eta as any).readFile = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+;(eta as any).resolvePath = null
+
+/** Maps each non-grilling PromptState to its registered template name. */
+const STATE_TEMPLATE: Record<Exclude<PromptState, "grilling">, string> = {
+  grilled: "@decompose",
+  planning: "@decompose",
+  building: "@building",
+  fixing: "@fixing",
+  "agentic-review": "@agentic-review",
+  clean: "@clean",
+  squashing: "@squashing",
+  escalate: "@escalate",
+  idle: "@idle",
 }
 
 /**
- * Inlines the FEEDBACK.md text into the Fixing prompt under a heading, fenced so
- * backtick-bearing test output / review findings survive. The edge has already
- * committed FEEDBACK.md's removal by the time the fixer runs, so the content must
- * travel in the prompt rather than be read from disk (STATES.md § Fixing).
- */
-const renderFeedback = (content: string): ReadonlyArray<string> => {
-  const body = content.replace(/\n$/, "")
-  const fence = fenceFor(body)
-  return ["", "### Feedback to address", "", fence, body, fence, ""]
-}
-
-/**
- * Inlines the selected package: names it and fences each task `.md`'s raw content
- * via `fenceFor` so backtick-bearing specs survive. No `COMMIT_MSG.md` — packages
- * no longer carry one; the edge commits them `gtd: building`.
- */
-const renderPackage = (pkg: GtdPackageFact): string => {
-  const lines: Array<string> = ["", `### Package: \`${pkg.name}/\``, ""]
-  for (const task of pkg.taskContents) {
-    lines.push(`#### \`${task.name}\``, "")
-    const fence = fenceFor(task.content)
-    lines.push(fence, task.content.replace(/\n$/, ""), fence, "")
-  }
-  return lines.join("\n")
-}
-
-/** The `## Context` block: last commit, working-tree status, packages, and diff. */
-const buildContextBlock = (context: ResolveContext): string => {
-  const lines: Array<string> = ["## Context", ""]
-  lines.push(
-    context.lastCommitSubject === ""
-      ? "Last commit: _(repository has no commits yet)_"
-      : `Last commit: \`${context.lastCommitSubject}\``,
-  )
-  lines.push(`Working tree: ${context.workingTreeClean ? "clean" : "dirty"}`)
-  if (context.packages.length > 0) {
-    lines.push("", "### Work packages in `.gtd/`", "")
-    for (const pkg of context.packages) {
-      lines.push(`- \`${pkg.name}/\``)
-      for (const task of pkg.tasks) lines.push(`  - \`${task}\``)
-    }
-  }
-  if (context.diff !== "") {
-    lines.push(
-      ...renderDiff("Working-tree diff (`git diff HEAD`, untracked included)", context.diff),
-    )
-  }
-  return lines.join("\n")
-}
-
-/** Renders grilling's shared base plus the STOP or iterate tail per `grillingCase`. */
-const renderGrilling = (
-  context: ResolveContext,
-  resolveModel: (state: ModelState) => string,
-): string => {
-  const tail = context.grillingCase === "stop" ? GRILL_STOP_TAIL : GRILL_ITERATE_TAIL
-  return `${GRILL_BASE}${tail}`.replaceAll("{{MODEL}}", resolveModel("grilling"))
-}
-
-/** State-specific content sections appended after the context block. */
-// fallow-ignore-next-line complexity
-const renderStateSection = (
-  promptState: PromptState,
-  context: ResolveContext,
-  resolveModel: (state: ModelState) => string,
-): Array<string> => {
-  if (promptState === "grilling") {
-    return [renderGrilling(context, resolveModel), ""]
-  }
-
-  const modelState = MODEL_STATE[promptState]
-  const raw = SECTIONS[promptState]
-  const section =
-    modelState !== undefined ? raw.replaceAll("{{MODEL}}", resolveModel(modelState)) : raw
-  const parts: Array<string> = [section, ""]
-
-  const pkg = context.packages[0]
-  if (promptState === "building" && pkg !== undefined) {
-    parts.push(renderPackage(pkg), "")
-  }
-  if (promptState === "fixing" && context.feedbackContent.trim() !== "") {
-    parts.push(...renderFeedback(context.feedbackContent), "")
-  }
-  if (promptState === "agentic-review" && pkg !== undefined) {
-    parts.push(renderPackage(pkg), "")
-    if (context.refDiff !== undefined && context.refDiff.trim() !== "") {
-      parts.push(...renderDiff("Package diff", context.refDiff))
-    }
-  }
-  if (promptState === "clean" && context.refDiff !== undefined && context.refDiff.trim() !== "") {
-    if (context.reviewBase !== undefined) parts.push(`Review base: ${context.reviewBase}`, "")
-    const diffLabel =
-      context.reviewBase !== undefined
-        ? `Changes to review (\`git diff ${context.reviewBase} HEAD\`)`
-        : "Changes to review (`git diff <base> HEAD`)"
-    parts.push(...renderDiff(diffLabel, context.refDiff))
-  }
-  if (
-    promptState === "squashing" &&
-    context.squashDiff !== undefined &&
-    context.squashDiff.trim() !== ""
-  ) {
-    if (context.squashBase !== undefined) parts.push(`Squash base: ${context.squashBase}`, "")
-    const diffLabel =
-      context.squashBase !== undefined
-        ? `Full-process diff (\`git diff ${context.squashBase} HEAD\`)`
-        : "Full-process diff (`git diff <squashBase> HEAD`)"
-    parts.push(...renderDiff(diffLabel, context.squashDiff))
-  }
-  return parts
-}
-
-/**
- * Assemble the full prompt for a resolved, prompt-bearing state: the shared
- * `header`, a `## Context` block, the state's section (with `{{MODEL}}` resolved
- * for the seven model states and the selected package / diffs inlined where the
- * state needs them), and the `auto-advance` partial when `result.autoAdvance`.
+ * Assemble the full prompt for a resolved, prompt-bearing state via Eta
+ * templates. Each state template is a complete, self-contained Eta template
+ * that pulls in shared partials (`@header`, `@context`, tail) and the
+ * state-specific dynamic values (`model`, `tail`) as view-model variables.
  *
- * Throws for the seven edge-only states — they are performed by the driver and must
- * never reach here.
+ * Throws for the seven edge-only states — they are performed by the driver and
+ * must never reach here.
  */
 export const buildPrompt = (
   result: Result,
@@ -237,19 +152,29 @@ export const buildPrompt = (
     throw new Error(`State "${state}" is performed by the edge and must never reach buildPrompt`)
   }
   const promptState = state as PromptState
-  const tail = output === "json" ? neutral : result.autoAdvance ? autoAdvance : stopPartial
-  const parts: Array<string> = [
-    header,
-    "",
-    buildContextBlock(context),
-    ...renderStateSection(promptState, context, resolveModel),
+
+  // Resolve the model string for states that spawn a subagent.
+  const modelState = MODEL_STATE[promptState]
+  const model = modelState !== undefined ? resolveModel(modelState) : ""
+
+  // Select the tail partial name.
+  const tail = output === "json" ? "@neutral" : result.autoAdvance ? "@auto-advance" : "@stop"
+
+  // Select the state template.
+  let templateName: string
+  if (promptState === "grilling") {
+    templateName = context.grillingCase === "stop" ? "@grilling-stop" : "@grilling-iterate"
+  } else {
+    templateName = STATE_TEMPLATE[promptState]
+  }
+
+  const raw = eta.renderString(`<%~ include(it.tmpl, it) %>`, {
+    tmpl: templateName,
+    context,
+    model,
     tail,
-    "",
-  ]
-  return (
-    parts
-      .join("\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trimEnd() + "\n"
-  )
+    fenceFor,
+  })
+
+  return raw.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n"
 }

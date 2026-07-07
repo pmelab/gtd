@@ -53,7 +53,7 @@ Feature: Hostile environments and unusual invocations
     And the repository is in detached HEAD state
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And stdout contains "src/work.ts"
 
   # A merge commit at HEAD is documented-unsupported (STATES.md): the machine
@@ -68,7 +68,7 @@ Feature: Hostile environments and unusual invocations
     Then I record the commit count
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Nothing to do"
+    And stdout contains "repository is idle — nothing to do"
     And the commit count is unchanged
 
   Scenario: A transport commit as the root commit fails with a clear error

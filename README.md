@@ -715,6 +715,26 @@ This mirrors the `format:check` step enforced in CI (`prettier --check .`),
 keeping committed code consistently formatted without requiring a separate
 manual format pass.
 
+### Prompt templates
+
+Each prompt-bearing state has a self-contained Eta template in
+`src/prompts/*.md` that owns its full prompt — header, context, body, and tail.
+Shared fragments live as partials in `src/prompts/partials/`: `header`, the
+context renderers (`context`, `package`, `diff`, `feedback`), and three tail
+variants (`auto-advance`, `neutral`, `stop`). Templates compose them via Eta's
+`<%~ include("@name", { … }) %>` syntax; dynamic values such as the resolved
+model string are injected as Eta variables (`<%= model %>`).
+
+At module load, `src/Prompt.ts` registers every template on a single `new Eta()`
+instance via `loadTemplate`. `readFile` and `resolvePath` are nulled afterward
+so rendering resolves exclusively from the in-memory cache — the compiled ESM
+bundle carries no runtime `fs` dependency.
+
+`buildPrompt(result, resolveModel?, output?)` selects the state's template,
+builds a view-model (model string, tail partial name, context), renders it,
+collapses runs of three or more blank lines to two, and ensures exactly one
+trailing newline.
+
 `npm run dev` runs `src/main.ts` directly via Node's native TypeScript
 type-stripping (requires Node 22.6+). It registers `dev/hooks.mjs`, which fills
 the two gaps the tsup build otherwise covers: resolving `./Foo.js` specifiers to

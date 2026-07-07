@@ -1,2 +1,2 @@
-Complete the steps above, then end your turn — the harness decides what happens
-next.
+Complete the tasks above, then end your turn. An outside process will decide
+what to do next.

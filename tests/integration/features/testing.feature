@@ -30,7 +30,7 @@ Feature: Testing — the bounded test/fix loop and escalation
     Then it succeeds
     And the git log contains "gtd: building"
     And the last commit subject is "gtd: building"
-    And stdout contains "## Task: Agentic review of the built package"
+    And stdout contains "Spawn a **reviewing subagent**"
 
   # The build-phase asymmetry (by design): while .gtd/ exists, pending code is
   # indistinguishable from builder-agent output, so user edits are ADOPTED into
@@ -85,7 +85,7 @@ Feature: Testing — the bounded test/fix loop and escalation
     # is gone by the end of this single invocation (the `gtd: errors` commit is the
     # durable record that it was written).
     And the file "FEEDBACK.md" does not exist
-    And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
+    And stdout contains "Spawn a **fix subagent**"
     And stdout contains "SENTINEL_FAILURE"
 
   Scenario: A red gate with no output still routes to Fixing, not Close package
@@ -110,8 +110,8 @@ Feature: Testing — the bounded test/fix loop and escalation
     Then it succeeds
     And the git log contains "gtd: errors"
     And the last commit subject is "gtd: fixing"
-    And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
-    And stdout does not contain "## Task: Close"
+    And stdout contains "Spawn a **fix subagent**"
+    And stdout does not contain "was not able to fix all errors on its own"
     And stdout does not contain "gtd: package done"
 
   Scenario: A red gate at the fix-attempt cap writes ERRORS.md and escalates
@@ -143,9 +143,8 @@ Feature: Testing — the bounded test/fix loop and escalation
     And the file "ERRORS.md" exists
     And the file "FEEDBACK.md" does not exist
     And the last commit subject is "gtd: errors"
-    And stdout contains "## Task: Escalate"
-    And stdout contains "STOP"
-    And stdout does not contain "## Task: Fix the package"
+    And stdout contains "was not able to fix all errors on its own"
+    And stdout does not contain "Spawn a **fix subagent**"
 
   Scenario: A committed ERRORS.md stops at Escalate as a human gate
     Given a test project
@@ -159,9 +158,8 @@ Feature: Testing — the bounded test/fix loop and escalation
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Escalate"
-    And stdout contains "STOP"
-    And stdout does not contain "## Task: Agentic review"
+    And stdout contains "was not able to fix all errors on its own"
+    And stdout does not contain "Spawn a **reviewing subagent**"
 
   Scenario: Removing ERRORS.md resets the budget and re-tests with a fresh round
     Given a test project
@@ -189,8 +187,8 @@ Feature: Testing — the bounded test/fix loop and escalation
     Then it succeeds
     And the file "ERRORS.md" does not exist
     And the git log contains "gtd: building"
-    And stdout does not contain "## Task: Escalate"
-    And stdout contains "## Task: Agentic review of the built package"
+    And stdout does not contain "was not able to fix all errors on its own"
+    And stdout contains "Spawn a **reviewing subagent**"
 
   Scenario: A no-op fixer (clean tree, HEAD gtd: fixing) is re-tested
     # The fixer produced no change, so the tree is clean under a `gtd: fixing`
@@ -217,7 +215,7 @@ Feature: Testing — the bounded test/fix loop and escalation
     Then it succeeds
     And the git log contains "gtd: errors"
     And the last commit subject is "gtd: fixing"
-    And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
+    And stdout contains "Spawn a **fix subagent**"
     And stdout contains "STILL_BROKEN"
 
   Scenario: A no-op fixer whose re-test is green advances to Agentic Review
@@ -246,7 +244,7 @@ Feature: Testing — the bounded test/fix loop and escalation
     Then it succeeds
     And the git log contains "gtd: building"
     And the last commit subject is "gtd: building"
-    And stdout contains "## Task: Agentic review of the built package"
+    And stdout contains "Spawn a **reviewing subagent**"
 
   Scenario: A nonexistent test command produces a clean error on stderr
     Given a test project
@@ -321,6 +319,5 @@ Feature: Testing — the bounded test/fix loop and escalation
     And the file "ERRORS.md" exists
     And the file "FEEDBACK.md" does not exist
     And the last commit subject is "gtd: errors"
-    And stdout contains "## Task: Escalate"
-    And stdout contains "STOP"
-    And stdout does not contain "## Task: Fix the package"
+    And stdout contains "was not able to fix all errors on its own"
+    And stdout does not contain "Spawn a **fix subagent**"

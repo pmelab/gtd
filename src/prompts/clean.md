@@ -1,17 +1,11 @@
-## Task: Create `REVIEW.md` for the finished work
+<%~ include("@header") %>
 
-The working tree is clean and there is unreviewed work since the review base.
-Produce a `REVIEW.md` that guides the user through it. The diff to review
-(`git diff <base> HEAD`) is inlined below; workflow files (REVIEW.md, TODO.md,
-FEEDBACK.md, ERRORS.md, `.gtd/`) are already excluded — never write review
-chunks about them.
+<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
+Spawn a **planning-model subagent** using model `<%= it.model %>` to author a
+`REVIEW.md` file that will help a human to review the changes. It must:
 
-### Orchestration
-
-Spawn a **planning-model subagent** using model `{{MODEL}}` to author the
-review. It must:
-
-1. **Read the inlined diff** — extract the changed hunks with their file paths.
+1. **Read the diff inlined below** — extract the changed hunks with their file
+   paths.
 2. **Group hunks semantically** — cluster hunks that serve the same logical
    concern (the same feature, refactor, or fix), even across files. Aim for the
    fewest chunks that keep the review navigable.
@@ -49,6 +43,10 @@ review. It must:
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
 
-4. Leave `REVIEW.md` **uncommitted**.
+4. Leave `REVIEW.md` **uncommitted**, the outer loop will process it.
+<% if (it.context.refDiff && it.context.refDiff.trim()) { %>
+<%= it.context.reviewBase !== undefined ? "\nReview base: " + it.context.reviewBase + "\n" : "" %>
+<%~ include("@diff", { heading: "Changes to review (`git diff " + (it.context.reviewBase !== undefined ? it.context.reviewBase : "<base>") + " HEAD`)", diff: it.context.refDiff, fenceFor: it.fenceFor }) %>
+<% } %>
 
-Tell the user `REVIEW.md` is ready and the review continues on the next cycle.
+<%~ include(it.tail) %>

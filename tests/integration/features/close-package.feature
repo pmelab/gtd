@@ -23,7 +23,7 @@ Feature: Close package — one gtd: package done per package
     And the last commit subject is "gtd: package done"
     And the file ".gtd/01-foo/01-task.md" does not exist
     And the file ".gtd/02-bar/01-task.md" exists
-    And stdout contains "## Task: Build one work package"
+    And stdout contains "Build the package described below"
     And stdout contains "Implement the second helper."
 
   Scenario: Closing the last package removes .gtd and advances to Clean
@@ -49,6 +49,6 @@ Feature: Close package — one gtd: package done per package
     And the file ".gtd" does not exist
     # The review spans the whole task (base = first gtd: grilling) but the
     # workflow-file churn (TODO.md, .gtd/) is filtered out of the diff.
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And stdout contains "src/helper.ts"
     And stdout does not contain "a/.gtd/01-foo/01-task.md"
