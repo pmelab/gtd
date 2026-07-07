@@ -3,7 +3,7 @@ import { dirname, join } from "node:path"
 import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
-import { Command, CommandExecutor } from "@effect/platform"
+import { Command, CommandExecutor, FileSystem } from "@effect/platform"
 import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
 
