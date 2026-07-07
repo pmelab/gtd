@@ -17,7 +17,7 @@ merge-base with the default branch (whole-history fallback when there is no
 default branch, when HEAD equals the merge-base, or when there is no merge-base
 — i.e. budgets engage on the default branch too) plus the working tree, turns
 them into a `COMMIT[]` + single terminal `RESOLVE` event stream, and folds them
-through the machine. The fold lands on exactly **one** of 18 states, which
+through the machine. The fold lands on exactly **one** of 19 states, which
 selects the prompt. A single run resolves to a single state.
 
 `resolve()` returns that state plus an optional **`EdgeAction`** (a commit,
@@ -138,6 +138,11 @@ across runs:
 - **ERRORS.md** — the escalation gate: persistent test-failure output that stops
   the loop for a human (written instead of FEEDBACK.md once the fix-attempt cap
   is hit; never auto-consumed).
+- **HEALTH.md** — idle health-check failure output: written when `testCommand`
+  fails on a bare idle tree (no `.gtd`, no REVIEW.md, no FEEDBACK.md). Carries
+  the failure while the dedicated health-fix loop repairs it. Analogous to
+  FEEDBACK.md but lives on the default-branch idle path rather than inside a
+  build process. Never written while any other steering file is present.
 - **.gtd/** — ordered work packages (one numbered directory each) of
   parallelizable subtasks.
 
@@ -158,9 +163,11 @@ Every run derives the state in **three layers**:
 1. **Transport pre-pass** — if HEAD is `gtd: transport`, short-circuit to the
    Transport state (mixed-reset) before anything else is considered.
 2. **Steering-file precedence** — the presence of `ERRORS.md` / `FEEDBACK.md` /
-   `.gtd/` / `REVIEW.md` drives the decision, authoritative regardless of HEAD.
+   `HEALTH.md` / `.gtd/` / `REVIEW.md` drives the decision, authoritative
+   regardless of HEAD.
 3. **HEAD bucket** — with no steering files in play, the last-commit bucket plus
-   working-tree cleanliness selects New Feature / Grilling / Clean / Idle.
+   working-tree cleanliness selects New Feature / Grilling / Clean / Health
+   check / Idle.
 
 Within layers 2 and 3 the HEAD subject further disambiguates states the
 filesystem alone cannot separate (e.g. inside the `.gtd/` lifecycle, HEAD
@@ -173,8 +180,8 @@ The complete set:
 
 `gtd: new task` · `gtd: grilling` · `gtd: grilled` · `gtd: planning` ·
 `gtd: building` · `gtd: errors` · `gtd: feedback` · `gtd: fixing` ·
-`gtd: package done` · `gtd: awaiting review` · `gtd: done` — plus the hand-made
-`gtd: transport` (see below).
+`gtd: package done` · `gtd: awaiting review` · `gtd: done` · `gtd: health-check`
+· `gtd: health-fix` — plus the hand-made `gtd: transport` (see below).
 
 The last commit subject is bucketed two ways:
 
@@ -189,24 +196,28 @@ The last commit subject is bucketed two ways:
 1. **ERRORS.md present** → Escalate (human gate; STOP).
 2. **FEEDBACK.md present** → non-empty → Fixing; **empty** (clean agentic review
    = approval) → Close package.
-3. **.gtd present** → build lifecycle, routed by tree + HEAD:
+3. **HEALTH.md present** → Health Fixing (idle health-fix loop; no `.gtd`,
+   REVIEW.md, or FEEDBACK.md).
+4. **.gtd present** → build lifecycle, routed by tree + HEAD:
    - `.gtd` modified (package files added/edited) → Planning
    - code changes present → Testing
    - clean tree + HEAD `gtd: fixing` (no-op fixer) → Testing (re-test)
    - else clean, by HEAD: `gtd: planning` / `gtd: package done` → Building;
      `gtd: building` → Agentic Review (or Close package, if force-approved)
-4. **REVIEW.md present** → review lifecycle, routed by committed-ness + tree:
+5. **REVIEW.md present** → review lifecycle, routed by committed-ness + tree:
    committed + clean → Done; committed + checkbox-only edits (only `[ ]`↔`[x]`
    flips in REVIEW.md) → Done; committed + non-checkbox pending edits → Accept
    Review; uncommitted → Await Review (commits REVIEW.md and auto-advances to
-   Done). 4a. **HEAD `gtd: done` + `squash` enabled + squash base present + no
+   Done). 5a. **HEAD `gtd: done` + `squash` enabled + squash base present + no
    unrelated code dirty** (a lone untracked `SQUASH_MSG.md` is allowed) →
    Squashing; unrelated code dirty → New Feature.
-5. **Boundary HEAD + pending changes** (and no `.gtd`/REVIEW/FEEDBACK), or HEAD
+6. **Boundary HEAD + pending changes** (and no `.gtd`/REVIEW/FEEDBACK), or HEAD
    `gtd: new task` + clean tree (regenerate a lost seed) → New Feature.
-6. **TODO.md present** → Grilling / Grilled.
-7. **Boundary or `gtd: package done` HEAD + clean tree** → Clean (review the
-   work) or Idle (nothing to review).
+7. **TODO.md present** → Grilling / Grilled.
+8. **Boundary or `gtd: package done` HEAD + clean tree** → Clean (review the
+   work), **Health check** (run `testCommand` on the default-branch idle path
+   when there is nothing to review), or Idle (health check green, nothing to
+   do).
 
 Anything matching no rule is corruption — `gtd` **hard-errors** rather than
 guess.
@@ -221,7 +232,10 @@ flowchart TD
     P1 -->|no| P2{"FEEDBACK.md?"}
     P2 -->|"empty = approval"| Close["Close package — rm pkg dir, gtd: package done"]:::edge
     P2 -->|"non-empty"| Fixing["Fixing — rm FEEDBACK, fixer agent"]:::agent
-    P2 -->|absent| P3{".gtd/?"}
+    P2 -->|absent| P2b{"HEALTH.md?"}
+    P2b -->|"present"| HealthFix["Health Fixing — rm HEALTH.md, gtd: health-fix, fixer agent"]:::agent
+    HealthFix -.->|"re-resolve"| HealthCheck
+    P2b -->|absent| P3{".gtd/?"}
     P3 -->|"modified"| Planning["Planning — gtd: planning"]:::agent
     P3 -->|"code dirty / resume / no-op fixer"| Testing["Testing — gtd: building, run tests"]:::edge
     P3 -->|"clean, HEAD planning/package done"| Building["Building — pick & build one package"]:::agent
@@ -234,17 +248,21 @@ flowchart TD
     P4 -->|absent| P5{"boundary HEAD + dirty,<br/>or gtd: new task + clean?"}
     Done -->|"squash enabled"| Squashing["Squashing — reset --soft base, squash commit"]:::agent
     Done -->|"squash disabled"| Idle
-    Squashing --> Idle["Idle — nothing to do (STOP; review on next manual gtd run)"]:::gate
+    Squashing --> Idle["Idle — nothing to do (STOP)"]:::gate
     P5 -->|yes| NewFeature["New Feature — gtd: new task, revert, seed TODO"]:::edge
     P5 -->|no| P6{"TODO.md?"}
     P6 -->|"open markers"| GrillStop["Grilling — gtd: grilling, STOP for answers"]:::gate
     P6 -->|"dirty, no markers"| GrillIter["Grilling — gtd: grilling, agent iterates"]:::agent
-    P6 -->|"clean, no markers"| GrilledReview["Grilled review — gtd: grilled, human review"]:::gate
-    GrilledReview -->|"re-run gtd clean"| Grilled["Grilled — gtd: grilled, decompose"]:::agent
-    GrilledReview -->|"edits present"| GrillIter
+    P6 -->|"clean, no markers"| Grilled["Grilled — gtd: grilled, decompose"]:::agent
     P6 -->|absent| P7{"clean + boundary/package-done HEAD,<br/>reviewable diff?"}
     P7 -->|yes| CleanState["Clean — write REVIEW.md"]:::agent
-    P7 -->|no| Idle
+    P7 -->|"no (default-branch idle)"| HealthCheck["Health check — run testCommand"]:::edge
+    HealthCheck -->|"green, no health-fix"| Idle
+    HealthCheck -->|"green + ≥1 health-fix, squash enabled"| Squashing
+    HealthCheck -->|"red, below cap"| HealthMd["write HEALTH.md, gtd: health-check"]:::edge
+    HealthMd -.->|"re-resolve"| HealthFix
+    HealthCheck -->|"red, at cap"| ErrorsMd["write ERRORS.md, gtd: health-check"]:::edge
+    ErrorsMd -.->|"re-resolve"| Escalate
     classDef edge fill:#1a4a6b,color:#fff
     classDef agent fill:#2d6a4f,color:#fff
     classDef gate fill:#7a3b1d,color:#fff
@@ -265,6 +283,10 @@ guessing:
 - FEEDBACK.md without .gtd
 - ERRORS.md + FEEDBACK.md
 - ERRORS.md without .gtd
+- HEALTH.md + .gtd (health check only runs from a bare idle tree)
+- HEALTH.md + REVIEW.md (same)
+- HEALTH.md + FEEDBACK.md (same)
+- HEALTH.md + ERRORS.md (escalation wins; HEALTH.md must not coexist)
 
 Legal coexistence: `.gtd` + TODO.md (plan kept alongside packages during
 **Planning** only — TODO.md is deleted at the first Building turn);
@@ -292,7 +314,7 @@ back into the working tree uncommitted, and re-derives state from scratch. If
 the transport commit is the repository's root commit (no parent), `gtd` fails
 immediately with a clear error instead of looping.
 
-## The 18 states
+## The 19 states
 
 Each state has a **condition** (when it wins), a deterministic **action**, the
 **commit(s)** it produces, and where it **advances**. States marked
@@ -300,26 +322,27 @@ Each state has a **condition** (when it wins), a deterministic **action**, the
 human; **edge-only** states render no prompt at all — the driver performs their
 action and re-resolves silently.
 
-| State              | Kind                             | Wins when                                                                                                                                                                   | Action & commit                                                                                                                                                                                                                                                                                                        | Advances to                                                  |
-| ------------------ | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| **Transport**      | edge-only, auto                  | HEAD `gtd: transport` (hand-made handoff commit)                                                                                                                            | mixed-reset HEAD (`git reset HEAD~1`), keep work in tree; **no commit**                                                                                                                                                                                                                                                | re-derive from the restored tree                             |
-| **Escalate**       | STOP                             | ERRORS.md present                                                                                                                                                           | none                                                                                                                                                                                                                                                                                                                   | held until the human deletes ERRORS.md                       |
-| **Fixing**         | agent, auto                      | non-empty FEEDBACK.md present                                                                                                                                               | inline FEEDBACK into the prompt, remove FEEDBACK.md; commit its removal `gtd: fixing` (FEEDBACK was committed by Testing) or `gtd: feedback` (uncommitted, written by Agentic Review)                                                                                                                                  | fixer edits → Testing                                        |
-| **Close package**  | edge-only, auto                  | empty FEEDBACK.md present (clean review); also reached from Agentic Review force-approve                                                                                    | rm FEEDBACK.md, rm the first (finished) package dir (+ the now-empty `.gtd/`); commit `gtd: package done`                                                                                                                                                                                                              | more packages → Building; `.gtd` gone → Clean                |
-| **Planning**       | agent, auto                      | `.gtd` present **and modified**; HEAD `gtd: grilled` or `gtd: planning`                                                                                                     | commit the `.gtd/` changes `gtd: planning`                                                                                                                                                                                                                                                                             | continue decomposing, else → Building                        |
-| **Testing**        | edge-only, auto                  | `.gtd` present, no FEEDBACK/ERRORS, and a reason to test: code changes, a pending ERRORS.md deletion (human resume), or a clean tree under HEAD `gtd: fixing` (no-op fixer) | commit pending tree `gtd: building`, run `testCommand`; green → proceed; red → write FEEDBACK (below cap) or ERRORS (at cap), commit `gtd: errors`; if captured output is empty/whitespace, a sentinel string is written so the file is never empty (empty FEEDBACK remains reserved for agentic-review approval)      | green → Agentic Review; FEEDBACK → Fixing; ERRORS → Escalate |
-| **Building**       | agent, auto                      | `.gtd` present and clean, clean tree; HEAD `gtd: planning` or `gtd: package done`                                                                                           | if HEAD `gtd: planning` and TODO.md present, delete TODO.md and commit (prefix unchanged, fires once); select the first package, inline its tasks; agent leaves work **uncommitted**                                                                                                                                   | Testing                                                      |
-| **Agentic Review** | agent, auto                      | `.gtd` present and clean, clean tree; HEAD `gtd: building`                                                                                                                  | reviewer writes FEEDBACK.md (empty = approval), uncommitted — **unless** force-approved (kill-switch off or review-fix threshold hit), which routes straight to Close package                                                                                                                                          | empty FEEDBACK → Close package; non-empty → Fixing           |
-| **Done**           | edge-only, auto                  | REVIEW.md committed + clean tree, **or** committed + checkbox-only edits (only `- [ ]`→`- [x]` flips in REVIEW.md = approval)                                               | rm REVIEW.md, commit `gtd: done`                                                                                                                                                                                                                                                                                       | Squashing (if enabled) or Idle                               |
-| **Squashing**      | agent, auto                      | no steering files, HEAD `gtd: done`, `squash` enabled, squash base present, no unrelated code dirty (a lone untracked `SQUASH_MSG.md` is allowed)                           | agent authors a conventional-commits message from the full `<base>..HEAD` diff, then runs `git reset --soft <base>` + `git commit` — collapses all intermediate `gtd: *` commits (including any interleaved non-gtd commits) into one; **gtd then STOPs** — post-squash review fires only on the next manual `gtd` run | Idle (STOP)                                                  |
-| **Accept Review**  | edge-only, auto                  | REVIEW.md committed + pending **non-checkbox** edits (human annotated REVIEW.md with comments / edited code)                                                                | seed TODO.md from the changeset, `git checkout` to discard the code edits, rm REVIEW.md; **all uncommitted**                                                                                                                                                                                                           | Grilling                                                     |
-| **Await Review**   | edge-only, auto                  | REVIEW.md present and **uncommitted** (freshly written by Clean)                                                                                                            | commit REVIEW.md `gtd: awaiting review`                                                                                                                                                                                                                                                                                | Done (auto, same run)                                        |
-| **New Feature**    | edge-only, auto                  | boundary HEAD + pending changes (code and/or a new uncommitted TODO.md), **or** HEAD `gtd: new task` + clean tree (lost-seed regen)                                         | commit the raw input verbatim `gtd: new task` (unless already there), `git revert --no-commit` it back to a clean baseline, seed TODO.md from that diff — revert + seed left **uncommitted**                                                                                                                           | Grilling                                                     |
-| **Grilling**       | agent (iterate) / STOP (answers) | TODO.md present, not New Feature                                                                                                                                            | commit pending edits `gtd: grilling`. Open-question markers present → STOP for the human to answer inline; no markers but dirty → grilling agent iterates                                                                                                                                                              | converge (no markers, clean tree) → Grilled review           |
-| **Grilled review** | STOP                             | TODO.md present, no markers, clean tree, HEAD `gtd: grilled` (converged — not yet decomposed)                                                                               | none                                                                                                                                                                                                                                                                                                                   | edits → Grilling; clean re-run → Grilled                     |
-| **Grilled**        | agent, auto                      | TODO.md present, no markers, clean tree, HEAD `gtd: grilled` (returning from Grilled review with no new edits)                                                              | commit pending `gtd: grilled`                                                                                                                                                                                                                                                                                          | decompose into `.gtd/` → Planning                            |
-| **Clean**          | agent                            | no steering files, clean tree, boundary or `gtd: package done` HEAD, and the review base yields a **non-empty** diff                                                        | compute the review base (four rules — see below); agent writes REVIEW.md **uncommitted** with `# Review: <short-hash>` heading, `<!-- base: <full-hash> -->` marker, and per-hunk `- [ ]` checkboxes (ticking them signals approval → Done)                                                                            | Await Review                                                 |
-| **Idle**           | STOP                             | no steering files, clean tree, and nothing to review (HEAD `gtd: done` with `squash` disabled or after Squashing, or no reviewable diff)                                    | none                                                                                                                                                                                                                                                                                                                   | —                                                            |
+| State              | Kind                             | Wins when                                                                                                                                                                                         | Action & commit                                                                                                                                                                                                                                                                                                        | Advances to                                                                     |
+| ------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| **Transport**      | edge-only, auto                  | HEAD `gtd: transport` (hand-made handoff commit)                                                                                                                                                  | mixed-reset HEAD (`git reset HEAD~1`), keep work in tree; **no commit**                                                                                                                                                                                                                                                | re-derive from the restored tree                                                |
+| **Escalate**       | STOP                             | ERRORS.md present                                                                                                                                                                                 | none                                                                                                                                                                                                                                                                                                                   | held until the human deletes ERRORS.md                                          |
+| **Fixing**         | agent, auto                      | non-empty FEEDBACK.md present                                                                                                                                                                     | inline FEEDBACK into the prompt, remove FEEDBACK.md; commit its removal `gtd: fixing` (FEEDBACK was committed by Testing) or `gtd: feedback` (uncommitted, written by Agentic Review)                                                                                                                                  | fixer edits → Testing                                                           |
+| **Health Fixing**  | agent, auto                      | HEALTH.md present (no `.gtd`, REVIEW.md, or FEEDBACK.md)                                                                                                                                          | read HEALTH.md into the prompt, commit its removal `gtd: health-fix`                                                                                                                                                                                                                                                   | fixer edits → Health check                                                      |
+| **Close package**  | edge-only, auto                  | empty FEEDBACK.md present (clean review); also reached from Agentic Review force-approve                                                                                                          | rm FEEDBACK.md, rm the first (finished) package dir (+ the now-empty `.gtd/`); commit `gtd: package done`                                                                                                                                                                                                              | more packages → Building; `.gtd` gone → Clean                                   |
+| **Planning**       | agent, auto                      | `.gtd` present **and modified**; HEAD `gtd: grilled` or `gtd: planning`                                                                                                                           | commit the `.gtd/` changes `gtd: planning`                                                                                                                                                                                                                                                                             | continue decomposing, else → Building                                           |
+| **Testing**        | edge-only, auto                  | `.gtd` present, no FEEDBACK/ERRORS, and a reason to test: code changes, a pending ERRORS.md deletion (human resume), or a clean tree under HEAD `gtd: fixing` (no-op fixer)                       | commit pending tree `gtd: building`, run `testCommand`; green → proceed; red → write FEEDBACK (below cap) or ERRORS (at cap), commit `gtd: errors`; if captured output is empty/whitespace, a sentinel string is written so the file is never empty (empty FEEDBACK remains reserved for agentic-review approval)      | green → Agentic Review; FEEDBACK → Fixing; ERRORS → Escalate                    |
+| **Building**       | agent, auto                      | `.gtd` present and clean, clean tree; HEAD `gtd: planning` or `gtd: package done`                                                                                                                 | if HEAD `gtd: planning` and TODO.md present, delete TODO.md and commit (prefix unchanged, fires once); select the first package, inline its tasks; agent leaves work **uncommitted**                                                                                                                                   | Testing                                                                         |
+| **Agentic Review** | agent, auto                      | `.gtd` present and clean, clean tree; HEAD `gtd: building`                                                                                                                                        | reviewer writes FEEDBACK.md (empty = approval), uncommitted — **unless** force-approved (kill-switch off or review-fix threshold hit), which routes straight to Close package                                                                                                                                          | empty FEEDBACK → Close package; non-empty → Fixing                              |
+| **Done**           | edge-only, auto                  | REVIEW.md committed + clean tree, **or** committed + checkbox-only edits (only `- [ ]`→`- [x]` flips in REVIEW.md = approval)                                                                     | rm REVIEW.md, commit `gtd: done`                                                                                                                                                                                                                                                                                       | Squashing (if enabled) or Idle                                                  |
+| **Squashing**      | agent, auto                      | no steering files, HEAD `gtd: done` or green Health check with ≥1 `gtd: health-fix`, `squash` enabled, squash base present, no unrelated code dirty (a lone untracked `SQUASH_MSG.md` is allowed) | agent authors a conventional-commits message from the full `<base>..HEAD` diff, then runs `git reset --soft <base>` + `git commit` — collapses all intermediate `gtd: *` commits (including any interleaved non-gtd commits) into one; **gtd then STOPs** — post-squash review fires only on the next manual `gtd` run | Idle (STOP)                                                                     |
+| **Accept Review**  | edge-only, auto                  | REVIEW.md committed + pending **non-checkbox** edits (human annotated REVIEW.md with comments / edited code)                                                                                      | seed TODO.md from the changeset, `git checkout` to discard the code edits, rm REVIEW.md; **all uncommitted**                                                                                                                                                                                                           | Grilling                                                                        |
+| **Await Review**   | edge-only, auto                  | REVIEW.md present and **uncommitted** (freshly written by Clean)                                                                                                                                  | commit REVIEW.md `gtd: awaiting review`                                                                                                                                                                                                                                                                                | Done (auto, same run)                                                           |
+| **New Feature**    | edge-only, auto                  | boundary HEAD + pending changes (code and/or a new uncommitted TODO.md), **or** HEAD `gtd: new task` + clean tree (lost-seed regen)                                                               | commit the raw input verbatim `gtd: new task` (unless already there), `git revert --no-commit` it back to a clean baseline, seed TODO.md from that diff — revert + seed left **uncommitted**                                                                                                                           | Grilling                                                                        |
+| **Grilling**       | agent (iterate) / STOP (answers) | TODO.md present, not New Feature                                                                                                                                                                  | commit pending edits `gtd: grilling`. Open-question markers present → STOP for the human to answer inline; no markers but dirty → grilling agent iterates                                                                                                                                                              | converge (no markers, clean tree) → Grilled                                     |
+| **Grilled**        | agent, auto                      | TODO.md present, no markers, clean tree                                                                                                                                                           | commit pending `gtd: grilled`                                                                                                                                                                                                                                                                                          | decompose into `.gtd/` → Planning                                               |
+| **Clean**          | agent                            | no steering files, clean tree, boundary or `gtd: package done` HEAD, and the review base yields a **non-empty** diff                                                                              | compute the review base (four rules — see below); agent writes REVIEW.md **uncommitted** with `# Review: <short-hash>` heading, `<!-- base: <full-hash> -->` marker, and per-hunk `- [ ]` checkboxes (ticking them signals approval → Done)                                                                            | Await Review                                                                    |
+| **Health check**   | edge-only, auto                  | no steering files, clean tree, default-branch idle path (no reviewable diff) — the `!reviewable` case from rule 8                                                                                 | run `testCommand`: green + no prior `gtd: health-fix` → Idle (no commit); red below `fixAttemptCap` → write HEALTH.md, commit `gtd: health-check` → Health Fixing; red at cap → write ERRORS.md, commit `gtd: health-check` → Escalate; green + ≥1 `gtd: health-fix` → Squashing (if `squash`) or Idle                 | green → Idle or Squashing; red below cap → Health Fixing; red at cap → Escalate |
+| **Idle**           | STOP                             | no steering files, clean tree, health check passed with no prior `gtd: health-fix` commits, and nothing to review                                                                                 | none (no commit — the health check edge terminates the driver loop directly)                                                                                                                                                                                                                                           | —                                                                               |
 
 Every prompt also embeds the current `git diff HEAD` (untracked files included)
 inline, plus the last commit subject and working-tree status, so the agent has
@@ -348,7 +371,7 @@ In all cases, if the diff from the chosen base to HEAD is empty,
 
 ## The fix loops & counter folds
 
-Two derived counters drive the budgeted loops. Both are **folded in the
+Three derived counters drive the budgeted loops. All are **folded in the
 machine** from flags on the `COMMIT[]` stream — never recomputed at the edge:
 
 - **`testFixCount`** — `gtd: errors` commits (test-fix attempts) since the
@@ -358,6 +381,9 @@ machine** from flags on the `COMMIT[]` stream — never recomputed at the edge:
   round, and every human resume starts a **fresh budget**.
 - **`reviewFixCount`** — `gtd: feedback` commits (review-fix rounds) since the
   most recent package start.
+- **`healthFixCount`** — `gtd: health-check` commits since the most recent
+  commit that removed HEALTH.md (or the start of branch history if none). Reuses
+  `fixAttemptCap` — no separate config key.
 
 ### Test-fix loop (`fixAttemptCap`, default 3)
 
@@ -380,6 +406,31 @@ instead and the loop **stops** at Escalate. The human investigates, then deletes
 ERRORS.md — which **resets the fix-attempt budget** (the next run re-tests and
 grants a fresh `cap` attempts before escalating again). While ERRORS.md exists,
 every run resolves straight back to Escalate.
+
+### Health-fix loop (`fixAttemptCap`, `squash` — no new config)
+
+On the default-branch idle path (no reviewable diff, no steering files), `gtd`
+runs `testCommand` instead of stopping. This reuses `fixAttemptCap` (default 3)
+and `squash` — no new config keys are introduced.
+
+```
+Idle path → Health check(red) → Health Fixing → Health check(red) → … → Health check(green)
+                  │                                                             │
+                  └── below cap: HEALTH.md, gtd: health-check ─────────────────┘
+                  └── at/over the cap: ERRORS.md, gtd: health-check → Escalate
+                                                              green + ≥1 health-fix → Squashing (if squash enabled) → Idle
+```
+
+- **green, no prior `gtd: health-fix`** → Idle immediately (no commit).
+- **red, below `fixAttemptCap`** → write test output to HEALTH.md, commit
+  `gtd: health-check` → **Health Fixing** agent fixes, commits removal as
+  `gtd: health-fix`, loops back to Health check.
+- **red, at or over `fixAttemptCap`** → write test output to ERRORS.md, commit
+  `gtd: health-check` → **Escalate** (human gate). Delete ERRORS.md to reset the
+  budget and resume.
+- **green, ≥1 `gtd: health-fix` present** → health-fix cycle converged: if
+  `squash` is enabled → **Squashing** (squash base = parent of the first
+  `gtd: health-check` of the current run); otherwise → Idle (no commit).
 
 ### Review-fix loop & agentic review (`reviewThreshold`, default 3)
 
@@ -425,11 +476,9 @@ loop before the next one starts.
    your answer, and run `gtd` again. The agent integrates answers, moves them to
    `## Resolved`, and raises fresh questions — repeat until none remain (it
    writes `no open questions — run gtd to plan` with no markers).
-4. **Converge.** A clean tree with no markers resolves to **Grilled review**
-   (`gtd: grilled`) — a human STOP. Review the plan; edit and re-run `gtd` to
-   re-enter Grilling, or re-run `gtd` with no changes to advance. A clean re-run
-   triggers **Grilled** (auto-advance), which then **Planning** decomposes
-   `TODO.md` into ordered `.gtd/` work packages (`gtd: planning`).
+4. **Converge.** A clean tree with no markers resolves to **Grilled**
+   (`gtd: grilled`), then **Planning** decomposes `TODO.md` into ordered `.gtd/`
+   work packages (`gtd: planning`).
 5. **Build.** Run `gtd` — **Building** first deletes `TODO.md` (when HEAD is
    `gtd: planning` and it is still present, committed under the same
    `gtd: planning` prefix — fires once). It then names the single next package
@@ -447,9 +496,9 @@ loop before the next one starts.
    (`gtd: done`) → **Squashing** → **Idle**. The Squashing agent authors a
    conventional-commits message from the full process diff and squashes all
    intermediate `gtd: *` commits into one with `git reset --soft <base>` +
-   `git commit`, then **gtd STOPs**. The base is the parent of the current
-   cycle's start marker **nearest to HEAD** (the last `gtd: new task`; for
-   legacy cycles the last contiguous `gtd: grilling` run), and on a feature
+   <<<<<<< HEAD `git commit`, then **gtd STOPs**. The base is the parent of the
+   current cycle's start marker **nearest to HEAD** (the last `gtd: new task`;
+   for legacy cycles the last contiguous `gtd: grilling` run), and on a feature
    branch it never reaches below the merge-base with the default branch — stray
    markers left behind by older squashes can never drag the squash into
    previously shipped features. Post-squash review does not fire automatically —
@@ -458,13 +507,20 @@ loop before the next one starts.
    has no unrelated code dirty — a lone untracked `SQUASH_MSG.md` is tolerated
    and deleted before the squash commit. If unrelated code is dirty at
    `gtd: done`, gtd routes to **New Feature** instead. Set `squash: false` in
-   `.gtdrc` to skip squashing and go straight to Idle. Checking off REVIEW.md
-   checkboxes (`- [ ]` → `- [x]`) also counts as approval and routes to **Done**
-   — they are navigation aids, not feedback. Only **non-checkbox** edits (code
-   changes, inline comments, textual annotations in REVIEW.md) trigger **Accept
-   Review**, which seeds a fresh `TODO.md` from your feedback, discards your
-   code edits, removes `REVIEW.md`, and re-enters Grilling — the loop starts
-   over.
+   ======= `git commit`, then **gtd STOPs**. Post-squash review does not fire
+   automatically — it fires only on the next manual `gtd` run (when the squash
+   commit is the boundary HEAD and a reviewable diff exists). Squashing fires
+   when the tree has no unrelated code dirty — a lone untracked `SQUASH_MSG.md`
+   is tolerated and deleted before the squash commit. If unrelated code is dirty
+   at `gtd: done`, gtd routes to **New Feature** instead. Set `squash: false` in
+   > > > > > > > origin/46-config-schema `.gtdrc` to skip squashing and go
+   > > > > > > > straight to Idle. Checking off REVIEW.md checkboxes (`- [ ]` →
+   > > > > > > > `- [x]`) also counts as approval and routes to **Done** — they
+   > > > > > > > are navigation aids, not feedback. Only **non-checkbox** edits
+   > > > > > > > (code changes, inline comments, textual annotations in
+   > > > > > > > REVIEW.md) trigger **Accept Review**, which seeds a fresh
+   > > > > > > > `TODO.md` from your feedback, discards your code edits, removes
+   > > > > > > > `REVIEW.md`, and re-enters Grilling — the loop starts over.
 
 ## Configuration
 
@@ -482,11 +538,13 @@ built-in defaults apply. Supported filenames (searched in this order):
 ### Schema
 
 - **`testCommand`** (string, default `npm run test`) — the command the edge runs
-  in the Testing state to verify a built package.
+  in the Testing state to verify a built package, and in the Health check state
+  on the default-branch idle path.
 - **`fixAttemptCap`** (non-negative integer, default `3`) — the test-fix budget:
   how many `gtd: errors` attempts are allowed per sub-loop before the failure is
   escalated to ERRORS.md (Escalate). `0` disables the cap (escalates immediately
-  on the first red run).
+  on the first red run). Also reused as the health-fix budget (no separate
+  config key).
 - **`reviewThreshold`** (integer ≥ 1, default `3`) — the review-fix budget: how
   many `gtd: feedback` rounds are allowed per package before Agentic Review
   force-approves.
@@ -780,6 +838,37 @@ git/filesystem IO is confined to the edge (`src/Events.ts`).
 
 `npm run build` produces `dist/gtd.bundle.mjs`, which npm exposes as the `gtd`
 binary via the `bin` field in `package.json`.
+
+### Mutation testing
+
+Run mutation testing on-demand with `npm run test:mutation` (StrykerJS, ~2 min).
+The single `stryker.config.json` mutates six core files:
+
+```
+src/Machine.ts  src/Prompt.ts  src/Config.ts
+src/Format.ts   src/State.ts   src/Events.ts
+```
+
+`src/Git.ts` is excluded: the Cucumber harness stubs git at the Effect boundary,
+so Git.ts mutants have zero in-memory coverage. Measuring its post-refactor
+Live-tier kill rate is a follow-up before re-including it.
+
+**`process.chdir()` gotcha (resolved).** `@stryker-mutator/vitest-runner`
+hardcodes `pool: 'threads'` internally, and `process.chdir()` is unsupported in
+worker threads. Before the cwd refactor (package 01), four test files
+(`Events.test.ts`, `Git.test.ts`, `Config.test.ts`, `TestRunner.test.ts`) had to
+be excluded from all Stryker runs. The refactor eliminated those calls, letting
+all four files rejoin the run.
+
+Two additional notes: `vitest.related` is disabled for feature-file runs because
+feature files don't import source files directly (Stryker's coverage-based
+filtering would assign zero tests to every mutant). Compile-error mutants are
+counted as kills by the TypeScript checker — they represent real signal, not a
+configuration problem.
+
+Run `npm run test:mutation` after making changes to the mutated files to check
+whether surviving mutants increased. The HTML report lands in
+`reports/mutation/mutation.html` (git-ignored).
 
 ### Mutation testing
 

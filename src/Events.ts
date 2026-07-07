@@ -35,8 +35,12 @@ const GTD_DIR = ".gtd"
 const REVIEW_FILE = "REVIEW.md"
 const FEEDBACK_FILE = "FEEDBACK.md"
 const ERRORS_FILE = "ERRORS.md"
+const HEALTH_FILE = "HEALTH.md"
 const EMPTY_FAILURE_SENTINEL = "Test command failed with no output (exit code non-zero)."
 const UNANSWERED_MARKER = "<!-- user answers here -->"
+
+const HEALTH_CHECK_SUBJECT = "gtd: health-check"
+const HEALTH_FIX_SUBJECT = "gtd: health-fix"
 
 // Flat `gtd: <phase>` taxonomy — the only commit subjects the machine reads or
 // the edge writes. Counters fold from these prefixes + the `removedErrors` flag.
@@ -65,6 +69,7 @@ const STEERING_FILES: ReadonlyArray<string> = [
   REVIEW_FILE,
   FEEDBACK_FILE,
   ERRORS_FILE,
+  HEALTH_FILE,
   SQUASH_MSG_FILE,
 ]
 const WORKFLOW_FILE_EXCLUDES: ReadonlyArray<string> = [...STEERING_FILES, GTD_DIR]
@@ -400,6 +405,8 @@ export const gatherEvents = (): Effect.Effect<
           isPackageStart: subject === PLANNING_SUBJECT || subject === PACKAGE_DONE_SUBJECT,
           isWorkflowCommit: subject.startsWith("gtd: "),
           removedErrors,
+          isHealthCheck: subject === HEALTH_CHECK_SUBJECT,
+          isHealthFix: subject === HEALTH_FIX_SUBJECT,
         }
       },
     )
@@ -649,6 +656,43 @@ export const gatherEvents = (): Effect.Effect<
       ? yield* fs.readFileString(resolve(SQUASH_MSG_FILE))
       : ""
 
+    // --- HEALTH.md presence (health-check output written by runHealthCheck) -----
+    const healthPresent = yield* fs.exists(resolve(HEALTH_FILE))
+    const healthContent = healthPresent ? yield* fs.readFileString(resolve(HEALTH_FILE)) : ""
+    const healthCommitted = healthPresent && !isUncommitted(HEALTH_FILE)
+
+    // --- Health squash base (squash after green health-fix run) ------------------
+    // Only computed when squash is enabled. Mirrors foldCounters: scans all of
+    // history forward, resetting on isPackageStart/removedErrors events,
+    // tracking the FIRST gtd: health-check of the current health run.
+    // healthFixBase is the parent of that first health-check commit.
+    let healthFixBase: string | undefined
+    if (config.squash) {
+      const subjectOf = (c: (typeof history)[number]): string =>
+        (c.message.split("\n")[0] ?? "").trim()
+      let firstHealthCheckHash: string | undefined
+      let healthCheckCount = 0
+      for (const commit of history) {
+        const s = subjectOf(commit)
+        const isPackageStart = s === PLANNING_SUBJECT || s === PACKAGE_DONE_SUBJECT
+        if (isPackageStart || commit.removedErrors) {
+          // Reset: new package or budget reset
+          firstHealthCheckHash = undefined
+          healthCheckCount = 0
+        }
+        if (s === HEALTH_CHECK_SUBJECT) {
+          healthCheckCount++
+          if (healthCheckCount === 1) firstHealthCheckHash = commit.hash
+        }
+      }
+      if (healthCheckCount > 0 && firstHealthCheckHash !== undefined) {
+        const base = yield* git
+          .resolveRef(`${firstHealthCheckHash}~1`)
+          .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
+        healthFixBase = base
+      }
+    }
+
     const payload: ResolvePayload = {
       todoExists,
       todoCommitted,
@@ -681,6 +725,10 @@ export const gatherEvents = (): Effect.Effect<
       ...(squashDiff !== undefined ? { squashDiff } : {}),
       squashMsgPresent,
       squashMsgContent,
+      healthPresent,
+      healthContent,
+      healthCommitted,
+      ...(healthFixBase !== undefined ? { healthFixBase } : {}),
     }
 
     const resolveEvent: GtdEvent = { type: "RESOLVE", payload }
@@ -720,11 +768,15 @@ const captureAndRevert = (
  * Execute the side effect the machine's `resolve()` chose. The driver performs
  * this, then re-gathers + re-resolves. Each case maps to the primitives in
  * Git.ts / the FileSystem; the machine only decides *which* action.
+ *
+ * Returns `{ stop: true }` when the driver should stop iterating (health-check
+ * green-settle: tests passed, no further work needed). All other cases return
+ * `{ stop: false }` so the driver re-gathers and re-resolves as usual.
  */
 // fallow-ignore-next-line complexity
 export const perform = (
   action: EdgeAction,
-): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | TestRunner | Cwd> =>
+): Effect.Effect<{ stop: boolean }, Error, GitService | FileSystem.FileSystem | TestRunner | Cwd> =>
   // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const git = yield* GitService
@@ -737,7 +789,7 @@ export const perform = (
       // work in the tree, then re-derive. (No producer command — consume only.)
       case "transportReset": {
         yield* git.mixedResetHead()
-        return
+        return { stop: false }
       }
 
       // New Feature: capture the raw input as `gtd: new task` (unless HEAD is
@@ -746,7 +798,7 @@ export const perform = (
       case "seedNewFeature": {
         const captured = yield* captureAndRevert(git, NEW_TASK_SUBJECT, Effect.void)
         yield* fs.writeFileString(resolve(TODO_FILE), seedTodo(captured))
-        return
+        return { stop: false }
       }
 
       // Accept Review: capture the human's pending changeset durably as
@@ -759,7 +811,7 @@ export const perform = (
         const captured = yield* captureAndRevert(git, REVIEW_FEEDBACK_SUBJECT, git.resetHard())
         yield* fs.remove(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))
         yield* fs.writeFileString(resolve(TODO_FILE), seedTodo(captured))
-        return
+        return { stop: false }
       }
 
       // Grilling capture: the plan is already committed and the user sketched
@@ -790,7 +842,7 @@ export const perform = (
         }
         yield* fs.writeFileString(resolve(TODO_FILE), appendCapturedInput(todoNow, captured))
         yield* git.commitAllWithPrefix(GRILLING_SUBJECT)
-        return
+        return { stop: false }
       }
 
       // Testing: commit the pending tree `gtd: building` (nothing pending in the
@@ -816,13 +868,62 @@ export const perform = (
           if (!committedBuilding) {
             yield* git.commitAllWithPrefix(BUILDING_SUBJECT)
           }
-          return
+          return { stop: false }
         }
         const target = action.capReached ? ERRORS_FILE : FEEDBACK_FILE
         const body = /\S/.test(result.output) ? result.output : EMPTY_FAILURE_SENTINEL
         yield* fs.writeFileString(resolve(target), body)
         yield* git.commitAllWithPrefix(ERRORS_SUBJECT)
-        return
+        return { stop: false }
+      }
+
+      // Health check: run tests on an idle/clean tree.
+      // Green, no prior fixes → stop immediately (no commit).
+      // Green, fixes exist → stop immediately (squash handled via healthFixBase
+      //   when gatherEvents sets it; the machine resolves squashing state).
+      // Red below cap → write HEALTH.md (uncommitted); resolveHealth will
+      //   commit it as `gtd: health-check` via `commitPending removeHealth`.
+      // Red at cap → write ERRORS.md and commit `gtd: health-check` immediately
+      //   so the Escalate state fires on the next resolve.
+      case "runHealthCheck": {
+        // If the human deleted ERRORS.md to reset the budget (pendingErrorsDeletion),
+        // commit the deletion before running the test so `removedErrors=true` on that
+        // commit resets healthFixCount in the next fold.
+        if (action.commitErrorsReset === true) {
+          yield* git.commitAllWithPrefix(HEALTH_FIX_SUBJECT)
+        }
+        const runner = yield* TestRunner
+        const result = yield* runner.run()
+        if (result.exitCode === 0) {
+          if (action.healthFixBase !== undefined && action.commitErrorsReset !== true) {
+            // Green after health-fix cycle: write SQUASH_MSG.md placeholder so the
+            // machine routes to squashing on the next loop iteration (rule 4c).
+            // The `squashCommit` edge will soft-reset to healthFixBase and commit
+            // all the changes as a single conventional-commit squash message.
+            // Skip when we just committed an errors-reset (commitErrorsReset): the
+            // removedErrors on that commit resets healthFixCount to 0 so there's
+            // nothing to squash.
+            yield* fs.writeFileString(
+              resolve(SQUASH_MSG_FILE),
+              "chore: health-check cycle squash\n",
+            )
+            return { stop: false }
+          }
+          // Green (idle or post-reset): settle to idle.
+          return { stop: true }
+        }
+        // Red: write failure output.
+        const body = /\S/.test(result.output) ? result.output : EMPTY_FAILURE_SENTINEL
+        if (action.capReached) {
+          // At cap: write to ERRORS.md and commit so Escalate fires next.
+          yield* fs.writeFileString(resolve(ERRORS_FILE), body)
+          yield* git.commitAllWithPrefix(HEALTH_CHECK_SUBJECT)
+        } else {
+          // Below cap: write to HEALTH.md (uncommitted) so resolveHealth
+          // commits it as `gtd: health-check` and emits the fixing prompt.
+          yield* fs.writeFileString(resolve(HEALTH_FILE), body)
+        }
+        return { stop: false }
       }
 
       // Grilling / Grilled / Planning / Fixing: commit the pending tree under a
@@ -837,11 +938,14 @@ export const perform = (
         if (action.removeTodo === true) {
           yield* fs.remove(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
+        if (action.removeHealth === true) {
+          yield* fs.remove(resolve(HEALTH_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        }
         if (action.removeTodo !== true) {
           yield* formatFile(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
         yield* git.commitAllWithPrefix(action.prefix)
-        return
+        return { stop: false }
       }
 
       // Close package: remove the (maybe-empty / maybe-absent) FEEDBACK.md, rm
@@ -855,21 +959,21 @@ export const perform = (
           yield* git.removePackageDir(`${GTD_DIR}/${first.name}`)
         }
         yield* git.commitAllWithPrefix(PACKAGE_DONE_SUBJECT)
-        return
+        return { stop: false }
       }
 
       // Await Review: commit REVIEW.md as `gtd: awaiting review`.
       case "commitReview": {
         yield* formatFile(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))
         yield* git.commitAllWithPrefix(AWAITING_REVIEW_SUBJECT)
-        return
+        return { stop: false }
       }
 
       // Done: rm REVIEW.md, commit `gtd: done`.
       case "done": {
         yield* fs.remove(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))
         yield* git.commitAllWithPrefix(DONE_SUBJECT)
-        return
+        return { stop: false }
       }
 
       // Squash: rm SQUASH_MSG.md, soft-reset to squashBase, commit everything
@@ -878,7 +982,7 @@ export const perform = (
         yield* fs.remove(resolve(SQUASH_MSG_FILE)).pipe(Effect.catchAll(() => Effect.void))
         yield* git.softResetTo(action.squashBase)
         yield* git.commitAllWithPrefix(action.commitMessage)
-        return
+        return { stop: false }
       }
     }
   }).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))

@@ -472,6 +472,7 @@ export function inMemoryLayers(
         const worktree = (repo as unknown as { worktree: Map<string, string> })["worktree"]
         return worktree.has(path)
       }
+      // fallow-ignore-next-line complexity
       const run = (): Effect.Effect<TestResult, Error> => {
         const cmd = config.testCommand.trim()
         if (cmd === "true") return Effect.succeed({ exitCode: 0, output: "" })
@@ -500,6 +501,10 @@ export function inMemoryLayers(
           }
           return Effect.succeed(result)
         }
+        // Default npm run test: simulate a passing test run so scenarios that
+        // don't configure a testCommand settle Idle without needing a real
+        // package.json / test suite in the in-memory environment.
+        if (cmd === "npm run test") return Effect.succeed({ exitCode: 0, output: "" })
         // Unknown command → simulate ENOENT
         return Effect.fail(new Error(`test command not found: ${cmd}`))
       }

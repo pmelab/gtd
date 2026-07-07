@@ -89,7 +89,7 @@ const runGetPackages = () =>
 const runPerform = (
   action: EdgeAction,
   testResult: { exitCode: number; output: string } = { exitCode: 0, output: "" },
-): Promise<void> =>
+): Promise<{ stop: boolean }> =>
   Effect.runPromise(
     perform(action).pipe(
       Effect.provide(GitService.Live),
@@ -393,6 +393,18 @@ describe("gatherEvents — COMMIT flags from the flat gtd: taxonomy", { timeout:
     })
     expect(commits[2]).toMatchObject({ removedErrors: false })
   })
+
+  it("sets isHealthCheck / isHealthFix for matching subjects", async () => {
+    commitFile("gtd: health-check", "HEALTH.md", "# Health\nfail\n")
+    commitFile("gtd: health-fix", "x.ts", "//fix\n")
+    commitFile("feat: regular", "y.ts", "//y\n")
+
+    const commits = commitsOf(await runGather())
+    expect(commits).toHaveLength(3)
+    expect(commits[0]).toMatchObject({ isHealthCheck: true, isHealthFix: false })
+    expect(commits[1]).toMatchObject({ isHealthCheck: false, isHealthFix: true })
+    expect(commits[2]).toMatchObject({ isHealthCheck: false, isHealthFix: false })
+  })
 })
 
 // ── gatherEvents: RESOLVE payload ────────────────────────────────────────────
@@ -567,6 +579,35 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
     expect(p.agenticReviewEnabled).toBe(true)
     expect(p.fixAttemptCap).toBe(3)
     expect(p.reviewThreshold).toBe(3)
+  })
+
+  it("health absent → healthPresent false, healthContent empty, healthCommitted false", async () => {
+    const p = resolveOf(await runGather())
+    expect(p.healthPresent).toBe(false)
+    expect(p.healthContent).toBe("")
+    expect(p.healthCommitted).toBe(false)
+  })
+
+  it("present uncommitted HEALTH.md → healthPresent true, healthCommitted false, healthContent matches", async () => {
+    writeFileSync(join(repoDir, "HEALTH.md"), "# Health\nfailing tests\n")
+    const p = resolveOf(await runGather())
+    expect(p.healthPresent).toBe(true)
+    expect(p.healthCommitted).toBe(false)
+    expect(p.healthContent).toContain("failing tests")
+  })
+
+  it("present committed HEALTH.md → healthPresent true, healthCommitted true, healthContent matches", async () => {
+    commitFile("gtd: health-check", "HEALTH.md", "# Health\ntest output\n")
+    const p = resolveOf(await runGather())
+    expect(p.healthPresent).toBe(true)
+    expect(p.healthCommitted).toBe(true)
+    expect(p.healthContent).toContain("test output")
+  })
+
+  it("HEALTH.md is excluded from codeDirty (steering file)", async () => {
+    writeFileSync(join(repoDir, "HEALTH.md"), "# Health\nfail\n")
+    const p = resolveOf(await runGather())
+    expect(p.codeDirty).toBe(false)
   })
 })
 
@@ -1451,5 +1492,59 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(git("rev-parse", "HEAD~1").trim()).toBe(squashBase)
     expect(git("diff", "--name-only", `${squashBase}..HEAD`)).toContain("work.ts")
     expect(git("diff", "--name-only", `${squashBase}..HEAD`)).not.toContain("SQUASH_MSG.md")
+  })
+
+  it("perform returns stop: false for all non-health-check actions", async () => {
+    writeFileSync(join(repoDir, "src.ts"), "code\n")
+    const result = await runPerform({ kind: "commitPending", prefix: "gtd: grilling" })
+    expect(result.stop).toBe(false)
+  })
+
+  it("runHealthCheck green, no prior fixes → no commit, stop: true", async () => {
+    const countBefore = git("rev-list", "--count", "HEAD")
+    const result = await runPerform(
+      { kind: "runHealthCheck", errorCount: 0, capReached: false },
+      { exitCode: 0, output: "all good" },
+    )
+    expect(result.stop).toBe(true)
+    expect(git("rev-list", "--count", "HEAD")).toBe(countBefore) // no new commit
+    expect(existsSync(join(repoDir, "HEALTH.md"))).toBe(false)
+  })
+
+  it("runHealthCheck red below cap → writes HEALTH.md uncommitted, no new commit, stop: false", async () => {
+    const countBefore = git("rev-list", "--count", "HEAD")
+    const result = await runPerform(
+      { kind: "runHealthCheck", errorCount: 1, capReached: false },
+      { exitCode: 1, output: "FAIL: test boom\n" },
+    )
+    expect(result.stop).toBe(false)
+    expect(existsSync(join(repoDir, "HEALTH.md"))).toBe(true)
+    expect(readFileSync(join(repoDir, "HEALTH.md"), "utf8")).toContain("FAIL: test boom")
+    expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(false)
+    // HEALTH.md is uncommitted — resolveHealth will commit it as gtd: health-check
+    expect(git("rev-list", "--count", "HEAD")).toBe(countBefore)
+    expect(git("status", "--porcelain")).toContain("HEALTH.md")
+  })
+
+  it("runHealthCheck red at cap → writes ERRORS.md, commits gtd: health-check, stop: false", async () => {
+    const result = await runPerform(
+      { kind: "runHealthCheck", errorCount: 3, capReached: true },
+      { exitCode: 1, output: "FAIL: persistent\n" },
+    )
+    expect(result.stop).toBe(false)
+    expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(true)
+    expect(readFileSync(join(repoDir, "ERRORS.md"), "utf8")).toContain("FAIL: persistent")
+    expect(existsSync(join(repoDir, "HEALTH.md"))).toBe(false)
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: health-check")
+  })
+
+  it("commitPending removeHealth: true → deletes HEALTH.md and commits", async () => {
+    commitFile("gtd: health-check", "HEALTH.md", "# Health\ntest output\n")
+    writeFileSync(join(repoDir, "impl.ts"), "export const fixed = 1\n")
+    await runPerform({ kind: "commitPending", prefix: "gtd: health-fix", removeHealth: true })
+    expect(existsSync(join(repoDir, "HEALTH.md"))).toBe(false)
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: health-fix")
+    expect(git("status", "--porcelain").trim()).toBe("")
+    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\tHEALTH.md")
   })
 })
