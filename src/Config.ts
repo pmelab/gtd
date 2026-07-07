@@ -297,20 +297,16 @@ export class ConfigService extends Context.Tag("ConfigService")<ConfigService, C
         const git = (...args: Array<string>) =>
           executor.exitCode(Command.make("git", ...args).pipe(Command.workingDirectory(root)))
 
-        // Never disturb a `gtd: transport` HEAD. Transport is precedence-0 and
-        // means "consume/mixed-reset this exact HEAD". Auto-committing a config
-        // stub on top of it (or writing one into the tree it carries) would
-        // corrupt the primitive: the transport commit would no longer be HEAD,
-        // and — when transport is the repo root — the auto-commit silently masks
-        // the "cannot reset transport commit" error the machine must surface.
-        // Skip auto-init entirely here; it fires normally on a later run once the
-        // transport HEAD has been consumed.
+        // Never disturb a repo that's already mid-workflow. Any `gtd:` HEAD means
+        // the machine owns the commit history; auto-committing a stub on top would
+        // produce an unrecognized HEAD and corrupt the state machine. Skip here —
+        // the stub can be added manually or on the next idle run.
         const headSubject = yield* Command.make("git", "log", "-1", "--pretty=%s")
           .pipe(Command.workingDirectory(root), Command.string)
           .pipe(Effect.map((s) => s.trim()))
           .pipe(Effect.catchAll(() => Effect.succeed("")))
 
-        if (headSubject !== "gtd: transport") {
+        if (!headSubject.startsWith("gtd:")) {
           yield* writeSchemaStub(root)
           yield* git("add", ".gtdrc.json")
           yield* git("commit", "-m", "chore: add .gtdrc.json")
