@@ -51,6 +51,12 @@ export type GtdState =
  *   - `removedErrors`   — that commit's diff deleted `ERRORS.md`
  *   - `isHealthCheck`   — subject is `gtd: health-check`
  *   - `isHealthFix`     — subject is `gtd: health-fix`
+ *
+ * Ad-hoc review anchor: `gtd: reviewing` — used as the squash anchor when
+ * initiating an ad-hoc review outside a normal workflow cycle (i.e. the
+ * `review` command). It plays the same structural role as `gtd: new task`
+ * (marks a review base) but targets the Clean state directly rather than
+ * seeding a task.
  */
 export interface CommitEvent {
   readonly type: "COMMIT"
@@ -809,3 +815,29 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   // non-empty; otherwise the tree runs the health check or settles Idle.
   return resolveCleanOrIdle(p, counters, head) ?? corrupt()
 }
+
+/**
+ * Build a `Result` in the `clean` state with a pinned `reviewBase`/`refDiff`.
+ * Intended for the `review` command, which synthesises a Clean result directly
+ * (bypassing `resolve`) after placing the `gtd: reviewing` anchor commit.
+ * All other context fields default to `DEFAULT_PAYLOAD` values, matching the
+ * context shape the auto-Clean path (`resolveCleanOrIdle`) produces.
+ */
+export const cleanResult = (args: {
+  reviewBase: string
+  refDiff: string
+  autoAdvance: boolean
+}): Result => ({
+  state: "clean",
+  autoAdvance: args.autoAdvance,
+  context: {
+    ...buildContext(
+      {
+        ...DEFAULT_PAYLOAD,
+        reviewBase: args.reviewBase,
+        refDiff: args.refDiff,
+      },
+      { testFixCount: 0, reviewFixCount: 0, healthFixCount: 0 },
+    ),
+  },
+})

@@ -50,7 +50,14 @@ No config file, no setup subcommand.
 
 Run `gtd` from your repository's working directory — it prints the next prompt
 to stdout. It takes **no ref argument** — the review base is always
-auto-computed.
+auto-computed. The one exception is `gtd review <target>`: an explicit,
+on-demand human review against a chosen base (see
+[Review subcommand](#review-subcommand) below).
+
+On an idle tree outside a process (no steering files, nothing reviewable), `gtd`
+now runs a **health check** instead of stopping immediately — `gtd review` is
+the only way to start an ad-hoc review when the automatic review base yields no
+diff.
 
 ## JSON output mode
 
@@ -181,7 +188,8 @@ The complete set:
 `gtd: new task` · `gtd: grilling` · `gtd: grilled` · `gtd: planning` ·
 `gtd: building` · `gtd: errors` · `gtd: feedback` · `gtd: fixing` ·
 `gtd: package done` · `gtd: awaiting review` · `gtd: done` · `gtd: health-check`
-· `gtd: health-fix` — plus the hand-made `gtd: transport` (see below).
+· `gtd: health-fix` · `gtd: reviewing` — plus the hand-made `gtd: transport`
+(see below).
 
 The last commit subject is bucketed two ways:
 
@@ -494,9 +502,9 @@ loop before the next one starts.
    (`gtd: done`) → **Squashing** → **Idle**. The Squashing agent authors a
    conventional-commits message from the full process diff and squashes all
    intermediate `gtd: *` commits into one with `git reset --soft <base>` +
-   <<<<<<< HEAD `git commit`, then **gtd STOPs**. The base is the parent of the
-   current cycle's start marker **nearest to HEAD** (the last `gtd: new task`;
-   for legacy cycles the last contiguous `gtd: grilling` run), and on a feature
+   `git commit`, then **gtd STOPs**. The base is the parent of the current
+   cycle's start marker **nearest to HEAD** (the last `gtd: new task`; for
+   legacy cycles the last contiguous `gtd: grilling` run), and on a feature
    branch it never reaches below the merge-base with the default branch — stray
    markers left behind by older squashes can never drag the squash into
    previously shipped features. Post-squash review does not fire automatically —
@@ -505,20 +513,13 @@ loop before the next one starts.
    has no unrelated code dirty — a lone untracked `SQUASH_MSG.md` is tolerated
    and deleted before the squash commit. If unrelated code is dirty at
    `gtd: done`, gtd routes to **New Feature** instead. Set `squash: false` in
-   ======= `git commit`, then **gtd STOPs**. Post-squash review does not fire
-   automatically — it fires only on the next manual `gtd` run (when the squash
-   commit is the boundary HEAD and a reviewable diff exists). Squashing fires
-   when the tree has no unrelated code dirty — a lone untracked `SQUASH_MSG.md`
-   is tolerated and deleted before the squash commit. If unrelated code is dirty
-   at `gtd: done`, gtd routes to **New Feature** instead. Set `squash: false` in
-   > > > > > > > origin/46-config-schema `.gtdrc` to skip squashing and go
-   > > > > > > > straight to Idle. Checking off REVIEW.md checkboxes (`- [ ]` →
-   > > > > > > > `- [x]`) also counts as approval and routes to **Done** — they
-   > > > > > > > are navigation aids, not feedback. Only **non-checkbox** edits
-   > > > > > > > (code changes, inline comments, textual annotations in
-   > > > > > > > REVIEW.md) trigger **Accept Review**, which seeds a fresh
-   > > > > > > > `TODO.md` from your feedback, discards your code edits, removes
-   > > > > > > > `REVIEW.md`, and re-enters Grilling — the loop starts over.
+   `.gtdrc` to skip squashing and go straight to Idle. Checking off REVIEW.md
+   checkboxes (`- [ ]` → `- [x]`) also counts as approval and routes to **Done**
+   — they are navigation aids, not feedback. Only **non-checkbox** edits (code
+   changes, inline comments, textual annotations in REVIEW.md) trigger **Accept
+   Review**, which seeds a fresh `TODO.md` from your feedback, discards your
+   code edits, removes `REVIEW.md`, and re-enters Grilling — the loop starts
+   over.
 
 ## Configuration
 
@@ -738,10 +739,50 @@ When there are genuinely no open questions left, the agent writes the sentinel
 line `no open questions — run gtd to plan` and leaves **no** markers — a clean
 tree with no markers is what advances the plan to **Grilled** and decomposition.
 
-## Formatting
+## Subcommands
 
-gtd ships a `format` subcommand — the **only** subcommand — that formats a
-markdown file in place:
+gtd ships two subcommands: `format` and `review`.
+
+## Review subcommand
+
+```bash
+gtd review <target>
+```
+
+Starts an explicit, on-demand human review of the diff between HEAD and
+`merge-base(<target>, HEAD)`. Use this when the automatic review base yields no
+diff (idle tree outside a process) or when you want to review against a specific
+base regardless of workflow state.
+
+### Flow
+
+1. `gtd review <target>` computes the diff HEAD adds over
+   `merge-base(<target>, HEAD)`.
+2. The edge writes an empty anchor commit `gtd: reviewing` (no content — just
+   the marker).
+3. The **Clean** state writes `REVIEW.md` with the computed diff and emits the
+   normal review prompt. `--json` is accepted and enables auto-advance mode
+   (same behavior as the default command).
+4. The normal loop then drives: **Await Review** → **Done** → **Squashing**,
+   collapsing back to the `gtd: reviewing` anchor commit.
+
+### Error handling
+
+All errors exit with **code 1** and write a message to **stderr**:
+
+- **Missing target** — `gtd review` with no argument:
+  `gtd review: missing target argument`
+- **Extra arguments** — `gtd review main extra`:
+  `gtd review: too many arguments — expected one target, got: …`
+- **Unresolvable ref** — the target cannot be resolved by git:
+  `gtd review: cannot resolve ref '<target>': <error message>`
+- **Empty diff** — the merge-base diff between `<target>` and HEAD is empty
+  (nothing to review):
+  `gtd review: nothing to review (<target> diff is empty after filtering)`
+
+## Format subcommand
+
+`gtd format` formats a markdown file in place:
 
 ```bash
 gtd format <file>

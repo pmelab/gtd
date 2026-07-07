@@ -2,11 +2,11 @@ import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
-import { perform } from "./Events.js"
+import { perform, reviewAgainst, REVIEWING_SUBJECT } from "./Events.js"
 import * as Format from "./Format.js"
 import { GitService } from "./Git.js"
 import type { Result } from "./Machine.js"
-import { DEFAULT_PAYLOAD } from "./Machine.js"
+import { cleanResult, DEFAULT_PAYLOAD } from "./Machine.js"
 import { buildPrompt } from "./Prompt.js"
 import { detect, isEdgeOnly } from "./State.js"
 import { TestRunner } from "./TestRunner.js"
@@ -104,14 +104,6 @@ export function makeProgram(
       return
     }
 
-    // No escape hatches: gtd takes no command other than `format`. Anything else
-    // (e.g. `transport`, `abort`) is rejected rather than silently ignored.
-    if (sub !== undefined) {
-      return yield* Effect.fail(new Error(`unknown command '${sub}'`))
-    }
-
-    const config = yield* ConfigService
-
     // Everything gtd derives — steering files, diffs, pathspecs — is resolved
     // against the process cwd, so running from anywhere but the repository root
     // would silently mis-derive state. Refuse with a clear error instead. (Fails
@@ -129,6 +121,55 @@ export function makeProgram(
             `the current directory is ${process.cwd()}`,
         ),
       )
+    }
+
+    const config = yield* ConfigService
+
+    if (sub === "review") {
+      const args = argv.slice(3).filter((a) => a.length > 0 && !a.startsWith("--"))
+      if (args.length === 0) {
+        return yield* Effect.fail(new Error("gtd review: missing target argument"))
+      }
+      if (args.length > 1) {
+        return yield* Effect.fail(
+          new Error(
+            `gtd review: too many arguments — expected one target, got: ${args.join(", ")}`,
+          ),
+        )
+      }
+      const target = args[0]!
+      const reviewResult = yield* reviewAgainst(target).pipe(
+        Effect.catchAll((error) =>
+          Effect.fail(new Error(`gtd review: cannot resolve ref '${target}': ${error.message}`)),
+        ),
+      )
+      if (reviewResult === undefined) {
+        return yield* Effect.fail(
+          new Error(`gtd review: nothing to review (${target} diff is empty after filtering)`),
+        )
+      }
+      const { reviewBase, refDiff } = reviewResult
+      yield* git.commitAllWithPrefix(REVIEWING_SUBJECT)
+      const result = cleanResult({ reviewBase, refDiff, autoAdvance: json })
+      const builtPrompt = buildPrompt(result, config.resolveModel, json ? "json" : "plain")
+      if (json) {
+        write(
+          JSON.stringify({
+            state: result.state,
+            autoAdvance: result.autoAdvance,
+            prompt: builtPrompt,
+          }) + "\n",
+        )
+      } else {
+        write(builtPrompt)
+      }
+      return
+    }
+
+    // No escape hatches: gtd takes no command other than `format` or `review`.
+    // Anything else (e.g. `transport`, `abort`) is rejected rather than silently ignored.
+    if (sub !== undefined) {
+      return yield* Effect.fail(new Error(`unknown command '${sub}'`))
     }
 
     // Driver loop: gather → resolve → (perform edgeAction) → auto-advance past
