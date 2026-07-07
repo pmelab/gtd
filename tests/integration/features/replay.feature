@@ -45,21 +45,30 @@ Feature: Replay — any committed point resumes deterministically
     And the commit count is unchanged
     And the file "ERRORS.md" exists
 
-  Scenario: Re-running at Clean (review authoring pending) is idempotent
+  Scenario: Re-running on an idle feature branch (outside process) is idempotent — settles Idle
     Given a test project
     And a default branch "main"
     And a branch "feature"
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo ALL_GREEN
+      exit 0
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      """
     And a commit "feat: branch work" that adds "src/feat.ts" with:
       """
       export const feat = 1
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "help a human to review the changes"
+    And stdout contains "repository is idle — nothing to do"
     And I record the commit count
     When I run gtd
     Then it succeeds
-    And stdout contains "help a human to review the changes"
+    And stdout contains "repository is idle — nothing to do"
     And the commit count is unchanged
 
   # Interruption recovery: a run killed between the `gtd: building` commit and

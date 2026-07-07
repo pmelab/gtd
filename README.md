@@ -215,8 +215,8 @@ The last commit subject is bucketed two ways:
    `gtd: new task` + clean tree (regenerate a lost seed) → New Feature.
 7. **TODO.md present** → Grilling / Grilled.
 8. **Boundary or `gtd: package done` HEAD + clean tree** → Clean (review the
-   work), **Health check** (run `testCommand` on the default-branch idle path
-   when there is nothing to review), or Idle (health check green, nothing to
+   work), **Health check** (run `testCommand` when there is nothing to review —
+   on any branch outside a process), or Idle (health check green, nothing to
    do).
 
 Anything matching no rule is corruption — `gtd` **hard-errors** rather than
@@ -256,7 +256,7 @@ flowchart TD
     P6 -->|"clean, no markers"| Grilled["Grilled — gtd: grilled, decompose"]:::agent
     P6 -->|absent| P7{"clean + boundary/package-done HEAD,<br/>reviewable diff?"}
     P7 -->|yes| CleanState["Clean — write REVIEW.md"]:::agent
-    P7 -->|"no (default-branch idle)"| HealthCheck["Health check — run testCommand"]:::edge
+    P7 -->|"no (idle, outside a process)"| HealthCheck["Health check — run testCommand"]:::edge
     HealthCheck -->|"green, no health-fix"| Idle
     HealthCheck -->|"green + ≥1 health-fix, squash enabled"| Squashing
     HealthCheck -->|"red, below cap"| HealthMd["write HEALTH.md, gtd: health-check"]:::edge
@@ -340,18 +340,18 @@ action and re-resolves silently.
 | **New Feature**    | edge-only, auto                  | boundary HEAD + pending changes (code and/or a new uncommitted TODO.md), **or** HEAD `gtd: new task` + clean tree (lost-seed regen)                                                               | commit the raw input verbatim `gtd: new task` (unless already there), `git revert --no-commit` it back to a clean baseline, seed TODO.md from that diff — revert + seed left **uncommitted**                                                                                                                           | Grilling                                                                        |
 | **Grilling**       | agent (iterate) / STOP (answers) | TODO.md present, not New Feature                                                                                                                                                                  | commit pending edits `gtd: grilling`. Open-question markers present → STOP for the human to answer inline; no markers but dirty → grilling agent iterates                                                                                                                                                              | converge (no markers, clean tree) → Grilled                                     |
 | **Grilled**        | agent, auto                      | TODO.md present, no markers, clean tree                                                                                                                                                           | commit pending `gtd: grilled`                                                                                                                                                                                                                                                                                          | decompose into `.gtd/` → Planning                                               |
-| **Clean**          | agent                            | no steering files, clean tree, boundary or `gtd: package done` HEAD, and the review base yields a **non-empty** diff                                                                              | compute the review base (four rules — see below); agent writes REVIEW.md **uncommitted** with `# Review: <short-hash>` heading, `<!-- base: <full-hash> -->` marker, and per-hunk `- [ ]` checkboxes (ticking them signals approval → Done)                                                                            | Await Review                                                                    |
-| **Health check**   | edge-only, auto                  | no steering files, clean tree, default-branch idle path (no reviewable diff) — the `!reviewable` case from rule 8                                                                                 | run `testCommand`: green + no prior `gtd: health-fix` → Idle (no commit); red below `fixAttemptCap` → write HEALTH.md, commit `gtd: health-check` → Health Fixing; red at cap → write ERRORS.md, commit `gtd: health-check` → Escalate; green + ≥1 `gtd: health-fix` → Squashing (if `squash`) or Idle                 | green → Idle or Squashing; red below cap → Health Fixing; red at cap → Escalate |
+| **Clean**          | agent                            | no steering files, clean tree, boundary or `gtd: package done` HEAD, and the review base yields a **non-empty** diff                                                                              | compute the review base (three rules — see below); agent writes REVIEW.md **uncommitted** with `# Review: <short-hash>` heading, `<!-- base: <full-hash> -->` marker, and per-hunk `- [ ]` checkboxes (ticking them signals approval → Done)                                                                           | Await Review                                                                    |
+| **Health check**   | edge-only, auto                  | no steering files, clean tree, outside a process with no reviewable diff (any branch) — the `!reviewable` case from rule 8                                                                        | run `testCommand`: green + no prior `gtd: health-fix` → Idle (no commit); red below `fixAttemptCap` → write HEALTH.md, commit `gtd: health-check` → Health Fixing; red at cap → write ERRORS.md, commit `gtd: health-check` → Escalate; green + ≥1 `gtd: health-fix` → Squashing (if `squash`) or Idle                 | green → Idle or Squashing; red below cap → Health Fixing; red at cap → Escalate |
 | **Idle**           | STOP                             | no steering files, clean tree, health check passed with no prior `gtd: health-fix` commits, and nothing to review                                                                                 | none (no commit — the health check edge terminates the driver loop directly)                                                                                                                                                                                                                                           | —                                                                               |
 
 Every prompt also embeds the current `git diff HEAD` (untracked files included)
 inline, plus the last commit subject and working-tree status, so the agent has
 full context.
 
-### Review base — four rules
+### Review base — three rules
 
 The review base (the commit whose diff to HEAD forms the REVIEW.md) is chosen by
-four rules evaluated in priority order:
+three rules evaluated in priority order:
 
 1. **Within a process, first review** — a `gtd: grilling` commit exists after
    the last `gtd: done` (or task start), but no `gtd: awaiting review` yet →
@@ -360,11 +360,9 @@ four rules evaluated in priority order:
 2. **Within a process, incremental** — `gtd: awaiting review` also present in
    the current cycle (takes precedence over rule 1) → base = last
    `gtd: awaiting review`; `refDiff` spans only the post-review changes.
-3. **Outside a process, feature branch** — no `gtd: grilling` after the last
-   `gtd: done`, and HEAD is not on the default branch → base = merge-base with
-   the default branch; `refDiff` spans the whole branch.
-4. **Outside a process, default branch** — no process active and HEAD is on the
-   default branch → skip review; `reviewBase`/`refDiff` unset → Idle.
+3. **Outside a process (any branch)** — no `gtd: grilling` after the last
+   `gtd: done` → skip review; `reviewBase`/`refDiff` unset → Idle (the health
+   check runs instead).
 
 In all cases, if the diff from the chosen base to HEAD is empty,
 `reviewBase`/`refDiff` are left unset and the machine settles in Idle.
@@ -409,9 +407,9 @@ every run resolves straight back to Escalate.
 
 ### Health-fix loop (`fixAttemptCap`, `squash` — no new config)
 
-On the default-branch idle path (no reviewable diff, no steering files), `gtd`
-runs `testCommand` instead of stopping. This reuses `fixAttemptCap` (default 3)
-and `squash` — no new config keys are introduced.
+Outside a process (any branch), when there is no reviewable diff and no steering
+files, `gtd` runs `testCommand` instead of stopping. This reuses `fixAttemptCap`
+(default 3) and `squash` — no new config keys are introduced.
 
 ```
 Idle path → Health check(red) → Health Fixing → Health check(red) → … → Health check(green)

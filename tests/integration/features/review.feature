@@ -8,18 +8,15 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
   Grilling) within the same open process — no `gtd: done` is committed on the
   feedback path.
 
-  The review base (what a review covers) is determined by four rules:
+  The review base (what a review covers) is determined by three rules:
   1. Within a gtd process (a `gtd: grilling` commit exists after the last
      `gtd: done`), first review → base = first `gtd: grilling` of the current
      cycle; refDiff spans the whole task.
   2. Within a process, follow-up (a `gtd: awaiting review` also exists in the
      current cycle) → base = last `gtd: awaiting review`; refDiff spans only
      the work packages built after that review.
-  3. Outside a process, on a feature branch → base = merge-base with the
-     default branch; refDiff always spans the whole branch, even when a prior
-     process completed on it (approved work is re-covered by design).
-  4. Outside a process, on the default branch → skip review (Idle;
-     `reviewBase`/`refDiff` unset).
+  3. Outside a process (any branch) → skip review: the health check runs
+     instead; Idle settles when the check is green.
 
   Whether a review fires is gated separately: the outside-process review only
   fires when commits exist after the last `gtd: done` (or none exists), so an
@@ -28,19 +25,28 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
   are excluded from every review diff — the reviewer never writes chunks about
   plumbing churn; a diff that is empty after filtering settles Idle too.
 
-  Scenario: Freshly committed branch work with a clean tree enters Clean to author REVIEW.md
+  Scenario: Freshly committed branch work outside a process settles Idle (health check), no review
     Given a test project
     And a default branch "main"
     And a branch "feature"
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo ALL_GREEN
+      exit 0
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      """
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "help a human to review the changes"
-    And stdout contains "Changes to review"
-    And stdout contains "src/calc.ts"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "help a human to review the changes"
+    And the file "REVIEW.md" does not exist
 
   Scenario: An uncommitted REVIEW.md is committed and auto-advances to Done in one run
     Given a test project
@@ -386,10 +392,19 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And the file "REVIEW.md" does not exist
     And the commit count is unchanged
 
-  Scenario: A new commit after gtd: done re-opens the review for the whole branch
+  Scenario: A new commit after gtd: done on a feature branch settles Idle (health check), no review
     Given a test project
     And a default branch "main"
     And a branch "feature"
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo ALL_GREEN
+      exit 0
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      """
     And a commit "feat: first slice" that adds "src/first.ts" with:
       """
       export const first = 1
@@ -401,23 +416,32 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "help a human to review the changes"
-    # Whole-branch scope: the already-approved first slice is re-covered.
-    And stdout contains "src/first.ts"
-    And stdout contains "src/second.ts"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "help a human to review the changes"
+    And the file "REVIEW.md" does not exist
 
-  Scenario: A coworker's non-gtd commit on a feature branch reviews against the merge-base
+  Scenario: A coworker's non-gtd commit on a feature branch settles Idle (health check)
     Given a test project
     And a default branch "main"
     And a branch "feature"
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo ALL_GREEN
+      exit 0
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      """
     And a commit "feat: coworker parser" that adds "src/parser.ts" with:
       """
       export const parse = (s: string) => JSON.parse(s)
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "help a human to review the changes"
-    And stdout contains "src/parser.ts"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "help a human to review the changes"
+    And the file "REVIEW.md" does not exist
 
   # Rule 1: within-process first review — base = first gtd: grilling of the
   # current task cycle; only work committed after grilling appears in the
@@ -501,22 +525,32 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     # The process stayed open throughout: no `gtd: done` was ever committed.
     And the git log does not contain "gtd: done"
 
-  # Rule 3: outside a process, feature branch — base = merge-base; whole branch reviewed.
-  Scenario: Outside-process feature branch reviews from the merge-base (Rule 3)
+  # Rule 3: outside a process (any branch) → no review; health check runs instead.
+  Scenario: Outside-process feature branch settles Idle via the health check
     Given a test project
     And a default branch "main"
     And a branch "feature"
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo ALL_GREEN
+      exit 0
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      """
     And a commit "feat: coworker parser" that adds "src/parser.ts" with:
       """
       export const parse = (s: string) => JSON.parse(s)
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "help a human to review the changes"
-    And stdout contains "src/parser.ts"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "help a human to review the changes"
+    And the file "REVIEW.md" does not exist
 
-  # Rule 4: outside a process, default branch — the branch review never fires.
-  Scenario: Outside-process default branch skips review and settles Idle (Rule 4)
+  # Rule 3: outside a process, default branch — the branch review never fires.
+  Scenario: Outside-process default branch skips review and settles Idle (Rule 3)
     Given a test project
     And a commit "feat: trunk work" that adds "src/trunk.ts" with:
       """

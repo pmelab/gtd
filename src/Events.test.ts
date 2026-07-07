@@ -654,6 +654,22 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
     expect(p.refDiff).not.toContain("REVIEW.md")
   })
 
+  // Rule 1 on a feature branch: a gtd: grilling commit after the last gtd: done still
+  // yields a review base even though the branch has a merge-base. Guards against
+  // over-broad suppression of Rule 3 collapsing Rule 1 on feature branches.
+  it("within-process feature branch after gtd: done still yields a review base (Rule 1)", async () => {
+    initRepo(true)
+    git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+    commitFile("gtd: grilling", "TODO.md", "# Plan\n")
+    const grilling = git("rev-parse", "HEAD")
+    git("rm", "-q", "TODO.md")
+    git("commit", "-q", "-m", "gtd: planning")
+    commitFile("feat: work", "work.ts", "export const work = 1\n")
+    const p = resolveOf(await runGather())
+    expect(p.reviewBase).toBe(grilling)
+    expect(p.refDiff).toContain("work.ts")
+  })
+
   // Only workflow-file churn since the base → the filtered diff is empty, so
   // reviewBase/refDiff stay unset and the machine settles Idle.
   it("only workflow-file churn since base → reviewBase/refDiff unset (Idle)", async () => {
@@ -666,15 +682,13 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
     expect(p.refDiff).toBeUndefined()
   })
 
-  // Rule 3: outside a process, on a feature branch — base = merge-base(default, HEAD);
-  // refDiff spans the whole branch.
-  it("outside-process feature branch → base is the merge-base; refDiff spans whole branch", async () => {
+  // Rule 3: outside a process, on any branch — skip review; reviewBase/refDiff unset (Idle).
+  it("outside-process feature branch → reviewBase/refDiff unset (Idle)", async () => {
     initRepo(true)
     commitFile("feat: branch work", "branch.ts", "export const branch = 1\n")
-    const mergeBase = git("rev-parse", "main")
     const p = resolveOf(await runGather())
-    expect(p.reviewBase).toBe(mergeBase)
-    expect(p.refDiff).toContain("branch.ts")
+    expect(p.reviewBase).toBeUndefined()
+    expect(p.refDiff).toBeUndefined()
   })
 
   // Rule 4: outside a process, on the default branch — skip review; reviewBase/refDiff unset.
@@ -726,18 +740,17 @@ describe(
       expect(p.refDiff).toBeUndefined()
     })
 
-    it("commits after the last gtd: done → gate reopens; base stays the merge-base (whole branch)", async () => {
+    it("commits after the last gtd: done → gate reopens; outside-process stays Idle", async () => {
       initRepo(true)
       commitFile("feat: first slice", "first.ts", "export const first = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
       commitFile("feat: second slice", "second.ts", "export const second = 2\n")
-      const mergeBase = git("rev-parse", "main")
       const p = resolveOf(await runGather())
+      // Gate reopened — hasCommitsAfterLastDone is true.
+      // Outside a process on any branch, Rule 3 applies: no review base.
       expect(p.hasCommitsAfterLastDone).toBe(true)
-      // No "since last done" scoping: the approved first slice is re-covered.
-      expect(p.reviewBase).toBe(mergeBase)
-      expect(p.refDiff).toContain("first.ts")
-      expect(p.refDiff).toContain("second.ts")
+      expect(p.reviewBase).toBeUndefined()
+      expect(p.refDiff).toBeUndefined()
     })
 
     it("empty repo → gate open (degenerate default)", async () => {

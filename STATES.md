@@ -94,14 +94,14 @@ The last commit message is bucketed:
 9. **Boundary/`package done` HEAD + clean tree** → Clean (review) or Idle/Health
    check. A review fires only when the re-trigger gate is open — commits exist
    after the last `gtd: done` (or none exists) — and the workflow-file-filtered
-   diff from the review base is non-empty (see Clean). When neither a review nor
-   a feature-branch Clean fires (the `!reviewable` case: default branch or empty
-   diff), the **health check** runs instead of stopping: runs the configured
-   `testCommand` and routes to Health check or Health Fixing based on the
-   result. The in-process Clean path (HEAD `gtd: package done` with a non-empty
-   reviewable diff) and the feature-branch Clean path (rule 3 of Clean's base
-   selection) are **unchanged** — only the bare-idle `!reviewable`
-   default-branch boundary falls through to the health check.
+   diff from the review base is non-empty (see Clean). When no review fires (the
+   `!reviewable` case: outside a process on any branch, or an empty diff), the
+   **health check** runs instead of stopping: runs the configured `testCommand`
+   and routes to Health check or Health Fixing based on the result. The
+   in-process Clean path (HEAD `gtd: package done` with a non-empty reviewable
+   diff) is **unchanged** — the `!reviewable` case is now any idle branch
+   outside a process (feature or default) or an empty diff, and all of those
+   fall through to the health check.
 
 Anything matching no rule is corruption — hard-error rather than guess.
 
@@ -298,11 +298,12 @@ through Testing → `gtd: building`.)_
 ### Health check (auto-advance)
 
 **Conditions:** no steering files, clean tree, boundary or `gtd: package done`
-or `gtd: health-fix` HEAD, default-branch idle — i.e. the `!reviewable` case
-from rule 9: no `.gtd`, no REVIEW.md, no FEEDBACK.md, no ERRORS.md, no
-HEALTH.md, and no review to run. (`gtd: health-fix` is a valid entry point
-because Health Fixing removes HEALTH.md and commits `gtd: health-fix`, leaving a
-clean tree that must loop back here to re-test.)
+or `gtd: health-fix` HEAD, outside a process on any branch with nothing to
+review — i.e. the `!reviewable` case from rule 9: no `.gtd`, no REVIEW.md, no
+FEEDBACK.md, no ERRORS.md, no HEALTH.md, and no review to run.
+(`gtd: health-fix` is a valid entry point because Health Fixing removes
+HEALTH.md and commits `gtd: health-fix`, leaving a clean tree that must loop
+back here to re-test.)
 
 **Actions:**
 
@@ -405,12 +406,10 @@ what it covers).
   - follow-up review (a `gtd: awaiting review` also exists in the current cycle)
     — base = the last `gtd: awaiting review`; the review covers only the work
     packages built after that review (the feedback cycle's output).
-- **outside a process, on a feature branch** — base = the merge-base with the
-  default branch: always the whole branch, even when a prior process completed
-  on it (already-approved work is re-covered by design).
-- **outside a process, on the default branch** — no base: the branch review
-  never fires on trunk (Idle). Everything else still works on trunk — a dirty
-  tree seeds New Feature and open processes continue.
+- **outside a process (any branch)** — no base: the branch review never fires;
+  the health check runs instead (green settles Idle, red routes to Health
+  Fixing). Everything else still works — a dirty tree seeds New Feature and open
+  processes continue on any branch.
 
 Workflow files (REVIEW.md, TODO.md, FEEDBACK.md, ERRORS.md, `.gtd/`) are
 excluded from the review diff, so the reviewer never writes chunks about
@@ -516,9 +515,8 @@ no prior health-fix commits — the terminal green settle. Reached when:
 
 - the re-trigger gate is closed (no commits after the last `gtd: done`) and the
   review base's workflow-file-filtered diff is empty, or
-- the trunk rule applies (outside a process on the default branch) and the
-  health check returned green with no `gtd: health-fix` commits in the current
-  run.
+- outside a process on any branch and the health check returned green with no
+  `gtd: health-fix` commits in the current run.
 
 **Actions:** none. No commit is written — the health check edge terminates the
 driver loop directly when it reaches this outcome (zero-commit green path).
