@@ -1,17 +1,13 @@
-## Task: Escalate — the test gate is stuck
+<%~ include("@header") %>
 
-A committed `ERRORS.md` is present: the automatic fix loop hit the fix-attempt
-cap without getting the tests green. Automatic fixing has stopped so it does not
-burn further effort on a problem it cannot solve.
+<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
+The agent was not able to fix all errors on its own. The last error report is
+stored in `ERRORS.md` for a human to investigate.
 
-### What to do
+Next steps for the human developer:
 
-1. **Surface the failure** — read `ERRORS.md` and show the user the captured
-   failing output verbatim (assertions, stack traces), not a summary.
-2. **Report** that the fix attempts were exhausted and the root cause needs
-   human judgement.
-3. **Tell the user how to resume** — investigate and fix the root cause (or
-   nudge the code), then **delete `ERRORS.md`**. Removing `ERRORS.md` resets the
-   fix-attempt budget: the next cycle re-tests and grants a fresh round of
-   automatic fixes before escalating again. While `ERRORS.md` exists, every run
-   resolves straight back to this gate.
+1. Investigate and fix errors reported in `ERRORS.md`
+2. Delete `ERRORS.md`
+3. Continue the process when you are ready
+
+<%~ include(it.tail) %>

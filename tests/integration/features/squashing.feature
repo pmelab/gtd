@@ -27,12 +27,12 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And a commit "gtd: done" that deletes "REVIEW.md"
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Squash all `gtd: *` commits into one conventional-commits message"
+    And stdout contains "conventional-commits squash message"
     And stdout contains "Write the commit message"
     And stdout contains "SQUASH_MSG.md"
     And stdout contains "src/calc.ts"
-    And stdout contains "Continue immediately after completing the steps above — re-run the harness."
-    And stdout does not contain "STOP — do not re-run"
+    And stdout contains "run `gtd` in the current working directory"
+    And stdout does not contain "This is a human feedback gate"
     And stdout contains "Do not run"
 
   Scenario: Interleaved non-gtd commit appears in the squash diff
@@ -60,12 +60,12 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And a commit "gtd: done" that deletes "REVIEW.md"
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Squash all `gtd: *` commits into one conventional-commits message"
+    And stdout contains "conventional-commits squash message"
     And stdout contains "Write the commit message"
     And stdout contains "SQUASH_MSG.md"
     And stdout contains "coworker.ts"
-    And stdout contains "Continue immediately after completing the steps above — re-run the harness."
-    And stdout does not contain "STOP — do not re-run"
+    And stdout contains "run `gtd` in the current working directory"
+    And stdout does not contain "This is a human feedback gate"
     And stdout contains "Do not run"
 
   @squashing
@@ -196,7 +196,7 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And the HEAD commit subject is "feat(calc): add calculator"
     And "SQUASH_MSG.md" does not exist
     And "src/calc.ts" exists
-    And stdout does not contain "## Task: Grill the plan in `TODO.md`"
+    And stdout does not contain "holds the plan under development"
     And "TODO.md" does not exist
 
   @squashing
@@ -231,9 +231,9 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
     And "TODO.md" exists
-    And stdout does not contain "## Task: Squash all `gtd: *` commits into one conventional-commits message"
+    And stdout does not contain "conventional-commits squash message"
 
   Scenario: Squash disabled via config — Idle instead of Squashing
     Given a test project
@@ -260,8 +260,8 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And a commit "gtd: done" that deletes "REVIEW.md"
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Nothing to do"
-    And stdout does not contain "## Task: Squash all `gtd: *` commits into one conventional-commits message"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "conventional-commits squash message"
 
   Scenario: Already squashed — plain boundary commit yields Idle
     Given a test project
@@ -271,8 +271,8 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Nothing to do"
-    And stdout does not contain "## Task: Squash all `gtd: *` commits into one conventional-commits message"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "conventional-commits squash message"
 
   @squashing
   Scenario: Stray gtd: new task below the branch point — squash never rewrites previous features
@@ -349,4 +349,4 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
     And stdout does not contain "Re-run gtd immediately"
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"

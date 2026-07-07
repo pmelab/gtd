@@ -25,7 +25,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     And the last commit subject is "gtd: grilling"
     And the file "src/input.ts" does not exist
     And the file "TODO.md" contains "src/input.ts"
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
     # The agent develops the plan and leaves an open question.
     When "TODO.md" is modified to:
       """
@@ -60,7 +60,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: grilled"
-    And stdout contains "## Task: Decompose the plan into work packages"
+    And stdout contains "Decompose it into an ordered set of"
     # The agent decomposes into one package.
     When a file ".gtd/01-calc/01-add.md" with:
       """
@@ -74,7 +74,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     When I run gtd
     Then it succeeds
     And the file "TODO.md" does not exist
-    And stdout contains "## Task: Build one work package"
+    And stdout contains "Build the package described below"
     And stdout contains "Implement add() in src/calc.ts."
     # The builder writes the code.
     When a file "src/calc.ts" with:
@@ -85,7 +85,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: building"
-    And stdout contains "## Task: Agentic review of the built package"
+    And stdout contains "Spawn a **reviewing subagent**"
     # The review agent approves with an empty FEEDBACK.md.
     When an empty file "FEEDBACK.md"
     # Run 8: Close package, .gtd gone → Clean prompts the human review.
@@ -93,7 +93,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     Then it succeeds
     And the last commit subject is "gtd: package done"
     And the file ".gtd" does not exist
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And stdout contains "src/calc.ts"
     And stdout does not contain "a/TODO.md"
     # The review agent writes REVIEW.md.
@@ -110,7 +110,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     Then it succeeds
     And the last commit subject is "gtd: done"
     And the file "REVIEW.md" does not exist
-    And stdout contains "## Task: Squash all `gtd: *` commits into one conventional-commits message"
+    And stdout contains "conventional-commits squash message"
     And stdout contains "git reset --soft"
     And the commit subjects from oldest to newest are:
       """
@@ -195,7 +195,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     And the last commit subject is "gtd: planning"
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Build one work package"
+    And stdout contains "Build the package described below"
     When a file "src/farewell.ts" with:
       """
       export const farewell = (name: string) => `Goodbye, ${name}`
@@ -209,7 +209,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     When I run gtd
     Then it succeeds
     And the git log does not contain "gtd: done"
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And stdout contains "src/farewell.ts"
     And stdout does not contain "src/greet.ts"
     And stdout does not contain "a/REVIEW.md"
@@ -226,7 +226,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: done"
-    And stdout contains "## Task: Squash all `gtd: *` commits into one conventional-commits message"
+    And stdout contains "conventional-commits squash message"
     And stdout contains "git reset --soft"
 
   @inmem
@@ -260,17 +260,17 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     Then it succeeds
     And the git log contains "gtd: errors"
     And the last commit subject is "gtd: fixing"
-    And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
+    And stdout contains "Spawn a **fix subagent**"
     # Run 2: the fixer produced no change — re-test is still red, budget 1/2.
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: fixing"
-    And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
+    And stdout contains "Spawn a **fix subagent**"
     # Run 3: re-test red at the cap → ERRORS.md → Escalate STOP.
     When I run gtd
     Then it succeeds
     And the file "ERRORS.md" exists
-    And stdout contains "## Task: Escalate — the test gate is stuck"
+    And stdout contains "was not able to fix all errors on its own"
     # The human fixes the underlying problem and removes ERRORS.md.
     Given a deleted committed file "ERRORS.md"
     And a file "green.marker" with:
@@ -282,7 +282,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     Then it succeeds
     And the last commit subject is "gtd: building"
     And the file "ERRORS.md" does not exist
-    And stdout contains "## Task: Agentic review of the built package"
+    And stdout contains "Spawn a **reviewing subagent**"
 
   @inmem
   Scenario: Two-package journey — counters reset at the package seam
@@ -308,7 +308,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     # Run 1: Building selects the first package.
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Build one work package"
+    And stdout contains "Build the package described below"
     And stdout contains "Implement the first helper."
     When a file "src/one.ts" with:
       """
@@ -337,7 +337,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     When I run gtd
     Then it succeeds
     And the file ".gtd" does not exist
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And stdout contains "src/one.ts"
     And stdout contains "src/two.ts"
     And stdout does not contain "a/.gtd"
@@ -361,7 +361,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: done"
-    And stdout contains "## Task: Nothing to do"
+    And stdout contains "repository is idle — nothing to do"
     # New work lands after the approval — the whole-branch review re-opens.
     Given a commit "feat: second slice" that adds "src/second.ts" with:
       """
@@ -369,7 +369,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And stdout contains "src/first.ts"
     And stdout contains "src/second.ts"
     When a file "REVIEW.md" with:
@@ -383,4 +383,4 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: done"
-    And stdout contains "## Task: Nothing to do"
+    And stdout contains "repository is idle — nothing to do"

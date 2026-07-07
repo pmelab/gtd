@@ -22,9 +22,9 @@ Feature: Grilling — the 3-way convergence gate on TODO.md
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: grilling"
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
     And stdout contains "Open questions await the user"
-    And stdout does not contain "## Task: Decompose"
+    And stdout does not contain "Decompose it into an ordered set of"
 
   Scenario: No marker but pending edits lets the grilling agent iterate
     Given a test project
@@ -43,7 +43,7 @@ Feature: Grilling — the 3-way convergence gate on TODO.md
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: grilling"
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
     And stdout contains "### Develop the plan"
 
   Scenario: No marker and a clean tree converges to Grilled and prompts decompose
@@ -59,7 +59,7 @@ Feature: Grilling — the 3-way convergence gate on TODO.md
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: grilled"
-    And stdout contains "## Task: Decompose the plan into work packages"
+    And stdout contains "Decompose it into an ordered set of"
     And stdout does not contain "Open questions await the user"
 
   Scenario: Marker inside an unclosed code fence does not stop for the user
@@ -142,7 +142,7 @@ Feature: Grilling — the 3-way convergence gate on TODO.md
     And the file "TODO.md" contains "Captured input (grilling)"
     And the file "TODO.md" contains "export const sketch"
     And the file "TODO.md" contains "Interpret the captured diff"
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
 
   Scenario: Code sketched while questions are open is captured and gtd still stops
     Given a test project

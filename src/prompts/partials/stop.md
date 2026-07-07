@@ -1,3 +1,3 @@
-⛔ **STOP — do not re-run the harness.** This is a human gate. Only the user may
-resume this step. Re-running now with no changes will loop or advance without
-human input.
+After the tasks above are done, end your turn and never invoke an additional
+process. This is a human feedback gate and the next step has to be invoked by a
+human manually.

@@ -48,52 +48,52 @@ describe("buildPrompt", () => {
       const out = buildPrompt(
         result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
       )
-      expect(out).toContain("Grill the plan in `TODO.md`")
+      expect(out).toContain("holds the plan under development")
     })
 
     it("grilled renders the decompose section", () => {
       const out = buildPrompt(result("grilled", { autoAdvance: true }))
-      expect(out).toContain("Decompose the plan into work packages")
+      expect(out).toContain("Decompose it into an ordered set of")
     })
 
     it("planning renders the decompose section", () => {
       const out = buildPrompt(result("planning", { autoAdvance: true }))
-      expect(out).toContain("Decompose the plan into work packages")
+      expect(out).toContain("Decompose it into an ordered set of")
     })
 
     it("building renders the building section", () => {
       const out = buildPrompt(withPackage("building"))
-      expect(out).toContain("Build one work package")
+      expect(out).toContain("Build the package described below")
     })
 
     it("fixing renders the fixing section", () => {
       const out = buildPrompt(result("fixing", { autoAdvance: true }))
-      expect(out).toContain("Fix the package against `FEEDBACK.md`")
+      expect(out).toContain("Spawn a **fix subagent**")
     })
 
     it("agentic-review renders the agentic-review section", () => {
       const out = buildPrompt(withPackage("agentic-review"))
-      expect(out).toContain("Agentic review of the built package")
+      expect(out).toContain("Spawn a **reviewing subagent**")
     })
 
     it("clean renders the clean section", () => {
       const out = buildPrompt(result("clean"))
-      expect(out).toContain("Create `REVIEW.md` for the finished work")
+      expect(out).toContain("help a human to review the changes")
     })
 
     it("squashing renders the squashing section", () => {
       const out = buildPrompt(result("squashing"))
-      expect(out).toContain("Squash all `gtd: *` commits into one conventional-commits message")
+      expect(out).toContain("conventional-commits squash message")
     })
 
     it("escalate renders the escalate section", () => {
       const out = buildPrompt(result("escalate"))
-      expect(out).toContain("Escalate — the test gate is stuck")
+      expect(out).toContain("was not able to fix all errors on its own")
     })
 
     it("idle renders the idle section", () => {
       const out = buildPrompt(result("idle"))
-      expect(out).toContain("Nothing to do")
+      expect(out).toContain("repository is idle — nothing to do")
     })
   })
 
@@ -189,27 +189,33 @@ describe("buildPrompt", () => {
   describe("STOP banner", () => {
     it("escalate leads with the STOP banner", () => {
       const out = buildPrompt(result("escalate"))
-      expect(out).toContain("⛔")
-      expect(out.indexOf("⛔")).toBeGreaterThan(out.indexOf("Escalate — the test gate"))
+      expect(out).toContain("This is a human feedback gate")
+      expect(out.indexOf("This is a human feedback gate")).toBeGreaterThan(
+        out.indexOf("was not able to fix all errors on its own"),
+      )
     })
 
     it("idle leads with the STOP banner", () => {
       const out = buildPrompt(result("idle"))
-      expect(out).toContain("⛔")
-      expect(out.indexOf("⛔")).toBeGreaterThan(out.indexOf("Nothing to do"))
+      expect(out).toContain("This is a human feedback gate")
+      expect(out.indexOf("This is a human feedback gate")).toBeGreaterThan(
+        out.indexOf("repository is idle — nothing to do"),
+      )
     })
 
     it("grilling stop-case leads with the STOP banner", () => {
       const out = buildPrompt(
         result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
       )
-      expect(out).toContain("⛔")
-      expect(out.indexOf("⛔")).toBeGreaterThan(out.indexOf("Open questions await the user"))
+      expect(out).toContain("This is a human feedback gate")
+      expect(out.indexOf("This is a human feedback gate")).toBeGreaterThan(
+        out.indexOf("Open questions await the user"),
+      )
     })
 
     it("clean gets the STOP banner", () => {
       const out = buildPrompt(result("clean"))
-      expect(out).toContain("⛔")
+      expect(out).toContain("This is a human feedback gate")
     })
 
     it("auto-advance states do NOT get the STOP banner", () => {
@@ -223,7 +229,8 @@ describe("buildPrompt", () => {
           result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
         ),
       ]) {
-        expect(out).not.toContain("⛔")
+        expect(out).not.toContain("This is a human feedback gate")
+        expect(out).toContain("run `gtd`")
       }
     })
   })
@@ -247,7 +254,7 @@ describe("buildPrompt", () => {
         result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
       )
       expect(out).toContain("Open questions await the user")
-      expect(out).toContain("STOP")
+      expect(out).toContain("This is a human feedback gate")
       expect(out).not.toContain("Re-run gtd immediately")
       expect(out).not.toContain(PLANNING_MODEL)
       expect(out).not.toContain("Develop the plan")
@@ -259,7 +266,7 @@ describe("buildPrompt", () => {
       )
       expect(out).toContain("Develop the plan")
       expect(out).toContain(PLANNING_MODEL)
-      expect(out).toContain("re-run the harness")
+      expect(out).toContain("run `gtd`")
       expect(out).not.toContain("Open questions await the user")
     })
   })
@@ -386,8 +393,8 @@ describe("buildPrompt", () => {
           context: { squashDiff: "diff --git a/x b/x\n+hello\n", squashBase: "abc1234" },
         }),
       )
-      expect(out).toContain("re-run the harness")
-      expect(out).not.toContain("⛔")
+      expect(out).toContain("run `gtd`")
+      expect(out).not.toContain("This is a human feedback gate")
     })
 
     it("squashing includes git reset --soft instruction", () => {
@@ -418,32 +425,31 @@ describe("buildPrompt", () => {
   })
 
   describe("json output mode", () => {
-    const NEUTRAL =
-      "Complete the steps above, then end your turn — the harness decides what happens"
+    const NEUTRAL = "Complete the tasks above, then end your turn. An outside process will decide"
 
     describe("tail swap", () => {
-      it("auto-advance state gets neutral line, not ## Auto-advance or ⛔", () => {
+      it("auto-advance state gets neutral line, not ## Auto-advance or STOP banner", () => {
         const out = buildPrompt(withPackage("building"), undefined, "json")
         expect(out).toContain(NEUTRAL)
         expect(out).not.toContain("## Auto-advance")
-        expect(out).not.toContain("⛔")
+        expect(out).not.toContain("This is a human feedback gate")
       })
 
-      it("STOP state gets neutral line, not ⛔", () => {
+      it("STOP state gets neutral line, not STOP banner", () => {
         const out = buildPrompt(result("escalate"), undefined, "json")
         expect(out).toContain(NEUTRAL)
-        expect(out).not.toContain("⛔")
+        expect(out).not.toContain("This is a human feedback gate")
       })
 
       it("plain auto-advance state still has ## Auto-advance", () => {
         const out = buildPrompt(withPackage("building"))
-        expect(out).toContain("## Auto-advance")
-        expect(out).not.toContain("⛔")
+        expect(out).toContain("run `gtd`")
+        expect(out).not.toContain("This is a human feedback gate")
       })
 
-      it("plain STOP state still has ⛔", () => {
+      it("plain STOP state still has STOP banner", () => {
         const out = buildPrompt(result("escalate"))
-        expect(out).toContain("⛔")
+        expect(out).toContain("This is a human feedback gate")
         expect(out).not.toContain("## Auto-advance")
       })
     })
@@ -480,7 +486,7 @@ describe("buildPrompt", () => {
 
   describe("auto-advance partial", () => {
     it("is appended when result.autoAdvance is true", () => {
-      expect(buildPrompt(result("grilled", { autoAdvance: true }))).toContain("re-run the harness")
+      expect(buildPrompt(result("grilled", { autoAdvance: true }))).toContain("run `gtd`")
     })
 
     it("is omitted when result.autoAdvance is false", () => {
@@ -493,7 +499,7 @@ describe("buildPrompt", () => {
     it("clean is not-auto-advance and carries a STOP directive", () => {
       const out = buildPrompt(result("clean"))
       expect(out).not.toContain("Re-run gtd immediately")
-      expect(out).toContain("⛔")
+      expect(out).toContain("This is a human feedback gate")
     })
   })
 })

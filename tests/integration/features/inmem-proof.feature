@@ -21,7 +21,7 @@ Feature: In-process in-memory tier smoke test
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: grilling"
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
     And stdout contains "Open questions await the user"
 
   @inmem
@@ -39,4 +39,4 @@ Feature: In-process in-memory tier smoke test
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"

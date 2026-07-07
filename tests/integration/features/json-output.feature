@@ -32,8 +32,8 @@ Feature: JSON output mode
     When I run gtd with "--json"
     Then it succeeds
     And stdout contains "\"autoAdvance\":true"
-    And stdout does not contain "## Auto-advance"
-    And stdout does not contain "⛔"
+    And stdout does not contain "run `gtd`"
+    And stdout does not contain "This is a human feedback gate"
 
   Scenario: Human-gate state emits autoAdvance false and no stop marker in stdout
     Given a test project
@@ -48,7 +48,7 @@ Feature: JSON output mode
     When I run gtd with "--json"
     Then it succeeds
     And stdout contains "\"autoAdvance\":false"
-    And stdout does not contain "⛔"
+    And stdout does not contain "This is a human feedback gate"
 
   Scenario: State field in JSON output matches the resolved state name
     Given a test project

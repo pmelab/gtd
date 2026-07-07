@@ -20,7 +20,7 @@ Feature: Transport — mixed-reset a hand-made gtd: transport HEAD, then re-deri
     And the git log does not contain "gtd: transport"
     And the git log contains "gtd: new task"
     And the last commit subject is "gtd: grilling"
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
 
   Scenario: A gtd: transport HEAD that is the repo root commit fails clearly
     Given a root commit "gtd: transport" that adds "src/wip.ts" with:

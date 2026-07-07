@@ -26,7 +26,7 @@ Feature: New Feature — capture raw input, revert to baseline, seed TODO.md
     And the file "src/feature.ts" does not exist
     And the file "TODO.md" exists
     And the file "TODO.md" contains "src/feature.ts"
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
 
   Scenario: A lost seed regenerates from the gtd: new task commit after a checkout
     # HEAD is `gtd: new task` with a clean tree — a checkout/pull dropped the
@@ -43,4 +43,4 @@ Feature: New Feature — capture raw input, revert to baseline, seed TODO.md
     And the last commit subject is "gtd: grilling"
     And the file "TODO.md" exists
     And the file "TODO.md" contains "src/seed.ts"
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"

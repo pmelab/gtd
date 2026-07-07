@@ -54,7 +54,7 @@ Feature: Manual steering-file misuse and odd .gtd contents
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Build one work package"
+    And stdout contains "Build the package described below"
     And stdout contains "Implement the real package."
     And stdout does not contain "notes.txt"
 
@@ -67,4 +67,4 @@ Feature: Manual steering-file misuse and odd .gtd contents
     And a directory ".gtd"
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Build one work package"
+    And stdout contains "Build the package described below"

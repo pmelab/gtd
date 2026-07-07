@@ -1,7 +1,6 @@
-## Task: Nothing to do
+<%~ include("@header") %>
 
-There are no steering files, the working tree is clean, and there is nothing to
-review — the last review is already closed (`gtd: done`, with no new commits
-since), or no reviewable changes exist. No plan is in progress.
-
+<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
 Report that the repository is idle — nothing to do.
+
+<%~ include(it.tail) %>

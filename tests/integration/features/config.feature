@@ -34,7 +34,7 @@ Feature: .gtdrc config system
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Fix the package against `FEEDBACK.md`"
+    And stdout contains "Spawn a **fix subagent**"
     And stdout contains "CONFIG_SENTINEL"
 
   @inmem
@@ -52,7 +52,7 @@ Feature: .gtdrc config system
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Decompose the plan into work packages"
+    And stdout contains "Decompose it into an ordered set of"
     And stdout contains "my-planner-model"
     And stdout does not contain "my-executor-model"
 
@@ -71,7 +71,7 @@ Feature: .gtdrc config system
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Build one work package"
+    And stdout contains "Build the package described below"
     And stdout contains "my-executor-model"
     And stdout does not contain "my-planner-model"
 
@@ -91,7 +91,7 @@ Feature: .gtdrc config system
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Decompose the plan into work packages"
+    And stdout contains "Decompose it into an ordered set of"
     And stdout contains "state-decompose-model"
     And stdout does not contain "tier-planner"
 
@@ -104,7 +104,7 @@ Feature: .gtdrc config system
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Decompose the plan into work packages"
+    And stdout contains "Decompose it into an ordered set of"
     And stdout contains "claude-opus-4-8"
 
   @inmem
@@ -116,7 +116,7 @@ Feature: .gtdrc config system
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Build one work package"
+    And stdout contains "Build the package described below"
     And stdout contains "claude-sonnet-4-8"
 
   @inmem
@@ -148,7 +148,7 @@ Feature: .gtdrc config system
     When I run gtd
     Then it succeeds
     And the file "ERRORS.md" exists
-    And stdout contains "## Task: Escalate"
+    And stdout contains "was not able to fix all errors on its own"
 
   @inmem
   Scenario: A lowered reviewThreshold force-approves sooner
@@ -168,7 +168,7 @@ Feature: .gtdrc config system
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: package done"
-    And stdout does not contain "## Task: Agentic review of the built package"
+    And stdout does not contain "Spawn a **reviewing subagent**"
 
   @live
   Scenario: An unknown config key is rejected
@@ -206,7 +206,7 @@ Feature: .gtdrc config system
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Decompose the plan into work packages"
+    And stdout contains "Decompose it into an ordered set of"
     And stdout contains "cwd-planner-model"
     And stdout does not contain "ancestor-planner-model"
 
@@ -348,5 +348,5 @@ Feature: .gtdrc config system
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Decompose the plan into work packages"
+    And stdout contains "Decompose it into an ordered set of"
     And stdout contains "shared-parent-planner"

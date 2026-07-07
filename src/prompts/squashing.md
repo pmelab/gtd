@@ -1,12 +1,13 @@
-## Task: Squash all `gtd: *` commits into one conventional-commits message
+<%~ include("@header") %>
 
+<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
 The process is **approved and done**. Your job is to author a clean
 conventional-commits squash message and hand it off to the harness.
 
 ### Step 1 — Extract decisions from grilling rounds
 
-Scan the inlined full-process diff below. Look for changes to `TODO.md` —
-specifically the `## Captured input (grilling)` sections and any edits to plan
+Scan the git history of recent `gtd: ...` commits. Look for changes to `TODO.md`
+— specifically the `## Captured input (grilling)` sections and any edits to plan
 text. Extract **key decisions, trade-offs, and design choices** made during
 grilling rounds. These will appear in the commit body so the history is
 self-documenting.
@@ -34,3 +35,9 @@ on the next cycle once it sees `SQUASH_MSG.md`.
 
 **Do not run `git reset --soft` or `git commit` yourself** — the harness handles
 the squash commit.
+<% if (it.context.squashDiff && it.context.squashDiff.trim()) { %>
+<%= it.context.squashBase !== undefined ? "\nSquash base: " + it.context.squashBase + "\n" : "" %>
+<%~ include("@diff", { heading: "Full-process diff (`git diff " + (it.context.squashBase !== undefined ? it.context.squashBase : "<squashBase>") + " HEAD`)", diff: it.context.squashDiff, fenceFor: it.fenceFor }) %>
+<% } %>
+
+<%~ include(it.tail) %>

@@ -38,7 +38,7 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And stdout contains "Changes to review"
     And stdout contains "src/calc.ts"
 
@@ -168,7 +168,7 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And the file "TODO.md" exists
     # The process stays open: no `gtd: done` is committed on the feedback path.
     And the git log does not contain "gtd: done"
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
 
   Scenario: Editing the code under a committed REVIEW.md seeds a fresh plan
     Given a test project
@@ -200,7 +200,7 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And the file "src/calc.ts" does not contain "please also add subtract"
     # The process stays open: no `gtd: done` is committed on the feedback path.
     And the git log does not contain "gtd: done"
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
 
   # The leak regression: a plain checkout discards only tracked edits, so a
   # reviewer-added NEW file used to be committed verbatim by the next grilling
@@ -263,7 +263,7 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And the file "REVIEW.md" does not exist
     And the file "TODO.md" exists
     And the file "TODO.md" contains "Please also add a subtract function."
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
 
   # Checkbox ticks are approval signals, but ONLY when nothing else changed:
   # mixed with a code edit they ride along as feedback into the capture.
@@ -349,8 +349,8 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And a commit "gtd: done"
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Nothing to do"
-    And stdout does not contain "## Task: Create `REVIEW.md`"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "help a human to review the changes"
 
   # Regression anchor: the review used to loop — after approval, the merge-base
   # diff was still non-empty, so the next run re-entered Clean and wrote the
@@ -376,13 +376,13 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     # still non-empty, but no commits exist after `gtd: done` — Idle, not Clean.
     And the last commit subject is "gtd: done"
     And the file "REVIEW.md" does not exist
-    And stdout contains "## Task: Nothing to do"
-    And stdout does not contain "## Task: Create `REVIEW.md`"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "help a human to review the changes"
     And I record the commit count
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Nothing to do"
-    And stdout does not contain "## Task: Create `REVIEW.md`"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "help a human to review the changes"
     And the file "REVIEW.md" does not exist
     And the commit count is unchanged
 
@@ -401,7 +401,7 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     # Whole-branch scope: the already-approved first slice is re-covered.
     And stdout contains "src/first.ts"
     And stdout contains "src/second.ts"
@@ -416,7 +416,7 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And stdout contains "src/parser.ts"
 
   # Rule 1: within-process first review — base = first gtd: grilling of the
@@ -436,7 +436,7 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And stdout contains "src/greet.ts"
     And stdout does not contain "a/TODO.md"
 
@@ -492,7 +492,7 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And stdout contains "src/farewell.ts"
     And stdout does not contain "src/greet.ts"
     # Workflow-file churn is filtered out of the review diff.
@@ -512,7 +512,7 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Create `REVIEW.md` for the finished work"
+    And stdout contains "help a human to review the changes"
     And stdout contains "src/parser.ts"
 
   # Rule 4: outside a process, default branch — the branch review never fires.
@@ -524,8 +524,8 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
       """
     When I run gtd
     Then it succeeds
-    And stdout contains "## Task: Nothing to do"
-    And stdout does not contain "## Task: Create `REVIEW.md`"
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "help a human to review the changes"
 
   # On the default branch only the review trigger is suppressed — a dirty tree
   # still seeds New Feature exactly as on any branch.
@@ -543,4 +543,4 @@ Feature: Review lifecycle — Clean → Await → Accept/Done → Idle
     And the file "src/extra.ts" does not exist
     And the file "TODO.md" exists
     And the file "TODO.md" contains "src/extra.ts"
-    And stdout contains "## Task: Grill the plan in `TODO.md`"
+    And stdout contains "holds the plan under development"
