@@ -16,6 +16,7 @@ import agenticReviewMd from "./prompts/agentic-review.md"
 import cleanMd from "./prompts/clean.md"
 import squashingMd from "./prompts/squashing.md"
 import escalateMd from "./prompts/escalate.md"
+import grilledReviewMd from "./prompts/grilled-review.md"
 import idleMd from "./prompts/idle.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdState, Result } from "./Machine.js"
@@ -112,6 +113,7 @@ eta.loadTemplate("@agentic-review", agenticReviewMd)
 eta.loadTemplate("@clean", cleanMd)
 eta.loadTemplate("@squashing", squashingMd)
 eta.loadTemplate("@escalate", escalateMd)
+eta.loadTemplate("@grilled-review", grilledReviewMd)
 eta.loadTemplate("@idle", idleMd)
 
 // Null out filesystem resolution — all templates must come from in-memory cache.
@@ -123,6 +125,7 @@ eta.loadTemplate("@idle", idleMd)
 /** Maps each non-grilling PromptState to its registered template name. */
 const STATE_TEMPLATE: Record<Exclude<PromptState, "grilling">, string> = {
   grilled: "@decompose",
+  "grilled-review": "@grilled-review",
   planning: "@decompose",
   building: "@building",
   fixing: "@fixing",

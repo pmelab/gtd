@@ -483,17 +483,42 @@ describe("rule 6 — Grilling / Grilled (3-way)", () => {
     expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilling" })
   })
 
-  it("no marker + clean → grilled, auto, commitPending gtd: grilled", () => {
+  it("no marker + clean + HEAD gtd: grilling → grilled-review, STOP, commitPending gtd: grilled", () => {
     const res = r({
       todoExists: true,
       todoMarkerPresent: false,
       workingTreeClean: true,
       lastCommitSubject: "gtd: grilling",
     })
-    expect(res.state).toBe("grilled")
-    expect(res.autoAdvance).toBe(true)
+    expect(res.state).toBe("grilled-review")
+    expect(res.autoAdvance).toBe(false)
     expect(res.context.grillingCase).toBeUndefined()
     expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilled" })
+  })
+
+  it("no marker + clean + HEAD gtd: grilled → grilled, auto, no edgeAction", () => {
+    const res = r({
+      todoExists: true,
+      todoMarkerPresent: false,
+      workingTreeClean: true,
+      lastCommitSubject: "gtd: grilled",
+    })
+    expect(res.state).toBe("grilled")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toBeUndefined()
+  })
+
+  it("no marker + dirty + HEAD gtd: grilled → grilling iterate, commitPending gtd: grilling", () => {
+    const res = r({
+      todoExists: true,
+      todoCommitted: true,
+      codeDirty: false,
+      workingTreeClean: false,
+      lastCommitSubject: "gtd: grilled",
+    })
+    expect(res.state).toBe("grilling")
+    expect(res.context.grillingCase).toBe("iterate")
+    expect(res.edgeAction).toEqual({ kind: "commitPending", prefix: "gtd: grilling" })
   })
 
   // Later grilling rounds (committed plan) with pending code changes capture

@@ -107,6 +107,20 @@ describe("buildPrompt snapshots", () => {
     ).toMatchSnapshot()
   })
 
+  // ── grilled-review ────────────────────────────────────────────────────────
+
+  it("grilled-review plain", () => {
+    expect(
+      buildPrompt(result("grilled-review", { autoAdvance: false }), resolveModel, "plain"),
+    ).toMatchSnapshot()
+  })
+
+  it("grilled-review json", () => {
+    expect(
+      buildPrompt(result("grilled-review", { autoAdvance: false }), resolveModel, "json"),
+    ).toMatchSnapshot()
+  })
+
   // ── grilled / planning ────────────────────────────────────────────────────
 
   it("grilled plain", () => {

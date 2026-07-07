@@ -51,6 +51,7 @@ Feature: .gtdrc config system
       Build the multiply function.
       """
     When I run gtd
+    And I run gtd
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     And stdout contains "my-planner-model"
@@ -90,6 +91,7 @@ Feature: .gtdrc config system
       Build the multiply function.
       """
     When I run gtd
+    And I run gtd
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     And stdout contains "state-decompose-model"
@@ -103,6 +105,7 @@ Feature: .gtdrc config system
       Build the multiply function.
       """
     When I run gtd
+    And I run gtd
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     And stdout contains "claude-opus-4-8"
@@ -205,6 +208,7 @@ Feature: .gtdrc config system
       Build the multiply function.
       """
     When I run gtd
+    And I run gtd
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     And stdout contains "cwd-planner-model"
@@ -371,6 +375,7 @@ Feature: .gtdrc config system
       Build the multiply function.
       """
     When I run gtd
+    And I run gtd
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     And stdout contains "shared-parent-planner"

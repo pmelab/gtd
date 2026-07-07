@@ -17,7 +17,7 @@ merge-base with the default branch (whole-history fallback when there is no
 default branch, when HEAD equals the merge-base, or when there is no merge-base
 — i.e. budgets engage on the default branch too) plus the working tree, turns
 them into a `COMMIT[]` + single terminal `RESOLVE` event stream, and folds them
-through the machine. The fold lands on exactly **one** of 17 states, which
+through the machine. The fold lands on exactly **one** of 18 states, which
 selects the prompt. A single run resolves to a single state.
 
 `resolve()` returns that state plus an optional **`EdgeAction`** (a commit,
@@ -239,7 +239,9 @@ flowchart TD
     P5 -->|no| P6{"TODO.md?"}
     P6 -->|"open markers"| GrillStop["Grilling — gtd: grilling, STOP for answers"]:::gate
     P6 -->|"dirty, no markers"| GrillIter["Grilling — gtd: grilling, agent iterates"]:::agent
-    P6 -->|"clean, no markers"| Grilled["Grilled — gtd: grilled, decompose"]:::agent
+    P6 -->|"clean, no markers"| GrilledReview["Grilled review — gtd: grilled, human review"]:::gate
+    GrilledReview -->|"re-run gtd clean"| Grilled["Grilled — gtd: grilled, decompose"]:::agent
+    GrilledReview -->|"edits present"| GrillIter
     P6 -->|absent| P7{"clean + boundary/package-done HEAD,<br/>reviewable diff?"}
     P7 -->|yes| CleanState["Clean — write REVIEW.md"]:::agent
     P7 -->|no| Idle
@@ -290,7 +292,7 @@ back into the working tree uncommitted, and re-derives state from scratch. If
 the transport commit is the repository's root commit (no parent), `gtd` fails
 immediately with a clear error instead of looping.
 
-## The 17 states
+## The 18 states
 
 Each state has a **condition** (when it wins), a deterministic **action**, the
 **commit(s)** it produces, and where it **advances**. States marked
@@ -313,8 +315,9 @@ action and re-resolves silently.
 | **Accept Review**  | edge-only, auto                  | REVIEW.md committed + pending **non-checkbox** edits (human annotated REVIEW.md with comments / edited code)                                                                | seed TODO.md from the changeset, `git checkout` to discard the code edits, rm REVIEW.md; **all uncommitted**                                                                                                                                                                                                           | Grilling                                                     |
 | **Await Review**   | edge-only, auto                  | REVIEW.md present and **uncommitted** (freshly written by Clean)                                                                                                            | commit REVIEW.md `gtd: awaiting review`                                                                                                                                                                                                                                                                                | Done (auto, same run)                                        |
 | **New Feature**    | edge-only, auto                  | boundary HEAD + pending changes (code and/or a new uncommitted TODO.md), **or** HEAD `gtd: new task` + clean tree (lost-seed regen)                                         | commit the raw input verbatim `gtd: new task` (unless already there), `git revert --no-commit` it back to a clean baseline, seed TODO.md from that diff — revert + seed left **uncommitted**                                                                                                                           | Grilling                                                     |
-| **Grilling**       | agent (iterate) / STOP (answers) | TODO.md present, not New Feature                                                                                                                                            | commit pending edits `gtd: grilling`. Open-question markers present → STOP for the human to answer inline; no markers but dirty → grilling agent iterates                                                                                                                                                              | converge (no markers, clean tree) → Grilled                  |
-| **Grilled**        | agent, auto                      | TODO.md present, no markers, clean tree                                                                                                                                     | commit pending `gtd: grilled`                                                                                                                                                                                                                                                                                          | decompose into `.gtd/` → Planning                            |
+| **Grilling**       | agent (iterate) / STOP (answers) | TODO.md present, not New Feature                                                                                                                                            | commit pending edits `gtd: grilling`. Open-question markers present → STOP for the human to answer inline; no markers but dirty → grilling agent iterates                                                                                                                                                              | converge (no markers, clean tree) → Grilled review           |
+| **Grilled review** | STOP                             | TODO.md present, no markers, clean tree, HEAD `gtd: grilled` (converged — not yet decomposed)                                                                               | none                                                                                                                                                                                                                                                                                                                   | edits → Grilling; clean re-run → Grilled                     |
+| **Grilled**        | agent, auto                      | TODO.md present, no markers, clean tree, HEAD `gtd: grilled` (returning from Grilled review with no new edits)                                                              | commit pending `gtd: grilled`                                                                                                                                                                                                                                                                                          | decompose into `.gtd/` → Planning                            |
 | **Clean**          | agent                            | no steering files, clean tree, boundary or `gtd: package done` HEAD, and the review base yields a **non-empty** diff                                                        | compute the review base (four rules — see below); agent writes REVIEW.md **uncommitted** with `# Review: <short-hash>` heading, `<!-- base: <full-hash> -->` marker, and per-hunk `- [ ]` checkboxes (ticking them signals approval → Done)                                                                            | Await Review                                                 |
 | **Idle**           | STOP                             | no steering files, clean tree, and nothing to review (HEAD `gtd: done` with `squash` disabled or after Squashing, or no reviewable diff)                                    | none                                                                                                                                                                                                                                                                                                                   | —                                                            |
 
@@ -422,9 +425,11 @@ loop before the next one starts.
    your answer, and run `gtd` again. The agent integrates answers, moves them to
    `## Resolved`, and raises fresh questions — repeat until none remain (it
    writes `no open questions — run gtd to plan` with no markers).
-4. **Converge.** A clean tree with no markers resolves to **Grilled**
-   (`gtd: grilled`), then **Planning** decomposes `TODO.md` into ordered `.gtd/`
-   work packages (`gtd: planning`).
+4. **Converge.** A clean tree with no markers resolves to **Grilled review**
+   (`gtd: grilled`) — a human STOP. Review the plan; edit and re-run `gtd` to
+   re-enter Grilling, or re-run `gtd` with no changes to advance. A clean re-run
+   triggers **Grilled** (auto-advance), which then **Planning** decomposes
+   `TODO.md` into ordered `.gtd/` work packages (`gtd: planning`).
 5. **Build.** Run `gtd` — **Building** first deletes `TODO.md` (when HEAD is
    `gtd: planning` and it is still present, committed under the same
    `gtd: planning` prefix — fires once). It then names the single next package
@@ -442,31 +447,19 @@ loop before the next one starts.
    (`gtd: done`) → **Squashing** → **Idle**. The Squashing agent authors a
    conventional-commits message from the full process diff and squashes all
    intermediate `gtd: *` commits into one with `git reset --soft <base>` +
-   <<<<<<< HEAD `git commit`, then **gtd STOPs**. The base is the parent of the
-   current cycle's start marker **nearest to HEAD** (the last `gtd: new task`;
-   for legacy cycles the last contiguous `gtd: grilling` run), and on a feature
-   branch it never reaches below the merge-base with the default branch — stray
-   markers left behind by older squashes can never drag the squash into
-   previously shipped features. Post-squash review does not fire automatically —
-   it fires only on the next manual `gtd` run (when the squash commit is the
-   boundary HEAD and a reviewable diff exists). Squashing fires when the tree
-   has no unrelated code dirty — a lone untracked `SQUASH_MSG.md` is tolerated
-   and deleted before the squash commit. If unrelated code is dirty at
-   `gtd: done`, gtd routes to **New Feature** instead. Set `squash: false` in
-   ======= `git commit`, then **gtd STOPs**. Post-squash review does not fire
+   `git commit`, then **gtd STOPs**. Post-squash review does not fire
    automatically — it fires only on the next manual `gtd` run (when the squash
    commit is the boundary HEAD and a reviewable diff exists). Squashing fires
    when the tree has no unrelated code dirty — a lone untracked `SQUASH_MSG.md`
    is tolerated and deleted before the squash commit. If unrelated code is dirty
    at `gtd: done`, gtd routes to **New Feature** instead. Set `squash: false` in
-   > > > > > > > origin/46-config-schema `.gtdrc` to skip squashing and go
-   > > > > > > > straight to Idle. Checking off REVIEW.md checkboxes (`- [ ]` →
-   > > > > > > > `- [x]`) also counts as approval and routes to **Done** — they
-   > > > > > > > are navigation aids, not feedback. Only **non-checkbox** edits
-   > > > > > > > (code changes, inline comments, textual annotations in
-   > > > > > > > REVIEW.md) trigger **Accept Review**, which seeds a fresh
-   > > > > > > > `TODO.md` from your feedback, discards your code edits, removes
-   > > > > > > > `REVIEW.md`, and re-enters Grilling — the loop starts over.
+   `.gtdrc` to skip squashing and go straight to Idle. Checking off REVIEW.md
+   checkboxes (`- [ ]` → `- [x]`) also counts as approval and routes to **Done**
+   — they are navigation aids, not feedback. Only **non-checkbox** edits (code
+   changes, inline comments, textual annotations in REVIEW.md) trigger **Accept
+   Review**, which seeds a fresh `TODO.md` from your feedback, discards your
+   code edits, removes `REVIEW.md`, and re-enters Grilling — the loop starts
+   over.
 
 ## Configuration
 

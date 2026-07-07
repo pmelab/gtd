@@ -56,21 +56,26 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
     Then it succeeds
     And the last commit subject is "gtd: grilling"
     And stdout contains "### Develop the plan"
-    # Run 4: clean converged plan → Grilled, prompts decomposition.
+    # Run 4: clean converged plan → Grilled, human review gate shown (no decompose yet).
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: grilled"
+    And stdout contains "Human review gate"
+    And stdout does not contain "Decompose it into an ordered set of"
+    # Run 5: proceed on grilled plan → decompose prompt shown.
+    When I run gtd
+    Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     # The agent decomposes into one package.
     When a file ".gtd/01-calc/01-add.md" with:
       """
       Implement add() in src/calc.ts.
       """
-    # Run 5: modified .gtd → Planning commits it.
+    # Run 6: modified .gtd → Planning commits it.
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: planning"
-    # Run 6: clean .gtd → Building deletes TODO.md and prompts the build.
+    # Run 7: clean .gtd → Building deletes TODO.md and prompts the build.
     When I run gtd
     Then it succeeds
     And the file "TODO.md" does not exist
@@ -81,14 +86,14 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
       """
       export const add = (a: number, b: number) => a + b
       """
-    # Run 7: Testing commits gtd: building, gate is green → Agentic Review.
+    # Run 8: Testing commits gtd: building, gate is green → Agentic Review.
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: building"
     And stdout contains "Spawn a **reviewing subagent**"
     # The review agent approves with an empty FEEDBACK.md.
     When an empty file "FEEDBACK.md"
-    # Run 8: Close package, .gtd gone → Clean prompts the human review.
+    # Run 9: Close package, .gtd gone → Clean prompts the human review.
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: package done"
@@ -105,7 +110,7 @@ Feature: Full lifecycle journeys — many gtd runs across every state seam
 
       - [ ] ./src/calc.ts#1
       """
-    # Run 9: Await Review commits REVIEW.md and auto-advances → Done → Squashing in one run.
+    # Run 10: Await Review commits REVIEW.md and auto-advances → Done → Squashing in one run.
     When I run gtd
     Then it succeeds
     And the last commit subject is "gtd: done"
