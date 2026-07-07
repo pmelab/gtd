@@ -332,6 +332,30 @@ Feature: .gtdrc config system
     And stderr contains ".gtdrc"
 
   @live
+  Scenario: A clean project auto-creates .gtdrc.json with a $schema link
+    Given a test project
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Build the multiply function.
+      """
+    When I run gtd
+    Then it succeeds
+    And the file ".gtdrc.json" exists
+    And the file ".gtdrc.json" contains "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json"
+
+  @live
+  Scenario: A second gtd run does not reject the auto-created .gtdrc.json
+    Given a test project
+    And a commit "docs: seed plan" that adds "TODO.md" with:
+      """
+      Build the multiply function.
+      """
+    When I run gtd
+    And I run gtd
+    Then it succeeds
+    And stderr does not contain "Invalid gtd config"
+
+  @live
   Scenario: A config in a shared parent directory cascades down to a repo beneath it
     # Only the shared (non-git-root) parent carries a .gtdrc; the repo has none.
     # The ancestor's planning model must still reach the decompose prompt, proving

@@ -442,9 +442,9 @@ loop before the next one starts.
    (`gtd: done`) → **Squashing** → **Idle**. The Squashing agent authors a
    conventional-commits message from the full process diff and squashes all
    intermediate `gtd: *` commits into one with `git reset --soft <base>` +
-   `git commit`, then **gtd STOPs**. The base is the parent of the current
-   cycle's start marker **nearest to HEAD** (the last `gtd: new task`; for
-   legacy cycles the last contiguous `gtd: grilling` run), and on a feature
+   <<<<<<< HEAD `git commit`, then **gtd STOPs**. The base is the parent of the
+   current cycle's start marker **nearest to HEAD** (the last `gtd: new task`;
+   for legacy cycles the last contiguous `gtd: grilling` run), and on a feature
    branch it never reaches below the merge-base with the default branch — stray
    markers left behind by older squashes can never drag the squash into
    previously shipped features. Post-squash review does not fire automatically —
@@ -453,13 +453,20 @@ loop before the next one starts.
    has no unrelated code dirty — a lone untracked `SQUASH_MSG.md` is tolerated
    and deleted before the squash commit. If unrelated code is dirty at
    `gtd: done`, gtd routes to **New Feature** instead. Set `squash: false` in
-   `.gtdrc` to skip squashing and go straight to Idle. Checking off REVIEW.md
-   checkboxes (`- [ ]` → `- [x]`) also counts as approval and routes to **Done**
-   — they are navigation aids, not feedback. Only **non-checkbox** edits (code
-   changes, inline comments, textual annotations in REVIEW.md) trigger **Accept
-   Review**, which seeds a fresh `TODO.md` from your feedback, discards your
-   code edits, removes `REVIEW.md`, and re-enters Grilling — the loop starts
-   over.
+   ======= `git commit`, then **gtd STOPs**. Post-squash review does not fire
+   automatically — it fires only on the next manual `gtd` run (when the squash
+   commit is the boundary HEAD and a reviewable diff exists). Squashing fires
+   when the tree has no unrelated code dirty — a lone untracked `SQUASH_MSG.md`
+   is tolerated and deleted before the squash commit. If unrelated code is dirty
+   at `gtd: done`, gtd routes to **New Feature** instead. Set `squash: false` in
+   > > > > > > > origin/46-config-schema `.gtdrc` to skip squashing and go
+   > > > > > > > straight to Idle. Checking off REVIEW.md checkboxes (`- [ ]` →
+   > > > > > > > `- [x]`) also counts as approval and routes to **Done** — they
+   > > > > > > > are navigation aids, not feedback. Only **non-checkbox** edits
+   > > > > > > > (code changes, inline comments, textual annotations in
+   > > > > > > > REVIEW.md) trigger **Accept Review**, which seeds a fresh
+   > > > > > > > `TODO.md` from your feedback, discards your code edits, removes
+   > > > > > > > `REVIEW.md`, and re-enters Grilling — the loop starts over.
 
 ## Configuration
 
@@ -501,6 +508,11 @@ built-in defaults apply. Supported filenames (searched in this order):
   - `states.*` — per-state overrides keyed by the six agent states: `decompose`
     (shared by the Grilled and Planning states), `grilling`, `building`,
     `fixing`, `agentic-review`, `clean`. Unknown `states` keys are **rejected**.
+- **`$schema`** (string, optional) — a recognized key that is **stripped before
+  validation**, so it never counts as an unknown key. Point it at the published
+  schema to get schema-backed autocompletion and inline docs in your editor. A
+  `schema.json` is generated from the config schema at build time and ships with
+  the package (and is published/committed on release).
 
 ### Validation and errors
 
@@ -530,6 +542,28 @@ finds along the way. All found levels are **deep-merged**, with the **innermost
 This makes the worktree-parent case easy: drop a single `.gtdrc` in a shared
 parent directory and it cascades to **all** checkouts/worktrees beneath it,
 while any individual checkout can still override settings with its own `.gtdrc`.
+
+### Auto-init
+
+On every run, if the cwd→root walk finds **no** config anywhere, gtd creates and
+commits a starter config at the **git root**: a `.gtdrc.json` containing only a
+`$schema` link:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json"
+}
+```
+
+It is committed as `chore: add .gtdrc.json`. This wires up editor autocompletion
+out of the box; add any settings below the `$schema` line to override the
+defaults.
+
+Auto-init is skipped when HEAD is a `gtd: transport` commit: transport is a
+consume-only handoff HEAD (mixed-reset in the Transport pre-pass), so committing
+a config stub on top of it would displace the transport commit — and, when it is
+the repository root, silently mask the "cannot reset transport commit" error.
+The stub is created on a later run, once the transport HEAD has been consumed.
 
 ### Example
 

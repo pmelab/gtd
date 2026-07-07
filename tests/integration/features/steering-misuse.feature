@@ -63,6 +63,10 @@ Feature: Manual steering-file misuse and odd .gtd contents
   @live
   Scenario: An empty .gtd directory does not crash the build loop
     Given a test project
+    And a gtd config file at "." with:
+      """
+      testCommand: npm run test
+      """
     And a commit "gtd: planning"
     And a directory ".gtd"
     When I run gtd
