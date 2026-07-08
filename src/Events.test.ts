@@ -1551,6 +1551,40 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(git("log", "-1", "--format=%s")).toBe("gtd: health-check")
   })
 
+  it("runHealthCheck green with prior fixes → writes SQUASH_MSG.md sentinel, stop: false", async () => {
+    // Green-at-cap deadlock fix: when healthFixBase is set and the gate passes,
+    // perform writes HEALTH_SQUASH_SENTINEL into SQUASH_MSG.md so the next gather
+    // sees squashMsgPresent and routes to the squash-prompt (rule 4d) instead of
+    // looping back into runHealthCheck.
+    const countBefore = git("rev-list", "--count", "HEAD")
+    const { HEALTH_SQUASH_SENTINEL } = await import("./Machine.js")
+    const result = await runPerform(
+      {
+        kind: "runHealthCheck",
+        errorCount: 1,
+        capReached: false,
+        healthFixBase: "abc1234",
+      },
+      { exitCode: 0, output: "all good" },
+    )
+    expect(result.stop).toBe(false)
+    expect(existsSync(join(repoDir, "SQUASH_MSG.md"))).toBe(true)
+    expect(readFileSync(join(repoDir, "SQUASH_MSG.md"), "utf8")).toBe(HEALTH_SQUASH_SENTINEL)
+    expect(existsSync(join(repoDir, "HEALTH.md"))).toBe(false)
+    expect(git("rev-list", "--count", "HEAD")).toBe(countBefore) // no new commit
+  })
+
+  it("removeHealthSentinel → deletes SQUASH_MSG.md, stop: false, no commit", async () => {
+    // Sentinel cleanup: perform(removeHealthSentinel) removes SQUASH_MSG.md so the
+    // squash-prompt state is presented to the agent with a clean slate.
+    const countBefore = git("rev-list", "--count", "HEAD")
+    writeFileSync(join(repoDir, "SQUASH_MSG.md"), "<!-- gtd-health-squash-ready -->\n")
+    const result = await runPerform({ kind: "removeHealthSentinel" })
+    expect(result.stop).toBe(false)
+    expect(existsSync(join(repoDir, "SQUASH_MSG.md"))).toBe(false)
+    expect(git("rev-list", "--count", "HEAD")).toBe(countBefore) // no commit
+  })
+
   it("commitPending removeHealth: true → deletes HEALTH.md and commits", async () => {
     commitFile("gtd: health-check", "HEALTH.md", "# Health\ntest output\n")
     writeFileSync(join(repoDir, "impl.ts"), "export const fixed = 1\n")

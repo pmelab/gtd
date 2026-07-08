@@ -88,7 +88,18 @@ Feature: Health check — idle test loop on a bare-idle tree
     When I run gtd
     Then it succeeds
     And stdout contains "conventional-commits squash message"
-    And the git log does not contain "gtd: health-fix"
+    And the git log contains "gtd: health-check"
+    And "SQUASH_MSG.md" does not exist
+    # Third run: agent authors the squash message, gtd performs the squash.
+    Given a file "SQUASH_MSG.md" with:
+      """
+      chore(health): fix gate
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "chore(health): fix gate"
+    And the git log does not contain "gtd: health-check"
+    And "SQUASH_MSG.md" does not exist
 
   Scenario: Green after health fixes with squash disabled — STOPs Idle, health-fix commits remain
     Given a test project
@@ -350,11 +361,101 @@ Feature: Health check — idle test loop on a bare-idle tree
       """
       exit 0
       """
-    # Second run: commits gtd: health-fix, health check re-runs green → squash path.
+    # Second run: commits gtd: health-fix, health check re-runs green → squash path (prompt emitted).
     When I run gtd
     Then it succeeds
     And stderr does not contain "no precedence rule matched"
     And stdout contains "conventional-commits squash message"
+    And the git log contains "gtd: health-fix"
+    And "SQUASH_MSG.md" does not exist
+    # Third run: agent authors the squash message, gtd performs the squash.
+    Given a file "SQUASH_MSG.md" with:
+      """
+      chore(health): fix gate
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "chore(health): fix gate"
+    And the git log does not contain "gtd: health-fix"
+    And "SQUASH_MSG.md" does not exist
+
+  Scenario: Health-fix squash authors a real message, then cleans up (Option A)
+    # Run 1: red gate → health-check commit → fix prompt.
+    Given a test project
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo HEALTH_BROKEN
+      exit 1
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      squash: true
+      """
+    And a commit "feat: initial feature" that adds "src/lib.ts" with:
+      """
+      export const lib = 1
+      """
+    When I run gtd
+    Then it succeeds
+    And the git log contains "gtd: health-check"
+    And the last commit subject is "gtd: health-check"
+    And stdout contains "Spawn a **fix subagent**"
+    # Fix agent makes gate green and commits gtd: health-fix.
+    Given a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo ALL_GREEN
+      exit 0
+      """
+    # Run 2: health check re-runs green → squash prompt emitted; squash NOT yet done.
+    When I run gtd
+    Then it succeeds
+    And stdout contains "conventional-commits squash message"
+    And the git log contains "gtd: health-check"
+    And "SQUASH_MSG.md" does not exist
+    # Agent authors the squash message.
+    Given a file "SQUASH_MSG.md" with:
+      """
+      chore(health): fix gate
+      """
+    # Run 3: gtd performs the squash using SQUASH_MSG.md, then cleans up.
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "chore(health): fix gate"
+    And the git log does not contain "gtd: health-check"
+    And "SQUASH_MSG.md" does not exist
+
+  Scenario: No orphaned SQUASH_MSG.md re-seeds a feature after health squash completes
+    # After health squash completes (clean boundary HEAD), running gtd again settles Idle.
+    # No new-feature seed prompt and no new commit (idempotency).
+    Given a test project
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo ALL_GREEN
+      exit 0
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      squash: true
+      """
+    And a commit "feat: initial feature" that adds "src/lib.ts" with:
+      """
+      export const lib = 1
+      """
+    And I record the commit count
+    When I run gtd
+    Then it succeeds
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "What is the next feature"
+    And the commit count is unchanged
+    When I run gtd
+    Then it succeeds
+    And stdout contains "repository is idle — nothing to do"
+    And stdout does not contain "What is the next feature"
+    And the commit count is unchanged
+    And the file "HEALTH.md" does not exist
+    And the file "SQUASH_MSG.md" does not exist
 
   Scenario: Idempotent across two invocations — green idle produces zero commits on both runs
     # E3: running gtd twice on a green idle repo must not accumulate commits.
@@ -383,3 +484,61 @@ Feature: Health check — idle test loop on a bare-idle tree
     And the commit count is unchanged
     And the file "HEALTH.md" does not exist
     And the file "REVIEW.md" does not exist
+
+  Scenario: Green at fixAttemptCap with squash enabled — squash prompt fires, no edge loop
+    # Regression guard: healthFixCount == fixAttemptCap must route to the squash
+    # prompt (not loop into runHealthCheck 100 times). The counter alone cannot
+    # distinguish green-at-cap from red-at-cap; the machine must run the health
+    # check first, then key off the result.
+    Given a test project
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo ALL_GREEN
+      exit 0
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      squash: true
+      fixAttemptCap: 1
+      """
+    And a commit "feat: initial feature" that adds "src/lib.ts" with:
+      """
+      export const lib = 1
+      """
+    And a commit "gtd: health-check"
+    When I run gtd
+    Then it succeeds
+    And stdout contains "conventional-commits squash message"
+    And stderr does not contain "edge loop exceeded"
+    And stdout does not contain "edge loop exceeded"
+    And "SQUASH_MSG.md" does not exist
+
+  Scenario: Stray SQUASH_MSG.md under a boundary HEAD does not trigger New Feature
+    # Regression guard (Step 4 guard): an untracked SQUASH_MSG.md present under a
+    # plain boundary commit (neither gtd: done nor a health HEAD) must not be
+    # captured as new-task input. The guard on !squashMsgPresent in rule 5 blocks
+    # New Feature; gtd instead runs the health check and settles Idle.
+    Given a test project
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      echo ALL_GREEN
+      exit 0
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      squash: true
+      """
+    And a commit "feat: initial feature" that adds "src/lib.ts" with:
+      """
+      export const lib = 1
+      """
+    And a file "SQUASH_MSG.md" with:
+      """
+      feat: some stray squash message
+      """
+    When I run gtd
+    Then it succeeds
+    And stdout does not contain "holds the plan under development"
+    And the git log does not contain "gtd: new task"

@@ -513,22 +513,35 @@ squash base is present. Two entry points share this state:
   from inside that edge when tests go green with ≥1 `gtd: health-fix` commit
   present.
 
-**Actions:** none performed by `gtd`'s `src/`. The agent:
+**Actions (two-run flow, mirrors feature-cycle squash):**
+
+**Run 1** — `SQUASH_MSG.md` absent, tree clean, `squash` enabled,
+`healthFixCount > 0`: the machine routes to `squashing` and emits the squashing
+prompt. No squash is performed. The agent:
 
 1. Computes the full inlined diff over `<squashBase>..HEAD`.
-2. Authors a single conventional-commits message that summarises the cycle.
-3. Runs `git reset --soft <squashBase>` — all cycle commits are unstaged back to
-   the index while the working tree is unchanged.
-4. Runs `git commit -m "<message>"` — the whole `<squashBase>..HEAD` range
-   collapses into one commit. This is a pure history rewrite; no code changes.
+2. Authors a single conventional-commits message that summarises the health-fix
+   cycle.
+3. Writes the message to `SQUASH_MSG.md` (committed or written to the working
+   tree per the squash edge contract).
 
-**Prompt:** squashing task prompt with auto-advance tail (no STOP / human gate).
+**Run 2** — `SQUASH_MSG.md` now present (rule 4c fires `squashCommit`):
+
+1. Reads `squashMsgContent` from `SQUASH_MSG.md`.
+2. Runs `git reset --soft <squashBase>` — all health-check / health-fix commits
+   are unstaged back to the index; working tree unchanged.
+3. Runs `git commit -m "<squashMsgContent>"` — the whole `<squashBase>..HEAD`
+   range collapses into one commit. Pure history rewrite; no code changes.
+4. Removes `SQUASH_MSG.md`.
+
+**Prompt:** squashing task prompt with auto-advance tail (no STOP / human gate)
+on Run 1. Run 2 is a `squashCommit` edge action — no prompt is emitted.
 
 _Next: Idle. After the squash, HEAD is a single non-`gtd:` boundary commit;
-`isBoundary` treats it as boundary and the re-trigger gate is closed (the
-`gtd: done` is gone, replaced by the squash commit), so the next run settles
-Idle. Idempotent: running gtd again after a squash does not re-squash because
-HEAD is no longer `gtd: done`._
+`isBoundary` treats it as boundary so the next run settles Idle. Idempotent:
+running gtd again after a squash does not re-squash because HEAD is no longer a
+`gtd: health-fix` / `gtd: health-check` mid-phase commit and `SQUASH_MSG.md` is
+absent._
 
 ### Idle
 
