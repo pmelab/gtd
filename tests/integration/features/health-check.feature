@@ -255,6 +255,107 @@ Feature: Health check — idle test loop on a bare-idle tree
     And stdout contains "SENTINEL_HEALTH_FAILURE"
     And the file "REVIEW.md" does not exist
 
+  Scenario: Uncommitted fixer output under gtd: health-check re-runs the health check (green second run)
+    # Deadlock regression: dirty-health-HEAD + uncommitted code edit must commit
+    # as gtd: health-fix, re-run the health check green, and settle Idle.
+    Given a test project
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      bash impl.sh
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      squash: false
+      """
+    And a commit "feat: initial feature" that adds "impl.sh" with:
+      """
+      exit 1
+      """
+    # First run: red → HEALTH.md → commit gtd: health-check → fix prompt.
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: health-check"
+    And stdout contains "Spawn a **fix subagent**"
+    # Fix subagent edits code and leaves it uncommitted (per fixing.md).
+    Given "impl.sh" is modified to:
+      """
+      exit 0
+      """
+    # Second run must NOT deadlock: commit fixes as gtd: health-fix, re-run green.
+    When I run gtd
+    Then it succeeds
+    And stderr does not contain "no precedence rule matched"
+    And the git log contains "gtd: health-fix"
+    And stdout contains "repository is idle — nothing to do"
+
+  Scenario: Uncommitted fixer output still failing — health-fix committed, loops back to health-check
+    # Deadlock regression (red variant): even when the fix doesn't fully pass,
+    # the machine must commit as gtd: health-fix and loop (not deadlock).
+    Given a test project
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      bash impl.sh
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      squash: false
+      """
+    And a commit "feat: initial feature" that adds "impl.sh" with:
+      """
+      exit 1
+      """
+    # First run: red → gtd: health-check → fix prompt.
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: health-check"
+    And stdout contains "Spawn a **fix subagent**"
+    # Fix subagent edits code but it still fails — leave uncommitted.
+    Given "impl.sh" is modified to:
+      """
+      exit 2
+      """
+    # Second run: commits gtd: health-fix, loops back — another gtd: health-check.
+    When I run gtd
+    Then it succeeds
+    And stderr does not contain "no precedence rule matched"
+    And the git log contains "gtd: health-fix"
+    And stdout contains "Spawn a **fix subagent**"
+
+  Scenario: Uncommitted fixer output under gtd: health-check re-runs the health check (squash:true green second run)
+    # Same as the green-second-run scenario but with squash enabled.
+    # After the health-fix commit makes tests green, the machine squashes.
+    Given a test project
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      bash impl.sh
+      """
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: bash gate.sh
+      squash: true
+      """
+    And a commit "feat: initial feature" that adds "impl.sh" with:
+      """
+      exit 1
+      """
+    # First run: red → HEALTH.md → commit gtd: health-check → fix prompt.
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: health-check"
+    And stdout contains "Spawn a **fix subagent**"
+    # Fix subagent edits code and leaves it uncommitted.
+    Given "impl.sh" is modified to:
+      """
+      exit 0
+      """
+    # Second run: commits gtd: health-fix, health check re-runs green → squash path.
+    When I run gtd
+    Then it succeeds
+    And stderr does not contain "no precedence rule matched"
+    And stdout contains "conventional-commits squash message"
+
   Scenario: Idempotent across two invocations — green idle produces zero commits on both runs
     # E3: running gtd twice on a green idle repo must not accumulate commits.
     Given a test project

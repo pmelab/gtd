@@ -948,6 +948,58 @@ describe("foldCounters — healthFixCount", () => {
   })
 })
 
+// ── Dirty health HEAD outside a process (post-fix cycle) ────────────────────
+
+describe("dirty health HEAD outside process — routes back into health-fix loop", () => {
+  it("gtd: health-check HEAD + dirty tree + no pendingErrorsDeletion → health-check (edge-only), commitPending gtd: health-fix", () => {
+    const res = r({
+      lastCommitSubject: "gtd: health-check",
+      workingTreeClean: false,
+      pendingErrorsDeletion: false,
+    })
+    expect(res.state).toBe("health-check")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({
+      kind: "commitPending",
+      prefix: "gtd: health-fix",
+    })
+  })
+
+  it("gtd: health-fix HEAD + dirty tree + no pendingErrorsDeletion → health-check (edge-only), commitPending gtd: health-fix", () => {
+    const res = r({
+      lastCommitSubject: "gtd: health-fix",
+      workingTreeClean: false,
+      pendingErrorsDeletion: false,
+    })
+    expect(res.state).toBe("health-check")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({
+      kind: "commitPending",
+      prefix: "gtd: health-fix",
+    })
+  })
+
+  it("does NOT throw GtdStateError(corruption) for dirty health-check HEAD", () => {
+    expect(() =>
+      r({
+        lastCommitSubject: "gtd: health-check",
+        workingTreeClean: false,
+        pendingErrorsDeletion: false,
+      }),
+    ).not.toThrow()
+  })
+
+  it("does NOT throw GtdStateError(corruption) for dirty health-fix HEAD", () => {
+    expect(() =>
+      r({
+        lastCommitSubject: "gtd: health-fix",
+        workingTreeClean: false,
+        pendingErrorsDeletion: false,
+      }),
+    ).not.toThrow()
+  })
+})
+
 // ── Context passthrough ──────────────────────────────────────────────────────
 
 describe("context passthrough + folds", () => {

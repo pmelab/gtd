@@ -1,3 +1,4 @@
+import { createRequire } from "node:module"
 import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { ConfigService } from "./Config.js"
@@ -10,6 +11,24 @@ import { cleanResult, DEFAULT_PAYLOAD } from "./Machine.js"
 import { buildPrompt } from "./Prompt.js"
 import { detect, isEdgeOnly } from "./State.js"
 import { TestRunner } from "./TestRunner.js"
+
+const _require = createRequire(import.meta.url)
+const GTD_VERSION: string = (_require("../package.json") as { version: string }).version
+
+const HELP_TEXT = `Usage: gtd [command] [options]
+
+Commands:
+  (default)        Run the gtd driver loop — detect state, emit next prompt
+  format <file>    Format a markdown file in place
+  review <target>  Ad-hoc human review against a git ref or branch
+
+Options:
+  --json           Output structured JSON instead of plain text
+  --verbose        Show verbose output (thinking deltas, tool events)
+  --debug          Show debug-level internal information
+  --version, -v    Print version and exit
+  --help, -h       Print this help and exit
+`
 
 /** Synthetic idle result emitted when a green health check settles the loop. */
 const IDLE_RESULT: Result = {
@@ -85,6 +104,17 @@ export function makeProgram(
 
   // fallow-ignore-next-line complexity
   return Effect.gen(function* () {
+    // Short-circuit --version / --help before any git or state work.
+    // These flags must work outside a repo and in any repo state.
+    if (argv.includes("--version") || argv.includes("-v")) {
+      write(GTD_VERSION + "\n")
+      return
+    }
+    if (argv.includes("--help") || argv.includes("-h")) {
+      write(HELP_TEXT)
+      return
+    }
+
     const sub = positional
 
     if (sub === "format") {
