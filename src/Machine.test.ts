@@ -404,6 +404,17 @@ describe("rule 4 — review lifecycle", () => {
     // (`reviewCommitted` needs a clean tree, checkbox-only is excluded here).
   })
 
+  it("committed REVIEW + dirty source code (REVIEW.md itself clean) → accept-review, seedAcceptReview", () => {
+    const res = r({
+      reviewPresent: true,
+      reviewDirty: true,
+      codeDirty: true,
+    })
+    expect(res.state).toBe("accept-review")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({ kind: "seedAcceptReview" })
+  })
+
   it("reviewDirty + reviewCheckboxOnly → done, auto, done", () => {
     const res = r({
       reviewPresent: true,
