@@ -648,6 +648,22 @@ const resolveCleanOrIdle = (p: ResolvePayload, counters: Counters, head: string)
   // `runHealthCheck` edge action carries `commitErrorsReset: true` so perform
   // commits the deletion first (resetting healthFixCount via removedErrors),
   // then runs the test. This is handled below in the normal health-check path.
+
+  // Post-fix health cycle: the fixer left its edits uncommitted under a
+  // `gtd: health-check` / `gtd: health-fix` HEAD (HEALTH.md already removed by
+  // the prior gtd: health-check commit). Commit those edits as gtd: health-fix
+  // and re-enter the loop; the next resolve sees a clean health HEAD and re-runs
+  // the health check. Guard on !pendingErrorsDeletion so the budget-reset path
+  // (handled below via commitErrorsReset) is not shadowed.
+  if (!p.workingTreeClean && !p.pendingErrorsDeletion && isHealthHead) {
+    return {
+      state: "health-check",
+      autoAdvance: true,
+      edgeAction: { kind: "commitPending", prefix: "gtd: health-fix" },
+      context: buildContext(p, counters),
+    }
+  }
+
   if (!p.workingTreeClean && !p.pendingErrorsDeletion) return null
   if (!p.workingTreeClean && p.pendingErrorsDeletion && p.gtdDirExists) return null // gtd lifecycle handles it
   if (

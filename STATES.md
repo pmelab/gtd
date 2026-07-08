@@ -91,17 +91,27 @@ The last commit message is bucketed:
 8. **HEAD `gtd: done` + clean tree + `squash` enabled + squash base present** →
    Squashing (collapses the cycle into one commit). Checked before the
    Clean/Idle decision so a freshly-closed review always squashes first.
-9. **Boundary/`package done` HEAD + clean tree** → Clean (review) or Idle/Health
-   check. A review fires only when the re-trigger gate is open — commits exist
-   after the last `gtd: done` (or none exists) — and the workflow-file-filtered
-   diff from the review base is non-empty (see Clean). When no review fires (the
-   `!reviewable` case: outside a process on any branch, or an empty diff), the
-   **health check** runs instead of stopping: runs the configured `testCommand`
-   and routes to Health check or Health Fixing based on the result. The
-   in-process Clean path (HEAD `gtd: package done` with a non-empty reviewable
-   diff) is **unchanged** — the `!reviewable` case is now any idle branch
-   outside a process (feature or default) or an empty diff, and all of those
-   fall through to the health check.
+9. **Boundary/`package done`/health HEAD + clean or dirty-health tree** → Clean
+   (review), Health check commit-and-loop, or Idle/Health check. Evaluated in
+   this order inside `resolveCleanOrIdle`:
+   - **Dirty tree + `gtd: health-check` or `gtd: health-fix` HEAD +
+     `!pendingErrorsDeletion`** → edge-only `health-check` state: commit the
+     fixer's uncommitted edits as `gtd: health-fix`, then re-run the health
+     check within the same `gtd` invocation. This is the post-fix health cycle —
+     the fixer left its edits uncommitted after Health Fixing removed HEALTH.md;
+     the dirty-health-HEAD branch here commits them and loops back. **Not
+     corruption.**
+   - **Clean tree** → a review fires only when the re-trigger gate is open
+     (commits exist after the last `gtd: done`, or none exists) and the
+     workflow-file-filtered diff from the review base is non-empty (see Clean).
+     When no review fires (the `!reviewable` case: outside a process on any
+     branch, or an empty diff), the **health check** runs instead of stopping:
+     runs the configured `testCommand` and routes to Health check or Health
+     Fixing based on the result. The in-process Clean path (HEAD
+     `gtd: package done` with a non-empty reviewable diff) is **unchanged** —
+     the `!reviewable` case is now any idle branch outside a process (feature or
+     default) or an empty diff, and all of those fall through to the health
+     check.
 
 Anything matching no rule is corruption — hard-error rather than guess.
 
@@ -297,13 +307,21 @@ through Testing → `gtd: building`.)_
 
 ### Health check (auto-advance)
 
-**Conditions:** no steering files, clean tree, boundary or `gtd: package done`
-or `gtd: health-fix` HEAD, outside a process on any branch with nothing to
-review — i.e. the `!reviewable` case from rule 9: no `.gtd`, no REVIEW.md, no
-FEEDBACK.md, no ERRORS.md, no HEALTH.md, and no review to run.
-(`gtd: health-fix` is a valid entry point because Health Fixing removes
-HEALTH.md and commits `gtd: health-fix`, leaving a clean tree that must loop
-back here to re-test.)
+**Conditions:** two entry points:
+
+a. **Clean tree**, boundary or `gtd: package done` or `gtd: health-fix` HEAD,
+outside a process on any branch with nothing to review — i.e. the `!reviewable`
+case from rule 9: no `.gtd`, no REVIEW.md, no FEEDBACK.md, no ERRORS.md, no
+HEALTH.md, and no review to run. (`gtd: health-fix` is a valid entry point here
+because the health-check edge commits the fixer's pending edits as
+`gtd: health-fix` and immediately re-runs `testCommand` within the same
+invocation — see point (b) and the Health Fixing section.)
+
+b. **Dirty tree**, `gtd: health-check` or `gtd: health-fix` HEAD,
+`!pendingErrorsDeletion` — the fixer left edits uncommitted (see Health Fixing).
+The edge first commits the pending edits as `gtd: health-fix` (`commitPending`),
+then re-resolves on the now-clean HEAD and re-runs `testCommand` within the same
+invocation.
 
 **Actions:**
 
@@ -334,12 +352,16 @@ Illegal combinations).
 **Actions:**
 
 - read HEALTH.md into the prompt
-- commit HEALTH.md's removal as `gtd: health-fix` — the fixed tree returns to
-  Health check (not Health Fixing), because HEALTH.md is gone after the commit;
-  same removal discipline as FEEDBACK.md in Fixing
+- commit HEALTH.md's removal as `gtd: health-check` — HEALTH.md is gone after
+  the commit so the next resolve re-enters `resolveCleanOrIdle` (not Health
+  Fixing again); same removal discipline as FEEDBACK.md in Fixing
+- fixer agent fixes the code and leaves its edits **uncommitted**
 
 **Prompt:** fixer agent — fix the code per the health-check output. _(Fixer
-output returns through Health check → re-runs `testCommand`.)_
+output is left uncommitted. The next `gtd` invocation detects the dirty tree
+under the `gtd: health-check` HEAD, commits the edits as `gtd: health-fix` via
+the edge-only `health-check` state, and immediately re-runs the health check
+within that same invocation.)_
 
 ### Escalate
 

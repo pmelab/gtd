@@ -190,3 +190,54 @@ Feature: Hostile environments and unusual invocations
     And the git log contains "gtd: new task"
     And the last commit subject is "gtd: grilling"
     And the file "TODO.md" exists
+
+  # --version and --help must short-circuit before any repo-state work so they
+  # never deadlock on unusual or broken repo states. These scenarios pin that
+  # the flag short-circuit fires before the "no precedence rule matched" guard.
+
+  Scenario: --version exits 0 from a dirty gtd: health-check state without deadlocking
+    Given a test project
+    And a commit "chore: test gate" that adds "gate.sh" with:
+      """
+      bash impl.sh
+      """
+    And a gtd config file at "." with:
+      """
+      testCommand: bash gate.sh
+      squash: false
+      """
+    And a commit "feat: initial feature" that adds "impl.sh" with:
+      """
+      exit 1
+      """
+    When I run gtd
+    Then it succeeds
+    And the last commit subject is "gtd: health-check"
+    Given "impl.sh" is modified to:
+      """
+      exit 0
+      """
+    When I run gtd with "--version"
+    Then it succeeds
+    And stderr does not contain "no precedence rule matched"
+    And stdout contains "1."
+
+  Scenario: --help exits 0 and prints usage from a fresh project
+    Given a test project
+    When I run gtd with "--help"
+    Then it succeeds
+    And stdout contains "Usage"
+    And stdout contains "format"
+    And stdout contains "review"
+
+  Scenario: --version exits 0 outside a git repository
+    Given a plain directory that is not a git repository
+    When I run gtd with "--version"
+    Then it succeeds
+    And stdout contains "1."
+
+  Scenario: --help exits 0 outside a git repository
+    Given a plain directory that is not a git repository
+    When I run gtd with "--help"
+    Then it succeeds
+    And stdout contains "Usage"
