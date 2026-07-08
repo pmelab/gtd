@@ -759,6 +759,7 @@ Commands:
   (default)        Run the gtd driver loop — detect state, emit next prompt
   format <file>    Format a markdown file in place
   review <target>  Ad-hoc human review against a git ref or branch
+  status           Print current state, next state, and pending edge actions (no actions, no prompt)
 
 Options:
   --json           Output structured JSON instead of plain text
@@ -773,7 +774,7 @@ repository-state work — they run outside a repo and in any repo state.
 
 ## Subcommands
 
-gtd ships two subcommands: `format` and `review`.
+gtd ships three subcommands: `format`, `review`, and `status`.
 
 ## Review subcommand
 
@@ -811,6 +812,82 @@ All errors exit with **code 1** and write a message to **stderr**:
 - **Empty diff** — the merge-base diff between `<target>` and HEAD is empty
   (nothing to review):
   `gtd review: nothing to review (<target> diff is empty after filtering)`
+
+## Status subcommand
+
+```bash
+gtd status
+```
+
+Pure, read-only introspection. Prints the current machine state, the state the
+next real `gtd` run would stop at, and a short summary of the edge actions the
+next run would perform. Performs **nothing** (no commit, reset, or file write)
+and prints **no prompt** — guaranteed side-effect free.
+
+### Fields
+
+| Field             | Description                                                       |
+| ----------------- | ----------------------------------------------------------------- |
+| `state`           | Current machine state                                             |
+| `nextState`       | State the next `gtd` run would stop at, or `null` for edge-only   |
+| `willAutoAdvance` | `true` when the current state is edge-only (auto-advances on run) |
+| `edgeActions`     | List of edge actions the next run would perform before prompting  |
+
+### One-hop semantics
+
+`status` runs the same read-only gather+resolve the driver's first iteration
+does, then reports it without looping or performing.
+
+- A **prompt-bearing / human / terminal** current state reports itself as
+  `nextState`. The next run performs any pending edge action, then prompts
+  there.
+- An **edge-only** current state reports `nextState: null` and
+  `willAutoAdvance: true`, naming the immediate edge action. Because the landing
+  state after auto-advance depends on side effects (test pass/fail, commits)
+  that `status` refuses to run, it honestly reports the current state rather
+  than guessing a landing state. There is **no** multi-hop simulation.
+
+### Output
+
+Default (human-readable) — `building` example:
+
+```
+State:      building
+Next state: building (next run prompts here)
+Edge actions:
+  - commit pending changes as "gtd: building"
+```
+
+With `--json` — same example:
+
+```json
+{
+  "state": "building",
+  "nextState": "building",
+  "willAutoAdvance": false,
+  "edgeActions": ["commit pending changes as \"gtd: building\""]
+}
+```
+
+Edge-only example (`testing` state):
+
+```json
+{
+  "state": "testing",
+  "nextState": null,
+  "willAutoAdvance": true,
+  "edgeActions": ["run the test suite (attempt 1)"]
+}
+```
+
+The JSON envelope contains no `prompt` field — this distinguishes it from the
+default `gtd` run and `gtd review` JSON output.
+
+### Requirements
+
+- Must be run from the **repository root** (same cwd guard as other repo
+  commands).
+- Takes **no arguments** — extra args are rejected with an error.
 
 ## Format subcommand
 

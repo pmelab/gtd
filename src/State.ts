@@ -4,7 +4,7 @@ import type { ConfigService } from "./Config.js"
 import { gatherEvents } from "./Events.js"
 import type { GitService } from "./Git.js"
 import { Cwd } from "./Cwd.js"
-import { type GtdState, resolve, type Result } from "./Machine.js"
+import { type EdgeAction, type GtdState, resolve, type Result } from "./Machine.js"
 
 /**
  * The thin decision core the driver loop in `main.ts` calls. There is no
@@ -45,6 +45,58 @@ export const EDGE_ONLY_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
 
 /** True when the driver must auto-advance (re-gather + re-resolve) past `state` rather than prompt. */
 export const isEdgeOnly = (state: GtdState): boolean => EDGE_ONLY_STATES.has(state)
+
+/** A pure, IO-free summary of the current gtd state derived from a resolved `Result`. */
+export interface StatusSummary {
+  readonly state: GtdState
+  readonly nextState: GtdState | null
+  readonly willAutoAdvance: boolean
+  readonly edgeActions: readonly string[]
+}
+
+type EdgeActionHandlers = {
+  readonly [K in EdgeAction["kind"]]: (a: Extract<EdgeAction, { kind: K }>) => string
+}
+
+/** Renders one human-readable phrase for each `EdgeAction` variant. */
+const edgeActionHandlers: EdgeActionHandlers = {
+  transportReset: () => "reset the working tree to the gtd: transport parent",
+  seedNewFeature: () => "seed a new feature (write the initial TODO.md)",
+  seedAcceptReview: () => "seed the accept-review step",
+  captureGrillingEdits: () => "capture pending grilling edits into TODO.md",
+  runTest: (a) =>
+    `run the test suite (attempt ${a.errorCount + 1}${a.capReached ? ", cap reached" : ""})`,
+  commitPending: (a) => {
+    let msg = `commit pending changes as "${a.prefix}"`
+    if (a.removeTodo) msg += " (removing TODO.md)"
+    if (a.removeFeedback) msg += " (removing FEEDBACK.md)"
+    if (a.removeHealth) msg += " (removing HEALTH.md)"
+    return msg
+  },
+  runHealthCheck: (a) =>
+    `run the health check${a.commitErrorsReset ? " (resetting the error budget)" : ""}`,
+  closePackage: () => "close the active package (commit gtd: package done)",
+  commitReview: () => "commit the review record (REVIEW.md)",
+  done: () => "finalize the review cycle (commit gtd: done)",
+  squashCommit: (a) => `squash the cycle onto ${a.squashBase}`,
+  removeHealthSentinel: () =>
+    "remove the health-squash sentinel before prompting for a squash message",
+  removeStraySquashMsg: () => "remove a stray SQUASH_MSG.md",
+}
+
+const describeEdgeAction = (a: EdgeAction): string =>
+  (edgeActionHandlers[a.kind] as (a: EdgeAction) => string)(a)
+
+/** Pure fold of a resolved `Result` into a `StatusSummary`. Performs no IO. */
+export const describeStatus = (result: Result): StatusSummary => {
+  const willAutoAdvance = isEdgeOnly(result.state)
+  return {
+    state: result.state,
+    nextState: willAutoAdvance ? null : result.state,
+    willAutoAdvance,
+    edgeActions: result.edgeAction ? [describeEdgeAction(result.edgeAction)] : [],
+  }
+}
 
 /**
  * Gather every git/filesystem fact (the only IO, in `Events.gatherEvents`) and

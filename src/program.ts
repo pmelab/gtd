@@ -9,7 +9,8 @@ import { GitService } from "./Git.js"
 import type { Result } from "./Machine.js"
 import { cleanResult, DEFAULT_PAYLOAD } from "./Machine.js"
 import { buildPrompt } from "./Prompt.js"
-import { detect, isEdgeOnly } from "./State.js"
+import { describeStatus, detect, isEdgeOnly } from "./State.js"
+import type { StatusSummary } from "./State.js"
 import { TestRunner } from "./TestRunner.js"
 
 const _require = createRequire(import.meta.url)
@@ -21,6 +22,7 @@ Commands:
   (default)        Run the gtd driver loop — detect state, emit next prompt
   format <file>    Format a markdown file in place
   review <target>  Ad-hoc human review against a git ref or branch
+  status           Print current state, next state, and pending edge actions (no actions, no prompt)
 
 Options:
   --json           Output structured JSON instead of plain text
@@ -54,6 +56,29 @@ const IDLE_RESULT: Result = {
  * machine/edge bug — fail loudly rather than spin forever.
  */
 const MAX_EDGE_HOPS = 100
+
+/**
+ * Pure presenter: formats a `StatusSummary` as human-readable text.
+ * Returns a string ending in exactly one trailing newline.
+ */
+const renderStatus = (s: StatusSummary): string => {
+  const lines: string[] = []
+  lines.push(`State:      ${s.state}`)
+  if (s.willAutoAdvance) {
+    lines.push(`Next state: (edge-only — next run performs the action(s) below and auto-advances)`)
+  } else {
+    lines.push(`Next state: ${s.nextState} (next run prompts here)`)
+  }
+  if (s.edgeActions.length === 0) {
+    lines.push(`Edge actions: none`)
+  } else {
+    lines.push(`Edge actions:`)
+    for (const action of s.edgeActions) {
+      lines.push(`  - ${action}`)
+    }
+  }
+  return lines.join("\n") + "\n"
+}
 
 /**
  * Options for the exported `makeProgram` factory.
@@ -196,7 +221,24 @@ export function makeProgram(
       return
     }
 
-    // No escape hatches: gtd takes no command other than `format` or `review`.
+    if (sub === "status") {
+      const args = argv.slice(3).filter((a) => a.length > 0 && !a.startsWith("--"))
+      if (args.length > 0) {
+        return yield* Effect.fail(
+          new Error(`gtd status: too many arguments — expected none, got: ${args.join(", ")}`),
+        )
+      }
+      const result = yield* detect()
+      const summary = describeStatus(result)
+      if (json) {
+        write(JSON.stringify(summary) + "\n")
+      } else {
+        write(renderStatus(summary))
+      }
+      return
+    }
+
+    // No escape hatches: gtd takes no command other than `format`, `review`, or `status`.
     // Anything else (e.g. `transport`, `abort`) is rejected rather than silently ignored.
     if (sub !== undefined) {
       return yield* Effect.fail(new Error(`unknown command '${sub}'`))
