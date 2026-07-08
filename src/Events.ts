@@ -7,12 +7,13 @@ import { Cwd } from "./Cwd.js"
 import { fenceFor } from "./Prompt.js"
 import { formatFile } from "./Format.js"
 import { TestRunner } from "./TestRunner.js"
-import type {
-  CommitEvent,
-  EdgeAction,
-  GtdEvent,
-  GtdPackageFact,
-  ResolvePayload,
+import {
+  HEALTH_SQUASH_SENTINEL,
+  type CommitEvent,
+  type EdgeAction,
+  type GtdEvent,
+  type GtdPackageFact,
+  type ResolvePayload,
 } from "./Machine.js"
 
 /**
@@ -683,6 +684,16 @@ export const gatherEvents = (): Effect.Effect<
           .resolveRef(`${firstHealthCheckHash}~1`)
           .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
         healthFixBase = base
+        // On the health path, squashBase/squashDiff carry the health-fix cycle
+        // diff (not a feature-cycle diff). Computed here so the squashing prompt
+        // renders the full diff block; forwarded unchanged by buildContext.
+        const healthCandidateDiff = yield* git
+          .diffRef(base)
+          .pipe(Effect.catchAll(() => Effect.succeed("")))
+        if (healthCandidateDiff.trim().length > 0) {
+          squashBase = base
+          squashDiff = healthCandidateDiff
+        }
       }
     }
 
@@ -920,17 +931,18 @@ export const perform = (
         const result = yield* runner.run()
         if (result.exitCode === 0) {
           if (action.healthFixBase !== undefined && action.commitErrorsReset !== true) {
-            // Green after health-fix cycle: write SQUASH_MSG.md placeholder so the
-            // machine routes to squashing on the next loop iteration (rule 4c).
-            // The `squashCommit` edge will soft-reset to healthFixBase and commit
-            // all the changes as a single conventional-commit squash message.
+            // Green after health-fix cycle: write the HEALTH_SQUASH_SENTINEL into
+            // SQUASH_MSG.md. This is the loop-breaking observable state change —
+            // without any disk write, re-gathering would see an identical snapshot
+            // and route back into runHealthCheck forever. The sentinel signals
+            // "green confirmed; agent has not yet authored a real squash message."
+            // On re-gather rule 4d fires (sentinel present) and shows the squash
+            // prompt; the agent then overwrites SQUASH_MSG.md with the real
+            // conventional-commits message; rule 4c performs the actual squash.
             // Skip when we just committed an errors-reset (commitErrorsReset): the
-            // removedErrors on that commit resets healthFixCount to 0 so there's
+            // removedErrors on that commit resets healthFixCount to 0, so there is
             // nothing to squash.
-            yield* fs.writeFileString(
-              resolve(SQUASH_MSG_FILE),
-              "chore: health-check cycle squash\n",
-            )
+            yield* fs.writeFileString(resolve(SQUASH_MSG_FILE), HEALTH_SQUASH_SENTINEL)
             return { stop: false }
           }
           // Green (idle or post-reset): settle to idle.
@@ -1006,6 +1018,23 @@ export const perform = (
         yield* fs.remove(resolve(SQUASH_MSG_FILE)).pipe(Effect.catchAll(() => Effect.void))
         yield* git.softResetTo(action.squashBase)
         yield* git.commitAllWithPrefix(action.commitMessage)
+        return { stop: false }
+      }
+
+      // Remove the HEALTH_SQUASH_SENTINEL file written by runHealthCheck on
+      // green-with-fixes, so the squash-prompt state is presented clean. The
+      // agent then writes the real SQUASH_MSG.md on its turn. This action runs
+      // BEFORE the prompt is emitted (squashing is not edge-only, so the driver
+      // emits the prompt after perform returns).
+      case "removeHealthSentinel": {
+        yield* fs.remove(resolve(SQUASH_MSG_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        return { stop: false }
+      }
+      // Stray SQUASH_MSG.md found under a boundary HEAD with no matching squash
+      // cycle (squashBase absent / squashEnabled false). Remove it so the next
+      // gather sees a clean tree and settles to health-check or idle.
+      case "removeStraySquashMsg": {
+        yield* fs.remove(resolve(SQUASH_MSG_FILE)).pipe(Effect.catchAll(() => Effect.void))
         return { stop: false }
       }
     }

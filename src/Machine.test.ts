@@ -779,7 +779,11 @@ describe("rule 7 — Squashing", () => {
     })
   })
 
-  it("dirty tree (codeDirty: true) + squashMsgPresent: true → falls through to new-feature", () => {
+  // When real code changes are present (codeDirty: true), rule 4e (stray-squash
+  // removal) does NOT fire — it guards on !codeDirty. Rule 5 (New Feature) fires
+  // instead so the user's work is captured. SQUASH_MSG.md is excluded from the
+  // seed content because it is a steering file (not in codeDirty).
+  it("dirty tree (codeDirty: true) + squashMsgPresent: true → routes to new-feature (real edits captured)", () => {
     const res = r({
       lastCommitSubject: "gtd: done",
       squashEnabled: true,
@@ -792,6 +796,26 @@ describe("rule 7 — Squashing", () => {
     })
     expect(res.state).toBe("new-feature")
     expect(res.edgeAction).toEqual(expect.objectContaining({ kind: "seedNewFeature" }))
+  })
+
+  // Stray SQUASH_MSG.md only (no real code changes) under "gtd: done" with a
+  // squash cycle — this is already handled by rule 4b (squash-perform), tested
+  // above. But if squashBase is absent (e.g. no cycle found), rule 4b misses
+  // and rule 4e fires to remove the stray file.
+  it("dirty tree (codeDirty: false) + squashMsgPresent: true + no squashBase → rule 4e removes stray squashMsg", () => {
+    const res = r({
+      lastCommitSubject: "gtd: done",
+      squashEnabled: true,
+      // squashBase intentionally absent — simulates no cycle found
+      squashMsgPresent: true,
+      squashMsgContent: "feat: stray squash message",
+      workingTreeClean: false,
+      codeDirty: false,
+      todoCommitted: false,
+    })
+    expect(res.state).toBe("squashing")
+    expect(res.autoAdvance).toBe(true)
+    expect(res.edgeAction).toEqual({ kind: "removeStraySquashMsg" })
   })
 
   // Clean-tree regression guards — ensure existing behavior is unchanged.

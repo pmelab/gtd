@@ -218,7 +218,10 @@ The last commit subject is bucketed two ways:
    Review; uncommitted → Await Review (commits REVIEW.md and auto-advances to
    Done). 5a. **HEAD `gtd: done` + `squash` enabled + squash base present + no
    unrelated code dirty** (a lone untracked `SQUASH_MSG.md` is allowed) →
-   Squashing; unrelated code dirty → New Feature.
+   Squashing; unrelated code dirty → New Feature. 8a. **Green health check + ≥1
+   `gtd: health-fix` + `squash` enabled** → Squashing (same agent-authored
+   conventional-commits path as the feature-cycle squash — no hardcoded
+   placeholder).
 6. **Boundary HEAD + pending changes** (and no `.gtd`/REVIEW/FEEDBACK), or HEAD
    `gtd: new task` + clean tree (regenerate a lost seed) → New Feature.
 7. **TODO.md present** → Grilling / Grilled.
@@ -254,7 +257,7 @@ flowchart TD
     P4 -->|"uncommitted"| Await["Await Review — commit gtd: awaiting review"]:::edge
     Await -.->|"re-resolve"| Done
     P4 -->|absent| P5{"boundary HEAD + dirty,<br/>or gtd: new task + clean?"}
-    Done -->|"squash enabled"| Squashing["Squashing — reset --soft base, squash commit"]:::agent
+    Done -->|"squash enabled"| Squashing["Squashing — agent authors conventional-commits message, reset --soft base, squash commit"]:::agent
     Done -->|"squash disabled"| Idle
     Squashing --> Idle["Idle — nothing to do (STOP)"]:::gate
     P5 -->|yes| NewFeature["New Feature — gtd: new task, revert, seed TODO"]:::edge

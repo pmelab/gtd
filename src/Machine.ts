@@ -18,6 +18,18 @@
  * the review base, and last-commit detection; this is documented, not handled.
  */
 
+/**
+ * Sentinel written to `SQUASH_MSG.md` by `runHealthCheck` on a green health run
+ * with prior fix commits (squash enabled). Its presence signals "health check
+ * confirmed green; agent has not yet authored the real squash message." The
+ * machine uses this to route to the squash prompt (which re-prompts the agent to
+ * replace the sentinel with a real conventional-commits message) rather than
+ * looping back into `runHealthCheck`. Rule 4c fires only when
+ * `squashMsgContent !== HEALTH_SQUASH_SENTINEL` — i.e. the agent has written a
+ * real message.
+ */
+export const HEALTH_SQUASH_SENTINEL = "<!-- gtd-health-squash-ready -->\n"
+
 /** The 19 resolved states (STATES.md § States). `Result.state` is one of these. */
 export type GtdState =
   | "transport"
@@ -243,6 +255,25 @@ export type EdgeAction =
       readonly kind: "squashCommit"
       readonly squashBase: string
       readonly commitMessage: string
+    }
+  | {
+      /**
+       * Remove the HEALTH_SQUASH_SENTINEL file (SQUASH_MSG.md written by
+       * `runHealthCheck` on green-with-fixes) so the squash-prompt state is
+       * presented with a clean slate. Performed before the squash prompt is
+       * emitted; the agent then writes the real SQUASH_MSG.md on its turn.
+       */
+      readonly kind: "removeHealthSentinel"
+    }
+  | {
+      /**
+       * Remove a stray SQUASH_MSG.md found under a boundary HEAD with no
+       * matching squash cycle (squashBase undefined or squashEnabled false).
+       * A SQUASH_MSG.md left from an aborted squash cycle must not seed a new
+       * feature — this action cleans it up; the next gather then sees a clean
+       * tree and routes to health-check or idle as normal.
+       */
+      readonly kind: "removeStraySquashMsg"
     }
 
 /** The folded prompt context carried on every `Result`. */
@@ -787,11 +818,19 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
     }
   }
   // ── 4c. Health-squash-perform (dirty tree, SQUASH_MSG.md only, health cycle) ──
-  // Parallel to rule 4b but for the health-check cycle: after a green health run
-  // with prior health-fix commits, `perform(runHealthCheck)` writes SQUASH_MSG.md
-  // (written uncommitted), causing this rule to fire and execute the squash.
-  // Guard on !codeDirty so unrelated edits do not get silently folded in.
-  if (p.squashEnabled && p.healthFixBase !== undefined && p.squashMsgPresent && !p.codeDirty) {
+  // Parallel to rule 4b but for the health-check cycle: after the agent authors
+  // the real squash message over the HEALTH_SQUASH_SENTINEL in SQUASH_MSG.md,
+  // this rule fires and executes the squash. Guard on !codeDirty so unrelated
+  // edits do not get silently folded in. Guard on squashMsgContent ≠ sentinel so
+  // the sentinel write (the green-health signal before the agent has authored the
+  // real message) does not trigger a squash commit with placeholder content.
+  if (
+    p.squashEnabled &&
+    p.healthFixBase !== undefined &&
+    p.squashMsgPresent &&
+    p.squashMsgContent !== HEALTH_SQUASH_SENTINEL &&
+    !p.codeDirty
+  ) {
     return {
       state: "squashing",
       autoAdvance: false,
@@ -803,6 +842,47 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
       context: buildContext(p, counters),
     }
   }
+  // ── 4d. Health-squash-prompt (sentinel present — green confirmed, no real message yet) ──
+  // After runHealthCheck runs green with prior fix commits, it writes SQUASH_MSG.md
+  // with HEALTH_SQUASH_SENTINEL (the loop-breaking observable state change). The
+  // next gather sees the sentinel and routes here to prompt the agent to author the
+  // real conventional-commits squash message (overwriting the sentinel). Once the
+  // agent overwrites it with real content, rule 4c fires and squashes.
+  //
+  // Hoisted to the main ladder (before resolveCleanOrIdle) so it fires regardless
+  // of workingTreeClean — the untracked SQUASH_MSG.md makes the tree dirty, but
+  // SQUASH_MSG.md is a steering file and does not constitute "code dirty".
+  // Rule 4c is guarded against sentinel content so it does not squash immediately.
+  if (
+    p.squashEnabled &&
+    p.healthFixBase !== undefined &&
+    p.squashMsgPresent &&
+    p.squashMsgContent === HEALTH_SQUASH_SENTINEL
+  ) {
+    return {
+      state: "squashing",
+      autoAdvance: true,
+      edgeAction: { kind: "removeHealthSentinel" },
+      context: buildContext(p, counters),
+    }
+  }
+  // ── 4e. Stray SQUASH_MSG.md under boundary HEAD (no matching squash cycle) ──
+  // A SQUASH_MSG.md can be left behind from an aborted or mismatched squash
+  // cycle (e.g. squashBase is absent because HEAD is not `gtd: done`, or
+  // squashEnabled is false). In that case rules 4b/4c/4d do not fire.
+  // Guard on !codeDirty: if there are also real code changes, fall through to
+  // rule 5 so the user's work is captured as a new feature (SQUASH_MSG.md is
+  // excluded from codeDirty since it is a steering file, so codeDirty true
+  // means real edits are present). With only the stray steering file, remove it
+  // and let the next gather settle to health-check or idle.
+  if (isBoundary(head) && p.squashMsgPresent && !p.codeDirty) {
+    return {
+      state: "squashing",
+      autoAdvance: true,
+      edgeAction: { kind: "removeStraySquashMsg" },
+      context: buildContext(p, counters),
+    }
+  }
   // ── 5. New Feature ────────────────────────────────────────────────────────
   // Boundary HEAD + pending changes (code and/or a new uncommitted TODO.md — the
   // only steering file possible here), or HEAD `gtd: new task` + clean tree
@@ -810,6 +890,9 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   // A *committed* TODO.md is a resumed grill: route to rule 6 even when the
   // tree is dirty (grilling captures the code edits) — re-seeding here would
   // clobber the developed plan with a raw seed.
+  // Note: squashMsgPresent + codeDirty falls here intentionally — real code
+  // edits must be captured as a new feature; seedNewFeature excludes steering
+  // files (SQUASH_MSG.md) from the seed content.
   if (
     (isBoundary(head) && !p.workingTreeClean && !p.todoCommitted) ||
     (head === "gtd: new task" && p.workingTreeClean)
