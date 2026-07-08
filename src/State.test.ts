@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import type { GtdState } from "./Machine.js"
-import { EDGE_ONLY_STATES, isEdgeOnly } from "./State.js"
+import type { GtdState, ResolveContext } from "./Machine.js"
+import { EDGE_ONLY_STATES, describeStatus, isEdgeOnly } from "./State.js"
 
 // The driver's auto-advance-vs-prompt decision hinges entirely on this set: it
 // must stay identical to `Prompt.ts`'s (private) `EDGE_ONLY_STATES`, i.e. the
@@ -59,5 +59,56 @@ describe("edge-only state classification", () => {
     for (const state of promptBearing) {
       expect(isEdgeOnly(state)).toBe(false)
     }
+  })
+})
+
+const minContext: ResolveContext = {
+  testFixCount: 0,
+  reviewFixCount: 0,
+  packages: [],
+  diff: "",
+  lastCommitSubject: "",
+  workingTreeClean: true,
+  feedbackContent: "",
+}
+
+describe("describeStatus", () => {
+  it("prompt-bearing result: state=building, no edgeAction", () => {
+    const result = {
+      state: "building" as GtdState,
+      autoAdvance: false,
+      context: minContext,
+    }
+    expect(describeStatus(result)).toEqual({
+      state: "building",
+      nextState: "building",
+      willAutoAdvance: false,
+      edgeActions: [],
+    })
+  })
+
+  it("edge-only result: state=testing, runTest edgeAction", () => {
+    const result = {
+      state: "testing" as GtdState,
+      autoAdvance: true,
+      edgeAction: { kind: "runTest" as const, errorCount: 0, capReached: false },
+      context: minContext,
+    }
+    const summary = describeStatus(result)
+    expect(summary.nextState).toBeNull()
+    expect(summary.willAutoAdvance).toBe(true)
+    expect(summary.edgeActions[0]).toBe("run the test suite (attempt 1)")
+  })
+
+  it("commitPending with removeTodo=true", () => {
+    const result = {
+      state: "planning" as GtdState,
+      autoAdvance: false,
+      edgeAction: { kind: "commitPending" as const, prefix: "gtd: planning", removeTodo: true },
+      context: minContext,
+    }
+    expect(describeStatus(result).edgeActions[0]).toBe(
+      'commit pending changes as "gtd: planning" (removing TODO.md)',
+    )
   })
 })
