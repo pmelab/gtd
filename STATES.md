@@ -300,8 +300,15 @@ committed.
 - `step` / `step-agent`: `{ state, actions, commits }` — `actions` is the
   human-readable list of edge actions performed, `commits` the ordered list of
   commit subjects authored this run.
-- `next`: `{ state, actor, pending, prompt }` — `prompt` is `null` when
-  `pending` is true.
+- `next`: `{ state, actor, pending, prompt, runStepAgent }` — `prompt` is `null`
+  when `pending` is true. `runStepAgent` is a boolean for automated loop
+  drivers, so they don't have to hardcode the step-first assumption to know what
+  finishes this turn: `true` when `actor` is `"agent"` and `pending` is `false`
+  (mirroring the plain-mode tail sentence — the driver should run
+  `gtd step-agent` next), `false` when `actor` is `"human"` (the prompt body
+  already spells out the human's next action), and `false` while `pending`
+  (resuming a mid-chain checkpoint always runs `gtd step`, never `step-agent`,
+  regardless of which actor's turn was interrupted).
 - `status`: `{ state, actor, predictedCommit, predictedState }` —
   `predictedCommit` is `null` when nothing would be committed (e.g. idle).
 - `review`: `{ state: "review", reviewBase, pending: false, prompt: null }`.

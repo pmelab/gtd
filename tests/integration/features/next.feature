@@ -7,6 +7,13 @@ Feature: gtd next — pure prediction of the next prompt
   routing-commit HEAD that lands on an actor) emits that actor's prompt. A
   clean tree at a mid-chain HEAD reports pending instead of a prompt.
 
+  `--json` output carries a `runStepAgent` boolean for automated loop drivers:
+  `true` at an agent rest (mirroring the plain-mode tail sentence — the driver
+  should run `gtd step-agent` next), `false` at a human rest (the human's own
+  next action is already spelled out in the prompt body) and `false` while
+  pending (resuming a mid-chain checkpoint always runs `gtd step`, never
+  `step-agent`, regardless of which actor's turn was interrupted).
+
   Scenario: A dirty tree fails and points at gtd status and gtd step
     Given a test project
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -38,6 +45,7 @@ Feature: gtd next — pure prediction of the next prompt
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
     And stdout contains "\"pending\":false"
+    And stdout contains "\"runStepAgent\":true"
     And the commit count is unchanged
     When I run gtd next
     Then it succeeds
@@ -54,6 +62,7 @@ Feature: gtd next — pure prediction of the next prompt
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""
+    And stdout contains "\"runStepAgent\":false"
 
   Scenario: A mid-chain HEAD reports pending with a null prompt
     Given a test project
@@ -67,6 +76,7 @@ Feature: gtd next — pure prediction of the next prompt
     Then it succeeds
     And stdout contains "\"pending\":true"
     And stdout contains "\"prompt\":null"
+    And stdout contains "\"runStepAgent\":false"
     When I run gtd next
     Then it succeeds
     And stdout contains "run `gtd step`"
@@ -81,7 +91,7 @@ Feature: gtd next — pure prediction of the next prompt
     Then it succeeds
     And stdout contains "Finish your turn by running `gtd step-agent`."
 
-  Scenario: The --json prompt for the same agent rest omits the tail sentence
+  Scenario: The --json prompt for the same agent rest omits the tail sentence but carries the runStepAgent flag
     Given a test project
     And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
       """
@@ -90,3 +100,4 @@ Feature: gtd next — pure prediction of the next prompt
     When I run gtd next with "--json"
     Then it succeeds
     And stdout does not contain "Finish your turn by running `gtd step-agent`."
+    And stdout contains "\"runStepAgent\":true"

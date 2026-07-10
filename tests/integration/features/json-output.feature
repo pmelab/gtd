@@ -3,8 +3,12 @@ Feature: JSON output mode
 
   The --json flag switches step/step-agent, next, and status from plain-text
   output to a single-line JSON object. step/step-agent emit
-  { state, actions, commits }; next emits { state, actor, pending, prompt };
-  status emits { state, actor, predictedCommit, predictedState }.
+  { state, actions, commits }; next emits
+  { state, actor, pending, prompt, runStepAgent }; status emits
+  { state, actor, predictedCommit, predictedState }. next's `runStepAgent` is a
+  boolean for automated loop drivers: true at an agent rest (mirroring the
+  plain-mode tail sentence — run `gtd step-agent` next), false at a human rest,
+  false while pending (resuming a mid-chain checkpoint always runs `gtd step`).
   `autoAdvance` no longer appears anywhere. Errors emit
   { state: "error", prompt: "<message>" } and exit 1.
 
@@ -25,7 +29,7 @@ Feature: JSON output mode
     And stdout contains "\"commits\""
     And stdout does not contain "autoAdvance"
 
-  Scenario: gtd next --json emits state, actor, pending, and prompt
+  Scenario: gtd next --json emits state, actor, pending, prompt, and runStepAgent
     Given a test project
     And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
       """
@@ -37,6 +41,7 @@ Feature: JSON output mode
     And stdout contains "\"actor\""
     And stdout contains "\"pending\""
     And stdout contains "\"prompt\""
+    And stdout contains "\"runStepAgent\""
     And stdout does not contain "autoAdvance"
 
   Scenario: gtd status --json emits state, actor, predictedCommit, and predictedState
