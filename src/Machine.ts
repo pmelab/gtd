@@ -152,8 +152,6 @@ export interface ResolvePayload {
   readonly workingTreeClean: boolean
   /** `.gtd/` packages, lowest-numbered first; `packages[0]` is the active one. */
   readonly packages: readonly GtdPackageFact[]
-  /** `git diff HEAD` including untracked — prompt context. */
-  readonly diff: string
   /** The base commit for a Clean review, if one is available. */
   readonly reviewBase?: string
   /** `git diff <reviewBase> HEAD` (workflow files excluded) — non-empty distinguishes Clean from Idle. */
@@ -284,8 +282,6 @@ export interface ResolveContext {
   readonly reviewFixCount: number
   /** `.gtd/` packages (passthrough); `packages[0]` is active. */
   readonly packages: readonly GtdPackageFact[]
-  /** `git diff HEAD` including untracked (passthrough). */
-  readonly diff: string
   /** `git diff <reviewBase> HEAD` (passthrough), when present. */
   readonly refDiff?: string
   /** Review base commit (passthrough), when present. */
@@ -294,10 +290,6 @@ export interface ResolveContext {
   readonly squashBase?: string
   /** `git diff <squashBase> HEAD` (passthrough), when present. */
   readonly squashDiff?: string
-  /** HEAD subject (passthrough). */
-  readonly lastCommitSubject: string
-  /** Whole-tree cleanliness (passthrough). */
-  readonly workingTreeClean: boolean
   /** Full `FEEDBACK.md` text (passthrough); "" when absent. Inlined into the Fixing prompt. */
   readonly feedbackContent: string
   /** Set only for `state:"grilling"`: the STOP-for-answers vs agent-iterate sub-case. */
@@ -393,7 +385,6 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   lastCommitSubject: "",
   workingTreeClean: true,
   packages: [],
-  diff: "",
   hasCommitsAfterLastDone: true,
   agenticReviewEnabled: true,
   fixAttemptCap: 3,
@@ -415,13 +406,10 @@ const buildContext = (
   testFixCount: counters.testFixCount,
   reviewFixCount: counters.reviewFixCount,
   packages: p.packages,
-  diff: p.diff,
   ...(p.refDiff !== undefined ? { refDiff: p.refDiff } : {}),
   ...(p.reviewBase !== undefined ? { reviewBase: p.reviewBase } : {}),
   ...(p.squashBase !== undefined ? { squashBase: p.squashBase } : {}),
   ...(p.squashDiff !== undefined ? { squashDiff: p.squashDiff } : {}),
-  lastCommitSubject: p.lastCommitSubject,
-  workingTreeClean: p.workingTreeClean,
   feedbackContent: p.feedbackContent !== "" ? p.feedbackContent : p.healthContent,
   ...(grillingCase !== undefined ? { grillingCase } : {}),
 })

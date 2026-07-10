@@ -9,9 +9,6 @@ const ctx = (overrides: Partial<ResolveContext> = {}): ResolveContext => ({
   testFixCount: 0,
   reviewFixCount: 0,
   packages: [],
-  diff: "",
-  lastCommitSubject: "chore: init",
-  workingTreeClean: true,
   feedbackContent: "",
   ...overrides,
 })
@@ -289,25 +286,6 @@ describe("buildPrompt snapshots", () => {
         }),
         resolveModel,
         "json",
-      ),
-    ).toMatchSnapshot()
-  })
-
-  // ── dirty working tree ────────────────────────────────────────────────────
-
-  it("fixing with dirty working tree and diff plain", () => {
-    expect(
-      buildPrompt(
-        result("fixing", {
-          autoAdvance: true,
-          context: {
-            workingTreeClean: false,
-            diff: "diff --git a/foo b/foo\n+changed\n",
-            feedbackContent: "FAIL: tests failed",
-          },
-        }),
-        resolveModel,
-        "plain",
       ),
     ).toMatchSnapshot()
   })

@@ -1,6 +1,5 @@
 import { Eta } from "eta"
 import headerMd from "./prompts/header.md"
-import contextMd from "./prompts/partials/context.md"
 import diffMd from "./prompts/partials/diff.md"
 import feedbackMd from "./prompts/partials/feedback.md"
 import packageMd from "./prompts/partials/package.md"
@@ -95,7 +94,6 @@ const eta = new Eta()
 
 // Register partials
 eta.loadTemplate("@header", headerMd)
-eta.loadTemplate("@context", contextMd)
 eta.loadTemplate("@diff", diffMd)
 eta.loadTemplate("@feedback", feedbackMd)
 eta.loadTemplate("@package", packageMd)
@@ -140,7 +138,7 @@ const STATE_TEMPLATE: Record<Exclude<PromptState, "grilling">, string> = {
 /**
  * Assemble the full prompt for a resolved, prompt-bearing state via Eta
  * templates. Each state template is a complete, self-contained Eta template
- * that pulls in shared partials (`@header`, `@context`, tail) and the
+ * that pulls in shared partials (`@header`, tail) and the
  * state-specific dynamic values (`model`, `tail`) as view-model variables.
  *
  * Throws for the seven edge-only states — they are performed by the driver and

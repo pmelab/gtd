@@ -1,6 +1,5 @@
 <%~ include("@header") %>
 
-<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
 The process is **approved and done**. Your job is to author a clean
 conventional-commits squash message and hand it off to the harness.
 

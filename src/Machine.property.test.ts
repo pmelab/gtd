@@ -104,7 +104,6 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       lastCommitSubject: raw.head,
       workingTreeClean,
       packages: [],
-      diff: workingTreeClean ? "" : "diff --git a/x b/x\n+x\n",
       ...(raw.hasReviewBase ? { reviewBase: "abc123", refDiff: "diff --git a/x b/x\n+x\n" } : {}),
       hasCommitsAfterLastDone: raw.hasCommitsAfterLastDone,
       agenticReviewEnabled: raw.agenticReviewEnabled,

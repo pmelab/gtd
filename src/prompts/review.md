@@ -1,6 +1,5 @@
 <%~ include("@header") %>
 
-<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
 Spawn a **planning-model subagent** using model `<%= it.model %>` to author a
 `REVIEW.md` file that will help a human to review the changes. It must:
 

@@ -1,6 +1,5 @@
 <%~ include("@header") %>
 
-<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
 `TODO.md` holds the plan under development. The grilling loop interviews it —
 surfacing and resolving open questions — until the plan is solid enough to
 decompose into work packages.

@@ -1,6 +1,5 @@
 <%~ include("@header") %>
 
-<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
 `TODO.md` contains an implementation plan. Decompose it into an ordered set of
 executable work packages stored in the `.gtd/` directory. If `.gtd/` already
 holds packages from an earlier turn, immediately abort and raise an error.

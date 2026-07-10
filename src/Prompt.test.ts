@@ -6,9 +6,6 @@ const ctx = (overrides: Partial<ResolveContext> = {}): ResolveContext => ({
   testFixCount: 0,
   reviewFixCount: 0,
   packages: [],
-  diff: "",
-  lastCommitSubject: "chore: init",
-  workingTreeClean: true,
   feedbackContent: "",
   ...overrides,
 })
@@ -419,22 +416,6 @@ describe("buildPrompt", () => {
         }),
       )
       expect(out).toContain("git reset --soft")
-    })
-
-    it("renders the working-tree diff in Context when present", () => {
-      const out = buildPrompt(
-        result("fixing", {
-          autoAdvance: true,
-          context: { workingTreeClean: false, diff: "diff --git a/foo b/foo\n+changed\n" },
-        }),
-      )
-      expect(out).toContain("Working-tree diff")
-      expect(out).toContain("+changed")
-    })
-
-    it("omits the diff block when there is no diff", () => {
-      const out = buildPrompt(result("idle"))
-      expect(out).not.toContain("```diff")
     })
   })
 

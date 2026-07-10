@@ -40,9 +40,6 @@ const IDLE_RESULT: Result = {
     testFixCount: 0,
     reviewFixCount: 0,
     packages: DEFAULT_PAYLOAD.packages,
-    diff: DEFAULT_PAYLOAD.diff,
-    lastCommitSubject: DEFAULT_PAYLOAD.lastCommitSubject,
-    workingTreeClean: DEFAULT_PAYLOAD.workingTreeClean,
     feedbackContent: DEFAULT_PAYLOAD.feedbackContent,
   },
 }
