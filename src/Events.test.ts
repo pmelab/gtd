@@ -550,11 +550,33 @@ describe("gatherEvents — headTurnDiff / headTurnIsEmpty", { timeout: 30_000 },
     expect(p.headTurnDiff).toContain("notes.ts")
   })
 
-  it("headTurnDiff excludes workflow-file churn (TODO.md) from a turn commit's diff", async () => {
-    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+  it("headTurnDiff includes TODO.md for a grilling turn — it IS the gate's content", async () => {
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\ngo with tailwind css\n")
     writeFileSync(join(repoDir, "code.ts"), "export const c = 1\n")
     git("add", "-A")
     git("commit", "-q", "-m", turnSubject("human", "grilling"))
+    const p = resolveOf(await runGather())
+    expect(p.headTurnDiff).toContain("code.ts")
+    expect(p.headTurnDiff).toContain("TODO.md")
+    expect(p.headTurnDiff).toContain("tailwind")
+  })
+
+  it("headTurnDiff still excludes non-grilling steering-file churn (.gtd/) from a grilling turn's diff", async () => {
+    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+    mkdirSync(join(repoDir, ".gtd", "01-x"), { recursive: true })
+    writeFileSync(join(repoDir, ".gtd", "01-x", "01-task.md"), "# Task\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", turnSubject("human", "grilling"))
+    const p = resolveOf(await runGather())
+    expect(p.headTurnDiff).toContain("TODO.md")
+    expect(p.headTurnDiff).not.toContain(".gtd/")
+  })
+
+  it("headTurnDiff excludes TODO.md churn from a non-grilling turn (it's not that gate's content)", async () => {
+    writeFileSync(join(repoDir, "TODO.md"), "# stray leftover\n")
+    writeFileSync(join(repoDir, "code.ts"), "export const c = 1\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", turnSubject("agent", "building"))
     const p = resolveOf(await runGather())
     expect(p.headTurnDiff).toContain("code.ts")
     expect(p.headTurnDiff).not.toContain("TODO.md")

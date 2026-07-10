@@ -57,6 +57,22 @@ const STEERING_FILES: ReadonlyArray<string> = [
 ]
 const WORKFLOW_FILE_EXCLUDES: ReadonlyArray<string> = [...STEERING_FILES, GTD_DIR]
 
+// Each gate's own steering file IS its content — a human's grilling answer
+// lives in TODO.md, a review turn's feedback lives in REVIEW.md — so it must
+// stay in that gate's inlined turn diff even though it's excluded everywhere
+// else. Gates with no entry here (building, fixing, squashing, …) get the
+// unmodified WORKFLOW_FILE_EXCLUDES: their content is ordinary code, not a
+// steering file.
+const GATE_OWN_STEERING_FILE: Partial<Record<string, string>> = {
+  grilling: TODO_FILE,
+  review: REVIEW_FILE,
+}
+
+const turnDiffExcludes = (gate: string): ReadonlyArray<string> => {
+  const ownFile = GATE_OWN_STEERING_FILE[gate]
+  return ownFile ? WORKFLOW_FILE_EXCLUDES.filter((f) => f !== ownFile) : WORKFLOW_FILE_EXCLUDES
+}
+
 const isGtdPath = (path: string): boolean => path === GTD_DIR || path.startsWith(`${GTD_DIR}/`)
 const isSteeringFile = (path: string): boolean => STEERING_FILES.includes(path)
 
@@ -349,7 +365,7 @@ export const gatherEvents = (
         .pipe(Effect.catchAll(() => Effect.succeed("")))
       headTurnIsEmpty = rawDiff.trim().length === 0
       headTurnDiff = yield* git
-        .commitDiff(headHash, WORKFLOW_FILE_EXCLUDES)
+        .commitDiff(headHash, turnDiffExcludes(headParsed.gate))
         .pipe(Effect.catchAll(() => Effect.succeed("")))
 
       if (headParsed.actor === "human" && headParsed.gate === "review") {
@@ -390,9 +406,8 @@ export const gatherEvents = (
         .resolveRef(`${headHash}~1`)
         .pipe(Effect.catchAll(() => Effect.succeed("")))
       if (parentHash !== "") {
-        const feedbackExcludes = WORKFLOW_FILE_EXCLUDES.filter((f) => f !== REVIEW_FILE)
         headTurnDiff = yield* git
-          .commitDiff(parentHash, feedbackExcludes)
+          .commitDiff(parentHash, turnDiffExcludes("review"))
           .pipe(Effect.catchAll(() => Effect.succeed("")))
       }
     }
