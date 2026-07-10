@@ -378,6 +378,7 @@ const runNextCommand = (
             actor: result.actor,
             pending: true,
             prompt: null,
+            runStepAgent: false,
           }) + "\n",
         )
       } else {
@@ -393,6 +394,7 @@ const runNextCommand = (
           actor: result.actor,
           pending: false,
           prompt: builtPrompt,
+          runStepAgent: result.actor === "agent",
         }) + "\n",
       )
     } else {

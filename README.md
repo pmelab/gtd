@@ -176,8 +176,11 @@ with the pinned tail sentence:
 Finish your turn by running `gtd step-agent`.
 ```
 
-Human-actor prompts and all `--json` output carry no tail sentence — the tail
-exists purely to close the loop for an agent reading plain-text output.
+Human-actor prompts carry no tail sentence — the tail exists purely to close the
+loop for an agent reading plain-text output. `--json` output never embeds the
+sentence into `prompt` either, but carries the same instruction as the
+structured `runStepAgent` boolean (see JSON schemas below) so an automated
+driver can read it directly instead of hardcoding the step-first assumption.
 
 ### `gtd status`
 
@@ -270,10 +273,16 @@ single-line JSON output instead of plain text.
   performed, oldest→newest.
 - `commits` — every commit subject this invocation authored, oldest→newest.
 
-**`next`** — `{state, actor, pending, prompt}`:
+**`next`** — `{state, actor, pending, prompt, runStepAgent}`:
 
 ```json
-{ "state": "building", "actor": "agent", "pending": false, "prompt": "..." }
+{
+  "state": "building",
+  "actor": "agent",
+  "pending": false,
+  "prompt": "...",
+  "runStepAgent": true
+}
 ```
 
 - `state` — the resolved state.
@@ -281,6 +290,13 @@ single-line JSON output instead of plain text.
 - `pending` — `true` at a mid-chain HEAD (no prompt yet — run `gtd step` first);
   `false` at a genuine rest.
 - `prompt` — the full prompt markdown when `pending` is `false`, else `null`.
+- `runStepAgent` — a boolean mirroring the plain-mode tail sentence as
+  structured data: `true` when `actor` is `"agent"` and `pending` is `false`
+  (run `gtd step-agent` next), `false` when `actor` is `"human"` (the prompt
+  body already tells the human what to do), and `false` while `pending`
+  (resuming a mid-chain checkpoint always runs `gtd step`, never `step-agent`).
+  A loop driver can read this field directly instead of hardcoding "always run
+  step-agent first" as an assumption.
 
 **`status`** — `{state, actor, predictedCommit, predictedState}`:
 
@@ -351,6 +367,13 @@ The agent is expected to run `gtd step-agent` itself once it finishes acting on
 the prompt (the plain-mode tail sentence says exactly this) — the driver's own
 `step-agent` calls exist to advance any bookkeeping the agent doesn't own
 (routing commits, test runs) between agent turns.
+
+This driver hardcodes the step-first assumption (call `step-agent`
+unconditionally at the top of every iteration) rather than reading it. A driver
+that doesn't want to bake in that assumption can instead check `next`'s
+`runStepAgent` boolean: `true` means run `gtd step-agent` next, `false` with
+`pending: true` means run `gtd step`, and `false` with `pending: false` means
+halt (a human turn).
 
 ## States & subjects overview
 

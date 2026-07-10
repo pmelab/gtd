@@ -44,7 +44,10 @@ Repeat this two-beat cycle until it halts:
      a dirty working tree — this should not normally happen right after
      `gtd step-agent`, so treat it as a real problem to investigate).
    - Parse the single-line JSON object:
-     `{"state", "actor", "pending", "prompt"}`.
+     `{"state", "actor", "pending", "prompt", "runStepAgent"}`. `runStepAgent`
+     is a boolean mirroring what a plain-mode prompt's tail sentence would say:
+     `true` means run `gtd step-agent` next, `false` means don't (either a human
+     gate, or a pending checkpoint that needs `gtd step` instead).
    - If `pending` is `true`: mid-chain bookkeeping is ready to advance with no
      prompt yet. Run `gtd step` and go back to step 2 (do not call
      `gtd step-agent` again yet — nothing awaited your turn).
@@ -54,7 +57,8 @@ Repeat this two-beat cycle until it halts:
      as your next instructions. Execute exactly what it says. When your turn is
      done, go back to step 1 (`gtd step-agent`) to close it out — the harness,
      not the prompt text, owns ending your turn, which is why `--json` prompts
-     carry no "finish your turn" tail.
+     carry no "finish your turn" tail sentence embedded in `prompt` (the
+     equivalent instruction is the `runStepAgent` boolean instead).
 
 ## Halting on a human gate
 
