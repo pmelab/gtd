@@ -35,8 +35,12 @@ export interface GitReaderOperations {
   readonly lastDeletionOf: (path: string) => Effect.Effect<Option.Option<string>, Error>
   /**
    * First-parent history from `base..HEAD` (or all commits if no base), oldest→newest.
-   * Each entry carries the full commit message and `removedErrors: true` iff that
-   * commit's name-status diff contains a deletion (`D`) of `ERRORS.md`.
+   * Each entry carries the full commit message, `removedErrors: true` iff that
+   * commit's name-status diff contains a deletion (`D`) of `ERRORS.md`, and
+   * `touched` — the repo-root-relative paths the commit's name-status diff
+   * mentions (added/modified/deleted/renamed-from/renamed-to). Derived from the
+   * SAME `--name-status` git invocation already used for `removedErrors` — no
+   * additional per-commit subprocess is spawned.
    * Returns `[]` for an empty repo.
    */
   readonly commitHistory: (base?: string) => Effect.Effect<
@@ -44,9 +48,23 @@ export interface GitReaderOperations {
       readonly hash: string
       readonly message: string
       readonly removedErrors: boolean
+      readonly touched: ReadonlyArray<string>
     }>,
     Error
   >
+  /**
+   * The diff a single commit introduced: `git diff <hash>~1 <hash>`, rendered
+   * with the same renderer as `diffRef`/`diffHead` (renderDiff over per-file
+   * before/after contents), optionally filtered by `:(exclude)`-style
+   * repo-root-relative path excludes (same JS-side `applyExcludes` semantics as
+   * `diffRef`). For a root commit (no parent), diff against the empty tree —
+   * i.e. every file in the commit appears as an addition. Returns "" when the
+   * commit is empty (or fully excluded).
+   */
+  readonly commitDiff: (
+    hash: string,
+    exclude?: ReadonlyArray<string>,
+  ) => Effect.Effect<string, Error>
 }
 
 export interface GitWriterOperations {
@@ -77,6 +95,9 @@ export interface GitWriterOperations {
 }
 
 export interface GitOperations extends GitReaderOperations, GitWriterOperations {}
+
+// Git's empty-tree object SHA: used as the diff base for a root commit (no parent).
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 /**
  * Parse `git diff --name-status` output into `{ path, status }` pairs.
@@ -279,6 +300,67 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         return renderDiff(files)
       }),
 
+    commitDiff: (hash: string, exclude: ReadonlyArray<string> = []) =>
+      Effect.gen(function* () {
+        // Resolve hash first so an unresolvable hash fails clearly.
+        yield* exec("git", "rev-parse", "--verify", hash)
+
+        const parent = yield* exec("git", "rev-parse", "--verify", `${hash}~1`).pipe(
+          Effect.map((s) => s.trim()),
+          Effect.catchAll(() => Effect.succeed(EMPTY_TREE)),
+        )
+
+        const nameStatusOut = yield* exec("git", "diff", "--name-status", parent, hash).pipe(
+          Effect.catchAll(() => Effect.succeed("")),
+        )
+        const allPaths = parseNameStatus(nameStatusOut)
+        const filtered = applyExcludes(allPaths, exclude)
+        if (filtered.length === 0) return ""
+
+        // A gitlink (submodule pointer) entry: `git show <ref>:<path>` fails on
+        // both sides since a gitlink is a tree entry, not a blob — resolve its
+        // pointed-at commit hash via `ls-tree` instead so a submodule bump
+        // doesn't silently collapse to "no change" (before === after === null).
+        const gitlinkPointerAt = (ref: string, path: string) =>
+          exec("git", "ls-tree", ref, "--", path).pipe(
+            Effect.map((out) => {
+              const fields = out.trim().split(/\s+/)
+              return fields[0] === "160000" && fields[2] ? `Subproject commit ${fields[2]}\n` : null
+            }),
+            Effect.catchAll(() => Effect.succeed<string | null>(null)),
+          )
+
+        const files = yield* Effect.all(
+          filtered.map(({ path, status }) =>
+            Effect.gen(function* () {
+              const before =
+                status === "A"
+                  ? null
+                  : yield* exec("git", "show", `${parent}:${path}`).pipe(
+                      Effect.catchAll(() => Effect.succeed<string | null>(null)),
+                    )
+              const after =
+                status === "D"
+                  ? null
+                  : yield* exec("git", "show", `${hash}:${path}`).pipe(
+                      Effect.catchAll(() => Effect.succeed<string | null>(null)),
+                    )
+              if (before === null && after === null && status !== "A" && status !== "D") {
+                const gitlinkBefore = yield* gitlinkPointerAt(parent, path)
+                const gitlinkAfter = yield* gitlinkPointerAt(hash, path)
+                if (gitlinkBefore !== null || gitlinkAfter !== null) {
+                  return { path, before: gitlinkBefore, after: gitlinkAfter }
+                }
+              }
+              return { path, before, after }
+            }),
+          ),
+          { concurrency: "unbounded" },
+        )
+
+        return renderDiff(files)
+      }),
+
     diffPath: (path: string) =>
       Effect.gen(function* () {
         // Check if the file exists in HEAD
@@ -375,7 +457,8 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
               const message = (parts[1] ?? "").trim()
               const nameStatusBlock = parts.slice(2).join("")
               const removedErrors = /^D\tERRORS\.md$/m.test(nameStatusBlock)
-              return { hash, message, removedErrors }
+              const touched = parseNameStatus(nameStatusBlock).map((e) => e.path)
+              return { hash, message, removedErrors, touched }
             }),
         ),
         // Empty repo (no HEAD) makes `git log` fail; treat as no commits.
@@ -385,6 +468,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
               readonly hash: string
               readonly message: string
               readonly removedErrors: boolean
+              readonly touched: ReadonlyArray<string>
             }>,
           ),
         ),

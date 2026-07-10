@@ -46,4 +46,6 @@ task files:
 **DO NOT** commit any changes. This process runs within a larger orchestration
 that depends on uncommitted changes.
 
+<% if (it.tail) { %>
 <%~ include(it.tail) %>
+<% } %>

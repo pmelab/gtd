@@ -15,10 +15,11 @@ const ctx = (overrides: Partial<ResolveContext> = {}): ResolveContext => ({
 
 const result = (
   state: GtdState,
-  overrides: { context?: Partial<ResolveContext>; autoAdvance?: boolean } = {},
+  overrides: { context?: Partial<ResolveContext>; actor?: "human" | "agent" } = {},
 ): Result => ({
   state,
-  autoAdvance: overrides.autoAdvance ?? false,
+  actor: overrides.actor ?? "agent",
+  pending: false,
   context: ctx(overrides.context),
 })
 
@@ -40,94 +41,91 @@ const richPackage: GtdPackageFact = {
 const withPackage = (
   state: GtdState,
   context: Partial<ResolveContext> = {},
-  autoAdvance = true,
-): Result => result(state, { autoAdvance, context: { packages: [onePackage], ...context } })
+  actor: "human" | "agent" = "agent",
+): Result => result(state, { actor, context: { packages: [onePackage], ...context } })
 
 describe("buildPrompt snapshots", () => {
-  // ── STOP states (no model) ────────────────────────────────────────────────
+  // ── human-gated states (no model) ───────────────────────────────────────
 
   it("idle plain", () => {
-    expect(buildPrompt(result("idle"), resolveModel, "plain")).toMatchSnapshot()
+    expect(buildPrompt(result("idle", { actor: "human" }), resolveModel, "plain")).toMatchSnapshot()
   })
 
   it("idle json", () => {
-    expect(buildPrompt(result("idle"), resolveModel, "json")).toMatchSnapshot()
+    expect(buildPrompt(result("idle", { actor: "human" }), resolveModel, "json")).toMatchSnapshot()
   })
 
   it("escalate plain", () => {
-    expect(buildPrompt(result("escalate"), resolveModel, "plain")).toMatchSnapshot()
+    expect(
+      buildPrompt(result("escalate", { actor: "human" }), resolveModel, "plain"),
+    ).toMatchSnapshot()
   })
 
   it("escalate json", () => {
-    expect(buildPrompt(result("escalate"), resolveModel, "json")).toMatchSnapshot()
+    expect(
+      buildPrompt(result("escalate", { actor: "human" }), resolveModel, "json"),
+    ).toMatchSnapshot()
+  })
+
+  it("await-review plain", () => {
+    expect(
+      buildPrompt(result("await-review", { actor: "human" }), resolveModel, "plain"),
+    ).toMatchSnapshot()
+  })
+
+  it("await-review json", () => {
+    expect(
+      buildPrompt(result("await-review", { actor: "human" }), resolveModel, "json"),
+    ).toMatchSnapshot()
   })
 
   // ── grilling ─────────────────────────────────────────────────────────────
 
-  it("grilling iterate plain", () => {
+  it("grilling agent plain", () => {
+    expect(
+      buildPrompt(result("grilling", { actor: "agent" }), resolveModel, "plain"),
+    ).toMatchSnapshot()
+  })
+
+  it("grilling agent json", () => {
+    expect(
+      buildPrompt(result("grilling", { actor: "agent" }), resolveModel, "json"),
+    ).toMatchSnapshot()
+  })
+
+  it("grilling agent with turnDiff plain", () => {
     expect(
       buildPrompt(
-        result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
+        result("grilling", {
+          actor: "agent",
+          context: { turnDiff: "diff --git a/TODO.md b/TODO.md\n+- answer: use option A\n" },
+        }),
         resolveModel,
         "plain",
       ),
     ).toMatchSnapshot()
   })
 
-  it("grilling iterate json", () => {
+  it("grilling human plain", () => {
     expect(
-      buildPrompt(
-        result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
-        resolveModel,
-        "json",
-      ),
+      buildPrompt(result("grilling", { actor: "human" }), resolveModel, "plain"),
     ).toMatchSnapshot()
   })
 
-  it("grilling stop plain", () => {
+  it("grilling human json", () => {
     expect(
-      buildPrompt(
-        result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
-        resolveModel,
-        "plain",
-      ),
+      buildPrompt(result("grilling", { actor: "human" }), resolveModel, "json"),
     ).toMatchSnapshot()
   })
 
-  it("grilling stop json", () => {
-    expect(
-      buildPrompt(
-        result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
-        resolveModel,
-        "json",
-      ),
-    ).toMatchSnapshot()
-  })
-
-  // ── grilled / planning ────────────────────────────────────────────────────
+  // ── grilled ───────────────────────────────────────────────────────────────
 
   it("grilled plain", () => {
-    expect(
-      buildPrompt(result("grilled", { autoAdvance: true }), resolveModel, "plain"),
-    ).toMatchSnapshot()
+    expect(buildPrompt(result("grilled"), resolveModel, "plain")).toMatchSnapshot()
   })
 
   it("grilled json", () => {
-    expect(
-      buildPrompt(result("grilled", { autoAdvance: true }), resolveModel, "json"),
-    ).toMatchSnapshot()
-  })
-
-  it("planning plain", () => {
-    expect(
-      buildPrompt(result("planning", { autoAdvance: true }), resolveModel, "plain"),
-    ).toMatchSnapshot()
-  })
-
-  it("planning json", () => {
-    expect(
-      buildPrompt(result("planning", { autoAdvance: true }), resolveModel, "json"),
-    ).toMatchSnapshot()
+    expect(buildPrompt(result("grilled"), resolveModel, "json")).toMatchSnapshot()
   })
 
   // ── building ──────────────────────────────────────────────────────────────
@@ -147,24 +145,17 @@ describe("buildPrompt snapshots", () => {
   // ── fixing ────────────────────────────────────────────────────────────────
 
   it("fixing with empty feedbackContent plain", () => {
-    expect(
-      buildPrompt(result("fixing", { autoAdvance: true }), resolveModel, "plain"),
-    ).toMatchSnapshot()
+    expect(buildPrompt(result("fixing"), resolveModel, "plain")).toMatchSnapshot()
   })
 
   it("fixing with empty feedbackContent json", () => {
-    expect(
-      buildPrompt(result("fixing", { autoAdvance: true }), resolveModel, "json"),
-    ).toMatchSnapshot()
+    expect(buildPrompt(result("fixing"), resolveModel, "json")).toMatchSnapshot()
   })
 
   it("fixing with plain feedbackContent plain", () => {
     expect(
       buildPrompt(
-        result("fixing", {
-          autoAdvance: true,
-          context: { feedbackContent: "FAIL: expected 1 to equal 2\n" },
-        }),
+        result("fixing", { context: { feedbackContent: "FAIL: expected 1 to equal 2\n" } }),
         resolveModel,
         "plain",
       ),
@@ -174,10 +165,7 @@ describe("buildPrompt snapshots", () => {
   it("fixing with backtick feedbackContent plain", () => {
     expect(
       buildPrompt(
-        result("fixing", {
-          autoAdvance: true,
-          context: { feedbackContent: "see ```snippet``` here" },
-        }),
+        result("fixing", { context: { feedbackContent: "see ```snippet``` here" } }),
         resolveModel,
         "plain",
       ),
@@ -216,20 +204,20 @@ describe("buildPrompt snapshots", () => {
     ).toMatchSnapshot()
   })
 
-  // ── clean ─────────────────────────────────────────────────────────────────
+  // ── review ────────────────────────────────────────────────────────────────
 
-  it("clean with no diff plain", () => {
-    expect(buildPrompt(result("clean"), resolveModel, "plain")).toMatchSnapshot()
+  it("review with no diff plain", () => {
+    expect(buildPrompt(result("review"), resolveModel, "plain")).toMatchSnapshot()
   })
 
-  it("clean with no diff json", () => {
-    expect(buildPrompt(result("clean"), resolveModel, "json")).toMatchSnapshot()
+  it("review with no diff json", () => {
+    expect(buildPrompt(result("review"), resolveModel, "json")).toMatchSnapshot()
   })
 
-  it("clean with refDiff and reviewBase plain", () => {
+  it("review with refDiff and reviewBase plain", () => {
     expect(
       buildPrompt(
-        result("clean", {
+        result("review", {
           context: {
             refDiff: "diff --git a/x b/x\n+hello\n",
             reviewBase: "abc1234",
@@ -241,10 +229,10 @@ describe("buildPrompt snapshots", () => {
     ).toMatchSnapshot()
   })
 
-  it("clean with refDiff and reviewBase json", () => {
+  it("review with refDiff and reviewBase json", () => {
     expect(
       buildPrompt(
-        result("clean", {
+        result("review", {
           context: {
             refDiff: "diff --git a/x b/x\n+hello\n",
             reviewBase: "abc1234",
@@ -262,7 +250,6 @@ describe("buildPrompt snapshots", () => {
     expect(
       buildPrompt(
         result("squashing", {
-          autoAdvance: true,
           context: {
             squashDiff: "diff --git a/x b/x\n+hello\n",
             squashBase: "abc1234",
@@ -278,7 +265,6 @@ describe("buildPrompt snapshots", () => {
     expect(
       buildPrompt(
         result("squashing", {
-          autoAdvance: true,
           context: {
             squashDiff: "diff --git a/x b/x\n+hello\n",
             squashBase: "abc1234",

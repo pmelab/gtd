@@ -1,102 +1,72 @@
 @inmem
 Feature: JSON output mode
 
-  The --json flag switches the default command from plain-text prompts to a
-  single-line JSON object { state, autoAdvance, prompt }. The format subcommand
-  rejects --json with a clear error.
+  The --json flag switches step/step-agent, next, and status from plain-text
+  output to a single-line JSON object. step/step-agent emit
+  { state, actions, commits }; next emits { state, actor, pending, prompt };
+  status emits { state, actor, predictedCommit, predictedState }.
+  `autoAdvance` no longer appears anywhere. Errors emit
+  { state: "error", prompt: "<message>" } and exit 1.
 
-  Scenario: Prompt-bearing state emits a JSON object with state and autoAdvance fields
+  Scenario: gtd step --json emits state, actions, and commits
     Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
-      # Plan
-
-      Build a feature.
-
-      ## What approach?
-
-      <!-- user answers here -->
+      export const add = (a: number, b: number) => a + b
       """
-    When I run gtd with "--json"
+    And a file "src/sub.ts" with:
+      """
+      export const sub = (a: number, b: number) => a - b
+      """
+    When I run gtd step with "--json"
     Then it succeeds
     And stdout contains "\"state\""
-    And stdout contains "\"autoAdvance\""
+    And stdout contains "\"actions\""
+    And stdout contains "\"commits\""
+    And stdout does not contain "autoAdvance"
+
+  Scenario: gtd next --json emits state, actor, pending, and prompt
+    Given a test project
+    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+      """
+      Implement the add function.
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\""
+    And stdout contains "\"actor\""
+    And stdout contains "\"pending\""
     And stdout contains "\"prompt\""
+    And stdout does not contain "autoAdvance"
 
-  Scenario: Auto-advance state emits autoAdvance true and no tail markers
+  Scenario: gtd status --json emits state, actor, predictedCommit, and predictedState
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
       """
-      Implement the helper function.
+      Implement the add function.
       """
-    When I run gtd with "--json"
+    When I run gtd status with "--json"
     Then it succeeds
-    And stdout contains "\"autoAdvance\":true"
-    And stdout does not contain "run `gtd`"
-    And stdout does not contain "This is a human feedback gate"
+    And stdout contains "\"state\""
+    And stdout contains "\"actor\""
+    And stdout contains "\"predictedCommit\""
+    And stdout contains "\"predictedState\""
+    And stdout does not contain "autoAdvance"
 
-  Scenario: Human-gate state emits autoAdvance false and no stop marker in stdout
+  Scenario: A dirty tree under gtd next --json emits the error envelope and exits 1
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
-      Implement the helper function.
+      export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd: errors" that adds "ERRORS.md" with:
+    And a file "src/sub.ts" with:
       """
-      The test suite failed three times: assertion mismatch on line 42.
+      export const sub = (a: number, b: number) => a - b
       """
-    When I run gtd with "--json"
-    Then it succeeds
-    And stdout contains "\"autoAdvance\":false"
-    And stdout does not contain "This is a human feedback gate"
-
-  Scenario: State field in JSON output matches the resolved state name
-    Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
-      """
-      Implement the helper function.
-      """
-    And a commit "gtd: errors" that adds "ERRORS.md" with:
-      """
-      The test suite failed three times: assertion mismatch on line 42.
-      """
-    When I run gtd with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"escalate\""
-
-  Scenario: JSON prompt does not contain a bare gtd re-run instruction
-    Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
-      """
-      Implement the helper function.
-      """
-    When I run gtd with "--json"
-    Then it succeeds
-    And stdout does not contain "re-run gtd"
-
-  # The in-memory tier cannot simulate a non-repository path because the inmem
-  # GitService always returns "/repo" as topLevel and the inmem FileSystem's
-  # realPath returns "/repo" for every path, so the cwd guard never fires.
-  # An illegal steering-file combination (ERRORS.md + FEEDBACK.md) is used
-  # instead to trigger the error path at the machine level.
-  Scenario: Error state emits state error and exits non-zero
-    Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
-      """
-      Implement the helper function.
-      """
-    And a file "ERRORS.md" with:
-      """
-      test failed
-      """
-    And a file "FEEDBACK.md" with:
-      """
-      a finding
-      """
-    And the working tree is committed as "feat: illegal combination"
-    When I run gtd with "--json"
+    When I run gtd next with "--json"
     Then it fails
     And stdout contains "\"state\":\"error\""
+    And stdout contains "\"prompt\""
 
   Scenario: format subcommand rejects --json flag
     Given a test project

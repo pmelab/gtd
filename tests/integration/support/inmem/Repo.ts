@@ -189,7 +189,12 @@ export class InMemRepo {
     return null
   }
 
-  commitHistory(base?: string): Array<{ hash: string; message: string; removedErrors: boolean }> {
+  commitHistory(base?: string): Array<{
+    hash: string
+    message: string
+    removedErrors: boolean
+    touched: ReadonlyArray<string>
+  }> {
     if (this.head === null) return []
 
     // Collect first-parent chain newest→oldest
@@ -219,7 +224,8 @@ export class InMemRepo {
     return filtered.map((c) => {
       const parentTree = c.parent ? (this.getCommit(c.parent)?.files ?? new Map()) : new Map()
       const removedErrors = parentTree.has("ERRORS.md") && !c.files.has("ERRORS.md")
-      return { hash: c.hash, message: c.message, removedErrors }
+      const touched = diffTrees(parentTree, c.files).map((e) => e.path)
+      return { hash: c.hash, message: c.message, removedErrors, touched }
     })
   }
 

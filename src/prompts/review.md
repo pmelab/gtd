@@ -42,10 +42,13 @@ Spawn a **planning-model subagent** using model `<%= it.model %>` to author a
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
 
-4. Leave `REVIEW.md` **uncommitted**, the outer loop will process it.
+4. Leave `REVIEW.md` **uncommitted** and finish your turn — the human reviews
+   it next.
 <% if (it.context.refDiff && it.context.refDiff.trim()) { %>
 <%= it.context.reviewBase !== undefined ? "\nReview base: " + it.context.reviewBase + "\n" : "" %>
 <%~ include("@diff", { heading: "Changes to review (`git diff " + (it.context.reviewBase !== undefined ? it.context.reviewBase : "<base>") + " HEAD`)", diff: it.context.refDiff, fenceFor: it.fenceFor }) %>
 <% } %>
 
+<% if (it.tail) { %>
 <%~ include(it.tail) %>
+<% } %>

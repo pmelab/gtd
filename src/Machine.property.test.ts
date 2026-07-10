@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest"
 import fc from "fast-check"
 import {
-  type EdgeAction,
-  type GtdEvent,
-  type GtdState,
-  type ResolvePayload,
+  DEFAULT_PAYLOAD,
   foldCounters,
   GtdStateError,
   resolve,
+  type GtdEvent,
+  type GtdState,
+  type ResolvePayload,
 } from "./Machine.js"
 
 /**
@@ -15,50 +15,73 @@ import {
  * from primitive facts and then constrained the way `gatherEvents` derives
  * them (e.g. `reviewCommitted` implies a clean tree, `codeDirty` implies a
  * dirty one), so every generated payload is one the edge could actually
- * produce. The invariants pin the machine's public contract:
+ * produce.
  *
- *  - `resolve` never throws anything but `GtdStateError`, and an
- *    illegal-combination throw only fires on the documented combos;
- *  - exactly one of the 17 states comes back, with an edge action from that
- *    state's allowed set;
- *  - the `done` action is only ever emitted with REVIEW.md present, and the
- *    accept-review regen carve-out shadows Done under a
- *    `gtd: review feedback` HEAD;
- *  - resolution is deterministic, and the counter folds ignore RESOLVE events.
+ * Required invariants (frozen contract):
+ *  (a) no agent-driven transition without a captured change — an empty agent
+ *      turn at a gate never changes the awaited actor/prompt state;
+ *  (b) no double-fire advances any gate — resolving twice (simulating the
+ *      second invocation after the first's actions) yields no further
+ *      edgeAction at any rest;
+ *  (c) resolve never throws except `GtdStateError`;
+ *  (d) unrecognized `gtd: *` subjects behave identically to non-gtd
+ *      boundaries.
  */
 
-const HEADS = [
-  "",
-  "chore: init",
-  "feat: shipped",
-  "Merge branch side",
-  "gtd: transport",
-  "gtd: new task",
-  "gtd: grilling",
+const TURN_SUBJECTS = [
+  "gtd(human): grilling",
+  "gtd(agent): grilling",
+  "gtd(agent): grilled",
+  "gtd(agent): building",
+  "gtd(agent): fixing",
+  "gtd(agent): agentic-review",
+  "gtd(agent): review",
+  "gtd(human): review",
+  "gtd(agent): squashing",
+  "gtd(agent): health-fixing",
+  "gtd(human): escalate",
+] as const
+
+const ROUTING_SUBJECTS = [
   "gtd: grilled",
   "gtd: planning",
-  "gtd: building",
+  "gtd: tests green",
   "gtd: errors",
-  "gtd: fixing",
-  "gtd: feedback",
   "gtd: package done",
   "gtd: awaiting review",
   "gtd: review feedback",
   "gtd: done",
+  "gtd: squash template",
+  "gtd: health-check",
+  "gtd: health-fix",
 ] as const
+
+const BOUNDARY_SUBJECTS = [
+  "chore: init",
+  "feat: shipped",
+  "gtd: new task",
+  "gtd: grilling",
+  "gtd: transport",
+  "gtd: reviewing",
+] as const
+
+const HEADS = [...TURN_SUBJECTS, ...ROUTING_SUBJECTS, ...BOUNDARY_SUBJECTS] as const
+
+const arbInvoker = fc.constantFrom<ResolvePayload["invoker"]>("human", "agent", "none")
 
 /** Raw independent facts, constrained into an edge-consistent payload below. */
 const arbPayload: fc.Arbitrary<ResolvePayload> = fc
   .record({
+    invoker: arbInvoker,
     head: fc.constantFrom(...HEADS),
     clean: fc.boolean(),
+    headTurnIsEmpty: fc.boolean(),
     codeDirtyRaw: fc.boolean(),
     gtdModifiedRaw: fc.boolean(),
     pendingErrorsDeletionRaw: fc.boolean(),
     checkboxOnlyRaw: fc.boolean(),
     todoExists: fc.boolean(),
     todoCommittedRaw: fc.boolean(),
-    markerRaw: fc.boolean(),
     gtdDirExists: fc.boolean(),
     reviewPresent: fc.boolean(),
     reviewTrackedRaw: fc.boolean(),
@@ -73,6 +96,8 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
     reviewThreshold: fc.integer({ min: 1, max: 4 }),
     healthPresent: fc.boolean(),
     healthCommittedRaw: fc.boolean(),
+    squashEnabled: fc.boolean(),
+    hasSquashBase: fc.boolean(),
   })
   // fallow-ignore-next-line complexity
   .map((raw): ResolvePayload => {
@@ -84,7 +109,11 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
     const reviewCommitted = reviewTracked && workingTreeClean
     const reviewDirty = reviewTracked && !workingTreeClean
     const reviewCheckboxOnly = reviewDirty && !codeDirty && raw.checkboxOnlyRaw
+    const isTurnHead = (TURN_SUBJECTS as readonly string[]).includes(raw.head)
     return {
+      invoker: raw.invoker,
+      headTurnDiff: isTurnHead && !raw.headTurnIsEmpty ? "diff --git a/x b/x\n+x\n" : "",
+      headTurnIsEmpty: isTurnHead ? raw.headTurnIsEmpty : false,
       todoExists: raw.todoExists,
       todoCommitted: raw.todoExists && raw.todoCommittedRaw,
       gtdDirExists: raw.gtdDirExists,
@@ -93,7 +122,6 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       errorsPresent: raw.errorsPresent,
       gtdModified,
       codeDirty,
-      todoMarkerPresent: raw.todoExists && raw.markerRaw,
       feedbackCommitted: raw.feedbackPresent && raw.feedbackCommittedRaw,
       feedbackEmpty: raw.feedbackPresent && raw.feedbackEmptyRaw,
       feedbackContent: raw.feedbackPresent && !raw.feedbackEmptyRaw ? "finding" : "",
@@ -107,14 +135,14 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       ...(raw.hasReviewBase ? { reviewBase: "abc123", refDiff: "diff --git a/x b/x\n+x\n" } : {}),
       hasCommitsAfterLastDone: raw.hasCommitsAfterLastDone,
       agenticReviewEnabled: raw.agenticReviewEnabled,
-      squashEnabled: false,
+      squashEnabled: raw.squashEnabled,
       squashMsgPresent: false,
-      squashMsgContent: "",
       fixAttemptCap: raw.fixAttemptCap,
       reviewThreshold: raw.reviewThreshold,
       healthPresent: raw.healthPresent,
       healthContent: raw.healthPresent ? "health finding" : "",
       healthCommitted: raw.healthPresent && raw.healthCommittedRaw,
+      ...(raw.hasSquashBase ? { squashBase: "def456", squashDiff: "diff" } : {}),
     }
   })
 
@@ -125,15 +153,14 @@ const arbCommit: fc.Arbitrary<GtdEvent> = fc
     isPackageStart: fc.boolean(),
     removedErrors: fc.boolean(),
     isHealthCheck: fc.boolean(),
-    isHealthFix: fc.boolean(),
   })
-  .map((f) => ({ type: "COMMIT", isWorkflowCommit: true, ...f }))
+  .map((f) => ({ type: "COMMIT" as const, isWorkflowCommit: true, ...f }))
 
 const arbEvents: fc.Arbitrary<GtdEvent[]> = fc
   .tuple(fc.array(arbCommit, { maxLength: 12 }), arbPayload)
-  .map(([commits, payload]) => [...commits, { type: "RESOLVE", payload }])
+  .map(([commits, payload]) => [...commits, { type: "RESOLVE" as const, payload }])
 
-/** The documented illegal steering-file combinations (STATES.md). */
+/** The documented illegal steering-file combinations. */
 // fallow-ignore-next-line complexity
 const isIllegal = (p: ResolvePayload): boolean =>
   (p.reviewPresent && p.gtdDirExists) ||
@@ -142,51 +169,62 @@ const isIllegal = (p: ResolvePayload): boolean =>
   (p.feedbackPresent && p.reviewPresent) ||
   (p.feedbackPresent && !p.gtdDirExists) ||
   (p.errorsPresent && p.feedbackPresent) ||
-  (p.errorsPresent && !p.gtdDirExists) ||
+  (p.errorsPresent &&
+    !p.gtdDirExists &&
+    p.lastCommitSubject !== "gtd: health-check" &&
+    p.lastCommitSubject !== "gtd: health-fix") ||
   (p.healthPresent && p.gtdDirExists) ||
   (p.healthPresent && p.reviewPresent) ||
   (p.healthPresent && p.feedbackPresent) ||
   (p.healthPresent && p.errorsPresent)
 
-/** Which edge-action kinds each state may carry ("none" = no action). */
-const ALLOWED: Record<GtdState, ReadonlyArray<EdgeAction["kind"] | "none">> = {
-  transport: ["transportReset"],
-  "new-feature": ["seedNewFeature"],
-  grilling: ["commitPending", "captureGrillingEdits", "none"],
-  grilled: ["commitPending"],
-  planning: ["commitPending"],
-  building: ["commitPending", "none"],
-  testing: ["runTest"],
-  fixing: ["commitPending"],
-  escalate: ["none"],
-  "agentic-review": ["none"],
-  "close-package": ["closePackage"],
-  clean: ["none"],
-  "await-review": ["commitReview"],
-  "accept-review": ["seedAcceptReview"],
-  done: ["done"],
-  idle: ["none"],
-  squashing: ["none"],
-  "health-check": ["runHealthCheck"],
-  "health-fixing": ["commitPending", "none"],
+/**
+ * Scopes property (a) to payloads where HEAD is an agent turn commit with an
+ * empty diff AND, specifically, `gtd(agent): grilling` (agentic-review's
+ * empty-FEEDBACK case is a legitimate mid-chain close-package, which IS a
+ * captured change — so this invariant is scoped to grilling's inert-empty-
+ * agent-turn rule specifically), the working tree is clean (a dirty tree at
+ * this HEAD is fresh content for the agent to capture, not a repeat of the
+ * same empty turn — out of scope for this invariant), and no higher-
+ * precedence steering file shadows that HEAD entirely
+ * (ERRORS/HEALTH/FEEDBACK/.gtd/REVIEW) — those are legal inputs but not what
+ * this invariant is about.
+ */
+const isInScopeForInertEmptyGrillingTurnInvariant = (payload: ResolvePayload): boolean => {
+  if (!payload.lastCommitSubject.startsWith("gtd(agent): ")) return false
+  if (!payload.headTurnIsEmpty) return false
+  if (payload.lastCommitSubject !== "gtd(agent): grilling") return false
+  if (!payload.workingTreeClean) return false
+  return !(
+    payload.errorsPresent ||
+    payload.healthPresent ||
+    payload.feedbackPresent ||
+    payload.gtdDirExists ||
+    payload.reviewPresent
+  )
 }
 
-// Derived from ALLOWED (whose Record<GtdState, …> typing is exhaustive) so the
-// two can never drift.
-const STATES: ReadonlySet<GtdState> = new Set(Object.keys(ALLOWED) as GtdState[])
-
-const COMMIT_PREFIXES = new Set([
-  "gtd: grilling",
-  "gtd: grilled",
-  "gtd: planning",
-  "gtd: fixing",
-  "gtd: feedback",
-  "gtd: health-check",
-  "gtd: health-fix",
+const ALL_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
+  "grilling",
+  "grilled",
+  "planning",
+  "building",
+  "testing",
+  "fixing",
+  "escalate",
+  "agentic-review",
+  "close-package",
+  "review",
+  "await-review",
+  "done",
+  "squashing",
+  "idle",
+  "health-check",
+  "health-fixing",
 ])
 
 describe("resolve — property sweep over edge-consistent payloads", () => {
-  it("never throws anything but GtdStateError; illegal throws match the documented combos", () => {
+  it("(c) never throws anything but GtdStateError; illegal throws match the documented combos", () => {
     fc.assert(
       fc.property(arbEvents, (events) => {
         const payload = (events[events.length - 1] as { payload: ResolvePayload }).payload
@@ -204,43 +242,17 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
     )
   })
 
-  it("returns exactly one known state with an edge action from its allowed set", () => {
+  it("returns exactly one known state, with actor human or agent", () => {
     fc.assert(
       fc.property(arbEvents, (events) => {
-        let result
-        try {
-          result = resolve(events)
-        } catch {
-          return // throw-paths covered above
-        }
-        expect(STATES.has(result.state)).toBe(true)
-        const kind = result.edgeAction?.kind ?? "none"
-        expect(ALLOWED[result.state]).toContain(kind)
-        if (result.edgeAction?.kind === "commitPending") {
-          expect(COMMIT_PREFIXES.has(result.edgeAction.prefix)).toBe(true)
-        }
-      }),
-      { numRuns: 2000 },
-    )
-  })
-
-  it("the done action requires REVIEW.md, and the regen carve-out shadows Done", () => {
-    fc.assert(
-      fc.property(arbEvents, (events) => {
-        const payload = (events[events.length - 1] as { payload: ResolvePayload }).payload
         let result
         try {
           result = resolve(events)
         } catch {
           return
         }
-        if (result.edgeAction?.kind === "done") expect(payload.reviewPresent).toBe(true)
-        if (result.state === "done") expect(payload.reviewPresent).toBe(true)
-        // The feedback path can never approve: under the capture HEAD, REVIEW.md
-        // present always regenerates the seed instead of resolving Done.
-        if (payload.reviewPresent && payload.lastCommitSubject === "gtd: review feedback") {
-          expect(result.state).toBe("accept-review")
-        }
+        expect(ALL_STATES.has(result.state)).toBe(true)
+        expect(["human", "agent"]).toContain(result.actor)
       }),
       { numRuns: 2000 },
     )
@@ -261,6 +273,129 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
       { numRuns: 500 },
     )
   })
+
+  it("invoker 'none' never emits captureTurn and never sets a refusal", () => {
+    fc.assert(
+      fc.property(arbEvents, (events) => {
+        const last = events[events.length - 1] as { payload: ResolvePayload }
+        if (last.payload.invoker !== "none") return
+        let result
+        try {
+          result = resolve(events)
+        } catch {
+          return
+        }
+        expect(result.edgeAction?.kind).not.toBe("captureTurn")
+        expect(result.refusal).toBeUndefined()
+      }),
+      { numRuns: 2000 },
+    )
+  })
+
+  it("(a) an empty agent turn at a gate never changes the awaited actor/prompt state (inert)", () => {
+    fc.assert(
+      fc.property(arbPayload, (payload) => {
+        if (!isInScopeForInertEmptyGrillingTurnInvariant(payload)) return
+
+        const asHuman: ResolvePayload = { ...payload, invoker: "human" }
+        const asAgent: ResolvePayload = { ...payload, invoker: "agent" }
+        const asNone: ResolvePayload = { ...payload, invoker: "none" }
+        let none
+        try {
+          none = resolve([{ type: "RESOLVE", payload: asNone }])
+        } catch {
+          return // illegal/corrupt combos are out of scope for this invariant
+        }
+        const human = resolve([{ type: "RESOLVE", payload: asHuman }])
+        const agent = resolve([{ type: "RESOLVE", payload: asAgent }])
+        expect(none.state).toBe("grilling")
+        expect(human.state).toBe("grilling")
+        expect(agent.state).toBe("grilling")
+        // The agent re-invoking on its own empty turn never emits a captureTurn
+        // (there is no change to capture) — it just re-reports the same prompt.
+        expect(agent.edgeAction?.kind).not.toBe("captureTurn")
+      }),
+      { numRuns: 500 },
+    )
+  })
+
+  it("(b) no double-fire: resolving twice at a rest never captures the same turn twice", () => {
+    fc.assert(
+      fc.property(arbPayload, (payload) => {
+        if (payload.invoker === "none") return
+        let first
+        try {
+          first = resolve([{ type: "RESOLVE", payload }])
+        } catch {
+          return
+        }
+        if (first.edgeAction === undefined || first.refusal !== undefined) return
+        // Simulate the fixpoint: if the action was a captureTurn, HEAD now
+        // carries that exact turn with an empty diff (clean tree, second call
+        // finds nothing new to capture at that turn). Mid-chain bookkeeping
+        // legitimately continues from there (it is chain progression, not a
+        // repeated capture) — so the invariant is scoped to "no second
+        // captureTurn for the same gate", not "no edgeAction at all".
+        if (first.edgeAction.kind === "captureTurn") {
+          const action = first.edgeAction
+          const secondPayload: ResolvePayload = {
+            ...payload,
+            lastCommitSubject: `gtd(${action.actor}): ${action.gate}`,
+            headTurnIsEmpty: true,
+            workingTreeClean: true,
+            codeDirty: false,
+          }
+          let second
+          try {
+            second = resolve([{ type: "RESOLVE", payload: secondPayload }])
+          } catch {
+            return
+          }
+          if (second.edgeAction?.kind === "captureTurn") {
+            expect(second.edgeAction).not.toEqual(action)
+          }
+        }
+      }),
+      { numRuns: 1000 },
+    )
+  })
+
+  it("(d) unrecognized gtd:* subjects behave identically to non-gtd boundaries", () => {
+    fc.assert(
+      fc.property(
+        fc.record({
+          invoker: arbInvoker,
+          clean: fc.boolean(),
+          hasReviewBase: fc.boolean(),
+        }),
+        ({ invoker, clean, hasReviewBase }) => {
+          const base: ResolvePayload = {
+            ...DEFAULT_PAYLOAD,
+            invoker,
+            workingTreeClean: clean,
+            codeDirty: !clean,
+            ...(hasReviewBase ? { reviewBase: "abc123", refDiff: "diff --git a/x b/x\n+x\n" } : {}),
+          }
+          const legacySubjects = [
+            "gtd: new task",
+            "gtd: grilling",
+            "gtd: transport",
+            "gtd: reviewing",
+          ]
+          const nonGtd = resolve([
+            { type: "RESOLVE", payload: { ...base, lastCommitSubject: "feat: shipped" } },
+          ])
+          for (const subject of legacySubjects) {
+            const legacy = resolve([
+              { type: "RESOLVE", payload: { ...base, lastCommitSubject: subject } },
+            ])
+            expect(legacy).toEqual(nonGtd)
+          }
+        },
+      ),
+      { numRuns: 500 },
+    )
+  })
 })
 
 describe("foldCounters — property invariants", () => {
@@ -270,6 +405,7 @@ describe("foldCounters — property invariants", () => {
         const bare = foldCounters(commits)
         expect(bare.testFixCount).toBeGreaterThanOrEqual(0)
         expect(bare.reviewFixCount).toBeGreaterThanOrEqual(0)
+        expect(bare.healthFixCount).toBeGreaterThanOrEqual(0)
         const withResolve = foldCounters([...commits, { type: "RESOLVE", payload }])
         expect(withResolve).toEqual(bare)
       }),

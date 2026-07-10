@@ -1,19 +1,18 @@
 import { FileSystem } from "@effect/platform"
 import { Effect, Option } from "effect"
 import { join } from "node:path"
-import { GitService, type GitOperations } from "./Git.js"
+import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
-import { fenceFor } from "./Prompt.js"
 import { formatFile } from "./Format.js"
 import { TestRunner } from "./TestRunner.js"
-import {
-  HEALTH_SQUASH_SENTINEL,
-  type CommitEvent,
-  type EdgeAction,
-  type GtdEvent,
-  type GtdPackageFact,
-  type ResolvePayload,
+import { parseSubject, turnSubject, type Actor } from "./Subjects.js"
+import type {
+  CommitEvent,
+  EdgeAction,
+  GtdEvent,
+  GtdPackageFact,
+  ResolvePayload,
 } from "./Machine.js"
 
 /**
@@ -24,8 +23,8 @@ import {
  *     first-parent commit (oldest→newest) followed by a single `RESOLVE`
  *     carrying the working-tree snapshot.
  *  2. `perform` executes the `EdgeAction` the machine's `resolve()` returns
- *     (commit, revert, run tests, write steering files, …) before the driver
- *     re-gathers and re-resolves.
+ *     (capture a turn, commit routing bookkeeping, run tests, write steering
+ *     files, squash, …) before the driver re-gathers and re-resolves.
  *
  * The machine (src/Machine.ts) stays free of IO; this module is the only place
  * that touches git/fs.
@@ -37,34 +36,16 @@ const REVIEW_FILE = "REVIEW.md"
 const FEEDBACK_FILE = "FEEDBACK.md"
 const ERRORS_FILE = "ERRORS.md"
 const HEALTH_FILE = "HEALTH.md"
-const EMPTY_FAILURE_SENTINEL = "Test command failed with no output (exit code non-zero)."
-const UNANSWERED_MARKER = "<!-- user answers here -->"
-
-const HEALTH_CHECK_SUBJECT = "gtd: health-check"
-const HEALTH_FIX_SUBJECT = "gtd: health-fix"
-
-// Flat `gtd: <phase>` taxonomy — the only commit subjects the machine reads or
-// the edge writes. Counters fold from these prefixes + the `removedErrors` flag.
-const NEW_TASK_SUBJECT = "gtd: new task"
-const GRILLING_SUBJECT = "gtd: grilling"
-const PLANNING_SUBJECT = "gtd: planning"
-const BUILDING_SUBJECT = "gtd: building"
-const ERRORS_SUBJECT = "gtd: errors"
-const FEEDBACK_SUBJECT = "gtd: feedback"
-const PACKAGE_DONE_SUBJECT = "gtd: package done"
-const AWAITING_REVIEW_SUBJECT = "gtd: awaiting review"
-const DONE_SUBJECT = "gtd: done"
-// The accept-review capture commit (commit-then-revert, like `gtd: new task`).
-// Distinct from the exact `gtd: feedback` marker the reviewFixCount fold reads.
-const REVIEW_FEEDBACK_SUBJECT = "gtd: review feedback"
-export const REVIEWING_SUBJECT = "gtd: reviewing"
 const SQUASH_MSG_FILE = "SQUASH_MSG.md"
+const EMPTY_FAILURE_SENTINEL = "Test command failed with no output (exit code non-zero)."
+
+const DONE_SUBJECT = "gtd: done"
 
 // The steering-file set, single source of truth: the predicates below and the
 // diff exclusions all derive from it. Workflow plumbing is excluded from every
-// review diff (refDiff) and from the grilling-round code capture — neither the
-// reviewer nor a captured suggestion block should ever contain steering-file
-// churn (TODO.md seeded/deleted, REVIEW.md committed/removed, `.gtd/` packages
+// review diff (refDiff) and the headTurnDiff inlining — neither the reviewer
+// nor a captured suggestion block should ever contain steering-file churn
+// (TODO.md written/deleted, REVIEW.md committed/removed, `.gtd/` packages
 // created/closed).
 const STEERING_FILES: ReadonlyArray<string> = [
   TODO_FILE,
@@ -85,8 +66,8 @@ const isUncommittedStatus = (status: string): boolean =>
   status.includes("?") || status.includes("A")
 
 // git's empty-tree object. `git diff <empty-tree> HEAD` yields the entire tree
-// as additions — the Clean review base when HEAD is on the default branch and
-// no prior REVIEW.md deletion exists ("else the root", STATES.md § Clean).
+// as additions — the fallback base when there is no earlier commit to diff
+// against.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 /**
@@ -179,18 +160,6 @@ const isNumberedDir = (name: string): boolean => /^\d+-/.test(name)
 const isTaskFile = (name: string): boolean => name.endsWith(".md")
 
 /**
- * Strip fenced code blocks and inline code spans so a marker token that appears
- * inside a code example does not count as a live open-question marker. The
- * unclosed-fence fallback is anchored to the END OF INPUT (`$(?![\s\S])`) — a
- * bare `$` under the `m` flag matches at every line end, which made the lazy
- * quantifier stop after the first fenced line and leak deeper markers.
- */
-const stripCode = (content: string): string =>
-  content
-    .replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n\1[^\n]*|$(?![\s\S]))/gm, "")
-    .replace(/`[^`\n]+`/g, "")
-
-/**
  * Read the `.gtd/` work packages, lowest-numbered first. `packages[0]` is the
  * active one. Each numbered dir contributes its task `.md` files (sorted) and
  * their full contents.
@@ -225,81 +194,6 @@ export const getPackages = (
 
     return packages
   }).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
-
-/**
- * How the grilling agent must read a captured diff: the three-way feedback
- * interpretation. Embedded in every captured section (seed and grilling-round
- * appends) so the rules travel with TODO.md — they survive checkouts and reach
- * whichever agent picks the file up, not just the one gtd prompts next.
- */
-const CAPTURE_RULES = [
-  "Interpret the captured diff with these rules:",
-  "",
-  "- **Code changes** are suggestions, not finished work — plan to re-implement",
-  "  them properly, including test coverage, rather than restoring them verbatim.",
-  "- **Code comments** are positional feedback about the code at that location.",
-  "- **TODO.md / REVIEW.md text changes** are global feedback on the plan or the",
-  "  reviewed work as a whole.",
-  "- **Checkbox flips** in a captured REVIEW.md diff are approval noise — ignore",
-  "  them.",
-].join("\n")
-
-/**
- * Deterministic, edge-built TODO.md seed for New Feature / Accept Review. No
- * agent runs during seeding (both states list `Prompt: none`); the next
- * Grilling invocation develops this into a real plan. The captured diff is
- * fenced so any marker it contains is stripped by `stripCode` and does not trip
- * the open-question gate.
- */
-export const seedTodo = (capturedDiff: string): string => {
-  const body = capturedDiff.replace(/\n+$/, "")
-  // Sized past any backtick run in the diff (fenceFor) so formatters cannot
-  // close the block early on an indented ``` context line and spill the
-  // capture — markers included — out of the fence.
-  const fence = fenceFor(body)
-  return [
-    "# Plan",
-    "",
-    "## Captured input",
-    "",
-    "These changes were captured as the starting point for this feature. Develop",
-    "them into a concrete plan and surface any open questions for the user.",
-    "",
-    CAPTURE_RULES,
-    "",
-    `${fence}diff`,
-    body,
-    fence,
-    "",
-  ].join("\n")
-}
-
-/**
- * Append a grilling-round capture to an existing TODO.md: code the user
- * sketched while the plan was already committed is folded in as a fenced
- * suggestion block; the edge then drops those changes from the working tree
- * (STATES.md § Grilling). Idempotent — when the exact diff body is already
- * present (a crash between append and commit re-runs the capture), the TODO is
- * returned unchanged. The interpretation rules are included at most once.
- */
-export const appendCapturedInput = (todo: string, capturedDiff: string): string => {
-  const body = capturedDiff.replace(/\n+$/, "")
-  if (todo.includes(body)) return todo
-  const fence = fenceFor(body)
-  const section = [
-    "## Captured input (grilling)",
-    "",
-    "These code changes were made during grilling and captured as suggestions;",
-    "gtd has reverted them from the working tree.",
-    "",
-    ...(todo.includes(CAPTURE_RULES) ? [] : [CAPTURE_RULES, ""]),
-    `${fence}diff`,
-    body,
-    fence,
-    "",
-  ].join("\n")
-  return todo.replace(/\n*$/, "\n\n") + section
-}
 
 /**
  * Returns true iff the diff contains at least one checkbox flip (`- [ ]` ↔
@@ -364,12 +258,17 @@ export const isCheckboxOnlyDiff = (diff: string): boolean => {
   return flips > 0
 }
 
+/** Subject of a commit's first line, trimmed. */
+const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").trim()
+
 /**
  * Gather ALL git/filesystem facts and produce the typed event stream the pure
  * machine folds: one `COMMIT` per first-parent commit (oldest→newest) followed
  * by a single `RESOLVE` carrying the working-tree snapshot.
  */
-export const gatherEvents = (): Effect.Effect<
+export const gatherEvents = (
+  invoker: Actor | "none",
+): Effect.Effect<
   ReadonlyArray<GtdEvent>,
   Error,
   GitService | FileSystem.FileSystem | ConfigService | Cwd
@@ -397,31 +296,106 @@ export const gatherEvents = (): Effect.Effect<
       Option.isSome(mergeBase) && mergeBase.value !== headHash ? mergeBase : Option.none<string>()
 
     const history = yield* git.commitHistory(Option.getOrUndefined(base))
-    const commitEvents: Array<CommitEvent> = history.map(
-      ({ message, removedErrors }): CommitEvent => {
-        const subject = (message.split("\n")[0] ?? "").trim()
-        return {
-          type: "COMMIT",
-          isErrors: subject === ERRORS_SUBJECT,
-          isFeedback: subject === FEEDBACK_SUBJECT,
-          isPackageStart: subject === PLANNING_SUBJECT || subject === PACKAGE_DONE_SUBJECT,
-          isWorkflowCommit: subject.startsWith("gtd: "),
-          removedErrors,
-          isHealthCheck: subject === HEALTH_CHECK_SUBJECT,
-          isHealthFix: subject === HEALTH_FIX_SUBJECT,
-        }
-      },
-    )
+    const commitEvents: Array<CommitEvent> = history.map((commit): CommitEvent => {
+      const subject = subjectOf(commit.message)
+      const parsed = parseSubject(subject)
+      const isTurn = parsed.kind === "turn"
+      const isRouting = parsed.kind === "routing"
+      return {
+        type: "COMMIT",
+        ...(isTurn ? { turnActor: parsed.actor, turnGate: parsed.gate } : {}),
+        isErrors: isRouting && parsed.phase === "errors",
+        // A `gtd(agent): agentic-review` turn whose diff touched FEEDBACK.md —
+        // a findings round. Over-counts the approval round too (an empty
+        // FEEDBACK.md write still touches the path), but `gtd: package done`
+        // resets the reviewFixCount fold immediately after, so the extra count
+        // is harmless (documented in the task contract).
+        isFeedback:
+          isTurn && parsed.gate === "agentic-review" && commit.touched.includes(FEEDBACK_FILE),
+        isPackageStart:
+          isRouting && (parsed.phase === "planning" || parsed.phase === "package-done"),
+        isWorkflowCommit: isTurn || isRouting,
+        removedErrors: commit.removedErrors,
+        isHealthCheck: isRouting && parsed.phase === "health-check",
+      }
+    })
 
     // --- RESOLVE payload (working-tree snapshot) -----------------------------
     const hasCommits = yield* git.hasCommits()
     // Unconditional: `git status` works before the first commit, so a dirty
-    // tree in a freshly initialized repository is visible and seeds New
-    // Feature (it fails fast outside a repository, which is what we want).
+    // tree in a freshly initialized repository is visible.
     const porcelain = yield* git.statusPorcelain()
     const entries = parsePorcelainPaths(porcelain)
     const workingTreeClean = entries.length === 0
     const lastCommitSubject = hasCommits ? yield* git.lastCommitSubject() : ""
+
+    // --- headTurnDiff / headTurnIsEmpty --------------------------------------
+    // Only computed when HEAD parses as a turn commit. One `commitDiff` call:
+    // the raw diff decides emptiness, the workflow-excluded diff is what gets
+    // inlined into prompts.
+    const headParsed = hasCommits ? parseSubject(lastCommitSubject) : { kind: "boundary" as const }
+    let headTurnDiff = ""
+    let headTurnIsEmpty = false
+    // Whether a `gtd(human): review` turn commit's OWN diff is substantive
+    // (anything beyond a pure REVIEW.md checkbox flip). Computed from the turn
+    // commit's diff rather than live working-tree dirtiness: by the time the
+    // mid-chain classification for that turn runs, the turn commit has already
+    // landed and the tree is clean again, so `reviewDirty`/`reviewCheckboxOnly`
+    // (which read live dirtiness) no longer reflect what the turn captured.
+    let headTurnReviewSubstantive: boolean | undefined
+    if (hasCommits && headParsed.kind === "turn") {
+      const rawDiff = yield* git
+        .commitDiff(headHash)
+        .pipe(Effect.catchAll(() => Effect.succeed("")))
+      headTurnIsEmpty = rawDiff.trim().length === 0
+      headTurnDiff = yield* git
+        .commitDiff(headHash, WORKFLOW_FILE_EXCLUDES)
+        .pipe(Effect.catchAll(() => Effect.succeed("")))
+
+      if (headParsed.actor === "human" && headParsed.gate === "review") {
+        // Split the unrestricted per-commit diff into its per-file sections
+        // (each starts with `diff --git a/<path> b/<path>`) and ask: is there
+        // any changed file OTHER than REVIEW.md, or is REVIEW.md's own hunk
+        // more than a checkbox flip?
+        const fileSections = rawDiff
+          .split(/(?=^diff --git )/m)
+          .filter((section) => section.trim().length > 0)
+        const reviewSection = fileSections.find(
+          (section) =>
+            section.startsWith(`diff --git a/${REVIEW_FILE} b/${REVIEW_FILE}`) ||
+            section.startsWith(`diff --git a/${REVIEW_FILE} `),
+        )
+        const nonReviewSections = fileSections.filter((section) => section !== reviewSection)
+        // A REVIEW.md deletion is the approval path (the human deleted the
+        // whole file to accept), never "feedback" — decisively non-substantive
+        // regardless of its content, distinct from an edit to its content.
+        const reviewDeleted = reviewSection?.includes("\ndeleted file mode") ?? false
+        const reviewHunkSubstantive =
+          reviewSection !== undefined && !reviewDeleted && !isCheckboxOnlyDiff(reviewSection)
+        headTurnReviewSubstantive = nonReviewSections.length > 0 || reviewHunkSubstantive
+      }
+    }
+
+    // `gtd: review-feedback` is the ROUTING commit the mid-chain `gtd(human):
+    // review` turn lands as its very next hop — by the time `next`/`step`
+    // resolves at that rest, HEAD is the routing commit, not the turn commit,
+    // so the block above (which only fires when HEAD itself parses as a turn)
+    // never runs. Re-grilling from review feedback needs the PARENT commit's
+    // (the turn's) diff inlined as the finding, so fetch it from HEAD~1 here.
+    // REVIEW.md itself is deliberately NOT excluded here (unlike
+    // WORKFLOW_FILE_EXCLUDES elsewhere): a substantive review-feedback turn
+    // may be pure prose edited into REVIEW.md, which IS the finding to inline.
+    if (hasCommits && headParsed.kind === "routing" && headParsed.phase === "review-feedback") {
+      const parentHash = yield* git
+        .resolveRef(`${headHash}~1`)
+        .pipe(Effect.catchAll(() => Effect.succeed("")))
+      if (parentHash !== "") {
+        const feedbackExcludes = WORKFLOW_FILE_EXCLUDES.filter((f) => f !== REVIEW_FILE)
+        headTurnDiff = yield* git
+          .commitDiff(parentHash, feedbackExcludes)
+          .pipe(Effect.catchAll(() => Effect.succeed("")))
+      }
+    }
 
     // `.gtd/` package files added/edited vs the committed tree.
     const gtdModified = entries.some((e) => isGtdPath(e.path))
@@ -434,11 +408,6 @@ export const gatherEvents = (): Effect.Effect<
     const reviewPresent = yield* fs.exists(resolve(REVIEW_FILE))
     const feedbackPresent = yield* fs.exists(resolve(FEEDBACK_FILE))
     const errorsPresent = yield* fs.exists(resolve(ERRORS_FILE))
-
-    // The `<!-- user answers here -->` sentinel appears anywhere in TODO.md
-    // (after stripping fenced/inline code).
-    const todoContent = todoExists ? yield* fs.readFileString(resolve(TODO_FILE)) : ""
-    const todoMarkerPresent = todoExists && stripCode(todoContent).includes(UNANSWERED_MARKER)
 
     // The file at `path` is uncommitted (untracked or freshly added); otherwise
     // it is tracked at HEAD.
@@ -454,14 +423,12 @@ export const gatherEvents = (): Effect.Effect<
     const feedbackEmpty = feedbackPresent && !/\S/.test(feedbackContent)
 
     // REVIEW.md: committed + clean tree = approval (Done); committed + pending
-    // edits (to REVIEW or any other file) = Accept Review.
+    // edits (to REVIEW or any other file) = the human review turn.
     const reviewTrackedAtHead = reviewPresent && !isUncommitted(REVIEW_FILE)
     const reviewCommitted = reviewTrackedAtHead && workingTreeClean
     const reviewDirty = reviewTrackedAtHead && !workingTreeClean
 
-    // TODO.md tracked at HEAD — distinguishes a committed plan being iterated
-    // (later grilling rounds, which capture user code sketches) from a freshly
-    // seeded, uncommitted one (the seed round, which commits the seed revert).
+    // TODO.md tracked at HEAD.
     const todoCommitted = todoExists && !isUncommitted(TODO_FILE)
 
     // The working tree deletes a committed ERRORS.md (human resume → fresh
@@ -480,31 +447,35 @@ export const gatherEvents = (): Effect.Effect<
         yield* git.diffPath(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.succeed(""))),
       )
 
-    // --- Review base + re-trigger gate (Clean review) -------------------------
+    // --- Review base + re-trigger gate ----------------------------------------
     // Scope — what a review covers — is a three-rule logic:
     //
-    // Rule 1: Within a process (has a `gtd: grilling` commit after last
-    //         `gtd: done`), no `gtd: awaiting review` yet → cover the whole
-    //         task: base = first `gtd: grilling` of the current task cycle.
+    // Rule 1: Within a process (has a grilling TURN commit — `gtd(human):
+    //         grilling` or `gtd(agent): grilling` — after last `gtd: done`), no
+    //         `gtd: awaiting review` yet → cover the whole task: base = first
+    //         grilling turn commit of the current cycle.
     // Rule 2: Within a process, `gtd: awaiting review` present → cover only
     //         changes since the last review: base = last `gtd: awaiting review`
     //         of the current task cycle (takes precedence over rule 1).
     // Rule 3: Outside a process (any branch) → skip review: leave
     //         reviewBase/refDiff unset so the machine settles Idle.
     //
+    // When `reviewAnchor` (a `gtd: reviewing <hash>` commit newer than the last
+    // `gtd: done`) is present, it supplies reviewBase directly and takes
+    // precedence over rules 1/2 — the anchor was placed explicitly by
+    // `gtd review <target>`.
+    //
     // Trigger — whether a review fires — is the `hasCommitsAfterLastDone` gate:
     // commits exist after the last `gtd: done` (or no `gtd: done` exists).
-    // Resolved here at the edge, consumed by the machine's Clean/Idle rule, so
-    // an approved review settles Idle instead of immediately re-firing (the
-    // review → approve → done → review loop). It gates *whether*, never *what*
-    // a fired review covers — and when it is closed, the edge skips computing
-    // the (potentially whole-branch-sized) diff that could never be consumed.
+    // Resolved here at the edge, consumed by the machine's review/Idle rule, so
+    // an approved review settles Idle instead of immediately re-firing.
     //
     // The refDiff excludes workflow files (WORKFLOW_FILE_EXCLUDES) so the
     // reviewer never sees plumbing churn. Only set reviewBase/refDiff when the
-    // filtered diff is non-empty (non-empty distinguishes Clean from Idle).
+    // filtered diff is non-empty (non-empty distinguishes review from Idle).
     let reviewBase: string | undefined
     let refDiff: string | undefined
+    let reviewAnchor: string | undefined
     let hasCommitsAfterLastDone = true
     if (hasCommits) {
       // Scan ALL commits (no base arg) to properly detect process boundaries
@@ -517,25 +488,37 @@ export const gatherEvents = (): Effect.Effect<
       const lastDoneIdx = (() => {
         let idx = -1
         for (let i = 0; i < allHistory.length; i++) {
-          const subject = (allHistory[i]!.message.split("\n")[0] ?? "").trim()
-          if (subject === DONE_SUBJECT) idx = i
+          if (subjectOf(allHistory[i]!.message) === DONE_SUBJECT) idx = i
         }
         return idx
       })()
       const currentCycle = lastDoneIdx === -1 ? allHistory : allHistory.slice(lastDoneIdx + 1)
       hasCommitsAfterLastDone = lastDoneIdx === -1 || currentCycle.length > 0
 
-      // Find first `gtd: grilling` in the current cycle (task start).
-      const firstGrilling = currentCycle.find(
-        (c) => (c.message.split("\n")[0] ?? "").trim() === GRILLING_SUBJECT,
-      )
+      // Find the newest `gtd: reviewing <hash>` anchor in the current cycle.
+      for (const c of currentCycle) {
+        const parsed = parseSubject(subjectOf(c.message))
+        if (
+          parsed.kind === "routing" &&
+          parsed.phase === "reviewing" &&
+          parsed.param !== undefined
+        ) {
+          reviewAnchor = parsed.param
+        }
+      }
+
+      // Find first grilling turn commit in the current cycle (task start).
+      const isGrillingTurn = (message: string): boolean => {
+        const parsed = parseSubject(subjectOf(message))
+        return parsed.kind === "turn" && parsed.gate === "grilling"
+      }
+      const firstGrilling = currentCycle.find((c) => isGrillingTurn(c.message))
       // Find last `gtd: awaiting review` in the current cycle.
       const lastAwaitingReview = (() => {
         let found: (typeof currentCycle)[number] | undefined
         for (const c of currentCycle) {
-          if ((c.message.split("\n")[0] ?? "").trim().startsWith(AWAITING_REVIEW_SUBJECT)) {
-            found = c
-          }
+          const parsed = parseSubject(subjectOf(c.message))
+          if (parsed.kind === "routing" && parsed.phase === "awaiting-review") found = c
         }
         return found
       })()
@@ -543,17 +526,15 @@ export const gatherEvents = (): Effect.Effect<
       const withinProcess = firstGrilling !== undefined
 
       let candidate: string | undefined
-      if (withinProcess) {
+      if (reviewAnchor !== undefined) {
+        candidate = reviewAnchor
+      } else if (withinProcess) {
         // Rule 2 takes precedence over Rule 1 when awaiting review exists.
         if (lastAwaitingReview !== undefined) {
-          // Rule 2: base = last `gtd: awaiting review` commit hash.
           candidate = lastAwaitingReview.hash ?? EMPTY_TREE
         } else {
-          // Rule 1: base = first `gtd: grilling` commit hash.
           candidate = firstGrilling.hash ?? EMPTY_TREE
         }
-      } else {
-        // Outside a process — leave candidate undefined (Idle).
       }
 
       if (candidate !== undefined && hasCommitsAfterLastDone) {
@@ -568,25 +549,34 @@ export const gatherEvents = (): Effect.Effect<
     }
 
     // --- Squash base + diff (squashing after gtd: done) ----------------------
-    // Only computed when HEAD is `gtd: done` and squash is enabled.
-    // The squash range is the cycle ENDING at HEAD (prevDoneIdx+1 …lastDoneIdx),
-    // not `currentCycle` which is empty when HEAD is `gtd: done`.
+    // Computed whenever HEAD is `gtd: done` or anywhere in the squash chain
+    // `gtd: done` → `gtd: squash template` → `gtd(agent): squashing` triggers
+    // (squash is enabled): the mid-chain `squashCommit` action performed at
+    // the `gtd(agent): squashing` HEAD needs `squashBase` on THAT hop, by
+    // which point HEAD has moved past `gtd: done` itself. The squash range is
+    // the cycle ENDING at the last `gtd: done` found in history (not
+    // necessarily HEAD), not `currentCycle` which is empty once HEAD is past it.
     let squashBase: string | undefined
     let squashDiff: string | undefined
-    if (hasCommits && lastCommitSubject === DONE_SUBJECT && config.squash) {
+    const headParsedForSquash = parseSubject(lastCommitSubject)
+    const inSquashChain =
+      lastCommitSubject === DONE_SUBJECT ||
+      (headParsedForSquash.kind === "routing" && headParsedForSquash.phase === "squash-template") ||
+      (headParsedForSquash.kind === "turn" &&
+        headParsedForSquash.actor === "agent" &&
+        headParsedForSquash.gate === "squashing")
+    if (hasCommits && inSquashChain && config.squash) {
       // Scan `history` (merge-base..HEAD on a feature branch), NOT the whole
       // history: commits below the merge-base exist on the default branch, and
       // a squash reset must never rewrite them. On trunk (no merge-base),
       // `history` is already the whole history.
       const squashHistory = history
-      const subjectOf = (c: (typeof squashHistory)[number]): string =>
-        (c.message.split("\n")[0] ?? "").trim()
       // Last `gtd: done` (= HEAD) and the previous one (cycle boundary), in one
       // oldest-first pass.
       let lastDoneIdxForSquash = -1
       let prevDoneIdx = -1
       for (let i = 0; i < squashHistory.length; i++) {
-        if (subjectOf(squashHistory[i]!) === DONE_SUBJECT) {
+        if (subjectOf(squashHistory[i]!.message) === DONE_SUBJECT) {
           prevDoneIdx = lastDoneIdxForSquash
           lastDoneIdxForSquash = i
         }
@@ -594,37 +584,43 @@ export const gatherEvents = (): Effect.Effect<
 
       if (lastDoneIdxForSquash !== -1) {
         const squashCycle = squashHistory.slice(prevDoneIdx + 1, lastDoneIdxForSquash + 1)
-        // Cycle start = the LAST `gtd: new task` in the cycle (nearest HEAD).
-        // Squashing deletes the `gtd: done` boundary it replaces, so stray
-        // markers from older, already-squashed cycles can survive inside the
-        // range — picking the first match would drag the base past them (and
-        // past entire prior features).
+        // Cycle start = the first commit of the LAST contiguous run of grilling
+        // turn commits, or the `gtd: reviewing <hash>` anchor, whichever is
+        // nearest HEAD within the cycle.
+        const isGrillingTurnSubject = (subject: string): boolean => {
+          const parsed = parseSubject(subject)
+          return parsed.kind === "turn" && parsed.gate === "grilling"
+        }
+        const isReviewingAnchor = (subject: string): boolean => {
+          const parsed = parseSubject(subject)
+          return parsed.kind === "routing" && parsed.phase === "reviewing"
+        }
         let startIdx = -1
         for (let i = squashCycle.length - 1; i >= 0; i--) {
-          if (
-            subjectOf(squashCycle[i]!) === NEW_TASK_SUBJECT ||
-            subjectOf(squashCycle[i]!) === REVIEWING_SUBJECT
-          ) {
+          const subject = subjectOf(squashCycle[i]!.message)
+          if (isReviewingAnchor(subject)) {
             startIdx = i
             break
           }
-        }
-        if (startIdx === -1) {
-          // Legacy fallback (cycles predating `gtd: new task`): the first
-          // grilling of the LAST contiguous grilling run — not the first
-          // grilling in the cycle, which could equally be a stray.
-          for (let i = squashCycle.length - 1; i >= 0; i--) {
-            if (subjectOf(squashCycle[i]!) === GRILLING_SUBJECT) {
-              startIdx = i
-              while (startIdx > 0 && subjectOf(squashCycle[startIdx - 1]!) === GRILLING_SUBJECT) {
-                startIdx--
-              }
-              break
+          if (isGrillingTurnSubject(subject)) {
+            startIdx = i
+            while (
+              startIdx > 0 &&
+              isGrillingTurnSubject(subjectOf(squashCycle[startIdx - 1]!.message))
+            ) {
+              startIdx--
             }
+            break
           }
         }
         const squashStart = startIdx === -1 ? undefined : squashCycle[startIdx]
 
+        // Squash triggers on TURN POSITION (a valid cycle start was found),
+        // never on diff content: unlike the review gate (where an empty diff
+        // means "nothing to review"), a cycle that nets to an empty diff
+        // (e.g. TODO.md/REVIEW.md added then removed, no code survives) still
+        // squashes — the squash commit's message is what's durable, not the
+        // tree delta.
         if (squashStart !== undefined) {
           const squashStartParent = yield* git
             .resolveRef(`${squashStart.hash}~1`)
@@ -632,19 +628,14 @@ export const gatherEvents = (): Effect.Effect<
           const candidateDiff = yield* git
             .diffRef(squashStartParent)
             .pipe(Effect.catchAll(() => Effect.succeed("")))
-          if (candidateDiff.trim().length > 0) {
-            squashBase = squashStartParent
-            squashDiff = candidateDiff
-          }
+          squashBase = squashStartParent
+          squashDiff = candidateDiff
         }
       }
     }
 
-    // --- SQUASH_MSG.md presence (squash commit message written by agent) --------
+    // --- SQUASH_MSG.md presence (squash template written+overwritten) --------
     const squashMsgPresent = yield* fs.exists(resolve(SQUASH_MSG_FILE))
-    const squashMsgContent = squashMsgPresent
-      ? yield* fs.readFileString(resolve(SQUASH_MSG_FILE))
-      : ""
 
     // --- HEALTH.md presence (health-check output written by runHealthCheck) -----
     const healthPresent = yield* fs.exists(resolve(HEALTH_FILE))
@@ -654,46 +645,61 @@ export const gatherEvents = (): Effect.Effect<
     // --- Health squash base (squash after green health-fix run) ------------------
     // Only computed when squash is enabled. Mirrors foldCounters: scans all of
     // history forward, resetting on isPackageStart/removedErrors events,
-    // tracking the FIRST gtd: health-check of the current health run.
+    // tracking the FIRST `gtd: health-check` of the current health run.
     // healthFixBase is the parent of that first health-check commit.
     let healthFixBase: string | undefined
     if (config.squash) {
-      const subjectOf = (c: (typeof history)[number]): string =>
-        (c.message.split("\n")[0] ?? "").trim()
       let firstHealthCheckHash: string | undefined
       let healthCheckCount = 0
-      for (const commit of history) {
-        const s = subjectOf(commit)
-        const isPackageStart = s === PLANNING_SUBJECT || s === PACKAGE_DONE_SUBJECT
-        if (isPackageStart || commit.removedErrors) {
+      for (const commit of commitEvents) {
+        if (commit.isPackageStart || commit.removedErrors) {
           // Reset: new package or budget reset
           firstHealthCheckHash = undefined
           healthCheckCount = 0
         }
-        if (s === HEALTH_CHECK_SUBJECT) {
+        if (commit.isHealthCheck) {
           healthCheckCount++
-          if (healthCheckCount === 1) firstHealthCheckHash = commit.hash
+        }
+      }
+      // Re-derive the hash: commitEvents don't carry hashes, so re-scan
+      // `history` in lockstep for the first health-check hash after the same
+      // reset boundaries.
+      if (healthCheckCount > 0) {
+        let resetAt = -1
+        for (let i = 0; i < history.length; i++) {
+          const c = commitEvents[i]!
+          if (c.isPackageStart || c.removedErrors) resetAt = i
+        }
+        for (let i = resetAt + 1; i < history.length; i++) {
+          if (commitEvents[i]!.isHealthCheck) {
+            firstHealthCheckHash = history[i]!.hash
+            break
+          }
         }
       }
       if (healthCheckCount > 0 && firstHealthCheckHash !== undefined) {
-        const base = yield* git
+        const healthBase = yield* git
           .resolveRef(`${firstHealthCheckHash}~1`)
           .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
-        healthFixBase = base
+        healthFixBase = healthBase
         // On the health path, squashBase/squashDiff carry the health-fix cycle
         // diff (not a feature-cycle diff). Computed here so the squashing prompt
         // renders the full diff block; forwarded unchanged by buildContext.
         const healthCandidateDiff = yield* git
-          .diffRef(base)
+          .diffRef(healthBase)
           .pipe(Effect.catchAll(() => Effect.succeed("")))
         if (healthCandidateDiff.trim().length > 0) {
-          squashBase = base
+          squashBase = healthBase
           squashDiff = healthCandidateDiff
         }
       }
     }
 
     const payload: ResolvePayload = {
+      invoker,
+      headTurnDiff,
+      headTurnIsEmpty,
+      ...(headTurnReviewSubstantive !== undefined ? { headTurnReviewSubstantive } : {}),
       todoExists,
       todoCommitted,
       gtdDirExists,
@@ -702,7 +708,6 @@ export const gatherEvents = (): Effect.Effect<
       errorsPresent,
       gtdModified,
       codeDirty,
-      todoMarkerPresent,
       feedbackCommitted,
       feedbackEmpty,
       feedbackContent,
@@ -715,6 +720,7 @@ export const gatherEvents = (): Effect.Effect<
       packages,
       ...(reviewBase !== undefined ? { reviewBase } : {}),
       ...(refDiff !== undefined ? { refDiff } : {}),
+      ...(reviewAnchor !== undefined ? { reviewAnchor } : {}),
       hasCommitsAfterLastDone,
       agenticReviewEnabled: config.agenticReview,
       fixAttemptCap: config.fixAttemptCap,
@@ -723,7 +729,6 @@ export const gatherEvents = (): Effect.Effect<
       ...(squashBase !== undefined ? { squashBase } : {}),
       ...(squashDiff !== undefined ? { squashDiff } : {}),
       squashMsgPresent,
-      squashMsgContent,
       healthPresent,
       healthContent,
       healthCommitted,
@@ -735,37 +740,8 @@ export const gatherEvents = (): Effect.Effect<
   }).pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
 
 /**
- * The commit-then-revert capture shared by New Feature and Accept Review:
- * commit everything pending verbatim under `subject` (a durable capture that
- * survives checkout/pull; untracked files are dropped by construction — a
- * plain checkout would leak them), revert the capture into the working tree,
- * and return its diff for the TODO.md seed. When HEAD already carries the
- * subject this is the lost-seed regen case: run `onRegen` instead of
- * committing (discard partial state) and re-derive from the existing commit.
- */
-const captureAndRevert = (
-  git: GitOperations,
-  subject: string,
-  onRegen: Effect.Effect<void, Error>,
-): Effect.Effect<string, Error> =>
-  Effect.gen(function* () {
-    const head = yield* git.lastCommitSubject().pipe(Effect.catchAll(() => Effect.succeed("")))
-    if (head !== subject) {
-      yield* git.commitAllWithPrefix(subject)
-    } else {
-      yield* onRegen
-    }
-    const base = yield* git
-      .resolveRef("HEAD~1")
-      .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
-    const captured = yield* git.diffRef(base).pipe(Effect.catchAll(() => Effect.succeed("")))
-    yield* git.revertNoCommit("HEAD")
-    return captured
-  })
-
-/**
  * Compute the review base and diff against an arbitrary git ref (branch, tag,
- * or commit). Used by `program.ts` for the `--against` flag.
+ * or commit). Used by `program.ts` for `gtd review <target>`.
  *
  * - Resolves `target` via `git rev-parse`; lets failure propagate so the caller
  *   can report an unresolvable ref.
@@ -795,13 +771,28 @@ export const reviewAgainst = (
   })
 
 /**
+ * A short conventional-commits skeleton written by `writeSquashTemplate`,
+ * instructing the squashing agent to replace it with the real message.
+ */
+const SQUASH_TEMPLATE = [
+  "<!-- gtd: replace this file's content with the real squash commit message. -->",
+  "<!-- Use conventional-commits style, e.g. `feat: add thing` or `fix: correct thing`. -->",
+  "",
+  "type: short summary",
+  "",
+  "Longer description of the change, if needed.",
+  "",
+].join("\n")
+
+/**
  * Execute the side effect the machine's `resolve()` chose. The driver performs
  * this, then re-gathers + re-resolves. Each case maps to the primitives in
  * Git.ts / the FileSystem; the machine only decides *which* action.
  *
  * Returns `{ stop: true }` when the driver should stop iterating (health-check
- * green-settle: tests passed, no further work needed). All other cases return
- * `{ stop: false }` so the driver re-gathers and re-resolves as usual.
+ * green-settle: tests passed, no further work needed, squash not queued). All
+ * other cases return `{ stop: false }` so the driver re-gathers and re-resolves
+ * as usual.
  */
 // fallow-ignore-next-line complexity
 export const perform = (
@@ -815,167 +806,55 @@ export const perform = (
     const resolve = (p: string) => join(root, p)
 
     switch (action.kind) {
-      // Transport: mixed-reset the hand-made `gtd: transport` HEAD, keeping the
-      // work in the tree, then re-derive. (No producer command — consume only.)
-      case "transportReset": {
-        yield* git.mixedResetHead()
-        return { stop: false }
-      }
-
-      // New Feature: capture the raw input as `gtd: new task` (unless HEAD is
-      // already there — the lost-seed regenerate case), revert it back to a
-      // clean baseline (inverse staged), and seed TODO.md from that diff.
-      case "seedNewFeature": {
-        const captured = yield* captureAndRevert(git, NEW_TASK_SUBJECT, Effect.void)
-        yield* fs.writeFileString(resolve(TODO_FILE), seedTodo(captured))
-        return { stop: false }
-      }
-
-      // Accept Review: capture the human's pending changeset durably as
-      // `gtd: review feedback` (annotations, code edits, and new files alike),
-      // revert it back to the reviewed baseline, rm REVIEW.md (which is what
-      // stops Accept Review re-firing), and seed TODO.md from the captured
-      // diff. The regen case (the machine's rule-4 carve-out fired) discards
-      // any partial revert/seed state with a hard reset first.
-      case "seedAcceptReview": {
-        const captured = yield* captureAndRevert(git, REVIEW_FEEDBACK_SUBJECT, git.resetHard())
-        yield* fs.remove(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))
-        yield* fs.writeFileString(resolve(TODO_FILE), seedTodo(captured))
-        return { stop: false }
-      }
-
-      // Grilling capture: the plan is already committed and the user sketched
-      // code during the round. Fold the code diff (untracked included, steering
-      // files excluded) into TODO.md as a suggestion block, drop the code
-      // changes — reset tracked, delete untracked/added — and commit the lot as
-      // one `gtd: grilling`. TODO.md's own pending edits are preserved verbatim
-      // (snapshotted before the reset). Binary edits survive only as the diff's
-      // "Binary files differ" line — an accepted limitation.
-      case "captureGrillingEdits": {
-        const porcelain = yield* git.statusPorcelain()
-        const entries = parsePorcelainPaths(porcelain)
-        // Untracked (`??`) code files must be deleted explicitly; staged-new
-        // (`A`) ones are included too in case the hard reset leaves them on
-        // disk — fs.remove tolerates either outcome.
-        const pendingCodeFiles = entries.filter(
-          (e) => isUncommittedStatus(e.status) && !isSteeringFile(e.path) && !isGtdPath(e.path),
-        )
-        // Snapshot TODO.md (with the user's pending plan edits) and the code
-        // diff BEFORE the reset discards them.
-        const todoNow = yield* fs.readFileString(resolve(TODO_FILE))
-        const captured = yield* git.diffHead(WORKFLOW_FILE_EXCLUDES)
-        yield* git.resetHard()
-        for (const entry of pendingCodeFiles) {
-          yield* fs
-            .remove(resolve(entry.path), { recursive: true })
-            .pipe(Effect.catchAll(() => Effect.void))
+      // Capture a human/agent turn: format the pending TODO.md (best-effort),
+      // then commit-all under `gtd(<actor>): <gate>` (--allow-empty).
+      case "captureTurn": {
+        const todoExists = yield* fs.exists(resolve(TODO_FILE))
+        if (todoExists) {
+          yield* formatFile(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
-        yield* fs.writeFileString(resolve(TODO_FILE), appendCapturedInput(todoNow, captured))
-        yield* git.commitAllWithPrefix(GRILLING_SUBJECT)
+        yield* git.commitAllWithPrefix(turnSubject(action.actor, action.gate))
         return { stop: false }
       }
 
-      // Testing: commit the pending tree `gtd: building` (nothing pending in the
-      // no-op-fixer case), run tests; on red write FEEDBACK (below cap) or ERRORS
-      // (at cap) and commit `gtd: errors`; on green proceed.
+      // Routing bookkeeping: delete the flagged files FIRST so their removal
+      // lands in this same commit, then commit-all under `subject`.
+      case "commitRouting": {
+        if (action.removeTodo === true) {
+          yield* fs.remove(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        }
+        if (action.removeReview === true) {
+          yield* fs.remove(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        }
+        if (action.removeFeedback === true) {
+          yield* fs.remove(resolve(FEEDBACK_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        }
+        if (action.removeHealth === true) {
+          yield* fs.remove(resolve(HEALTH_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        }
+        yield* git.commitAllWithPrefix(action.subject)
+        return { stop: false }
+      }
+
+      // Testing: run tests. FEEDBACK.md is removed unconditionally first — a
+      // mid-chain `gtd(agent): fixing` HEAD consumes its own FEEDBACK.md this
+      // way (whether the fixer left it, deleted it, or emptied it, the file
+      // must be gone before re-testing). Green → commit routing
+      // `gtd: tests green`. Red → write a fresh FEEDBACK.md (below cap) or
+      // ERRORS.md (at cap) with the failure output, commit routing
+      // `gtd: errors`.
       case "runTest": {
+        yield* fs.remove(resolve(FEEDBACK_FILE)).pipe(Effect.catchAll(() => Effect.void))
         const runner = yield* TestRunner
-        const status = yield* git.statusPorcelain()
-        // A clean tree means nothing was committed as `gtd: building` below — the
-        // only such entry into Testing is the no-op fixer (clean tree, HEAD
-        // `gtd: fixing`).
-        const committedBuilding = status.trim().length > 0
-        if (committedBuilding) {
-          yield* git.commitAllWithPrefix(BUILDING_SUBJECT)
-        }
         const result = yield* runner.run()
         if (result.exitCode === 0) {
-          // No-op-fixer green re-test: nothing was committed above, so HEAD is
-          // still `gtd: fixing`; gather→resolve would re-detect Testing forever.
-          // Commit an empty `gtd: building` to advance HEAD off `gtd: fixing` so
-          // the next resolve reaches Agentic Review (STATES.md § Testing "green →
-          // proceed"). The normal green path already committed `gtd: building`.
-          if (!committedBuilding) {
-            yield* git.commitAllWithPrefix(BUILDING_SUBJECT)
-          }
+          yield* git.commitAllWithPrefix("gtd: tests green")
           return { stop: false }
         }
         const target = action.capReached ? ERRORS_FILE : FEEDBACK_FILE
         const body = /\S/.test(result.output) ? result.output : EMPTY_FAILURE_SENTINEL
         yield* fs.writeFileString(resolve(target), body)
-        yield* git.commitAllWithPrefix(ERRORS_SUBJECT)
-        return { stop: false }
-      }
-
-      // Health check: run tests on an idle/clean tree.
-      // Green, no prior fixes → stop immediately (no commit).
-      // Green, fixes exist → stop immediately (squash handled via healthFixBase
-      //   when gatherEvents sets it; the machine resolves squashing state).
-      // Red below cap → write HEALTH.md (uncommitted); resolveHealth will
-      //   commit it as `gtd: health-check` via `commitPending removeHealth`.
-      // Red at cap → write ERRORS.md and commit `gtd: health-check` immediately
-      //   so the Escalate state fires on the next resolve.
-      case "runHealthCheck": {
-        // If the human deleted ERRORS.md to reset the budget (pendingErrorsDeletion),
-        // commit the deletion before running the test so `removedErrors=true` on that
-        // commit resets healthFixCount in the next fold.
-        if (action.commitErrorsReset === true) {
-          yield* git.commitAllWithPrefix(HEALTH_FIX_SUBJECT)
-        }
-        const runner = yield* TestRunner
-        const result = yield* runner.run()
-        if (result.exitCode === 0) {
-          if (action.healthFixBase !== undefined && action.commitErrorsReset !== true) {
-            // Green after health-fix cycle: write the HEALTH_SQUASH_SENTINEL into
-            // SQUASH_MSG.md. This is the loop-breaking observable state change —
-            // without any disk write, re-gathering would see an identical snapshot
-            // and route back into runHealthCheck forever. The sentinel signals
-            // "green confirmed; agent has not yet authored a real squash message."
-            // On re-gather rule 4d fires (sentinel present) and shows the squash
-            // prompt; the agent then overwrites SQUASH_MSG.md with the real
-            // conventional-commits message; rule 4c performs the actual squash.
-            // Skip when we just committed an errors-reset (commitErrorsReset): the
-            // removedErrors on that commit resets healthFixCount to 0, so there is
-            // nothing to squash.
-            yield* fs.writeFileString(resolve(SQUASH_MSG_FILE), HEALTH_SQUASH_SENTINEL)
-            return { stop: false }
-          }
-          // Green (idle or post-reset): settle to idle.
-          return { stop: true }
-        }
-        // Red: write failure output.
-        const body = /\S/.test(result.output) ? result.output : EMPTY_FAILURE_SENTINEL
-        if (action.capReached) {
-          // At cap: write to ERRORS.md and commit so Escalate fires next.
-          yield* fs.writeFileString(resolve(ERRORS_FILE), body)
-          yield* git.commitAllWithPrefix(HEALTH_CHECK_SUBJECT)
-        } else {
-          // Below cap: write to HEALTH.md (uncommitted) so resolveHealth
-          // commits it as `gtd: health-check` and emits the fixing prompt.
-          yield* fs.writeFileString(resolve(HEALTH_FILE), body)
-        }
-        return { stop: false }
-      }
-
-      // Grilling / Grilled / Planning / Fixing: commit the pending tree under a
-      // fixed phase prefix. Fixing sets `removeFeedback` so FEEDBACK.md's removal
-      // lands in the `gtd: fixing` / `gtd: feedback` commit — otherwise the next
-      // run re-detects FEEDBACK (precedence 2) and Fixing re-fires forever instead
-      // of returning to Testing (STATES.md § Fixing).
-      case "commitPending": {
-        if (action.removeFeedback === true) {
-          yield* fs.remove(resolve(FEEDBACK_FILE)).pipe(Effect.catchAll(() => Effect.void))
-        }
-        if (action.removeTodo === true) {
-          yield* fs.remove(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
-        }
-        if (action.removeHealth === true) {
-          yield* fs.remove(resolve(HEALTH_FILE)).pipe(Effect.catchAll(() => Effect.void))
-        }
-        if (action.removeTodo !== true) {
-          yield* formatFile(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
-        }
-        yield* git.commitAllWithPrefix(action.prefix)
+        yield* git.commitAllWithPrefix("gtd: errors")
         return { stop: false }
       }
 
@@ -989,47 +868,53 @@ export const perform = (
         if (first !== undefined) {
           yield* git.removePackageDir(`${GTD_DIR}/${first.name}`)
         }
-        yield* git.commitAllWithPrefix(PACKAGE_DONE_SUBJECT)
+        yield* git.commitAllWithPrefix("gtd: package done")
         return { stop: false }
       }
 
-      // Await Review: commit REVIEW.md as `gtd: awaiting review`.
-      case "commitReview": {
-        yield* formatFile(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))
-        yield* git.commitAllWithPrefix(AWAITING_REVIEW_SUBJECT)
+      // Write the SQUASH_MSG.md template (conventional-commits skeleton) and
+      // commit routing `gtd: squash template`.
+      case "writeSquashTemplate": {
+        yield* fs.writeFileString(resolve(SQUASH_MSG_FILE), SQUASH_TEMPLATE)
+        yield* git.commitAllWithPrefix("gtd: squash template")
         return { stop: false }
       }
 
-      // Done: rm REVIEW.md, commit `gtd: done`.
-      case "done": {
-        yield* fs.remove(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))
-        yield* git.commitAllWithPrefix(DONE_SUBJECT)
-        return { stop: false }
-      }
-
-      // Squash: rm SQUASH_MSG.md, soft-reset to squashBase, commit everything
-      // under the provided commit message.
+      // Squash: read SQUASH_MSG.md content (the real message authored by the
+      // squashing turn), rm it, soft-reset to squashBase, commit-all under the
+      // file's content as the message.
       case "squashCommit": {
+        const message = yield* fs
+          .readFileString(resolve(SQUASH_MSG_FILE))
+          .pipe(Effect.catchAll(() => Effect.succeed("")))
         yield* fs.remove(resolve(SQUASH_MSG_FILE)).pipe(Effect.catchAll(() => Effect.void))
         yield* git.softResetTo(action.squashBase)
-        yield* git.commitAllWithPrefix(action.commitMessage)
+        yield* git.commitAllWithPrefix(message)
         return { stop: false }
       }
 
-      // Remove the HEALTH_SQUASH_SENTINEL file written by runHealthCheck on
-      // green-with-fixes, so the squash-prompt state is presented clean. The
-      // agent then writes the real SQUASH_MSG.md on its turn. This action runs
-      // BEFORE the prompt is emitted (squashing is not edge-only, so the driver
-      // emits the prompt after perform returns).
-      case "removeHealthSentinel": {
-        yield* fs.remove(resolve(SQUASH_MSG_FILE)).pipe(Effect.catchAll(() => Effect.void))
-        return { stop: false }
-      }
-      // Stray SQUASH_MSG.md found under a boundary HEAD with no matching squash
-      // cycle (squashBase absent / squashEnabled false). Remove it so the next
-      // gather sees a clean tree and settles to health-check or idle.
-      case "removeStraySquashMsg": {
-        yield* fs.remove(resolve(SQUASH_MSG_FILE)).pipe(Effect.catchAll(() => Effect.void))
+      // Health check: run tests on an idle/clean tree.
+      // Green, no squash-after chain queued → stop immediately, no commit/write.
+      // Green, `squashAfterGreen` → commit routing `gtd: tests green` (the
+      //   observable green marker) and continue — the resolver chains
+      //   `writeSquashTemplate` at that HEAD next.
+      // Red below cap → write HEALTH.md, commit routing `gtd: health-check` (the
+      //   always-clean invariant: write-and-commit in the same chain).
+      // Red at cap → write ERRORS.md, commit routing `gtd: health-check`.
+      case "runHealthCheck": {
+        const runner = yield* TestRunner
+        const result = yield* runner.run()
+        if (result.exitCode === 0) {
+          if (action.squashAfterGreen) {
+            yield* git.commitAllWithPrefix("gtd: tests green")
+            return { stop: false }
+          }
+          return { stop: true }
+        }
+        const body = /\S/.test(result.output) ? result.output : EMPTY_FAILURE_SENTINEL
+        const target = action.capReached ? ERRORS_FILE : HEALTH_FILE
+        yield* fs.writeFileString(resolve(target), body)
+        yield* git.commitAllWithPrefix("gtd: health-check")
         return { stop: false }
       }
     }

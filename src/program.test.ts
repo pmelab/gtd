@@ -1,10 +1,10 @@
 /**
- * Unit tests for src/program.ts — short-circuit flags (--version / --help).
- *
- * Verifies that --version and --help print static info and return WITHOUT
- * touching GitService, FileSystem, or any other service. We supply a
- * Layer where GitService methods throw loudly — if a flag leaks past the
- * short-circuit the test catches the failure.
+ * Unit tests for src/program.ts — short-circuit flags (--version / --help),
+ * bare/unknown-command usage errors, `format` arg validation, and the JSON
+ * error envelope shape. Full behavioral coverage of `step` / `step-agent` /
+ * `next` / `status` / `review` against a real repo lives in the feature files
+ * owned by other tasks in this package; this file sticks to what it can test
+ * without a real repo, as today.
  */
 
 import { NodeContext } from "@effect/platform-node"
@@ -35,6 +35,7 @@ const failingGitLayer = Layer.succeed(GitService, {
   diffHead: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   diffRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   diffPath: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  commitDiff: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitAllWithPrefix: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
   softResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
@@ -105,8 +106,12 @@ describe("--help short-circuit", () => {
     const { output, exit } = await runFlag("--help")
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(output).toContain("Usage")
-    expect(output).toContain("format")
+    expect(output).toContain("step")
+    expect(output).toContain("step-agent")
+    expect(output).toContain("next")
+    expect(output).toContain("status")
     expect(output).toContain("review")
+    expect(output).toContain("format")
     expect(output).toMatch(/\n$/)
   })
 
@@ -138,5 +143,65 @@ describe("flag orthogonality", () => {
     const { output, exit } = await runFlag("--help", "--verbose")
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(output).toContain("Usage")
+  })
+})
+
+describe("bare gtd (no subcommand)", () => {
+  it("prints usage and exits non-zero without touching git", async () => {
+    const { output, exit } = await runFlag()
+    expect(Exit.isSuccess(exit)).toBe(false)
+    expect(output).toContain("Usage")
+  })
+
+  it("under --json, exits non-zero without printing the full usage block", async () => {
+    const { output, exit } = await runFlag("--json")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    const parsed = JSON.parse(output) as { state: string; prompt: string }
+    expect(parsed.state).toBe("error")
+    expect(typeof parsed.prompt).toBe("string")
+  })
+})
+
+describe("unknown command", () => {
+  it("fails without touching git", async () => {
+    const { exit } = await runFlag("bogus")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it("under --json, the error envelope names the unknown subcommand", async () => {
+    const { output, exit } = await runFlag("bogus", "--json")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    const parsed = JSON.parse(output) as { state: string; prompt: string }
+    expect(parsed.state).toBe("error")
+    expect(parsed.prompt).toContain("bogus")
+  })
+})
+
+describe("gtd format argument validation", () => {
+  it("fails when no file path is given", async () => {
+    const { exit } = await runFlag("format")
+    expect(Exit.isSuccess(exit)).toBe(false)
+  })
+
+  it("fails when --json is combined with format", async () => {
+    const { exit } = await runFlag("format", "some.md", "--json")
+    expect(Exit.isSuccess(exit)).toBe(false)
+  })
+
+  it("fails when more than one path is given", async () => {
+    const { exit } = await runFlag("format", "a.md", "b.md")
+    expect(Exit.isSuccess(exit)).toBe(false)
+  })
+})
+
+describe("JSON error envelope", () => {
+  it("has exactly the {state, prompt} shape on failure", async () => {
+    const { output, exit } = await runFlag("bogus", "--json")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(Object.keys(parsed).sort()).toEqual(["prompt", "state"])
+    expect(parsed.state).toBe("error")
+    expect(typeof parsed.prompt).toBe("string")
   })
 })

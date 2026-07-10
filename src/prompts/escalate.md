@@ -7,6 +7,8 @@ Next steps for the human developer:
 
 1. Investigate and fix errors reported in `ERRORS.md`
 2. Delete `ERRORS.md`
-3. Continue the process when you are ready
+3. Run `gtd step` when you are ready to continue
 
+<% if (it.tail) { %>
 <%~ include(it.tail) %>
+<% } %>

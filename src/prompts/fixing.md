@@ -8,9 +8,14 @@ below:
    satisfy each finding against the package's task specs.
 2. **Make the fix in place** — change the code to resolve the feedback. Keep the
    change focused; do not refactor unrelated code.
-3. **Leave every change uncommitted** — do **not** commit or stage.
+3. **Or dispute the feedback** — if a finding is wrong, empty or delete
+   `FEEDBACK.md` instead of fixing it. The machine re-tests either way.
+4. **Leave every change uncommitted and finish your turn** — do **not** commit
+   or stage.
 <% if (it.context.feedbackContent.trim()) { %>
 <%~ include("@feedback", { content: it.context.feedbackContent, fenceFor: it.fenceFor }) %>
 <% } %>
 
+<% if (it.tail) { %>
 <%~ include(it.tail) %>
+<% } %>

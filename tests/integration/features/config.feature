@@ -32,7 +32,11 @@ Feature: .gtdrc config system
       """
       export const helper = (x: string) => x
       """
-    When I run gtd
+    When I run gtd step-agent
+    Then it succeeds
+    And the git log contains "gtd: errors"
+    And the file "FEEDBACK.md" contains "CONFIG_SENTINEL"
+    When I run gtd next
     Then it succeeds
     And stdout contains "Spawn a **fix subagent**"
     And stdout contains "CONFIG_SENTINEL"
@@ -46,11 +50,11 @@ Feature: .gtdrc config system
         planning: my-planner-model
         execution: my-executor-model
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     And stdout contains "my-planner-model"
@@ -69,7 +73,7 @@ Feature: .gtdrc config system
       """
       Implement the helper.
       """
-    When I run gtd
+    When I run gtd next
     Then it succeeds
     And stdout contains "Build the package described below"
     And stdout contains "my-executor-model"
@@ -85,11 +89,11 @@ Feature: .gtdrc config system
         states:
           decompose: state-decompose-model
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     And stdout contains "state-decompose-model"
@@ -98,11 +102,11 @@ Feature: .gtdrc config system
   @inmem
   Scenario: Built-in planning default applies with no config present
     Given a test project
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     And stdout contains "claude-opus-4-8"
@@ -114,7 +118,7 @@ Feature: .gtdrc config system
       """
       Implement the helper.
       """
-    When I run gtd
+    When I run gtd next
     Then it succeeds
     And stdout contains "Build the package described below"
     And stdout contains "claude-sonnet-4-8"
@@ -145,9 +149,11 @@ Feature: .gtdrc config system
       """
       export const helper = (x: string) => x
       """
-    When I run gtd
+    When I run gtd step-agent
     Then it succeeds
     And the file "ERRORS.md" exists
+    When I run gtd next
+    Then it succeeds
     And stdout contains "was not able to fix all errors on its own"
 
   @inmem
@@ -157,18 +163,22 @@ Feature: .gtdrc config system
     And a branch "feature"
     And a gtd config file at ".gtdrc" with:
       """
+      testCommand: "true"
       reviewThreshold: 1
       """
     And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: feedback"
-    And a commit "gtd: building"
-    When I run gtd
+    And a commit "gtd(agent): agentic-review" that adds "FEEDBACK.md" with:
+      """
+      Finding: round one.
+      """
+    And a commit "gtd: tests green"
+    When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd: package done"
-    And stdout does not contain "Spawn a **reviewing subagent**"
+    And the git log does not contain "gtd(agent): agentic-review\n\ngtd: package done"
 
   @live
   Scenario: An unknown config key is rejected
@@ -177,7 +187,7 @@ Feature: .gtdrc config system
       """
       bogusKey: 1
       """
-    When I run gtd
+    When I run gtd next
     Then it fails
     And stderr contains "Invalid gtd config"
 
@@ -200,11 +210,11 @@ Feature: .gtdrc config system
         planning: ancestor-planner-model
         execution: ancestor-executor-model
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     And stdout contains "cwd-planner-model"
@@ -217,11 +227,11 @@ Feature: .gtdrc config system
       """
       fixAttemptCap: -1
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it fails
     And stderr contains "Invalid gtd config"
 
@@ -232,11 +242,11 @@ Feature: .gtdrc config system
       """
       fixAttemptCap: 1.5
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it fails
     And stderr contains "Invalid gtd config"
 
@@ -247,11 +257,11 @@ Feature: .gtdrc config system
       """
       reviewThreshold: 0
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it fails
     And stderr contains "Invalid gtd config"
 
@@ -266,7 +276,7 @@ Feature: .gtdrc config system
       """
       Implement the helper.
       """
-    When I run gtd
+    When I run gtd next
     Then it succeeds
 
   @inmem
@@ -276,11 +286,11 @@ Feature: .gtdrc config system
       """
       testCommand: [unclosed
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it fails
     And stderr contains ".gtdrc"
 
@@ -292,11 +302,11 @@ Feature: .gtdrc config system
       - item1
       - item2
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it fails
     And stderr contains ".gtdrc"
 
@@ -307,11 +317,11 @@ Feature: .gtdrc config system
       """
       bogusKey: 1
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it fails
     And stderr contains "Invalid gtd config"
     And stderr does not contain "readonly"
@@ -323,22 +333,22 @@ Feature: .gtdrc config system
       """
       null
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it fails
     And stderr contains ".gtdrc"
 
   @live
   Scenario: A clean project auto-creates .gtdrc.json with a $schema link
     Given a test project
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it succeeds
     And the file ".gtdrc.json" exists
     And the file ".gtdrc.json" contains "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json"
@@ -346,12 +356,12 @@ Feature: .gtdrc config system
   @live
   Scenario: A second gtd run does not reject the auto-created .gtdrc.json
     Given a test project
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
-    And I run gtd
+    When I run gtd next
+    And I run gtd next
     Then it succeeds
     And stderr does not contain "Invalid gtd config"
 
@@ -366,11 +376,11 @@ Feature: .gtdrc config system
       models:
         planning: shared-parent-planner
       """
-    And a commit "docs: seed plan" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds "TODO.md" with:
       """
       Build the multiply function.
       """
-    When I run gtd
+    When I run gtd next
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     And stdout contains "shared-parent-planner"

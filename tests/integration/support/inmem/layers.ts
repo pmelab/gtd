@@ -36,6 +36,10 @@ import { Cwd } from "../../../../src/Cwd.js"
 const tryCatch = <A>(fn: () => A): Effect.Effect<A, Error> =>
   Effect.try({ try: fn, catch: (e) => (e instanceof Error ? e : new Error(String(e))) })
 
+// Git's empty-tree object SHA: used as the diff base for a root commit (no parent).
+// Mirrors InMemRepo's private EMPTY_TREE constant (used there for softResetTo).
+const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
 /**
  * Write all files from an in-memory worktree into a real temp directory.
  * Used so bash scripts can reference worktree files by path.
@@ -75,6 +79,50 @@ function runBashScript(
   } finally {
     rmSync(tmpDir, { recursive: true, force: true })
   }
+}
+
+/**
+ * Drop any changed path that falls under an excluded path (exact match or
+ * `<excluded>/...` prefix) — shared by every diff* op below, each of which
+ * only differs in which two refs it reads `before`/`after` content from.
+ */
+function excludingPaths<T extends { path: string }>(
+  paths: ReadonlyArray<T>,
+  exclude: ReadonlyArray<string>,
+): ReadonlyArray<T> {
+  if (exclude.length === 0) return paths
+  return paths.filter(({ path }) => {
+    for (const ex of exclude) {
+      if (path === ex || path.startsWith(`${ex}/`)) return false
+    }
+    return true
+  })
+}
+
+/**
+ * Render the diff between two refs for a set of changed paths, resolving
+ * each file's before/after content from `beforeRef`/`afterRef` (added files
+ * have no `before`, deleted files have no `after`). Shared by `diffHead`,
+ * `diffRef`, and `commitDiff`, which only differ in which refs and changed
+ * paths they pass in.
+ */
+function renderPathDiff(
+  repo: InMemRepo,
+  paths: ReadonlyArray<{ path: string; status: string }>,
+  exclude: ReadonlyArray<string>,
+  beforeRef: string,
+  afterRef: string,
+): string {
+  const filtered = excludingPaths(paths, exclude)
+  if (filtered.length === 0) return ""
+
+  const files = filtered.map(({ path, status }) => {
+    const before = status === "A" ? null : (repo.fileAtRef(beforeRef, path) ?? null)
+    const after = status === "D" ? null : (repo.fileAtRef(afterRef, path) ?? null)
+    return { path, before, after }
+  })
+
+  return renderDiff(files)
 }
 
 // ---------------------------------------------------------------------------
@@ -122,17 +170,7 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
   diffHead: (exclude: ReadonlyArray<string> = []) =>
     Effect.sync(() => {
       const allPaths = repo.changedPathsWorktree()
-
-      const filtered =
-        exclude.length === 0
-          ? allPaths
-          : allPaths.filter(({ path }) => {
-              for (const ex of exclude) {
-                if (path === ex || path.startsWith(`${ex}/`)) return false
-              }
-              return true
-            })
-
+      const filtered = excludingPaths(allPaths, exclude)
       if (filtered.length === 0) return ""
 
       const files = filtered.map(({ path, status }) => {
@@ -147,26 +185,7 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
   diffRef: (ref: string, exclude: ReadonlyArray<string> = []) =>
     Effect.sync(() => {
       const allPaths = repo.changedPathsBetween(ref, "HEAD")
-
-      const filtered =
-        exclude.length === 0
-          ? allPaths
-          : allPaths.filter(({ path }) => {
-              for (const ex of exclude) {
-                if (path === ex || path.startsWith(`${ex}/`)) return false
-              }
-              return true
-            })
-
-      if (filtered.length === 0) return ""
-
-      const files = filtered.map(({ path, status }) => {
-        const before = status === "A" ? null : (repo.fileAtRef(ref, path) ?? null)
-        const after = status === "D" ? null : (repo.fileAtRef("HEAD", path) ?? null)
-        return { path, before, after }
-      })
-
-      return renderDiff(files)
+      return renderPathDiff(repo, allPaths, exclude, ref, "HEAD")
     }),
 
   diffPath: (path: string) =>
@@ -178,6 +197,16 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
       if (before === after) return ""
 
       return renderDiff([{ path, before, after }])
+    }),
+
+  commitDiff: (hash: string, exclude: ReadonlyArray<string> = []) =>
+    tryCatch(() => {
+      if (repo.resolveRef(hash) === null) {
+        throw new Error(`Cannot resolve ref: ${hash}`)
+      }
+      const parent = repo.resolveRef(`${hash}~1`) ?? EMPTY_TREE_HASH
+      const allPaths = repo.changedPathsBetween(parent, hash)
+      return renderPathDiff(repo, allPaths, exclude, parent, hash)
     }),
 })
 

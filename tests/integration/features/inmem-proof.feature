@@ -6,9 +6,9 @@ Feature: In-process in-memory tier smoke test
   corresponding live-tier scenarios — only the execution backend differs.
 
   @inmem
-  Scenario: Grilling prompt is emitted in-process against in-memory layers
+  Scenario: The human-answer prompt is emitted in-process against in-memory layers
     Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a commit "gtd(agent): grilling" that adds "TODO.md" with:
       """
       # Plan
 
@@ -16,18 +16,19 @@ Feature: In-process in-memory tier smoke test
 
       ## Which operations?
 
-      <!-- user answers here -->
+      Suggested default: add and subtract.
       """
-    When I run gtd
+    When I run gtd next with "--json"
     Then it succeeds
-    And the last commit subject is "gtd: grilling"
-    And stdout contains "holds the plan under development"
-    And stdout contains "Open questions await the user"
+    And stdout contains "\"actor\":\"human\""
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "TODO.md"
 
   @inmem
   Scenario: Second in-process run shows no newline bleed from previous scenario
     Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a commit "gtd(agent): grilling" that adds "TODO.md" with:
       """
       # Plan
 
@@ -35,8 +36,8 @@ Feature: In-process in-memory tier smoke test
 
       ## What approach?
 
-      <!-- user answers here -->
+      Suggested default: incremental delivery.
       """
-    When I run gtd
+    When I run gtd next
     Then it succeeds
-    And stdout contains "holds the plan under development"
+    And stdout contains "TODO.md"

@@ -3,16 +3,15 @@ import headerMd from "./prompts/header.md"
 import diffMd from "./prompts/partials/diff.md"
 import feedbackMd from "./prompts/partials/feedback.md"
 import packageMd from "./prompts/partials/package.md"
-import autoAdvanceMd from "./prompts/partials/auto-advance.md"
-import neutralMd from "./prompts/partials/neutral.md"
-import stopMd from "./prompts/partials/stop.md"
-import grillingIterateMd from "./prompts/grilling-iterate.md"
-import grillingStopMd from "./prompts/grilling-stop.md"
+import agentTurnMd from "./prompts/partials/agent-turn.md"
+import grillingAgentMd from "./prompts/grilling-agent.md"
+import grillingAnswersMd from "./prompts/grilling-answers.md"
 import decomposeMd from "./prompts/decompose.md"
 import buildingMd from "./prompts/building.md"
 import fixingMd from "./prompts/fixing.md"
 import agenticReviewMd from "./prompts/agentic-review.md"
 import reviewMd from "./prompts/review.md"
+import awaitReviewMd from "./prompts/await-review.md"
 import squashingMd from "./prompts/squashing.md"
 import escalateMd from "./prompts/escalate.md"
 import idleMd from "./prompts/idle.md"
@@ -20,48 +19,56 @@ import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdState, Result } from "./Machine.js"
 
 /**
- * The eight edge-only states: the driver performs their `edgeAction`, re-gathers,
- * and re-resolves without ever rendering a prompt. Asking `buildPrompt` to render
- * one is a driver bug, so it throws.
+ * The 11 prompt-bearing states (frozen contract) — `src/State.ts` consumes
+ * this single classification instead of duplicating an edge-only set.
+ * `buildPrompt` throws for the other five (testing, planning, close-package,
+ * done, health-check), which are performed by the driver and must never
+ * render a prompt.
  */
-const EDGE_ONLY_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
-  "transport",
-  "new-feature",
-  "testing",
-  "accept-review",
-  "close-package",
-  "done",
+const PROMPT_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
+  "grilling",
+  "grilled",
+  "building",
+  "fixing",
+  "agentic-review",
+  "review",
   "await-review",
-  "health-check",
+  "squashing",
+  "escalate",
+  "idle",
+  "health-fixing",
 ])
 
-/** The agent/human-facing states `buildPrompt` renders a section for. */
-type PromptState = Exclude<
-  GtdState,
-  | "transport"
-  | "new-feature"
-  | "testing"
-  | "accept-review"
-  | "close-package"
-  | "done"
+export const isPromptState = (state: GtdState): boolean => PROMPT_STATES.has(state)
+
+/** The prompt-bearing states `buildPrompt` renders a section for. */
+type PromptState =
+  | "grilling"
+  | "grilled"
+  | "building"
+  | "fixing"
+  | "agentic-review"
+  | "review"
   | "await-review"
-  | "health-check"
->
+  | "squashing"
+  | "escalate"
+  | "idle"
+  | "health-fixing"
 
 /**
- * Which `ModelState` a prompt-bearing state resolves `{{MODEL}}` against. The two
- * decompose states (`grilled`, `planning`) share the `decompose` tier; the STOP
- * states (`escalate`, `idle`) spawn no subagent and carry none.
+ * Which `ModelState` a prompt-bearing state resolves `{{MODEL}}` against.
+ * `grilled` shares the `decompose` tier; `review` and `squashing` share the
+ * `clean` tier (renamed states, same model tier); the human-gated states
+ * (`await-review`, `escalate`, `idle`) spawn no subagent and carry none.
  */
 const MODEL_STATE: Partial<Record<PromptState, ModelState>> = {
   grilling: "grilling",
   grilled: "decompose",
-  planning: "decompose",
   building: "building",
   fixing: "fixing",
   "health-fixing": "fixing",
   "agentic-review": "agentic-review",
-  clean: "clean",
+  review: "clean",
   squashing: "clean",
 }
 
@@ -75,12 +82,12 @@ const builtinResolveModel = (state: ModelState): string => builtinTierDefault[st
 /**
  * Picks a code fence long enough to safely wrap `content`, even when the content
  * itself contains runs of backticks (mirrors GitHub-flavored Markdown fencing).
- * Exported for the TODO.md capture builders in Events.ts: a CommonMark closing
- * fence must be at least as long as its opener, so sizing the outer fence past
- * any backtick run in a captured diff keeps formatters (gtd format / prettier)
- * from closing the block early on an indented ``` context line.
+ * Used by the Eta templates below: a CommonMark closing fence must be at least
+ * as long as its opener, so sizing the outer fence past any backtick run in a
+ * captured diff keeps formatters (gtd format / prettier) from closing the
+ * block early on an indented ``` context line.
  */
-export const fenceFor = (content: string): string => {
+const fenceFor = (content: string): string => {
   let longest = 0
   for (const match of content.matchAll(/`+/g)) longest = Math.max(longest, match[0].length)
   return "`".repeat(Math.max(3, longest + 1))
@@ -98,19 +105,18 @@ eta.loadTemplate("@diff", diffMd)
 eta.loadTemplate("@feedback", feedbackMd)
 eta.loadTemplate("@package", packageMd)
 
-// Register tail partials
-eta.loadTemplate("@auto-advance", autoAdvanceMd)
-eta.loadTemplate("@neutral", neutralMd)
-eta.loadTemplate("@stop", stopMd)
+// Register the single agent-turn tail partial.
+eta.loadTemplate("@agent-turn", agentTurnMd)
 
 // Register state templates
-eta.loadTemplate("@grilling-iterate", grillingIterateMd)
-eta.loadTemplate("@grilling-stop", grillingStopMd)
+eta.loadTemplate("@grilling-agent", grillingAgentMd)
+eta.loadTemplate("@grilling-answers", grillingAnswersMd)
 eta.loadTemplate("@decompose", decomposeMd)
 eta.loadTemplate("@building", buildingMd)
 eta.loadTemplate("@fixing", fixingMd)
 eta.loadTemplate("@agentic-review", agenticReviewMd)
 eta.loadTemplate("@review", reviewMd)
+eta.loadTemplate("@await-review", awaitReviewMd)
 eta.loadTemplate("@squashing", squashingMd)
 eta.loadTemplate("@escalate", escalateMd)
 eta.loadTemplate("@idle", idleMd)
@@ -124,11 +130,11 @@ eta.loadTemplate("@idle", idleMd)
 /** Maps each non-grilling PromptState to its registered template name. */
 const STATE_TEMPLATE: Record<Exclude<PromptState, "grilling">, string> = {
   grilled: "@decompose",
-  planning: "@decompose",
   building: "@building",
   fixing: "@fixing",
   "agentic-review": "@agentic-review",
-  clean: "@review",
+  review: "@review",
+  "await-review": "@await-review",
   squashing: "@squashing",
   escalate: "@escalate",
   idle: "@idle",
@@ -141,7 +147,7 @@ const STATE_TEMPLATE: Record<Exclude<PromptState, "grilling">, string> = {
  * that pulls in shared partials (`@header`, tail) and the
  * state-specific dynamic values (`model`, `tail`) as view-model variables.
  *
- * Throws for the seven edge-only states — they are performed by the driver and
+ * Throws for the five edge-only states — they are performed by the driver and
  * must never reach here.
  */
 export const buildPrompt = (
@@ -150,7 +156,7 @@ export const buildPrompt = (
   output: "plain" | "json" = "plain",
 ): string => {
   const { state, context } = result
-  if (EDGE_ONLY_STATES.has(state)) {
+  if (!isPromptState(state)) {
     throw new Error(`State "${state}" is performed by the edge and must never reach buildPrompt`)
   }
   const promptState = state as PromptState
@@ -159,13 +165,15 @@ export const buildPrompt = (
   const modelState = MODEL_STATE[promptState]
   const model = modelState !== undefined ? resolveModel(modelState) : ""
 
-  // Select the tail partial name.
-  const tail = output === "json" ? "@neutral" : result.autoAdvance ? "@auto-advance" : "@stop"
+  // Select the tail: agent turns get the pinned tail sentence in plain mode;
+  // human turns and any --json output carry no tail at all.
+  const tail = output === "plain" && result.actor === "agent" ? "@agent-turn" : undefined
 
-  // Select the state template.
+  // Select the state template. For `grilling`, which prompt renders depends
+  // on which actor the resolver is awaiting at this rest.
   let templateName: string
   if (promptState === "grilling") {
-    templateName = context.grillingCase === "stop" ? "@grilling-stop" : "@grilling-iterate"
+    templateName = result.actor === "human" ? "@grilling-answers" : "@grilling-agent"
   } else {
     templateName = STATE_TEMPLATE[promptState]
   }
