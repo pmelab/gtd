@@ -3,16 +3,6 @@
 exports[`buildPrompt snapshots > agentic-review with refDiff and reviewBase plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
-
-### Work packages in \`.gtd/\`
-
-- \`01-foo/\`
-  - \`01-task.md\`
-  - \`02-task.md\`
 Spawn a **reviewing subagent** using model \`MODEL-agentic-review\`. The package's task spec
 files and its cumulative diff are found below. The subagent must:
 
@@ -59,16 +49,6 @@ adding interpretation or extra steps.
 exports[`buildPrompt snapshots > agentic-review with rich package json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
-
-### Work packages in \`.gtd/\`
-
-- \`01-foo/\`
-  - \`01-task.md\`
-  - \`02-task.md\`
 Spawn a **reviewing subagent** using model \`MODEL-agentic-review\`. The package's task spec
 files and its cumulative diff are found below. The subagent must:
 
@@ -107,16 +87,6 @@ what to do next.
 exports[`buildPrompt snapshots > agentic-review with rich package plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
-
-### Work packages in \`.gtd/\`
-
-- \`01-foo/\`
-  - \`01-task.md\`
-  - \`02-task.md\`
 Spawn a **reviewing subagent** using model \`MODEL-agentic-review\`. The package's task spec
 files and its cumulative diff are found below. The subagent must:
 
@@ -156,16 +126,6 @@ adding interpretation or extra steps.
 exports[`buildPrompt snapshots > building with rich package json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
-
-### Work packages in \`.gtd/\`
-
-- \`01-foo/\`
-  - \`01-task.md\`
-  - \`02-task.md\`
 Build the package described below by orchestrating the execution — you do not
 implement the tasks yourself. Spawn **one subagent per task**, all in
 **parallel**, each using model \`MODEL-building\`:
@@ -206,16 +166,6 @@ what to do next.
 exports[`buildPrompt snapshots > building with rich package plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
-
-### Work packages in \`.gtd/\`
-
-- \`01-foo/\`
-  - \`01-task.md\`
-  - \`02-task.md\`
 Build the package described below by orchestrating the execution — you do not
 implement the tasks yourself. Spawn **one subagent per task**, all in
 **parallel**, each using model \`MODEL-building\`:
@@ -257,10 +207,6 @@ adding interpretation or extra steps.
 exports[`buildPrompt snapshots > clean with no diff json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
 \`REVIEW.md\` file that will help a human to review the changes. It must:
 
@@ -313,10 +259,6 @@ what to do next.
 exports[`buildPrompt snapshots > clean with no diff plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
 \`REVIEW.md\` file that will help a human to review the changes. It must:
 
@@ -370,10 +312,6 @@ human manually.
 exports[`buildPrompt snapshots > clean with refDiff and reviewBase json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
 \`REVIEW.md\` file that will help a human to review the changes. It must:
 
@@ -435,10 +373,6 @@ what to do next.
 exports[`buildPrompt snapshots > clean with refDiff and reviewBase plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
 \`REVIEW.md\` file that will help a human to review the changes. It must:
 
@@ -501,10 +435,6 @@ human manually.
 exports[`buildPrompt snapshots > escalate json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 The agent was not able to fix all errors on its own. The last error report is
 stored in \`ERRORS.md\` for a human to investigate.
 
@@ -522,10 +452,6 @@ what to do next.
 exports[`buildPrompt snapshots > escalate plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 The agent was not able to fix all errors on its own. The last error report is
 stored in \`ERRORS.md\` for a human to investigate.
 
@@ -544,10 +470,6 @@ human manually.
 exports[`buildPrompt snapshots > fixing with backtick feedbackContent plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 Spawn a **fix subagent** using model \`MODEL-fixing\` to apply fixes for the feedback
 below:
 
@@ -570,50 +492,9 @@ adding interpretation or extra steps.
 "
 `;
 
-exports[`buildPrompt snapshots > fixing with dirty working tree and diff plain 1`] = `
-"You are an autonomous coding agent orchestrating work on the user's repo.
-
-## Context
-
-Last commit: \`chore: init\`
-Working tree: dirty
-
-### Working-tree diff (\`git diff HEAD\`, untracked included)
-
-\`\`\`diff
-diff --git a/foo b/foo
-+changed
-\`\`\`
-
-Spawn a **fix subagent** using model \`MODEL-fixing\` to apply fixes for the feedback
-below:
-
-1. **Work through the Feedback to address section below** — address every item
-   it lists. For test output, make the failing tests pass; for review findings,
-   satisfy each finding against the package's task specs.
-2. **Make the fix in place** — change the code to resolve the feedback. Keep the
-   change focused; do not refactor unrelated code.
-3. **Leave every change uncommitted** — do **not** commit or stage.
-
-### Feedback to address
-
-\`\`\`
-FAIL: tests failed
-\`\`\`
-
-After completing the tasks above, run \`gtd\` in the current working directory and
-follow its output verbatim — execute exactly what it says, step by step, without
-adding interpretation or extra steps.
-"
-`;
-
 exports[`buildPrompt snapshots > fixing with empty feedbackContent json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 Spawn a **fix subagent** using model \`MODEL-fixing\` to apply fixes for the feedback
 below:
 
@@ -632,10 +513,6 @@ what to do next.
 exports[`buildPrompt snapshots > fixing with empty feedbackContent plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 Spawn a **fix subagent** using model \`MODEL-fixing\` to apply fixes for the feedback
 below:
 
@@ -655,10 +532,6 @@ adding interpretation or extra steps.
 exports[`buildPrompt snapshots > fixing with plain feedbackContent plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 Spawn a **fix subagent** using model \`MODEL-fixing\` to apply fixes for the feedback
 below:
 
@@ -684,10 +557,6 @@ adding interpretation or extra steps.
 exports[`buildPrompt snapshots > grilled json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 \`TODO.md\` contains an implementation plan. Decompose it into an ordered set of
 executable work packages stored in the \`.gtd/\` directory. If \`.gtd/\` already
 holds packages from an earlier turn, immediately abort and raise an error.
@@ -742,10 +611,6 @@ what to do next.
 exports[`buildPrompt snapshots > grilled plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 \`TODO.md\` contains an implementation plan. Decompose it into an ordered set of
 executable work packages stored in the \`.gtd/\` directory. If \`.gtd/\` already
 holds packages from an earlier turn, immediately abort and raise an error.
@@ -801,10 +666,6 @@ adding interpretation or extra steps.
 exports[`buildPrompt snapshots > grilling iterate json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 \`TODO.md\` holds the plan under development. The grilling loop interviews it —
 surfacing and resolving open questions — until the plan is solid enough to
 decompose into work packages.
@@ -877,10 +738,6 @@ what to do next.
 exports[`buildPrompt snapshots > grilling iterate plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 \`TODO.md\` holds the plan under development. The grilling loop interviews it —
 surfacing and resolving open questions — until the plan is solid enough to
 decompose into work packages.
@@ -954,10 +811,6 @@ adding interpretation or extra steps.
 exports[`buildPrompt snapshots > grilling stop json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 \`TODO.md\` holds the plan under development. The grilling loop interviews it —
 surfacing and resolving open questions — until the plan is solid enough to
 decompose into work packages.
@@ -995,10 +848,6 @@ what to do next.
 exports[`buildPrompt snapshots > grilling stop plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 \`TODO.md\` holds the plan under development. The grilling loop interviews it —
 surfacing and resolving open questions — until the plan is solid enough to
 decompose into work packages.
@@ -1037,10 +886,6 @@ human manually.
 exports[`buildPrompt snapshots > idle json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 Report that the repository is idle — nothing to do.
 
 Complete the tasks above, then end your turn. An outside process will decide
@@ -1051,10 +896,6 @@ what to do next.
 exports[`buildPrompt snapshots > idle plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 Report that the repository is idle — nothing to do.
 
 After the tasks above are done, end your turn and never invoke an additional
@@ -1066,10 +907,6 @@ human manually.
 exports[`buildPrompt snapshots > planning json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 \`TODO.md\` contains an implementation plan. Decompose it into an ordered set of
 executable work packages stored in the \`.gtd/\` directory. If \`.gtd/\` already
 holds packages from an earlier turn, immediately abort and raise an error.
@@ -1124,10 +961,6 @@ what to do next.
 exports[`buildPrompt snapshots > planning plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 \`TODO.md\` contains an implementation plan. Decompose it into an ordered set of
 executable work packages stored in the \`.gtd/\` directory. If \`.gtd/\` already
 holds packages from an earlier turn, immediately abort and raise an error.
@@ -1183,10 +1016,6 @@ adding interpretation or extra steps.
 exports[`buildPrompt snapshots > squashing with squashDiff and squashBase json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 The process is **approved and done**. Your job is to author a clean
 conventional-commits squash message and hand it off to the harness.
 
@@ -1239,10 +1068,6 @@ what to do next.
 exports[`buildPrompt snapshots > squashing with squashDiff and squashBase plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-## Context
-
-Last commit: \`chore: init\`
-Working tree: clean
 The process is **approved and done**. Your job is to author a clean
 conventional-commits squash message and hand it off to the harness.
 

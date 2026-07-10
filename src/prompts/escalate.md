@@ -1,6 +1,5 @@
 <%~ include("@header") %>
 
-<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
 The agent was not able to fix all errors on its own. The last error report is
 stored in `ERRORS.md` for a human to investigate.
 

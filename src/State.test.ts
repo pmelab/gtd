@@ -66,9 +66,6 @@ const minContext: ResolveContext = {
   testFixCount: 0,
   reviewFixCount: 0,
   packages: [],
-  diff: "",
-  lastCommitSubject: "",
-  workingTreeClean: true,
   feedbackContent: "",
 }
 

@@ -1,6 +1,5 @@
 <%~ include("@header") %>
 
-<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
 Spawn a **fix subagent** using model `<%= it.model %>` to apply fixes for the feedback
 below:
 

@@ -37,7 +37,6 @@ Feature: Build lifecycle — Grilled → Planning → Building
     Then it succeeds
     And stdout contains "Build the package described below"
     And stdout contains "01-add"
-    And stdout contains "02-sub"
     # Only the lowest-numbered package's task content is inlined for building.
     And stdout contains "Implement the add function."
     And stdout does not contain "Implement the subtract function."

@@ -1,6 +1,5 @@
 <%~ include("@header") %>
 
-<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
 Spawn a **reviewing subagent** using model `<%= it.model %>`. The package's task spec
 files and its cumulative diff are found below. The subagent must:
 

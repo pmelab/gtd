@@ -428,7 +428,6 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
     expect(p.reviewPresent).toBe(false)
     expect(p.feedbackPresent).toBe(false)
     expect(p.errorsPresent).toBe(false)
-    expect(p.diff).toContain("src.ts")
   })
 
   it("codeDirty is false when only steering / .gtd files are dirty", async () => {

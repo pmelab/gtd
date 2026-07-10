@@ -471,10 +471,6 @@ export const gatherEvents = (): Effect.Effect<
     )
 
     const packages = yield* getPackages(fs, root)
-    // `git diff HEAD` needs a HEAD; before the first commit the prompt-context
-    // diff stays empty (the seed action captures the content itself).
-    const diff = hasCommits && entries.length > 0 ? yield* git.diffHead() : ""
-
     // When REVIEW.md is committed and the tree is dirty, check whether the only
     // pending change is checkbox ticks/un-ticks in REVIEW.md (no new text lines).
     const onlyReviewDirty = entries.length > 0 && entries.every((e) => e.path === REVIEW_FILE)
@@ -717,7 +713,6 @@ export const gatherEvents = (): Effect.Effect<
       lastCommitSubject,
       workingTreeClean,
       packages,
-      diff,
       ...(reviewBase !== undefined ? { reviewBase } : {}),
       ...(refDiff !== undefined ? { refDiff } : {}),
       hasCommitsAfterLastDone,

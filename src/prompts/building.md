@@ -1,6 +1,5 @@
 <%~ include("@header") %>
 
-<%~ include("@context", { context: it.context, fenceFor: it.fenceFor }) %>
 Build the package described below by orchestrating the execution — you do not
 implement the tasks yourself. Spawn **one subagent per task**, all in
 **parallel**, each using model `<%= it.model %>`:

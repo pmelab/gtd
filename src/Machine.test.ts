@@ -1027,7 +1027,7 @@ describe("dirty health HEAD outside process — routes back into health-fix loop
 // ── Context passthrough ──────────────────────────────────────────────────────
 
 describe("context passthrough + folds", () => {
-  it("carries packages, diff, refDiff, reviewBase, lastCommitSubject, workingTreeClean", () => {
+  it("carries packages, refDiff, reviewBase", () => {
     const { context } = resolve([
       commit({ isErrors: true }),
       R({
@@ -1035,7 +1035,6 @@ describe("context passthrough + folds", () => {
         workingTreeClean: false,
         codeDirty: true,
         gtdDirExists: true,
-        diff: "DIFF",
         packages: [
           {
             name: "01-foo",
@@ -1047,9 +1046,6 @@ describe("context passthrough + folds", () => {
     ])
     expect(context.testFixCount).toBe(1)
     expect(context.reviewFixCount).toBe(0)
-    expect(context.diff).toBe("DIFF")
-    expect(context.lastCommitSubject).toBe("feat: thing")
-    expect(context.workingTreeClean).toBe(false)
     expect(context.packages[0]!.taskContents).toEqual([{ name: "01-task.md", content: "body" }])
   })
 })
