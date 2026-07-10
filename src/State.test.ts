@@ -1,111 +1,109 @@
 import { describe, expect, it } from "vitest"
-import type { GtdState, ResolveContext } from "./Machine.js"
-import { EDGE_ONLY_STATES, describeStatus, isEdgeOnly } from "./State.js"
-
-// The driver's auto-advance-vs-prompt decision hinges entirely on this set: it
-// must stay identical to `Prompt.ts`'s (private) `EDGE_ONLY_STATES`, i.e. the
-// states `buildPrompt` refuses to render. A drift either crashes the driver
-// (buildPrompt throws on an edge-only state) or spins the loop (a prompt-bearing
-// state is treated as edge-only). These pure assertions pin it.
-
-const ALL_STATES: ReadonlyArray<GtdState> = [
-  "transport",
-  "new-feature",
-  "grilling",
-  "grilled",
-  "planning",
-  "building",
-  "testing",
-  "fixing",
-  "escalate",
-  "agentic-review",
-  "close-package",
-  "clean",
-  "await-review",
-  "accept-review",
-  "done",
-  "idle",
-  "squashing",
-  "health-check",
-  "health-fixing",
-]
-
-const EXPECTED_EDGE_ONLY: ReadonlyArray<GtdState> = [
-  "transport",
-  "new-feature",
-  "testing",
-  "await-review",
-  "accept-review",
-  "close-package",
-  "done",
-  "health-check",
-]
-
-describe("edge-only state classification", () => {
-  it("EDGE_ONLY_STATES is exactly the eight edge-only states", () => {
-    expect([...EDGE_ONLY_STATES].sort()).toEqual([...EXPECTED_EDGE_ONLY].sort())
-  })
-
-  it("isEdgeOnly is true for every edge-only state", () => {
-    for (const state of EXPECTED_EDGE_ONLY) {
-      expect(isEdgeOnly(state)).toBe(true)
-    }
-  })
-
-  it("isEdgeOnly is false for every prompt-bearing state", () => {
-    const promptBearing = ALL_STATES.filter((s) => !EXPECTED_EDGE_ONLY.includes(s))
-    // sanity: the eleven remaining states are all prompt-bearing
-    expect(promptBearing).toHaveLength(11)
-    for (const state of promptBearing) {
-      expect(isEdgeOnly(state)).toBe(false)
-    }
-  })
-})
-
-const minContext: ResolveContext = {
-  testFixCount: 0,
-  reviewFixCount: 0,
-  packages: [],
-  feedbackContent: "",
-}
+import type { EdgeAction, GtdState, TurnPrediction } from "./Machine.js"
+import { describeEdgeAction, describeStatus } from "./State.js"
 
 describe("describeStatus", () => {
-  it("prompt-bearing result: state=building, no edgeAction", () => {
-    const result = {
+  it("projects a TurnPrediction with a predicted commit into a StatusSummary", () => {
+    const prediction: TurnPrediction = {
+      actor: "human",
+      subject: "gtd(human): building",
       state: "building" as GtdState,
-      autoAdvance: false,
-      context: minContext,
     }
-    expect(describeStatus(result)).toEqual({
+    expect(describeStatus(prediction)).toEqual({
       state: "building",
-      nextState: "building",
-      willAutoAdvance: false,
-      edgeActions: [],
+      actor: "human",
+      predictedCommit: "gtd(human): building",
+      predictedState: "building",
     })
   })
 
-  it("edge-only result: state=testing, runTest edgeAction", () => {
-    const result = {
-      state: "testing" as GtdState,
-      autoAdvance: true,
-      edgeAction: { kind: "runTest" as const, errorCount: 0, capReached: false },
-      context: minContext,
+  it("projects a TurnPrediction with no predicted commit (subject: null)", () => {
+    const prediction: TurnPrediction = {
+      actor: "agent",
+      subject: null,
+      state: "grilling" as GtdState,
     }
-    const summary = describeStatus(result)
-    expect(summary.nextState).toBeNull()
-    expect(summary.willAutoAdvance).toBe(true)
-    expect(summary.edgeActions[0]).toBe("run the test suite (attempt 1)")
+    expect(describeStatus(prediction)).toEqual({
+      state: "grilling",
+      actor: "agent",
+      predictedCommit: null,
+      predictedState: "grilling",
+    })
+  })
+})
+
+// `describeEdgeAction` must be total over the v2 `EdgeAction` union — every
+// variant needs a phrase, or the driver's `actions` summary silently omits a
+// hop. This exhaustiveness check is enforced at both the type level (the
+// `EdgeActionHandlers` mapped type in State.ts requires every kind) and here,
+// with one representative instance per variant.
+describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
+  const cases: ReadonlyArray<EdgeAction> = [
+    { kind: "captureTurn", actor: "human", gate: "building" },
+    { kind: "commitRouting", subject: "gtd: tests green" },
+    { kind: "runTest", errorCount: 0, capReached: false },
+    { kind: "closePackage" },
+    { kind: "writeSquashTemplate" },
+    { kind: "squashCommit", squashBase: "abc1234" },
+    { kind: "runHealthCheck", errorCount: 0, capReached: false, squashAfterGreen: false },
+  ]
+
+  it("returns a non-empty phrase for every EdgeAction variant", () => {
+    for (const action of cases) {
+      expect(describeEdgeAction(action)).toEqual(expect.any(String))
+      expect(describeEdgeAction(action).length).toBeGreaterThan(0)
+    }
   })
 
-  it("commitPending with removeTodo=true", () => {
-    const result = {
-      state: "planning" as GtdState,
-      autoAdvance: false,
-      edgeAction: { kind: "commitPending" as const, prefix: "gtd: planning", removeTodo: true },
-      context: minContext,
-    }
-    expect(describeStatus(result).edgeActions[0]).toBe(
-      'commit pending changes as "gtd: planning" (removing TODO.md)',
+  it("captureTurn names the actor and gate", () => {
+    expect(describeEdgeAction({ kind: "captureTurn", actor: "agent", gate: "fixing" })).toBe(
+      'capture the agent turn as "gtd(agent): fixing"',
     )
+  })
+
+  it("commitRouting names the subject with no removal flags", () => {
+    expect(describeEdgeAction({ kind: "commitRouting", subject: "gtd: grilled" })).toBe(
+      'commit routing as "gtd: grilled"',
+    )
+  })
+
+  it("commitRouting lists every removal flag that is set", () => {
+    expect(
+      describeEdgeAction({
+        kind: "commitRouting",
+        subject: "gtd: package done",
+        removeTodo: true,
+        removeFeedback: true,
+      }),
+    ).toBe('commit routing as "gtd: package done" (removing TODO.md, FEEDBACK.md)')
+  })
+
+  it("runTest reports the 1-indexed attempt number", () => {
+    expect(describeEdgeAction({ kind: "runTest", errorCount: 2, capReached: false })).toBe(
+      "run the test suite (attempt 3)",
+    )
+  })
+
+  it("runTest notes when the cap is reached", () => {
+    expect(describeEdgeAction({ kind: "runTest", errorCount: 5, capReached: true })).toBe(
+      "run the test suite (attempt 6, cap reached)",
+    )
+  })
+
+  it("squashCommit names the squash base", () => {
+    expect(describeEdgeAction({ kind: "squashCommit", squashBase: "deadbee" })).toBe(
+      "squash the cycle onto deadbee",
+    )
+  })
+
+  it("runHealthCheck reports attempt, cap, and squash-after-green together", () => {
+    expect(
+      describeEdgeAction({
+        kind: "runHealthCheck",
+        errorCount: 0,
+        capReached: true,
+        squashAfterGreen: true,
+      }),
+    ).toBe("run the health check (attempt 1, cap reached, squash after green)")
   })
 })

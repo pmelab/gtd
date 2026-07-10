@@ -61,7 +61,7 @@ describe("performance smoke", { timeout: 180_000 }, () => {
 
     const start = performance.now()
     const events = await Effect.runPromise(
-      gatherEvents().pipe(
+      gatherEvents("none").pipe(
         Effect.provide(GitService.Live),
         Effect.provide(NodeContext.layer),
         Effect.provide(
@@ -96,6 +96,7 @@ describe("performance smoke", { timeout: 180_000 }, () => {
         type: "RESOLVE",
         payload: {
           ...DEFAULT_PAYLOAD,
+          invoker: "none",
           lastCommitSubject: "feat: shipped",
           reviewBase: "abc123",
           refDiff: bigDiff,
@@ -107,7 +108,7 @@ describe("performance smoke", { timeout: 180_000 }, () => {
     const prompt = buildPrompt(result)
     const elapsed = performance.now() - start
 
-    expect(result.state).toBe("clean")
+    expect(result.state).toBe("review")
     expect(prompt).toContain("const line9999 = 9999")
     expect(elapsed).toBeLessThan(2000)
   })

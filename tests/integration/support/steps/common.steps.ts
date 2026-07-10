@@ -144,6 +144,38 @@ When("I run gtd with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd(arg)
 })
 
+When("I run gtd step", async (world: GtdWorld) => {
+  await world.runGtd("step")
+})
+
+When("I run gtd step with {string}", async (world: GtdWorld, arg: string) => {
+  await world.runGtd("step", arg)
+})
+
+When("I run gtd step-agent", async (world: GtdWorld) => {
+  await world.runGtd("step-agent")
+})
+
+When("I run gtd step-agent with {string}", async (world: GtdWorld, arg: string) => {
+  await world.runGtd("step-agent", arg)
+})
+
+When("I run gtd next", async (world: GtdWorld) => {
+  await world.runGtd("next")
+})
+
+When("I run gtd next with {string}", async (world: GtdWorld, arg: string) => {
+  await world.runGtd("next", arg)
+})
+
+When("I run gtd status", async (world: GtdWorld) => {
+  await world.runGtd("status")
+})
+
+When("I run gtd status with {string}", async (world: GtdWorld, arg: string) => {
+  await world.runGtd("status", arg)
+})
+
 // ── Assertions ───────────────────────────────────────────────────────────────
 
 Then("it succeeds", (world: GtdWorld) => {
@@ -257,10 +289,16 @@ Then(
 // Full-history assertion for journey scenarios: the exact commit subject
 // sequence, oldest → newest, one subject per docstring line.
 Then("the commit subjects from oldest to newest are:", (world: GtdWorld, doc: string) => {
-  const actual = execFileSync("git", ["log", "--reverse", "--format=%s"], {
-    cwd: world.repoDir,
-    encoding: "utf-8",
-  }).trim()
+  const actual =
+    world.tier === "inmem"
+      ? world
+          .repo!.commitHistory()
+          .map((c) => c.message)
+          .join("\n")
+      : execFileSync("git", ["log", "--reverse", "--format=%s"], {
+          cwd: world.repoDir,
+          encoding: "utf-8",
+        }).trim()
   assert.strictEqual(
     actual,
     doc.trim(),
@@ -284,4 +322,19 @@ Then("the commit count is unchanged", (world: GtdWorld) => {
 Then("the commit count is {int}", (world: GtdWorld, expected: number) => {
   const current = world.commitCount()
   assert.strictEqual(current, expected, `Expected commit count ${expected}, got ${current}`)
+})
+
+Then("the commit count increased by {int}", (world: GtdWorld, n: number) => {
+  assert.notStrictEqual(
+    world.savedCommitCount,
+    undefined,
+    'No commit count was recorded. Run "I record the commit count" first.',
+  )
+  const current = world.commitCount()
+  const expected = world.savedCommitCount! + n
+  assert.strictEqual(
+    current,
+    expected,
+    `Expected commit count to increase by ${n} (from ${world.savedCommitCount} to ${expected}), got ${current}`,
+  )
 })

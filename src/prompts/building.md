@@ -21,4 +21,6 @@ Leave all changes uncommitted. An outside process handles that.
 <%~ include("@package", { pkg: it.context.packages[0], fenceFor: it.fenceFor }) %>
 <% } %>
 
+<% if (it.tail) { %>
 <%~ include(it.tail) %>
+<% } %>

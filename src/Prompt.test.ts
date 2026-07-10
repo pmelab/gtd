@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildPrompt } from "./Prompt.js"
+import { buildPrompt, isPromptState } from "./Prompt.js"
 import type { GtdPackageFact, GtdState, ResolveContext, Result } from "./Machine.js"
 
 const ctx = (overrides: Partial<ResolveContext> = {}): ResolveContext => ({
@@ -12,10 +12,11 @@ const ctx = (overrides: Partial<ResolveContext> = {}): ResolveContext => ({
 
 const result = (
   state: GtdState,
-  overrides: { context?: Partial<ResolveContext>; autoAdvance?: boolean } = {},
+  overrides: { context?: Partial<ResolveContext>; actor?: "human" | "agent" } = {},
 ): Result => ({
   state,
-  autoAdvance: overrides.autoAdvance ?? false,
+  actor: overrides.actor ?? "agent",
+  pending: false,
   context: ctx(overrides.context),
 })
 
@@ -28,33 +29,64 @@ const onePackage: GtdPackageFact = {
 const withPackage = (
   state: GtdState,
   context: Partial<ResolveContext> = {},
-  autoAdvance = true,
-): Result => result(state, { autoAdvance, context: { packages: [onePackage], ...context } })
+  actor: "human" | "agent" = "agent",
+): Result => result(state, { actor, context: { packages: [onePackage], ...context } })
 
 const PLANNING_MODEL = "claude-opus-4-8"
 const EXECUTION_MODEL = "claude-sonnet-4-8"
 
+const PROMPT_STATES: ReadonlyArray<GtdState> = [
+  "grilling",
+  "grilled",
+  "building",
+  "fixing",
+  "agentic-review",
+  "review",
+  "await-review",
+  "squashing",
+  "escalate",
+  "idle",
+  "health-fixing",
+]
+
+const EDGE_ONLY_STATES: ReadonlyArray<GtdState> = [
+  "testing",
+  "planning",
+  "close-package",
+  "done",
+  "health-check",
+]
+
+describe("isPromptState", () => {
+  it("matches exactly the pinned 11-state set", () => {
+    for (const state of PROMPT_STATES) expect(isPromptState(state)).toBe(true)
+    for (const state of EDGE_ONLY_STATES) expect(isPromptState(state)).toBe(false)
+  })
+})
+
 describe("buildPrompt", () => {
   it("includes the shared header for every prompt state", () => {
-    expect(buildPrompt(result("idle"))).toContain("You are an autonomous coding agent")
-    expect(buildPrompt(result("escalate"))).toContain("You are an autonomous coding agent")
+    expect(buildPrompt(result("idle", { actor: "human" }))).toContain(
+      "You are an autonomous coding agent",
+    )
+    expect(buildPrompt(result("escalate", { actor: "human" }))).toContain(
+      "You are an autonomous coding agent",
+    )
   })
 
   describe("each prompt-bearing state renders its section", () => {
-    it("grilling renders the grilling section", () => {
-      const out = buildPrompt(
-        result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
-      )
-      expect(out).toContain("holds the plan under development")
+    it("grilling (agent) renders the grilling-agent section", () => {
+      const out = buildPrompt(result("grilling", { actor: "agent" }))
+      expect(out).toContain("Develop it into a concrete")
+    })
+
+    it("grilling (human) renders the grilling-answers section", () => {
+      const out = buildPrompt(result("grilling", { actor: "human" }))
+      expect(out).toContain("nothing for the agent to do")
     })
 
     it("grilled renders the decompose section", () => {
-      const out = buildPrompt(result("grilled", { autoAdvance: true }))
-      expect(out).toContain("Decompose it into an ordered set of")
-    })
-
-    it("planning renders the decompose section", () => {
-      const out = buildPrompt(result("planning", { autoAdvance: true }))
+      const out = buildPrompt(result("grilled"))
       expect(out).toContain("Decompose it into an ordered set of")
     })
 
@@ -64,7 +96,7 @@ describe("buildPrompt", () => {
     })
 
     it("fixing renders the fixing section", () => {
-      const out = buildPrompt(result("fixing", { autoAdvance: true }))
+      const out = buildPrompt(result("fixing"))
       expect(out).toContain("Spawn a **fix subagent**")
     })
 
@@ -73,39 +105,35 @@ describe("buildPrompt", () => {
       expect(out).toContain("Spawn a **reviewing subagent**")
     })
 
-    it("clean renders the clean section", () => {
-      const out = buildPrompt(result("clean"))
+    it("review renders the review section", () => {
+      const out = buildPrompt(result("review"))
       expect(out).toContain("help a human to review the changes")
+    })
+
+    it("await-review renders the await-review section", () => {
+      const out = buildPrompt(result("await-review", { actor: "human" }))
+      expect(out).toContain("REVIEW.md")
+      expect(out).toMatch(/human\s+gate/)
     })
 
     it("squashing renders the squashing section", () => {
       const out = buildPrompt(result("squashing"))
-      expect(out).toContain("conventional-commits squash message")
+      expect(out).toContain("conventional-commits")
     })
 
     it("escalate renders the escalate section", () => {
-      const out = buildPrompt(result("escalate"))
+      const out = buildPrompt(result("escalate", { actor: "human" }))
       expect(out).toContain("was not able to fix all errors on its own")
     })
 
     it("idle renders the idle section", () => {
-      const out = buildPrompt(result("idle"))
+      const out = buildPrompt(result("idle", { actor: "human" }))
       expect(out).toContain("repository is idle — nothing to do")
     })
   })
 
   describe("edge-only states throw", () => {
-    const edgeOnly: ReadonlyArray<GtdState> = [
-      "transport",
-      "new-feature",
-      "testing",
-      "accept-review",
-      "close-package",
-      "done",
-      "await-review",
-      "health-check",
-    ]
-    for (const state of edgeOnly) {
+    for (const state of EDGE_ONLY_STATES) {
       it(`${state} throws instead of rendering`, () => {
         expect(() => buildPrompt(result(state))).toThrow(
           new RegExp(`State "${state}" is performed by the edge and must never reach buildPrompt`),
@@ -116,31 +144,32 @@ describe("buildPrompt", () => {
 
   describe("health states", () => {
     it("health-fixing renders the fixing section", () => {
-      const out = buildPrompt(result("health-fixing", { autoAdvance: true }))
+      const out = buildPrompt(result("health-fixing"))
       expect(out).toContain("Spawn a **fix subagent**")
     })
 
     it("health-fixing injects the execution model", () => {
-      const out = buildPrompt(result("health-fixing", { autoAdvance: true }))
+      const out = buildPrompt(result("health-fixing"))
       expect(out).toContain(EXECUTION_MODEL)
       expect(out).not.toContain("{{MODEL}}")
     })
   })
 
   describe("{{MODEL}} substitution", () => {
-    const planningStates: ReadonlyArray<GtdState> = ["grilled", "planning", "clean"]
-    for (const state of planningStates) {
-      it(`${state} injects the planning model and leaves no {{MODEL}}`, () => {
-        const out = buildPrompt(result(state, { autoAdvance: true }))
-        expect(out).toContain(PLANNING_MODEL)
-        expect(out).not.toContain("{{MODEL}}")
-      })
-    }
+    it("grilled injects the planning model and leaves no {{MODEL}}", () => {
+      const out = buildPrompt(result("grilled"))
+      expect(out).toContain(PLANNING_MODEL)
+      expect(out).not.toContain("{{MODEL}}")
+    })
 
-    it("grilling (iterate) injects the planning model and leaves no {{MODEL}}", () => {
-      const out = buildPrompt(
-        result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
-      )
+    it("review injects the planning model and leaves no {{MODEL}}", () => {
+      const out = buildPrompt(result("review"))
+      expect(out).toContain(PLANNING_MODEL)
+      expect(out).not.toContain("{{MODEL}}")
+    })
+
+    it("grilling (agent) injects the planning model and leaves no {{MODEL}}", () => {
+      const out = buildPrompt(result("grilling", { actor: "agent" }))
       expect(out).toContain(PLANNING_MODEL)
       expect(out).not.toContain("{{MODEL}}")
     })
@@ -158,127 +187,123 @@ describe("buildPrompt", () => {
     })
 
     it("fixing injects the execution model and leaves no {{MODEL}}", () => {
-      const out = buildPrompt(result("fixing", { autoAdvance: true }))
+      const out = buildPrompt(result("fixing"))
       expect(out).toContain(EXECUTION_MODEL)
       expect(out).not.toContain("{{MODEL}}")
     })
 
-    it("honors a custom resolveModel for the six model states", () => {
+    it("honors a custom resolveModel for the model-bearing states", () => {
       const custom = (s: string): string => `MODEL-FOR-${s}`
-      expect(
-        buildPrompt(
-          result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
-          custom,
-        ),
-      ).toContain("MODEL-FOR-grilling")
-      expect(buildPrompt(result("grilled", { autoAdvance: true }), custom)).toContain(
-        "MODEL-FOR-decompose",
+      expect(buildPrompt(result("grilling", { actor: "agent" }), custom)).toContain(
+        "MODEL-FOR-grilling",
       )
-      expect(buildPrompt(result("planning", { autoAdvance: true }), custom)).toContain(
-        "MODEL-FOR-decompose",
-      )
+      expect(buildPrompt(result("grilled"), custom)).toContain("MODEL-FOR-decompose")
       expect(buildPrompt(withPackage("building"), custom)).toContain("MODEL-FOR-building")
-      expect(buildPrompt(result("fixing", { autoAdvance: true }), custom)).toContain(
-        "MODEL-FOR-fixing",
-      )
+      expect(buildPrompt(result("fixing"), custom)).toContain("MODEL-FOR-fixing")
       expect(buildPrompt(withPackage("agentic-review"), custom)).toContain(
         "MODEL-FOR-agentic-review",
       )
-      expect(buildPrompt(result("clean"), custom)).toContain("MODEL-FOR-clean")
+      expect(buildPrompt(result("review"), custom)).toContain("MODEL-FOR-clean")
     })
 
-    it("STOP states carry no {{MODEL}} and no injected model", () => {
+    it("human-gated states carry no {{MODEL}} and no injected model", () => {
       const custom = (s: string): string => `SHOULD-NOT-APPEAR-${s}`
-      for (const state of ["escalate", "idle"] as const) {
-        const out = buildPrompt(result(state), custom)
+      for (const state of ["escalate", "idle", "await-review"] as const) {
+        const out = buildPrompt(result(state, { actor: "human" }), custom)
         expect(out).not.toContain("{{MODEL}}")
         expect(out).not.toContain("SHOULD-NOT-APPEAR")
       }
     })
   })
 
-  describe("STOP banner", () => {
-    it("escalate leads with the STOP banner", () => {
-      const out = buildPrompt(result("escalate"))
-      expect(out).toContain("This is a human feedback gate")
-      expect(out.indexOf("This is a human feedback gate")).toBeGreaterThan(
-        out.indexOf("was not able to fix all errors on its own"),
-      )
+  describe("tail contract", () => {
+    it("plain agent prompts end with the exact turn-ending sentence", () => {
+      const cases: ReadonlyArray<Result> = [
+        result("grilling", { actor: "agent" }),
+        result("grilled"),
+        withPackage("building"),
+        result("fixing"),
+        withPackage("agentic-review"),
+        result("review"),
+        result("squashing"),
+        result("health-fixing"),
+      ]
+      for (const res of cases) {
+        const out = buildPrompt(res)
+        expect(out.trimEnd().endsWith("Finish your turn by running `gtd step-agent`.")).toBe(true)
+      }
     })
 
-    it("idle leads with the STOP banner", () => {
-      const out = buildPrompt(result("idle"))
-      expect(out).toContain("This is a human feedback gate")
-      expect(out.indexOf("This is a human feedback gate")).toBeGreaterThan(
-        out.indexOf("repository is idle — nothing to do"),
-      )
+    it("plain human prompts have no tail", () => {
+      const cases: ReadonlyArray<Result> = [
+        result("grilling", { actor: "human" }),
+        result("await-review", { actor: "human" }),
+        result("escalate", { actor: "human" }),
+        result("idle", { actor: "human" }),
+      ]
+      for (const res of cases) {
+        const out = buildPrompt(res)
+        expect(out).not.toContain("Finish your turn by running")
+        expect(out).not.toContain("gtd step-agent")
+      }
     })
 
-    it("grilling stop-case leads with the STOP banner", () => {
-      const out = buildPrompt(
-        result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
-      )
-      expect(out).toContain("This is a human feedback gate")
-      expect(out.indexOf("This is a human feedback gate")).toBeGreaterThan(
-        out.indexOf("Open questions await the user"),
-      )
-    })
+    it("--json output has no tail regardless of actor", () => {
+      const agentOut = buildPrompt(result("grilled"), undefined, "json")
+      expect(agentOut).not.toContain("Finish your turn by running")
+      expect(agentOut).not.toContain("gtd step-agent")
 
-    it("clean gets the STOP banner", () => {
-      const out = buildPrompt(result("clean"))
-      expect(out).toContain("This is a human feedback gate")
+      const humanOut = buildPrompt(result("await-review", { actor: "human" }), undefined, "json")
+      expect(humanOut).not.toContain("Finish your turn by running")
     })
+  })
 
-    it("auto-advance states do NOT get the STOP banner", () => {
-      for (const out of [
-        buildPrompt(result("grilled", { autoAdvance: true })),
-        buildPrompt(result("planning", { autoAdvance: true })),
-        buildPrompt(withPackage("building")),
-        buildPrompt(result("fixing", { autoAdvance: true })),
-        buildPrompt(withPackage("agentic-review")),
-        buildPrompt(
-          result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
-        ),
-      ]) {
-        expect(out).not.toContain("This is a human feedback gate")
-        expect(out).toContain("run `gtd`")
+  describe("no dead v1 marker/sentinel/auto-advance machinery", () => {
+    const allPromptResults = (): ReadonlyArray<Result> => [
+      result("grilling", { actor: "agent" }),
+      result("grilling", { actor: "human" }),
+      result("grilled"),
+      withPackage("building"),
+      result("fixing"),
+      withPackage("agentic-review"),
+      result("review"),
+      result("await-review", { actor: "human" }),
+      result("squashing"),
+      result("escalate", { actor: "human" }),
+      result("idle", { actor: "human" }),
+      result("health-fixing"),
+    ]
+
+    it("never mentions the v1 marker, sentinel, or auto-advance/bare-gtd instructions", () => {
+      for (const res of allPromptResults()) {
+        for (const output of ["plain", "json"] as const) {
+          const out = buildPrompt(res, undefined, output)
+          expect(out).not.toContain("user answers here")
+          expect(out).not.toContain("no open questions")
+          expect(out).not.toContain("auto-advance")
+          expect(out).not.toMatch(/\brun `gtd`\b/)
+          expect(out).not.toMatch(/re-run gtd/i)
+        }
       }
     })
   })
 
-  describe("grilling stop vs iterate tail", () => {
-    it("both tails document the convergence marker and the sentinel", () => {
-      for (const grillingCase of ["stop", "iterate"] as const) {
-        const out = buildPrompt(
-          result("grilling", {
-            autoAdvance: grillingCase === "iterate",
-            context: { grillingCase },
-          }),
-        )
-        expect(out).toContain("<!-- user answers here -->")
-        expect(out).toContain("no open questions — ready to plan")
-      }
+  describe("grilling-agent turnDiff inlining", () => {
+    it("inlines context.turnDiff as a fenced diff with the reading rules when present", () => {
+      const out = buildPrompt(
+        result("grilling", {
+          actor: "agent",
+          context: { turnDiff: "diff --git a/x b/x\n+hello\n" },
+        }),
+      )
+      expect(out).toContain("```diff")
+      expect(out).toContain("+hello")
+      expect(out).toContain("feedback, not finished work")
     })
 
-    it("stop tail is a human gate: STOP, no subagent, no auto-advance, no model", () => {
-      const out = buildPrompt(
-        result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
-      )
-      expect(out).toContain("Open questions await the user")
-      expect(out).toContain("This is a human feedback gate")
-      expect(out).not.toContain("Re-run gtd immediately")
-      expect(out).not.toContain(PLANNING_MODEL)
-      expect(out).not.toContain("Develop the plan")
-    })
-
-    it("iterate tail develops the plan with a subagent and auto-advances", () => {
-      const out = buildPrompt(
-        result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
-      )
-      expect(out).toContain("Develop the plan")
-      expect(out).toContain(PLANNING_MODEL)
-      expect(out).toContain("run `gtd`")
-      expect(out).not.toContain("Open questions await the user")
+    it("omits the diff block when turnDiff is absent", () => {
+      const out = buildPrompt(result("grilling", { actor: "agent" }))
+      expect(out).not.toContain("```diff")
     })
   })
 
@@ -329,10 +354,7 @@ describe("buildPrompt", () => {
   describe("fixing feedback inlining", () => {
     it("inlines the feedbackContent under a heading so the fixer needn't read FEEDBACK.md", () => {
       const out = buildPrompt(
-        result("fixing", {
-          autoAdvance: true,
-          context: { feedbackContent: "FAIL: expected 1 to equal 2\n" },
-        }),
+        result("fixing", { context: { feedbackContent: "FAIL: expected 1 to equal 2\n" } }),
       )
       expect(out).toContain("### Feedback to address")
       expect(out).toContain("FAIL: expected 1 to equal 2")
@@ -340,24 +362,26 @@ describe("buildPrompt", () => {
 
     it("fences backtick-bearing feedback with a long-enough fence", () => {
       const out = buildPrompt(
-        result("fixing", {
-          autoAdvance: true,
-          context: { feedbackContent: "see ```snippet``` here" },
-        }),
+        result("fixing", { context: { feedbackContent: "see ```snippet``` here" } }),
       )
       expect(out).toContain("````\nsee ```snippet``` here\n````")
     })
 
     it("omits the Feedback block when feedbackContent is empty", () => {
-      const out = buildPrompt(result("fixing", { autoAdvance: true }))
+      const out = buildPrompt(result("fixing"))
       expect(out).not.toContain("### Feedback to address")
+    })
+
+    it("mentions disputing feedback by emptying or deleting FEEDBACK.md", () => {
+      const out = buildPrompt(result("fixing"))
+      expect(out).toMatch(/empty or delete\s+`FEEDBACK\.md`/)
     })
   })
 
   describe("diff context", () => {
-    it("clean inlines refDiff under a review heading", () => {
+    it("review inlines refDiff under a review heading", () => {
       const out = buildPrompt(
-        result("clean", {
+        result("review", {
           context: { refDiff: "diff --git a/x b/x\n+hello\n", reviewBase: "abc1234" },
         }),
       )
@@ -366,9 +390,9 @@ describe("buildPrompt", () => {
       expect(out).toContain("+hello")
     })
 
-    it("clean prompt contains literal reviewBase hash", () => {
+    it("review prompt contains literal reviewBase hash", () => {
       const out = buildPrompt(
-        result("clean", {
+        result("review", {
           context: { refDiff: "diff --git a/y b/y\n+world\n", reviewBase: "abc1234def" },
         }),
       )
@@ -378,7 +402,6 @@ describe("buildPrompt", () => {
     it("squashing inlines squashDiff under a full-process heading", () => {
       const out = buildPrompt(
         result("squashing", {
-          autoAdvance: true,
           context: { squashDiff: "diff --git a/x b/x\n+hello\n", squashBase: "abc1234" },
         }),
       )
@@ -390,111 +413,44 @@ describe("buildPrompt", () => {
     it("squashing prompt contains literal squashBase hash", () => {
       const out = buildPrompt(
         result("squashing", {
-          autoAdvance: true,
           context: { squashDiff: "diff --git a/y b/y\n+world\n", squashBase: "abc1234def" },
         }),
       )
       expect(out).toContain("abc1234def")
     })
-
-    it("squashing with autoAdvance includes auto-advance tail and no STOP tail", () => {
-      const out = buildPrompt(
-        result("squashing", {
-          autoAdvance: true,
-          context: { squashDiff: "diff --git a/x b/x\n+hello\n", squashBase: "abc1234" },
-        }),
-      )
-      expect(out).toContain("run `gtd`")
-      expect(out).not.toContain("This is a human feedback gate")
-    })
-
-    it("squashing includes git reset --soft instruction", () => {
-      const out = buildPrompt(
-        result("squashing", {
-          autoAdvance: true,
-          context: { squashDiff: "diff --git a/x b/x\n+hello\n", squashBase: "abc1234" },
-        }),
-      )
-      expect(out).toContain("git reset --soft")
-    })
   })
 
   describe("json output mode", () => {
-    const NEUTRAL = "Complete the tasks above, then end your turn. An outside process will decide"
+    it("json output never carries the agent-turn tail", () => {
+      const out = buildPrompt(withPackage("building"), undefined, "json")
+      expect(out).not.toContain("gtd step-agent")
+    })
 
-    describe("tail swap", () => {
-      it("auto-advance state gets neutral line, not ## Auto-advance or STOP banner", () => {
-        const out = buildPrompt(withPackage("building"), undefined, "json")
-        expect(out).toContain(NEUTRAL)
-        expect(out).not.toContain("## Auto-advance")
-        expect(out).not.toContain("This is a human feedback gate")
+    for (const [label, res] of [
+      ["grilling (agent)", result("grilling", { actor: "agent" })],
+      ["grilling (human)", result("grilling", { actor: "human" })],
+      ["grilled", result("grilled")],
+      ["building", withPackage("building")],
+      ["fixing", result("fixing")],
+      ["agentic-review", withPackage("agentic-review")],
+      ["review", result("review")],
+      ["await-review", result("await-review", { actor: "human" })],
+      ["squashing", result("squashing")],
+      ["escalate", result("escalate", { actor: "human" })],
+      ["idle", result("idle", { actor: "human" })],
+    ] as const) {
+      it(`${label} has no bare gtd command`, () => {
+        const text = buildPrompt(res, undefined, "json")
+        const stripped = text
+          .replace(/gtd\(agent\):/g, "")
+          .replace(/gtd\(human\):/g, "")
+          .replace(/gtd:/g, "")
+          .replace(/\.gtd/g, "")
+          .replace(/gtd step-agent/g, "")
+          .replace(/gtd step/g, "")
+          .replace(/gtd next/g, "")
+        expect(stripped).not.toMatch(/\bgtd\b/)
       })
-
-      it("STOP state gets neutral line, not STOP banner", () => {
-        const out = buildPrompt(result("escalate"), undefined, "json")
-        expect(out).toContain(NEUTRAL)
-        expect(out).not.toContain("This is a human feedback gate")
-      })
-
-      it("plain auto-advance state still has ## Auto-advance", () => {
-        const out = buildPrompt(withPackage("building"))
-        expect(out).toContain("run `gtd`")
-        expect(out).not.toContain("This is a human feedback gate")
-      })
-
-      it("plain STOP state still has STOP banner", () => {
-        const out = buildPrompt(result("escalate"))
-        expect(out).toContain("This is a human feedback gate")
-        expect(out).not.toContain("## Auto-advance")
-      })
-    })
-
-    describe("no bare gtd command in any prompt-bearing state", () => {
-      const cases: ReadonlyArray<[string, Result]> = [
-        [
-          "grilling (iterate)",
-          result("grilling", { autoAdvance: true, context: { grillingCase: "iterate" } }),
-        ],
-        [
-          "grilling (stop)",
-          result("grilling", { autoAdvance: false, context: { grillingCase: "stop" } }),
-        ],
-        ["grilled", result("grilled", { autoAdvance: true })],
-        ["building", withPackage("building")],
-        ["fixing", result("fixing", { autoAdvance: true })],
-        ["agentic-review", withPackage("agentic-review")],
-        ["clean", result("clean")],
-        ["squashing", result("squashing", { autoAdvance: true })],
-        ["escalate", result("escalate")],
-        ["idle", result("idle")],
-      ]
-
-      for (const [label, res] of cases) {
-        it(`${label} has no bare gtd command`, () => {
-          const text = buildPrompt(res, undefined, "json")
-          const stripped = text.replace(/gtd:/g, "").replace(/\.gtd/g, "")
-          expect(stripped).not.toMatch(/\bgtd\b/)
-        })
-      }
-    })
-  })
-
-  describe("auto-advance partial", () => {
-    it("is appended when result.autoAdvance is true", () => {
-      expect(buildPrompt(result("grilled", { autoAdvance: true }))).toContain("run `gtd`")
-    })
-
-    it("is omitted when result.autoAdvance is false", () => {
-      expect(buildPrompt(result("escalate", { autoAdvance: false }))).not.toContain(
-        "Re-run gtd immediately",
-      )
-      expect(buildPrompt(result("idle"))).not.toContain("Re-run gtd immediately")
-    })
-
-    it("clean is not-auto-advance and carries a STOP directive", () => {
-      const out = buildPrompt(result("clean"))
-      expect(out).not.toContain("Re-run gtd immediately")
-      expect(out).toContain("This is a human feedback gate")
-    })
+    }
   })
 })

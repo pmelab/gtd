@@ -221,6 +221,66 @@ for (const [tierName, makeTier] of tiers) {
     })
 
     // -----------------------------------------------------------------------
+    describe("commitDiff", () => {
+      it("returns the diff a commit introduced for a modified tracked file", async () => {
+        t.commit("feat: add target", { "target.txt": "original content" })
+        t.commit("feat: modify target", { "target.txt": "modified content" })
+        const hash = t.resolveRef("HEAD")
+
+        const diff = await t.run(Effect.flatMap(GitService, (g) => g.commitDiff(hash)))
+
+        expect(diff).toContain("target.txt")
+        expect(diff).toContain("-original content")
+        expect(diff).toContain("+modified content")
+      })
+
+      it("renders the whole tree as additions for a root commit", async () => {
+        // The tier's global beforeEach already created a root commit (readme.txt: "hello")
+        const rootHash = t.resolveRef("HEAD")
+
+        const diff = await t.run(Effect.flatMap(GitService, (g) => g.commitDiff(rootHash)))
+
+        expect(diff).toContain("readme.txt")
+        expect(diff).toContain("new file mode")
+        expect(diff).toContain("+hello")
+      })
+
+      it("returns an empty string for an empty commit", async () => {
+        if (tierName === "Live") {
+          gitExec("commit", "--allow-empty", `-m "chore: empty commit"`)
+        } else {
+          // InMemory equivalent of --allow-empty: commit with no worktree changes
+          t.stageAndCommit("chore: empty commit")
+        }
+        const hash = t.resolveRef("HEAD")
+
+        const diff = await t.run(Effect.flatMap(GitService, (g) => g.commitDiff(hash)))
+
+        expect(diff).toBe("")
+      })
+
+      it("excludes matching paths, keeping other files' hunks", async () => {
+        t.writeFileDeep("TODO.md", "todo content")
+        t.writeFileDeep("src/a.ts", "export const a = 1")
+        t.stageAndCommit("feat: touch two files")
+        const hash = t.resolveRef("HEAD")
+
+        const diff = await t.run(Effect.flatMap(GitService, (g) => g.commitDiff(hash, ["TODO.md"])))
+
+        expect(diff).not.toContain("TODO.md")
+        expect(diff).toContain("src/a.ts")
+        expect(diff).toContain("+export const a = 1")
+      })
+
+      it("fails for an unresolvable hash", async () => {
+        const result = await t.runEither(
+          Effect.flatMap(GitService, (g) => g.commitDiff("totally-invalid-hash-xyz")),
+        )
+        expect(result._tag).toBe("Left")
+      })
+    })
+
+    // -----------------------------------------------------------------------
     describe("diffRef", () => {
       it("returns diff between ref and HEAD after a change", async () => {
         t.commit("feat: second commit", { "foo.txt": "foo content" })
@@ -415,6 +475,18 @@ for (const [tierName, makeTier] of tiers) {
         expect(result.length).toBe(1)
         expect(result[0]?.message).toBe("feat: third")
         expect(result[0]?.removedErrors).toBe(false)
+      })
+
+      it("reports the paths each commit's name-status diff touched, without extra subprocesses", async () => {
+        t.commit("feat: add two files", { "a.txt": "a", "b.txt": "b" })
+        t.commitDeletion("a.txt", "chore: remove a")
+
+        const result = await t.run(Effect.flatMap(GitService, (g) => g.commitHistory()))
+        const addTwo = result.find((c) => c.message === "feat: add two files")
+        const removeA = result.find((c) => c.message === "chore: remove a")
+
+        expect(addTwo?.touched).toEqual(expect.arrayContaining(["a.txt", "b.txt"]))
+        expect(removeA?.touched).toEqual(["a.txt"])
       })
     })
 

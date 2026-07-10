@@ -1,15 +1,56 @@
 @inmem
-Feature: Grilling — the 3-way convergence gate on TODO.md
+Feature: Grilling — human sketch, agent plan, human answers, clean-step convergence
 
-  TODO.md present (and not New Feature) is Grilling. It resolves three ways by
-  the `<!-- user answers here -->` convergence marker and tree state: an open
-  marker stops for the human, no marker + pending edits lets the agent iterate,
-  and no marker + a clean tree converges to Grilled (`gtd: grilled`). Every round
-  commits its pending tree as `gtd: grilling` first.
+  Grilling starts the moment a human turn lands at a boundary HEAD with a dirty
+  tree: `gtd step` captures everything pending into one `gtd(human): grilling`
+  turn commit — no TODO.md is seeded by the machine and nothing is reverted, so
+  the captured files stay in history and the tree is clean afterwards. `gtd next`
+  then hands the agent that turn's diff. The agent writes/edits TODO.md and
+  `gtd step-agent`s a `gtd(agent): grilling` turn, which gates on a human to
+  answer inline in TODO.md (or accept defaults). A clean `gtd step` at that gate
+  is the sole convergence signal — no marker text is ever parsed — landing an
+  empty `gtd(human): grilling` plus routing `gtd: grilled` and prompting
+  decompose.
 
-  Scenario: An open marker stops for the user to answer inline
+  Scenario: A dirty boundary tree becomes one human grilling turn, nothing reverted
     Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a file "notes.md" with:
+      """
+      Build a calculator that can add and subtract.
+      """
+    When I run gtd step
+    Then it succeeds
+    And the last commit subject is "gtd(human): grilling"
+    And the file "notes.md" exists
+    And the file "notes.md" contains "Build a calculator that can add and subtract."
+    And the file "TODO.md" does not exist
+    And stdout contains "committed: gtd(human): grilling"
+    And stdout contains "state:"
+
+  Scenario: gtd next hands the agent the human's turn diff
+    Given a test project
+    And a file "notes.md" with:
+      """
+      Build a calculator that can add and subtract.
+      """
+    And I run gtd step
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"actor\":\"agent\""
+    And stdout contains "notes.md"
+    And stdout contains "Build a calculator that can add and subtract."
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Finish your turn by running `gtd step-agent`."
+
+  Scenario: The agent's plan turn gates on a human to answer inline
+    Given a test project
+    And a file "notes.md" with:
+      """
+      Build a calculator that can add and subtract.
+      """
+    And I run gtd step
+    And a file "TODO.md" with:
       """
       # Plan
 
@@ -17,189 +58,127 @@ Feature: Grilling — the 3-way convergence gate on TODO.md
 
       ## Which operations?
 
-      <!-- user answers here -->
+      Suggested default: add and subtract.
       """
-    When I run gtd
+    When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: grilling"
-    And stdout contains "holds the plan under development"
-    And stdout contains "Open questions await the user"
-    And stdout does not contain "Decompose it into an ordered set of"
+    And the last commit subject is "gtd(agent): grilling"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"actor\":\"human\""
+    And stdout contains "TODO.md"
 
-  Scenario: No marker but pending edits lets the grilling agent iterate
+  # TODO.md itself is a steering file and never appears in the inlined turn
+  # diff (by design — the diff must never carry steering-file churn), so the
+  # human's answer turn also touches a non-steering file to make the answer
+  # visible in the diff the agent prompt inlines.
+  Scenario: Human answers in TODO.md and the agent grilling prompt carries the answer diff
     Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a file "notes.md" with:
+      """
+      Build a calculator that can add and subtract.
+      """
+    And I run gtd step
+    And a file "TODO.md" with:
       """
       # Plan
 
       Build a calculator.
+
+      ## Which operations?
+
+      Suggested default: add and subtract.
       """
+    And I run gtd step-agent
     And "TODO.md" is modified to:
       """
       # Plan
 
-      Build a calculator with add and subtract.
-      """
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: grilling"
-    And stdout contains "holds the plan under development"
-    And stdout contains "### Develop the plan"
-
-  Scenario: No marker and a clean tree converges to Grilled and prompts decompose
-    Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-
-      Build a calculator with add and subtract.
-
-      no open questions — run gtd to plan
-      """
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: grilled"
-    And stdout contains "Decompose it into an ordered set of"
-    And stdout does not contain "Open questions await the user"
-
-  Scenario: Marker inside an unclosed code fence does not stop for the user
-    Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-
-      Build a calculator.
-
-      ```
-      <!-- user answers here -->
-      """
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: grilled"
-    And stdout does not contain "Open questions await the user"
-
-  Scenario: Marker inside a closed code fence is ignored
-    Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-
-      Build a calculator.
-
-      ```
-      <!-- user answers here -->
-      ```
-      """
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: grilled"
-    And stdout does not contain "Open questions await the user"
-
-  Scenario: Re-running at a grilling STOP is idempotent — no extra commit
-    Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-
       Build a calculator.
 
       ## Which operations?
 
+      Answer: add, subtract, and multiply.
+      """
+    And "notes.md" is modified to:
+      """
+      Build a calculator that can add, subtract, and multiply.
+      """
+    When I run gtd step
+    Then it succeeds
+    And the last commit subject is "gtd(human): grilling"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"actor\":\"agent\""
+    And stdout contains "add, subtract, and multiply"
+
+  Scenario: A clean step at the answer gate converges to Grilled and prompts decompose
+    Given a test project
+    And a file "notes.md" with:
+      """
+      Build a calculator that can add and subtract.
+      """
+    And I run gtd step
+    And a file "TODO.md" with:
+      """
+      # Plan
+
+      Build a calculator with add and subtract.
+
+      ## Which operations?
+
+      Suggested default: add and subtract.
+      """
+    And I run gtd step-agent
+    When I run gtd step
+    Then it succeeds
+    And the git log contains "gtd(human): grilling"
+    And the last commit subject is "gtd: grilled"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"actor\":\"agent\""
+    And stdout contains "Decompose it into an ordered set of"
+
+  Scenario: The literal marker text is inert — it no longer stops for the user
+    Given a test project
+    And a file "notes.md" with:
+      """
+      Build a calculator with add and subtract.
+      """
+    And I run gtd step
+    And a file "TODO.md" with:
+      """
+      # Plan
+
+      Build a calculator with add and subtract.
+
       <!-- user answers here -->
       """
-    When I run gtd
+    And I run gtd step-agent
+    When I run gtd step
     Then it succeeds
-    And the last commit subject is "gtd: grilling"
-    And stdout contains "Open questions await the user"
+    And the last commit subject is "gtd: grilled"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"actor\":\"agent\""
+    And stdout contains "Decompose it into an ordered set of"
+
+  Scenario: An empty agent grilling turn re-emits the same prompt with no transition
+    Given a test project
+    And a file "notes.md" with:
+      """
+      Build a calculator with add and subtract.
+      """
+    And I run gtd step
+    And I record the commit count
+    When I run gtd step-agent
+    Then it succeeds
+    And the commit count increased by 1
+    And the last commit subject is "gtd(agent): grilling"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"actor\":\"agent\""
     Then I record the commit count
-    When I run gtd
+    When I run gtd step-agent
     Then it succeeds
     And the commit count is unchanged
-    And the last commit subject is "gtd: grilling"
-    And stdout contains "Open questions await the user"
-
-  # Later grilling rounds (committed plan) treat user code sketches as
-  # suggestions: the diff is folded into TODO.md and the code is reverted, so
-  # nothing lands on the branch without going through plan → build → test →
-  # review. The seed round (uncommitted TODO.md) still commits the seed revert
-  # verbatim.
-  Scenario: Code sketched during grilling is captured into the plan and reverted
-    Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-
-      Build a calculator.
-      """
-    And a file "src/sketch.ts" with:
-      """
-      export const sketch = () => 1
-      """
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: grilling"
-    And the file "src/sketch.ts" does not exist
-    And the file "TODO.md" contains "Captured input (grilling)"
-    And the file "TODO.md" contains "export const sketch"
-    And the file "TODO.md" contains "Interpret the captured diff"
-    And stdout contains "holds the plan under development"
-
-  Scenario: Code sketched while questions are open is captured and gtd still stops
-    Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-
-      ## Which operations?
-
-      <!-- user answers here -->
-      """
-    And a file "src/sketch.ts" with:
-      """
-      export const sketch = () => 1
-      """
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: grilling"
-    And the file "src/sketch.ts" does not exist
-    And the file "TODO.md" contains "export const sketch"
-    And stdout contains "Open questions await the user"
-
-  # A committed TODO.md under a boundary HEAD is a resumed grill — even with a
-  # dirty tree it must not re-seed (New Feature would clobber the developed
-  # plan); the code edits are captured instead.
-  Scenario: A resumed grill with code edits does not re-seed over the committed plan
-    Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-
-      A carefully developed plan.
-      """
-    And a commit "chore: unrelated housekeeping"
-    And a file "src/sketch.ts" with:
-      """
-      export const sketch = () => 1
-      """
-    When I run gtd
-    Then it succeeds
-    And the git log does not contain "gtd: new task"
-    And the last commit subject is "gtd: grilling"
-    And the file "TODO.md" contains "A carefully developed plan."
-    And the file "TODO.md" contains "export const sketch"
-    And the file "src/sketch.ts" does not exist
-
-  Scenario: A .gtd package file whose name contains a space is classified as gtd, not code
-    Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-feature/my task.md" with:
-      """
-      - [ ] implement the thing
-      """
-    And ".gtd/01-feature/my task.md" is modified to:
-      """
-      - [x] implement the thing
-      """
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: planning"
-    And stdout does not contain "## Task: Run tests"

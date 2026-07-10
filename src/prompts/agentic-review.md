@@ -14,11 +14,13 @@ files and its cumulative diff are found below. The subagent must:
      to specific file and symbol names, grouped under short headings, so the fix
      agent can act without re-reading the diff.
 4. **Do not edit source files and do not commit** — the reviewer only writes
-   `FEEDBACK.md`, left uncommitted.
+   `FEEDBACK.md`, left uncommitted, then finishes its turn.
 <% if (it.context.packages[0]) { %>
 <%~ include("@package", { pkg: it.context.packages[0], fenceFor: it.fenceFor }) %>
 <% } %><% if (it.context.refDiff && it.context.refDiff.trim()) { %>
 <%~ include("@diff", { heading: "Package diff", diff: it.context.refDiff, fenceFor: it.fenceFor }) %>
 <% } %>
 
+<% if (it.tail) { %>
 <%~ include(it.tail) %>
+<% } %>

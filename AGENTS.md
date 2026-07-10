@@ -18,30 +18,32 @@
 When removing a step from a linear workflow (e.g. plan → build → learn →
 cleanup), trace **every** reference before deleting:
 
-- Step type definition
-- `inferStep` logic
-- `gatherState` inputs
-- CLI `runStep` dispatch
-- Commit prefix mapping
-- Config schema
-- Prompts / decision tree labels
-- All test files
+- `src/Subjects.ts` closed sets (`TurnGate`, `RoutingPhase`, `ROUTING_SUBJECT`)
+- `src/Machine.ts` (the `GtdState` type, `resolveBaseline` / `classifyHead`
+  rest/mid-chain classification table, `awaitedActor`, `predictTurn`)
+- `src/Events.ts` (`gatherEvents` flag derivation, `perform`)
+- `src/program.ts` dispatch
+- `src/Prompt.ts` (`isPromptState`, `MODEL_STATE`, templates)
+- STATES.md / README.md
+- All feature files
 
-When a commit prefix maps to a removed step, keep it recognized in the type
-system for backward compatibility but route it to `"idle"` — removing it
-entirely risks breaking existing repos that have those commits in history.
+Any `gtd: *` subject outside the closed v2 grammar (`src/Subjects.ts`) is an
+inert boundary commit — removed subjects are simply dropped from the closed
+sets, never routed. This is also how v2 stays backward compatible with v1
+history: old v1 subjects fall outside the closed sets and parse as boundary
+commits rather than errors.
 
 ### Mode Flags (Effect Dependency Graph)
 
 - Follow the `QuietMode` pattern (Context tag + `static layer`) for any new
   boolean mode flags that need to flow through the Effect dependency graph
 
-### Config Values vs. Mode Flags: `agenticReview` / `agenticReviewMaxCycles`
+### Config Values vs. Mode Flags: `agenticReview` / `reviewThreshold`
 
-`agenticReview` and `agenticReviewMaxCycles` are read from `ConfigService` at
-the Effect edge (`gatherEvents` in `src/Events.ts`) and passed to the pure
-machine as `ResolvePayload` fields (`agenticReviewEnabled`, `maxAgenticCycles`)
-— NOT as a `Context`-tag layer.
+`agenticReview` and `reviewThreshold` are read from `ConfigService` at the
+Effect edge (`gatherEvents` in `src/Events.ts`) and passed to the pure machine
+as `ResolvePayload` fields (`agenticReviewEnabled`, `reviewThreshold`) — NOT as
+a `Context`-tag layer.
 
 **Rule of thumb**:
 
@@ -53,13 +55,21 @@ machine as `ResolvePayload` fields (`agenticReviewEnabled`, `maxAgenticCycles`)
 `agenticReview` is a per-resolve guard input, not a cross-cutting IO mode, so it
 travels as payload rather than as a Context service.
 
+Same pattern for the `invoker` actor (`"human" | "agent" | "none"`,
+`src/Machine.ts`): it travels as a `ResolvePayload` field, not a Context tag,
+because it's a pure-decision input consumed by the resolver's turn guards
+(`applyTurnTaking`), not something every side effect needs to see.
+
 ### Agentic Cycle Count Fold
 
-The agentic cycle count and convergence status are **folded in the machine**
-from flags on `COMMIT` events (`isAgenticReview` / `isAgenticApproved` /
-`isWorkflowCommit`), not recomputed at the Effect edge. This mirrors the
-`Gtd-Test-Fix:` verify-counter fold: derived counters accumulate inside the
-state machine from event flags, keeping the edge thin.
+`testFixCount` / `reviewFixCount` / `healthFixCount` are **folded in the
+machine** (`foldCounters` in `src/Machine.ts`) from flags `gatherEvents`
+(`src/Events.ts`) attaches to each `CommitEvent` — `isPackageStart`,
+`isFeedback`, `isErrors`, `isHealthCheck`, `removedErrors` — not recomputed at
+the Effect edge. `reviewFixCount` (the agentic-review cycle count) resets on
+`isPackageStart` and increments on `isFeedback` (an agentic-review turn whose
+diff touched FEEDBACK.md — a findings round). Derived counters accumulate inside
+the state machine from event flags, keeping the edge thin.
 
 ### Stdout / Newline Handling
 

@@ -1,50 +1,96 @@
 @squashing
 @inmem
-Feature: Squashing — collapse gtd: * commits into one conventional-commits message
+Feature: Squashing — collapse a cycle into one conventional-commits message
 
-  After `gtd: done` closes the process, a Squashing prompt is emitted so the
-  agent can squash all `gtd: *` commits (and any interleaved non-gtd commits)
-  into a single, clean conventional-commits message via `git reset --soft`.
+  With squash on, the approval boundary `gtd: done` is not a rest: the same
+  chain continues straight to `gtd: squash template`, writing and committing a
+  SQUASH_MSG.md template. `gtd next` then emits the squashing prompt for the
+  agent, instructing it to overwrite SQUASH_MSG.md — no sentinel text anywhere
+  in that prompt. Once the agent overwrites the template with a real message
+  and runs `gtd step-agent`, the squash executes via `git reset --soft`: the
+  final HEAD subject is the message's first line, SQUASH_MSG.md is gone from
+  the tree and from history, the `gtd: *` commits of the cycle are gone too,
+  and the commits that predate the cycle survive untouched. The squash fires
+  because of the turn's position in the chain, not because of what
+  SQUASH_MSG.md says — arbitrary prose still gets squashed in verbatim. With
+  squash off, `gtd: done` is the resting boundary and no SQUASH_MSG.md is ever
+  written.
 
-  Scenario: Happy path — Squashing prompt fires after gtd: done
+  Scenario: gtd: done with squash on continues the chain to the squash template
     Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a gtd config file at ".gtdrc" with:
+      """
+      squash: true
+      """
+    And a commit "gtd(human): grilling" that adds "TODO.md" with:
       """
       # Plan
-      - [ ] add calculator
+
+      Build a calculator.
       """
     And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd: building" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And a commit "gtd: package done"
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
       """
       # Review
+
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: done" that deletes "REVIEW.md"
-    When I run gtd
+    And a commit "gtd: awaiting review"
+    And a commit "gtd(human): review" that deletes "REVIEW.md"
+    When I run gtd step
     Then it succeeds
-    And stdout contains "conventional-commits squash message"
-    And stdout contains "Write the commit message"
+    And the git log contains "gtd: done"
+    And the git log contains "gtd: squash template"
+    And the last commit subject is "gtd: squash template"
+    And the file "SQUASH_MSG.md" exists
+
+  Scenario: gtd next at the squash template rest emits the squashing prompt with no sentinel text
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      squash: true
+      """
+    And a commit "gtd(human): grilling" that adds "TODO.md" with:
+      """
+      # Plan
+
+      Build a calculator.
+      """
+    And a commit "gtd: planning" that deletes "TODO.md"
+    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+      """
+      # Review
+
+      - [ ] ./src/calc.ts#1
+      """
+    And a commit "gtd: awaiting review"
+    And a commit "gtd(human): review" that deletes "REVIEW.md"
+    And a commit "gtd: done"
+    And a commit "gtd: squash template" that adds "SQUASH_MSG.md" with:
+      """
+      chore: replace this template with a conventional-commits message
+      """
+    When I run gtd next
+    Then it succeeds
     And stdout contains "SQUASH_MSG.md"
-    And stdout contains "src/calc.ts"
-    And stdout contains "run `gtd` in the current working directory"
-    And stdout does not contain "This is a human feedback gate"
-    And stdout contains "Do not run"
+    And stdout does not contain "SENTINEL"
+    And stdout does not contain "marker"
 
-  Scenario: Interleaved non-gtd commit appears in the squash diff
+  Scenario: The agent overwrites SQUASH_MSG.md and gtd step-agent performs the squash
     Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a gtd config file at ".gtdrc" with:
+      """
+      squash: true
+      """
+    And a commit "chore: pre-cycle work" that adds "src/existing.ts" with:
+      """
+      export const existing = 1
+      """
+    And a commit "gtd(human): grilling" that adds "TODO.md" with:
       """
       # Plan
-      - [ ] add calculator
-      """
-    And a commit "feat: coworker" that adds "coworker.ts" with:
-      """
-      export const coworker = () => "helping"
+
+      Build a calculator.
       """
     And a commit "gtd: planning" that deletes "TODO.md"
     And a commit "gtd: building" that adds "src/calc.ts" with:
@@ -52,313 +98,95 @@ Feature: Squashing — collapse gtd: * commits into one conventional-commits mes
       export const add = (a: number, b: number) => a + b
       """
     And a commit "gtd: package done"
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
       """
       # Review
+
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: done" that deletes "REVIEW.md"
-    When I run gtd
+    And a commit "gtd: awaiting review"
+    And a commit "gtd(human): review" that deletes "REVIEW.md"
+    And a commit "gtd: done"
+    And a commit "gtd: squash template" that adds "SQUASH_MSG.md" with:
+      """
+      chore: replace this template with a conventional-commits message
+      """
+    And "SQUASH_MSG.md" is modified to:
+      """
+      feat: add helper
+
+      why-body
+      """
+    When I run gtd step-agent
     Then it succeeds
-    And stdout contains "conventional-commits squash message"
-    And stdout contains "Write the commit message"
-    And stdout contains "SQUASH_MSG.md"
-    And stdout contains "coworker.ts"
-    And stdout contains "run `gtd` in the current working directory"
-    And stdout does not contain "This is a human feedback gate"
-    And stdout contains "Do not run"
+    And the last commit subject is "feat: add helper"
+    And the file "SQUASH_MSG.md" does not exist
+    And the git log does not contain "gtd: squash template"
+    And the git log does not contain "gtd: done"
+    And the git log contains "chore: pre-cycle work"
+    And the file "src/calc.ts" exists
 
-  @squashing
-  Scenario: gtd: new task is included in the squash when present
-    Given a test project
-    And a commit "gtd: new task" that adds "TODO.md" with:
-      """
-      # Plan
-      - [ ] add calculator
-      """
-    And a commit "gtd: grilling" that deletes "TODO.md"
-    And a commit "gtd: planning" that adds ".gtd/01-calc/task.md" with:
-      """
-      Implement add()
-      """
-    And a commit "gtd: building" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And a commit "gtd: package done" that deletes ".gtd/01-calc/task.md"
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
-      """
-      # Review
-      - [ ] ./src/calc.ts#1
-      """
-    And a commit "gtd: done" that deletes "REVIEW.md"
-    And a file "SQUASH_MSG.md" with content:
-      """
-      feat(calc): add calculator
-      """
-    When I run gtd
-    Then it succeeds
-    And the HEAD commit subject is "feat(calc): add calculator"
-    And "SQUASH_MSG.md" does not exist
-    And "src/calc.ts" exists
-    And the git log does not contain "gtd: new task"
-    And the git log does not contain "gtd: grilling"
-
-  @squashing
-  Scenario: SQUASH_MSG.md present — gtd performs the squash commit on next run
-    Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-      - [ ] add calculator
-      """
-    And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd: building" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And a commit "gtd: package done"
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
-      """
-      # Review
-      - [ ] ./src/calc.ts#1
-      """
-    And a commit "gtd: done" that deletes "REVIEW.md"
-    And a file "SQUASH_MSG.md" with content:
-      """
-      feat(calc): add calculator
-
-      Decided during grilling to use simple addition only.
-      """
-    When I run gtd
-    Then it succeeds
-    And the HEAD commit subject is "feat(calc): add calculator"
-    And "SQUASH_MSG.md" does not exist
-    And "src/calc.ts" exists
-    And stdout does not contain "Re-run gtd immediately"
-
-  @squashing
-  Scenario: SQUASH_MSG.md present alone does not cause codeDirty
-    Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-      - [ ] add calculator
-      """
-    And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd: building" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And a commit "gtd: package done"
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
-      """
-      # Review
-      - [ ] ./src/calc.ts#1
-      """
-    And a commit "gtd: done" that deletes "REVIEW.md"
-    And a file "SQUASH_MSG.md" with content:
-      """
-      feat(calc): add calculator
-      """
-    When I run gtd
-    Then it succeeds
-    And the HEAD commit subject is "feat(calc): add calculator"
-
-  @squashing
-  Scenario: Untracked SQUASH_MSG.md — squash fires, not New Feature
-    Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-      - [ ] add calculator
-      """
-    And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd: building" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And a commit "gtd: package done"
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
-      """
-      # Review
-      - [ ] ./src/calc.ts#1
-      """
-    And a commit "gtd: done" that deletes "REVIEW.md"
-    And a file "SQUASH_MSG.md" with content:
-      """
-      feat(calc): add calculator
-
-      Decided during grilling to use simple addition only.
-      """
-    When I run gtd
-    Then it succeeds
-    And the HEAD commit subject is "feat(calc): add calculator"
-    And "SQUASH_MSG.md" does not exist
-    And "src/calc.ts" exists
-    And stdout does not contain "holds the plan under development"
-    And "TODO.md" does not exist
-
-  @squashing
-  Scenario: SQUASH_MSG.md plus unrelated dirty code — New Feature, not squash
-    Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-      - [ ] add calculator
-      """
-    And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd: building" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And a commit "gtd: package done"
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
-      """
-      # Review
-      - [ ] ./src/calc.ts#1
-      """
-    And a commit "gtd: done" that deletes "REVIEW.md"
-    And a file "SQUASH_MSG.md" with content:
-      """
-      feat(calc): add calculator
-
-      Decided during grilling to use simple addition only.
-      """
-    And a file "src/extra.ts" with content:
-      """
-      export const extra = () => "unrelated dirty code"
-      """
-    When I run gtd
-    Then it succeeds
-    And stdout contains "holds the plan under development"
-    And "TODO.md" exists
-    And stdout does not contain "conventional-commits squash message"
-
-  Scenario: Squash disabled via config — Idle instead of Squashing
+  Scenario: Squash off — gtd: done is the resting boundary, no template ever written
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       squash: false
       """
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a commit "gtd(human): grilling" that adds "TODO.md" with:
       """
       # Plan
-      - [ ] add calculator
+
+      Build a calculator.
       """
     And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd: building" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And a commit "gtd: package done"
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
       """
       # Review
+
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: done" that deletes "REVIEW.md"
-    When I run gtd
+    And a commit "gtd: awaiting review"
+    And a commit "gtd(human): review" that deletes "REVIEW.md"
+    When I run gtd step
     Then it succeeds
-    And stdout contains "repository is idle — nothing to do"
-    And stdout does not contain "conventional-commits squash message"
-
-  Scenario: Already squashed — plain boundary commit yields Idle
-    Given a test project
-    And a commit "feat: add calculator" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    When I run gtd
+    And the last commit subject is "gtd: done"
+    And the git log does not contain "gtd: squash template"
+    And the file "SQUASH_MSG.md" does not exist
+    When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "repository is idle — nothing to do"
-    And stdout does not contain "conventional-commits squash message"
+    And stdout contains "\"actor\":\"human\""
 
-  @squashing
-  Scenario: Stray gtd: new task below the branch point — squash never rewrites previous features
+  Scenario: Turn position, not content, triggers the squash — arbitrary prose still squashes
     Given a test project
-    And a default branch "main"
-    And a commit "gtd: new task"
-    And a commit "feat: previous feature" that adds "previous.ts" with:
-      """
-      export const previous = 1
-      """
-    And a branch "feature"
-    And a commit "gtd: new task"
-    And a commit "gtd: grilling" that adds "TODO.md" with:
-      """
-      # Plan
-      - [ ] add calculator
-      """
-    And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd: building" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And a commit "gtd: package done"
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
-      """
-      # Review
-      - [ ] ./src/calc.ts#1
-      """
-    And a commit "gtd: done" that deletes "REVIEW.md"
-    And a file "SQUASH_MSG.md" with content:
-      """
-      feat(calc): add calculator
-      """
-    When I run gtd
-    Then it succeeds
-    And the HEAD commit subject is "feat(calc): add calculator"
-    And the git log contains "feat: previous feature"
-    # The stray marker sits on main, below the merge-base — the squash reset
-    # must not rewrite it (or anything else on the default branch).
-    And the git log contains "gtd: new task"
-    And the git log does not contain "gtd: grilling"
-    And "previous.ts" exists
-    And "src/calc.ts" exists
-
-  @squashing
-  Scenario: Post-squash on feature branch — a manual gtd run settles Idle (health check), no review
-    Given a test project
-    And a default branch "main"
-    And a branch "feature"
-    And a commit "chore: test gate" that adds "gate.sh" with:
-      """
-      echo ALL_GREEN
-      exit 0
-      """
     And a gtd config file at ".gtdrc" with:
       """
-      testCommand: bash gate.sh
       squash: true
       """
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a commit "gtd(human): grilling" that adds "TODO.md" with:
       """
       # Plan
-      - [ ] add calculator
+
+      Build a calculator.
       """
     And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd: building" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And a commit "gtd: package done"
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
       """
       # Review
+
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: done" that deletes "REVIEW.md"
-    And a file "SQUASH_MSG.md" with content:
+    And a commit "gtd: awaiting review"
+    And a commit "gtd(human): review" that deletes "REVIEW.md"
+    And a commit "gtd: done"
+    And a commit "gtd: squash template" that adds "SQUASH_MSG.md" with:
       """
-      feat(calc): add calculator
+      chore: replace this template with a conventional-commits message
       """
-    When I run gtd
+    And "SQUASH_MSG.md" is modified to:
+      """
+      absolutely not a conventional commit and mentions gtd: errors on purpose
+      """
+    When I run gtd step-agent
     Then it succeeds
-    And the HEAD commit subject is "feat(calc): add calculator"
-    And stdout does not contain "Re-run gtd immediately"
-    When I run gtd
-    Then it succeeds
-    And stdout contains "repository is idle — nothing to do"
-    And stdout does not contain "help a human to review the changes"
-    And the file "REVIEW.md" does not exist
+    And the last commit subject is "absolutely not a conventional commit and mentions gtd: errors on purpose"
+    And the file "SQUASH_MSG.md" does not exist

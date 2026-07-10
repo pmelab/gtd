@@ -297,19 +297,45 @@ export class ConfigService extends Context.Tag("ConfigService")<ConfigService, C
         const git = (...args: Array<string>) =>
           executor.exitCode(Command.make("git", ...args).pipe(Command.workingDirectory(root)))
 
-        // Never disturb a repo that's already mid-workflow. Any `gtd:` HEAD means
-        // the machine owns the commit history; auto-committing a stub on top would
-        // produce an unrecognized HEAD and corrupt the state machine. Skip here —
-        // the stub can be added manually or on the next idle run.
-        const headSubject = yield* Command.make("git", "log", "-1", "--pretty=%s")
+        // A repo with no commits yet has no HEAD to stack on or amend into —
+        // commit the stub as the first commit.
+        const hasCommits = yield* Command.make("git", "log", "-1", "--pretty=%s")
           .pipe(Command.workingDirectory(root), Command.string)
-          .pipe(Effect.map((s) => s.trim()))
-          .pipe(Effect.catchAll(() => Effect.succeed("")))
+          .pipe(
+            Effect.map(() => true),
+            Effect.catchAll(() => Effect.succeed(false)),
+          )
 
-        if (!headSubject.startsWith("gtd:")) {
+        if (!hasCommits) {
           yield* writeSchemaStub(root)
           yield* git("add", ".gtdrc.json")
           yield* git("commit", "-m", "chore: add .gtdrc.json")
+        } else {
+          const headSubject = yield* Command.make("git", "log", "-1", "--pretty=%s")
+            .pipe(Command.workingDirectory(root), Command.string)
+            .pipe(Effect.map((s) => s.trim()))
+            .pipe(Effect.catchAll(() => Effect.succeed("")))
+
+          // A repo that's already mid-workflow (any `gtd:` HEAD) must not gain
+          // a NEW boundary commit on top: the machine owns the commit history
+          // here, and stacking a fresh `chore:` commit would produce an
+          // unrecognized boundary HEAD most workflow states can't resolve past
+          // (only a narrow "operational recovery" fallback in
+          // `resolveBaseline` tolerates it, and only for a `gtd(agent):
+          // building` checkpoint specifically). Instead, amend the stub INTO
+          // the existing HEAD commit — HEAD's subject (and therefore what the
+          // resolver classifies) is unchanged, only its tree gains
+          // `.gtdrc.json`, so every workflow state stays resolvable exactly as
+          // if the stub had already been present from the start.
+          if (headSubject.startsWith("gtd:")) {
+            yield* writeSchemaStub(root)
+            yield* git("add", ".gtdrc.json")
+            yield* git("commit", "--amend", "--no-edit")
+          } else {
+            yield* writeSchemaStub(root)
+            yield* git("add", ".gtdrc.json")
+            yield* git("commit", "-m", "chore: add .gtdrc.json")
+          }
         }
       }
 

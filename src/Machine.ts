@@ -1,39 +1,31 @@
 /**
- * Pure, event-sourced resolver for the gtd state machine.
+ * Pure, event-sourced resolver for the gtd v2 turn-taking state machine.
  *
  * This module is the **canonical public contract** for the runtime: edge code
  * (`Events.ts`) parses the working tree + first-parent commit history into the
- * events below, then `resolve(events)` folds them into a single resolved state,
- * the counters the prompts need, and an optional `EdgeAction` the driver must
- * perform before re-gathering and re-resolving.
+ * events below, then `resolve(events)` folds them into a single resolved
+ * decision, the counters the prompts need, and an optional `EdgeAction` the
+ * driver must perform before re-gathering and re-resolving.
  *
- * It is intentionally free of IO: no git, no filesystem, no Effect, no xstate.
- * The decision logic is STATES.md § Precedence implemented as a first-match-wins
- * ladder, plus the two counter folds (`testFixCount` / `reviewFixCount`) over
- * the `COMMIT[]` stream. Keeping it pure makes the whole decision tree trivially
- * unit-testable in isolation.
+ * v2 replaces v1's single mutating `gtd` command with a turn-taking model:
+ * `gtd step` (human mutator), `gtd step-agent` (agent mutator), and `gtd next`
+ * (pure prompt emitter, `invoker: "none"`) all compile against `resolve`. The
+ * commit-subject grammar (`./Subjects.ts`) is the sole channel the machine
+ * reads: who authored the last turn, whether it is the rest of a chain or
+ * mid-chain bookkeeping, and which workflow phase it belongs to. File
+ * **content** never steers, with exactly two machine-verified exceptions:
+ * FEEDBACK.md emptiness and REVIEW.md checkbox-only diffs.
  *
- * State is folded from **first-parent** history only (single writer, linear
- * branch). A merge commit at HEAD is unsupported — it breaks the counter folds,
- * the review base, and last-commit detection; this is documented, not handled.
+ * It is intentionally free of IO: no git, no filesystem, no Effect. State is
+ * folded from **first-parent** history only (single writer, linear branch). A
+ * merge commit at HEAD is unsupported — documented, not handled.
  */
 
-/**
- * Sentinel written to `SQUASH_MSG.md` by `runHealthCheck` on a green health run
- * with prior fix commits (squash enabled). Its presence signals "health check
- * confirmed green; agent has not yet authored the real squash message." The
- * machine uses this to route to the squash prompt (which re-prompts the agent to
- * replace the sentinel with a real conventional-commits message) rather than
- * looping back into `runHealthCheck`. Rule 4c fires only when
- * `squashMsgContent !== HEALTH_SQUASH_SENTINEL` — i.e. the agent has written a
- * real message.
- */
-export const HEALTH_SQUASH_SENTINEL = "<!-- gtd-health-squash-ready -->\n"
+import type { Actor, TurnGate } from "./Subjects.js"
+import { parseSubject } from "./Subjects.js"
 
-/** The 19 resolved states (STATES.md § States). `Result.state` is one of these. */
+/** The 16 resolved states (frozen contract). `Result.state` is one of these. */
 export type GtdState =
-  | "transport"
-  | "new-feature"
   | "grilling"
   | "grilled"
   | "planning"
@@ -43,9 +35,8 @@ export type GtdState =
   | "escalate"
   | "agentic-review"
   | "close-package"
-  | "clean"
+  | "review"
   | "await-review"
-  | "accept-review"
   | "done"
   | "squashing"
   | "idle"
@@ -53,32 +44,28 @@ export type GtdState =
   | "health-fixing"
 
 /**
- * One first-parent commit, reduced to the flags the folds consume. The edge
- * derives every flag from the commit subject (and, for `removedErrors`, the
- * commit's name-status diff):
- *   - `isErrors`        — subject is `gtd: errors`
- *   - `isFeedback`      — subject is `gtd: feedback`
- *   - `isPackageStart`  — subject is `gtd: planning` OR `gtd: package done`
- *   - `isWorkflowCommit`— subject starts `gtd: ` (any phase commit)
- *   - `removedErrors`   — that commit's diff deleted `ERRORS.md`
- *   - `isHealthCheck`   — subject is `gtd: health-check`
- *   - `isHealthFix`     — subject is `gtd: health-fix`
- *
- * Ad-hoc review anchor: `gtd: reviewing` — used as the squash anchor when
- * initiating an ad-hoc review outside a normal workflow cycle (i.e. the
- * `review` command). It plays the same structural role as `gtd: new task`
- * (marks a review base) but targets the Clean state directly rather than
- * seeding a task.
+ * One first-parent commit, reduced to the flags the folds + ladder consume.
+ * The edge derives every flag from the commit subject (via `parseSubject`)
+ * and, for `removedErrors`, the commit's name-status diff.
  */
 export interface CommitEvent {
   readonly type: "COMMIT"
+  /** Set when the subject is a turn commit (`gtd(<actor>): <gate>`). */
+  readonly turnActor?: Actor
+  /** The `<gate>` of a turn commit. */
+  readonly turnGate?: string
+  /** Routing `gtd: errors`. */
   readonly isErrors: boolean
+  /** Agentic-review turn whose diff touched FEEDBACK.md (a findings round). */
   readonly isFeedback: boolean
+  /** Routing `gtd: planning` | `gtd: package done`. */
   readonly isPackageStart: boolean
+  /** Recognized v2 turn or routing subject (kind !== "boundary"). */
   readonly isWorkflowCommit: boolean
+  /** That commit's diff deleted `ERRORS.md`. */
   readonly removedErrors: boolean
+  /** Routing `gtd: health-check`. */
   readonly isHealthCheck: boolean
-  readonly isHealthFix: boolean
 }
 
 /** The terminal working-tree snapshot the ladder branches on. */
@@ -88,10 +75,9 @@ export interface ResolveEvent {
 }
 
 /**
- * The event stream `resolve` folds. A typical stream is the first-parent commit
- * history (`COMMIT[]`, oldest→newest) followed by a single terminal `RESOLVE`
- * carrying the current working-tree snapshot. The edge never re-enters the
- * machine with a test result or review record — those are handled at the edge.
+ * The event stream `resolve` folds. A typical stream is the first-parent
+ * commit history (`COMMIT[]`, oldest→newest) followed by a single terminal
+ * `RESOLVE` carrying the current working-tree snapshot.
  */
 export type GtdEvent = CommitEvent | ResolveEvent
 
@@ -105,18 +91,31 @@ export interface GtdPackageFact {
 }
 
 /**
- * The working-tree snapshot carried by a `RESOLVE` event: steering-file presence
- * and dirtiness, the last commit subject, and prompt passthrough. Presence and
- * dirtiness only — **no counts** (the counts fold from `COMMIT[]` in the machine).
+ * The working-tree snapshot carried by a `RESOLVE` event: steering-file
+ * presence and dirtiness, the last commit subject, the invoking actor, and
+ * prompt passthrough. Presence and dirtiness only — **no counts** (the counts
+ * fold from `COMMIT[]` in the machine).
  */
 export interface ResolvePayload {
+  /** Who is invoking: "human" (`gtd step`), "agent" (`gtd step-agent`), or "none" (`gtd next`/`gtd status`, a pure query). */
+  readonly invoker: Actor | "none"
+  /** Diff of HEAD when HEAD is a turn commit (workflow files excluded), else "". */
+  readonly headTurnDiff: string
+  /** HEAD is a turn commit with an empty diff. */
+  readonly headTurnIsEmpty: boolean
+  /**
+   * Set only when HEAD is a `gtd(human): review` turn commit: whether THAT
+   * turn commit's own diff is substantive (anything beyond a pure REVIEW.md
+   * checkbox flip). Derived from the turn commit's diff, not live working-tree
+   * dirtiness — by the time this mid-chain HEAD is classified, the turn commit
+   * has already landed and the tree is clean again.
+   */
+  readonly headTurnReviewSubstantive?: boolean
+  /** Base hash from the newest `gtd: reviewing <hash>` in the current cycle. */
+  readonly reviewAnchor?: string
   /** `TODO.md` exists (committed or pending). */
   readonly todoExists: boolean
-  /**
-   * The present `TODO.md` is tracked at HEAD — a committed plan being iterated
-   * (later grilling rounds capture user code sketches) vs a freshly seeded,
-   * uncommitted one (the seed round commits the seed revert verbatim).
-   */
+  /** The present `TODO.md` is tracked at HEAD. */
   readonly todoCommitted: boolean
   /** `.gtd/` exists. */
   readonly gtdDirExists: boolean
@@ -130,19 +129,17 @@ export interface ResolvePayload {
   readonly gtdModified: boolean
   /** Pending changes outside the steering set (TODO/REVIEW/FEEDBACK/ERRORS/.gtd). */
   readonly codeDirty: boolean
-  /** The `<!-- user answers here -->` sentinel appears anywhere in `TODO.md` (after code-fence strip). */
-  readonly todoMarkerPresent: boolean
-  /** The present `FEEDBACK.md` is committed (written by Testing as `gtd: errors`). */
+  /** The present `FEEDBACK.md` is committed. */
   readonly feedbackCommitted: boolean
   /** The present `FEEDBACK.md` is whitespace-only (`!/\S/`) — a clean agentic review = approval. */
   readonly feedbackEmpty: boolean
-  /** Full text of the present `FEEDBACK.md` ("" when absent) — the edge reads it before removal so Fixing can inline it. */
+  /** Full text of the present `FEEDBACK.md` ("" when absent). */
   readonly feedbackContent: string
-  /** `REVIEW.md` is committed AND the tree is clean (the human ran gtd without edits = approval). */
+  /** `REVIEW.md` is committed AND the tree is clean. */
   readonly reviewCommitted: boolean
-  /** `REVIEW.md` is committed BUT there are pending edits (to REVIEW or other files). */
+  /** `REVIEW.md` is committed BUT there are pending edits. */
   readonly reviewDirty: boolean
-  /** Pending REVIEW.md change is a pure checkbox-state flip (`- [ ]` ↔ `- [x]`) and nothing else is dirty. */
+  /** Pending REVIEW.md change is a pure checkbox-state flip and nothing else is dirty. */
   readonly reviewCheckboxOnly: boolean
   /** The working tree deletes a committed `ERRORS.md` (human resume → fresh budget). */
   readonly pendingErrorsDeletion: boolean
@@ -152,133 +149,89 @@ export interface ResolvePayload {
   readonly workingTreeClean: boolean
   /** `.gtd/` packages, lowest-numbered first; `packages[0]` is the active one. */
   readonly packages: readonly GtdPackageFact[]
-  /** The base commit for a Clean review, if one is available. */
+  /** The base commit for a review, if one is available. */
   readonly reviewBase?: string
-  /** `git diff <reviewBase> HEAD` (workflow files excluded) — non-empty distinguishes Clean from Idle. */
+  /** `git diff <reviewBase> HEAD` (workflow files excluded). */
   readonly refDiff?: string
-  /**
-   * The review re-trigger gate, resolved at the edge: commits exist after the
-   * last `gtd: done` (or no `gtd: done` exists). `false` forces the Clean/Idle
-   * rule to Idle even with a reviewable diff, so an approved review settles
-   * instead of immediately re-firing (the review → approve → done → review loop).
-   * Gates only *whether* a review fires — never what `reviewBase` covers.
-   */
+  /** Commits exist after the most recent `gtd: done` (or none exists). */
   readonly hasCommitsAfterLastDone: boolean
   /** Agentic review enabled (config kill-switch; false → Agentic Review force-approves). */
   readonly agenticReviewEnabled: boolean
-  /** Fix-attempt cap (config, default 3). `capReached` = `testFixCount >= fixAttemptCap`. */
+  /** Fix-attempt cap (config, default 3). */
   readonly fixAttemptCap: number
-  /** Review-fix threshold (config, default 3). `reviewFixCount >= reviewThreshold` → force-approve. */
+  /** Review-fix threshold (config, default 3). */
   readonly reviewThreshold: number
-  /**
-   * Parent commit of the first persisting cycle commit (the Rule-1 review base).
-   * Set by the edge only when HEAD is `gtd: done` and squash is enabled.
-   */
+  /** Parent commit of the first persisting cycle commit (squash base). */
   readonly squashBase?: string
-  /** `git diff <squashBase> HEAD`, the whole feature diff, inlined into the squashing prompt. */
+  /** `git diff <squashBase> HEAD`, the whole feature diff. */
   readonly squashDiff?: string
-  /** Squash enabled (config kill-switch; false → skip squashing after `gtd: done`). */
+  /** Squash enabled (config kill-switch). */
   readonly squashEnabled: boolean
   readonly squashMsgPresent: boolean
-  readonly squashMsgContent: string
   /** `HEALTH.md` exists (committed or pending). */
   readonly healthPresent: boolean
   /** Full text of the present `HEALTH.md` ("" when absent). */
   readonly healthContent: string
   /** `HEALTH.md` is tracked at HEAD (committed health check) vs pending. */
   readonly healthCommitted: boolean
-  /**
-   * Parent commit of the first persisting health-fix cycle commit.
-   * Set by the edge only when squash is enabled.
-   */
+  /** Parent commit of the first persisting health-fix cycle commit. */
   readonly healthFixBase?: string
 }
 
 /**
  * A side effect the driver performs, then re-gathers + re-resolves until a
- * prompt-bearing or STOP state. The machine only decides which action; the
- * semantics live in the Events/driver tasks.
- *   - `transportReset`   — mixed-reset the `gtd: transport` HEAD, re-derive.
- *   - `seedNewFeature`   — capture raw input `gtd: new task`, revert it, seed TODO.md.
- *   - `seedAcceptReview` — capture the review changeset `gtd: review feedback`
- *                          (commit-then-revert), rm REVIEW.md, seed TODO.md. When HEAD
- *                          already carries the capture subject (regen), discard partial
- *                          state and re-derive from the commit.
- *   - `captureGrillingEdits` — fold the pending code diff into TODO.md as a suggestion
- *                          block, drop the code changes (reset tracked, delete
- *                          untracked), commit the lot `gtd: grilling`.
- *   - `runTest`          — commit pending `gtd: building`, run tests; on red write
- *                          FEEDBACK (below cap) or ERRORS (`capReached`), commit `gtd: errors`.
- *                          A green re-test of a no-op fixer (clean tree, HEAD
- *                          `gtd: fixing`) commits an empty `gtd: building` to advance HEAD.
- *   - `commitPending`    — commit the pending tree with a fixed `prefix`
- *                          (grilling / grilled / planning / fixing). `removeFeedback`
- *                          deletes FEEDBACK.md first so Fixing lands its removal in the
- *                          `gtd: fixing` / `gtd: feedback` commit (else Fixing re-fires forever).
- *                          `removeTodo` deletes TODO.md first so its removal lands in the
- *                          `gtd: planning` commit (once-only, at the planning→building edge).
- *   - `closePackage`     — rm the (maybe-empty / maybe-absent) FEEDBACK.md, rm the
- *                          first package dir (+ empty `.gtd/`), commit `gtd: package done`.
- *   - `commitReview`     — commit REVIEW.md `gtd: awaiting review`.
- *   - `done`             — rm REVIEW.md, commit `gtd: done`.
+ * prompt-bearing rest or a pending mid-chain checkpoint.
+ *   - `captureTurn`      — author the first commit of a turn chain:
+ *                          `git add -A` + `git commit --allow-empty` with
+ *                          subject `gtd(<actor>): <gate>`.
+ *   - `commitRouting`    — machine bookkeeping commit with a fixed `subject`
+ *                          (one of the routing subjects). `removeTodo` /
+ *                          `removeReview` / `removeFeedback` / `removeHealth`
+ *                          delete the named steering file first so its
+ *                          removal lands in this commit.
+ *   - `runTest`          — run the configured test command; on red write
+ *                          FEEDBACK (below cap) or ERRORS (`capReached`),
+ *                          commit `gtd: errors`; on green commit
+ *                          `gtd: tests green`.
+ *   - `closePackage`     — rm the (maybe-empty / maybe-absent) FEEDBACK.md, rm
+ *                          the first package dir (+ empty `.gtd/`), commit
+ *                          `gtd: package done`.
+ *   - `writeSquashTemplate` — write + commit SQUASH_MSG.md `gtd: squash template`.
+ *   - `squashCommit`     — soft-reset to `squashBase`, then `gtd(agent): squashing`
+ *                          reads SQUASH_MSG.md at perform time for the message.
+ *   - `runHealthCheck`   — run the configured test command; on red write
+ *                          HEALTH.md (below cap) or ERRORS.md (`capReached`),
+ *                          commit `gtd: health-check`; on green with prior
+ *                          fixes and `squashAfterGreen`, commit
+ *                          `gtd: tests green` to chain into the squash
+ *                          template; otherwise stop idle with zero commits.
  */
 export type EdgeAction =
-  | { readonly kind: "transportReset" }
-  | { readonly kind: "seedNewFeature" }
-  | { readonly kind: "seedAcceptReview" }
-  | { readonly kind: "captureGrillingEdits" }
-  | { readonly kind: "runTest"; readonly errorCount: number; readonly capReached: boolean }
+  | { readonly kind: "captureTurn"; readonly actor: Actor; readonly gate: TurnGate }
   | {
-      readonly kind: "commitPending"
-      readonly prefix: string
-      readonly removeFeedback?: boolean
-      /** Delete TODO.md first so its removal lands in the `gtd: planning` commit. */
+      readonly kind: "commitRouting"
+      readonly subject: string
       readonly removeTodo?: boolean
-      /** Delete HEALTH.md first so its removal lands in the `gtd: health-check`/`gtd: health-fix` commit. */
+      readonly removeReview?: boolean
+      readonly removeFeedback?: boolean
       readonly removeHealth?: boolean
     }
+  | { readonly kind: "runTest"; readonly errorCount: number; readonly capReached: boolean }
+  | { readonly kind: "closePackage" }
+  | { readonly kind: "writeSquashTemplate" }
+  | { readonly kind: "squashCommit"; readonly squashBase: string }
   | {
       readonly kind: "runHealthCheck"
       readonly errorCount: number
       readonly capReached: boolean
-      /** Parent commit of the first health-check in the current run (squash base). Only set when squash is enabled and healthFixCount > 0. */
-      readonly healthFixBase?: string
-      /** Commit the pending ERRORS.md deletion (budget reset) before running the test. */
-      readonly commitErrorsReset?: boolean
-    }
-  | { readonly kind: "closePackage" }
-  | { readonly kind: "commitReview" }
-  | { readonly kind: "done" }
-  | {
-      readonly kind: "squashCommit"
-      readonly squashBase: string
-      readonly commitMessage: string
-    }
-  | {
-      /**
-       * Remove the HEALTH_SQUASH_SENTINEL file (SQUASH_MSG.md written by
-       * `runHealthCheck` on green-with-fixes) so the squash-prompt state is
-       * presented with a clean slate. Performed before the squash prompt is
-       * emitted; the agent then writes the real SQUASH_MSG.md on its turn.
-       */
-      readonly kind: "removeHealthSentinel"
-    }
-  | {
-      /**
-       * Remove a stray SQUASH_MSG.md found under a boundary HEAD with no
-       * matching squash cycle (squashBase undefined or squashEnabled false).
-       * A SQUASH_MSG.md left from an aborted squash cycle must not seed a new
-       * feature — this action cleans it up; the next gather then sees a clean
-       * tree and routes to health-check or idle as normal.
-       */
-      readonly kind: "removeStraySquashMsg"
+      readonly squashAfterGreen: boolean
     }
 
 /** The folded prompt context carried on every `Result`. */
 export interface ResolveContext {
-  /** `gtd: errors` commits since the most recent of {package-start, `gtd: feedback`, ERRORS.md removal}. */
+  /** `gtd: errors` commits since the most recent of {package-start, feedback round, ERRORS.md removal}. */
   readonly testFixCount: number
-  /** `gtd: feedback` commits since the most recent package-start. */
+  /** Feedback rounds (`isFeedback`) since the most recent package-start. */
   readonly reviewFixCount: number
   /** `.gtd/` packages (passthrough); `packages[0]` is active. */
   readonly packages: readonly GtdPackageFact[]
@@ -292,14 +245,19 @@ export interface ResolveContext {
   readonly squashDiff?: string
   /** Full `FEEDBACK.md` text (passthrough); "" when absent. Inlined into the Fixing prompt. */
   readonly feedbackContent: string
-  /** Set only for `state:"grilling"`: the STOP-for-answers vs agent-iterate sub-case. */
-  readonly grillingCase?: "stop" | "iterate"
+  /** `headTurnDiff` passthrough, for prompts that inline the turn diff (e.g. re-grilling from review feedback). */
+  readonly turnDiff?: string
 }
 
-/** The resolved decision: the state, whether the agent should re-run, an optional edge action, and context. */
+/** The resolved decision: the state, the awaited actor, an optional edge action, and context. */
 export interface Result {
   readonly state: GtdState
-  readonly autoAdvance: boolean
+  /** The actor awaited at this rest (or, for a mid-chain HEAD, the actor the chain is driven by). */
+  readonly actor: Actor
+  /** Clean tree, mid-chain HEAD — meaningful for invoker "none" (`gtd next`/`gtd status`). */
+  readonly pending: boolean
+  /** Set when an out-of-turn `step-agent` is refused. The CLI prints this to stderr and exits non-zero; zero commits happen. */
+  readonly refusal?: string
   readonly edgeAction?: EdgeAction
   readonly context: ResolveContext
 }
@@ -327,38 +285,82 @@ export class GtdStateError extends Error {
 }
 
 /**
- * Counter folds over the event stream (oldest→newest), in the machine — the edge
- * stays thin. Only `COMMIT` events contribute; `RESOLVE` events are ignored here.
+ * Counter folds over the event stream (oldest→newest), in the machine — the
+ * edge stays thin. Only `COMMIT` events contribute; `RESOLVE` events are
+ * ignored here.
  *
  * - `testFixCount` resets to 0 on any of {`isPackageStart`, `isFeedback`,
- *   `removedErrors`} and increments on `isErrors` — so each test-fix sub-loop,
- *   each review-fix, and a human resume (the `gtd: building` that deleted
- *   ERRORS.md) each start a fresh budget.
+ *   `removedErrors`} and increments on `isErrors`.
  * - `reviewFixCount` resets to 0 on `isPackageStart` and increments on
- *   `isFeedback` — review-fix rounds since the package start.
- * - `healthFixCount` resets to 0 on `isPackageStart` and `removedErrors`,
- *   and increments on `isHealthCheck` — health-fix rounds since the last reset.
+ *   `isFeedback`.
+ * - `healthFixCount` resets to 0 on `isPackageStart` and `removedErrors`, and
+ *   increments on `isHealthCheck`.
  */
-// fallow-ignore-next-line complexity
-export const foldCounters = (events: readonly GtdEvent[]): Counters => {
-  let testFixCount = 0
-  let reviewFixCount = 0
-  let healthFixCount = 0
-  for (const event of events) {
-    if (event.type !== "COMMIT") continue
-    if (event.isPackageStart || event.isFeedback || event.removedErrors) testFixCount = 0
-    if (event.isErrors) testFixCount += 1
-    if (event.isPackageStart) reviewFixCount = 0
-    if (event.isFeedback) reviewFixCount += 1
-    if (event.isPackageStart || event.removedErrors) healthFixCount = 0
-    if (event.isHealthCheck) healthFixCount += 1
-  }
-  return { testFixCount, reviewFixCount, healthFixCount }
+/**
+ * One counter's reset/increment rule, read off a `CommitEvent`: `resetsOn`
+ * zeroes the running count, `incrementsOn` bumps it by one. Reset is checked
+ * before increment for every counter (mirrors the doc comment's per-counter
+ * rules above), so a commit that both resets and increments (none currently
+ * do) would net to 1, not 0.
+ */
+interface CounterRule {
+  readonly resetsOn: (event: CommitEvent) => boolean
+  readonly incrementsOn: (event: CommitEvent) => boolean
 }
 
-/** A boundary commit: a non-`gtd:` subject, or exactly `gtd: done`. Marks a cold start. */
-const isBoundary = (subject: string): boolean =>
-  !subject.startsWith("gtd: ") || subject === "gtd: done"
+const counterRules: Record<keyof Counters, CounterRule> = {
+  testFixCount: {
+    resetsOn: (e) => e.isPackageStart || e.isFeedback || e.removedErrors,
+    incrementsOn: (e) => e.isErrors,
+  },
+  reviewFixCount: {
+    resetsOn: (e) => e.isPackageStart,
+    incrementsOn: (e) => e.isFeedback,
+  },
+  healthFixCount: {
+    resetsOn: (e) => e.isPackageStart || e.removedErrors,
+    incrementsOn: (e) => e.isHealthCheck,
+  },
+}
+
+export const foldCounters = (events: readonly GtdEvent[]): Counters => {
+  const counts: Record<keyof Counters, number> = {
+    testFixCount: 0,
+    reviewFixCount: 0,
+    healthFixCount: 0,
+  }
+  for (const event of events) {
+    if (event.type !== "COMMIT") continue
+    for (const [name, rule] of Object.entries(counterRules) as [keyof Counters, CounterRule][]) {
+      if (rule.resetsOn(event)) counts[name] = 0
+      if (rule.incrementsOn(event)) counts[name] += 1
+    }
+  }
+  return counts
+}
+
+/**
+ * The nearest workflow (turn or routing) commit's turn identity, walking
+ * newest→oldest and skipping boundary commits (`isWorkflowCommit === false`).
+ * Used to recognize an operational-recovery HEAD: a boundary commit (e.g. a
+ * config fix) landed on top of a mid-chain checkpoint turn, so HEAD itself no
+ * longer names the checkpoint even though it is still the active one.
+ * `undefined` when no workflow commit precedes HEAD in the stream at all.
+ */
+const lastWorkflowTurn = (
+  events: readonly GtdEvent[],
+): { readonly actor: Actor; readonly gate: string } | undefined => {
+  let found: { readonly actor: Actor; readonly gate: string } | undefined
+  for (const event of events) {
+    if (event.type !== "COMMIT") continue
+    if (!event.isWorkflowCommit) continue
+    found =
+      event.turnActor !== undefined && event.turnGate !== undefined
+        ? { actor: event.turnActor, gate: event.turnGate }
+        : undefined
+  }
+  return found
+}
 
 /**
  * The payload a degenerate `RESOLVE`-less stream resolves against — also the
@@ -366,6 +368,9 @@ const isBoundary = (subject: string): boolean =>
  * every `ResolvePayload` field.
  */
 export const DEFAULT_PAYLOAD: ResolvePayload = {
+  invoker: "none",
+  headTurnDiff: "",
+  headTurnIsEmpty: false,
   todoExists: false,
   todoCommitted: false,
   gtdDirExists: false,
@@ -374,7 +379,6 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   errorsPresent: false,
   gtdModified: false,
   codeDirty: false,
-  todoMarkerPresent: false,
   feedbackCommitted: false,
   feedbackEmpty: false,
   feedbackContent: "",
@@ -391,18 +395,13 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   reviewThreshold: 3,
   squashEnabled: false,
   squashMsgPresent: false,
-  squashMsgContent: "",
   healthPresent: false,
   healthContent: "",
   healthCommitted: false,
 }
 
 /** Build the prompt context from the payload passthrough + the folded counters. */
-const buildContext = (
-  p: ResolvePayload,
-  counters: Counters,
-  grillingCase?: "stop" | "iterate",
-): ResolveContext => ({
+const buildContext = (p: ResolvePayload, counters: Counters): ResolveContext => ({
   testFixCount: counters.testFixCount,
   reviewFixCount: counters.reviewFixCount,
   packages: p.packages,
@@ -411,336 +410,742 @@ const buildContext = (
   ...(p.squashBase !== undefined ? { squashBase: p.squashBase } : {}),
   ...(p.squashDiff !== undefined ? { squashDiff: p.squashDiff } : {}),
   feedbackContent: p.feedbackContent !== "" ? p.feedbackContent : p.healthContent,
-  ...(grillingCase !== undefined ? { grillingCase } : {}),
+  ...(p.headTurnDiff !== "" ? { turnDiff: p.headTurnDiff } : {}),
 })
 
 /**
- * Throw on the STATES.md § Illegal-combinations set. These never arise in normal
- * flow; if seen, gtd hard-errors rather than guessing. Enforced before the ladder.
+ * One illegal steering-file combination: a predicate over `ResolvePayload`
+ * paired with the exact diagnosis `assertLegal` throws when it matches.
  */
-// fallow-ignore-next-line complexity
+interface IllegalCombinationRule {
+  readonly isViolated: (p: ResolvePayload) => boolean
+  readonly message: string
+}
+
+// HEALTH.md-specific combinations are listed before the generic "<file>
+// without .gtd" rules below: HEALTH.md + FEEDBACK.md (or + ERRORS.md) with no
+// `.gtd/` present would otherwise also match the generic "FEEDBACK.md without
+// .gtd" / "ERRORS.md without .gtd" rules, whose message names only one file
+// and doesn't mention HEALTH.md at all — the more specific two-file diagnosis
+// must win, so it must be checked first.
+const healthFileConflictRules: readonly IllegalCombinationRule[] = [
+  { isViolated: (p) => p.healthPresent && p.gtdDirExists, message: "HEALTH.md + .gtd" },
+  { isViolated: (p) => p.healthPresent && p.reviewPresent, message: "HEALTH.md + REVIEW.md" },
+  { isViolated: (p) => p.healthPresent && p.feedbackPresent, message: "HEALTH.md + FEEDBACK.md" },
+  { isViolated: (p) => p.healthPresent && p.errorsPresent, message: "HEALTH.md + ERRORS.md" },
+]
+
+const isReviewGtdConflict = (p: ResolvePayload): boolean => p.reviewPresent && p.gtdDirExists
+
+const isReviewCommittedTodoConflict = (p: ResolvePayload): boolean =>
+  p.reviewPresent && p.todoCommitted
+
+const isUncommittedReviewWithTodoConflict = (p: ResolvePayload): boolean =>
+  p.reviewPresent && !(p.reviewCommitted || p.reviewDirty) && p.todoExists
+
+const isFeedbackReviewConflict = (p: ResolvePayload): boolean =>
+  p.feedbackPresent && p.reviewPresent
+
+const isFeedbackWithoutGtdDir = (p: ResolvePayload): boolean => p.feedbackPresent && !p.gtdDirExists
+
+const isErrorsFeedbackConflict = (p: ResolvePayload): boolean =>
+  p.errorsPresent && p.feedbackPresent
+
+/** ERRORS.md briefly outlives `.gtd/` during the health-check cap escalation. */
+const isHealthCapEscalation = (p: ResolvePayload): boolean =>
+  p.lastCommitSubject === "gtd: health-check" || p.lastCommitSubject === "gtd: health-fix"
+
+const isErrorsWithoutGtdDir = (p: ResolvePayload): boolean =>
+  p.errorsPresent && !p.gtdDirExists && !isHealthCapEscalation(p)
+
+const reviewAndFeedbackRules: readonly IllegalCombinationRule[] = [
+  { isViolated: isReviewGtdConflict, message: "REVIEW.md + .gtd" },
+  { isViolated: isReviewCommittedTodoConflict, message: "REVIEW.md + committed TODO.md" },
+  { isViolated: isUncommittedReviewWithTodoConflict, message: "uncommitted REVIEW.md + TODO.md" },
+  { isViolated: isFeedbackReviewConflict, message: "FEEDBACK.md + REVIEW.md" },
+  { isViolated: isFeedbackWithoutGtdDir, message: "FEEDBACK.md without .gtd" },
+  { isViolated: isErrorsFeedbackConflict, message: "ERRORS.md + FEEDBACK.md" },
+  { isViolated: isErrorsWithoutGtdDir, message: "ERRORS.md without .gtd" },
+]
+
+/**
+ * Throw on the documented illegal-combination set. These never arise in
+ * normal flow; if seen, gtd hard-errors rather than guessing. Enforced before
+ * the ladder. HEALTH.md's rules are checked as their own pass ahead of the
+ * REVIEW.md/FEEDBACK.md/ERRORS.md rules (see comment above
+ * `healthFileConflictRules`), then each remaining rule is checked in the
+ * documented precedence order.
+ */
 const assertLegal = (p: ResolvePayload): void => {
-  const fail = (msg: string): never => {
-    throw new GtdStateError("illegal-combination", msg)
-  }
-  if (p.reviewPresent && p.gtdDirExists) fail("illegal combination: REVIEW.md + .gtd")
-  // An uncommitted TODO.md under a *committed* REVIEW.md is legal — plan-level
-  // notes written during a review are global feedback; the reviewDirty path
-  // captures them (Accept Review). Everything else stays illegal.
-  if (p.reviewPresent && p.todoCommitted) fail("illegal combination: REVIEW.md + committed TODO.md")
-  if (p.reviewPresent && !(p.reviewCommitted || p.reviewDirty) && p.todoExists)
-    fail("illegal combination: uncommitted REVIEW.md + TODO.md")
-  if (p.feedbackPresent && p.reviewPresent) fail("illegal combination: FEEDBACK.md + REVIEW.md")
-  if (p.feedbackPresent && !p.gtdDirExists) fail("illegal combination: FEEDBACK.md without .gtd")
-  if (p.errorsPresent && p.feedbackPresent) fail("illegal combination: ERRORS.md + FEEDBACK.md")
-  // ERRORS.md without .gtd is legal after a health-check cap escalation (HEAD is
-  // `gtd: health-check` and the health cycle wrote ERRORS.md as the cap marker).
-  const isHealthCapEscalation =
-    p.lastCommitSubject === "gtd: health-check" || p.lastCommitSubject === "gtd: health-fix"
-  if (p.errorsPresent && !p.gtdDirExists && !isHealthCapEscalation)
-    fail("illegal combination: ERRORS.md without .gtd")
-  if (p.healthPresent && p.gtdDirExists) fail("illegal combination: HEALTH.md + .gtd")
-  if (p.healthPresent && p.reviewPresent) fail("illegal combination: HEALTH.md + REVIEW.md")
-  if (p.healthPresent && p.feedbackPresent) fail("illegal combination: HEALTH.md + FEEDBACK.md")
-  if (p.healthPresent && p.errorsPresent) fail("illegal combination: HEALTH.md + ERRORS.md")
-}
-
-// ── Rule 1b: HEALTH.md → Health Fixing ───────────────────────────────────────
-// Sits BELOW ERRORS (rule 1) so escalation wins. HEALTH.md coexisting with
-// ERRORS.md is illegal and caught by assertLegal before the ladder.
-//
-// edgeAction fires only when there are pending changes to commit:
-//   - `!healthCommitted`: HEALTH.md is new (uncommitted) → commit it as the
-//     health-check marker. HEALTH.md is removed so the next detect route
-//     goes to `resolveCleanOrIdle` (health-check → re-test) rather than
-//     looping back to health-fixing. The health-fixing prompt receives the
-//     failure content from `context.feedbackContent` (captured before perform).
-//   - `healthCommitted && !workingTreeClean`: fix agent's boundary commit
-//     left HEALTH.md on disk; fold its removal into a `gtd: health-fix` commit.
-// When the tree is clean and HEALTH.md is already committed, the fix agent
-// hasn't run yet — emit the prompt without a pre-commit.
-const resolveHealth = (p: ResolvePayload, counters: Counters): Result => {
-  const hasPendingWork = !p.healthCommitted || !p.workingTreeClean
-  const prefix = p.healthCommitted ? "gtd: health-fix" : "gtd: health-check"
-  return {
-    state: "health-fixing",
-    autoAdvance: true,
-    ...(hasPendingWork
-      ? {
-          edgeAction: {
-            kind: "commitPending",
-            prefix,
-            // Always remove HEALTH.md: on gtd: health-check this clears it so
-            // the next run re-enters resolveCleanOrIdle; on gtd: health-fix it
-            // clears the marker left by a prior health-check run.
-            removeHealth: true,
-          } as const,
-        }
-      : {}),
-    context: buildContext(p, counters),
-  }
-}
-
-// ── Rule 2: FEEDBACK.md → Fixing or Close package ────────────────────────────
-const resolveFeedback = (p: ResolvePayload, counters: Counters): Result => {
-  if (p.feedbackEmpty) {
-    return {
-      state: "close-package",
-      autoAdvance: true,
-      edgeAction: { kind: "closePackage" },
-      context: buildContext(p, counters),
+  for (const rule of [...healthFileConflictRules, ...reviewAndFeedbackRules]) {
+    if (rule.isViolated(p)) {
+      throw new GtdStateError("illegal-combination", `illegal combination: ${rule.message}`)
     }
   }
-  return {
-    state: "fixing",
-    autoAdvance: true,
-    edgeAction: {
-      kind: "commitPending",
-      prefix: p.feedbackCommitted ? "gtd: fixing" : "gtd: feedback",
-      // Delete FEEDBACK.md so its removal lands in this commit; without it the
-      // next run re-detects FEEDBACK (precedence 2) and Fixing never returns to
-      // Testing (STATES.md § Fixing: "FEEDBACK.md is removed either way").
-      removeFeedback: true,
-    },
-    context: buildContext(p, counters),
-  }
 }
 
-// ── Rule 3: .gtd present → build lifecycle (exhaustive: returns or throws) ───
+// ── HEAD classification ──────────────────────────────────────────────────────
+//
+// The rest-vs-mid-chain classification pinned by the wire-format contract,
+// shared by `resolve` and `predictTurn`. A HEAD is classified into exactly
+// one row of `HeadClass`: a **rest** (the state/actor `next` reports, with no
+// further machine work at that HEAD) or **mid-chain** (bookkeeping the
+// resolver performs immediately, carrying the `EdgeAction` that does it).
+// Boundary commits, and rows whose classification additionally depends on
+// payload facts (file presence, package/diff state) beyond the subject
+// itself, are resolved by the ladder in `resolveBaseline` — `classifyHead`
+// covers exactly the rows that are a pure function of the subject plus the
+// small config-dependent flag set below.
+
+/** One row of the classification table. */
+type HeadClass =
+  | { readonly kind: "rest"; readonly state: GtdState; readonly actor: Actor }
+  | {
+      readonly kind: "mid-chain"
+      readonly state: GtdState
+      readonly actor: Actor
+      readonly action: EdgeAction
+    }
+
+/** The small set of config/content-dependent facts a subject-only classification still needs. */
+interface ClassifyFlags {
+  readonly headTurnIsEmpty: boolean
+  readonly hasGtdDir: boolean
+  readonly agenticReviewForceApproved: boolean
+  readonly squashEnabled: boolean
+  readonly hasSquashBase: boolean
+  readonly squashAfterGreen: boolean
+  readonly reviewSubstantive: boolean
+  readonly errorsPresent: boolean
+}
+
+/**
+ * Classify HEAD per the wire-format table (turn commits and routing commits
+ * only — boundary subjects and the payload-dependent rows return `null` for
+ * the caller's ladder to resolve). Shared internally by both `resolve` and
+ * `predictTurn` so they use one classification.
+ */
 // fallow-ignore-next-line complexity
-const resolveGtdLifecycle = (
+const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null => {
+  const parsed = parseSubject(subject)
+
+  if (parsed.kind === "turn") {
+    const { actor, gate } = parsed
+
+    if (gate === "grilling") {
+      if (actor === "agent") {
+        // Non-empty → human answer gate. Empty → inert re-emit of the same prompt.
+        return flags.headTurnIsEmpty
+          ? { kind: "rest", state: "grilling", actor: "agent" }
+          : { kind: "rest", state: "grilling", actor: "human" }
+      }
+      // actor === "human"
+      return flags.headTurnIsEmpty
+        ? {
+            kind: "mid-chain",
+            state: "grilling",
+            actor: "agent",
+            action: { kind: "commitRouting", subject: "gtd: grilled" },
+          }
+        : { kind: "rest", state: "grilling", actor: "agent" }
+    }
+
+    if (actor === "agent" && gate === "grilled") {
+      return {
+        kind: "mid-chain",
+        state: "grilled",
+        actor: "agent",
+        action: { kind: "commitRouting", subject: "gtd: planning", removeTodo: true },
+      }
+    }
+
+    if (actor === "agent" && gate === "building") {
+      return {
+        kind: "mid-chain",
+        state: "building",
+        actor: "agent",
+        action: { kind: "runTest", errorCount: 0, capReached: false },
+      }
+    }
+
+    if (actor === "agent" && gate === "fixing") {
+      // Non-empty diff → the fixer actually changed something → mid-chain:
+      // strip FEEDBACK.md and re-test in this same invocation. Empty diff →
+      // the fixer produced no change at all → inert, same as an empty
+      // grilling/agentic-review turn: rest so `gtd next` re-emits the same
+      // fixing prompt rather than spuriously re-running tests.
+      return flags.headTurnIsEmpty
+        ? { kind: "rest", state: "fixing", actor: "agent" }
+        : {
+            kind: "mid-chain",
+            state: "fixing",
+            actor: "agent",
+            action: { kind: "runTest", errorCount: 0, capReached: false },
+          }
+    }
+
+    if (actor === "agent" && gate === "agentic-review") {
+      // The FEEDBACK.md-present cases (both "empty file written" = approve,
+      // and "non-empty findings" = rest at fixing) are handled by the
+      // steering-file precedence check above classifyHead, which runs before
+      // this branch — so reaching here means FEEDBACK.md was never written at
+      // all. That is a plain empty agent turn: inert, never an implicit
+      // approval (the two are NOT the same signal — see module doc). Rest at
+      // agentic-review so `gtd next` re-emits the same review prompt.
+      return { kind: "rest", state: "agentic-review", actor: "agent" }
+    }
+
+    if (actor === "agent" && gate === "review") {
+      return {
+        kind: "mid-chain",
+        state: "review",
+        actor: "agent",
+        action: { kind: "commitRouting", subject: "gtd: awaiting review" },
+      }
+    }
+
+    if (actor === "human" && gate === "review") {
+      return flags.reviewSubstantive
+        ? {
+            kind: "mid-chain",
+            state: "review",
+            actor: "human",
+            action: { kind: "commitRouting", subject: "gtd: review feedback", removeReview: true },
+          }
+        : {
+            kind: "mid-chain",
+            state: "review",
+            actor: "human",
+            action: { kind: "commitRouting", subject: "gtd: done", removeReview: true },
+          }
+    }
+
+    if (actor === "agent" && gate === "squashing") {
+      return flags.hasSquashBase
+        ? {
+            kind: "mid-chain",
+            state: "squashing",
+            actor: "agent",
+            action: { kind: "squashCommit", squashBase: "" }, // squashBase filled in by the caller
+          }
+        : { kind: "rest", state: "squashing", actor: "agent" }
+    }
+
+    if (actor === "agent" && gate === "health-fixing") {
+      return {
+        kind: "mid-chain",
+        state: "health-fixing",
+        actor: "agent",
+        action: { kind: "commitRouting", subject: "gtd: health-fix", removeHealth: true },
+      }
+    }
+
+    if (actor === "human" && gate === "escalate") {
+      return {
+        kind: "mid-chain",
+        state: "escalate",
+        actor: "human",
+        action: { kind: "runTest", errorCount: 0, capReached: false },
+      }
+    }
+
+    return null
+  }
+
+  if (parsed.kind === "routing") {
+    switch (parsed.phase) {
+      case "grilled":
+        return { kind: "rest", state: "grilled", actor: "agent" }
+      case "planning":
+        return { kind: "rest", state: "building", actor: "agent" }
+      case "tests-green":
+        if (flags.hasGtdDir) {
+          return flags.agenticReviewForceApproved
+            ? {
+                kind: "mid-chain",
+                state: "close-package",
+                actor: "agent",
+                action: { kind: "closePackage" },
+              }
+            : { kind: "rest", state: "agentic-review", actor: "agent" }
+        }
+        return flags.squashEnabled && flags.squashAfterGreen
+          ? {
+              kind: "mid-chain",
+              state: "testing",
+              actor: "agent",
+              action: { kind: "writeSquashTemplate" },
+            }
+          : { kind: "rest", state: "idle", actor: "human" }
+      case "errors":
+        return flags.errorsPresent
+          ? { kind: "rest", state: "escalate", actor: "human" }
+          : { kind: "rest", state: "fixing", actor: "agent" }
+      case "package-done":
+        // Depends on remaining packages / reviewable diff — caller's ladder.
+        return null
+      case "awaiting-review":
+        return { kind: "rest", state: "await-review", actor: "human" }
+      case "review-feedback":
+        return { kind: "rest", state: "grilling", actor: "agent" }
+      case "done":
+        return flags.squashEnabled && flags.hasSquashBase
+          ? {
+              kind: "mid-chain",
+              state: "done",
+              actor: "agent",
+              action: { kind: "writeSquashTemplate" },
+            }
+          : { kind: "rest", state: "idle", actor: "human" }
+      case "squash-template":
+        return { kind: "rest", state: "squashing", actor: "agent" }
+      case "reviewing":
+        return { kind: "rest", state: "review", actor: "agent" }
+      case "health-check":
+        return flags.errorsPresent
+          ? { kind: "rest", state: "escalate", actor: "human" }
+          : { kind: "rest", state: "health-fixing", actor: "agent" }
+      case "health-fix":
+        // A plain REST for classification purposes (`gtd next`/pure queries
+        // report idle/human here, since a clean tree "self-heals" — the very
+        // next invocation's health check simply re-runs). But an actual
+        // mutating invocation (step/step-agent) landing HERE mid-chain (i.e.
+        // the SAME invocation that just captured the health-fixer's turn)
+        // must re-test in that same chain rather than stopping — handled as a
+        // special case in `applyTurnTaking`, not here.
+        return { kind: "rest", state: "idle", actor: "human" }
+    }
+  }
+
+  return null
+}
+
+/**
+ * States that author a turn under their own same-named gate. Every other
+ * `GtdState` (planning, testing, close-package, await-review, done, idle,
+ * health-check — none of which are themselves turn gates) falls through to
+ * "review", `gateForState`'s documented default.
+ */
+const STATE_IS_OWN_GATE: ReadonlySet<GtdState> = new Set<GtdState>([
+  "grilling",
+  "grilled",
+  "building",
+  "fixing",
+  "agentic-review",
+  "review",
+  "squashing",
+  "health-fixing",
+  "escalate",
+])
+
+/** Map a state to the turn gate an invocation at that state's rest would author. */
+const gateForState = (state: GtdState): TurnGate =>
+  STATE_IS_OWN_GATE.has(state) ? (state as TurnGate) : "review"
+
+/**
+ * The baseline decision: classify HEAD, falling through to the payload-driven
+ * ladder for the rows `classifyHead` cannot resolve alone (boundary subjects,
+ * `package-done`'s package/diff-dependent split). Ignorant of turn-taking —
+ * `resolve` layers that on afterward via `applyTurnTaking`.
+ */
+// fallow-ignore-next-line complexity
+const resolveBaseline = (
   p: ResolvePayload,
   counters: Counters,
   head: string,
   corrupt: () => never,
-): Result => {
-  if (p.gtdModified) {
-    return {
-      state: "planning",
-      autoAdvance: true,
-      edgeAction: { kind: "commitPending", prefix: "gtd: planning" },
-      context: buildContext(p, counters),
-    }
+  lastTurn?: { readonly actor: Actor; readonly gate: string },
+): HeadClass => {
+  // Steering-file precedence sits above HEAD classification: these fire
+  // regardless of what HEAD says, because the file presence is itself more
+  // current than the last commit (e.g. a fresh red test run's FEEDBACK.md).
+  //
+  // Exception: HEAD === `gtd(agent): fixing` is the fixer's own turn commit
+  // consuming that very FEEDBACK.md — classifyHead's mid-chain `runTest`
+  // handles stripping it and re-testing, so this precedence check must not
+  // pre-empt that classification with a rest.
+  const headIsFixerTurn = (() => {
+    const parsed = parseSubject(head)
+    return parsed.kind === "turn" && parsed.actor === "agent" && parsed.gate === "fixing"
+  })()
+  // Already inside the fix loop (the Testing loop wrote FEEDBACK.md as
+  // `gtd: errors`, or the fixer's own turn is HEAD) — an uncommitted
+  // FEEDBACK.md edit here is the fixer disputing/emptying an
+  // already-on-the-record finding, not a fresh reviewer write. Distinguishes
+  // this from the Agentic Review agent's OWN uncommitted FEEDBACK.md write
+  // (see below), which must be captured as a turn before anything else.
+  const alreadyInFixLoop = headIsFixerTurn || head === "gtd: errors"
+  // Computed early (also reused below, past the classifyHead call) because
+  // the FEEDBACK.md precedence check right below needs it: once the
+  // review-fix threshold is reached (or agenticReview is off), a lingering
+  // FEEDBACK.md from a PRIOR (already-counted) findings round must not block
+  // the force-approve close — the threshold overrides stale findings content.
+  const forceApprove = !p.agenticReviewEnabled || counters.reviewFixCount >= p.reviewThreshold
+  // Exception (mirrors headIsFixerTurn above): HEAD === `gtd(agent):
+  // health-fixing` is the health-fixer's own turn commit consuming that very
+  // HEALTH.md — classifyHead's mid-chain `commitRouting` (removeHealth) handles
+  // it, so this precedence check must not pre-empt that classification with a
+  // rest.
+  const headIsHealthFixerTurn = (() => {
+    const parsed = parseSubject(head)
+    return parsed.kind === "turn" && parsed.actor === "agent" && parsed.gate === "health-fixing"
+  })()
+  if (p.errorsPresent) return { kind: "rest", state: "escalate", actor: "human" }
+  if (p.healthPresent && !headIsHealthFixerTurn) {
+    return { kind: "rest", state: "health-fixing", actor: "agent" }
   }
-  const noOpFixer = p.workingTreeClean && head === "gtd: fixing"
-  if (p.codeDirty || p.pendingErrorsDeletion || noOpFixer) {
-    // Human resume (pending ERRORS.md deletion) grants a fresh budget: the
-    // testing edge action commits the deletion (`gtd: building`, removedErrors)
-    // before re-counting, so the runTest action carries the post-reset budget.
-    const resume = p.pendingErrorsDeletion
-    return {
-      state: "testing",
-      autoAdvance: true,
-      edgeAction: {
-        kind: "runTest",
-        errorCount: resume ? 0 : counters.testFixCount,
-        capReached: (resume ? 0 : counters.testFixCount) >= p.fixAttemptCap,
-      },
-      context: buildContext(p, counters),
+  if (p.feedbackPresent && !headIsFixerTurn && !(forceApprove && !alreadyInFixLoop)) {
+    // FEEDBACK.md written live by the Agentic Review agent (HEAD is still
+    // `gtd: tests green`, the rest that shows the agentic-review prompt) is
+    // initially uncommitted — that write must be captured as the agent's
+    // `gtd(agent): agentic-review` turn FIRST (rest here so a `captureTurn`
+    // happens), rather than mid-chaining straight to close/fixing with no
+    // record of the reviewer's own turn. Once captured (HEAD is now that
+    // turn commit), this precedence check fires again on the next hop and
+    // proceeds to close/fixing as normal.
+    if (head === "gtd: tests green") {
+      return { kind: "rest", state: "agentic-review", actor: "agent" }
     }
-  }
-  if (p.workingTreeClean) {
-    if (head === "gtd: planning" || head === "gtd: package done") {
-      // Once-only TODO.md deletion: when transitioning planning→building for the
-      // first time (TODO.md still present), delete it in the same commit so the
-      // planning commit is self-contained. On re-entry (package done, or planning
-      // without TODO.md) no action is needed.
-      if (head === "gtd: planning" && p.todoExists) {
-        return {
-          state: "building",
-          autoAdvance: true,
-          edgeAction: { kind: "commitPending", prefix: "gtd: planning", removeTodo: true },
-          context: buildContext(p, counters),
-        }
-      }
-      return { state: "building", autoAdvance: true, context: buildContext(p, counters) }
-    }
-    if (head === "gtd: building") {
-      // Agentic Review, unless force-approved (kill-switch off or threshold hit):
-      // skip the review and close the package directly (closePackage tolerates the
-      // absent FEEDBACK.md). Otherwise prompt the review agent.
-      const forceApprove = !p.agenticReviewEnabled || counters.reviewFixCount >= p.reviewThreshold
-      if (forceApprove) {
-        return {
+    // An empty FEEDBACK.md is "approve, close the package" ONLY as a fresh
+    // Agentic Review verdict. Inside the fix loop, an empty FEEDBACK.md is
+    // the FIXER disputing/emptying an already-on-the-record finding — that's
+    // "the finding is gone," not "the reviewer approved," so it must still
+    // rest at fixing (captureTurn, then classifyHead's `agent, fixing`
+    // mid-chain re-tests once the emptying is captured as a non-empty diff).
+    return p.feedbackEmpty && !alreadyInFixLoop
+      ? {
+          kind: "mid-chain",
           state: "close-package",
-          autoAdvance: true,
-          edgeAction: { kind: "closePackage" },
-          context: buildContext(p, counters),
+          actor: "agent",
+          action: { kind: "closePackage" },
         }
-      }
-      return { state: "agentic-review", autoAdvance: true, context: buildContext(p, counters) }
-    }
+      : { kind: "rest", state: "fixing", actor: "agent" }
   }
+
+  const squashAfterGreen =
+    p.squashEnabled && counters.healthFixCount > 0 && p.healthFixBase !== undefined
+  // Prefer the turn commit's own diff (set only when HEAD is the
+  // `gtd(human): review` turn commit being classified right now) over live
+  // working-tree dirtiness, which is already clean by the time this mid-chain
+  // HEAD is reached.
+  const reviewSubstantive =
+    p.headTurnReviewSubstantive !== undefined
+      ? p.headTurnReviewSubstantive
+      : p.reviewDirty && !p.reviewCheckboxOnly
+
+  const flags: ClassifyFlags = {
+    headTurnIsEmpty: p.headTurnIsEmpty,
+    hasGtdDir: p.gtdDirExists,
+    agenticReviewForceApproved: forceApprove,
+    squashEnabled: p.squashEnabled,
+    hasSquashBase: p.squashBase !== undefined,
+    squashAfterGreen,
+    reviewSubstantive,
+    // A pending (uncommitted) deletion of ERRORS.md still counts as "ERRORS.md
+    // was committed at this HEAD" for classification purposes: `fs.exists`
+    // (which `p.errorsPresent` reads) already sees the file as gone once the
+    // working tree deletes it, but the `gtd: errors` commit at HEAD was still
+    // the cap-reached escalation round — the human resuming by deleting
+    // ERRORS.md must land at the escalate turn (mid-chain re-test), not
+    // fixing.
+    errorsPresent: p.errorsPresent || p.pendingErrorsDeletion,
+  }
+
+  const classified = classifyHead(head, flags)
+  if (classified !== null) {
+    // Fill in the real squashBase (classifyHead doesn't have direct payload access).
+    if (classified.kind === "mid-chain" && classified.action.kind === "squashCommit") {
+      return {
+        ...classified,
+        action: { kind: "squashCommit", squashBase: p.squashBase ?? "" },
+      }
+    }
+    // Fill in the real fix-attempt budget (classifyHead builds a `runTest`
+    // action with placeholder `errorCount: 0, capReached: false` — it has no
+    // direct access to the folded counters/config). Without this, the
+    // building/fixing/escalate mid-chain re-test paths never escalate: a red
+    // result past the cap would still write a fresh FEEDBACK.md forever
+    // instead of ERRORS.md (only the separate `runHealthCheck` idle carve-out
+    // computed this correctly).
+    if (classified.kind === "mid-chain" && classified.action.kind === "runTest") {
+      return {
+        ...classified,
+        action: {
+          kind: "runTest",
+          errorCount: counters.testFixCount,
+          capReached: counters.testFixCount >= p.fixAttemptCap,
+        },
+      }
+    }
+    // Same fill-in as squashCommit/runTest above, for the health-fix mid-chain
+    // re-test (classifyHead's "health-fix" routing case has no access to the
+    // folded healthFixCount/config either).
+    if (classified.kind === "mid-chain" && classified.action.kind === "runHealthCheck") {
+      return {
+        ...classified,
+        action: {
+          kind: "runHealthCheck",
+          errorCount: counters.healthFixCount,
+          capReached: counters.healthFixCount >= p.fixAttemptCap,
+          squashAfterGreen: classified.action.squashAfterGreen,
+        },
+      }
+    }
+    return classified
+  }
+
+  // .gtd modified (package files added/edited) → Planning, regardless of HEAD.
+  if (p.gtdDirExists && p.gtdModified) {
+    return { kind: "rest", state: "planning", actor: "agent" }
+  }
+
+  // `gtd: package done` — depends on remaining packages / reviewable diff.
+  if (head === "gtd: package done") {
+    if (p.packages.length > 0) {
+      return { kind: "rest", state: "building", actor: "agent" }
+    }
+    const reviewable =
+      p.hasCommitsAfterLastDone && p.reviewBase !== undefined && (p.refDiff ?? "").trim().length > 0
+    if (reviewable) return { kind: "rest", state: "review", actor: "agent" }
+    return resolveIdleOrHealth(p)
+  }
+
+  // TODO.md present, boundary/other HEAD (e.g. right after `gtd: review
+  // feedback`'s rest, or a fresh dirty-boundary entry already captured) —
+  // grilling continues.
+  if (p.todoExists) {
+    return { kind: "rest", state: "grilling", actor: "agent" }
+  }
+
+  // `.gtd/` exists with a pending package, and the nearest workflow commit
+  // (skipping any boundary commits on top of it) is still the
+  // `gtd(agent): building` checkpoint — an operational recovery commit (e.g. a
+  // config fix) landed on top of it after a mid-chain failure, so HEAD itself
+  // no longer names the checkpoint even though it's still the active one.
+  // Deliberately narrow (not "any `.gtd/` + any boundary HEAD"): an
+  // unrecognized boundary HEAD with no such checkpoint in its history must
+  // still hard-error (steering-misuse contract).
+  if (
+    p.gtdDirExists &&
+    p.packages.length > 0 &&
+    lastTurn?.actor === "agent" &&
+    lastTurn.gate === "building"
+  ) {
+    return { kind: "rest", state: "building", actor: "agent" }
+  }
+
+  // No steering files, no recognized workflow HEAD: boundary/idle lifecycle.
+  if (
+    !p.gtdDirExists &&
+    !p.reviewPresent &&
+    !p.feedbackPresent &&
+    !p.errorsPresent &&
+    !p.healthPresent &&
+    !p.todoExists
+  ) {
+    return resolveIdleOrHealth(p)
+  }
+
   return corrupt()
 }
 
-// ── Rule 4: REVIEW.md present → review lifecycle (exhaustive) ────────────────
-const resolveReviewLifecycle = (p: ResolvePayload, counters: Counters, head: string): Result => {
-  // Regen carve-out: HEAD is the accept-review capture commit and REVIEW.md
-  // is present again (its annotated copy is IN that commit) — a checkout/pull
-  // or crash lost the uncommitted seed. Without this, `reviewCommitted` +
-  // clean tree would route to Done and silently approve the annotations.
-  // Re-run the seed instead; the perform discards any partial revert/seed
-  // state and re-derives everything from the capture commit.
-  if (head === "gtd: review feedback") {
-    return {
-      state: "accept-review",
-      autoAdvance: true,
-      edgeAction: { kind: "seedAcceptReview" },
-      context: buildContext(p, counters),
-    }
-  }
-  if (p.reviewCommitted || (p.reviewDirty && p.reviewCheckboxOnly)) {
-    return {
-      state: "done",
-      autoAdvance: true,
-      edgeAction: { kind: "done" },
-      context: buildContext(p, counters),
-    }
-  }
-  if (p.reviewDirty) {
-    return {
-      state: "accept-review",
-      autoAdvance: true,
-      edgeAction: { kind: "seedAcceptReview" },
-      context: buildContext(p, counters),
-    }
-  }
-  // Uncommitted REVIEW.md (freshly written by Clean).
-  return {
-    state: "await-review",
-    autoAdvance: true,
-    edgeAction: { kind: "commitReview" },
-    context: buildContext(p, counters),
-  }
-}
-
-// ── Rule 6: Grilling / Grilled ────────────────────────────────────────────────
-const resolveGrilling = (p: ResolvePayload, counters: Counters, head: string): Result => {
-  // Later grilling rounds (committed plan) with pending code changes capture
-  // the code into TODO.md as a suggestion block and revert it; the seed round
-  // (uncommitted TODO.md) must instead commit the pending seed revert
-  // verbatim. Applies to BOTH the STOP and iterate paths so code cannot leak
-  // through the answer-questions round.
-  const grillCommit: EdgeAction =
-    p.todoCommitted && p.codeDirty
-      ? { kind: "captureGrillingEdits" }
-      : { kind: "commitPending", prefix: "gtd: grilling" }
-  if (p.todoMarkerPresent) {
-    // Open question marker → STOP for the human to answer inline.
-    // If tree is already clean and HEAD is already `gtd: grilling`, this is a
-    // re-run at the STOP gate — skip the commit so it's a no-op.
-    const alreadyAtGrillingStop = p.workingTreeClean && head === "gtd: grilling"
-    return {
-      state: "grilling",
-      autoAdvance: false,
-      ...(alreadyAtGrillingStop ? {} : { edgeAction: grillCommit }),
-      context: buildContext(p, counters, "stop"),
-    }
-  }
-  if (!p.workingTreeClean) {
-    return {
-      state: "grilling",
-      autoAdvance: true,
-      edgeAction: grillCommit,
-      context: buildContext(p, counters, "iterate"),
-    }
-  }
-  return {
-    state: "grilled",
-    autoAdvance: true,
-    edgeAction: { kind: "commitPending", prefix: "gtd: grilled" },
-    context: buildContext(p, counters),
-  }
-}
-
-// ── Rule 7: Clean / Idle / Health-check ──────────────────────────────────────
-// This path is only reached when no gtd process is active (no steering files).
-// Outside a process, no review base is selected for any branch — the
-// whole-branch review path does not fire here. A clean/idle tree either reviews
-// committed work (Clean) when a process-scoped review base and non-empty diff
-// are present, or runs the health check, or settles Idle.
-// fallow-ignore-next-line complexity
-const resolveCleanOrIdle = (p: ResolvePayload, counters: Counters, head: string): Result | null => {
-  const isHealthHead = head === "gtd: health-check" || head === "gtd: health-fix"
-  // Allow `pendingErrorsDeletion` without .gtd to fall through: the
-  // `runHealthCheck` edge action carries `commitErrorsReset: true` so perform
-  // commits the deletion first (resetting healthFixCount via removedErrors),
-  // then runs the test. This is handled below in the normal health-check path.
-
-  // Post-fix health cycle: the fixer left its edits uncommitted under a
-  // `gtd: health-check` / `gtd: health-fix` HEAD (HEALTH.md already removed by
-  // the prior gtd: health-check commit). Commit those edits as gtd: health-fix
-  // and re-enter the loop; the next resolve sees a clean health HEAD and re-runs
-  // the health check. Guard on !pendingErrorsDeletion so the budget-reset path
-  // (handled below via commitErrorsReset) is not shadowed.
-  if (!p.workingTreeClean && !p.pendingErrorsDeletion && isHealthHead) {
-    return {
-      state: "health-check",
-      autoAdvance: true,
-      edgeAction: { kind: "commitPending", prefix: "gtd: health-fix" },
-      context: buildContext(p, counters),
-    }
-  }
-
-  if (!p.workingTreeClean && !p.pendingErrorsDeletion) return null
-  if (!p.workingTreeClean && p.pendingErrorsDeletion && p.gtdDirExists) return null // gtd lifecycle handles it
-  if (
-    !p.workingTreeClean &&
-    p.pendingErrorsDeletion &&
-    !isBoundary(head) &&
-    head !== "gtd: package done" &&
-    !isHealthHead
-  )
-    return null
-  if (p.workingTreeClean && !isBoundary(head) && head !== "gtd: package done" && !isHealthHead)
-    return null
-  if (head === "gtd: done" && p.squashEnabled && p.squashBase !== undefined) {
-    if (p.squashMsgPresent) {
-      return {
-        state: "squashing",
-        autoAdvance: false,
-        edgeAction: {
-          kind: "squashCommit",
-          squashBase: p.squashBase,
-          commitMessage: p.squashMsgContent,
-        },
-        context: buildContext(p, counters),
-      }
-    }
-    return { state: "squashing", autoAdvance: true, context: buildContext(p, counters) }
-  }
+/** Boundary/idle lifecycle: no steering files, unrecognized or absent workflow HEAD. */
+const resolveIdleOrHealth = (p: ResolvePayload): HeadClass => {
   const reviewable =
     p.hasCommitsAfterLastDone && p.reviewBase !== undefined && (p.refDiff ?? "").trim().length > 0
-  if (reviewable) {
-    return { state: "clean", autoAdvance: false, context: buildContext(p, counters) }
+  if (reviewable) return { kind: "rest", state: "review", actor: "agent" }
+  return { kind: "rest", state: "idle", actor: "human" }
+}
+
+/**
+ * Layer turn-taking semantics over the baseline classification: out-of-turn
+ * guards, fixpoint (idempotent re-invocation), the idle health-check
+ * carve-out, and the dirty-boundary entry turn. `invoker: "none"` never
+ * mutates — mid-chain HEADs report `pending: true` instead of an edge action.
+ */
+// fallow-ignore-next-line complexity
+const applyTurnTaking = (
+  p: ResolvePayload,
+  counters: Counters,
+  head: string,
+  baseline: HeadClass,
+): Result => {
+  const context = buildContext(p, counters)
+  const invoker = p.invoker
+
+  // Dirty boundary + invoker human, no steering files, no COMMITTED TODO, HEAD
+  // is not itself a turn commit — the v2 entry turn. Checks `todoCommitted`
+  // rather than `todoExists`: a TODO.md the human just wrote as part of THIS
+  // dirty tree (uncommitted) is exactly what gets captured by this turn (a
+  // pre-existing coincidentally-named file must not be mistaken for an
+  // already-in-progress grilling process — only a TODO.md already tracked at
+  // HEAD indicates that). `gtd: done` counts as a boundary HEAD here too (a
+  // settled cycle is exactly where the next feature's dirty tree lands), even
+  // though it parses as a `"routing"` subject in the general taxonomy.
+  const isDirtyBoundaryEntry =
+    invoker === "human" &&
+    !p.workingTreeClean &&
+    !p.todoCommitted &&
+    !p.gtdDirExists &&
+    !p.reviewPresent &&
+    !p.feedbackPresent &&
+    !p.errorsPresent &&
+    !p.healthPresent &&
+    (parseSubject(head).kind === "boundary" || head === "gtd: done")
+
+  if (isDirtyBoundaryEntry) {
+    return {
+      state: "grilling",
+      actor: "human",
+      pending: false,
+      edgeAction: { kind: "captureTurn", actor: "human", gate: "grilling" },
+      context,
+    }
   }
-  const squashHealth =
-    p.squashEnabled && counters.healthFixCount > 0 && p.healthFixBase !== undefined
+
+  if (baseline.kind === "mid-chain") {
+    // Mid-chain bookkeeping is not a turn — any invoker's step (or a pure
+    // query) can observe/drive it. Only "none" refrains from mutating.
+    if (invoker === "none") {
+      return { state: baseline.state, actor: baseline.actor, pending: true, context }
+    }
+    return {
+      state: baseline.state,
+      actor: baseline.actor,
+      pending: false,
+      edgeAction: baseline.action,
+      context,
+    }
+  }
+
+  // baseline.kind === "rest"
+  const awaited = baseline.actor
+
+  if (invoker === "none") {
+    return { state: baseline.state, actor: awaited, pending: false, context }
+  }
+
+  // `gtd: health-fix` re-tests in the SAME chain regardless of which actor is
+  // driving this invocation (the health-fixer's own `step-agent` call must
+  // continue past its own routing commit to re-test, not stop on an
+  // idle/human "out-of-turn" refusal) — mirrors `gtd(agent): fixing`'s
+  // runTest re-test. `gtd next` (invoker "none") is unaffected (handled by
+  // the branch above) and still reports idle/human, matching "a clean tree
+  // self-heals: the next invocation's health check will simply re-run."
+  //
+  // `gtd: health-check` gets the same forced re-check ONLY once the
+  // fix-attempt budget is already exhausted (`capReached`): a health-fixing
+  // rest normally awaits the agent's fix, but once the cap is used up there
+  // is nothing left to fix — any invocation (including a human's `gtd step`)
+  // must force the re-test that writes ERRORS.md and escalates, rather than
+  // silently no-op-ing as an "agent turn awaited, clean tree" out-of-turn step.
+  const healthCheckCapReached =
+    head === "gtd: health-check" && counters.healthFixCount >= p.fixAttemptCap
+  if (
+    (head === "gtd: health-fix" && baseline.state === "idle") ||
+    (healthCheckCapReached && baseline.state === "health-fixing")
+  ) {
+    const squashAfterGreenAtHealthFix =
+      p.squashEnabled && counters.healthFixCount > 0 && p.healthFixBase !== undefined
+    return {
+      state: "idle",
+      actor: "agent",
+      pending: false,
+      edgeAction: {
+        kind: "runHealthCheck",
+        errorCount: counters.healthFixCount,
+        capReached: counters.healthFixCount >= p.fixAttemptCap,
+        squashAfterGreen: squashAfterGreenAtHealthFix,
+      },
+      context,
+    }
+  }
+
+  // Out-of-turn: agent invokes while a human turn is awaited → refuse.
+  if (invoker === "agent" && awaited === "human") {
+    return {
+      state: baseline.state,
+      actor: awaited,
+      pending: false,
+      refusal: `${baseline.state} awaits a human turn`,
+      context,
+    }
+  }
+
+  // Human invokes while an agent turn is awaited: dirty tree captures
+  // feedback-with-authority under the current gate, authored as the
+  // INVOKING human's own turn (not the agent's) — `gtd(human): <gate>`,
+  // not `gtd(agent): <gate>` — since the human is the one who actually made
+  // the edit. Clean tree no-ops.
+  if (invoker === "human" && awaited === "agent") {
+    if (!p.workingTreeClean) {
+      return {
+        state: baseline.state,
+        actor: awaited,
+        pending: false,
+        edgeAction: { kind: "captureTurn", actor: invoker, gate: gateForState(baseline.state) },
+        context,
+      }
+    }
+    return { state: baseline.state, actor: awaited, pending: false, context }
+  }
+
+  // Idle carve-out: a human step at idle always re-runs the health check —
+  // never an empty turn commit, and never a plain fixpoint no-op.
+  if (baseline.state === "idle" && invoker === "human") {
+    const squashAfterGreen =
+      p.squashEnabled && counters.healthFixCount > 0 && p.healthFixBase !== undefined
+    return {
+      state: "idle",
+      actor: "human",
+      pending: false,
+      edgeAction: {
+        kind: "runHealthCheck",
+        errorCount: counters.healthFixCount,
+        capReached: counters.healthFixCount >= p.fixAttemptCap,
+        squashAfterGreen,
+      },
+      context,
+    }
+  }
+
+  // Invoker matches the awaited actor: capture a fresh turn commit, unless
+  // HEAD already carries that exact turn AND the tree is clean (fixpoint —
+  // idempotent re-run). A DIRTY tree at the same gate is a genuinely NEW
+  // capture (e.g. a fixer whose first attempt landed an empty turn — nothing
+  // to fix yet — now has real edits once `gate.sh`/the code is actually
+  // fixed in a later invocation): the fixpoint short-circuit must not treat
+  // that as "nothing to do" just because HEAD happens to share the gate.
+  const gate = gateForState(baseline.state)
+  const parsedHead = parseSubject(head)
+  const alreadyAtThisTurn =
+    parsedHead.kind === "turn" &&
+    parsedHead.actor === invoker &&
+    parsedHead.gate === gate &&
+    p.workingTreeClean
+
+  if (alreadyAtThisTurn) {
+    return { state: baseline.state, actor: awaited, pending: false, context }
+  }
+
   return {
-    state: "health-check",
-    autoAdvance: true,
-    edgeAction: {
-      kind: "runHealthCheck",
-      errorCount: counters.healthFixCount,
-      capReached: counters.healthFixCount >= p.fixAttemptCap,
-      ...(squashHealth ? { healthFixBase: p.healthFixBase } : {}),
-      ...(p.pendingErrorsDeletion ? { commitErrorsReset: true } : {}),
-    },
-    context: buildContext(p, counters),
+    state: baseline.state,
+    actor: awaited,
+    pending: false,
+    edgeAction: { kind: "captureTurn", actor: invoker, gate },
+    context,
   }
 }
 
 /**
- * Resolve the event stream to a single decision. Folds `COMMIT[]` into the two
- * counters, then runs the STATES.md § Precedence ladder (first match wins) on the
- * terminal `RESOLVE` payload.
+ * Resolve the event stream to a single decision. Folds `COMMIT[]` into the
+ * three counters, classifies HEAD (rest vs mid-chain) per the wire-format
+ * table, then layers turn-taking semantics on top.
  *
- * Throws `GtdStateError` for an illegal steering-file combination (before the
- * ladder) or for corruption (no rule matched). Every other input — including
- * `resolve([])` — returns a `Result` without throwing.
+ * Throws `GtdStateError` for an illegal steering-file combination (before
+ * classification) or for corruption (no rule matched). Every other input —
+ * including `resolve([])` — returns a `Result` without throwing.
  */
-// fallow-ignore-next-line complexity
 export const resolve = (events: readonly GtdEvent[]): Result => {
   const counters = foldCounters(events)
   let payload: ResolvePayload = DEFAULT_PAYLOAD
@@ -756,175 +1161,95 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
     )
   }
 
-  // ── 0. Transport ──────────────────────────────────────────────────────────
-  if (head === "gtd: transport") {
-    return {
-      state: "transport",
-      autoAdvance: true,
-      edgeAction: { kind: "transportReset" },
-      context: buildContext(p, counters),
-    }
-  }
-  // ── 1. ERRORS.md → Escalate ───────────────────────────────────────────────
-  if (p.errorsPresent)
-    return { state: "escalate", autoAdvance: false, context: buildContext(p, counters) }
-  // ── 1b. HEALTH.md → Health Fixing ────────────────────────────────────────
-  if (p.healthPresent) return resolveHealth(p, counters)
-  // ── 2. FEEDBACK.md → Fixing / Close package ───────────────────────────────
-  if (p.feedbackPresent) return resolveFeedback(p, counters)
-  // ── 3. .gtd → build lifecycle ─────────────────────────────────────────────
-  if (p.gtdDirExists) return resolveGtdLifecycle(p, counters, head, corrupt)
-  // ── 4. REVIEW.md → review lifecycle ──────────────────────────────────────
-  if (p.reviewPresent) return resolveReviewLifecycle(p, counters, head)
-  // ── 4b. Squash-perform (dirty tree, squash message only) ──────────────────
-  // SQUASH_MSG.md is a steering file, so its presence makes workingTreeClean
-  // false while leaving codeDirty false. Without this block, rule 5 (New
-  // Feature) would fire next — it sees a boundary HEAD with a dirty tree and
-  // seeds a new task from the squash message content. Hoisting the squash-
-  // perform here short-circuits that: when SQUASH_MSG.md is the *only* dirt
-  // we can safely commit the squash immediately.
-  //
-  // Guard on !codeDirty intentionally: if the tree also has unrelated code
-  // edits, fall through to rule 5 so the user addresses those first rather
-  // than having `git add -A` silently fold them into the squash commit.
-  if (
-    head === "gtd: done" &&
-    p.squashEnabled &&
-    p.squashBase !== undefined &&
-    p.squashMsgPresent &&
-    !p.codeDirty
-  ) {
-    return {
-      state: "squashing",
-      autoAdvance: false,
-      edgeAction: {
-        kind: "squashCommit",
-        squashBase: p.squashBase,
-        commitMessage: p.squashMsgContent,
-      },
-      context: buildContext(p, counters),
-    }
-  }
-  // ── 4c. Health-squash-perform (dirty tree, SQUASH_MSG.md only, health cycle) ──
-  // Parallel to rule 4b but for the health-check cycle: after the agent authors
-  // the real squash message over the HEALTH_SQUASH_SENTINEL in SQUASH_MSG.md,
-  // this rule fires and executes the squash. Guard on !codeDirty so unrelated
-  // edits do not get silently folded in. Guard on squashMsgContent ≠ sentinel so
-  // the sentinel write (the green-health signal before the agent has authored the
-  // real message) does not trigger a squash commit with placeholder content.
-  if (
-    p.squashEnabled &&
-    p.healthFixBase !== undefined &&
-    p.squashMsgPresent &&
-    p.squashMsgContent !== HEALTH_SQUASH_SENTINEL &&
-    !p.codeDirty
-  ) {
-    return {
-      state: "squashing",
-      autoAdvance: false,
-      edgeAction: {
-        kind: "squashCommit",
-        squashBase: p.healthFixBase,
-        commitMessage: p.squashMsgContent,
-      },
-      context: buildContext(p, counters),
-    }
-  }
-  // ── 4d. Health-squash-prompt (sentinel present — green confirmed, no real message yet) ──
-  // After runHealthCheck runs green with prior fix commits, it writes SQUASH_MSG.md
-  // with HEALTH_SQUASH_SENTINEL (the loop-breaking observable state change). The
-  // next gather sees the sentinel and routes here to prompt the agent to author the
-  // real conventional-commits squash message (overwriting the sentinel). Once the
-  // agent overwrites it with real content, rule 4c fires and squashes.
-  //
-  // Hoisted to the main ladder (before resolveCleanOrIdle) so it fires regardless
-  // of workingTreeClean — the untracked SQUASH_MSG.md makes the tree dirty, but
-  // SQUASH_MSG.md is a steering file and does not constitute "code dirty".
-  // Rule 4c is guarded against sentinel content so it does not squash immediately.
-  if (
-    p.squashEnabled &&
-    p.healthFixBase !== undefined &&
-    p.squashMsgPresent &&
-    p.squashMsgContent === HEALTH_SQUASH_SENTINEL
-  ) {
-    return {
-      state: "squashing",
-      autoAdvance: true,
-      edgeAction: { kind: "removeHealthSentinel" },
-      context: buildContext(p, counters),
-    }
-  }
-  // ── 4e. Stray SQUASH_MSG.md under boundary HEAD (no matching squash cycle) ──
-  // A SQUASH_MSG.md can be left behind from an aborted or mismatched squash
-  // cycle (e.g. squashBase is absent because HEAD is not `gtd: done`, or
-  // squashEnabled is false). In that case rules 4b/4c/4d do not fire.
-  // Guard on !codeDirty: if there are also real code changes, fall through to
-  // rule 5 so the user's work is captured as a new feature (SQUASH_MSG.md is
-  // excluded from codeDirty since it is a steering file, so codeDirty true
-  // means real edits are present). With only the stray steering file, remove it
-  // and let the next gather settle to health-check or idle.
-  if (isBoundary(head) && p.squashMsgPresent && !p.codeDirty) {
-    return {
-      state: "squashing",
-      autoAdvance: true,
-      edgeAction: { kind: "removeStraySquashMsg" },
-      context: buildContext(p, counters),
-    }
-  }
-  // ── 5. New Feature ────────────────────────────────────────────────────────
-  // Boundary HEAD + pending changes (code and/or a new uncommitted TODO.md — the
-  // only steering file possible here), or HEAD `gtd: new task` + clean tree
-  // (a checkout/pull that lost the uncommitted seed — regenerate it).
-  // A *committed* TODO.md is a resumed grill: route to rule 6 even when the
-  // tree is dirty (grilling captures the code edits) — re-seeding here would
-  // clobber the developed plan with a raw seed.
-  // Note: squashMsgPresent + codeDirty falls here intentionally — real code
-  // edits must be captured as a new feature; seedNewFeature excludes steering
-  // files (SQUASH_MSG.md) from the seed content.
-  if (
-    (isBoundary(head) && !p.workingTreeClean && !p.todoCommitted) ||
-    (head === "gtd: new task" && p.workingTreeClean)
-  ) {
-    return {
-      state: "new-feature",
-      autoAdvance: true,
-      edgeAction: { kind: "seedNewFeature" },
-      context: buildContext(p, counters),
-    }
-  }
-  // ── 6. Grilling / Grilled ─────────────────────────────────────────────────
-  if (p.todoExists) return resolveGrilling(p, counters, head)
-  // ── 7. Clean / Idle ───────────────────────────────────────────────────────
-  // Reached only with no steering files. Outside a gtd process no branch
-  // review base is chosen — the whole-branch review path is absent here. A
-  // clean tree under a boundary or `gtd: package done` HEAD triggers Clean
-  // only when a process-scoped review base exists and the filtered diff is
-  // non-empty; otherwise the tree runs the health check or settles Idle.
-  return resolveCleanOrIdle(p, counters, head) ?? corrupt()
+  const baseline = resolveBaseline(p, counters, head, corrupt, lastWorkflowTurn(events))
+  return applyTurnTaking(p, counters, head, baseline)
+}
+
+/** Prediction of the first commit `step`/`step-agent` would author, for `gtd status`. */
+export interface TurnPrediction {
+  readonly actor: Actor
+  readonly subject: string | null
+  readonly state: GtdState
 }
 
 /**
- * Build a `Result` in the `clean` state with a pinned `reviewBase`/`refDiff`.
- * Intended for the `review` command, which synthesises a Clean result directly
- * (bypassing `resolve`) after placing the `gtd: reviewing` anchor commit.
- * All other context fields default to `DEFAULT_PAYLOAD` values, matching the
- * context shape the auto-Clean path (`resolveCleanOrIdle`) produces.
+ * Fold the same events `resolve` would, and report what `step`/`step-agent`
+ * would commit first for the awaited actor (turn subject, or null when
+ * nothing would be committed) and the predicted resulting state. Backs
+ * `gtd status` — a pure query, so it forces `invoker: "none"` on the last
+ * RESOLVE payload before re-deriving the mid-chain/rest classification, then
+ * reports the subject the actual mutating action (`captureTurn` or
+ * `commitRouting`) would write.
  */
-export const cleanResult = (args: {
-  reviewBase: string
-  refDiff: string
-  autoAdvance: boolean
-}): Result => ({
-  state: "clean",
-  autoAdvance: args.autoAdvance,
-  context: {
-    ...buildContext(
-      {
-        ...DEFAULT_PAYLOAD,
-        reviewBase: args.reviewBase,
-        refDiff: args.refDiff,
-      },
-      { testFixCount: 0, reviewFixCount: 0, healthFixCount: 0 },
-    ),
-  },
-})
+export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
+  const counters = foldCounters(events)
+  let payload: ResolvePayload = DEFAULT_PAYLOAD
+  for (const event of events) if (event.type === "RESOLVE") payload = event.payload
+  const head = payload.lastCommitSubject
+  const corrupt = (): never => {
+    throw new GtdStateError(
+      "corruption",
+      `no precedence rule matched (HEAD="${head}", clean=${payload.workingTreeClean}); ` +
+        `repo is in an unrecognized state — refusing to guess`,
+    )
+  }
+  assertLegal(payload)
+  const baseline = resolveBaseline(payload, counters, head, corrupt, lastWorkflowTurn(events))
+
+  if (baseline.kind === "mid-chain") {
+    const subject =
+      baseline.action.kind === "commitRouting"
+        ? baseline.action.subject
+        : baseline.action.kind === "captureTurn"
+          ? `gtd(${baseline.action.actor}): ${baseline.action.gate}`
+          : null
+    return { actor: baseline.actor, subject, state: baseline.state }
+  }
+
+  // Rest: what would the awaited actor's step author? Dirty-boundary entry
+  // and idle both predict without needing a full turn-taking re-run since
+  // they're pure functions of the payload; other rests predict a captureTurn
+  // under the resolved gate whenever the tree is dirty (or the gate accepts
+  // an empty turn, i.e. idle/grilling-accept).
+  const isDirtyBoundaryEntry =
+    !payload.workingTreeClean &&
+    !payload.todoCommitted &&
+    !payload.gtdDirExists &&
+    !payload.reviewPresent &&
+    !payload.feedbackPresent &&
+    !payload.errorsPresent &&
+    !payload.healthPresent &&
+    (parseSubject(head).kind === "boundary" || head === "gtd: done")
+  if (isDirtyBoundaryEntry) {
+    return { actor: "human", subject: "gtd(human): grilling", state: "grilling" }
+  }
+
+  if (baseline.state === "idle") {
+    return { actor: "human", subject: null, state: "idle" }
+  }
+
+  const gate = gateForState(baseline.state)
+  const parsedHead = parseSubject(head)
+  const alreadyAtThisTurn =
+    parsedHead.kind === "turn" && parsedHead.actor === baseline.actor && parsedHead.gate === gate
+  if (alreadyAtThisTurn) {
+    return { actor: baseline.actor, subject: null, state: baseline.state }
+  }
+  return {
+    actor: baseline.actor,
+    subject: `gtd(${baseline.actor}): ${gate}`,
+    state: baseline.state,
+  }
+}
+
+/** Awaited actor for a given state — the actor `resolve` reports at that state's rest. */
+export const awaitedActor = (state: GtdState): Actor => {
+  switch (state) {
+    case "idle":
+    case "escalate":
+    case "await-review":
+      return "human"
+    default:
+      return "agent"
+  }
+}

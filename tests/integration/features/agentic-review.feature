@@ -1,101 +1,131 @@
 @inmem
 Feature: Agentic Review — verdict-by-file, with force-approve guards
 
-  A clean `.gtd/` under a `gtd: building` HEAD reviews the package and records the
-  verdict in FEEDBACK.md. The verdict is a file, not a marker commit, so a
-  pending review (no FEEDBACK.md yet) re-reviews rather than being mistaken for
-  done. An empty FEEDBACK.md approves (Close package); a content-bearing one
-  routes to Fixing. The review is force-approved when the kill-switch is off or
-  the review-fix threshold is reached.
+  A clean rest at `gtd: tests green` hands the agent a review prompt
+  containing the package task text. The reviewer's verdict is FEEDBACK.md, not
+  a marker commit: an empty FEEDBACK.md approves and the same
+  `gtd(agent): agentic-review` turn closes the package (`gtd: package done`,
+  removing FEEDBACK.md and the `.gtd/` package); a non-empty FEEDBACK.md rests
+  after the turn, and `gtd next` emits the fixing prompt containing the
+  findings. A duplicate clean `gtd step-agent` between review turns cannot
+  approve on its own — it can only record one inert empty fixer turn. The
+  review is force-approved without ever writing FEEDBACK.md when the
+  kill-switch `agenticReview: false` is set, or when the review-fix threshold
+  has already been reached in the current cycle.
 
-  Scenario: A built package with no FEEDBACK.md yet re-enters review (never skipped)
+  Scenario: gtd next emits the agentic-review prompt with the package task text
     Given a test project
     And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: building"
-    When I run gtd
+    And a commit "gtd: tests green"
+    When I run gtd next
     Then it succeeds
-    And the last commit subject is "gtd: building"
-    And stdout contains "Spawn a **reviewing subagent**"
     And stdout contains "Implement the helper."
 
-  Scenario: An empty FEEDBACK.md approves and closes the package
+  Scenario: An empty FEEDBACK.md approves and closes the package in the same turn
     Given a test project
     And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
+    And a commit "gtd: tests green"
     And an empty file "FEEDBACK.md"
-    When I run gtd
+    When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: package done"
-    And the file ".gtd/01-foo/01-task.md" does not exist
+    And the commit subjects from oldest to newest are:
+      """
+      chore: initial commit
+      gtd: planning
+      gtd: tests green
+      gtd(agent): agentic-review
+      gtd: package done
+      """
     And the file "FEEDBACK.md" does not exist
+    And the file ".gtd/01-foo/01-task.md" does not exist
 
-  Scenario: A content-bearing FEEDBACK.md routes to a fix cycle
+  Scenario: Findings in FEEDBACK.md rest for the fixing prompt
     Given a test project
-    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
+    And a commit "gtd: tests green"
     And a file "FEEDBACK.md" with:
       """
       Finding: helper does not handle the empty-string case.
       """
-    When I run gtd
+    When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: feedback"
-    And stdout contains "Spawn a **fix subagent**"
+    And the last commit subject is "gtd(agent): agentic-review"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Finding: helper does not handle the empty-string case."
 
-  Scenario: The review-fix threshold force-approves without reviewing
+  Scenario: A duplicate clean step-agent after the findings turn cannot approve
     Given a test project
-    And a default branch "main"
-    And a branch "feature"
     And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: feedback"
-    And a commit "gtd: feedback"
-    And a commit "gtd: feedback"
-    And a commit "gtd: building"
-    When I run gtd
-    Then it succeeds
-    And the last commit subject is "gtd: package done"
-    And the file ".gtd/01-foo/01-task.md" does not exist
-    And stdout does not contain "Spawn a **reviewing subagent**"
-
-  Scenario: The review-fix threshold force-approves on the default branch (trunk)
-    Given a test project
-    And a default branch "main"
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: tests green"
+    And a file "FEEDBACK.md" with:
       """
-      Implement the helper.
+      Finding: helper does not handle the empty-string case.
       """
-    And a commit "gtd: feedback"
-    And a commit "gtd: feedback"
-    And a commit "gtd: feedback"
-    And a commit "gtd: building"
-    When I run gtd
+    And I run gtd step-agent
+    Then I record the commit count
+    When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: package done"
-    And the file ".gtd/01-foo/01-task.md" does not exist
-    And stdout does not contain "Spawn a **reviewing subagent**"
+    And the commit count increased by 1
+    And the git log does not contain "gtd: package done"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Finding: helper does not handle the empty-string case."
 
-  Scenario: agenticReview false force-approves without reviewing
+  Scenario: agenticReview false force-approves without ever writing FEEDBACK.md
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       agenticReview: false
       """
-    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    When I run gtd
+    And a commit "gtd: tests green"
+    When I run gtd step-agent
+    Then it succeeds
+    And the git log contains "gtd: package done"
+    And the git log does not contain "gtd(agent): agentic-review"
+    And the file ".gtd/01-foo/01-task.md" does not exist
+    And the file "FEEDBACK.md" does not exist
+
+  Scenario: The review-fix threshold force-approves a green re-test without re-prompting review
+    Given a test project
+    And a default branch "main"
+    And a branch "feature"
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: "true"
+      reviewThreshold: 2
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a commit "gtd(agent): agentic-review" that adds "FEEDBACK.md" with:
+      """
+      Finding: round one.
+      """
+    And a commit "gtd(agent): agentic-review" that adds "FEEDBACK.md" with:
+      """
+      Finding: round two.
+      """
+    And a commit "gtd: tests green"
+    When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd: package done"
-    And the file ".gtd/01-foo/01-task.md" does not exist
     And stdout does not contain "Spawn a **reviewing subagent**"
+    And the file ".gtd/01-foo/01-task.md" does not exist
