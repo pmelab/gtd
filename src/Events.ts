@@ -464,6 +464,14 @@ export const gatherEvents = (
     const pendingErrorsDeletion = entries.some(
       (e) => e.path === ERRORS_FILE && e.status.includes("D"),
     )
+    // A pending (uncommitted) deletion of FEEDBACK.md is the fixer disputing
+    // by removing the file — semantically identical to emptying it. Surfaced
+    // as its own flag (not folded into feedbackPresent, which reads fs) so
+    // the resolver can treat delete-dispute and empty-dispute the same
+    // WITHOUT confusing the illegal-combination guards.
+    const pendingFeedbackDeletion = entries.some(
+      (e) => e.path === FEEDBACK_FILE && e.status.includes("D"),
+    )
 
     const packages = yield* getPackages(fs, root)
     // When REVIEW.md is committed and the tree is dirty, check whether the only
@@ -667,6 +675,11 @@ export const gatherEvents = (
 
     // --- SQUASH_MSG.md presence (squash template written+overwritten) --------
     const squashMsgPresent = yield* fs.exists(resolve(SQUASH_MSG_FILE))
+    // Unmodified template → the machine must not squash yet (the file's
+    // content becomes the squash commit message verbatim).
+    const squashMsgIsTemplate =
+      squashMsgPresent &&
+      (yield* fs.readFileString(resolve(SQUASH_MSG_FILE))).trim() === SQUASH_TEMPLATE.trim()
 
     // --- HEALTH.md presence (health-check output written by runHealthCheck) -----
     const healthPresent = yield* fs.exists(resolve(HEALTH_FILE))
@@ -746,6 +759,7 @@ export const gatherEvents = (
       reviewDirty,
       reviewCheckboxOnly,
       pendingErrorsDeletion,
+      pendingFeedbackDeletion,
       lastCommitSubject,
       workingTreeClean,
       packages,
@@ -760,6 +774,7 @@ export const gatherEvents = (
       ...(squashBase !== undefined ? { squashBase } : {}),
       ...(squashDiff !== undefined ? { squashDiff } : {}),
       squashMsgPresent,
+      squashMsgIsTemplate,
       healthPresent,
       healthContent,
       healthCommitted,

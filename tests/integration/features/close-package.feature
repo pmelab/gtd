@@ -77,18 +77,18 @@ Feature: Close package — one gtd: package done per package, via the CLI
     And the last commit subject is "gtd: package done"
     # `gtd: package done` with no packages remaining is itself a rest (the
     # review-record prompt) — a FRESH agent turn is required to author the
-    # review capture, it is not something the invocation that closed the
-    # package auto-continues into. Since no external agent wrote REVIEW.md,
-    # that fresh turn is an empty capture, and the routing commit lands on an
-    # empty REVIEW.md-less tree; the human rest is still reached.
+    # review capture. Since no agent wrote REVIEW.md, a bare step-agent here
+    # is a do-nothing invocation: inert, zero commits — the machine must NOT
+    # route to `gtd: awaiting review` without a review record for the human.
+    Then I record the commit count
     When I run gtd step-agent
     Then it succeeds
-    And the git log contains "gtd(agent): review"
-    And the last commit subject is "gtd: awaiting review"
+    And the commit count is unchanged
+    And the git log does not contain "gtd: awaiting review"
     When I run gtd next
     Then it succeeds
     And stdout contains ".gtd/REVIEW.md"
-    And stdout contains "nothing for the agent to do"
+    And stdout contains "help a human to review the changes"
 
   Scenario: Force-approve via agenticReview false also closes the package without ever writing FEEDBACK.md
     Given a test project

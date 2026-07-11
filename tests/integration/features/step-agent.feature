@@ -25,7 +25,7 @@ Feature: gtd step-agent — the agent mutator
     And stderr contains "awaits a human turn"
     And the commit count is unchanged
 
-  Scenario: An empty agent turn is recorded once and next re-emits the same prompt
+  Scenario: A do-nothing agent invocation is inert and next re-emits the same prompt
     Given a test project
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
@@ -35,13 +35,14 @@ Feature: gtd step-agent — the agent mutator
 
       no open questions — run gtd to plan
       """
+    Then I record the commit count
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): grilling"
+    And the commit count is unchanged
+    And the last commit subject is "gtd(human): grilling"
     When I run gtd next
     Then it succeeds
     And stdout contains "Finish your turn by running `gtd step-agent`."
-    Then I record the commit count
     When I run gtd step-agent
     Then it succeeds
     And the commit count is unchanged
@@ -73,3 +74,54 @@ Feature: gtd step-agent — the agent mutator
     Then it fails
     And stderr contains "awaits a human turn"
     And the commit count is unchanged
+
+  Scenario: A do-nothing agent invocation at the grilled rest never consumes the plan
+    Given a test project
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      # Plan
+
+      Build a calculator.
+      """
+    And a commit "gtd: grilled"
+    Then I record the commit count
+    When I run gtd step-agent
+    Then it succeeds
+    And the commit count is unchanged
+    And the file ".gtd/TODO.md" exists
+    And the git log does not contain "gtd: planning"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Decompose it into an ordered set of"
+
+  Scenario: A historical decompose turn without packages rests instead of deleting the plan
+    Given a test project
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      # Plan
+
+      Build a calculator.
+      """
+    And a commit "gtd: grilled"
+    And a commit "gtd(agent): grilled"
+    Then I record the commit count
+    When I run gtd step-agent
+    Then it succeeds
+    And the commit count is unchanged
+    And the file ".gtd/TODO.md" exists
+    And the git log does not contain "gtd: planning"
+
+  Scenario: A do-nothing agent invocation at the planning rest never skips the build
+    Given a test project
+    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+      """
+      Implement the add function.
+      """
+    Then I record the commit count
+    When I run gtd step-agent
+    Then it succeeds
+    And the commit count is unchanged
+    And the git log does not contain "gtd: tests green"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Build the package described below"

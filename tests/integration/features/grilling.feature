@@ -163,7 +163,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
     And stdout contains "\"actor\":\"agent\""
     And stdout contains "Decompose it into an ordered set of"
 
-  Scenario: An empty agent grilling turn re-emits the same prompt with no transition
+  Scenario: A do-nothing agent invocation at the grilling rest is inert and re-emits the same prompt
     Given a test project
     And a file "notes.md" with:
       """
@@ -173,12 +173,11 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
     And I record the commit count
     When I run gtd step-agent
     Then it succeeds
-    And the commit count increased by 1
-    And the last commit subject is "gtd(agent): grilling"
+    And the commit count is unchanged
+    And the last commit subject is "gtd(human): grilling"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
-    Then I record the commit count
     When I run gtd step-agent
     Then it succeeds
     And the commit count is unchanged
