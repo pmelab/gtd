@@ -9,6 +9,7 @@ import grillingAnswersMd from "./prompts/grilling-answers.md"
 import decomposeMd from "./prompts/decompose.md"
 import buildingMd from "./prompts/building.md"
 import fixingMd from "./prompts/fixing.md"
+import healthFixingMd from "./prompts/health-fixing.md"
 import agenticReviewMd from "./prompts/agentic-review.md"
 import reviewMd from "./prompts/review.md"
 import awaitReviewMd from "./prompts/await-review.md"
@@ -114,6 +115,7 @@ eta.loadTemplate("@grilling-answers", grillingAnswersMd)
 eta.loadTemplate("@decompose", decomposeMd)
 eta.loadTemplate("@building", buildingMd)
 eta.loadTemplate("@fixing", fixingMd)
+eta.loadTemplate("@health-fixing", healthFixingMd)
 eta.loadTemplate("@agentic-review", agenticReviewMd)
 eta.loadTemplate("@review", reviewMd)
 eta.loadTemplate("@await-review", awaitReviewMd)
@@ -138,7 +140,7 @@ const STATE_TEMPLATE: Record<Exclude<PromptState, "grilling">, string> = {
   squashing: "@squashing",
   escalate: "@escalate",
   idle: "@idle",
-  "health-fixing": "@fixing",
+  "health-fixing": "@health-fixing",
 }
 
 /**

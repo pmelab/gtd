@@ -65,13 +65,16 @@ describe("isPromptState", () => {
 })
 
 describe("buildPrompt", () => {
-  it("includes the shared header for every prompt state", () => {
-    expect(buildPrompt(result("idle", { actor: "human" }))).toContain(
-      "You are an autonomous coding agent",
-    )
+  it("includes the shared header for agent-orchestration prompt states", () => {
     expect(buildPrompt(result("escalate", { actor: "human" }))).toContain(
       "You are an autonomous coding agent",
     )
+    expect(buildPrompt(result("fixing"))).toContain("You are an autonomous coding agent")
+  })
+
+  it("idle addresses the human, not the agent persona", () => {
+    const out = buildPrompt(result("idle", { actor: "human" }))
+    expect(out).not.toContain("You are an autonomous coding agent")
   })
 
   describe("each prompt-bearing state renders its section", () => {
@@ -128,7 +131,8 @@ describe("buildPrompt", () => {
 
     it("idle renders the idle section", () => {
       const out = buildPrompt(result("idle", { actor: "human" }))
-      expect(out).toContain("repository is idle — nothing to do")
+      expect(out).toContain("The repository is idle")
+      expect(out).toContain("Nothing to do")
     })
   })
 
