@@ -275,7 +275,7 @@ describe("out-of-turn: step-agent while human awaited", () => {
 })
 
 describe("out-of-turn: human step while agent awaited", () => {
-  it("dirty tree captures feedback-with-authority authored as the invoking human's own turn", () => {
+  it("refuses at building even on a dirty tree — human edits ride along in the agent's next turn", () => {
     const result = resolve([
       R({
         invoker: "human",
@@ -286,13 +286,11 @@ describe("out-of-turn: human step while agent awaited", () => {
       }),
     ])
     expect(result.state).toBe("building")
-    // The gate name stays "building" (the state's own gate), but the turn is
-    // authored under the INVOKING human's actor — `gtd(human): building`, not
-    // `gtd(agent): building` — since the human is the one who made the edit.
-    expect(result.edgeAction).toEqual({ kind: "captureTurn", actor: "human", gate: "building" })
+    expect(result.refusal).toContain("awaits an agent turn")
+    expect(result.edgeAction).toBeUndefined()
   })
 
-  it("clean tree is a no-op", () => {
+  it("refuses at building on a clean tree (no silent no-op)", () => {
     const result = resolve([
       R({
         invoker: "human",
@@ -302,6 +300,39 @@ describe("out-of-turn: human step while agent awaited", () => {
       }),
     ])
     expect(result.state).toBe("building")
+    expect(result.refusal).toContain("awaits an agent turn")
+    expect(result.edgeAction).toBeUndefined()
+  })
+
+  it("refuses at grilled — a dirty tree there is the decompose agent's output, not human feedback", () => {
+    const result = resolve([
+      R({
+        invoker: "human",
+        lastCommitSubject: "gtd: grilled",
+        todoExists: true,
+        todoCommitted: true,
+        gtdDirExists: true,
+        gtdModified: true,
+        workingTreeClean: false,
+      }),
+    ])
+    expect(result.state).toBe("grilled")
+    expect(result.refusal).toContain("run `gtd step-agent`")
+    expect(result.edgeAction).toBeUndefined()
+  })
+
+  it("refuses at grilled on a clean tree too", () => {
+    const result = resolve([
+      R({
+        invoker: "human",
+        lastCommitSubject: "gtd: grilled",
+        todoExists: true,
+        todoCommitted: true,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("grilled")
+    expect(result.refusal).toContain("run `gtd step-agent`")
     expect(result.edgeAction).toBeUndefined()
   })
 })

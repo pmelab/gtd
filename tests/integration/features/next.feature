@@ -2,17 +2,18 @@
 Feature: gtd next — pure prediction of the next prompt
 
   `gtd next` is a pure introspection command: it authors nothing, ever. A dirty
-  tree refuses — the tree must be resolved with `gtd status` / `gtd step`
-  first. A clean tree at a rest (turn-commit HEAD awaiting an actor, or a
+  tree refuses — inspect it with `gtd status` and advance with the awaited
+  actor's step command first. A clean tree at a rest (turn-commit HEAD awaiting an actor, or a
   routing-commit HEAD that lands on an actor) emits that actor's prompt. A
   clean tree at a mid-chain HEAD reports pending instead of a prompt.
 
-  `--json` output carries a `runStepAgent` boolean for automated loop drivers:
-  `true` at an agent rest (mirroring the plain-mode tail sentence — the driver
-  should run `gtd step-agent` next), `false` at a human rest (the human's own
-  next action is already spelled out in the prompt body) and `false` while
-  pending (resuming a mid-chain checkpoint always runs `gtd step`, never
-  `step-agent`, regardless of which actor's turn was interrupted).
+  `--json` output's `actor` field is the single loop-driver signal: `"agent"`
+  means proceed with another round — act on `prompt` when present, then run
+  `gtd step-agent`; at an agent-driven mid-chain checkpoint (`prompt` null)
+  just run `gtd step-agent` to resume the chain. `"human"` means halt: the
+  human owns the next move (a human rest, whose prompt body spells out the
+  human's action, or a human-driven mid-chain checkpoint resumed by
+  `gtd step`).
 
   Scenario: A dirty tree fails and points at gtd status and gtd step
     Given a test project
@@ -45,7 +46,7 @@ Feature: gtd next — pure prediction of the next prompt
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
     And stdout contains "\"pending\":false"
-    And stdout contains "\"runStepAgent\":true"
+    And stdout does not contain "runStepAgent"
     And the commit count is unchanged
     When I run gtd next
     Then it succeeds
@@ -62,9 +63,9 @@ Feature: gtd next — pure prediction of the next prompt
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""
-    And stdout contains "\"runStepAgent\":false"
+    And stdout does not contain "runStepAgent"
 
-  Scenario: A mid-chain HEAD reports pending with a null prompt
+  Scenario: A human-driven mid-chain HEAD reports pending with a null prompt
     Given a test project
     And a commit "gtd(human): review" that adds "REVIEW.md" with:
       """
@@ -75,13 +76,38 @@ Feature: gtd next — pure prediction of the next prompt
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"pending\":true"
+    And stdout contains "\"actor\":\"human\""
     And stdout contains "\"prompt\":null"
-    And stdout contains "\"runStepAgent\":false"
     When I run gtd next
     Then it succeeds
-    And stdout contains "run `gtd step`"
+    And stdout contains "run `gtd step` to continue"
 
-  Scenario: The plain agent prompt ends with the step-agent tail sentence
+  Scenario: An agent-driven mid-chain checkpoint reports pending with actor agent
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      agenticReview: false
+      squash: false
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+      """
+      Implement the add function.
+      """
+    And a commit "gtd(agent): fixing" that adds "src/add.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: tests green"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"pending\":true"
+    And stdout contains "\"actor\":\"agent\""
+    And stdout contains "\"prompt\":null"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "run `gtd step-agent` to continue, then run `gtd next` again"
+
+  Scenario: The plain agent prompt ends with the step-agent tail and the next-iteration instruction
     Given a test project
     And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
       """
@@ -90,8 +116,10 @@ Feature: gtd next — pure prediction of the next prompt
     When I run gtd next
     Then it succeeds
     And stdout contains "Finish your turn by running `gtd step-agent`."
+    And stdout contains "Then run `gtd next` and follow"
+    And stdout contains "when it awaits the human, stop and hand off."
 
-  Scenario: The --json prompt for the same agent rest omits the tail sentence but carries the runStepAgent flag
+  Scenario: The --json prompt for the same agent rest omits the tail but carries the actor field
     Given a test project
     And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
       """
@@ -100,4 +128,5 @@ Feature: gtd next — pure prediction of the next prompt
     When I run gtd next with "--json"
     Then it succeeds
     And stdout does not contain "Finish your turn by running `gtd step-agent`."
-    And stdout contains "\"runStepAgent\":true"
+    And stdout does not contain "Then run `gtd next` and follow"
+    And stdout contains "\"actor\":\"agent\""

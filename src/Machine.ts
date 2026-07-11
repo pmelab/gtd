@@ -256,7 +256,7 @@ export interface Result {
   readonly actor: Actor
   /** Clean tree, mid-chain HEAD — meaningful for invoker "none" (`gtd next`/`gtd status`). */
   readonly pending: boolean
-  /** Set when an out-of-turn `step-agent` is refused. The CLI prints this to stderr and exits non-zero; zero commits happen. */
+  /** Set when an out-of-turn invocation is refused — the invoking actor is not the awaited one, in either direction. The CLI prints this to stderr and exits non-zero; zero commits happen. */
   readonly refusal?: string
   readonly edgeAction?: EdgeAction
   readonly context: ResolveContext
@@ -1061,33 +1061,27 @@ const applyTurnTaking = (
     }
   }
 
-  // Out-of-turn: agent invokes while a human turn is awaited → refuse.
-  if (invoker === "agent" && awaited === "human") {
+  // Out-of-turn: the invoker is not the awaited actor → refuse, in BOTH
+  // directions. Turns are strictly separated: the wrong mutator always errors
+  // instead of no-op-ing or adopting the dirty tree as a turn of its own.
+  // In particular a dirty tree at an agent-awaited rest is often the agent's
+  // own uncommitted output (the decompose subagent's `.gtd/` packages at the
+  // grilled rest) — a human capture there would misattribute agent work and
+  // derail routing (`gtd(human): grilled` has no classification route).
+  // Human edits made while the agent is awaited (amendment notes in `.gtd/`
+  // package files, extra TODO.md detail) stay pending and ride along as
+  // input to the agent's next captured turn.
+  if (invoker !== awaited) {
     return {
       state: baseline.state,
       actor: awaited,
       pending: false,
-      refusal: `${baseline.state} awaits a human turn`,
+      refusal:
+        awaited === "human"
+          ? `${baseline.state} awaits a human turn — run \`gtd step\``
+          : `${baseline.state} awaits an agent turn — run \`gtd step-agent\``,
       context,
     }
-  }
-
-  // Human invokes while an agent turn is awaited: dirty tree captures
-  // feedback-with-authority under the current gate, authored as the
-  // INVOKING human's own turn (not the agent's) — `gtd(human): <gate>`,
-  // not `gtd(agent): <gate>` — since the human is the one who actually made
-  // the edit. Clean tree no-ops.
-  if (invoker === "human" && awaited === "agent") {
-    if (!p.workingTreeClean) {
-      return {
-        state: baseline.state,
-        actor: awaited,
-        pending: false,
-        edgeAction: { kind: "captureTurn", actor: invoker, gate: gateForState(baseline.state) },
-        context,
-      }
-    }
-    return { state: baseline.state, actor: awaited, pending: false, context }
   }
 
   // Idle carve-out: a human step at idle always re-runs the health check —

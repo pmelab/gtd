@@ -217,7 +217,7 @@ describe("buildPrompt", () => {
   })
 
   describe("tail contract", () => {
-    it("plain agent prompts end with the exact turn-ending sentence", () => {
+    it("plain agent prompts end with the exact turn-ending tail", () => {
       const cases: ReadonlyArray<Result> = [
         result("grilling", { actor: "agent" }),
         result("grilled"),
@@ -228,9 +228,13 @@ describe("buildPrompt", () => {
         result("squashing"),
         result("health-fixing"),
       ]
+      const tail =
+        "Finish your turn by running `gtd step-agent`. Then run `gtd next` and follow\n" +
+        "its output — repeat this cycle as long as the output is addressed to you (the\n" +
+        "agent); when it awaits the human, stop and hand off."
       for (const res of cases) {
         const out = buildPrompt(res)
-        expect(out.trimEnd().endsWith("Finish your turn by running `gtd step-agent`.")).toBe(true)
+        expect(out.trimEnd().endsWith(tail)).toBe(true)
       }
     })
 

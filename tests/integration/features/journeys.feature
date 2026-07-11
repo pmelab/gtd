@@ -9,9 +9,10 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
   states that isolated scenarios cannot see.
 
   The loop protocol emulated here is the step-first two-beat: `gtd step-agent`
-  then `gtd next`; if `actor` is `"human"`, a human beat (`gtd step`, with
-  edits beforehand) runs instead; otherwise the prompt is handed to the agent
-  and the beat repeats.
+  then `gtd next`; while `actor` is "agent" the agent beat repeats (acting on
+  the prompt when one is present, or straight back to `gtd step-agent` at a
+  pending checkpoint); when it is "human" the human owns the next move and a
+  human beat (`gtd step`, with edits beforehand) runs instead.
 
   Scenario: Happy path — squash off, agenticReview off, entry to gtd: done and a stable rest
     Given a test project
@@ -267,6 +268,13 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     And the git log contains "gtd(agent): fixing"
     And the last commit subject is "gtd: tests green"
     And the file "FEEDBACK.md" does not exist
+    # The fix-round green is a checkpoint: gtd next reports an agent-driven
+    # pending mid-chain, and the actor field alone tells the loop driver to
+    # proceed with step-agent (no prompt to act on).
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"pending\":true"
+    And stdout contains "\"actor\":\"agent\""
     # Onwards: force-approve closes the package.
     When I run gtd step-agent
     Then it succeeds

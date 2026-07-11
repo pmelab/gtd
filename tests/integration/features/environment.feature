@@ -127,8 +127,13 @@ Feature: Hostile environments and unusual invocations
     When I run gtd step
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
+    Then I record the commit count
+    # The hook's reformatting left no stray dirt behind: the follow-up step is
+    # a clean out-of-turn refusal (the agent is awaited now), not a re-capture.
     When I run gtd step
-    Then it succeeds
+    Then it fails
+    And stderr contains "awaits an agent turn"
+    And the commit count is unchanged
 
   Scenario: A failing pre-commit hook surfaces the error and the flow resumes after removal
     Given a test project
