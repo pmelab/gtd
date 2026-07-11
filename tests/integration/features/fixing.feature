@@ -127,3 +127,24 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step-agent
     Then it succeeds
     And the commit count is unchanged
+
+  Scenario: Disputing by deleting FEEDBACK.md is captured as the fixer turn and re-tests
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: "true"
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
+      """
+      AssertionError: expected helper('a') to equal 'a'
+      """
+    And a deleted committed file ".gtd/FEEDBACK.md"
+    When I run gtd step-agent
+    Then it succeeds
+    And the git log contains "gtd(agent): fixing"
+    And the last commit subject is "gtd: tests green"
+    And the file ".gtd/FEEDBACK.md" does not exist
