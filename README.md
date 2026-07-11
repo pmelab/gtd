@@ -98,8 +98,6 @@ Commands:
 
 Options:
   --json           Output structured JSON instead of plain text
-  --verbose        Show verbose output (thinking deltas, tool events)
-  --debug          Show debug-level internal information
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 ```
@@ -111,8 +109,9 @@ without touching the repository. Every other command must be run from the
 **repository root** — gtd derives steering files, diffs, and pathspecs relative
 to cwd, so it refuses with a clear error if invoked from a subdirectory.
 
-`--json` is orthogonal to `--verbose`/`--debug` — each flag controls exactly one
-concern and none of them imply each other.
+`--json` is the only long option. Any other `--` option (including a typo like
+`--jsn`) is rejected with a usage error rather than silently ignored, so a
+mistyped flag can never degrade a JSON caller to plain-text mode.
 
 ### `gtd step` / `gtd step-agent`
 
@@ -496,11 +495,25 @@ the threshold — including the approval write itself; an approval that crosses
 the threshold simply closes the package as usual.) Setting
 `agenticReview: false` force-approves every package immediately.
 
-A **do-nothing fixer invocation** — `gtd step-agent` at a fixing rest with a
-clean tree — is inert: no empty turn commit, no re-test; `gtd next` re-emits the
-same fixing prompt. A real fix (code edit) or a dispute (emptying or deleting
-`.gtd/FEEDBACK.md`) always dirties the tree, so genuine fixer turns capture and
-re-test as usual.
+A **do-nothing agent invocation** — `gtd step-agent` on a clean tree at ANY
+agent-awaited rest whose move is a file artifact (`grilling`, `grilled`,
+`building`, `fixing`, `agentic-review`, `review`, and `squashing` while
+`.gtd/SQUASH_MSG.md` still holds the unmodified template) — is inert: zero
+commits, no state consumed; `gtd next` re-emits the same prompt. This is
+load-bearing for the loop protocol, whose every iteration opens with
+`gtd step-agent` before the agent has acted: without the guard that opening beat
+would author junk empty turns — and worse, consume workflow state (an empty
+decompose turn would delete `.gtd/TODO.md` with no packages written; an empty
+squashing turn would squash the cycle under the placeholder template). The same
+guards hold at the classification layer for histories that already carry such
+turns: a `gtd(agent): grilled` HEAD only routes to `gtd: planning` when packages
+exist, a `gtd(agent): review` HEAD only routes to `gtd: awaiting review` when
+`.gtd/REVIEW.md` exists, and a squashing turn only squashes once the template
+has been overwritten. The one deliberate exception is `health-fixing`, whose
+empty turn is meaningful (the failure may have been environmental — the machine
+removes `.gtd/HEALTH.md` and re-tests). Human gates are unaffected: an empty
+**human** turn stays a signal (accept-defaults at grilling, clean approval at
+review).
 
 ### Human review gate
 
