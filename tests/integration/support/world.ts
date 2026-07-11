@@ -34,6 +34,8 @@ export class GtdWorld extends QuickPickleWorld {
     stderr: "",
   }
   savedCommitCount: number | undefined = undefined
+  /** Path to a stub agent script for `gtd-loop` scenarios (@live only). */
+  stubAgentPath: string | undefined = undefined
 
   /** Directory the next `runGtd` uses as cwd; defaults to the repo root. */
   runCwd: string | undefined = undefined

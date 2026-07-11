@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Drives the two-beat protocol (README.md "The reference loop driver") to a
+# human gate. Both mutators are attempted every iteration, refusal-tolerant:
+# whichever actor is actually awaited claims the turn (captures the human's
+# uncommitted edit after a halt, or the agent's own edit from the previous
+# iteration), the other refuses harmlessly.
+prev_state=""
+prev_prompt=""
+
+while true; do
+  gtd step --json >/dev/null 2>&1 || true
+  gtd step-agent --json >/dev/null 2>&1 || true
+
+  if ! next_json="$(gtd next --json 2>&1)"; then
+    echo "gtd-loop: could not determine the next step:" >&2
+    echo "$next_json" >&2
+    echo "Run \`gtd status\` to inspect the repo." >&2
+    exit 1
+  fi
+
+  actor="$(jq -r .actor <<<"$next_json")"
+  pending="$(jq -r .pending <<<"$next_json")"
+  state="$(jq -r .state <<<"$next_json")"
+  prompt="$(jq -r .prompt <<<"$next_json")"
+
+  if [[ "$actor" != "agent" ]]; then
+    echo "--- Your turn ($state) ---"
+    gtd next
+    exit 0
+  fi
+
+  if [[ "$pending" == "true" ]]; then
+    prev_state=""
+    prev_prompt=""
+    continue
+  fi
+
+  # Stall detection (skills/loop/SKILL.md): the same agent-owned state and
+  # prompt repeating means the last dispatch made no progress — stop rather
+  # than spin on it.
+  if [[ "$state" == "$prev_state" && "$prompt" == "$prev_prompt" ]]; then
+    echo "gtd-loop: no progress at '$state' — the agent's last turn changed nothing. Stopping to avoid spinning." >&2
+    gtd next >&2
+    exit 1
+  fi
+  prev_state="$state"
+  prev_prompt="$prompt"
+
+  # Swappable agent adapter: GTD_LOOP_AGENT_CMD lets any coding agent CLI
+  # stand in for the default, receiving the prompt via $GTD_LOOP_PROMPT.
+  cmd="${GTD_LOOP_AGENT_CMD:-}"
+  if [[ -z "$cmd" ]]; then
+    cmd='claude -p "$GTD_LOOP_PROMPT" --dangerously-skip-permissions'
+  fi
+  GTD_LOOP_PROMPT="$prompt" bash -c "$cmd"
+done
