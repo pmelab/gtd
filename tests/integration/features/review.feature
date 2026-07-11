@@ -18,7 +18,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -30,7 +30,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""
-    And stdout contains "REVIEW.md"
+    And stdout contains ".gtd/REVIEW.md"
 
   Scenario: A clean step approves the review as gtd: done
     Given a test project
@@ -38,7 +38,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -51,7 +51,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
     Then it succeeds
     And the git log contains "gtd(human): review"
     And the last commit subject is "gtd: done"
-    And the file "REVIEW.md" does not exist
+    And the file ".gtd/REVIEW.md" does not exist
 
   Scenario: Checking off REVIEW.md checkboxes only still approves the review
     Given a test project
@@ -59,7 +59,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -69,7 +69,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       - [ ] ./src/calc.ts#1 — export statement
       """
     And a commit "gtd: awaiting review"
-    And "REVIEW.md" is modified to:
+    And ".gtd/REVIEW.md" is modified to:
       """
       # Review
 
@@ -81,7 +81,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
     When I run gtd step
     Then it succeeds
     And the last commit subject is "gtd: done"
-    And the file "REVIEW.md" does not exist
+    And the file ".gtd/REVIEW.md" does not exist
 
   Scenario: A substantive REVIEW.md edit is feedback and re-grills the agent with the finding
     Given a test project
@@ -89,7 +89,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -98,7 +98,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       - [ ] ./src/calc.ts#1 — new add function
       """
     And a commit "gtd: awaiting review"
-    And "REVIEW.md" is modified to:
+    And ".gtd/REVIEW.md" is modified to:
       """
       # Review
 
@@ -112,7 +112,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
     Then it succeeds
     And the git log contains "gtd(human): review"
     And the last commit subject is "gtd: review feedback"
-    And the file "REVIEW.md" does not exist
+    And the file ".gtd/REVIEW.md" does not exist
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
@@ -124,7 +124,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -141,7 +141,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
     When I run gtd step
     Then it succeeds
     And the last commit subject is "gtd: review feedback"
-    And the file "REVIEW.md" does not exist
+    And the file ".gtd/REVIEW.md" does not exist
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
@@ -162,7 +162,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 

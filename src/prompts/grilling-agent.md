@@ -1,6 +1,6 @@
 <%~ include("@header") %>
 
-`TODO.md` holds the plan under development. Develop it into a concrete,
+`.gtd/TODO.md` holds the plan under development. Develop it into a concrete,
 implementation-ready plan **in this one turn** — use subagents / internal
 iteration to go as deep as needed; there is no further agent-only round after
 this one.
@@ -8,7 +8,7 @@ this one.
 ### Develop the plan
 
 Spawn a **planning-model subagent** using model `<%= it.model %>` to develop the plan.
-The subagent works entirely by editing `TODO.md`:
+The subagent works entirely by editing `.gtd/TODO.md`:
 
 1. **Explore the codebase before asking anything** — read the relevant files,
    tests, and docs so every question below is one the codebase genuinely
@@ -22,7 +22,7 @@ The subagent works entirely by editing `TODO.md`:
 4. For every remaining open question, write it near the top of the file with
    a **suggested default** — your best-guess answer, stated plainly, that the
    human can accept as-is. A question with no suggested default is incomplete.
-5. Leave `TODO.md` **uncommitted** — the human's turn (`gtd step`) reads it
+5. Leave `.gtd/TODO.md` **uncommitted** — the human's turn (`gtd step`) reads it
    next.
 <% if (it.context.turnDiff && it.context.turnDiff.trim()) { %>
 <%~ include("@diff", { heading: "Latest human input (answers / sketch / review feedback)", diff: it.context.turnDiff, fenceFor: it.fenceFor }) %>

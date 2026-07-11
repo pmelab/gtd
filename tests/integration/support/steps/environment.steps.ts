@@ -2,7 +2,7 @@ import { Given, When } from "quickpickle"
 import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import type { GtdWorld } from "../world.js"
 import { git } from "../../helpers/project-setup.js"
 
@@ -80,6 +80,7 @@ Given(
   "{string} is modified with CRLF line endings to:",
   (world: GtdWorld, path: string, content: string) => {
     const body = content.endsWith("\n") ? content : content + "\n"
+    mkdirSync(dirname(join(world.repoDir, path)), { recursive: true })
     writeFileSync(join(world.repoDir, path), body.replace(/\n/g, "\r\n"))
   },
 )

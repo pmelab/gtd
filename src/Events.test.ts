@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { NodeContext } from "@effect/platform-node"
 import { FileSystem } from "@effect/platform"
 import { Effect, Layer } from "effect"
@@ -18,15 +18,22 @@ import { turnSubject } from "./Subjects.js"
 
 // ── Repo harness ─────────────────────────────────────────────────────────────
 // Each test runs against a fresh real git repo, cwd'd in so gatherEvents/perform
-// resolve their relative paths (".gtd", "TODO.md", …) against it.
+// resolve their relative paths (".gtd", ".gtd/TODO.md", …) against it.
 
 let repoDir: string
 
 const git = (...args: string[]): string =>
   execFileSync("git", args, { cwd: repoDir, encoding: "utf8", stdio: "pipe" }).trim()
 
+// `git rm` of the last file under `.gtd/` deletes the directory too, so every
+// write re-creates parent dirs.
+const writeRepoFile = (absPath: string, content: string): void => {
+  mkdirSync(dirname(absPath), { recursive: true })
+  writeFileSync(absPath, content)
+}
+
 const commitFile = (msg: string, file: string, content: string): void => {
-  writeFileSync(join(repoDir, file), content)
+  writeRepoFile(join(repoDir, file), content)
   git("add", "-A")
   git("commit", "-q", "-m", msg)
 }
@@ -38,11 +45,14 @@ const initRepo = (branch: boolean): void => {
   git("config", "user.name", "Test")
   git("config", "user.email", "test@test.com")
   git("config", "commit.gpgsign", "false")
-  writeFileSync(join(repoDir, "README.md"), "# test\n")
+  writeRepoFile(join(repoDir, "README.md"), "# test\n")
   git("add", "-A")
   git("commit", "-q", "-m", "chore: init")
   git("branch", "-M", "main")
   if (branch) git("checkout", "-q", "-b", "feature")
+  // Steering files live under `.gtd/`; pre-create the (git-invisible while
+  // empty) directory so tests can write them directly.
+  mkdirSync(join(repoDir, ".gtd"), { recursive: true })
 }
 
 const cleanup = (): void => {
@@ -183,8 +193,8 @@ describe("getPackages — {name,tasks,taskContents} shape", () => {
 
   it("reads task contents sorted to match tasks", async () => {
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
-    writeFileSync(join(repoDir, ".gtd", "01-foo", "02-second.md"), "# Second\nbody two\n")
-    writeFileSync(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\nbody one\n")
+    writeRepoFile(join(repoDir, ".gtd", "01-foo", "02-second.md"), "# Second\nbody two\n")
+    writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\nbody one\n")
 
     const packages = await runGetPackages()
 
@@ -276,7 +286,7 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
   })
 
   it("isFeedback: true only for a gtd(agent): agentic-review turn whose diff touched FEEDBACK.md", async () => {
-    commitFile(turnSubject("agent", "agentic-review"), "FEEDBACK.md", "finding: rename foo\n")
+    commitFile(turnSubject("agent", "agentic-review"), ".gtd/FEEDBACK.md", "finding: rename foo\n")
     commitFile(turnSubject("agent", "building"), "b.ts", "//b\n") // agentic-review gate but no FEEDBACK touch below
     commitFile("gtd: package done", "c.ts", "//c\n")
 
@@ -288,9 +298,9 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
 
   it("isFeedback also counts an empty (approval) agentic-review touching FEEDBACK.md (documented over-count)", async () => {
     // Findings round: writes FEEDBACK.md with content.
-    commitFile(turnSubject("agent", "agentic-review"), "FEEDBACK.md", "finding\n")
+    commitFile(turnSubject("agent", "agentic-review"), ".gtd/FEEDBACK.md", "finding\n")
     // Approval round: agent empties FEEDBACK.md — still touches the path.
-    writeFileSync(join(repoDir, "FEEDBACK.md"), "")
+    writeRepoFile(join(repoDir, ".gtd/FEEDBACK.md"), "")
     git("add", "-A")
     git("commit", "-q", "-m", turnSubject("agent", "agentic-review"))
 
@@ -300,8 +310,8 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
   })
 
   it("sets removedErrors only on the commit whose diff deletes ERRORS.md", async () => {
-    commitFile("gtd: errors", "ERRORS.md", "boom\n") // adds ERRORS.md
-    git("rm", "ERRORS.md")
+    commitFile("gtd: errors", ".gtd/ERRORS.md", "boom\n") // adds ERRORS.md
+    git("rm", ".gtd/ERRORS.md")
     git("commit", "-q", "-m", turnSubject("human", "escalate")) // deletes ERRORS.md (human resume)
     commitFile("feat: after", "x.ts", "//x\n")
 
@@ -313,7 +323,7 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
   })
 
   it("sets isHealthCheck for gtd: health-check only", async () => {
-    commitFile("gtd: health-check", "HEALTH.md", "# Health\nfail\n")
+    commitFile("gtd: health-check", ".gtd/HEALTH.md", "# Health\nfail\n")
     commitFile("gtd: health-fix", "x.ts", "//fix\n")
     commitFile("feat: regular", "y.ts", "//y\n")
 
@@ -339,13 +349,13 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
 
   it("steering presence + gtdModified + codeDirty + workingTreeClean", async () => {
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
-    writeFileSync(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
-    writeFileSync(join(repoDir, "src.ts"), "export const x = 1\n")
-    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+    writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
+    writeRepoFile(join(repoDir, "src.ts"), "export const x = 1\n")
+    writeRepoFile(join(repoDir, ".gtd/TODO.md"), "# Plan\n")
 
     const p = resolveOf(await runGather())
     expect(p.todoExists).toBe(true)
-    expect(p.gtdDirExists).toBe(true)
+    expect(p.packagesPresent).toBe(true)
     expect(p.gtdModified).toBe(true)
     expect(p.codeDirty).toBe(true)
     expect(p.workingTreeClean).toBe(false)
@@ -356,17 +366,28 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
 
   it("codeDirty is false when only steering / .gtd files are dirty", async () => {
     mkdirSync(join(repoDir, ".gtd"), { recursive: true })
-    writeFileSync(join(repoDir, ".gtd", "note.md"), "x\n")
-    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
-    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n")
+    writeRepoFile(join(repoDir, ".gtd", "note.md"), "x\n")
+    writeRepoFile(join(repoDir, ".gtd/TODO.md"), "# Plan\n")
+    writeRepoFile(join(repoDir, ".gtd/REVIEW.md"), "# Review\n")
 
     const p = resolveOf(await runGather())
     expect(p.codeDirty).toBe(false)
+    // Steering churn alone is NOT package modification — only numbered
+    // package paths flip gtdModified.
+    expect(p.gtdModified).toBe(false)
+  })
+
+  it("gtdModified is true only for numbered package paths under .gtd/", async () => {
+    writeRepoFile(join(repoDir, ".gtd", "01-x", "01-task.md"), "# Task\n")
+    writeRepoFile(join(repoDir, ".gtd/FEEDBACK.md"), "finding\n")
+
+    const p = resolveOf(await runGather())
     expect(p.gtdModified).toBe(true)
+    expect(p.codeDirty).toBe(false)
   })
 
   it("feedbackEmpty is whitespace-tolerant; untracked FEEDBACK is not committed", async () => {
-    writeFileSync(join(repoDir, "FEEDBACK.md"), "   \n\n  ")
+    writeRepoFile(join(repoDir, ".gtd/FEEDBACK.md"), "   \n\n  ")
     const p = resolveOf(await runGather())
     expect(p.feedbackPresent).toBe(true)
     expect(p.feedbackEmpty).toBe(true)
@@ -374,7 +395,7 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
   })
 
   it("content-bearing committed FEEDBACK → feedbackEmpty false, feedbackCommitted true", async () => {
-    commitFile("gtd: errors", "FEEDBACK.md", "# Feedback\n\nfix this\n")
+    commitFile("gtd: errors", ".gtd/FEEDBACK.md", "# Feedback\n\nfix this\n")
     const p = resolveOf(await runGather())
     expect(p.feedbackPresent).toBe(true)
     expect(p.feedbackEmpty).toBe(false)
@@ -384,12 +405,12 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
 
   it("feedbackContent carries the FEEDBACK.md text and is empty when absent", async () => {
     expect(resolveOf(await runGather()).feedbackContent).toBe("")
-    writeFileSync(join(repoDir, "FEEDBACK.md"), "review finding: rename foo\n")
+    writeRepoFile(join(repoDir, ".gtd/FEEDBACK.md"), "review finding: rename foo\n")
     expect(resolveOf(await runGather()).feedbackContent).toContain("review finding: rename foo")
   })
 
   it("uncommitted REVIEW → present, not committed, not dirty (Await Review)", async () => {
-    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n")
+    writeRepoFile(join(repoDir, ".gtd/REVIEW.md"), "# Review\n")
     const p = resolveOf(await runGather())
     expect(p.reviewPresent).toBe(true)
     expect(p.reviewCommitted).toBe(false)
@@ -397,60 +418,67 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
   })
 
   it("committed REVIEW + clean tree → reviewCommitted (Done)", async () => {
-    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n")
+    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n")
     const p = resolveOf(await runGather())
     expect(p.reviewCommitted).toBe(true)
     expect(p.reviewDirty).toBe(false)
   })
 
   it("committed REVIEW + edited REVIEW → reviewDirty (human review turn)", async () => {
-    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n")
-    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n\nhuman feedback\n")
+    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n")
+    writeRepoFile(join(repoDir, ".gtd/REVIEW.md"), "# Review\n\nhuman feedback\n")
     const p = resolveOf(await runGather())
     expect(p.reviewCommitted).toBe(false)
     expect(p.reviewDirty).toBe(true)
   })
 
   it("committed REVIEW + other pending file → reviewDirty", async () => {
-    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n")
-    writeFileSync(join(repoDir, "code.ts"), "human edit\n")
+    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n")
+    writeRepoFile(join(repoDir, "code.ts"), "human edit\n")
     expect(resolveOf(await runGather()).reviewDirty).toBe(true)
   })
 
   it("committed REVIEW + checkbox-only edit → reviewCheckboxOnly true, reviewDirty true", async () => {
-    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n\n- [ ] item one\n- [ ] item two\n")
-    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n\n- [x] item one\n- [ ] item two\n")
+    commitFile(
+      "gtd: awaiting review",
+      ".gtd/REVIEW.md",
+      "# Review\n\n- [ ] item one\n- [ ] item two\n",
+    )
+    writeRepoFile(join(repoDir, ".gtd/REVIEW.md"), "# Review\n\n- [x] item one\n- [ ] item two\n")
     const p = resolveOf(await runGather())
     expect(p.reviewDirty).toBe(true)
     expect(p.reviewCheckboxOnly).toBe(true)
   })
 
   it("committed REVIEW + textual annotation → reviewCheckboxOnly false, reviewDirty true", async () => {
-    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n\n- [ ] item one\n")
-    writeFileSync(join(repoDir, "REVIEW.md"), "# Review\n\n- [x] item one\n\nhuman comment here\n")
+    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n\n- [ ] item one\n")
+    writeFileSync(
+      join(repoDir, ".gtd/REVIEW.md"),
+      "# Review\n\n- [x] item one\n\nhuman comment here\n",
+    )
     const p = resolveOf(await runGather())
     expect(p.reviewDirty).toBe(true)
     expect(p.reviewCheckboxOnly).toBe(false)
   })
 
   it("todoCommitted: tracked at HEAD → true (even with pending edits)", async () => {
-    commitFile(turnSubject("agent", "grilling"), "TODO.md", "# Plan\n")
-    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n\nedited\n")
+    commitFile(turnSubject("agent", "grilling"), ".gtd/TODO.md", "# Plan\n")
+    writeRepoFile(join(repoDir, ".gtd/TODO.md"), "# Plan\n\nedited\n")
     const p = resolveOf(await runGather())
     expect(p.todoExists).toBe(true)
     expect(p.todoCommitted).toBe(true)
   })
 
   it("todoCommitted: freshly written (untracked) TODO.md → false", async () => {
-    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+    writeRepoFile(join(repoDir, ".gtd/TODO.md"), "# Plan\n")
     const p = resolveOf(await runGather())
     expect(p.todoExists).toBe(true)
     expect(p.todoCommitted).toBe(false)
   })
 
   it("pendingErrorsDeletion reflects a working-tree ERRORS.md deletion", async () => {
-    commitFile("gtd: errors", "ERRORS.md", "boom\n")
-    rmSync(join(repoDir, "ERRORS.md")) // human removes the committed ERRORS.md
+    commitFile("gtd: errors", ".gtd/ERRORS.md", "boom\n")
+    rmSync(join(repoDir, ".gtd/ERRORS.md")) // human removes the committed ERRORS.md
     const p = resolveOf(await runGather())
     expect(p.errorsPresent).toBe(false)
     expect(p.pendingErrorsDeletion).toBe(true)
@@ -458,7 +486,7 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
 
   it("lastCommitSubject + packages passthrough", async () => {
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
-    writeFileSync(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\nbody\n")
+    writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\nbody\n")
     git("add", "-A")
     git("commit", "-q", "-m", "gtd: planning")
     const p = resolveOf(await runGather())
@@ -493,7 +521,7 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
   })
 
   it("present uncommitted HEALTH.md → healthPresent true, healthCommitted false, healthContent matches", async () => {
-    writeFileSync(join(repoDir, "HEALTH.md"), "# Health\nfailing tests\n")
+    writeRepoFile(join(repoDir, ".gtd/HEALTH.md"), "# Health\nfailing tests\n")
     const p = resolveOf(await runGather())
     expect(p.healthPresent).toBe(true)
     expect(p.healthCommitted).toBe(false)
@@ -501,7 +529,7 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
   })
 
   it("present committed HEALTH.md → healthPresent true, healthCommitted true, healthContent matches", async () => {
-    commitFile("gtd: health-check", "HEALTH.md", "# Health\ntest output\n")
+    commitFile("gtd: health-check", ".gtd/HEALTH.md", "# Health\ntest output\n")
     const p = resolveOf(await runGather())
     expect(p.healthPresent).toBe(true)
     expect(p.healthCommitted).toBe(true)
@@ -509,14 +537,14 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
   })
 
   it("HEALTH.md is excluded from codeDirty (steering file)", async () => {
-    writeFileSync(join(repoDir, "HEALTH.md"), "# Health\nfail\n")
+    writeRepoFile(join(repoDir, ".gtd/HEALTH.md"), "# Health\nfail\n")
     const p = resolveOf(await runGather())
     expect(p.codeDirty).toBe(false)
   })
 
   it("squashMsgPresent reflects SQUASH_MSG.md presence (no content field on the payload)", async () => {
     expect(resolveOf(await runGather()).squashMsgPresent).toBe(false)
-    writeFileSync(join(repoDir, "SQUASH_MSG.md"), "feat: x\n")
+    writeRepoFile(join(repoDir, ".gtd/SQUASH_MSG.md"), "feat: x\n")
     const p = resolveOf(await runGather())
     expect(p.squashMsgPresent).toBe(true)
     expect("squashMsgContent" in p).toBe(false)
@@ -551,35 +579,35 @@ describe("gatherEvents — headTurnDiff / headTurnIsEmpty", { timeout: 30_000 },
   })
 
   it("headTurnDiff includes TODO.md for a grilling turn — it IS the gate's content", async () => {
-    writeFileSync(join(repoDir, "TODO.md"), "# Plan\ngo with tailwind css\n")
-    writeFileSync(join(repoDir, "code.ts"), "export const c = 1\n")
+    writeRepoFile(join(repoDir, ".gtd/TODO.md"), "# Plan\ngo with tailwind css\n")
+    writeRepoFile(join(repoDir, "code.ts"), "export const c = 1\n")
     git("add", "-A")
     git("commit", "-q", "-m", turnSubject("human", "grilling"))
     const p = resolveOf(await runGather())
     expect(p.headTurnDiff).toContain("code.ts")
-    expect(p.headTurnDiff).toContain("TODO.md")
+    expect(p.headTurnDiff).toContain(".gtd/TODO.md")
     expect(p.headTurnDiff).toContain("tailwind")
   })
 
   it("headTurnDiff still excludes non-grilling steering-file churn (.gtd/) from a grilling turn's diff", async () => {
-    writeFileSync(join(repoDir, "TODO.md"), "# Plan\n")
+    writeRepoFile(join(repoDir, ".gtd/TODO.md"), "# Plan\n")
     mkdirSync(join(repoDir, ".gtd", "01-x"), { recursive: true })
-    writeFileSync(join(repoDir, ".gtd", "01-x", "01-task.md"), "# Task\n")
+    writeRepoFile(join(repoDir, ".gtd", "01-x", "01-task.md"), "# Task\n")
     git("add", "-A")
     git("commit", "-q", "-m", turnSubject("human", "grilling"))
     const p = resolveOf(await runGather())
-    expect(p.headTurnDiff).toContain("TODO.md")
-    expect(p.headTurnDiff).not.toContain(".gtd/")
+    expect(p.headTurnDiff).toContain(".gtd/TODO.md")
+    expect(p.headTurnDiff).not.toContain(".gtd/01-x")
   })
 
   it("headTurnDiff excludes TODO.md churn from a non-grilling turn (it's not that gate's content)", async () => {
-    writeFileSync(join(repoDir, "TODO.md"), "# stray leftover\n")
-    writeFileSync(join(repoDir, "code.ts"), "export const c = 1\n")
+    writeRepoFile(join(repoDir, ".gtd/TODO.md"), "# stray leftover\n")
+    writeRepoFile(join(repoDir, "code.ts"), "export const c = 1\n")
     git("add", "-A")
     git("commit", "-q", "-m", turnSubject("agent", "building"))
     const p = resolveOf(await runGather())
     expect(p.headTurnDiff).toContain("code.ts")
-    expect(p.headTurnDiff).not.toContain("TODO.md")
+    expect(p.headTurnDiff).not.toContain(".gtd/TODO.md")
   })
 })
 
@@ -606,8 +634,8 @@ describe("gatherEvents — reviewAnchor", { timeout: 30_000 }, () => {
 
   it("reviewAnchor supplies reviewBase directly, taking precedence over the grilling-turn rule", async () => {
     initRepo(false)
-    commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
-    git("rm", "-q", "TODO.md")
+    commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
+    git("rm", "-q", ".gtd/TODO.md")
     git("commit", "-q", "-m", "gtd: planning")
     commitFile("feat: normal work", "normal.ts", "export const n = 1\n")
     const anchorTarget = git("rev-parse", "HEAD~2")
@@ -632,22 +660,22 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
   // grilling started, minus the workflow files.
   it("within-process first review → base is the first grilling turn commit; refDiff spans whole task", async () => {
     initRepo(false)
-    commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
+    commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
     const grillingHash = git("rev-parse", "HEAD")
-    git("rm", "-q", "TODO.md")
+    git("rm", "-q", ".gtd/TODO.md")
     git("commit", "-q", "-m", "gtd: planning")
     commitFile("feat: add widget", "widget.ts", "export const widget = 1\n")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBe(grillingHash)
     expect(p.refDiff).toContain("widget.ts")
-    expect(p.refDiff).not.toContain("TODO.md")
+    expect(p.refDiff).not.toContain(".gtd/TODO.md")
   })
 
   it("an agent grilling turn also counts as the cycle's first grilling turn", async () => {
     initRepo(false)
-    commitFile(turnSubject("agent", "grilling"), "TODO.md", "# Plan\n")
+    commitFile(turnSubject("agent", "grilling"), ".gtd/TODO.md", "# Plan\n")
     const grillingHash = git("rev-parse", "HEAD")
-    git("rm", "-q", "TODO.md")
+    git("rm", "-q", ".gtd/TODO.md")
     git("commit", "-q", "-m", "gtd: planning")
     commitFile("feat: add widget", "widget.ts", "export const widget = 1\n")
     const p = resolveOf(await runGather())
@@ -659,28 +687,28 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
   // post-review changes, minus the workflow files.
   it("within-process incremental review → base is the last gtd: awaiting review commit; refDiff spans only post-review changes", async () => {
     initRepo(false)
-    commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
-    git("rm", "-q", "TODO.md")
+    commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
+    git("rm", "-q", ".gtd/TODO.md")
     git("commit", "-q", "-m", "gtd: planning")
     commitFile("feat: first batch", "first.ts", "export const first = 1\n")
-    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n")
+    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n")
     const lastAwaiting = git("rev-parse", "HEAD")
-    git("rm", "-q", "REVIEW.md")
+    git("rm", "-q", ".gtd/REVIEW.md")
     git("commit", "-q", "-m", turnSubject("agent", "grilling"))
     commitFile("feat: second batch", "second.ts", "export const second = 2\n")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBe(lastAwaiting)
     expect(p.refDiff).toContain("second.ts")
     expect(p.refDiff).not.toContain("first.ts")
-    expect(p.refDiff).not.toContain("REVIEW.md")
+    expect(p.refDiff).not.toContain(".gtd/REVIEW.md")
   })
 
   it("within-process feature branch after gtd: done still yields a review base (Rule 1)", async () => {
     initRepo(true)
     git("commit", "--allow-empty", "-q", "-m", "gtd: done")
-    commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
+    commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
     const grilling = git("rev-parse", "HEAD")
-    git("rm", "-q", "TODO.md")
+    git("rm", "-q", ".gtd/TODO.md")
     git("commit", "-q", "-m", "gtd: planning")
     commitFile("feat: work", "work.ts", "export const work = 1\n")
     const p = resolveOf(await runGather())
@@ -690,8 +718,8 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
 
   it("only workflow-file churn since base → reviewBase/refDiff unset (Idle)", async () => {
     initRepo(false)
-    commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
-    git("rm", "-q", "TODO.md")
+    commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
+    git("rm", "-q", ".gtd/TODO.md")
     git("commit", "-q", "-m", "gtd: planning")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBeUndefined()
@@ -780,10 +808,10 @@ describe(
 
     it("HEAD gtd: done after full cycle, squash enabled → squashEnabled true, squashBase = parent of the grilling turn, squashDiff non-empty", async () => {
       initRepo(true)
-      commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
+      commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
       const grillingHash = git("rev-parse", "HEAD")
       const grillingParent = git("rev-parse", "HEAD~1")
-      git("rm", "-q", "TODO.md")
+      git("rm", "-q", ".gtd/TODO.md")
       git("commit", "-q", "-m", "gtd: planning")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
@@ -798,9 +826,9 @@ describe(
 
     it("interleaved non-gtd commit between gtd commits → squashBase = parent of the grilling turn, diff includes interleaved files", async () => {
       initRepo(true)
-      commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
+      commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
       const grillingParent = git("rev-parse", "HEAD~1")
-      git("rm", "-q", "TODO.md")
+      git("rm", "-q", ".gtd/TODO.md")
       git("commit", "-q", "-m", "gtd: planning")
       commitFile("feat: first work", "first.ts", "export const first = 1\n")
       commitFile("chore: interleaved", "chore.ts", "// chore\n")
@@ -816,14 +844,14 @@ describe(
 
     it("second process on branch → squashBase = parent of second cycle's grilling turn", async () => {
       initRepo(true)
-      commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan 1\n")
-      git("rm", "-q", "TODO.md")
+      commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan 1\n")
+      git("rm", "-q", ".gtd/TODO.md")
       git("commit", "-q", "-m", "gtd: planning")
       commitFile("feat: first feature", "first.ts", "export const first = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
-      commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan 2\n")
+      commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan 2\n")
       const secondGrillingParent = git("rev-parse", "HEAD~1")
-      git("rm", "-q", "TODO.md")
+      git("rm", "-q", ".gtd/TODO.md")
       git("commit", "-q", "-m", "gtd: planning")
       commitFile("feat: second feature", "second.ts", "export const second = 2\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
@@ -836,8 +864,8 @@ describe(
 
     it("squash: false in config → squashEnabled false, squashBase unset", async () => {
       initRepo(true)
-      commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
-      git("rm", "-q", "TODO.md")
+      commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
+      git("rm", "-q", ".gtd/TODO.md")
       git("commit", "-q", "-m", "gtd: planning")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
@@ -850,8 +878,8 @@ describe(
 
     it("HEAD NOT gtd: done → squashBase unset", async () => {
       initRepo(true)
-      commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
-      git("rm", "-q", "TODO.md")
+      commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
+      git("rm", "-q", ".gtd/TODO.md")
       git("commit", "-q", "-m", "gtd: planning")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
 
@@ -871,8 +899,8 @@ describe(
 
     it("gtd: reviewing <hash> anchor nearest HEAD wins over an older grilling turn", async () => {
       initRepo(false)
-      commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
-      git("rm", "-q", "TODO.md")
+      commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
+      git("rm", "-q", ".gtd/TODO.md")
       git("commit", "-q", "-m", "gtd: planning")
       commitFile("feat: first batch", "first.ts", "export const first = 1\n")
       const anchorTarget = git("rev-parse", "HEAD")
@@ -888,12 +916,15 @@ describe(
 
     it("squashMsgPresent flag only — no squashMsgContent field on the payload", async () => {
       initRepo(true)
-      commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
-      git("rm", "-q", "TODO.md")
+      commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
+      git("rm", "-q", ".gtd/TODO.md")
       git("commit", "-q", "-m", "gtd: planning")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
-      writeFileSync(join(repoDir, "SQUASH_MSG.md"), "feat: add work\n\nDecision: keep it simple.\n")
+      writeRepoFile(
+        join(repoDir, ".gtd/SQUASH_MSG.md"),
+        "feat: add work\n\nDecision: keep it simple.\n",
+      )
 
       const p = resolveOf(await runGather("none", { squash: true }))
       expect(p.squashMsgPresent).toBe(true)
@@ -901,8 +932,8 @@ describe(
 
     it("SQUASH_MSG.md absent → squashMsgPresent false", async () => {
       initRepo(true)
-      commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
-      git("rm", "-q", "TODO.md")
+      commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
+      git("rm", "-q", ".gtd/TODO.md")
       git("commit", "-q", "-m", "gtd: planning")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
@@ -913,12 +944,12 @@ describe(
 
     it("SQUASH_MSG.md excluded from codeDirty (not treated as a code change)", async () => {
       initRepo(true)
-      commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
-      git("rm", "-q", "TODO.md")
+      commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
+      git("rm", "-q", ".gtd/TODO.md")
       git("commit", "-q", "-m", "gtd: planning")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
-      writeFileSync(join(repoDir, "SQUASH_MSG.md"), "feat: add work\n")
+      writeRepoFile(join(repoDir, ".gtd/SQUASH_MSG.md"), "feat: add work\n")
 
       const p = resolveOf(await runGather("none", { squash: true }))
       expect(p.codeDirty).toBe(false)
@@ -933,20 +964,20 @@ describe("gatherEvents — COMMIT-stream base folds (issue-7)", { timeout: 30_00
 
   it("trunk regression: gtd: errors commits after gtd: planning fold into testFixCount == 2, not 0", async () => {
     initRepo(false)
-    commitFile("gtd: planning", "TODO.md", "# Plan\n")
-    commitFile("gtd: errors", "ERRORS.md", "error 1\n")
-    commitFile("gtd: errors", "ERRORS.md", "error 2\n")
+    commitFile("gtd: planning", ".gtd/TODO.md", "# Plan\n")
+    commitFile("gtd: errors", ".gtd/ERRORS.md", "error 1\n")
+    commitFile("gtd: errors", ".gtd/ERRORS.md", "error 2\n")
     const events = await runGather()
     expect(foldCounters(events).testFixCount).toBe(2)
   })
 
   it("feature-branch control: only post-branch-point gtd: errors commits are included", async () => {
     initRepo(false)
-    commitFile("gtd: errors", "ERRORS.md", "pre-branch error\n")
+    commitFile("gtd: errors", ".gtd/ERRORS.md", "pre-branch error\n")
     git("checkout", "-q", "-b", "feature")
-    commitFile("gtd: planning", "TODO.md", "# Plan\n")
-    commitFile("gtd: errors", "ERRORS.md", "error 1\n")
-    commitFile("gtd: errors", "ERRORS.md", "error 2\n")
+    commitFile("gtd: planning", ".gtd/TODO.md", "# Plan\n")
+    commitFile("gtd: errors", ".gtd/ERRORS.md", "error 1\n")
+    commitFile("gtd: errors", ".gtd/ERRORS.md", "error 2\n")
     const events = await runGather()
     expect(foldCounters(events).testFixCount).toBe(2)
   })
@@ -988,76 +1019,76 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
   })
 
   it("captureTurn: commits pending changes under gtd(<actor>): <gate>", async () => {
-    writeFileSync(join(repoDir, "sketch.ts"), "export const s = 1\n")
+    writeRepoFile(join(repoDir, "sketch.ts"), "export const s = 1\n")
     await runPerform({ kind: "captureTurn", actor: "agent", gate: "building" })
     expect(git("log", "-1", "--format=%s")).toBe(turnSubject("agent", "building"))
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
   it("captureTurn: formats a pending TODO.md before committing", async () => {
-    writeFileSync(join(repoDir, "TODO.md"), "#    Plan\nunformatted   \n")
+    writeRepoFile(join(repoDir, ".gtd/TODO.md"), "#    Plan\nunformatted   \n")
     await runPerform({ kind: "captureTurn", actor: "human", gate: "grilling" })
-    const formatted = readFileSync(join(repoDir, "TODO.md"), "utf8")
+    const formatted = readFileSync(join(repoDir, ".gtd/TODO.md"), "utf8")
     // Prettier's markdown formatter normalizes the heading/trailing whitespace.
     expect(formatted).not.toBe("#    Plan\nunformatted   \n")
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
   it("commitRouting: commits pending changes under the given subject with no removals", async () => {
-    writeFileSync(join(repoDir, "src.ts"), "code\n")
+    writeRepoFile(join(repoDir, "src.ts"), "code\n")
     await runPerform({ kind: "commitRouting", subject: "gtd: grilled" })
     expect(git("log", "-1", "--format=%s")).toBe("gtd: grilled")
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
   it("commitRouting removeTodo: deletes TODO.md and lands its removal in the commit", async () => {
-    commitFile("gtd: grilled", "TODO.md", "# Plan\n")
+    commitFile("gtd: grilled", ".gtd/TODO.md", "# Plan\n")
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
-    writeFileSync(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
+    writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
     await runPerform({ kind: "commitRouting", subject: "gtd: planning", removeTodo: true })
-    expect(existsSync(join(repoDir, "TODO.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/TODO.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: planning")
-    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\tTODO.md")
+    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\t.gtd/TODO.md")
   })
 
   it("commitRouting removeReview: deletes REVIEW.md and lands its removal in the commit", async () => {
-    commitFile("gtd: awaiting review", "REVIEW.md", "# Review\n")
+    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n")
     await runPerform({ kind: "commitRouting", subject: "gtd: done", removeReview: true })
-    expect(existsSync(join(repoDir, "REVIEW.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/REVIEW.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: done")
-    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\tREVIEW.md")
+    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\t.gtd/REVIEW.md")
   })
 
   it("commitRouting removeFeedback: deletes FEEDBACK.md and lands its removal in the commit", async () => {
-    commitFile("gtd: errors", "FEEDBACK.md", "AssertionError: boom\n")
+    commitFile("gtd: errors", ".gtd/FEEDBACK.md", "AssertionError: boom\n")
     await runPerform({ kind: "commitRouting", subject: "gtd: tests green", removeFeedback: true })
-    expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(false)
-    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\tFEEDBACK.md")
+    expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(false)
+    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\t.gtd/FEEDBACK.md")
   })
 
   it("commitRouting removeHealth: deletes HEALTH.md and lands its removal in the commit", async () => {
-    commitFile("gtd: health-check", "HEALTH.md", "# Health\ntest output\n")
-    writeFileSync(join(repoDir, "impl.ts"), "export const fixed = 1\n")
+    commitFile("gtd: health-check", ".gtd/HEALTH.md", "# Health\ntest output\n")
+    writeRepoFile(join(repoDir, "impl.ts"), "export const fixed = 1\n")
     await runPerform({ kind: "commitRouting", subject: "gtd: health-fix", removeHealth: true })
-    expect(existsSync(join(repoDir, "HEALTH.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: health-fix")
-    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\tHEALTH.md")
+    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\t.gtd/HEALTH.md")
   })
 
   it("runTest green: removes any pending FEEDBACK.md, commits gtd: tests green", async () => {
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
-    writeFileSync(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
-    writeFileSync(join(repoDir, "impl.ts"), "export const i = 1\n")
+    writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
+    writeRepoFile(join(repoDir, "impl.ts"), "export const i = 1\n")
     git("add", "-A")
     git("commit", "-q", "-m", turnSubject("agent", "fixing"))
-    writeFileSync(join(repoDir, "FEEDBACK.md"), "stale finding\n")
+    writeRepoFile(join(repoDir, ".gtd/FEEDBACK.md"), "stale finding\n")
     await runPerform(
       { kind: "runTest", errorCount: 0, capReached: false },
       { exitCode: 0, output: "pass" },
     )
     expect(git("log", "-1", "--format=%s")).toBe("gtd: tests green")
-    expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(false)
-    expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(false)
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
@@ -1066,9 +1097,9 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
       { kind: "runTest", errorCount: 1, capReached: false },
       { exitCode: 1, output: "FAIL: boom\n" },
     )
-    expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(true)
-    expect(readFileSync(join(repoDir, "FEEDBACK.md"), "utf8")).toContain("FAIL: boom")
-    expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(true)
+    expect(readFileSync(join(repoDir, ".gtd/FEEDBACK.md"), "utf8")).toContain("FAIL: boom")
+    expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: errors")
   })
 
@@ -1077,9 +1108,9 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
       { kind: "runTest", errorCount: 3, capReached: true },
       { exitCode: 1, output: "FAIL: persistent\n" },
     )
-    expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(true)
-    expect(readFileSync(join(repoDir, "ERRORS.md"), "utf8")).toContain("FAIL: persistent")
-    expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(true)
+    expect(readFileSync(join(repoDir, ".gtd/ERRORS.md"), "utf8")).toContain("FAIL: persistent")
+    expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: errors")
   })
 
@@ -1088,22 +1119,22 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
       { kind: "runTest", errorCount: 1, capReached: false },
       { exitCode: 1, output: "" },
     )
-    expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(true)
-    const feedback = readFileSync(join(repoDir, "FEEDBACK.md"), "utf8")
+    expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(true)
+    const feedback = readFileSync(join(repoDir, ".gtd/FEEDBACK.md"), "utf8")
     expect(/\S/.test(feedback)).toBe(true)
     expect(feedback).toContain("failed with no output")
   })
 
   it("closePackage (empty FEEDBACK): removes FEEDBACK + last package + empty .gtd, commits gtd: package done", async () => {
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
-    writeFileSync(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
+    writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
     git("add", "-A")
     git("commit", "-q", "-m", "gtd: tests green")
-    writeFileSync(join(repoDir, "FEEDBACK.md"), "") // empty, untracked
+    writeRepoFile(join(repoDir, ".gtd/FEEDBACK.md"), "") // empty, untracked
 
     await runPerform({ kind: "closePackage" })
 
-    expect(existsSync(join(repoDir, "FEEDBACK.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(false)
     expect(existsSync(join(repoDir, ".gtd", "01-foo"))).toBe(false)
     expect(existsSync(join(repoDir, ".gtd"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: package done")
@@ -1112,8 +1143,8 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
   it("closePackage (force-approve, no FEEDBACK): removes first package, keeps the rest", async () => {
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
     mkdirSync(join(repoDir, ".gtd", "02-bar"), { recursive: true })
-    writeFileSync(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# A\n")
-    writeFileSync(join(repoDir, ".gtd", "02-bar", "01-task.md"), "# B\n")
+    writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# A\n")
+    writeRepoFile(join(repoDir, ".gtd", "02-bar", "01-task.md"), "# B\n")
     git("add", "-A")
     git("commit", "-q", "-m", "gtd: tests green")
 
@@ -1126,16 +1157,16 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
 
   it("writeSquashTemplate: writes a conventional-commits template and commits gtd: squash template", async () => {
     await runPerform({ kind: "writeSquashTemplate" })
-    expect(existsSync(join(repoDir, "SQUASH_MSG.md"))).toBe(true)
-    const content = readFileSync(join(repoDir, "SQUASH_MSG.md"), "utf8")
+    expect(existsSync(join(repoDir, ".gtd/SQUASH_MSG.md"))).toBe(true)
+    const content = readFileSync(join(repoDir, ".gtd/SQUASH_MSG.md"), "utf8")
     expect(content).toContain("replace this file's content")
     expect(git("log", "-1", "--format=%s")).toBe("gtd: squash template")
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
   it("squashCommit: reads SQUASH_MSG.md, removes it, soft-resets to squashBase, commits with the file's content as message", async () => {
-    commitFile(turnSubject("human", "grilling"), "TODO.md", "# Plan\n")
-    git("rm", "-q", "TODO.md")
+    commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
+    git("rm", "-q", ".gtd/TODO.md")
     git("commit", "-q", "-m", "gtd: planning")
     commitFile("feat: work", "work.ts", "export const work = 1\n")
     git("commit", "--allow-empty", "-q", "-m", "gtd: done")
@@ -1150,20 +1181,20 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
       .trim()
     const squashBase = git("rev-parse", `${grillingHash}~1`).trim()
 
-    writeFileSync(join(repoDir, "SQUASH_MSG.md"), "feat: add work\n\nbody\n")
+    writeRepoFile(join(repoDir, ".gtd/SQUASH_MSG.md"), "feat: add work\n\nbody\n")
 
     await runPerform({ kind: "squashCommit", squashBase })
 
-    expect(existsSync(join(repoDir, "SQUASH_MSG.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/SQUASH_MSG.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("feat: add work")
     expect(git("log", "-1", "--format=%b").trim()).toBe("body")
     expect(git("rev-parse", "HEAD~1").trim()).toBe(squashBase)
     expect(git("diff", "--name-only", `${squashBase}..HEAD`)).toContain("work.ts")
-    expect(git("diff", "--name-only", `${squashBase}..HEAD`)).not.toContain("SQUASH_MSG.md")
+    expect(git("diff", "--name-only", `${squashBase}..HEAD`)).not.toContain(".gtd/SQUASH_MSG.md")
   })
 
   it("perform returns stop: false for all non-health-check actions", async () => {
-    writeFileSync(join(repoDir, "src.ts"), "code\n")
+    writeRepoFile(join(repoDir, "src.ts"), "code\n")
     const result = await runPerform({ kind: "commitRouting", subject: "gtd: grilled" })
     expect(result.stop).toBe(false)
   })
@@ -1176,7 +1207,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     )
     expect(result.stop).toBe(true)
     expect(git("rev-list", "--count", "HEAD")).toBe(countBefore) // no new commit
-    expect(existsSync(join(repoDir, "HEALTH.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
   })
 
   it("runHealthCheck green, squashAfterGreen → commits gtd: tests green, stop: false", async () => {
@@ -1188,8 +1219,8 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(result.stop).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: tests green")
     expect(Number(git("rev-list", "--count", "HEAD"))).toBe(countBefore + 1)
-    expect(existsSync(join(repoDir, "HEALTH.md"))).toBe(false)
-    expect(existsSync(join(repoDir, "SQUASH_MSG.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/SQUASH_MSG.md"))).toBe(false)
   })
 
   it("runHealthCheck red below cap → writes HEALTH.md, commits gtd: health-check, stop: false", async () => {
@@ -1198,9 +1229,9 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
       { exitCode: 1, output: "FAIL: test boom\n" },
     )
     expect(result.stop).toBe(false)
-    expect(existsSync(join(repoDir, "HEALTH.md"))).toBe(true)
-    expect(readFileSync(join(repoDir, "HEALTH.md"), "utf8")).toContain("FAIL: test boom")
-    expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(true)
+    expect(readFileSync(join(repoDir, ".gtd/HEALTH.md"), "utf8")).toContain("FAIL: test boom")
+    expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(false)
     // v2's always-clean invariant: write-and-commit in the same chain.
     expect(git("log", "-1", "--format=%s")).toBe("gtd: health-check")
     expect(git("status", "--porcelain").trim()).toBe("")
@@ -1212,9 +1243,9 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
       { exitCode: 1, output: "FAIL: persistent\n" },
     )
     expect(result.stop).toBe(false)
-    expect(existsSync(join(repoDir, "ERRORS.md"))).toBe(true)
-    expect(readFileSync(join(repoDir, "ERRORS.md"), "utf8")).toContain("FAIL: persistent")
-    expect(existsSync(join(repoDir, "HEALTH.md"))).toBe(false)
+    expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(true)
+    expect(readFileSync(join(repoDir, ".gtd/ERRORS.md"), "utf8")).toContain("FAIL: persistent")
+    expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: health-check")
   })
 })

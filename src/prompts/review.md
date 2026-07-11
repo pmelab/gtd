@@ -1,14 +1,14 @@
 <%~ include("@header") %>
 
 Spawn a **planning-model subagent** using model `<%= it.model %>` to author a
-`REVIEW.md` file that will help a human to review the changes. It must:
+`.gtd/REVIEW.md` file that will help a human to review the changes. It must:
 
 1. **Read the diff inlined below** — extract the changed hunks with their file
    paths.
 2. **Group hunks semantically** — cluster hunks that serve the same logical
    concern (the same feature, refactor, or fix), even across files. Aim for the
    fewest chunks that keep the review navigable.
-3. **Write `REVIEW.md`** in the repo root in this format:
+3. **Write `.gtd/REVIEW.md`** in this format:
 
    ```markdown
    # Review: <short-hash>
@@ -38,11 +38,11 @@ Spawn a **planning-model subagent** using model `<%= it.model %>` to author a
      are creation-time hints that will drift — not authoritative.
    - Checkboxes (`- [ ]`) signal approval — ticking them (with no other edits)
      counts as approving the review (`gtd: done`). Only non-checkbox edits to
-     `REVIEW.md` (or any code edits) are treated as a change-request.
+     `.gtd/REVIEW.md` (or any code edits) are treated as a change-request.
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
 
-4. Leave `REVIEW.md` **uncommitted** and finish your turn — the human reviews
+4. Leave `.gtd/REVIEW.md` **uncommitted** and finish your turn — the human reviews
    it next.
 <% if (it.context.refDiff && it.context.refDiff.trim()) { %>
 <%= it.context.reviewBase !== undefined ? "\nReview base: " + it.context.reviewBase + "\n" : "" %>

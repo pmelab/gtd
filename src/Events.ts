@@ -30,37 +30,38 @@ import type {
  * that touches git/fs.
  */
 
-const TODO_FILE = "TODO.md"
+// All steering files live INSIDE `.gtd/` — the directory is the single
+// namespace for workflow plumbing, so "everything under `.gtd/` is
+// machine-managed" is the one rule agents and diff filtering share. A
+// root-level TODO.md (or REVIEW.md, …) is the project's own file: ordinary
+// code, never steering.
 const GTD_DIR = ".gtd"
-const REVIEW_FILE = "REVIEW.md"
-const FEEDBACK_FILE = "FEEDBACK.md"
-const ERRORS_FILE = "ERRORS.md"
-const HEALTH_FILE = "HEALTH.md"
-const SQUASH_MSG_FILE = "SQUASH_MSG.md"
+const TODO_FILE = `${GTD_DIR}/TODO.md`
+const REVIEW_FILE = `${GTD_DIR}/REVIEW.md`
+const FEEDBACK_FILE = `${GTD_DIR}/FEEDBACK.md`
+const ERRORS_FILE = `${GTD_DIR}/ERRORS.md`
+const HEALTH_FILE = `${GTD_DIR}/HEALTH.md`
+const SQUASH_MSG_FILE = `${GTD_DIR}/SQUASH_MSG.md`
+// Pre-namespace history wrote FEEDBACK.md at the repo root. Recognized for
+// COMMIT-event classification only (isFeedback), never for diffs or
+// working-tree probes — a root FEEDBACK.md in the tree today is project code.
+const LEGACY_FEEDBACK_FILE = "FEEDBACK.md"
 const EMPTY_FAILURE_SENTINEL = "Test command failed with no output (exit code non-zero)."
 
 const DONE_SUBJECT = "gtd: done"
 
-// The steering-file set, single source of truth: the predicates below and the
-// diff exclusions all derive from it. Workflow plumbing is excluded from every
-// review diff (refDiff) and the headTurnDiff inlining — neither the reviewer
-// nor a captured suggestion block should ever contain steering-file churn
-// (TODO.md written/deleted, REVIEW.md committed/removed, `.gtd/` packages
-// created/closed).
-const STEERING_FILES: ReadonlyArray<string> = [
-  TODO_FILE,
-  REVIEW_FILE,
-  FEEDBACK_FILE,
-  ERRORS_FILE,
-  HEALTH_FILE,
-  SQUASH_MSG_FILE,
-]
-const WORKFLOW_FILE_EXCLUDES: ReadonlyArray<string> = [...STEERING_FILES, GTD_DIR]
+// Workflow plumbing is excluded from every review diff (refDiff) and the
+// headTurnDiff inlining — neither the reviewer nor a captured suggestion block
+// should ever contain steering-file churn (TODO.md written/deleted, REVIEW.md
+// committed/removed, packages created/closed). With every steering file under
+// `.gtd/`, excluding the directory covers the whole set.
+const WORKFLOW_FILE_EXCLUDES: ReadonlyArray<string> = [GTD_DIR]
 
 // Each gate's own steering file IS its content — a human's grilling answer
-// lives in TODO.md, a review turn's feedback lives in REVIEW.md — so it must
-// stay in that gate's inlined turn diff even though it's excluded everywhere
-// else. Gates with no entry here (building, fixing, squashing, …) get the
+// lives in `.gtd/TODO.md`, a review turn's feedback lives in `.gtd/REVIEW.md`
+// — so it must stay in that gate's inlined turn diff even though the rest of
+// `.gtd/` is excluded (the `!` entry re-includes it, see `applyExcludes` in
+// Git.ts). Gates with no entry here (building, fixing, squashing, …) get the
 // unmodified WORKFLOW_FILE_EXCLUDES: their content is ordinary code, not a
 // steering file.
 const GATE_OWN_STEERING_FILE: Partial<Record<string, string>> = {
@@ -70,11 +71,14 @@ const GATE_OWN_STEERING_FILE: Partial<Record<string, string>> = {
 
 const turnDiffExcludes = (gate: string): ReadonlyArray<string> => {
   const ownFile = GATE_OWN_STEERING_FILE[gate]
-  return ownFile ? WORKFLOW_FILE_EXCLUDES.filter((f) => f !== ownFile) : WORKFLOW_FILE_EXCLUDES
+  return ownFile ? [...WORKFLOW_FILE_EXCLUDES, `!${ownFile}`] : WORKFLOW_FILE_EXCLUDES
 }
 
 const isGtdPath = (path: string): boolean => path === GTD_DIR || path.startsWith(`${GTD_DIR}/`)
-const isSteeringFile = (path: string): boolean => STEERING_FILES.includes(path)
+// A path inside a numbered work-package dir (`.gtd/NN-…/…`) — distinct from
+// the steering files that sit directly in `.gtd/`.
+const isPackagePath = (path: string): boolean =>
+  path.startsWith(`${GTD_DIR}/`) && isNumberedDir(path.slice(GTD_DIR.length + 1))
 
 // A porcelain status flagging the entry as untracked (`?`) or freshly added
 // (`A`) — i.e. not tracked at HEAD.
@@ -278,6 +282,13 @@ export const isCheckboxOnlyDiff = (diff: string): boolean => {
 const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").trim()
 
 /**
+ * The commit's diff touched the feedback steering file. The legacy root path
+ * keeps pre-namespaced history classifying identically.
+ */
+const touchedFeedback = (touched: ReadonlyArray<string>): boolean =>
+  touched.includes(FEEDBACK_FILE) || touched.includes(LEGACY_FEEDBACK_FILE)
+
+/**
  * Gather ALL git/filesystem facts and produce the typed event stream the pure
  * machine folds: one `COMMIT` per first-parent commit (oldest→newest) followed
  * by a single `RESOLVE` carrying the working-tree snapshot.
@@ -321,13 +332,13 @@ export const gatherEvents = (
         type: "COMMIT",
         ...(isTurn ? { turnActor: parsed.actor, turnGate: parsed.gate } : {}),
         isErrors: isRouting && parsed.phase === "errors",
-        // A `gtd(agent): agentic-review` turn whose diff touched FEEDBACK.md —
-        // a findings round. Over-counts the approval round too (an empty
-        // FEEDBACK.md write still touches the path), but `gtd: package done`
-        // resets the reviewFixCount fold immediately after, so the extra count
-        // is harmless (documented in the task contract).
-        isFeedback:
-          isTurn && parsed.gate === "agentic-review" && commit.touched.includes(FEEDBACK_FILE),
+        // A `gtd(agent): agentic-review` turn whose diff touched
+        // `.gtd/FEEDBACK.md` — a findings round. Over-counts the approval
+        // round too (an empty FEEDBACK.md write still touches the path), but
+        // `gtd: package done` resets the reviewFixCount fold immediately
+        // after, so the extra count is harmless (documented in the task
+        // contract).
+        isFeedback: isTurn && parsed.gate === "agentic-review" && touchedFeedback(commit.touched),
         isPackageStart:
           isRouting && (parsed.phase === "planning" || parsed.phase === "package-done"),
         isWorkflowCommit: isTurn || isRouting,
@@ -412,14 +423,15 @@ export const gatherEvents = (
       }
     }
 
-    // `.gtd/` package files added/edited vs the committed tree.
-    const gtdModified = entries.some((e) => isGtdPath(e.path))
-    // Pending changes outside the steering set (TODO/REVIEW/FEEDBACK/ERRORS/.gtd).
-    const codeDirty = entries.some((e) => !isSteeringFile(e.path) && !isGtdPath(e.path))
+    // `.gtd/` work-package files added/edited vs the committed tree — package
+    // paths only, never the steering files that share the directory (a dirty
+    // `.gtd/FEEDBACK.md` must not read as "the planner is writing packages").
+    const gtdModified = entries.some((e) => isPackagePath(e.path))
+    // Pending changes outside `.gtd/` — everything not workflow-managed is code.
+    const codeDirty = entries.some((e) => !isGtdPath(e.path))
 
     // Steering-file presence (committed and/or pending).
     const todoExists = yield* fs.exists(resolve(TODO_FILE))
-    const gtdDirExists = yield* fs.exists(resolve(GTD_DIR))
     const reviewPresent = yield* fs.exists(resolve(REVIEW_FILE))
     const feedbackPresent = yield* fs.exists(resolve(FEEDBACK_FILE))
     const errorsPresent = yield* fs.exists(resolve(ERRORS_FILE))
@@ -717,7 +729,7 @@ export const gatherEvents = (
       ...(headTurnReviewSubstantive !== undefined ? { headTurnReviewSubstantive } : {}),
       todoExists,
       todoCommitted,
-      gtdDirExists,
+      packagesPresent: packages.length > 0,
       reviewPresent,
       feedbackPresent,
       errorsPresent,
@@ -819,6 +831,12 @@ export const perform = (
     const fs = yield* FileSystem.FileSystem
     const { root } = yield* Cwd
     const resolve = (p: string) => join(root, p)
+    // Steering files live under `.gtd/`; several writes happen when the
+    // directory is absent (health-check on an idle tree, the squash template
+    // after `gtd: done` removed the last package).
+    const ensureGtdDir = fs
+      .makeDirectory(resolve(GTD_DIR), { recursive: true })
+      .pipe(Effect.catchAll(() => Effect.void))
 
     switch (action.kind) {
       // Capture a human/agent turn: format the pending TODO.md (best-effort),
@@ -868,6 +886,7 @@ export const perform = (
         }
         const target = action.capReached ? ERRORS_FILE : FEEDBACK_FILE
         const body = /\S/.test(result.output) ? result.output : EMPTY_FAILURE_SENTINEL
+        yield* ensureGtdDir
         yield* fs.writeFileString(resolve(target), body)
         yield* git.commitAllWithPrefix("gtd: errors")
         return { stop: false }
@@ -890,6 +909,7 @@ export const perform = (
       // Write the SQUASH_MSG.md template (conventional-commits skeleton) and
       // commit routing `gtd: squash template`.
       case "writeSquashTemplate": {
+        yield* ensureGtdDir
         yield* fs.writeFileString(resolve(SQUASH_MSG_FILE), SQUASH_TEMPLATE)
         yield* git.commitAllWithPrefix("gtd: squash template")
         return { stop: false }
@@ -928,6 +948,7 @@ export const perform = (
         }
         const body = /\S/.test(result.output) ? result.output : EMPTY_FAILURE_SENTINEL
         const target = action.capReached ? ERRORS_FILE : HEALTH_FILE
+        yield* ensureGtdDir
         yield* fs.writeFileString(resolve(target), body)
         yield* git.commitAllWithPrefix("gtd: health-check")
         return { stop: false }

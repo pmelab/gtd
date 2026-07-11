@@ -26,10 +26,10 @@ const edgeActionHandlers: EdgeActionHandlers = {
   commitRouting: (a) => {
     let msg = `commit routing as "${a.subject}"`
     const removed: string[] = []
-    if (a.removeTodo) removed.push("TODO.md")
-    if (a.removeReview) removed.push("REVIEW.md")
-    if (a.removeFeedback) removed.push("FEEDBACK.md")
-    if (a.removeHealth) removed.push("HEALTH.md")
+    if (a.removeTodo) removed.push(".gtd/TODO.md")
+    if (a.removeReview) removed.push(".gtd/REVIEW.md")
+    if (a.removeFeedback) removed.push(".gtd/FEEDBACK.md")
+    if (a.removeHealth) removed.push(".gtd/HEALTH.md")
     if (removed.length > 0) msg += ` (removing ${removed.join(", ")})`
     return msg
   },

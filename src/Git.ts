@@ -6,18 +6,21 @@ import { renderDiff } from "./Diff.js"
 import { Cwd } from "./Cwd.js"
 
 export interface GitReaderOperations {
+  /** `git status --porcelain -uall` — untracked files listed individually, never collapsed to a directory entry. */
   readonly statusPorcelain: () => Effect.Effect<string, Error>
   /**
    * `git diff HEAD` including untracked files (via a transient intent-to-add),
    * optionally with `:(exclude)` pathspecs. Exclusions match repo-root-relative
-   * paths; a directory path excludes everything under it.
+   * paths; a directory path excludes everything under it. An entry prefixed
+   * with `!` re-includes that exact path even when a directory entry excludes it.
    */
   readonly diffHead: (exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly lastCommitSubject: () => Effect.Effect<string, Error>
   readonly hasCommits: () => Effect.Effect<boolean, Error>
   /**
    * `git diff <ref> HEAD`, optionally with `:(exclude)` pathspecs. Exclusions
-   * match repo-root-relative paths; a directory path excludes everything under it.
+   * match repo-root-relative paths; a directory path excludes everything under
+   * it. An entry prefixed with `!` re-includes that exact path.
    */
   readonly diffRef: (ref: string, exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly diffPath: (path: string) => Effect.Effect<string, Error>
@@ -36,7 +39,8 @@ export interface GitReaderOperations {
   /**
    * First-parent history from `base..HEAD` (or all commits if no base), oldest→newest.
    * Each entry carries the full commit message, `removedErrors: true` iff that
-   * commit's name-status diff contains a deletion (`D`) of `ERRORS.md`, and
+   * commit's name-status diff contains a deletion (`D`) of `.gtd/ERRORS.md`
+   * (or legacy root-level `ERRORS.md` from pre-namespaced history), and
    * `touched` — the repo-root-relative paths the commit's name-status diff
    * mentions (added/modified/deleted/renamed-from/renamed-to). Derived from the
    * SAME `--name-status` git invocation already used for `removedErrors` — no
@@ -128,16 +132,22 @@ const parseNameStatus = (out: string): Array<{ path: string; status: string }> =
 
 /**
  * Filter paths by exclude list. A directory path `dir` excludes anything under
- * `dir/` or exactly `dir`. Applied in JS so we don't pass `:(exclude)` pathspecs
- * to git (which can break on special path characters or certain git versions).
+ * `dir/` or exactly `dir`. An entry prefixed with `!` is a re-include: the
+ * named path stays even when another entry excludes it (e.g.
+ * `[".gtd", "!.gtd/TODO.md"]` hides all workflow files except the plan).
+ * Applied in JS so we don't pass `:(exclude)` pathspecs to git (which can
+ * break on special path characters or certain git versions).
  */
 const applyExcludes = <T extends { path: string }>(
   paths: ReadonlyArray<T>,
   exclude: ReadonlyArray<string>,
 ): Array<T> => {
   if (exclude.length === 0) return [...paths]
+  const keeps = exclude.filter((e) => e.startsWith("!")).map((e) => e.slice(1))
+  const drops = exclude.filter((e) => !e.startsWith("!"))
   return paths.filter(({ path }) => {
-    for (const ex of exclude) {
+    if (keeps.some((keep) => path === keep || path.startsWith(`${keep}/`))) return true
+    for (const ex of drops) {
       if (path === ex || path.startsWith(`${ex}/`)) return false
     }
     return true
@@ -206,7 +216,10 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     )
 
   return {
-    statusPorcelain: () => exec("git", "status", "--porcelain"),
+    // -uall lists untracked files individually: an untracked `.gtd/` dir must
+    // never collapse to a single `?? .gtd/` entry, or per-path probes
+    // (isUncommitted, onlyReviewDirty) would miss the steering files inside it.
+    statusPorcelain: () => exec("git", "status", "--porcelain", "-uall"),
 
     diffHead: (exclude: ReadonlyArray<string> = []) =>
       Effect.gen(function* () {
@@ -456,7 +469,9 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
               const hash = (parts[0] ?? "").trim()
               const message = (parts[1] ?? "").trim()
               const nameStatusBlock = parts.slice(2).join("")
-              const removedErrors = /^D\tERRORS\.md$/m.test(nameStatusBlock)
+              // Legacy root-level ERRORS.md kept so pre-namespaced history
+              // still classifies (budget resets survive the .gtd/ migration).
+              const removedErrors = /^D\t(\.gtd\/)?ERRORS\.md$/m.test(nameStatusBlock)
               const touched = parseNameStatus(nameStatusBlock).map((e) => e.path)
               return { hash, message, removedErrors, touched }
             }),

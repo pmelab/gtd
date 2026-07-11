@@ -72,8 +72,8 @@ Feature: Testing — the bounded build/test/fix loop
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd: errors"
-    And the file "FEEDBACK.md" exists
-    And the file "FEEDBACK.md" contains "SENTINEL_FAILURE"
+    And the file ".gtd/FEEDBACK.md" exists
+    And the file ".gtd/FEEDBACK.md" contains "SENTINEL_FAILURE"
     When I run gtd next
     Then it succeeds
     And stdout contains "SENTINEL_FAILURE"
@@ -116,8 +116,8 @@ Feature: Testing — the bounded build/test/fix loop
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd: errors"
-    And the file "ERRORS.md" exists
-    And the file "FEEDBACK.md" does not exist
+    And the file ".gtd/ERRORS.md" exists
+    And the file ".gtd/FEEDBACK.md" does not exist
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""
@@ -142,11 +142,11 @@ Feature: Testing — the bounded build/test/fix loop
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds "ERRORS.md" with:
+    And a commit "gtd: errors" that adds ".gtd/ERRORS.md" with:
       """
       Earlier escalation output.
       """
-    And a deleted committed file "ERRORS.md"
+    And a deleted committed file ".gtd/ERRORS.md"
     # `gtd(human): escalate` is mid-chain, not a rest: the human's turn
     # commit removing ERRORS.md immediately re-tests in the SAME invocation.
     # With a green test gate, that re-test lands straight on `gtd: tests
@@ -155,7 +155,7 @@ Feature: Testing — the bounded build/test/fix loop
     Then it succeeds
     And the git log contains "gtd(human): escalate"
     And the last commit subject is "gtd: tests green"
-    And the file "ERRORS.md" does not exist
+    And the file ".gtd/ERRORS.md" does not exist
 
   Scenario: Removing a committed ERRORS.md and re-testing red writes a fresh FEEDBACK.md, not ERRORS.md again
     Given a test project
@@ -174,11 +174,11 @@ Feature: Testing — the bounded build/test/fix loop
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds "ERRORS.md" with:
+    And a commit "gtd: errors" that adds ".gtd/ERRORS.md" with:
       """
       Earlier escalation output.
       """
-    And a deleted committed file "ERRORS.md"
+    And a deleted committed file ".gtd/ERRORS.md"
     # `gtd(human): escalate` is mid-chain: the human's turn commit removing
     # ERRORS.md immediately re-tests in the SAME invocation. With the budget
     # reset to zero and the gate still red, the re-test is below the cap
@@ -188,8 +188,8 @@ Feature: Testing — the bounded build/test/fix loop
     Then it succeeds
     And the git log contains "gtd(human): escalate"
     And the last commit subject is "gtd: errors"
-    And the file "FEEDBACK.md" exists
-    And the file "ERRORS.md" does not exist
+    And the file ".gtd/FEEDBACK.md" exists
+    And the file ".gtd/ERRORS.md" does not exist
 
   Scenario: gtd step-agent refuses while the human escalate turn is awaited
     Given a test project

@@ -8,7 +8,7 @@ Feature: In-process in-memory tier smoke test
   @inmem
   Scenario: The human-answer prompt is emitted in-process against in-memory layers
     Given a test project
-    And a commit "gtd(agent): grilling" that adds "TODO.md" with:
+    And a commit "gtd(agent): grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -23,12 +23,12 @@ Feature: In-process in-memory tier smoke test
     And stdout contains "\"actor\":\"human\""
     When I run gtd next
     Then it succeeds
-    And stdout contains "TODO.md"
+    And stdout contains ".gtd/TODO.md"
 
   @inmem
   Scenario: Second in-process run shows no newline bleed from previous scenario
     Given a test project
-    And a commit "gtd(agent): grilling" that adds "TODO.md" with:
+    And a commit "gtd(agent): grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -40,4 +40,4 @@ Feature: In-process in-memory tier smoke test
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "TODO.md"
+    And stdout contains ".gtd/TODO.md"

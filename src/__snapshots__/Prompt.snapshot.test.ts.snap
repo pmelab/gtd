@@ -3,21 +3,32 @@
 exports[`buildPrompt snapshots > agentic-review with refDiff and reviewBase plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Spawn a **reviewing subagent** using model \`MODEL-agentic-review\`. The package's task spec
 files and its cumulative diff are found below. The subagent must:
 
 1. **Read the task spec files** — they define the acceptance criteria. Every
-   requirement must be checked.
+   requirement must be checked, with one exception: ignore any spec
+   requirement about files under \`.gtd/\` (or a root-level \`TODO.md\` /
+   \`REVIEW.md\` / \`FEEDBACK.md\` acting as workflow state). Those files are
+   managed by the workflow machine — created and deleted outside the
+   implementation's control — so never report a finding about their
+   presence, absence, or content.
 2. **Read the package diff** — examine every hunk to determine whether the
    implementation satisfies the spec.
-3. **Always write \`FEEDBACK.md\`** in the repo root:
-   - **Fully satisfies the spec** → write an **empty** \`FEEDBACK.md\` (zero bytes
+3. **Always write \`.gtd/FEEDBACK.md\`**:
+   - **Fully satisfies the spec** → write an **empty** \`.gtd/FEEDBACK.md\` (zero bytes
      or whitespace only). This empty file is the **approval** signal.
    - **Does not fully satisfy** → write concrete, actionable findings anchored
      to specific file and symbol names, grouped under short headings, so the fix
      agent can act without re-reading the diff.
 4. **Do not edit source files and do not commit** — the reviewer only writes
-   \`FEEDBACK.md\`, left uncommitted, then finishes its turn.
+   \`.gtd/FEEDBACK.md\`, left uncommitted, then finishes its turn.
 
 ### Package: \`01-foo/\`
 
@@ -49,21 +60,32 @@ agent); when it awaits the human, stop and hand off.
 exports[`buildPrompt snapshots > agentic-review with rich package json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Spawn a **reviewing subagent** using model \`MODEL-agentic-review\`. The package's task spec
 files and its cumulative diff are found below. The subagent must:
 
 1. **Read the task spec files** — they define the acceptance criteria. Every
-   requirement must be checked.
+   requirement must be checked, with one exception: ignore any spec
+   requirement about files under \`.gtd/\` (or a root-level \`TODO.md\` /
+   \`REVIEW.md\` / \`FEEDBACK.md\` acting as workflow state). Those files are
+   managed by the workflow machine — created and deleted outside the
+   implementation's control — so never report a finding about their
+   presence, absence, or content.
 2. **Read the package diff** — examine every hunk to determine whether the
    implementation satisfies the spec.
-3. **Always write \`FEEDBACK.md\`** in the repo root:
-   - **Fully satisfies the spec** → write an **empty** \`FEEDBACK.md\` (zero bytes
+3. **Always write \`.gtd/FEEDBACK.md\`**:
+   - **Fully satisfies the spec** → write an **empty** \`.gtd/FEEDBACK.md\` (zero bytes
      or whitespace only). This empty file is the **approval** signal.
    - **Does not fully satisfy** → write concrete, actionable findings anchored
      to specific file and symbol names, grouped under short headings, so the fix
      agent can act without re-reading the diff.
 4. **Do not edit source files and do not commit** — the reviewer only writes
-   \`FEEDBACK.md\`, left uncommitted, then finishes its turn.
+   \`.gtd/FEEDBACK.md\`, left uncommitted, then finishes its turn.
 
 ### Package: \`01-foo/\`
 
@@ -84,21 +106,32 @@ see \`\`\`block\`\`\` and - [ ] item
 exports[`buildPrompt snapshots > agentic-review with rich package plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Spawn a **reviewing subagent** using model \`MODEL-agentic-review\`. The package's task spec
 files and its cumulative diff are found below. The subagent must:
 
 1. **Read the task spec files** — they define the acceptance criteria. Every
-   requirement must be checked.
+   requirement must be checked, with one exception: ignore any spec
+   requirement about files under \`.gtd/\` (or a root-level \`TODO.md\` /
+   \`REVIEW.md\` / \`FEEDBACK.md\` acting as workflow state). Those files are
+   managed by the workflow machine — created and deleted outside the
+   implementation's control — so never report a finding about their
+   presence, absence, or content.
 2. **Read the package diff** — examine every hunk to determine whether the
    implementation satisfies the spec.
-3. **Always write \`FEEDBACK.md\`** in the repo root:
-   - **Fully satisfies the spec** → write an **empty** \`FEEDBACK.md\` (zero bytes
+3. **Always write \`.gtd/FEEDBACK.md\`**:
+   - **Fully satisfies the spec** → write an **empty** \`.gtd/FEEDBACK.md\` (zero bytes
      or whitespace only). This empty file is the **approval** signal.
    - **Does not fully satisfy** → write concrete, actionable findings anchored
      to specific file and symbol names, grouped under short headings, so the fix
      agent can act without re-reading the diff.
 4. **Do not edit source files and do not commit** — the reviewer only writes
-   \`FEEDBACK.md\`, left uncommitted, then finishes its turn.
+   \`.gtd/FEEDBACK.md\`, left uncommitted, then finishes its turn.
 
 ### Package: \`01-foo/\`
 
@@ -123,16 +156,22 @@ agent); when it awaits the human, stop and hand off.
 exports[`buildPrompt snapshots > await-review json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-\`REVIEW.md\` holds the review record for the completed work. This is a human
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/REVIEW.md\` holds the review record for the completed work. This is a human
 gate; there is nothing for the agent to do.
 
 Tell the user:
 
-- Read \`REVIEW.md\` (and the underlying work it points at).
+- Read \`.gtd/REVIEW.md\` (and the underlying work it points at).
 - To **approve**: run \`gtd step\` with no edits, or only tick checkboxes in
-  \`REVIEW.md\` — either way ends the review with an approval.
+  \`.gtd/REVIEW.md\` — either way ends the review with an approval.
 - To **request changes**: write substantive edits or annotations into
-  \`REVIEW.md\` (or the code) describing what's wrong, then run \`gtd step\` —
+  \`.gtd/REVIEW.md\` (or the code) describing what's wrong, then run \`gtd step\` —
   this sends the feedback back for another round.
 "
 `;
@@ -140,16 +179,22 @@ Tell the user:
 exports[`buildPrompt snapshots > await-review plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-\`REVIEW.md\` holds the review record for the completed work. This is a human
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/REVIEW.md\` holds the review record for the completed work. This is a human
 gate; there is nothing for the agent to do.
 
 Tell the user:
 
-- Read \`REVIEW.md\` (and the underlying work it points at).
+- Read \`.gtd/REVIEW.md\` (and the underlying work it points at).
 - To **approve**: run \`gtd step\` with no edits, or only tick checkboxes in
-  \`REVIEW.md\` — either way ends the review with an approval.
+  \`.gtd/REVIEW.md\` — either way ends the review with an approval.
 - To **request changes**: write substantive edits or annotations into
-  \`REVIEW.md\` (or the code) describing what's wrong, then run \`gtd step\` —
+  \`.gtd/REVIEW.md\` (or the code) describing what's wrong, then run \`gtd step\` —
   this sends the feedback back for another round.
 "
 `;
@@ -157,12 +202,21 @@ Tell the user:
 exports[`buildPrompt snapshots > building with rich package json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Build the package described below by orchestrating the execution — you do not
 implement the tasks yourself. Spawn **one subagent per task**, all in
 **parallel**, each using model \`MODEL-building\`:
 
 - **Context**: the task content only (it is self-contained).
 - **Fresh context**: each worker starts cold, with no shared history.
+- **Hands off \`.gtd/\`** (inline rule for workers): never create, edit, or
+  delete anything under \`.gtd/\` — it is workflow state owned by the machine.
+  If the task spec mentions a \`.gtd/\` file, skip that part.
 - **TDD discipline** (inline rules for workers):
   - Write ONE test → implement → pass → repeat (vertical slices).
   - **Do NOT** write all tests first then implement (horizontal slicing).
@@ -194,12 +248,21 @@ see \`\`\`block\`\`\` and - [ ] item
 exports[`buildPrompt snapshots > building with rich package plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Build the package described below by orchestrating the execution — you do not
 implement the tasks yourself. Spawn **one subagent per task**, all in
 **parallel**, each using model \`MODEL-building\`:
 
 - **Context**: the task content only (it is self-contained).
 - **Fresh context**: each worker starts cold, with no shared history.
+- **Hands off \`.gtd/\`** (inline rule for workers): never create, edit, or
+  delete anything under \`.gtd/\` — it is workflow state owned by the machine.
+  If the task spec mentions a \`.gtd/\` file, skip that part.
 - **TDD discipline** (inline rules for workers):
   - Write ONE test → implement → pass → repeat (vertical slices).
   - **Do NOT** write all tests first then implement (horizontal slicing).
@@ -235,13 +298,19 @@ agent); when it awaits the human, stop and hand off.
 exports[`buildPrompt snapshots > escalate json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 The agent was not able to fix all errors on its own. The last error report is
-stored in \`ERRORS.md\` for a human to investigate.
+stored in \`.gtd/ERRORS.md\` for a human to investigate.
 
 Next steps for the human developer:
 
-1. Investigate and fix errors reported in \`ERRORS.md\`
-2. Delete \`ERRORS.md\`
+1. Investigate and fix errors reported in \`.gtd/ERRORS.md\`
+2. Delete \`.gtd/ERRORS.md\`
 3. Run \`gtd step\` when you are ready to continue
 "
 `;
@@ -249,19 +318,31 @@ Next steps for the human developer:
 exports[`buildPrompt snapshots > escalate plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 The agent was not able to fix all errors on its own. The last error report is
-stored in \`ERRORS.md\` for a human to investigate.
+stored in \`.gtd/ERRORS.md\` for a human to investigate.
 
 Next steps for the human developer:
 
-1. Investigate and fix errors reported in \`ERRORS.md\`
-2. Delete \`ERRORS.md\`
+1. Investigate and fix errors reported in \`.gtd/ERRORS.md\`
+2. Delete \`.gtd/ERRORS.md\`
 3. Run \`gtd step\` when you are ready to continue
 "
 `;
 
 exports[`buildPrompt snapshots > fixing with backtick feedbackContent plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
 
 Spawn a **fix subagent** using model \`MODEL-fixing\` to apply fixes for the feedback
 below:
@@ -272,7 +353,7 @@ below:
 2. **Make the fix in place** — change the code to resolve the feedback. Keep the
    change focused; do not refactor unrelated code.
 3. **Or dispute the feedback** — if a finding is wrong, empty or delete
-   \`FEEDBACK.md\` instead of fixing it. The machine re-tests either way.
+   \`.gtd/FEEDBACK.md\` instead of fixing it. The machine re-tests either way.
 4. **Leave every change uncommitted and finish your turn** — do **not** commit
    or stage.
 
@@ -291,6 +372,12 @@ agent); when it awaits the human, stop and hand off.
 exports[`buildPrompt snapshots > fixing with empty feedbackContent json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Spawn a **fix subagent** using model \`MODEL-fixing\` to apply fixes for the feedback
 below:
 
@@ -300,7 +387,7 @@ below:
 2. **Make the fix in place** — change the code to resolve the feedback. Keep the
    change focused; do not refactor unrelated code.
 3. **Or dispute the feedback** — if a finding is wrong, empty or delete
-   \`FEEDBACK.md\` instead of fixing it. The machine re-tests either way.
+   \`.gtd/FEEDBACK.md\` instead of fixing it. The machine re-tests either way.
 4. **Leave every change uncommitted and finish your turn** — do **not** commit
    or stage.
 "
@@ -309,6 +396,12 @@ below:
 exports[`buildPrompt snapshots > fixing with empty feedbackContent plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Spawn a **fix subagent** using model \`MODEL-fixing\` to apply fixes for the feedback
 below:
 
@@ -318,7 +411,7 @@ below:
 2. **Make the fix in place** — change the code to resolve the feedback. Keep the
    change focused; do not refactor unrelated code.
 3. **Or dispute the feedback** — if a finding is wrong, empty or delete
-   \`FEEDBACK.md\` instead of fixing it. The machine re-tests either way.
+   \`.gtd/FEEDBACK.md\` instead of fixing it. The machine re-tests either way.
 4. **Leave every change uncommitted and finish your turn** — do **not** commit
    or stage.
 
@@ -331,6 +424,12 @@ agent); when it awaits the human, stop and hand off.
 exports[`buildPrompt snapshots > fixing with plain feedbackContent plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Spawn a **fix subagent** using model \`MODEL-fixing\` to apply fixes for the feedback
 below:
 
@@ -340,7 +439,7 @@ below:
 2. **Make the fix in place** — change the code to resolve the feedback. Keep the
    change focused; do not refactor unrelated code.
 3. **Or dispute the feedback** — if a finding is wrong, empty or delete
-   \`FEEDBACK.md\` instead of fixing it. The machine re-tests either way.
+   \`.gtd/FEEDBACK.md\` instead of fixing it. The machine re-tests either way.
 4. **Leave every change uncommitted and finish your turn** — do **not** commit
    or stage.
 
@@ -359,7 +458,13 @@ agent); when it awaits the human, stop and hand off.
 exports[`buildPrompt snapshots > grilled json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-\`TODO.md\` contains an implementation plan. Decompose it into an ordered set of
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/TODO.md\` contains an implementation plan. Decompose it into an ordered set of
 executable work packages stored in the \`.gtd/\` directory. If \`.gtd/\` already
 holds packages from an earlier turn, immediately abort and raise an error.
 
@@ -401,6 +506,13 @@ task files:
    checkboxes, the relevant file paths to examine, and any constraints or edge
    cases. It is the only context building agents will receive to work on the
    task.
+
+6. **Specs must never reference \`.gtd/\` files** — \`.gtd/TODO.md\` is consumed
+   and **deleted** the moment decomposition completes, and every other file
+   under \`.gtd/\` (including these task specs) is machine-managed workflow
+   state. No task description, acceptance criterion, or constraint may require
+   creating, preserving, updating, or checking any \`.gtd/\` file — such a
+   criterion can never be satisfied and would derail the workflow.
 
 **DO NOT** commit any changes. This process runs within a larger orchestration
 that depends on uncommitted changes.
@@ -410,7 +522,13 @@ that depends on uncommitted changes.
 exports[`buildPrompt snapshots > grilled plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-\`TODO.md\` contains an implementation plan. Decompose it into an ordered set of
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/TODO.md\` contains an implementation plan. Decompose it into an ordered set of
 executable work packages stored in the \`.gtd/\` directory. If \`.gtd/\` already
 holds packages from an earlier turn, immediately abort and raise an error.
 
@@ -452,6 +570,13 @@ task files:
    checkboxes, the relevant file paths to examine, and any constraints or edge
    cases. It is the only context building agents will receive to work on the
    task.
+
+6. **Specs must never reference \`.gtd/\` files** — \`.gtd/TODO.md\` is consumed
+   and **deleted** the moment decomposition completes, and every other file
+   under \`.gtd/\` (including these task specs) is machine-managed workflow
+   state. No task description, acceptance criterion, or constraint may require
+   creating, preserving, updating, or checking any \`.gtd/\` file — such a
+   criterion can never be satisfied and would derail the workflow.
 
 **DO NOT** commit any changes. This process runs within a larger orchestration
 that depends on uncommitted changes.
@@ -465,7 +590,13 @@ agent); when it awaits the human, stop and hand off.
 exports[`buildPrompt snapshots > grilling agent json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-\`TODO.md\` holds the plan under development. Develop it into a concrete,
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/TODO.md\` holds the plan under development. Develop it into a concrete,
 implementation-ready plan **in this one turn** — use subagents / internal
 iteration to go as deep as needed; there is no further agent-only round after
 this one.
@@ -473,7 +604,7 @@ this one.
 ### Develop the plan
 
 Spawn a **planning-model subagent** using model \`MODEL-grilling\` to develop the plan.
-The subagent works entirely by editing \`TODO.md\`:
+The subagent works entirely by editing \`.gtd/TODO.md\`:
 
 1. **Explore the codebase before asking anything** — read the relevant files,
    tests, and docs so every question below is one the codebase genuinely
@@ -487,7 +618,7 @@ The subagent works entirely by editing \`TODO.md\`:
 4. For every remaining open question, write it near the top of the file with
    a **suggested default** — your best-guess answer, stated plainly, that the
    human can accept as-is. A question with no suggested default is incomplete.
-5. Leave \`TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
+5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
    next.
 "
 `;
@@ -495,7 +626,13 @@ The subagent works entirely by editing \`TODO.md\`:
 exports[`buildPrompt snapshots > grilling agent plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-\`TODO.md\` holds the plan under development. Develop it into a concrete,
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/TODO.md\` holds the plan under development. Develop it into a concrete,
 implementation-ready plan **in this one turn** — use subagents / internal
 iteration to go as deep as needed; there is no further agent-only round after
 this one.
@@ -503,7 +640,7 @@ this one.
 ### Develop the plan
 
 Spawn a **planning-model subagent** using model \`MODEL-grilling\` to develop the plan.
-The subagent works entirely by editing \`TODO.md\`:
+The subagent works entirely by editing \`.gtd/TODO.md\`:
 
 1. **Explore the codebase before asking anything** — read the relevant files,
    tests, and docs so every question below is one the codebase genuinely
@@ -517,7 +654,7 @@ The subagent works entirely by editing \`TODO.md\`:
 4. For every remaining open question, write it near the top of the file with
    a **suggested default** — your best-guess answer, stated plainly, that the
    human can accept as-is. A question with no suggested default is incomplete.
-5. Leave \`TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
+5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
    next.
 
 Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
@@ -529,7 +666,13 @@ agent); when it awaits the human, stop and hand off.
 exports[`buildPrompt snapshots > grilling agent with turnDiff plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-\`TODO.md\` holds the plan under development. Develop it into a concrete,
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/TODO.md\` holds the plan under development. Develop it into a concrete,
 implementation-ready plan **in this one turn** — use subagents / internal
 iteration to go as deep as needed; there is no further agent-only round after
 this one.
@@ -537,7 +680,7 @@ this one.
 ### Develop the plan
 
 Spawn a **planning-model subagent** using model \`MODEL-grilling\` to develop the plan.
-The subagent works entirely by editing \`TODO.md\`:
+The subagent works entirely by editing \`.gtd/TODO.md\`:
 
 1. **Explore the codebase before asking anything** — read the relevant files,
    tests, and docs so every question below is one the codebase genuinely
@@ -551,7 +694,7 @@ The subagent works entirely by editing \`TODO.md\`:
 4. For every remaining open question, write it near the top of the file with
    a **suggested default** — your best-guess answer, stated plainly, that the
    human can accept as-is. A question with no suggested default is incomplete.
-5. Leave \`TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
+5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
    next.
 
 ### Latest human input (answers / sketch / review feedback)
@@ -578,14 +721,20 @@ agent); when it awaits the human, stop and hand off.
 exports[`buildPrompt snapshots > grilling human json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-\`TODO.md\` holds the plan under development, with open questions written near
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/TODO.md\` holds the plan under development, with open questions written near
 the top — each one carrying a suggested default.
 
 This is a human gate; there is nothing for the agent to do.
 
 Tell the user:
 
-- To answer a question, edit \`TODO.md\` in place (replace the question's text
+- To answer a question, edit \`.gtd/TODO.md\` in place (replace the question's text
   with your answer, or annotate it), then run \`gtd step\`.
 - To accept **all** suggested defaults as-is, run \`gtd step\` with **no
   edits** — this converges the plan and moves on to decomposition.
@@ -595,14 +744,20 @@ Tell the user:
 exports[`buildPrompt snapshots > grilling human plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-\`TODO.md\` holds the plan under development, with open questions written near
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/TODO.md\` holds the plan under development, with open questions written near
 the top — each one carrying a suggested default.
 
 This is a human gate; there is nothing for the agent to do.
 
 Tell the user:
 
-- To answer a question, edit \`TODO.md\` in place (replace the question's text
+- To answer a question, edit \`.gtd/TODO.md\` in place (replace the question's text
   with your answer, or annotate it), then run \`gtd step\`.
 - To accept **all** suggested defaults as-is, run \`gtd step\` with **no
   edits** — this converges the plan and moves on to decomposition.
@@ -612,12 +767,24 @@ Tell the user:
 exports[`buildPrompt snapshots > idle json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Report that the repository is idle — nothing to do.
 "
 `;
 
 exports[`buildPrompt snapshots > idle plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
 
 Report that the repository is idle — nothing to do.
 "
@@ -626,15 +793,21 @@ Report that the repository is idle — nothing to do.
 exports[`buildPrompt snapshots > review with no diff json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
-\`REVIEW.md\` file that will help a human to review the changes. It must:
+\`.gtd/REVIEW.md\` file that will help a human to review the changes. It must:
 
 1. **Read the diff inlined below** — extract the changed hunks with their file
    paths.
 2. **Group hunks semantically** — cluster hunks that serve the same logical
    concern (the same feature, refactor, or fix), even across files. Aim for the
    fewest chunks that keep the review navigable.
-3. **Write \`REVIEW.md\`** in the repo root in this format:
+3. **Write \`.gtd/REVIEW.md\`** in this format:
 
    \`\`\`markdown
    # Review: <short-hash>
@@ -664,11 +837,11 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      are creation-time hints that will drift — not authoritative.
    - Checkboxes (\`- [ ]\`) signal approval — ticking them (with no other edits)
      counts as approving the review (\`gtd: done\`). Only non-checkbox edits to
-     \`REVIEW.md\` (or any code edits) are treated as a change-request.
+     \`.gtd/REVIEW.md\` (or any code edits) are treated as a change-request.
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
 
-4. Leave \`REVIEW.md\` **uncommitted** and finish your turn — the human reviews
+4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
    it next.
 "
 `;
@@ -676,15 +849,21 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
 exports[`buildPrompt snapshots > review with no diff plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
-\`REVIEW.md\` file that will help a human to review the changes. It must:
+\`.gtd/REVIEW.md\` file that will help a human to review the changes. It must:
 
 1. **Read the diff inlined below** — extract the changed hunks with their file
    paths.
 2. **Group hunks semantically** — cluster hunks that serve the same logical
    concern (the same feature, refactor, or fix), even across files. Aim for the
    fewest chunks that keep the review navigable.
-3. **Write \`REVIEW.md\`** in the repo root in this format:
+3. **Write \`.gtd/REVIEW.md\`** in this format:
 
    \`\`\`markdown
    # Review: <short-hash>
@@ -714,11 +893,11 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      are creation-time hints that will drift — not authoritative.
    - Checkboxes (\`- [ ]\`) signal approval — ticking them (with no other edits)
      counts as approving the review (\`gtd: done\`). Only non-checkbox edits to
-     \`REVIEW.md\` (or any code edits) are treated as a change-request.
+     \`.gtd/REVIEW.md\` (or any code edits) are treated as a change-request.
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
 
-4. Leave \`REVIEW.md\` **uncommitted** and finish your turn — the human reviews
+4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
    it next.
 
 Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
@@ -730,15 +909,21 @@ agent); when it awaits the human, stop and hand off.
 exports[`buildPrompt snapshots > review with refDiff and reviewBase json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
-\`REVIEW.md\` file that will help a human to review the changes. It must:
+\`.gtd/REVIEW.md\` file that will help a human to review the changes. It must:
 
 1. **Read the diff inlined below** — extract the changed hunks with their file
    paths.
 2. **Group hunks semantically** — cluster hunks that serve the same logical
    concern (the same feature, refactor, or fix), even across files. Aim for the
    fewest chunks that keep the review navigable.
-3. **Write \`REVIEW.md\`** in the repo root in this format:
+3. **Write \`.gtd/REVIEW.md\`** in this format:
 
    \`\`\`markdown
    # Review: <short-hash>
@@ -768,11 +953,11 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      are creation-time hints that will drift — not authoritative.
    - Checkboxes (\`- [ ]\`) signal approval — ticking them (with no other edits)
      counts as approving the review (\`gtd: done\`). Only non-checkbox edits to
-     \`REVIEW.md\` (or any code edits) are treated as a change-request.
+     \`.gtd/REVIEW.md\` (or any code edits) are treated as a change-request.
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
 
-4. Leave \`REVIEW.md\` **uncommitted** and finish your turn — the human reviews
+4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
    it next.
 
 Review base: abc1234
@@ -789,15 +974,21 @@ diff --git a/x b/x
 exports[`buildPrompt snapshots > review with refDiff and reviewBase plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
 Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
-\`REVIEW.md\` file that will help a human to review the changes. It must:
+\`.gtd/REVIEW.md\` file that will help a human to review the changes. It must:
 
 1. **Read the diff inlined below** — extract the changed hunks with their file
    paths.
 2. **Group hunks semantically** — cluster hunks that serve the same logical
    concern (the same feature, refactor, or fix), even across files. Aim for the
    fewest chunks that keep the review navigable.
-3. **Write \`REVIEW.md\`** in the repo root in this format:
+3. **Write \`.gtd/REVIEW.md\`** in this format:
 
    \`\`\`markdown
    # Review: <short-hash>
@@ -827,11 +1018,11 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      are creation-time hints that will drift — not authoritative.
    - Checkboxes (\`- [ ]\`) signal approval — ticking them (with no other edits)
      counts as approving the review (\`gtd: done\`). Only non-checkbox edits to
-     \`REVIEW.md\` (or any code edits) are treated as a change-request.
+     \`.gtd/REVIEW.md\` (or any code edits) are treated as a change-request.
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
 
-4. Leave \`REVIEW.md\` **uncommitted** and finish your turn — the human reviews
+4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
    it next.
 
 Review base: abc1234
@@ -852,14 +1043,20 @@ agent); when it awaits the human, stop and hand off.
 exports[`buildPrompt snapshots > squashing with squashDiff and squashBase json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-The process is **approved and done**. \`SQUASH_MSG.md\` has already been
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+The process is **approved and done**. \`.gtd/SQUASH_MSG.md\` has already been
 committed with a template — your job is to overwrite it with the real
 conventional-commits squash message and finish your turn.
 
 ### Step 1 — Extract decisions from grilling rounds
 
 Scan the git history of recent \`gtd: ...\` / \`gtd(agent): ...\` /
-\`gtd(human): ...\` commits. Look for changes to \`TODO.md\` — specifically the
+\`gtd(human): ...\` commits. Look for changes to \`.gtd/TODO.md\` — specifically the
 \`## Captured input\` sections and any edits to plan text. Extract **key
 decisions, trade-offs, and design choices** made during grilling rounds. These
 will appear in the commit body so the history is self-documenting.
@@ -879,9 +1076,9 @@ body (explain the why — motivation, trade-offs, key decisions from grilling)
 - **body**: include the important decisions / trade-offs from grilling
   sessions. Omit if there were no meaningful decisions to capture.
 
-### Step 3 — Overwrite SQUASH_MSG.md
+### Step 3 — Overwrite .gtd/SQUASH_MSG.md
 
-Replace the **entire content** of \`SQUASH_MSG.md\` (plain text, no markdown
+Replace the **entire content** of \`.gtd/SQUASH_MSG.md\` (plain text, no markdown
 wrapper, no leftover template scaffolding) with the message from Step 2, then
 leave it uncommitted and finish your turn — \`gtd step-agent\` performs the
 squash using this file's content.
@@ -900,14 +1097,20 @@ diff --git a/x b/x
 exports[`buildPrompt snapshots > squashing with squashDiff and squashBase plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
-The process is **approved and done**. \`SQUASH_MSG.md\` has already been
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+The process is **approved and done**. \`.gtd/SQUASH_MSG.md\` has already been
 committed with a template — your job is to overwrite it with the real
 conventional-commits squash message and finish your turn.
 
 ### Step 1 — Extract decisions from grilling rounds
 
 Scan the git history of recent \`gtd: ...\` / \`gtd(agent): ...\` /
-\`gtd(human): ...\` commits. Look for changes to \`TODO.md\` — specifically the
+\`gtd(human): ...\` commits. Look for changes to \`.gtd/TODO.md\` — specifically the
 \`## Captured input\` sections and any edits to plan text. Extract **key
 decisions, trade-offs, and design choices** made during grilling rounds. These
 will appear in the commit body so the history is self-documenting.
@@ -927,9 +1130,9 @@ body (explain the why — motivation, trade-offs, key decisions from grilling)
 - **body**: include the important decisions / trade-offs from grilling
   sessions. Omit if there were no meaningful decisions to capture.
 
-### Step 3 — Overwrite SQUASH_MSG.md
+### Step 3 — Overwrite .gtd/SQUASH_MSG.md
 
-Replace the **entire content** of \`SQUASH_MSG.md\` (plain text, no markdown
+Replace the **entire content** of \`.gtd/SQUASH_MSG.md\` (plain text, no markdown
 wrapper, no leftover template scaffolding) with the message from Step 2, then
 leave it uncommitted and finish your turn — \`gtd step-agent\` performs the
 squash using this file's content.

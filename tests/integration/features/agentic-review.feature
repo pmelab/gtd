@@ -31,7 +31,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       Implement the helper.
       """
     And a commit "gtd: tests green"
-    And an empty file "FEEDBACK.md"
+    And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step-agent
     Then it succeeds
     And the commit subjects from oldest to newest are:
@@ -42,7 +42,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       gtd(agent): agentic-review
       gtd: package done
       """
-    And the file "FEEDBACK.md" does not exist
+    And the file ".gtd/FEEDBACK.md" does not exist
     And the file ".gtd/01-foo/01-task.md" does not exist
 
   Scenario: Findings in FEEDBACK.md rest for the fixing prompt
@@ -52,7 +52,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       Implement the helper.
       """
     And a commit "gtd: tests green"
-    And a file "FEEDBACK.md" with:
+    And a file ".gtd/FEEDBACK.md" with:
       """
       Finding: helper does not handle the empty-string case.
       """
@@ -70,7 +70,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       Implement the helper.
       """
     And a commit "gtd: tests green"
-    And a file "FEEDBACK.md" with:
+    And a file ".gtd/FEEDBACK.md" with:
       """
       Finding: helper does not handle the empty-string case.
       """
@@ -100,7 +100,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
     And the git log contains "gtd: package done"
     And the git log does not contain "gtd(agent): agentic-review"
     And the file ".gtd/01-foo/01-task.md" does not exist
-    And the file "FEEDBACK.md" does not exist
+    And the file ".gtd/FEEDBACK.md" does not exist
 
   Scenario: The review-fix threshold force-approves a green re-test without re-prompting review
     Given a test project
@@ -115,11 +115,11 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       Implement the helper.
       """
-    And a commit "gtd(agent): agentic-review" that adds "FEEDBACK.md" with:
+    And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
       """
       Finding: round one.
       """
-    And a commit "gtd(agent): agentic-review" that adds "FEEDBACK.md" with:
+    And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
       """
       Finding: round two.
       """

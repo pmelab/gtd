@@ -1,7 +1,7 @@
 import { Given } from "quickpickle"
 import { execFileSync } from "node:child_process"
-import { writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import type { GtdWorld } from "../world.js"
 
 // Composable builders for the flat `gtd: <phase>` taxonomy + the steering files
@@ -60,6 +60,7 @@ Given("an empty file {string}", (world: GtdWorld, path: string) => {
   if (world.tier === "inmem") {
     world.repo!.writeFile(path, "")
   } else {
+    mkdirSync(dirname(join(world.repoDir, path)), { recursive: true })
     writeFileSync(join(world.repoDir, path), "")
   }
 })

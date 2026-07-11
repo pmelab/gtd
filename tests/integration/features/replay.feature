@@ -31,7 +31,7 @@ Feature: Replay — every committed rest resolves deterministically
 
   Scenario: gtd next is pure at the human review gate — repeated calls and status agree
     Given a test project
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -57,7 +57,7 @@ Feature: Replay — every committed rest resolves deterministically
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds "ERRORS.md" with:
+    And a commit "gtd: errors" that adds ".gtd/ERRORS.md" with:
       """
       persistent failure output
       """
@@ -72,7 +72,7 @@ Feature: Replay — every committed rest resolves deterministically
     When I run gtd status
     Then it succeeds
     And stdout contains "Awaits: human"
-    And the file "ERRORS.md" exists
+    And the file ".gtd/ERRORS.md" exists
     And the commit count is unchanged
 
   Scenario: A second gtd step-agent once the agent-side pipeline settles at idle is a no-op
@@ -92,7 +92,7 @@ Feature: Replay — every committed rest resolves deterministically
       Implement the helper.
       """
     And a commit "gtd: tests green"
-    And an empty file "FEEDBACK.md"
+    And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd: package done"
@@ -109,7 +109,7 @@ Feature: Replay — every committed rest resolves deterministically
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -149,12 +149,12 @@ Feature: Replay — every committed rest resolves deterministically
     # carry every bit of state the machine needs, exactly as a fresh clone or
     # `git checkout` of this exact history would present it.
     Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a commit "gtd: grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
       - [ ] add helper
       """
-    And a commit "gtd: planning" that deletes "TODO.md"
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
     And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.

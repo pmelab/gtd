@@ -13,7 +13,7 @@ Feature: Illegal steering-file combinations hard-error
       """
       Implement the helper.
       """
-    And a file "REVIEW.md" with:
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review
       """
@@ -21,16 +21,16 @@ Feature: Illegal steering-file combinations hard-error
     When I run gtd status
     Then it fails
     And stderr contains "illegal combination"
-    And stderr contains "REVIEW.md"
+    And stderr contains ".gtd/REVIEW.md"
     And stderr contains ".gtd"
 
   Scenario: FEEDBACK.md and REVIEW.md together hard-error
     Given a test project
-    And a file "FEEDBACK.md" with:
+    And a file ".gtd/FEEDBACK.md" with:
       """
       a finding
       """
-    And a file "REVIEW.md" with:
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review
       """
@@ -38,19 +38,19 @@ Feature: Illegal steering-file combinations hard-error
     When I run gtd status
     Then it fails
     And stderr contains "illegal combination"
-    And stderr contains "FEEDBACK.md"
-    And stderr contains "REVIEW.md"
+    And stderr contains ".gtd/FEEDBACK.md"
+    And stderr contains ".gtd/REVIEW.md"
 
   Scenario: FEEDBACK.md without a .gtd directory hard-errors
     Given a test project
-    And a commit "feat: stray feedback" that adds "FEEDBACK.md" with:
+    And a commit "feat: stray feedback" that adds ".gtd/FEEDBACK.md" with:
       """
       a finding with no package to fix
       """
     When I run gtd status
     Then it fails
     And stderr contains "illegal combination"
-    And stderr contains "FEEDBACK.md"
+    And stderr contains ".gtd/FEEDBACK.md"
 
   Scenario: ERRORS.md and FEEDBACK.md together hard-error
     Given a test project
@@ -58,11 +58,11 @@ Feature: Illegal steering-file combinations hard-error
       """
       Implement the helper.
       """
-    And a file "ERRORS.md" with:
+    And a file ".gtd/ERRORS.md" with:
       """
       a failure
       """
-    And a file "FEEDBACK.md" with:
+    And a file ".gtd/FEEDBACK.md" with:
       """
       a finding
       """
@@ -70,8 +70,8 @@ Feature: Illegal steering-file combinations hard-error
     When I run gtd status
     Then it fails
     And stderr contains "illegal combination"
-    And stderr contains "ERRORS.md"
-    And stderr contains "FEEDBACK.md"
+    And stderr contains ".gtd/ERRORS.md"
+    And stderr contains ".gtd/FEEDBACK.md"
 
   Scenario: HEALTH.md and a .gtd directory together hard-error
     Given a test project
@@ -79,7 +79,7 @@ Feature: Illegal steering-file combinations hard-error
       """
       Implement the helper.
       """
-    And a file "HEALTH.md" with:
+    And a file ".gtd/HEALTH.md" with:
       """
       a health failure
       """
@@ -87,16 +87,16 @@ Feature: Illegal steering-file combinations hard-error
     When I run gtd status
     Then it fails
     And stderr contains "illegal combination"
-    And stderr contains "HEALTH.md"
+    And stderr contains ".gtd/HEALTH.md"
     And stderr contains ".gtd"
 
   Scenario: HEALTH.md and REVIEW.md together hard-error
     Given a test project
-    And a file "HEALTH.md" with:
+    And a file ".gtd/HEALTH.md" with:
       """
       a health failure
       """
-    And a file "REVIEW.md" with:
+    And a file ".gtd/REVIEW.md" with:
       """
       # Review
       """
@@ -104,16 +104,16 @@ Feature: Illegal steering-file combinations hard-error
     When I run gtd status
     Then it fails
     And stderr contains "illegal combination"
-    And stderr contains "HEALTH.md"
-    And stderr contains "REVIEW.md"
+    And stderr contains ".gtd/HEALTH.md"
+    And stderr contains ".gtd/REVIEW.md"
 
   Scenario: HEALTH.md and FEEDBACK.md together hard-error
     Given a test project
-    And a file "HEALTH.md" with:
+    And a file ".gtd/HEALTH.md" with:
       """
       a health failure
       """
-    And a file "FEEDBACK.md" with:
+    And a file ".gtd/FEEDBACK.md" with:
       """
       a finding
       """
@@ -121,16 +121,16 @@ Feature: Illegal steering-file combinations hard-error
     When I run gtd status
     Then it fails
     And stderr contains "illegal combination"
-    And stderr contains "HEALTH.md"
-    And stderr contains "FEEDBACK.md"
+    And stderr contains ".gtd/HEALTH.md"
+    And stderr contains ".gtd/FEEDBACK.md"
 
   Scenario: HEALTH.md and ERRORS.md together hard-error
     Given a test project
-    And a file "HEALTH.md" with:
+    And a file ".gtd/HEALTH.md" with:
       """
       a health failure
       """
-    And a file "ERRORS.md" with:
+    And a file ".gtd/ERRORS.md" with:
       """
       an escalation
       """
@@ -138,12 +138,12 @@ Feature: Illegal steering-file combinations hard-error
     When I run gtd status
     Then it fails
     And stderr contains "illegal combination"
-    And stderr contains "HEALTH.md"
-    And stderr contains "ERRORS.md"
+    And stderr contains ".gtd/HEALTH.md"
+    And stderr contains ".gtd/ERRORS.md"
 
   Scenario: A committed SQUASH_MSG.md under gtd: squash template is legal
     Given a test project
-    And a commit "gtd: squash template" that adds "SQUASH_MSG.md" with:
+    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
       """
       feat: add helper
       """

@@ -37,7 +37,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     And stdout contains "src/input.ts"
     And stdout contains "Finish your turn by running `gtd step-agent`."
     # The agent develops the plan to convergence and accepts defaults.
-    When a file "TODO.md" with:
+    When a file ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -62,7 +62,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd: planning"
-    And the file "TODO.md" does not exist
+    And the file ".gtd/TODO.md" does not exist
     When I run gtd next
     Then it succeeds
     And stdout contains "Build the package described below"
@@ -84,7 +84,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     And stdout contains "help a human to review the changes"
     And stdout contains "src/calc.ts"
     # The review agent writes REVIEW.md.
-    When a file "REVIEW.md" with:
+    When a file ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -98,14 +98,14 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     And the last commit subject is "gtd: awaiting review"
     When I run gtd next
     Then it succeeds
-    And stdout contains "REVIEW.md"
+    And stdout contains ".gtd/REVIEW.md"
     # The human approves by deleting REVIEW.md.
-    Given a deleted committed file "REVIEW.md"
+    Given a deleted committed file ".gtd/REVIEW.md"
     When I run gtd step
     Then it succeeds
     And the git log contains "gtd(human): review"
     And the last commit subject is "gtd: done"
-    And the file "REVIEW.md" does not exist
+    And the file ".gtd/REVIEW.md" does not exist
     And the commit subjects from oldest to newest are:
       """
       chore: initial commit
@@ -146,7 +146,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
-    When a file "TODO.md" with:
+    When a file ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -171,7 +171,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd: package done"
-    When a file "REVIEW.md" with:
+    When a file ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -182,27 +182,27 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd: awaiting review"
-    Given a deleted committed file "REVIEW.md"
+    Given a deleted committed file ".gtd/REVIEW.md"
     # Squash on: gtd: done is not a rest — the chain continues straight to the
     # squash template in the same human-turn invocation.
     When I run gtd step
     Then it succeeds
     And the git log contains "gtd: done"
     And the last commit subject is "gtd: squash template"
-    And the file "SQUASH_MSG.md" exists
+    And the file ".gtd/SQUASH_MSG.md" exists
     When I run gtd next
     Then it succeeds
     And stdout contains "conventional-commits"
-    And stdout contains "SQUASH_MSG.md"
+    And stdout contains ".gtd/SQUASH_MSG.md"
     # The agent overwrites the template with the real message.
-    Given "SQUASH_MSG.md" is modified to:
+    Given ".gtd/SQUASH_MSG.md" is modified to:
       """
       feat: add calculator with add support
       """
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "feat: add calculator with add support"
-    And the file "SQUASH_MSG.md" does not exist
+    And the file ".gtd/SQUASH_MSG.md" does not exist
     # v1/gtd subjects are gone from the final log — only the squashed commit remains.
     And the git log does not contain "gtd: grilling"
     And the git log does not contain "gtd(human): grilling"
@@ -232,13 +232,13 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       agenticReview: false
       squash: false
       """
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a commit "gtd: grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
       Implement a helper.
       """
-    And a commit "gtd: planning" that deletes "TODO.md"
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
     And a commit "gtd: planning" that adds ".gtd/01-helper/01-task.md" with:
       """
       Implement the helper.
@@ -252,7 +252,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     Then it succeeds
     And the git log contains "gtd(agent): building"
     And the git log contains "gtd: errors"
-    And the file "FEEDBACK.md" contains "SENTINEL_JOURNEY_FAILURE"
+    And the file ".gtd/FEEDBACK.md" contains "SENTINEL_JOURNEY_FAILURE"
     When I run gtd next
     Then it succeeds
     And stdout contains "Spawn a **fix subagent**"
@@ -267,7 +267,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
     And the last commit subject is "gtd: tests green"
-    And the file "FEEDBACK.md" does not exist
+    And the file ".gtd/FEEDBACK.md" does not exist
     # The fix-round green is a checkpoint: gtd next reports an agent-driven
     # pending mid-chain, and the actor field alone tells the loop driver to
     # proceed with step-agent (no prompt to act on).
@@ -301,7 +301,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     Then it succeeds
     And stdout contains "notes.md"
     # The agent develops the plan but leaves an open question for the human.
-    When a file "TODO.md" with:
+    When a file ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -319,10 +319,10 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     And stdout contains "\"actor\":\"human\""
     When I run gtd next
     Then it succeeds
-    And stdout contains "TODO.md"
+    And stdout contains ".gtd/TODO.md"
     # The human answers inline in TODO.md — this is itself a human turn (not
     # an empty accept), so grilling iterates rather than converging.
-    Given "TODO.md" is modified to:
+    Given ".gtd/TODO.md" is modified to:
       """
       # Plan
 
@@ -335,7 +335,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
-    And the file "TODO.md" contains "Answer: add, subtract, and multiply."
+    And the file ".gtd/TODO.md" contains "Answer: add, subtract, and multiply."
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
@@ -343,7 +343,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     Then it succeeds
     And stdout contains "Develop it into a concrete"
     # The agent converges the plan with no more open questions.
-    Given "TODO.md" is modified to:
+    Given ".gtd/TODO.md" is modified to:
       """
       # Plan
 

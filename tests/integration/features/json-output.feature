@@ -75,7 +75,7 @@ Feature: JSON output mode
 
   Scenario: format subcommand rejects --json flag
     Given a test project
-    And a file "TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       # Plan
       """

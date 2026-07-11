@@ -68,8 +68,9 @@ machine** (`foldCounters` in `src/Machine.ts`) from flags `gatherEvents`
 `isFeedback`, `isErrors`, `isHealthCheck`, `removedErrors` — not recomputed at
 the Effect edge. `reviewFixCount` (the agentic-review cycle count) resets on
 `isPackageStart` and increments on `isFeedback` (an agentic-review turn whose
-diff touched FEEDBACK.md — a findings round). Derived counters accumulate inside
-the state machine from event flags, keeping the edge thin.
+diff touched `.gtd/FEEDBACK.md` (or legacy root `FEEDBACK.md`) — a findings
+round). Derived counters accumulate inside the state machine from event flags,
+keeping the edge thin.
 
 ### Stdout / Newline Handling
 

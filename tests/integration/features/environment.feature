@@ -15,7 +15,7 @@ Feature: Hostile environments and unusual invocations
   # deadlock) from a subdirectory rather than the repo-root error text itself.
   Scenario: Bare gtd from a subdirectory still fails cleanly, without deadlocking
     Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a commit "gtd: grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -118,7 +118,7 @@ Feature: Hostile environments and unusual invocations
         git add $FILES
       fi
       """
-    And a file "TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -167,14 +167,14 @@ Feature: Hostile environments and unusual invocations
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: awaiting review"
-    And "REVIEW.md" is modified with CRLF line endings to:
+    And ".gtd/REVIEW.md" is modified with CRLF line endings to:
       """
       # Review
 
@@ -183,7 +183,7 @@ Feature: Hostile environments and unusual invocations
     When I run gtd step
     Then it succeeds
     And the last commit subject is "gtd: done"
-    And the file "REVIEW.md" does not exist
+    And the file ".gtd/REVIEW.md" does not exist
 
   Scenario: Unusable commit signing surfaces a clean error
     Given a test project
@@ -207,7 +207,7 @@ Feature: Hostile environments and unusual invocations
     When I run gtd step
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
-    And the file "TODO.md" does not exist
+    And the file ".gtd/TODO.md" does not exist
 
   # --version and --help must short-circuit before any repo-state work so they
   # never deadlock on unusual or broken repo states. These scenarios pin that

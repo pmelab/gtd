@@ -7,20 +7,20 @@ Feature: Automatic markdown formatting on commit
     And an executable pre-commit hook with:
       """
       #!/bin/sh
-      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(TODO|REVIEW)\.md$')
+      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^\.gtd/(TODO|REVIEW)\.md$')
 
       if [ -n "$FILES" ]; then
         npx prettier --write $FILES
         git add $FILES
       fi
       """
-    And a file "TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       This is a very long line that exceeds eighty characters and should be wrapped by prettier when committed.
       """
-    And "TODO.md" is staged
+    And ".gtd/TODO.md" is staged
     When I commit with message "docs: test formatting"
-    Then "TODO.md" has no lines longer than 80 characters
+    Then ".gtd/TODO.md" has no lines longer than 80 characters
 
   Scenario: Pre-commit hook wraps long lines in REVIEW.md
     Given a test project
@@ -28,32 +28,32 @@ Feature: Automatic markdown formatting on commit
     And an executable pre-commit hook with:
       """
       #!/bin/sh
-      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(TODO|REVIEW)\.md$')
+      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^\.gtd/(TODO|REVIEW)\.md$')
 
       if [ -n "$FILES" ]; then
         npx prettier --write $FILES
         git add $FILES
       fi
       """
-    And a file "REVIEW.md" with:
+    And a file ".gtd/REVIEW.md" with:
       """
       This is a very long line that exceeds eighty characters and should be wrapped by prettier when committed.
       """
-    And "REVIEW.md" is staged
+    And ".gtd/REVIEW.md" is staged
     When I commit with message "review: test formatting"
-    Then "REVIEW.md" has no lines longer than 80 characters
+    Then ".gtd/REVIEW.md" has no lines longer than 80 characters
 
   Scenario: format subcommand wraps long lines in place
     Given a test project
     And prettier is available in the test project
-    And a file "TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       This is a very long line that exceeds eighty characters and should be wrapped by the format subcommand when run directly.
       """
-    When I run gtd with args "format TODO.md"
+    When I run gtd with args "format .gtd/TODO.md"
     Then the exit code is 0
     And stdout is empty
-    And "TODO.md" has no lines longer than 80 characters
+    And ".gtd/TODO.md" has no lines longer than 80 characters
 
   Scenario: format subcommand fails with exit 1 when path argument is missing
     Given a test project
@@ -94,7 +94,7 @@ Feature: Automatic markdown formatting on commit
   Scenario: format subcommand rejects extra trailing arguments
     Given a test project
     And prettier is available in the test project
-    And a file "TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       Short line.
       """
@@ -102,7 +102,7 @@ Feature: Automatic markdown formatting on commit
       """
       Another file.
       """
-    When I run gtd with args "format TODO.md extra.md"
+    When I run gtd with args "format .gtd/TODO.md extra.md"
     Then the exit code is 1
     And stderr contains "gtd format: too many arguments"
 
@@ -112,7 +112,7 @@ Feature: Automatic markdown formatting on commit
     And an executable pre-commit hook with:
       """
       #!/bin/sh
-      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(TODO|REVIEW)\.md$')
+      FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^\.gtd/(TODO|REVIEW)\.md$')
 
       if [ -n "$FILES" ]; then
         npx prettier --write $FILES

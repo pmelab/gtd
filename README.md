@@ -27,6 +27,15 @@ files, sentinels, or auto-advance tails to parse. A turn commit looks like
 the machine performs itself between turns) looks like `gtd: tests green`.
 `src/Subjects.ts` is the closed grammar both the machine and the edge read.
 
+All workflow state lives under **`.gtd/`**: the plan (`.gtd/TODO.md`), work
+packages (`.gtd/01-…/`), review records (`.gtd/REVIEW.md`, `.gtd/FEEDBACK.md`),
+and loop bookkeeping (`.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/SQUASH_MSG.md`).
+One rule follows for every agent in the loop: **never touch `.gtd/`** except the
+single file a prompt explicitly grants. A `TODO.md` or `REVIEW.md` at the
+repository root is the project's own file — gtd never reads, consumes, or
+deletes it. (Corollary: don't gitignore `.gtd/` — the workflow commits its state
+through it.)
+
 ## Quick start: the two-beat loop
 
 gtd splits what used to be one mutating command into three:
@@ -46,9 +55,9 @@ An agent loop is a two-beat protocol repeated forever:
    act, then go back to step 1; at a pending checkpoint (`prompt` is null) go
    straight back to step 1.
 
-A human acts by editing files (answering questions in `TODO.md`, annotating
-`REVIEW.md`, fixing code) and then running `gtd step` to capture the edit as
-their turn and hand control back to the agent side of the loop.
+A human acts by editing files (answering questions in `.gtd/TODO.md`, annotating
+`.gtd/REVIEW.md`, fixing code) and then running `gtd step` to capture the edit
+as their turn and hand control back to the agent side of the loop.
 
 ```bash
 gtd step-agent            # advance the machine's own bookkeeping
@@ -256,10 +265,10 @@ Errors (all exit 1, message on stderr):
 
 Unchanged from v1: formats a markdown file in place with a bundled prettier
 (`parser: "markdown"`, `printWidth: 80`, `proseWrap: "always"`), ignoring the
-host repo's own `.prettierrc` so `TODO.md`/`REVIEW.md` stay consistently
-formatted regardless of the host project's toolchain. Rejects `--json` (exit 1,
-`gtd format does not accept --json`) — it is a plain file operation, not a v2
-state command.
+host repo's own `.prettierrc` so `.gtd/TODO.md`/`.gtd/REVIEW.md` stay
+consistently formatted regardless of the host project's toolchain. Rejects
+`--json` (exit 1, `gtd format does not accept --json`) — it is a plain file
+operation, not a v2 state command.
 
 Errors (all exit 1, message on stderr):
 
@@ -412,11 +421,11 @@ The closed set of gates:
 | `grilled`        | agent (converged, ready to decompose)                              |
 | `building`       | agent (package work, or human feedback while agent is out of turn) |
 | `fixing`         | agent (test-fix or review-fix round)                               |
-| `agentic-review` | agent (writes FEEDBACK.md verdict)                                 |
-| `review`         | agent (writes REVIEW.md) / human (approves or gives feedback)      |
-| `squashing`      | agent (overwrites SQUASH_MSG.md)                                   |
+| `agentic-review` | agent (writes .gtd/FEEDBACK.md verdict)                            |
+| `review`         | agent (writes .gtd/REVIEW.md) / human (approves or gives feedback) |
+| `squashing`      | agent (overwrites .gtd/SQUASH_MSG.md)                              |
 | `health-fixing`  | agent (idle health-check repair)                                   |
-| `escalate`       | human (deletes ERRORS.md to resume)                                |
+| `escalate`       | human (deletes .gtd/ERRORS.md to resume)                           |
 
 ### Routing commits — `gtd: <phase>`
 
@@ -440,18 +449,18 @@ A dirty tree at a boundary HEAD (a fresh idea, sketched in a file or just left
 as pending code) is captured in **one** human turn: `gtd step` commits
 everything pending as `gtd(human): grilling` — nothing is reverted or seeded,
 the captured files stay in history. `gtd next` hands the agent that turn's diff;
-the agent develops `TODO.md` into a concrete plan **in one turn**, proposing a
-**suggested default** for every open question, and leaves `TODO.md` uncommitted
-for `gtd(agent): grilling`.
+the agent develops `.gtd/TODO.md` into a concrete plan **in one turn**,
+proposing a **suggested default** for every open question, and leaves
+`.gtd/TODO.md` uncommitted for `gtd(agent): grilling`.
 
 There are no markers to answer — the human either:
 
 - **Accepts the suggested defaults**: runs a clean `gtd step` at the answer
   gate. An empty `gtd(human): grilling` turn plus routing `gtd: grilled` lands
   automatically, and `gtd next` emits the decompose prompt.
-- **Edits `TODO.md`** with real answers, then runs `gtd step`, which captures
-  the edit as a fresh `gtd(human): grilling` turn and hands it back to the agent
-  for another round.
+- **Edits `.gtd/TODO.md`** with real answers, then runs `gtd step`, which
+  captures the edit as a fresh `gtd(human): grilling` turn and hands it back to
+  the agent for another round.
 
 ### Build lifecycle: budgets
 
@@ -464,69 +473,70 @@ and runs `testCommand`.
 - **Green** → Agentic Review.
 - **Red, below `fixAttemptCap`** (default 3) → write findings, commit
   `gtd: errors`, rest at **Fixing** for the agent.
-- **Red, at/over the cap** → write `ERRORS.md` instead, commit `gtd: errors`,
-  rest at **Escalate** — a human gate. Deleting `ERRORS.md` and landing that
-  deletion as `gtd(human): escalate` resets the budget and re-tests from zero in
-  the same invocation.
+- **Red, at/over the cap** → write `.gtd/ERRORS.md` instead, commit
+  `gtd: errors`, rest at **Escalate** — a human gate. Deleting `.gtd/ERRORS.md`
+  and landing that deletion as `gtd(human): escalate` resets the budget and
+  re-tests from zero in the same invocation.
 
 ### Agentic review
 
 A green test run always rests at **Agentic Review**: the agent reviews the
-package's accumulated diff against its task specs and writes `FEEDBACK.md`. An
-**empty** `FEEDBACK.md` is the approval signal — the same
+package's accumulated diff against its task specs and writes `.gtd/FEEDBACK.md`.
+An **empty** `.gtd/FEEDBACK.md` is the approval signal — the same
 `gtd(agent): agentic-review` turn closes the package (`gtd: package done`,
-removing `FEEDBACK.md` and the finished package directory) in one invocation.
-Non-empty findings rest for the fixing prompt; fixing loops back through the
-test gate and re-reviews. Once `reviewFixCount >= reviewThreshold` (default 3)
-within a package, Agentic Review **force-approves** without ever writing
-`FEEDBACK.md` — so a package can never review-loop forever. Setting
+removing `.gtd/FEEDBACK.md` and the finished package directory) in one
+invocation. Non-empty findings rest for the fixing prompt; fixing loops back
+through the test gate and re-reviews. Once `reviewFixCount >= reviewThreshold`
+(default 3) within a package, Agentic Review **force-approves** without ever
+writing `.gtd/FEEDBACK.md` — so a package can never review-loop forever. Setting
 `agenticReview: false` force-approves every package immediately.
 
 ### Human review gate
 
-Once `.gtd/` is fully closed, the machine writes `REVIEW.md` and rests at
+Once `.gtd/` is fully closed, the machine writes `.gtd/REVIEW.md` and rests at
 **await-review**, awaiting the human. Approval is any of:
 
 - A **clean** `gtd step` (nothing edited) — an empty `gtd(human): review` turn
   plus routing `gtd: done`.
-- Flipping only `- [ ]` → `- [x]` checkboxes in `REVIEW.md` — checkbox-only
+- Flipping only `- [ ]` → `- [x]` checkboxes in `.gtd/REVIEW.md` — checkbox-only
   edits are also treated as clean approval.
 
-Any **substantive** edit — to `REVIEW.md` prose, or to the reviewed code itself
-— is feedback: `gtd(human): review` plus routing `gtd: review feedback`,
-`REVIEW.md` removed, and `gtd next` re-emits a grilling prompt to the agent that
-inlines the human's finding.
+Any **substantive** edit — to `.gtd/REVIEW.md` prose, or to the reviewed code
+itself — is feedback: `gtd(human): review` plus routing `gtd: review feedback`,
+`.gtd/REVIEW.md` removed, and `gtd next` re-emits a grilling prompt to the agent
+that inlines the human's finding.
 
 ### Squash
 
 With `squash: true` (the default), `gtd: done` is **not** a rest — the same
 chain continues straight to `gtd: squash template`, writing and committing a
-`SQUASH_MSG.md` template. `gtd next` then emits the squashing prompt: the agent
-overwrites `SQUASH_MSG.md` with a real conventional-commits message (drawing on
-grilling-round decisions from history) and finishes its turn. `gtd step-agent`
-then performs the squash itself: `git reset --soft <base>` + `git commit`,
-collapsing every intermediate `gtd: *` commit of the cycle into one, using the
-overwritten message's content verbatim (turn position, not message content,
-triggers the squash). With `squash: false`, `gtd: done` is the resting boundary
-and no template is ever written.
+`.gtd/SQUASH_MSG.md` template. `gtd next` then emits the squashing prompt: the
+agent overwrites `.gtd/SQUASH_MSG.md` with a real conventional-commits message
+(drawing on grilling-round decisions from history) and finishes its turn.
+`gtd step-agent` then performs the squash itself: `git reset --soft <base>` +
+`git commit`, collapsing every intermediate `gtd: *` commit of the cycle into
+one, using the overwritten message's content verbatim (turn position, not
+message content, triggers the squash). With `squash: false`, `gtd: done` is the
+resting boundary and no template is ever written.
 
 ### Health check
 
 Outside any process (idle, nothing to review, no steering files), `gtd step`
 runs `testCommand` as a health check rather than settling immediately. Green
-settles idle with zero commits. Red below `fixAttemptCap` writes `HEALTH.md` and
-rests at **Health Fixing** for the agent; the fixer's own turn
-(`gtd(agent): health-fixing`) removes `HEALTH.md` and re-tests in the same chain
-— a green re-test continues to squash (if enabled) or idle; red repeats the
-health-fix loop; red at the cap writes `ERRORS.md` and escalates.
+settles idle with zero commits. Red below `fixAttemptCap` writes
+`.gtd/HEALTH.md` and rests at **Health Fixing** for the agent; the fixer's own
+turn (`gtd(agent): health-fixing`) removes `.gtd/HEALTH.md` and re-tests in the
+same chain — a green re-test continues to squash (if enabled) or idle; red
+repeats the health-fix loop; red at the cap writes `.gtd/ERRORS.md` and
+escalates.
 
 ### Escalate / budget reset
 
-`ERRORS.md` present is always a human gate, regardless of which loop wrote it
-(test-fix or health-fix). Deleting `ERRORS.md` and running `gtd step` records
-the deletion as the human's `gtd(human): escalate` turn, which **immediately
-re-tests in the same invocation** — this resets the relevant fix-attempt budget
-to zero.
+`.gtd/ERRORS.md` present is always a human gate, regardless of which loop wrote
+it (test-fix or health-fix). Deleting `.gtd/ERRORS.md` and running `gtd step`
+records the deletion as the human's `gtd(human): escalate` turn, which
+**immediately re-tests in the same invocation** — this resets the relevant
+fix-attempt budget to zero.
 
 ## States & subjects: overview table
 
@@ -538,7 +548,7 @@ to zero.
 | `building`       | agent          | `gtd: planning` / `gtd: package done`                            |
 | `testing`        | — (edge-only)  | mid-chain only                                                   |
 | `fixing`         | agent          | `gtd: errors`                                                    |
-| `escalate`       | human          | `ERRORS.md` present                                              |
+| `escalate`       | human          | `.gtd/ERRORS.md` present                                         |
 | `agentic-review` | agent          | `gtd: tests green`                                               |
 | `close-package`  | — (edge-only)  | mid-chain only                                                   |
 | `review`         | agent          | `gtd: package done` (no more packages) / `gtd: reviewing <hash>` |
@@ -547,7 +557,7 @@ to zero.
 | `squashing`      | agent          | `gtd: squash template`                                           |
 | `idle`           | human          | no steering files, green health check                            |
 | `health-check`   | — (edge-only)  | mid-chain only                                                   |
-| `health-fixing`  | agent          | `HEALTH.md` present                                              |
+| `health-fixing`  | agent          | `.gtd/HEALTH.md` present                                         |
 
 See [STATES.md](STATES.md) for the full precedence ladder, the counter folds,
 and every illegal steering-file combination.
@@ -571,7 +581,7 @@ built-in defaults apply. Supported filenames (searched in this order):
   after a build turn, and on the idle health-check path.
 - **`fixAttemptCap`** (non-negative integer, default `3`) — the test-fix budget:
   how many `gtd: errors` attempts are allowed per sub-loop before the failure is
-  escalated to `ERRORS.md` (Escalate). `0` disables the cap (escalates
+  escalated to `.gtd/ERRORS.md` (Escalate). `0` disables the cap (escalates
   immediately on the first red run). Also reused as the health-fix budget — no
   separate config key.
 - **`reviewThreshold`** (integer ≥ 1, default `3`) — the review-fix budget: how
@@ -674,7 +684,7 @@ models:
 ### Decompose
 
 The Grilled/Planning states spawn a planning-model subagent that breaks
-`TODO.md` into executable work packages under `.gtd/`:
+`.gtd/TODO.md` into executable work packages under `.gtd/`:
 
 ```
 .gtd/
@@ -729,14 +739,23 @@ v2's closed turn/routing grammar and parse as inert **boundary commits** — the
 are never mistaken for v2 workflow state and never error.
 
 **Finish or clean up any in-flight v1 cycle first.** If a repo has an
-**in-progress** v1 cycle — steering files present (`TODO.md`, `REVIEW.md`,
-`FEEDBACK.md`, `ERRORS.md`, `.gtd/`) whose HEAD carries v1-only commit subjects
-— the v2 binary does not know how to resume it: v1 steering files have no v2
-turn commit backing them, so a cold v2 invocation on that tree can land in an
-unrecognized state. Either finish the v1 cycle to a clean boundary with your
-existing v1 binary before upgrading, or manually clean up (remove the steering
-files / `.gtd/`, commit the result) so the upgrade starts from a plain boundary
-HEAD.
+**in-progress** v1 cycle — steering files present (root-level `TODO.md`,
+`REVIEW.md`, `FEEDBACK.md`, `ERRORS.md`, or `.gtd/`) whose HEAD carries v1-only
+commit subjects — the v2 binary does not know how to resume it: v1 steering
+files have no v2 turn commit backing them, so a cold v2 invocation on that tree
+can land in an unrecognized state. Either finish the v1 cycle to a clean
+boundary with your existing v1 binary before upgrading, or manually clean up
+(remove the steering files / `.gtd/`, commit the result) so the upgrade starts
+from a plain boundary HEAD.
+
+**Steering files moved into `.gtd/`.** Earlier v2 builds kept `TODO.md`,
+`REVIEW.md`, `FEEDBACK.md`, `ERRORS.md`, `HEALTH.md`, and `SQUASH_MSG.md` at the
+repository root; they now live under `.gtd/`. Upgrade at a clean boundary (idle,
+post-squash): a repo at rest needs nothing. Mid-cycle repos should either finish
+the cycle on the old build first or move the root-level steering files into
+`.gtd/` by hand and commit. History classification is backward-compatible — the
+counter folds recognize both the old root paths and the new `.gtd/` paths in
+existing commits.
 
 **Re-copy the loop skill.** If you vendor `skills/loop/` into a consuming repo
 or agent harness, upgrading the `gtd` binary also means re-copying that skill

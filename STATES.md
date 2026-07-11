@@ -32,21 +32,29 @@ A transition is a pure function of four inputs, nothing else:
 2. **whether the working tree is dirty or clean**
 3. **the class of HEAD's commit subject** — turn commit, routing commit, or
    boundary commit (§2)
-4. **which steering files are present** (`TODO.md`, `.gtd/`, `REVIEW.md`,
-   `FEEDBACK.md`, `ERRORS.md`, `HEALTH.md`, `SQUASH_MSG.md`)
+4. **which steering files are present** (`.gtd/TODO.md`, `.gtd/NN-…/` work
+   packages, `.gtd/REVIEW.md`, `.gtd/FEEDBACK.md`, `.gtd/ERRORS.md`,
+   `.gtd/HEALTH.md`, `.gtd/SQUASH_MSG.md`)
+
+All steering files live under `.gtd/` — the directory is the workflow's
+namespace, and everything outside it is project code. A root-level `TODO.md` or
+`REVIEW.md` belongs to the project: the machine never reads, consumes, or
+deletes it, and agents are prompted never to touch `.gtd/` except the single
+file their turn explicitly grants.
 
 **File content never steers**, with exactly two machine-verified exceptions:
 
-- **FEEDBACK.md emptiness** — a whitespace-only `FEEDBACK.md` written by a fresh
-  agentic review is the approval signal (`feedbackEmpty` in `ResolvePayload`); a
-  non-empty one is a findings round.
-- **REVIEW.md checkbox-only diffs** — a pending `REVIEW.md` edit that is purely
-  `- [ ]` ↔ `- [x]` flips (and nothing else dirty) is an approval signal, not
-  review feedback (`isCheckboxOnlyDiff` in `src/Events.ts`).
+- **.gtd/FEEDBACK.md emptiness** — a whitespace-only `.gtd/FEEDBACK.md` written
+  by a fresh agentic review is the approval signal (`feedbackEmpty` in
+  `ResolvePayload`); a non-empty one is a findings round.
+- **.gtd/REVIEW.md checkbox-only diffs** — a pending `.gtd/REVIEW.md` edit that
+  is purely `- [ ]` ↔ `- [x]` flips (and nothing else dirty) is an approval
+  signal, not review feedback (`isCheckboxOnlyDiff` in `src/Events.ts`).
 
-Every other piece of content — TODO.md prose, FEEDBACK.md's actual findings
-text, REVIEW.md's prose, code diffs — is inlined into prompts for agents/humans
-to read, but never inspected by the resolver to make a routing decision.
+Every other piece of content — .gtd/TODO.md prose, .gtd/FEEDBACK.md's actual
+findings text, .gtd/REVIEW.md's prose, code diffs — is inlined into prompts for
+agents/humans to read, but never inspected by the resolver to make a routing
+decision.
 
 **One commit per turn** at every await-actor gate: `gtd step` / `gtd step-agent`
 author at most one turn commit (`gtd(<actor>): <gate>`) per invocation for the
@@ -67,7 +75,7 @@ suggested defaults, or approve the review — and the machine advances according
 commit and never plain no-ops: it always re-runs the configured `testCommand` as
 a health check. A green result stops the loop with **zero commits** — idle is a
 true steady state, not a place that accumulates empty-commit noise. A red result
-writes `HEALTH.md` and commits it, entering the health-fixing detour (§4).
+writes `.gtd/HEALTH.md` and commits it, entering the health-fixing detour (§4).
 
 ## 2. The commit-subject grammar
 
@@ -113,14 +121,14 @@ ladder, not by subject alone):
 | `gtd: grilled`          | rest               | `grilled`, agent                                                                                                                                                                                                                               |
 | `gtd: planning`         | rest               | `building`, agent                                                                                                                                                                                                                              |
 | `gtd: tests green`      | rest or mid-chain  | `.gtd` present: force-approved → mid-chain `closePackage` → `close-package`, agent; not force-approved → rest `agentic-review`, agent. No `.gtd` (health path): squash-after-green → mid-chain `writeSquashTemplate`; else rest `idle`, human. |
-| `gtd: errors`           | rest               | `ERRORS.md` present → `escalate`, human; else → `fixing`, agent                                                                                                                                                                                |
+| `gtd: errors`           | rest               | `.gtd/ERRORS.md` present → `escalate`, human; else → `fixing`, agent                                                                                                                                                                           |
 | `gtd: package done`     | — (ladder)         | remaining packages → `building`, agent; else reviewable diff → `review`, agent; else idle/health                                                                                                                                               |
 | `gtd: awaiting review`  | rest               | `await-review`, human                                                                                                                                                                                                                          |
 | `gtd: review feedback`  | rest               | `grilling`, agent                                                                                                                                                                                                                              |
 | `gtd: done`             | rest or mid-chain  | squash enabled + squash base present → mid-chain `writeSquashTemplate`; else rest `idle`, human                                                                                                                                                |
 | `gtd: squash template`  | rest               | `squashing`, agent                                                                                                                                                                                                                             |
 | `gtd: reviewing <hash>` | rest               | `review`, agent                                                                                                                                                                                                                                |
-| `gtd: health-check`     | rest               | `ERRORS.md` present → `escalate`, human; else → `health-fixing`, agent                                                                                                                                                                         |
+| `gtd: health-check`     | rest               | `.gtd/ERRORS.md` present → `escalate`, human; else → `health-fixing`, agent                                                                                                                                                                    |
 | `gtd: health-fix`       | rest (usually)     | `idle`, human — see the health-fix re-test carve-out below                                                                                                                                                                                     |
 
 The parameterized anchor `gtd: reviewing <hash>` (`reviewingSubject` in
@@ -131,19 +139,19 @@ ordinary review-scope rules (§4, Review).
 **Turn-commit classification** (the other half of `classifyHead`, keyed on
 `(actor, gate)`):
 
-| Turn commit                  | Class                                      | Lands at                                                                                                                                                                                 |
-| ---------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gtd(agent): grilling`       | empty diff → rest; non-empty → rest        | `grilling`, agent (empty, re-emit) or `grilling`, human (non-empty, answer gate)                                                                                                         |
-| `gtd(human): grilling`       | empty diff → mid-chain; non-empty → rest   | empty → `commitRouting "gtd: grilled"` → `grilling`/agent picture; non-empty → rest `grilling`, agent                                                                                    |
-| `gtd(agent): grilled`        | mid-chain                                  | `commitRouting "gtd: planning"` (removes TODO.md)                                                                                                                                        |
-| `gtd(agent): building`       | mid-chain                                  | `runTest`                                                                                                                                                                                |
-| `gtd(agent): fixing`         | empty diff → rest; non-empty → mid-chain   | empty → rest `fixing`, agent (re-emit); non-empty → `runTest`                                                                                                                            |
-| `gtd(agent): agentic-review` | rest                                       | `agentic-review`, agent (only reached when FEEDBACK.md was never written at all — the FEEDBACK.md-present cases are handled by the steering-file precedence check that runs before this) |
-| `gtd(agent): review`         | mid-chain                                  | `commitRouting "gtd: awaiting review"`                                                                                                                                                   |
-| `gtd(human): review`         | mid-chain                                  | substantive → `commitRouting "gtd: review feedback"` (removes REVIEW.md); non-substantive (clean or checkbox-only) → `commitRouting "gtd: done"` (removes REVIEW.md)                     |
-| `gtd(agent): squashing`      | squash base present → mid-chain; else rest | mid-chain → `squashCommit`; rest → `squashing`, agent                                                                                                                                    |
-| `gtd(agent): health-fixing`  | mid-chain                                  | `commitRouting "gtd: health-fix"` (removes HEALTH.md)                                                                                                                                    |
-| `gtd(human): escalate`       | mid-chain                                  | `runTest` (re-test after the human's fix)                                                                                                                                                |
+| Turn commit                  | Class                                      | Lands at                                                                                                                                                                                           |
+| ---------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gtd(agent): grilling`       | empty diff → rest; non-empty → rest        | `grilling`, agent (empty, re-emit) or `grilling`, human (non-empty, answer gate)                                                                                                                   |
+| `gtd(human): grilling`       | empty diff → mid-chain; non-empty → rest   | empty → `commitRouting "gtd: grilled"` → `grilling`/agent picture; non-empty → rest `grilling`, agent                                                                                              |
+| `gtd(agent): grilled`        | mid-chain                                  | `commitRouting "gtd: planning"` (removes .gtd/TODO.md)                                                                                                                                             |
+| `gtd(agent): building`       | mid-chain                                  | `runTest`                                                                                                                                                                                          |
+| `gtd(agent): fixing`         | empty diff → rest; non-empty → mid-chain   | empty → rest `fixing`, agent (re-emit); non-empty → `runTest`                                                                                                                                      |
+| `gtd(agent): agentic-review` | rest                                       | `agentic-review`, agent (only reached when .gtd/FEEDBACK.md was never written at all — the .gtd/FEEDBACK.md-present cases are handled by the steering-file precedence check that runs before this) |
+| `gtd(agent): review`         | mid-chain                                  | `commitRouting "gtd: awaiting review"`                                                                                                                                                             |
+| `gtd(human): review`         | mid-chain                                  | substantive → `commitRouting "gtd: review feedback"` (removes .gtd/REVIEW.md); non-substantive (clean or checkbox-only) → `commitRouting "gtd: done"` (removes .gtd/REVIEW.md)                     |
+| `gtd(agent): squashing`      | squash base present → mid-chain; else rest | mid-chain → `squashCommit`; rest → `squashing`, agent                                                                                                                                              |
+| `gtd(agent): health-fixing`  | mid-chain                                  | `commitRouting "gtd: health-fix"` (removes .gtd/HEALTH.md)                                                                                                                                         |
+| `gtd(human): escalate`       | mid-chain                                  | `runTest` (re-test after the human's fix)                                                                                                                                                          |
 
 **The health-fix re-test carve-out.** `gtd: health-fix` classifies as a plain
 rest (`idle`, human) for `gtd next` / `gtd status` — a clean tree there
@@ -191,8 +199,8 @@ authors zero commits.
   (exit non-zero, zero commits, stderr
   `"<state> awaits an agent turn — run \`gtd
   step-agent\`"`) on both clean and dirty trees. Turns are strictly separated in both directions: the wrong mutator always errors instead of no-op-ing or adopting the dirty tree as a turn of its own. Human edits made while the agent is awaited (amendment notes in `.gtd/`
-  package files, extra TODO.md detail) stay pending and ride along as input to
-  the agent's next captured turn.
+  package files, extra .gtd/TODO.md detail) stay pending and ride along as input
+  to the agent's next captured turn.
 - **Idle**: always re-runs the health check (§1's carve-out) — never an empty
   turn commit, never a plain no-op.
 
@@ -276,17 +284,18 @@ rules (§4, Review) the next time the machine resolves a review.
 ### `gtd format <file>`
 
 Reformats a single markdown file in place (via the same formatter `gtd` applies
-to TODO.md after a capture). Rejects `--json` — it is not a v2 state command.
+to .gtd/TODO.md after a capture). Rejects `--json` — it is not a v2 state
+command.
 
 ### The always-clean invariant
 
 By the time any mutating command (`step`, `step-agent`) returns exit 0, the
 working tree is clean — a red test run is never left uncommitted: `runTest`
-writes FEEDBACK.md/ERRORS.md and commits it (`gtd: errors`) in the same hop, and
-`runHealthCheck` writes HEALTH.md/ERRORS.md and commits (`gtd: health-check`)
-likewise. This is why red test results still "succeed" at the CLI level (exit 0)
-— failure is captured as durable state, not surfaced as a process failure, so
-the chain can hand off to the next actor deterministically.
+writes .gtd/FEEDBACK.md/.gtd/ERRORS.md and commits it (`gtd: errors`) in the
+same hop, and `runHealthCheck` writes .gtd/HEALTH.md/.gtd/ERRORS.md and commits
+(`gtd: health-check`) likewise. This is why red test results still "succeed" at
+the CLI level (exit 0) — failure is captured as durable state, not surfaced as a
+process failure, so the chain can hand off to the next actor deterministically.
 
 ### Checkpoint / no-rollback failure contract
 
@@ -332,7 +341,7 @@ never reach `buildPrompt` (it throws if they do).
 
 ### `grilling`
 
-**Means:** developing a plan (`TODO.md`) toward a concrete, implementation-
+**Means:** developing a plan (`.gtd/TODO.md`) toward a concrete, implementation-
 ready form, iterating between agent and human.
 
 **Awaited actor:** `agent` or `human`, depending on which prompt renders —
@@ -343,16 +352,17 @@ agent-develops rest (`@grilling-agent` template).
 
 **Prompt:**
 
-- `@grilling-agent` (agent awaited) — develop `TODO.md` into a concrete plan in
-  one turn, using subagents; every remaining open question must carry a
-  suggested default; leave TODO.md uncommitted. Inlines the latest human turn's
-  diff (workflow files excluded) as "feedback, not finished work" when present.
-- `@grilling-answers` (human awaited) — a pure human gate: edit `TODO.md` in
-  place to answer/annotate, or run `gtd step` with no edits to accept all
+- `@grilling-agent` (agent awaited) — develop `.gtd/TODO.md` into a concrete
+  plan in one turn, using subagents; every remaining open question must carry a
+  suggested default; leave .gtd/TODO.md uncommitted. Inlines the latest human
+  turn's diff (workflow files excluded) as "feedback, not finished work" when
+  present.
+- `@grilling-answers` (human awaited) — a pure human gate: edit `.gtd/TODO.md`
+  in place to answer/annotate, or run `gtd step` with no edits to accept all
   suggested defaults.
 
 **Entry:** a dirty boundary tree with `invoker: "human"` (no steering files, no
-committed TODO.md) captures `gtd(human): grilling` — the v2 entry turn
+committed .gtd/TODO.md) captures `gtd(human): grilling` — the v2 entry turn
 (`isDirtyBoundaryEntry` in `applyTurnTaking`). `gtd: done` counts as a boundary
 HEAD for this purpose too, even though it parses as `"routing"` — a settled
 cycle is exactly where the next feature's dirty tree lands.
@@ -369,7 +379,7 @@ be decomposed into ordered work packages.
 
 **Awaited actor:** agent.
 
-**Prompt:** `@decompose` — decompose `TODO.md` into `.gtd/NN-<package>/`
+**Prompt:** `@decompose` — decompose `.gtd/TODO.md` into `.gtd/NN-<package>/`
 directories of numbered task `.md` files. Rules inlined in the prompt: packages
 are sequential/dependency-ordered, each package must be green on its own, tasks
 within a package are parallel and file-disjoint, packages are vertical slices,
@@ -379,7 +389,7 @@ larger orchestration that depends on uncommitted state.
 **Entry:** the routing commit `gtd: grilled` is a rest landing here (agent).
 
 **Exit:** `gtd(agent): grilled` mid-chains to `commitRouting "gtd: planning"`
-(also removing `TODO.md`) → **planning**.
+(also removing `.gtd/TODO.md`) → **planning**.
 
 **Turn-taking:** `gtd step` (human) is refused here like at every agent-awaited
 rest (§3), and this rest is why the rule matters: the dirty tree is the
@@ -419,7 +429,7 @@ uncommitted. Inlines the active package's task files (`@package` partial).
 facts, not the subject alone).
 
 **Exit:** `gtd(agent): building` mid-chains straight into `runTest` → red writes
-FEEDBACK.md/ERRORS.md and commits `gtd: errors`; green commits
+.gtd/FEEDBACK.md/.gtd/ERRORS.md and commits `gtd: errors`; green commits
 `gtd: tests green` → **testing**'s outcome (agentic-review or force-approved
 close, or the idle/squash path when there is no `.gtd/` at all — the health side
 of the same routing subject).
@@ -435,55 +445,55 @@ accumulated diff. Edge-only — no independent prompt; it is the mid-chain
 
 **Actions:** run `testCommand`; exit 0 → commit `gtd: tests green`; exit ≠ 0 →
 count fix attempts since the most recent of {package start, last agentic-review
-findings round, last `ERRORS.md` removal} (the `testFixCount` fold) — below
-`fixAttemptCap` (default 3) → write FEEDBACK.md, commit `gtd: errors`; at/over
-the cap → write ERRORS.md, commit `gtd: errors`.
+findings round, last `.gtd/ERRORS.md` removal} (the `testFixCount` fold) — below
+`fixAttemptCap` (default 3) → write .gtd/FEEDBACK.md, commit `gtd: errors`;
+at/over the cap → write .gtd/ERRORS.md, commit `gtd: errors`.
 
 **Prompt:** none — always mid-chain, folding straight into the next rest.
 
 ### `fixing`
 
-**Means:** a non-empty `FEEDBACK.md` is present (findings from a red test run or
-a non-approving agentic review). Implies `.gtd/` present (illegal otherwise —
-§5).
+**Means:** a non-empty `.gtd/FEEDBACK.md` is present (findings from a red test
+run or a non-approving agentic review). Implies `.gtd/` present (illegal
+otherwise — §5).
 
 **Awaited actor:** agent.
 
 **Prompt:** `@fixing` — spawn a fix subagent to work through "Feedback to
-address" (the inlined `FEEDBACK.md` content): fix the code, or dispute the
-finding by emptying/deleting `FEEDBACK.md` — the machine re-tests either way;
-leave every change uncommitted.
+address" (the inlined `.gtd/FEEDBACK.md` content): fix the code, or dispute the
+finding by emptying/deleting `.gtd/FEEDBACK.md` — the machine re-tests either
+way; leave every change uncommitted.
 
-**Entry:** `gtd: errors` with `ERRORS.md` absent (routing rest); or the
-steering-file precedence check firing on a live, uncommitted `FEEDBACK.md` write
-by the reviewer (once captured as `gtd(agent): agentic-review`, this same
+**Entry:** `gtd: errors` with `.gtd/ERRORS.md` absent (routing rest); or the
+steering-file precedence check firing on a live, uncommitted `.gtd/FEEDBACK.md`
+write by the reviewer (once captured as `gtd(agent): agentic-review`, this same
 precedence check routes on to fixing or close on the next hop).
 
 **Exit:** `gtd(agent): fixing` with an empty diff (the fixer changed nothing
 yet) is a rest (re-emit the same prompt) — an **inert empty fixer turn**,
-recorded once. A non-empty diff mid-chains into `runTest` (FEEDBACK.md is
+recorded once. A non-empty diff mid-chains into `runTest` (.gtd/FEEDBACK.md is
 removed unconditionally first, whether the fixer left it, deleted it, or emptied
 it) → **testing**.
 
 ### `escalate`
 
-**Means:** `ERRORS.md` is present — the fix-attempt cap was reached (by the
+**Means:** `.gtd/ERRORS.md` is present — the fix-attempt cap was reached (by the
 build/fix loop or by the health-check loop), and the human must intervene.
-Highest precedence after nothing else — checked before FEEDBACK.md, HEALTH.md,
-and everything else in the ladder.
+Highest precedence after nothing else — checked before .gtd/FEEDBACK.md,
+.gtd/HEALTH.md, and everything else in the ladder.
 
 **Awaited actor:** human.
 
-**Prompt:** `@escalate` — tell the human to read `ERRORS.md`, fix the underlying
-issue, delete `ERRORS.md`, then run `gtd step`.
+**Prompt:** `@escalate` — tell the human to read `.gtd/ERRORS.md`, fix the
+underlying issue, delete `.gtd/ERRORS.md`, then run `gtd step`.
 
-**Entry:** `ERRORS.md` present (from either the build/fix loop or the
+**Entry:** `.gtd/ERRORS.md` present (from either the build/fix loop or the
 health-check loop).
 
-**Exit:** the human deletes `ERRORS.md` and runs `gtd step` — this lands as the
-human's own mid-chain turn, `gtd(human): escalate`, which folds straight into a
-fresh `runTest` (re-testing from a reset budget, since removing `ERRORS.md`
-resets the fix-attempt count) → **testing**.
+**Exit:** the human deletes `.gtd/ERRORS.md` and runs `gtd step` — this lands as
+the human's own mid-chain turn, `gtd(human): escalate`, which folds straight
+into a fresh `runTest` (re-testing from a reset budget, since removing
+`.gtd/ERRORS.md` resets the fix-attempt count) → **testing**.
 
 ### `agentic-review`
 
@@ -496,35 +506,35 @@ package's diff is ready for an automated review verdict.
 `reviewThreshold` (default 3) since the package start, or `agenticReview` is
 disabled by config — **force-approve**: route straight to mid-chain
 `closePackage` → **close-package**, without ever spawning a reviewer and without
-writing `FEEDBACK.md` at all (`closePackage` only _removes_ a maybe-absent
-`FEEDBACK.md`; force-approve never creates one). Otherwise render the review
-prompt.
+writing `.gtd/FEEDBACK.md` at all (`closePackage` only _removes_ a maybe-absent
+`.gtd/FEEDBACK.md`; force-approve never creates one). Otherwise render the
+review prompt.
 
 **Prompt:** `@agentic-review` — spawn a reviewing subagent to check the
 package's task specs against its cumulative diff (`@package` + inlined diff),
-and **always** write `FEEDBACK.md`: empty (whitespace-only) = approve;
+and **always** write `.gtd/FEEDBACK.md`: empty (whitespace-only) = approve;
 non-empty, concrete findings = fix. The reviewer must not edit source or commit.
 
 **Entry:** `gtd: tests green` rest with `.gtd/` present and not force-approved.
 
-**Exit:** an empty `FEEDBACK.md` written by this turn mid-chains to
-`closePackage` → **close-package**. A non-empty `FEEDBACK.md` rests at
+**Exit:** an empty `.gtd/FEEDBACK.md` written by this turn mid-chains to
+`closePackage` → **close-package**. A non-empty `.gtd/FEEDBACK.md` rests at
 **fixing**. (A duplicate clean `gtd step-agent` invoked between review turns
-cannot itself approve — the FEEDBACK.md-present-and-empty case requires it to be
-a _fresh_ verdict from this very turn; inside an already-in-progress fix loop,
-an empty FEEDBACK.md instead reads as the fixer disputing/emptying an
+cannot itself approve — the .gtd/FEEDBACK.md-present-and-empty case requires it
+to be a _fresh_ verdict from this very turn; inside an already-in-progress fix
+loop, an empty .gtd/FEEDBACK.md instead reads as the fixer disputing/emptying an
 already-on-the-record finding.)
 
 ### `close-package`
 
-**Means:** a package's review verdict approved (empty `FEEDBACK.md`, whether
-from a real review or force-approve). Edge-only.
+**Means:** a package's review verdict approved (empty `.gtd/FEEDBACK.md`,
+whether from a real review or force-approve). Edge-only.
 
 **Awaited actor:** agent.
 
-**Actions:** remove the (possibly already-empty/absent) `FEEDBACK.md`, remove
-the first (finished) package directory (and `.gtd/` itself if it was the last
-one), commit `gtd: package done`.
+**Actions:** remove the (possibly already-empty/absent) `.gtd/FEEDBACK.md`,
+remove the first (finished) package directory (and `.gtd/` itself if it was the
+last one), commit `gtd: package done`.
 
 **Prompt:** none — always mid-chain.
 
@@ -535,8 +545,8 @@ reviewable → idle/health path (§4, Idle).
 ### `review`
 
 **Means:** the human-facing code review lifecycle. Agent awaited, drafting
-`REVIEW.md`. Two distinct entry subjects rest at this same state, both rendering
-under the `@review` template:
+`.gtd/REVIEW.md`. Two distinct entry subjects rest at this same state, both
+rendering under the `@review` template:
 
 1. `gtd: package done` (nothing left in `.gtd/`, reviewable diff present).
 2. The ad-hoc `gtd: reviewing <hash>` anchor (from `gtd review <target>`).
@@ -545,17 +555,18 @@ under the `@review` template:
 separate rest landing at **grilling**, not `review` — see Actions/Exit below and
 the `grilling` section's Entry paragraph.)
 
-(The human-awaited "`REVIEW.md` committed" rest is a separate `GtdState`,
+(The human-awaited "`.gtd/REVIEW.md` committed" rest is a separate `GtdState`,
 `await-review`, documented below — it resolves to state `await-review`, not
 `review`, and renders the `@await-review` template.)
 
 **Prompt (agent draft, `@review`):** spawn a subagent to read the inlined diff
 (`git diff <reviewBase> HEAD`, workflow files excluded), group hunks
-semantically into chunks, and write `REVIEW.md` with a fixed format: a
+semantically into chunks, and write `.gtd/REVIEW.md` with a fixed format: a
 `# Review: <short-hash>` header, an HTML-comment `base:` line, and per-chunk
 `- [ ]` file-pointer checkboxes (`./path#line`). Checkboxes are the approval
 mechanism — ticking them with nothing else edited approves; any other edit (to
-REVIEW.md or the code) is a change request. Leave `REVIEW.md` uncommitted.
+.gtd/REVIEW.md or the code) is a change request. Leave `.gtd/REVIEW.md`
+uncommitted.
 
 The human gate reached after drafting (`gtd: awaiting review`) is a separate
 `GtdState`, `await-review`, with its own `@await-review` prompt — see below.
@@ -572,8 +583,9 @@ The human gate reached after drafting (`gtd: awaiting review`) is a separate
 - **Outside a process** (any branch, no grilling turn in this cycle) → no base
   is set; the branch review never fires (falls through to idle/health).
 
-Workflow files (`TODO.md`, `REVIEW.md`, `FEEDBACK.md`, `ERRORS.md`, `HEALTH.md`,
-`SQUASH_MSG.md`, `.gtd/`) are excluded from every review diff.
+Workflow files (`.gtd/TODO.md`, `.gtd/REVIEW.md`, `.gtd/FEEDBACK.md`,
+`.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/SQUASH_MSG.md`, `.gtd/`) are excluded
+from every review diff.
 
 **Actions/Exit:**
 
@@ -583,35 +595,36 @@ Workflow files (`TODO.md`, `REVIEW.md`, `FEEDBACK.md`, `ERRORS.md`, `HEALTH.md`,
 - `gtd(human): review` — the human's response, classified on **substantiveness**
   (computed from that very turn commit's own diff, not live dirtiness, since the
   tree is clean again by the time this HEAD is classified): non-substantive
-  (clean, or a pure REVIEW.md checkbox flip, or a REVIEW.md **deletion** —
-  deleting the whole file to approve is decisively non-substantive) mid-chains
-  to `commitRouting "gtd: done"` (removing REVIEW.md) → **done**. Substantive
-  (any other file changed, or REVIEW.md's own hunk is more than a checkbox flip)
-  mid-chains to `commitRouting "gtd: review feedback"` (removing REVIEW.md) →
+  (clean, or a pure .gtd/REVIEW.md checkbox flip, or a .gtd/REVIEW.md
+  **deletion** — deleting the whole file to approve is decisively
+  non-substantive) mid-chains to `commitRouting "gtd: done"` (removing
+  .gtd/REVIEW.md) → **done**. Substantive (any other file changed, or
+  .gtd/REVIEW.md's own hunk is more than a checkbox flip) mid-chains to
+  `commitRouting "gtd: review feedback"` (removing .gtd/REVIEW.md) →
   re-grilling.
 - **Review-feedback re-grill**: `gtd: review feedback` is a rest landing at
   **grilling** (agent awaited). The edge inlines the _parent_ commit's (the
   human turn's) diff as `headTurnDiff` here — since by the time this routing
   HEAD resolves, HEAD is the routing commit, not the turn commit itself — with
-  REVIEW.md deliberately **not** excluded from that diff (unlike everywhere
+  .gtd/REVIEW.md deliberately **not** excluded from that diff (unlike everywhere
   else): a substantive review-feedback turn may be pure prose edited into
-  REVIEW.md, which is itself the finding to fold into the plan. The task cycle
-  never closes on this path — no `gtd: done` is committed; the re-seeded plan
-  re-enters grilling → planning → building, and the follow-up review covers only
-  the new work (per the "Scope of the review diff" rules above).
+  .gtd/REVIEW.md, which is itself the finding to fold into the plan. The task
+  cycle never closes on this path — no `gtd: done` is committed; the re-seeded
+  plan re-enters grilling → planning → building, and the follow-up review covers
+  only the new work (per the "Scope of the review diff" rules above).
 
 ### `await-review`
 
-**Means:** `REVIEW.md` has been drafted and committed; the human-facing review
-gate is waiting for the human's verdict. A real, distinct `GtdState` (not folded
-into `review`) — resolve at `gtd: awaiting review` reports
+**Means:** `.gtd/REVIEW.md` has been drafted and committed; the human-facing
+review gate is waiting for the human's verdict. A real, distinct `GtdState` (not
+folded into `review`) — resolve at `gtd: awaiting review` reports
 `state: "await-review"` (`src/Machine.ts`).
 
 **Awaited actor:** human.
 
 **Prompt:** `@await-review` — tell the human: approve by running `gtd step` with
 no edits or only checkbox ticks; request changes by writing substantive
-edits/annotations (to REVIEW.md or code) then running `gtd step`.
+edits/annotations (to .gtd/REVIEW.md or code) then running `gtd step`.
 
 **Entry:** `gtd: awaiting review` is a rest landing here (human) — the routing
 commit written by `commitRouting` when `gtd(agent): review`'s drafting turn
@@ -631,7 +644,7 @@ substantiveness as described under `review` above: non-substantive mid-chains to
 routing subject rests at **idle** (human) directly.
 
 **Actions:** none of its own beyond having been committed by the review's
-mid-chain hop (`commitRouting "gtd: done"`, removing REVIEW.md).
+mid-chain hop (`commitRouting "gtd: done"`, removing .gtd/REVIEW.md).
 
 **Exit:** squash enabled and a squash base is present → mid-chain
 `writeSquashTemplate` → **squashing**. Otherwise → rest at **idle**.
@@ -653,27 +666,27 @@ into one conventional-commits message. Two entry points share this state:
 **Actions (two-hop flow):**
 
 1. `writeSquashTemplate` — write a conventional-commits skeleton to
-   `SQUASH_MSG.md` and commit it as `gtd: squash template`. No squash happens
-   yet.
+   `.gtd/SQUASH_MSG.md` and commit it as `gtd: squash template`. No squash
+   happens yet.
 2. `gtd next` at that rest renders `@squashing` — extract key decisions from the
-   grilling rounds' `TODO.md` history, draft one conventional-commits message,
-   and **overwrite** `SQUASH_MSG.md` with it (leaving it uncommitted). No
-   sentinel text appears anywhere in this prompt.
-3. `gtd(agent): squashing`, once `SQUASH_MSG.md` is present, mid-chains to
-   `squashCommit`: read `SQUASH_MSG.md`'s content, remove the file,
+   grilling rounds' `.gtd/TODO.md` history, draft one conventional-commits
+   message, and **overwrite** `.gtd/SQUASH_MSG.md` with it (leaving it
+   uncommitted). No sentinel text appears anywhere in this prompt.
+3. `gtd(agent): squashing`, once `.gtd/SQUASH_MSG.md` is present, mid-chains to
+   `squashCommit`: read `.gtd/SQUASH_MSG.md`'s content, remove the file,
    `git reset --soft <squashBase>`, then commit-all under that content as the
    message. The whole `<squashBase>..HEAD` range — every `gtd: *` and
    `gtd(actor): *` commit of the cycle — collapses into one commit; commits
    before the squash base are untouched.
 
 **Trigger is turn position, not content**: the squash fires because HEAD is at
-the right point in the chain, never because of what `SQUASH_MSG.md` says —
+the right point in the chain, never because of what `.gtd/SQUASH_MSG.md` says —
 arbitrary prose (even prose that mentions `gtd: errors`) still gets squashed in
 verbatim.
 
 **Exit:** after the squash, HEAD is a single non-`gtd:` boundary commit →
 **idle**. Idempotent: a second `gtd step` after the squash sees a boundary HEAD
-and `SQUASH_MSG.md` absent, so it does not re-squash.
+and `.gtd/SQUASH_MSG.md` absent, so it does not re-squash.
 
 ### `idle`
 
@@ -689,36 +702,36 @@ steady rest.
 
 **Actions:** none directly, but every `gtd step` at idle re-runs the health
 check (§1's carve-out): green stops the driver loop with **zero commits**; red
-writes `HEALTH.md`/`ERRORS.md` and commits, entering the health-fixing detour.
-`gtd next`/`gtd status` (invoker `"none"`) do not trigger this — they just
-report idle/human.
+writes `.gtd/HEALTH.md`/`.gtd/ERRORS.md` and commits, entering the health-fixing
+detour. `gtd next`/`gtd status` (invoker `"none"`) do not trigger this — they
+just report idle/human.
 
 ### `health-fixing`
 
-**Means:** `HEALTH.md` is present — the idle-path health check found a red gate
-below the fix-attempt cap. (No `.gtd/`, no `REVIEW.md`, no `FEEDBACK.md` may
-coexist with it — illegal otherwise, §5.)
+**Means:** `.gtd/HEALTH.md` is present — the idle-path health check found a red
+gate below the fix-attempt cap. (No `.gtd/`, no `.gtd/REVIEW.md`, no
+`.gtd/FEEDBACK.md` may coexist with it — illegal otherwise, §5.)
 
 **Awaited actor:** agent.
 
 **Prompt:** `@fixing` (the exact same template as build/test fixing) — read
-`HEALTH.md`'s content as the "Feedback to address," fix the code, leave
+`.gtd/HEALTH.md`'s content as the "Feedback to address," fix the code, leave
 uncommitted.
 
-**Entry:** `gtd: health-check` rest with `ERRORS.md` absent.
+**Entry:** `gtd: health-check` rest with `.gtd/ERRORS.md` absent.
 
 **Actions on entry (mid-chain from `gtd(agent): health-fixing`):**
-`commitRouting "gtd: health-fix"`, removing `HEALTH.md` — same removal
-discipline as `fixing`/`FEEDBACK.md`.
+`commitRouting "gtd: health-fix"`, removing `.gtd/HEALTH.md` — same removal
+discipline as `fixing`/`.gtd/FEEDBACK.md`.
 
 **Exit:** the fixer's own turn commit `gtd(agent): health-fixing` mid-chains
-straight into removing HEALTH.md and committing `gtd: health-fix`. The next
+straight into removing .gtd/HEALTH.md and committing `gtd: health-fix`. The next
 resolve at `gtd: health-fix` (same invocation, mid-chain — §2's carve-out)
 re-runs `testCommand`: green with squash queued → commit `gtd: tests green` →
 continues into the squash template chain; green with no squash queued → stop
 with zero further commits (a plain idle rest); red below cap → write a fresh
-`HEALTH.md`, commit `gtd: health-check`, loop again; red at cap → write
-`ERRORS.md`, commit `gtd: health-check` → **escalate**.
+`.gtd/HEALTH.md`, commit `gtd: health-check`, loop again; red at cap → write
+`.gtd/ERRORS.md`, commit `gtd: health-check` → **escalate**.
 
 ### `health-check`
 
@@ -728,8 +741,8 @@ itself runs as the internal `runHealthCheck` edge action, invoked from
 **idle**'s carve-out or from the `gtd: health-fix` re-test hop; its output is
 the routing commit `gtd: health-check`, which resolves to **escalate** or
 **health-fixing** (§2.2), never back to a `health-check` rest. Mentioned here
-only to disambiguate from `health-fixing` (the state, entered once `HEALTH.md`
-is committed).
+only to disambiguate from `health-fixing` (the state, entered once
+`.gtd/HEALTH.md` is committed).
 
 ## 5. The precedence ladder
 
@@ -738,23 +751,23 @@ wins; anything matching nothing is `corruption` — a hard error, never a guess.
 
 ### 5.1 Illegal-combination guard (`assertLegal`, before anything else)
 
-Checked in two passes — HEALTH.md-specific rules first (so a HEALTH.md +
-FEEDBACK.md, say, gets the two-file diagnosis rather than the more generic
-single-file one), then the rest:
+Checked in two passes — .gtd/HEALTH.md-specific rules first (so a
+.gtd/HEALTH.md + .gtd/FEEDBACK.md, say, gets the two-file diagnosis rather than
+the more generic single-file one), then the rest:
 
 ```
-HEALTH.md + .gtd
-HEALTH.md + REVIEW.md
-HEALTH.md + FEEDBACK.md
-HEALTH.md + ERRORS.md
-REVIEW.md + .gtd
-REVIEW.md + committed TODO.md
-uncommitted REVIEW.md + TODO.md
-FEEDBACK.md + REVIEW.md
-FEEDBACK.md without .gtd
-ERRORS.md + FEEDBACK.md
-ERRORS.md without .gtd   (exempted while HEAD is gtd: health-check / gtd: health-fix —
-                          ERRORS.md briefly outlives .gtd during the health-check
+.gtd/HEALTH.md + .gtd
+.gtd/HEALTH.md + .gtd/REVIEW.md
+.gtd/HEALTH.md + .gtd/FEEDBACK.md
+.gtd/HEALTH.md + .gtd/ERRORS.md
+.gtd/REVIEW.md + .gtd
+.gtd/REVIEW.md + committed .gtd/TODO.md
+uncommitted .gtd/REVIEW.md + .gtd/TODO.md
+.gtd/FEEDBACK.md + .gtd/REVIEW.md
+.gtd/FEEDBACK.md without .gtd
+.gtd/ERRORS.md + .gtd/FEEDBACK.md
+.gtd/ERRORS.md without .gtd   (exempted while HEAD is gtd: health-check / gtd: health-fix —
+                          .gtd/ERRORS.md briefly outlives .gtd during the health-check
                           cap escalation)
 ```
 
@@ -766,11 +779,11 @@ Each is a predicate over `ResolvePayload` paired with the exact diagnosis string
 These fire regardless of what HEAD says, because file presence is more current
 than the last commit:
 
-1. `ERRORS.md` present → rest **escalate**, human.
-2. `HEALTH.md` present (and HEAD is not the health-fixer's own turn consuming
-   it) → rest **health-fixing**, agent.
-3. `FEEDBACK.md` present (and HEAD is not the fixer's own turn consuming it, and
-   not force-approved-outside-the-fix-loop) →
+1. `.gtd/ERRORS.md` present → rest **escalate**, human.
+2. `.gtd/HEALTH.md` present (and HEAD is not the health-fixer's own turn
+   consuming it) → rest **health-fixing**, agent.
+3. `.gtd/FEEDBACK.md` present (and HEAD is not the fixer's own turn consuming
+   it, and not force-approved-outside-the-fix-loop) →
    - if HEAD is `gtd: tests green` (a live, uncommitted write by the review
      agent) → rest **agentic-review**, agent (capture that turn first).
    - else, empty and not already inside the fix loop → mid-chain
@@ -791,7 +804,7 @@ In order:
 1. `.gtd/` exists and is modified vs. committed → **planning**.
 2. HEAD is `gtd: package done` → packages remain → **building**; else reviewable
    → **review**; else → idle/health.
-3. `TODO.md` present (any other HEAD) → **grilling** continues.
+3. `.gtd/TODO.md` present (any other HEAD) → **grilling** continues.
 4. `.gtd/` exists with a pending package **and** the nearest workflow commit
    (skipping boundary commits stacked on top) is still `gtd(agent): building` →
    **building** (operational-recovery carve-out: a boundary commit, e.g. a
@@ -808,7 +821,7 @@ In order:
 Independent of the ladder above, layered on every resolved baseline:
 
 1. **Dirty-boundary entry** (`invoker === "human"`, dirty tree, no committed
-   TODO.md, no steering files, boundary/`gtd: done` HEAD) → captures
+   .gtd/TODO.md, no steering files, boundary/`gtd: done` HEAD) → captures
    `gtd(human): grilling` unconditionally, short-circuiting everything else.
 2. **Mid-chain baseline** → `invoker === "none"` reports `pending: true`; any
    other invoker performs the edge action.
@@ -850,13 +863,13 @@ gtd(agent): grilling        # agent develops the plan (non-empty)
 gtd(human): grilling        # human accepts (empty turn)
 gtd: grilled                # routing: converged
 gtd(agent): grilled         # agent's own-gate turn (immediately mid-chains)
-gtd: planning                # routing: TODO.md removed
+gtd: planning                # routing: .gtd/TODO.md removed
 gtd(agent): building        # agent writes code
 gtd: tests green             # routing: test passed
 gtd: package done             # routing: force-approved (agenticReview off)
-gtd(agent): review          # agent drafts REVIEW.md
+gtd(agent): review          # agent drafts .gtd/REVIEW.md
 gtd: awaiting review         # routing: rest for the human
-gtd(human): review          # human approves (deletes REVIEW.md)
+gtd(human): review          # human approves (deletes .gtd/REVIEW.md)
 gtd: done                    # routing: cycle closed
 ```
 
@@ -872,8 +885,8 @@ same human-turn invocation continues straight to:
 gtd: squash template          # writeSquashTemplate
 ```
 
-`gtd next` renders the squashing prompt; the agent overwrites `SQUASH_MSG.md`;
-`gtd step-agent` performs the squash — the entire
+`gtd next` renders the squashing prompt; the agent overwrites
+`.gtd/SQUASH_MSG.md`; `gtd step-agent` performs the squash — the entire
 `gtd(human): grilling .. gtd: squash template` range collapses into one commit
 whose subject is the message's first line (e.g.
 `feat: add calculator with add support`). None of the intermediate `gtd: *` /
@@ -884,7 +897,7 @@ whose subject is the message's first line (e.g.
 ```
 gtd: planning
 gtd(agent): building
-gtd: errors                   # red, below cap: FEEDBACK.md written
+gtd: errors                   # red, below cap: .gtd/FEEDBACK.md written
 <gtd next → fixing prompt with the failure output>
 gtd(agent): fixing            # fixer patches the code (non-empty diff)
 gtd: tests green               # re-test, now green
@@ -896,7 +909,7 @@ gtd: package done               # force-approve closes it
 ```
 gtd(human): grilling          # dirty-boundary entry (notes.md)
 gtd(agent): grilling          # agent leaves an open question with a suggested default
-gtd(human): grilling          # human answers inline in TODO.md (non-empty!) — NOT accept
+gtd(human): grilling          # human answers inline in .gtd/TODO.md (non-empty!) — NOT accept
 gtd(agent): grilling          # agent converges, no more markers
 gtd: grilled                   # human's next clean step converges
 ```
@@ -909,9 +922,9 @@ before the clean accept lands `gtd: grilled`.
 
 ```
 gtd: errors   (×fixAttemptCap)
-gtd: errors                    # at/over cap: ERRORS.md written instead of FEEDBACK.md
-<escalate prompt: human reads ERRORS.md>
-<human deletes ERRORS.md, runs gtd step>
+gtd: errors                    # at/over cap: .gtd/ERRORS.md written instead of .gtd/FEEDBACK.md
+<escalate prompt: human reads .gtd/ERRORS.md>
+<human deletes .gtd/ERRORS.md, runs gtd step>
 gtd(human): escalate           # mid-chain: re-tests from a reset budget
 gtd: tests green                 # (if the human's fix worked)
 ```
@@ -921,7 +934,7 @@ gtd: tests green                 # (if the human's fix worked)
 ```
 gtd: awaiting review
 gtd(human): review             # substantive edit/annotation (not a plain approve)
-gtd: review feedback             # routing: REVIEW.md removed, re-grilling begins
+gtd: review feedback             # routing: .gtd/REVIEW.md removed, re-grilling begins
 gtd(agent): grilling           # re-plan against the captured feedback diff
 ...                             # re-enters grilling → planning → building
 gtd: awaiting review            # follow-up review covers only the new work packages
@@ -935,13 +948,13 @@ cleanly.
 ```
 <idle, clean tree>
 <gtd step: health check runs testCommand>
-gtd: health-check                # red below cap: HEALTH.md written
+gtd: health-check                # red below cap: .gtd/HEALTH.md written
 gtd(agent): health-fixing       # fixer's own turn
-gtd: health-fix                   # HEALTH.md removed; re-tests in the same chain
+gtd: health-fix                   # .gtd/HEALTH.md removed; re-tests in the same chain
 # green, squash off → stop, plain idle rest, zero further commits
 # green, squash on  → gtd: tests green → gtd: squash template → ... → one squash commit
 # red, below cap    → gtd: health-check again (loop)
-# red, at cap       → ERRORS.md written, gtd: health-check → escalate
+# red, at cap       → .gtd/ERRORS.md written, gtd: health-check → escalate
 ```
 
 ## 7. The loop protocol
@@ -952,7 +965,7 @@ The step-first two-beat loop an agent (or the `loop` skill) should run to drive
 1. Run `gtd step-agent`.
 2. Run `gtd next`.
 3. If `actor` is `"human"` → **halt** (the human owns the next move: a human
-   gate — answer TODO.md questions, review, fix an escalation — or a
+   gate — answer .gtd/TODO.md questions, review, fix an escalation — or a
    human-driven pending checkpoint resumed by `gtd step`).
 4. Otherwise: if a prompt was emitted, feed it to the agent (spawn the
    subagent(s) the prompt describes, let them make their edits, leave them
