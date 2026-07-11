@@ -67,6 +67,9 @@ gtd next --json            # ask who's up and what they should do
 See [The reference loop driver](#the-reference-loop-driver) for a full script
 implementing this protocol, and [`skills/loop/SKILL.md`](skills/loop/SKILL.md)
 for the agent-facing instructions that follow the same pinned contract.
+`gtd-loop`, installed alongside `gtd` (see below), is the packaged, ready-to-run
+implementation of that same script for anyone who doesn't want to drive the loop
+by hand.
 
 ## Installation
 
@@ -396,6 +399,26 @@ side can drive — agent rests and agent-driven checkpoints — reports
 `actor: "agent"`, so multiple agent turns and commits (e.g. successive test/fix
 cycles, a force-approved package close) chain without human involvement until an
 actual human gate is hit.
+
+`bin/gtd-loop`, installed as the `gtd-loop` binary, is the packaged
+implementation of this exact script — kept in sync with it the same way
+`skills/loop/SKILL.md` is. It additionally attempts `gtd step` (not just
+`gtd step-agent`) every iteration, so a plain rerun after you've edited a file
+at a human gate (no commit needed) picks up your edit and keeps going, and it
+halts with a diagnostic if the same state and prompt repeat with no progress
+(see `skills/loop/SKILL.md`'s "Stall detection").
+
+### Using a different agent
+
+`gtd-loop` defaults to
+`claude -p "$GTD_LOOP_PROMPT" --dangerously-skip-permissions`, but the agent
+invocation is swappable: set `GTD_LOOP_AGENT_CMD` to any shell command, and it
+runs with the prompt available as `$GTD_LOOP_PROMPT` in its environment. For
+example, to drive a different agent CLI:
+
+```bash
+GTD_LOOP_AGENT_CMD='my-agent-cli --prompt "$GTD_LOOP_PROMPT"' gtd-loop
+```
 
 ## States & subjects overview
 
