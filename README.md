@@ -467,8 +467,8 @@ There are no markers to answer — the human either:
 Once decomposed, `.gtd/` holds ordered work packages. `gtd next` at
 `gtd: planning`/`gtd: package done` selects the lowest-numbered remaining
 package and inlines only its task files. The agent builds it and leaves the work
-**uncommitted**; the next invocation's edge action commits it (`gtd: building`)
-and runs `testCommand`.
+**uncommitted**; the next invocation's edge action commits it (the
+`gtd(agent): building` turn commit) and runs `testCommand`.
 
 - **Green** → Agentic Review.
 - **Red, below `fixAttemptCap`** (default 3) → write findings, commit
@@ -488,8 +488,19 @@ removing `.gtd/FEEDBACK.md` and the finished package directory) in one
 invocation. Non-empty findings rest for the fixing prompt; fixing loops back
 through the test gate and re-reviews. Once `reviewFixCount >= reviewThreshold`
 (default 3) within a package, Agentic Review **force-approves** without ever
-writing `.gtd/FEEDBACK.md` — so a package can never review-loop forever. Setting
+writing `.gtd/FEEDBACK.md` — so a package can never review-loop forever. The
+findings round that crosses the threshold still gets its fixing round; the
+force-approve close then fires at the next green re-test instead of another
+review. (Any agentic-review turn that touches `.gtd/FEEDBACK.md` counts toward
+the threshold — including the approval write itself; an approval that crosses
+the threshold simply closes the package as usual.) Setting
 `agenticReview: false` force-approves every package immediately.
+
+A **do-nothing fixer invocation** — `gtd step-agent` at a fixing rest with a
+clean tree — is inert: no empty turn commit, no re-test; `gtd next` re-emits the
+same fixing prompt. A real fix (code edit) or a dispute (emptying or deleting
+`.gtd/FEEDBACK.md`) always dirties the tree, so genuine fixer turns capture and
+re-test as usual.
 
 ### Human review gate
 
@@ -515,9 +526,13 @@ agent overwrites `.gtd/SQUASH_MSG.md` with a real conventional-commits message
 (drawing on grilling-round decisions from history) and finishes its turn.
 `gtd step-agent` then performs the squash itself: `git reset --soft <base>` +
 `git commit`, collapsing every intermediate `gtd: *` commit of the cycle into
-one, using the overwritten message's content verbatim (turn position, not
-message content, triggers the squash). With `squash: false`, `gtd: done` is the
-resting boundary and no template is ever written.
+one — including any review-feedback detours: the squash base is the cycle's
+ORIGINAL start (the first grilling run since the previous `gtd: done` boundary,
+or the `gtd: reviewing <hash>` anchor for an ad-hoc review cycle), not the most
+recent re-grilling round — the collapse folds the whole cycle into one, using
+the overwritten message's content verbatim (turn position, not message content,
+triggers the squash). With `squash: false`, `gtd: done` is the resting boundary
+and no template is ever written.
 
 ### Health check
 
@@ -634,13 +649,17 @@ can still override settings with its own `.gtdrc`.
 
 ### Auto-init
 
-On every run, if the cwd→root walk finds **no** config anywhere, gtd creates and
-commits a starter `.gtdrc.json` at the git root containing only a `$schema`
-link. On a repo with no commits yet, or whose HEAD is a plain (non-`gtd:`)
-commit, it is committed as its own `chore: add .gtdrc.json`. If HEAD is already
-a `gtd:`-owned commit (mid-workflow), the stub is instead **amended into HEAD**
-— stacking a fresh boundary commit there would produce an unrecognized HEAD most
-workflow states can't resolve past.
+On every **state command** (`step`, `step-agent`, `next`, `status`, `review`)
+that has passed the repo-root guard, if the cwd→root walk finds **no** config
+anywhere, gtd creates and commits a starter `.gtdrc.json` at the repository root
+containing only a `$schema` link. Auto-init never runs for `--version`/`--help`,
+`format`, bare/unknown commands, or an invocation refused by the repo-root guard
+— those perform no repository mutation of any kind. On a repo with no commits
+yet, or whose HEAD is a plain (non-`gtd:`) commit, the stub is committed as its
+own `chore: add .gtdrc.json`. If HEAD is already a `gtd:`-owned commit
+(mid-workflow), the stub is instead **amended into HEAD** — stacking a fresh
+boundary commit there would produce an unrecognized HEAD most workflow states
+can't resolve past.
 
 ### Example
 
@@ -720,7 +739,7 @@ cycle:
 2. Leave all changes **uncommitted**. Do not commit, do not delete the package
    directory, do not run tests.
 3. Finish the turn with `gtd step-agent` — the next hop's edge action commits
-   the work (`gtd: building`) and runs `testCommand` to verify it.
+   the work (`gtd(agent): building`) and runs `testCommand` to verify it.
 
 ## Upgrading from v1 (BREAKING CHANGE)
 
