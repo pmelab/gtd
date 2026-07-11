@@ -18,7 +18,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds "FEEDBACK.md" with:
+    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
@@ -41,7 +41,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds "FEEDBACK.md" with:
+    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
@@ -53,7 +53,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
     And the git log contains "gtd: tests green"
-    And the file "FEEDBACK.md" does not exist
+    And the file ".gtd/FEEDBACK.md" does not exist
     And the last commit subject is "gtd: tests green"
 
   Scenario: A disputing fixer deletes FEEDBACK.md and the chain re-tests green
@@ -71,14 +71,14 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds "FEEDBACK.md" with:
+    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
-    And a deleted committed file "FEEDBACK.md"
+    And a deleted committed file ".gtd/FEEDBACK.md"
     When I run gtd step-agent
     Then it succeeds
-    And the file "FEEDBACK.md" does not exist
+    And the file ".gtd/FEEDBACK.md" does not exist
     And the git log contains "gtd: tests green"
 
   Scenario: A disputing fixer empties FEEDBACK.md and the chain re-tests green
@@ -96,14 +96,14 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds "FEEDBACK.md" with:
+    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
-    And an empty file "FEEDBACK.md"
+    And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step-agent
     Then it succeeds
-    And the file "FEEDBACK.md" does not exist
+    And the file ".gtd/FEEDBACK.md" does not exist
     And the git log contains "gtd: tests green"
 
   Scenario: An inert empty fixer turn is recorded once and next re-emits the fixing prompt
@@ -112,7 +112,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds "FEEDBACK.md" with:
+    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """

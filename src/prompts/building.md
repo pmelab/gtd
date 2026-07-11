@@ -6,6 +6,9 @@ implement the tasks yourself. Spawn **one subagent per task**, all in
 
 - **Context**: the task content only (it is self-contained).
 - **Fresh context**: each worker starts cold, with no shared history.
+- **Hands off `.gtd/`** (inline rule for workers): never create, edit, or
+  delete anything under `.gtd/` — it is workflow state owned by the machine.
+  If the task spec mentions a `.gtd/` file, skip that part.
 - **TDD discipline** (inline rules for workers):
   - Write ONE test → implement → pass → repeat (vertical slices).
   - **Do NOT** write all tests first then implement (horizontal slicing).

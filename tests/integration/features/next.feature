@@ -54,7 +54,7 @@ Feature: gtd next — pure prediction of the next prompt
 
   Scenario: A clean human rest at gtd: awaiting review reports actor human
     Given a test project
-    And a commit "gtd: awaiting review" that adds "REVIEW.md" with:
+    And a commit "gtd: awaiting review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -67,7 +67,7 @@ Feature: gtd next — pure prediction of the next prompt
 
   Scenario: A human-driven mid-chain HEAD reports pending with a null prompt
     Given a test project
-    And a commit "gtd(human): review" that adds "REVIEW.md" with:
+    And a commit "gtd(human): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 

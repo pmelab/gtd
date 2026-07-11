@@ -23,7 +23,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
     And the last commit subject is "gtd(human): grilling"
     And the file "notes.md" exists
     And the file "notes.md" contains "Build a calculator that can add and subtract."
-    And the file "TODO.md" does not exist
+    And the file ".gtd/TODO.md" does not exist
     And stdout contains "committed: gtd(human): grilling"
     And stdout contains "state:"
 
@@ -50,7 +50,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       Build a calculator that can add and subtract.
       """
     And I run gtd step
-    And a file "TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -66,7 +66,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""
-    And stdout contains "TODO.md"
+    And stdout contains ".gtd/TODO.md"
 
   # TODO.md itself is a steering file and never appears in the inlined turn
   # diff (by design — the diff must never carry steering-file churn), so the
@@ -79,7 +79,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       Build a calculator that can add and subtract.
       """
     And I run gtd step
-    And a file "TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -90,7 +90,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       Suggested default: add and subtract.
       """
     And I run gtd step-agent
-    And "TODO.md" is modified to:
+    And ".gtd/TODO.md" is modified to:
       """
       # Plan
 
@@ -119,7 +119,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       Build a calculator that can add and subtract.
       """
     And I run gtd step
-    And a file "TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -146,7 +146,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       Build a calculator with add and subtract.
       """
     And I run gtd step
-    And a file "TODO.md" with:
+    And a file ".gtd/TODO.md" with:
       """
       # Plan
 

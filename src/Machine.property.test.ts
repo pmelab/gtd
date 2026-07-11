@@ -82,7 +82,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
     checkboxOnlyRaw: fc.boolean(),
     todoExists: fc.boolean(),
     todoCommittedRaw: fc.boolean(),
-    gtdDirExists: fc.boolean(),
+    packagesPresent: fc.boolean(),
     reviewPresent: fc.boolean(),
     reviewTrackedRaw: fc.boolean(),
     feedbackPresent: fc.boolean(),
@@ -103,7 +103,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
   .map((raw): ResolvePayload => {
     const workingTreeClean = raw.clean
     const codeDirty = !workingTreeClean && raw.codeDirtyRaw
-    const gtdModified = !workingTreeClean && raw.gtdDirExists && raw.gtdModifiedRaw
+    const gtdModified = !workingTreeClean && raw.packagesPresent && raw.gtdModifiedRaw
     const pendingErrorsDeletion = !workingTreeClean && raw.pendingErrorsDeletionRaw
     const reviewTracked = raw.reviewPresent && raw.reviewTrackedRaw
     const reviewCommitted = reviewTracked && workingTreeClean
@@ -116,7 +116,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       headTurnIsEmpty: isTurnHead ? raw.headTurnIsEmpty : false,
       todoExists: raw.todoExists,
       todoCommitted: raw.todoExists && raw.todoCommittedRaw,
-      gtdDirExists: raw.gtdDirExists,
+      packagesPresent: raw.packagesPresent,
       reviewPresent: raw.reviewPresent,
       feedbackPresent: raw.feedbackPresent,
       errorsPresent: raw.errorsPresent,
@@ -163,17 +163,17 @@ const arbEvents: fc.Arbitrary<GtdEvent[]> = fc
 /** The documented illegal steering-file combinations. */
 // fallow-ignore-next-line complexity
 const isIllegal = (p: ResolvePayload): boolean =>
-  (p.reviewPresent && p.gtdDirExists) ||
+  (p.reviewPresent && p.packagesPresent) ||
   (p.reviewPresent && p.todoCommitted) ||
   (p.reviewPresent && !(p.reviewCommitted || p.reviewDirty) && p.todoExists) ||
   (p.feedbackPresent && p.reviewPresent) ||
-  (p.feedbackPresent && !p.gtdDirExists) ||
+  (p.feedbackPresent && !p.packagesPresent) ||
   (p.errorsPresent && p.feedbackPresent) ||
   (p.errorsPresent &&
-    !p.gtdDirExists &&
+    !p.packagesPresent &&
     p.lastCommitSubject !== "gtd: health-check" &&
     p.lastCommitSubject !== "gtd: health-fix") ||
-  (p.healthPresent && p.gtdDirExists) ||
+  (p.healthPresent && p.packagesPresent) ||
   (p.healthPresent && p.reviewPresent) ||
   (p.healthPresent && p.feedbackPresent) ||
   (p.healthPresent && p.errorsPresent)
@@ -199,7 +199,7 @@ const isInScopeForInertEmptyGrillingTurnInvariant = (payload: ResolvePayload): b
     payload.errorsPresent ||
     payload.healthPresent ||
     payload.feedbackPresent ||
-    payload.gtdDirExists ||
+    payload.packagesPresent ||
     payload.reviewPresent
   )
 }

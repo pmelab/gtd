@@ -22,27 +22,27 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
       squash: true
       """
-    And a commit "gtd(human): grilling" that adds "TODO.md" with:
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: awaiting review"
-    And a commit "gtd(human): review" that deletes "REVIEW.md"
+    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     When I run gtd step
     Then it succeeds
     And the git log contains "gtd: done"
     And the git log contains "gtd: squash template"
     And the last commit subject is "gtd: squash template"
-    And the file "SQUASH_MSG.md" exists
+    And the file ".gtd/SQUASH_MSG.md" exists
 
   Scenario: gtd next at the squash template rest emits the squashing prompt with no sentinel text
     Given a test project
@@ -50,29 +50,29 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
       squash: true
       """
-    And a commit "gtd(human): grilling" that adds "TODO.md" with:
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: awaiting review"
-    And a commit "gtd(human): review" that deletes "REVIEW.md"
+    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds "SQUASH_MSG.md" with:
+    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
       """
       chore: replace this template with a conventional-commits message
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "SQUASH_MSG.md"
+    And stdout contains ".gtd/SQUASH_MSG.md"
     And stdout does not contain "SENTINEL"
     And stdout does not contain "marker"
 
@@ -86,32 +86,32 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
       export const existing = 1
       """
-    And a commit "gtd(human): grilling" that adds "TODO.md" with:
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes "TODO.md"
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
     And a commit "gtd: building" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
     And a commit "gtd: package done"
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: awaiting review"
-    And a commit "gtd(human): review" that deletes "REVIEW.md"
+    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds "SQUASH_MSG.md" with:
+    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
       """
       chore: replace this template with a conventional-commits message
       """
-    And "SQUASH_MSG.md" is modified to:
+    And ".gtd/SQUASH_MSG.md" is modified to:
       """
       feat: add helper
 
@@ -120,7 +120,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "feat: add helper"
-    And the file "SQUASH_MSG.md" does not exist
+    And the file ".gtd/SQUASH_MSG.md" does not exist
     And the git log does not contain "gtd: squash template"
     And the git log does not contain "gtd: done"
     And the git log contains "chore: pre-cycle work"
@@ -132,26 +132,26 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
       squash: false
       """
-    And a commit "gtd(human): grilling" that adds "TODO.md" with:
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: awaiting review"
-    And a commit "gtd(human): review" that deletes "REVIEW.md"
+    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     When I run gtd step
     Then it succeeds
     And the last commit subject is "gtd: done"
     And the git log does not contain "gtd: squash template"
-    And the file "SQUASH_MSG.md" does not exist
+    And the file ".gtd/SQUASH_MSG.md" does not exist
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""
@@ -162,31 +162,31 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
       squash: true
       """
-    And a commit "gtd(human): grilling" that adds "TODO.md" with:
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes "TODO.md"
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: awaiting review"
-    And a commit "gtd(human): review" that deletes "REVIEW.md"
+    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds "SQUASH_MSG.md" with:
+    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
       """
       chore: replace this template with a conventional-commits message
       """
-    And "SQUASH_MSG.md" is modified to:
+    And ".gtd/SQUASH_MSG.md" is modified to:
       """
       absolutely not a conventional commit and mentions gtd: errors on purpose
       """
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "absolutely not a conventional commit and mentions gtd: errors on purpose"
-    And the file "SQUASH_MSG.md" does not exist
+    And the file ".gtd/SQUASH_MSG.md" does not exist

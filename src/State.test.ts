@@ -75,7 +75,7 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
         removeTodo: true,
         removeFeedback: true,
       }),
-    ).toBe('commit routing as "gtd: package done" (removing TODO.md, FEEDBACK.md)')
+    ).toBe('commit routing as "gtd: package done" (removing .gtd/TODO.md, .gtd/FEEDBACK.md)')
   })
 
   it("runTest reports the 1-indexed attempt number", () => {

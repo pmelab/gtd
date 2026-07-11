@@ -85,14 +85,19 @@ function runBashScript(
  * Drop any changed path that falls under an excluded path (exact match or
  * `<excluded>/...` prefix) — shared by every diff* op below, each of which
  * only differs in which two refs it reads `before`/`after` content from.
+ * An entry prefixed with `!` re-includes that path even when another entry
+ * excludes it (mirrors `applyExcludes` in src/Git.ts).
  */
 function excludingPaths<T extends { path: string }>(
   paths: ReadonlyArray<T>,
   exclude: ReadonlyArray<string>,
 ): ReadonlyArray<T> {
   if (exclude.length === 0) return paths
+  const keeps = exclude.filter((e) => e.startsWith("!")).map((e) => e.slice(1))
+  const drops = exclude.filter((e) => !e.startsWith("!"))
   return paths.filter(({ path }) => {
-    for (const ex of exclude) {
+    if (keeps.some((keep) => path === keep || path.startsWith(`${keep}/`))) return true
+    for (const ex of drops) {
       if (path === ex || path.startsWith(`${ex}/`)) return false
     }
     return true

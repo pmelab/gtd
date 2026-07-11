@@ -47,8 +47,8 @@ Feature: Health check — the idle test loop
     Then it succeeds
     And the git log contains "gtd: health-check"
     And the last commit subject is "gtd: health-check"
-    And the file "HEALTH.md" exists
-    And the file "HEALTH.md" contains "SENTINEL_HEALTH_FAILURE"
+    And the file ".gtd/HEALTH.md" exists
+    And the file ".gtd/HEALTH.md" contains "SENTINEL_HEALTH_FAILURE"
     When I run gtd next
     Then it succeeds
     And stdout contains "SENTINEL_HEALTH_FAILURE"
@@ -69,7 +69,7 @@ Feature: Health check — the idle test loop
       """
       export const lib = 1
       """
-    And a commit "gtd: health-check" that adds "HEALTH.md" with:
+    And a commit "gtd: health-check" that adds ".gtd/HEALTH.md" with:
       """
       SENTINEL_HEALTH_FAILURE
       """
@@ -84,8 +84,8 @@ Feature: Health check — the idle test loop
     And the git log contains "gtd: health-fix"
     And the git log contains "gtd: tests green"
     And the git log contains "gtd: squash template"
-    And the file "HEALTH.md" does not exist
-    And the file "SQUASH_MSG.md" exists
+    And the file ".gtd/HEALTH.md" does not exist
+    And the file ".gtd/SQUASH_MSG.md" exists
 
   Scenario: The health-fixer turn removes HEALTH.md and settles a plain idle rest with squash off
     Given a test project
@@ -103,7 +103,7 @@ Feature: Health check — the idle test loop
       """
       export const lib = 1
       """
-    And a commit "gtd: health-check" that adds "HEALTH.md" with:
+    And a commit "gtd: health-check" that adds ".gtd/HEALTH.md" with:
       """
       SENTINEL_HEALTH_FAILURE
       """
@@ -116,8 +116,8 @@ Feature: Health check — the idle test loop
     Then it succeeds
     And the git log contains "gtd(agent): health-fix"
     And the git log contains "gtd: health-fix"
-    And the file "HEALTH.md" does not exist
-    And the file "SQUASH_MSG.md" does not exist
+    And the file ".gtd/HEALTH.md" does not exist
+    And the file ".gtd/SQUASH_MSG.md" does not exist
     And the git log does not contain "gtd: squash template"
     When I run gtd next with "--json"
     Then it succeeds
@@ -142,8 +142,8 @@ Feature: Health check — the idle test loop
     And a commit "gtd: health-check"
     When I run gtd step
     Then it succeeds
-    And the file "ERRORS.md" exists
-    And the file "HEALTH.md" does not exist
+    And the file ".gtd/ERRORS.md" exists
+    And the file ".gtd/HEALTH.md" does not exist
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""
@@ -166,15 +166,15 @@ Feature: Health check — the idle test loop
       """
       export const lib = 1
       """
-    And a commit "gtd: health-check" that adds "ERRORS.md" with:
+    And a commit "gtd: health-check" that adds ".gtd/ERRORS.md" with:
       """
       Earlier health-check escalation output.
       """
-    And a deleted committed file "ERRORS.md"
+    And a deleted committed file ".gtd/ERRORS.md"
     When I run gtd step
     Then it succeeds
-    And the file "ERRORS.md" does not exist
-    And the file "HEALTH.md" does not exist
+    And the file ".gtd/ERRORS.md" does not exist
+    And the file ".gtd/HEALTH.md" does not exist
 
   Scenario: gtd next at a clean gtd: health-fix HEAD self-heals to idle/human
     Given a test project
@@ -182,11 +182,11 @@ Feature: Health check — the idle test loop
       """
       export const lib = 1
       """
-    And a commit "gtd: health-check" that adds "HEALTH.md" with:
+    And a commit "gtd: health-check" that adds ".gtd/HEALTH.md" with:
       """
       Earlier failure.
       """
-    And a commit "gtd: health-fix" that deletes "HEALTH.md"
+    And a commit "gtd: health-fix" that deletes ".gtd/HEALTH.md"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""

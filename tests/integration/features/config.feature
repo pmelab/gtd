@@ -35,7 +35,7 @@ Feature: .gtdrc config system
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd: errors"
-    And the file "FEEDBACK.md" contains "CONFIG_SENTINEL"
+    And the file ".gtd/FEEDBACK.md" contains "CONFIG_SENTINEL"
     When I run gtd next
     Then it succeeds
     And stdout contains "Spawn a **fix subagent**"
@@ -50,7 +50,7 @@ Feature: .gtdrc config system
         planning: my-planner-model
         execution: my-executor-model
       """
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -89,7 +89,7 @@ Feature: .gtdrc config system
         states:
           decompose: state-decompose-model
       """
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -102,7 +102,7 @@ Feature: .gtdrc config system
   @inmem
   Scenario: Built-in planning default applies with no config present
     Given a test project
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -151,7 +151,7 @@ Feature: .gtdrc config system
       """
     When I run gtd step-agent
     Then it succeeds
-    And the file "ERRORS.md" exists
+    And the file ".gtd/ERRORS.md" exists
     When I run gtd next
     Then it succeeds
     And stdout contains "was not able to fix all errors on its own"
@@ -170,7 +170,7 @@ Feature: .gtdrc config system
       """
       Implement the helper.
       """
-    And a commit "gtd(agent): agentic-review" that adds "FEEDBACK.md" with:
+    And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
       """
       Finding: round one.
       """
@@ -210,7 +210,7 @@ Feature: .gtdrc config system
         planning: ancestor-planner-model
         execution: ancestor-executor-model
       """
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -227,7 +227,7 @@ Feature: .gtdrc config system
       """
       fixAttemptCap: -1
       """
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -242,7 +242,7 @@ Feature: .gtdrc config system
       """
       fixAttemptCap: 1.5
       """
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -257,7 +257,7 @@ Feature: .gtdrc config system
       """
       reviewThreshold: 0
       """
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -286,7 +286,7 @@ Feature: .gtdrc config system
       """
       testCommand: [unclosed
       """
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -302,7 +302,7 @@ Feature: .gtdrc config system
       - item1
       - item2
       """
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -317,7 +317,7 @@ Feature: .gtdrc config system
       """
       bogusKey: 1
       """
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -333,7 +333,7 @@ Feature: .gtdrc config system
       """
       null
       """
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -344,7 +344,7 @@ Feature: .gtdrc config system
   @live
   Scenario: A clean project auto-creates .gtdrc.json with a $schema link
     Given a test project
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -356,7 +356,7 @@ Feature: .gtdrc config system
   @live
   Scenario: A second gtd run does not reject the auto-created .gtdrc.json
     Given a test project
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """
@@ -376,7 +376,7 @@ Feature: .gtdrc config system
       models:
         planning: shared-parent-planner
       """
-    And a commit "gtd: grilled" that adds "TODO.md" with:
+    And a commit "gtd: grilled" that adds ".gtd/TODO.md" with:
       """
       Build the multiply function.
       """

@@ -9,7 +9,7 @@ Feature: gtd step-agent — the agent mutator
 
   Scenario: Refuses while a human turn is awaited
     Given a test project
-    And a commit "gtd(agent): grilling" that adds "TODO.md" with:
+    And a commit "gtd(agent): grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -27,7 +27,7 @@ Feature: gtd step-agent — the agent mutator
 
   Scenario: An empty agent turn is recorded once and next re-emits the same prompt
     Given a test project
-    And a commit "gtd(human): grilling" that adds "TODO.md" with:
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -48,13 +48,13 @@ Feature: gtd step-agent — the agent mutator
 
   Scenario: A normal agent turn captures dirty TODO.md and leaves the tree clean
     Given a test project
-    And a commit "gtd(human): grilling" that adds "TODO.md" with:
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
       Build a calculator.
       """
-    And "TODO.md" is modified to:
+    And ".gtd/TODO.md" is modified to:
       """
       # Plan
 

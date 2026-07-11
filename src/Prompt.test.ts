@@ -376,9 +376,9 @@ describe("buildPrompt", () => {
       expect(out).not.toContain("### Feedback to address")
     })
 
-    it("mentions disputing feedback by emptying or deleting FEEDBACK.md", () => {
+    it("mentions disputing feedback by emptying or deleting .gtd/FEEDBACK.md", () => {
       const out = buildPrompt(result("fixing"))
-      expect(out).toMatch(/empty or delete\s+`FEEDBACK\.md`/)
+      expect(out).toMatch(/empty or delete\s+`\.gtd\/FEEDBACK\.md`/)
     })
   })
 

@@ -156,9 +156,11 @@ describe("awaitedActor", () => {
 
 describe("assertLegal / GtdStateError", () => {
   it("throws illegal-combination for REVIEW.md + .gtd", () => {
-    expect(() => resolve([R({ reviewPresent: true, gtdDirExists: true })])).toThrow(GtdStateError)
+    expect(() => resolve([R({ reviewPresent: true, packagesPresent: true })])).toThrow(
+      GtdStateError,
+    )
     try {
-      resolve([R({ reviewPresent: true, gtdDirExists: true })])
+      resolve([R({ reviewPresent: true, packagesPresent: true })])
       expect.fail("expected throw")
     } catch (e) {
       expect(e).toBeInstanceOf(GtdStateError)
@@ -171,7 +173,7 @@ describe("assertLegal / GtdStateError", () => {
   })
 
   it("throws illegal-combination for FEEDBACK.md without .gtd", () => {
-    expect(() => resolve([R({ feedbackPresent: true, gtdDirExists: false })])).toThrow(
+    expect(() => resolve([R({ feedbackPresent: true, packagesPresent: false })])).toThrow(
       GtdStateError,
     )
   })
@@ -269,7 +271,7 @@ describe("out-of-turn: step-agent while human awaited", () => {
   })
 
   it("refuses at escalate", () => {
-    const result = resolve([R({ invoker: "agent", errorsPresent: true, gtdDirExists: true })])
+    const result = resolve([R({ invoker: "agent", errorsPresent: true, packagesPresent: true })])
     expect(result.refusal).toContain("awaits a human turn")
   })
 })
@@ -279,7 +281,7 @@ describe("out-of-turn: human step while agent awaited", () => {
     const result = resolve([
       R({
         invoker: "human",
-        gtdDirExists: true,
+        packagesPresent: true,
         workingTreeClean: false,
         codeDirty: true,
         lastCommitSubject: "gtd: planning",
@@ -294,7 +296,7 @@ describe("out-of-turn: human step while agent awaited", () => {
     const result = resolve([
       R({
         invoker: "human",
-        gtdDirExists: true,
+        packagesPresent: true,
         workingTreeClean: true,
         lastCommitSubject: "gtd: planning",
       }),
@@ -311,7 +313,7 @@ describe("out-of-turn: human step while agent awaited", () => {
         lastCommitSubject: "gtd: grilled",
         todoExists: true,
         todoCommitted: true,
-        gtdDirExists: true,
+        packagesPresent: true,
         gtdModified: true,
         workingTreeClean: false,
       }),
@@ -475,13 +477,15 @@ describe("health lifecycle", () => {
 
 describe("feedback lifecycle", () => {
   it("non-empty FEEDBACK.md → fixing", () => {
-    const result = resolve([R({ gtdDirExists: true, feedbackPresent: true, feedbackEmpty: false })])
+    const result = resolve([
+      R({ packagesPresent: true, feedbackPresent: true, feedbackEmpty: false }),
+    ])
     expect(result.state).toBe("fixing")
   })
 
   it("empty FEEDBACK.md → close-package (mid-chain, invoker agent performs it)", () => {
     const result = resolve([
-      R({ invoker: "agent", gtdDirExists: true, feedbackPresent: true, feedbackEmpty: true }),
+      R({ invoker: "agent", packagesPresent: true, feedbackPresent: true, feedbackEmpty: true }),
     ])
     expect(result.state).toBe("close-package")
     expect(result.edgeAction).toEqual({ kind: "closePackage" })
@@ -489,7 +493,7 @@ describe("feedback lifecycle", () => {
 
   it("empty FEEDBACK.md, invoker none → reported pending, no mutation", () => {
     const result = resolve([
-      R({ invoker: "none", gtdDirExists: true, feedbackPresent: true, feedbackEmpty: true }),
+      R({ invoker: "none", packagesPresent: true, feedbackPresent: true, feedbackEmpty: true }),
     ])
     expect(result.state).toBe("close-package")
     expect(result.pending).toBe(true)
@@ -501,7 +505,7 @@ describe("tests green force-approve", () => {
   it("agenticReviewEnabled false → close-package directly", () => {
     const result = resolve([
       R({
-        gtdDirExists: true,
+        packagesPresent: true,
         workingTreeClean: true,
         lastCommitSubject: "gtd: tests green",
         agenticReviewEnabled: false,
@@ -513,7 +517,7 @@ describe("tests green force-approve", () => {
   it("agenticReviewEnabled true → agentic-review prompt", () => {
     const result = resolve([
       R({
-        gtdDirExists: true,
+        packagesPresent: true,
         workingTreeClean: true,
         lastCommitSubject: "gtd: tests green",
         agenticReviewEnabled: true,
@@ -625,7 +629,7 @@ describe("corruption", () => {
   it("throws corruption for an unrecognized clean .gtd HEAD", () => {
     expect(() =>
       resolve([
-        R({ gtdDirExists: true, workingTreeClean: true, lastCommitSubject: "chore: weird" }),
+        R({ packagesPresent: true, workingTreeClean: true, lastCommitSubject: "chore: weird" }),
       ]),
     ).toThrow(GtdStateError)
   })

@@ -13,11 +13,11 @@ Feature: Manual steering-file misuse, v1-history inertness, and odd .gtd content
   (documented below as a deliberate v1→v2 behavior change). v1-taxonomy
   history (`gtd: new task`, `gtd: grilling`, `gtd: transport`, …) falls outside
   the v2 closed subject sets and is inert boundary history, never an error. A
-  hand-committed stray SQUASH_MSG.md under a boundary HEAD is also inert:
-  SQUASH_MSG.md is in the steering-file exclusion set the same as TODO.md/
-  REVIEW.md, so its mere presence never marks the tree dirty and never
-  registers as an unrecognized-HEAD corruption — the machine simply proceeds
-  through its ordinary boundary/idle ladder.
+  hand-committed stray SQUASH_MSG.md at the repo root under a boundary HEAD is
+  also inert: workflow state lives under `.gtd/`, so a root-level SQUASH_MSG.md
+  (like a root-level TODO.md or REVIEW.md) is ordinary project content and
+  never registers as an unrecognized-HEAD corruption — the machine simply
+  proceeds through its ordinary boundary/idle ladder.
 
   Scenario: An unrecognized clean .gtd HEAD matches no rule and hard-errors
     Given a test project
@@ -91,12 +91,10 @@ Feature: Manual steering-file misuse, v1-history inertness, and odd .gtd content
     And stdout contains "State: idle"
 
   Scenario: A stray hand-committed SQUASH_MSG.md under a boundary HEAD is inert, not corruption
-    # SQUASH_MSG.md sits in the same steering-file exclusion set as TODO.md and
-    # REVIEW.md, so its presence never marks the tree dirty and the machine
-    # never even inspects it outside of the squash chain's own HEAD subjects
-    # (`gtd: done` / `gtd: squash template` / `gtd(agent): squashing`) — this
-    # pins that a stray, out-of-chain copy is silently ignored rather than
-    # hard-erroring as unrecognized state.
+    # Workflow state lives under `.gtd/`; a root-level SQUASH_MSG.md is
+    # ordinary project content the machine never inspects — this pins that a
+    # stray, out-of-chain copy is silently ignored rather than hard-erroring
+    # as unrecognized state.
     Given a test project
     And a commit "feat: work" that adds "src/work.ts" with:
       """

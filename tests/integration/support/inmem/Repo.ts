@@ -223,7 +223,11 @@ export class InMemRepo {
 
     return filtered.map((c) => {
       const parentTree = c.parent ? (this.getCommit(c.parent)?.files ?? new Map()) : new Map()
-      const removedErrors = parentTree.has("ERRORS.md") && !c.files.has("ERRORS.md")
+      // Legacy root-level ERRORS.md kept so pre-namespaced history still
+      // classifies (mirrors src/Git.ts).
+      const removedErrors = [".gtd/ERRORS.md", "ERRORS.md"].some(
+        (p) => parentTree.has(p) && !c.files.has(p),
+      )
       const touched = diffTrees(parentTree, c.files).map((e) => e.path)
       return { hash: c.hash, message: c.message, removedErrors, touched }
     })

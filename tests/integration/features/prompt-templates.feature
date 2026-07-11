@@ -24,7 +24,7 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
 
   Scenario: The plain human review-gate prompt has no agent tail
     Given a test project
-    And a commit "gtd(agent): review" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -33,7 +33,7 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
     And a commit "gtd: awaiting review"
     When I run gtd next
     Then it succeeds
-    And stdout contains "REVIEW.md"
+    And stdout contains ".gtd/REVIEW.md"
     And stdout does not contain "Finish your turn by running `gtd step-agent`."
     And stdout does not contain "gtd step-agent"
 
@@ -50,7 +50,7 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
 
   Scenario: No prompt ever contains v1 marker or sentinel text
     Given a test project
-    And a commit "gtd: grilling" that adds "TODO.md" with:
+    And a commit "gtd: grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
 
@@ -82,7 +82,7 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds "FEEDBACK.md" with:
+    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
@@ -100,14 +100,14 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
       squash: true
       """
     And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds "SQUASH_MSG.md" with:
+    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
       """
       <!-- gtd: replace this file's content with the real squash commit message. -->
       type: short summary
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "SQUASH_MSG.md"
+    And stdout contains ".gtd/SQUASH_MSG.md"
     And stdout contains "conventional-commits"
     And stdout does not contain "SENTINEL"
     And stdout does not contain "marker"

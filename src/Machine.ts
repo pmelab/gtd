@@ -117,17 +117,17 @@ export interface ResolvePayload {
   readonly todoExists: boolean
   /** The present `TODO.md` is tracked at HEAD. */
   readonly todoCommitted: boolean
-  /** `.gtd/` exists. */
-  readonly gtdDirExists: boolean
+  /** Numbered work packages exist under `.gtd/` (committed or pending). NOT "the directory exists" — steering files share `.gtd/`, so bare dir presence means nothing. */
+  readonly packagesPresent: boolean
   /** `REVIEW.md` is present (committed and/or pending). */
   readonly reviewPresent: boolean
   /** `FEEDBACK.md` is present (committed and/or pending). */
   readonly feedbackPresent: boolean
   /** A committed `ERRORS.md` is present — the test loop escalated. */
   readonly errorsPresent: boolean
-  /** `.gtd/` package files were added/edited vs the committed tree. */
+  /** `.gtd/` work-package files (numbered dirs only, never steering files) were added/edited vs the committed tree. */
   readonly gtdModified: boolean
-  /** Pending changes outside the steering set (TODO/REVIEW/FEEDBACK/ERRORS/.gtd). */
+  /** Pending changes outside `.gtd/` — everything not workflow-managed is code. */
   readonly codeDirty: boolean
   /** The present `FEEDBACK.md` is committed. */
   readonly feedbackCommitted: boolean
@@ -373,7 +373,7 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   headTurnIsEmpty: false,
   todoExists: false,
   todoCommitted: false,
-  gtdDirExists: false,
+  packagesPresent: false,
   reviewPresent: false,
   feedbackPresent: false,
   errorsPresent: false,
@@ -423,19 +423,32 @@ interface IllegalCombinationRule {
 }
 
 // HEALTH.md-specific combinations are listed before the generic "<file>
-// without .gtd" rules below: HEALTH.md + FEEDBACK.md (or + ERRORS.md) with no
-// `.gtd/` present would otherwise also match the generic "FEEDBACK.md without
-// .gtd" / "ERRORS.md without .gtd" rules, whose message names only one file
-// and doesn't mention HEALTH.md at all — the more specific two-file diagnosis
-// must win, so it must be checked first.
+// without packages" rules below: HEALTH.md + FEEDBACK.md (or + ERRORS.md) with
+// no work packages present would otherwise also match the generic "FEEDBACK.md
+// without packages" / "ERRORS.md without packages" rules, whose message names
+// only one file and doesn't mention HEALTH.md at all — the more specific
+// two-file diagnosis must win, so it must be checked first.
 const healthFileConflictRules: readonly IllegalCombinationRule[] = [
-  { isViolated: (p) => p.healthPresent && p.gtdDirExists, message: "HEALTH.md + .gtd" },
-  { isViolated: (p) => p.healthPresent && p.reviewPresent, message: "HEALTH.md + REVIEW.md" },
-  { isViolated: (p) => p.healthPresent && p.feedbackPresent, message: "HEALTH.md + FEEDBACK.md" },
-  { isViolated: (p) => p.healthPresent && p.errorsPresent, message: "HEALTH.md + ERRORS.md" },
+  {
+    isViolated: (p) => p.healthPresent && p.packagesPresent,
+    message: ".gtd/HEALTH.md + packages",
+  },
+  {
+    isViolated: (p) => p.healthPresent && p.reviewPresent,
+    message: ".gtd/HEALTH.md + .gtd/REVIEW.md",
+  },
+  {
+    isViolated: (p) => p.healthPresent && p.feedbackPresent,
+    message: ".gtd/HEALTH.md + .gtd/FEEDBACK.md",
+  },
+  {
+    isViolated: (p) => p.healthPresent && p.errorsPresent,
+    message: ".gtd/HEALTH.md + .gtd/ERRORS.md",
+  },
 ]
 
-const isReviewGtdConflict = (p: ResolvePayload): boolean => p.reviewPresent && p.gtdDirExists
+const isReviewPackagesConflict = (p: ResolvePayload): boolean =>
+  p.reviewPresent && p.packagesPresent
 
 const isReviewCommittedTodoConflict = (p: ResolvePayload): boolean =>
   p.reviewPresent && p.todoCommitted
@@ -446,26 +459,33 @@ const isUncommittedReviewWithTodoConflict = (p: ResolvePayload): boolean =>
 const isFeedbackReviewConflict = (p: ResolvePayload): boolean =>
   p.feedbackPresent && p.reviewPresent
 
-const isFeedbackWithoutGtdDir = (p: ResolvePayload): boolean => p.feedbackPresent && !p.gtdDirExists
+const isFeedbackWithoutPackages = (p: ResolvePayload): boolean =>
+  p.feedbackPresent && !p.packagesPresent
 
 const isErrorsFeedbackConflict = (p: ResolvePayload): boolean =>
   p.errorsPresent && p.feedbackPresent
 
-/** ERRORS.md briefly outlives `.gtd/` during the health-check cap escalation. */
+/** ERRORS.md briefly outlives the packages during the health-check cap escalation. */
 const isHealthCapEscalation = (p: ResolvePayload): boolean =>
   p.lastCommitSubject === "gtd: health-check" || p.lastCommitSubject === "gtd: health-fix"
 
-const isErrorsWithoutGtdDir = (p: ResolvePayload): boolean =>
-  p.errorsPresent && !p.gtdDirExists && !isHealthCapEscalation(p)
+const isErrorsWithoutPackages = (p: ResolvePayload): boolean =>
+  p.errorsPresent && !p.packagesPresent && !isHealthCapEscalation(p)
 
 const reviewAndFeedbackRules: readonly IllegalCombinationRule[] = [
-  { isViolated: isReviewGtdConflict, message: "REVIEW.md + .gtd" },
-  { isViolated: isReviewCommittedTodoConflict, message: "REVIEW.md + committed TODO.md" },
-  { isViolated: isUncommittedReviewWithTodoConflict, message: "uncommitted REVIEW.md + TODO.md" },
-  { isViolated: isFeedbackReviewConflict, message: "FEEDBACK.md + REVIEW.md" },
-  { isViolated: isFeedbackWithoutGtdDir, message: "FEEDBACK.md without .gtd" },
-  { isViolated: isErrorsFeedbackConflict, message: "ERRORS.md + FEEDBACK.md" },
-  { isViolated: isErrorsWithoutGtdDir, message: "ERRORS.md without .gtd" },
+  { isViolated: isReviewPackagesConflict, message: ".gtd/REVIEW.md + packages" },
+  {
+    isViolated: isReviewCommittedTodoConflict,
+    message: ".gtd/REVIEW.md + committed .gtd/TODO.md",
+  },
+  {
+    isViolated: isUncommittedReviewWithTodoConflict,
+    message: "uncommitted .gtd/REVIEW.md + .gtd/TODO.md",
+  },
+  { isViolated: isFeedbackReviewConflict, message: ".gtd/FEEDBACK.md + .gtd/REVIEW.md" },
+  { isViolated: isFeedbackWithoutPackages, message: ".gtd/FEEDBACK.md without packages" },
+  { isViolated: isErrorsFeedbackConflict, message: ".gtd/ERRORS.md + .gtd/FEEDBACK.md" },
+  { isViolated: isErrorsWithoutPackages, message: ".gtd/ERRORS.md without packages" },
 ]
 
 /**
@@ -510,7 +530,7 @@ type HeadClass =
 /** The small set of config/content-dependent facts a subject-only classification still needs. */
 interface ClassifyFlags {
   readonly headTurnIsEmpty: boolean
-  readonly hasGtdDir: boolean
+  readonly hasPackages: boolean
   readonly agenticReviewForceApproved: boolean
   readonly squashEnabled: boolean
   readonly hasSquashBase: boolean
@@ -659,7 +679,7 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
       case "planning":
         return { kind: "rest", state: "building", actor: "agent" }
       case "tests-green":
-        if (flags.hasGtdDir) {
+        if (flags.hasPackages) {
           return flags.agenticReviewForceApproved
             ? {
                 kind: "mid-chain",
@@ -835,7 +855,7 @@ const resolveBaseline = (
 
   const flags: ClassifyFlags = {
     headTurnIsEmpty: p.headTurnIsEmpty,
-    hasGtdDir: p.gtdDirExists,
+    hasPackages: p.packagesPresent,
     agenticReviewForceApproved: forceApprove,
     squashEnabled: p.squashEnabled,
     hasSquashBase: p.squashBase !== undefined,
@@ -895,7 +915,7 @@ const resolveBaseline = (
   }
 
   // .gtd modified (package files added/edited) → Planning, regardless of HEAD.
-  if (p.gtdDirExists && p.gtdModified) {
+  if (p.packagesPresent && p.gtdModified) {
     return { kind: "rest", state: "planning", actor: "agent" }
   }
 
@@ -926,7 +946,7 @@ const resolveBaseline = (
   // unrecognized boundary HEAD with no such checkpoint in its history must
   // still hard-error (steering-misuse contract).
   if (
-    p.gtdDirExists &&
+    p.packagesPresent &&
     p.packages.length > 0 &&
     lastTurn?.actor === "agent" &&
     lastTurn.gate === "building"
@@ -936,7 +956,7 @@ const resolveBaseline = (
 
   // No steering files, no recognized workflow HEAD: boundary/idle lifecycle.
   if (
-    !p.gtdDirExists &&
+    !p.packagesPresent &&
     !p.reviewPresent &&
     !p.feedbackPresent &&
     !p.errorsPresent &&
@@ -986,7 +1006,7 @@ const applyTurnTaking = (
     invoker === "human" &&
     !p.workingTreeClean &&
     !p.todoCommitted &&
-    !p.gtdDirExists &&
+    !p.packagesPresent &&
     !p.reviewPresent &&
     !p.feedbackPresent &&
     !p.errorsPresent &&
@@ -1208,7 +1228,7 @@ export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
   const isDirtyBoundaryEntry =
     !payload.workingTreeClean &&
     !payload.todoCommitted &&
-    !payload.gtdDirExists &&
+    !payload.packagesPresent &&
     !payload.reviewPresent &&
     !payload.feedbackPresent &&
     !payload.errorsPresent &&

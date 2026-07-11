@@ -29,7 +29,7 @@ Feature: Close package — one gtd: package done per package, via the CLI
       Implement the second helper.
       """
     And a commit "gtd: tests green"
-    And an empty file "FEEDBACK.md"
+    And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd(agent): agentic-review"
@@ -44,7 +44,7 @@ Feature: Close package — one gtd: package done per package, via the CLI
     Then it succeeds
     And the git log contains "gtd(agent): building"
     And the last commit subject is "gtd: tests green"
-    And an empty file "FEEDBACK.md"
+    And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step-agent
     Then it succeeds
     And the file ".gtd/02-bar/01-task.md" does not exist
@@ -53,12 +53,12 @@ Feature: Close package — one gtd: package done per package, via the CLI
 
   Scenario: Closing the last package removes .gtd and advances to the human review record
     Given a test project
-    And a commit "gtd(human): grilling" that adds "TODO.md" with:
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       # Plan
       - [ ] implement the only helper
       """
-    And a commit "gtd: grilled" that deletes "TODO.md"
+    And a commit "gtd: grilled" that deletes ".gtd/TODO.md"
     And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the only helper.
@@ -68,12 +68,12 @@ Feature: Close package — one gtd: package done per package, via the CLI
       export const helper = () => 42
       """
     And a commit "gtd: tests green"
-    And an empty file "FEEDBACK.md"
+    And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd: package done"
     And the file ".gtd" does not exist
-    And the file "FEEDBACK.md" does not exist
+    And the file ".gtd/FEEDBACK.md" does not exist
     And the last commit subject is "gtd: package done"
     # `gtd: package done` with no packages remaining is itself a rest (the
     # review-record prompt) — a FRESH agent turn is required to author the
@@ -87,7 +87,7 @@ Feature: Close package — one gtd: package done per package, via the CLI
     And the last commit subject is "gtd: awaiting review"
     When I run gtd next
     Then it succeeds
-    And stdout contains "REVIEW.md"
+    And stdout contains ".gtd/REVIEW.md"
     And stdout contains "nothing for the agent to do"
 
   Scenario: Force-approve via agenticReview false also closes the package without ever writing FEEDBACK.md
@@ -105,5 +105,5 @@ Feature: Close package — one gtd: package done per package, via the CLI
     Then it succeeds
     And the last commit subject is "gtd: package done"
     And the file ".gtd/01-foo/01-task.md" does not exist
-    And the file "FEEDBACK.md" does not exist
+    And the file ".gtd/FEEDBACK.md" does not exist
     And the git log does not contain "gtd(agent): agentic-review"

@@ -1,6 +1,6 @@
 <%~ include("@header") %>
 
-`TODO.md` contains an implementation plan. Decompose it into an ordered set of
+`.gtd/TODO.md` contains an implementation plan. Decompose it into an ordered set of
 executable work packages stored in the `.gtd/` directory. If `.gtd/` already
 holds packages from an earlier turn, immediately abort and raise an error.
 
@@ -42,6 +42,13 @@ task files:
    checkboxes, the relevant file paths to examine, and any constraints or edge
    cases. It is the only context building agents will receive to work on the
    task.
+
+6. **Specs must never reference `.gtd/` files** — `.gtd/TODO.md` is consumed
+   and **deleted** the moment decomposition completes, and every other file
+   under `.gtd/` (including these task specs) is machine-managed workflow
+   state. No task description, acceptance criterion, or constraint may require
+   creating, preserving, updating, or checking any `.gtd/` file — such a
+   criterion can never be satisfied and would derail the workflow.
 
 **DO NOT** commit any changes. This process runs within a larger orchestration
 that depends on uncommitted changes.
