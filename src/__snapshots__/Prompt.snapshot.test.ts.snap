@@ -765,28 +765,20 @@ Tell the user:
 `;
 
 exports[`buildPrompt snapshots > idle json 1`] = `
-"You are an autonomous coding agent orchestrating work on the user's repo.
+"The repository is idle — no work cycle is in progress and the health check is
+green. Nothing to do.
 
-The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
-records). Never create, edit, delete, or reference files under \`.gtd/\` — and
-never instruct a subagent to — except the specific \`.gtd/\` file this prompt
-explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
-*outside* \`.gtd/\` is ordinary project code, not workflow state.
-
-Report that the repository is idle — nothing to do.
+Start a new cycle by sketching an idea in the working tree (edit code or add a
+short note, e.g. \`IDEA.md\`) and running \`gtd step\` to capture it.
 "
 `;
 
 exports[`buildPrompt snapshots > idle plain 1`] = `
-"You are an autonomous coding agent orchestrating work on the user's repo.
+"The repository is idle — no work cycle is in progress and the health check is
+green. Nothing to do.
 
-The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
-records). Never create, edit, delete, or reference files under \`.gtd/\` — and
-never instruct a subagent to — except the specific \`.gtd/\` file this prompt
-explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
-*outside* \`.gtd/\` is ordinary project code, not workflow state.
-
-Report that the repository is idle — nothing to do.
+Start a new cycle by sketching an idea in the working tree (edit code or add a
+short note, e.g. \`IDEA.md\`) and running \`gtd step\` to capture it.
 "
 `;
 

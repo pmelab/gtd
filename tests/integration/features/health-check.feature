@@ -190,3 +190,20 @@ Feature: Health check — the idle test loop
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""
+
+  Scenario: The health-fixing prompt never offers the FEEDBACK.md dispute path
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: "false"
+      """
+    And a commit "gtd: health-check" that adds ".gtd/HEALTH.md" with:
+      """
+      SENTINEL_HEALTH_FAILURE
+      """
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "SENTINEL_HEALTH_FAILURE"
+    And stdout contains "health check"
+    And stdout contains "removes `.gtd/HEALTH.md` itself"
+    And stdout does not contain "empty or delete `.gtd/FEEDBACK.md`"
