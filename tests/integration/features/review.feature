@@ -176,3 +176,24 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
     When I run gtd step
     Then it succeeds
     And the commit count is unchanged
+
+  Scenario: A historical review turn without a review record rests instead of routing to the human gate
+    Given a test project
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a commit "gtd(agent): building" that adds "src/helper.ts" with:
+      """
+      export const helper = () => 42
+      """
+    And a commit "gtd: package done"
+    And a commit "gtd(agent): review"
+    Then I record the commit count
+    When I run gtd step-agent
+    Then it succeeds
+    And the commit count is unchanged
+    And the git log does not contain "gtd: awaiting review"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "help a human to review the changes"

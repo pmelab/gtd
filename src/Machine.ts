@@ -143,6 +143,8 @@ export interface ResolvePayload {
   readonly reviewCheckboxOnly: boolean
   /** The working tree deletes a committed `ERRORS.md` (human resume → fresh budget). */
   readonly pendingErrorsDeletion: boolean
+  /** `FEEDBACK.md` has a pending (uncommitted) deletion — a delete-dispute. */
+  readonly pendingFeedbackDeletion: boolean
   /** Subject of HEAD (first-parent). */
   readonly lastCommitSubject: string
   /** The whole working tree is clean. */
@@ -168,6 +170,13 @@ export interface ResolvePayload {
   /** Squash enabled (config kill-switch). */
   readonly squashEnabled: boolean
   readonly squashMsgPresent: boolean
+  /**
+   * `SQUASH_MSG.md` still holds the unmodified template written by
+   * `writeSquashTemplate` (or is absent). Guards the squash: the file's
+   * content becomes the squash commit's message verbatim, so the machine
+   * must never squash while this is true.
+   */
+  readonly squashMsgIsTemplate: boolean
   /** `HEALTH.md` exists (committed or pending). */
   readonly healthPresent: boolean
   /** Full text of the present `HEALTH.md` ("" when absent). */
@@ -386,6 +395,7 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   reviewDirty: false,
   reviewCheckboxOnly: false,
   pendingErrorsDeletion: false,
+  pendingFeedbackDeletion: false,
   lastCommitSubject: "",
   workingTreeClean: true,
   packages: [],
@@ -395,6 +405,7 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   reviewThreshold: 3,
   squashEnabled: false,
   squashMsgPresent: false,
+  squashMsgIsTemplate: false,
   healthPresent: false,
   healthContent: "",
   healthCommitted: false,
@@ -537,6 +548,8 @@ interface ClassifyFlags {
   readonly squashAfterGreen: boolean
   readonly reviewSubstantive: boolean
   readonly errorsPresent: boolean
+  readonly reviewPresent: boolean
+  readonly squashMsgIsTemplate: boolean
 }
 
 /**
@@ -571,12 +584,21 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
     }
 
     if (actor === "agent" && gate === "grilled") {
-      return {
-        kind: "mid-chain",
-        state: "grilled",
-        actor: "agent",
-        action: { kind: "commitRouting", subject: "gtd: planning", removeTodo: true },
-      }
+      // The decompose turn must actually have produced packages before the
+      // machine consumes the plan: routing to `gtd: planning` removes
+      // `.gtd/TODO.md`, and doing that for a turn WITHOUT packages (e.g. a
+      // loop driver's opening `gtd step-agent` captured before the agent
+      // acted) would destroy the plan and drop the cycle into a package-less
+      // building state that silently skips every review gate. No packages →
+      // rest so `gtd next` re-emits the decompose prompt.
+      return flags.hasPackages
+        ? {
+            kind: "mid-chain",
+            state: "grilled",
+            actor: "agent",
+            action: { kind: "commitRouting", subject: "gtd: planning", removeTodo: true },
+          }
+        : { kind: "rest", state: "grilled", actor: "agent" }
     }
 
     if (actor === "agent" && gate === "building") {
@@ -616,12 +638,19 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
     }
 
     if (actor === "agent" && gate === "review") {
-      return {
-        kind: "mid-chain",
-        state: "review",
-        actor: "agent",
-        action: { kind: "commitRouting", subject: "gtd: awaiting review" },
-      }
+      // The record-writing turn must actually have produced `.gtd/REVIEW.md`
+      // before the machine routes to the human gate — `gtd: awaiting review`
+      // without a review record asks the human to review a file that does
+      // not exist. No record → rest so `gtd next` re-emits the review-record
+      // prompt.
+      return flags.reviewPresent
+        ? {
+            kind: "mid-chain",
+            state: "review",
+            actor: "agent",
+            action: { kind: "commitRouting", subject: "gtd: awaiting review" },
+          }
+        : { kind: "rest", state: "review", actor: "agent" }
     }
 
     if (actor === "human" && gate === "review") {
@@ -641,7 +670,12 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
     }
 
     if (actor === "agent" && gate === "squashing") {
-      return flags.hasSquashBase
+      // Never squash while `.gtd/SQUASH_MSG.md` still holds the unmodified
+      // template — the squash commit's message is the file's content
+      // verbatim, so squashing here would permanently stamp the placeholder
+      // text onto the collapsed cycle. Rest instead so `gtd next` re-emits
+      // the squashing prompt until a real message is written.
+      return flags.hasSquashBase && !flags.squashMsgIsTemplate
         ? {
             kind: "mid-chain",
             state: "squashing",
@@ -763,6 +797,34 @@ const gateForState = (state: GtdState): TurnGate =>
   STATE_IS_OWN_GATE.has(state) ? (state as TurnGate) : "review"
 
 /**
+ * Agent-awaited rests whose move is a file artifact (a developed plan,
+ * packages, built code, a fix, FEEDBACK.md, REVIEW.md): a real turn always
+ * dirties the tree, so a clean tree here is a do-nothing invocation.
+ * `squashing` joins the set only while `.gtd/SQUASH_MSG.md` still holds the
+ * unmodified template — squashing then would stamp the placeholder text onto
+ * the collapsed cycle. `health-fixing` is deliberately absent: its empty turn
+ * is meaningful (environmental fix; the machine removes HEALTH.md and
+ * re-tests).
+ */
+const INERT_EMPTY_AGENT_GATES: ReadonlySet<GtdState> = new Set([
+  "grilling",
+  "grilled",
+  "building",
+  "fixing",
+  "agentic-review",
+  "review",
+])
+
+/**
+ * True when a `step-agent` invocation at this rest has nothing to capture —
+ * see `INERT_EMPTY_AGENT_GATES`. Shared by `applyTurnTaking` (author nothing)
+ * and `predictTurn` (predict null) so the two can never disagree.
+ */
+const isInertEmptyAgentRest = (state: GtdState, p: ResolvePayload): boolean =>
+  p.workingTreeClean &&
+  (INERT_EMPTY_AGENT_GATES.has(state) || (state === "squashing" && p.squashMsgIsTemplate))
+
+/**
  * The baseline decision: classify HEAD, falling through to the payload-driven
  * ladder for the rows `classifyHead` cannot resolve alone (boundary subjects,
  * `package-done`'s package/diff-dependent split). Ignorant of turn-taking —
@@ -823,7 +885,15 @@ const resolveBaseline = (
   if (p.healthPresent && !headIsHealthFixerTurn) {
     return { kind: "rest", state: "health-fixing", actor: "agent" }
   }
-  if (p.feedbackPresent && !headIsFixerTurn && !(forceApprove && head === "gtd: tests green")) {
+  // A pending deletion of FEEDBACK.md is the fixer's delete-dispute —
+  // semantically identical to emptying the file, so both flow through this
+  // branch (rest at fixing → capture → strip + re-test inside the fix loop;
+  // approval-close semantics as a fresh reviewer verdict). Without this, a
+  // delete-dispute falls through to classifyHead and gets captured as an
+  // inert reviewer turn that never re-tests.
+  const feedbackEffective = p.feedbackPresent || p.pendingFeedbackDeletion
+  const feedbackEmptyEffective = p.feedbackEmpty || p.pendingFeedbackDeletion
+  if (feedbackEffective && !headIsFixerTurn && !(forceApprove && head === "gtd: tests green")) {
     // FEEDBACK.md written live by the Agentic Review agent (HEAD is still
     // `gtd: tests green`, the rest that shows the agentic-review prompt) is
     // initially uncommitted — that write must be captured as the agent's
@@ -841,7 +911,7 @@ const resolveBaseline = (
     // "the finding is gone," not "the reviewer approved," so it must still
     // rest at fixing (captureTurn, then classifyHead's `agent, fixing`
     // mid-chain re-tests once the emptying is captured as a non-empty diff).
-    return p.feedbackEmpty && !alreadyInFixLoop
+    return feedbackEmptyEffective && !alreadyInFixLoop
       ? {
           kind: "mid-chain",
           state: "close-package",
@@ -878,6 +948,8 @@ const resolveBaseline = (
     // ERRORS.md must land at the escalate turn (mid-chain re-test), not
     // fixing.
     errorsPresent: p.errorsPresent || p.pendingErrorsDeletion,
+    reviewPresent: p.reviewPresent,
+    squashMsgIsTemplate: p.squashMsgIsTemplate,
   }
 
   const classified = classifyHead(head, flags)
@@ -960,7 +1032,18 @@ const resolveBaseline = (
     lastTurn?.actor === "agent" &&
     lastTurn.gate === "building"
   ) {
-    return { kind: "rest", state: "building", actor: "agent" }
+    // Resume the interrupted chain as a mid-chain test run, NOT a rest: the
+    // build work is already committed in the checkpoint turn, so the only
+    // thing left of the chain is the test run the failure interrupted. A
+    // rest here would be a trap — the clean-tree inert guard would make
+    // `step-agent` a no-op, and `gtd next` would re-emit the building prompt
+    // for work that is already built.
+    return {
+      kind: "mid-chain",
+      state: "building",
+      actor: "agent",
+      action: { kind: "runTest", errorCount: 0, capReached: false },
+    }
   }
 
   // No steering files, no recognized workflow HEAD: boundary/idle lifecycle.
@@ -1151,14 +1234,28 @@ const applyTurnTaking = (
     return { state: baseline.state, actor: awaited, pending: false, context }
   }
 
-  // A clean tree at a fixing rest is a do-nothing invocation: capturing it
-  // would author an empty `gtd(agent): fixing` commit that classifyHead then
-  // parks right back at the same rest — one junk commit per attempt, and no
-  // re-test. Stay inert instead; `gtd next` re-emits the same fixing prompt.
-  // Real fixer turns always dirty the tree (a fix edits code; a dispute
-  // empties or deletes FEEDBACK.md — a tracked change), so they still capture
-  // and re-test as usual.
-  if (baseline.state === "fixing" && p.workingTreeClean) {
+  // A clean tree at an AGENT-awaited rest is a do-nothing invocation: every
+  // agent gate's move is a file artifact (a developed plan, package specs,
+  // built code, a fix, FEEDBACK.md, REVIEW.md, a squash message), so a real
+  // turn always dirties the tree. Capturing an empty turn instead would at
+  // best author a junk commit that parks back at the same rest — and at
+  // worst consume workflow state (a grilled turn deletes `.gtd/TODO.md`, a
+  // squashing turn squashes the cycle under the placeholder template). The
+  // loop protocol makes this a live hazard, not an edge case: both the loop
+  // skill and the reference driver open every iteration with
+  // `gtd step-agent`, which lands here with a clean tree before the agent
+  // has acted. Stay inert; `gtd next` re-emits the same prompt.
+  //
+  // Deliberate exceptions:
+  // - `health-fixing`: an empty turn is meaningful — the failure may have
+  //   been environmental, and the turn's own mid-chain removes HEALTH.md and
+  //   re-tests.
+  // - `squashing` with a REAL message already in `.gtd/SQUASH_MSG.md`
+  //   (edge case: content committed by a rider): the squash may proceed —
+  //   only the unmodified template blocks it.
+  // - Human gates are untouched: an empty HUMAN turn is a signal
+  //   (accept-defaults at grilling, clean approval at review).
+  if (invoker === "agent" && isInertEmptyAgentRest(baseline.state, p)) {
     return { state: baseline.state, actor: awaited, pending: false, context }
   }
 
@@ -1215,6 +1312,7 @@ export interface TurnPrediction {
  * reports the subject the actual mutating action (`captureTurn` or
  * `commitRouting`) would write.
  */
+// fallow-ignore-next-line complexity
 export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
   const counters = foldCounters(events)
   let payload: ResolvePayload = DEFAULT_PAYLOAD
@@ -1267,6 +1365,12 @@ export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
   const alreadyAtThisTurn =
     parsedHead.kind === "turn" && parsedHead.actor === baseline.actor && parsedHead.gate === gate
   if (alreadyAtThisTurn) {
+    return { actor: baseline.actor, subject: null, state: baseline.state }
+  }
+  // Mirror applyTurnTaking's inert-empty-agent-turn guard: a clean tree at an
+  // agent-awaited rest captures nothing, so predict null rather than a turn
+  // subject the mutator would refuse to author.
+  if (baseline.actor === "agent" && isInertEmptyAgentRest(baseline.state, payload)) {
     return { actor: baseline.actor, subject: null, state: baseline.state }
   }
   return {

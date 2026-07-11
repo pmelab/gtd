@@ -24,7 +24,7 @@ Feature: gtd status subcommand
     And stdout contains "Predicted commit: gtd(human): grilling"
     And stdout contains "Predicted state:"
 
-  Scenario: A clean rest at gtd: planning predicts the agent building turn
+  Scenario: A clean rest at gtd: planning predicts no commit — a do-nothing agent invocation is inert
     Given a test project
     And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
       """
@@ -34,7 +34,7 @@ Feature: gtd status subcommand
     When I run gtd status
     Then it succeeds
     And stdout contains "Awaits: agent"
-    And stdout contains "Predicted commit: gtd(agent): building"
+    And stdout contains "Predicted commit: (none)"
     And the commit count is unchanged
 
   Scenario: --json emits the four StatusSummary keys

@@ -252,3 +252,44 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     When I run gtd status
     Then it succeeds
     And stdout contains "idle"
+
+  Scenario: The unmodified squash template never squashes — the machine rests until a real message is written
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      squash: true
+      """
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      Build a calculator.
+      """
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd(agent): building" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: package done"
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
+      """
+      - [ ] ./src/calc.ts#1
+      """
+    And a commit "gtd: awaiting review"
+    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd: done"
+    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+      """
+      <!-- gtd: replace this file's content with the real squash commit message. -->
+      <!-- Use conventional-commits style, e.g. `feat: add thing` or `fix: correct thing`. -->
+
+      type: short summary
+
+      Longer description of the change, if needed.
+      """
+    Then I record the commit count
+    When I run gtd step-agent
+    Then it succeeds
+    And the commit count is unchanged
+    And the last commit subject is "gtd: squash template"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains ".gtd/SQUASH_MSG.md"
