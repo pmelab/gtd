@@ -27,8 +27,6 @@ Commands:
 
 Options:
   --json           Output structured JSON instead of plain text
-  --verbose        Show verbose output (thinking deltas, tool events)
-  --debug          Show debug-level internal information
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 `
@@ -605,6 +603,16 @@ export function makeProgram(
 
   return Effect.gen(function* () {
     if (runVersionOrHelp(argv, write)) return
+
+    // Reject unknown `--` options up front: a typo like `--jsn` must not
+    // silently degrade to plain-text mode. `--json` is the only long option;
+    // `--version`/`--help` (and their short forms) short-circuited above.
+    const unknownOption = argv.slice(2).find((a) => a.startsWith("--") && a !== "--json")
+    if (unknownOption !== undefined) {
+      return yield* Effect.fail(
+        new Error(`gtd: unknown option '${unknownOption}' — see \`gtd --help\``),
+      )
+    }
 
     if (positional === "format") {
       return yield* runFormatCommand(argv, json)

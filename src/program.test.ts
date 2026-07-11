@@ -119,10 +119,14 @@ describe("--help short-circuit", () => {
   it("help output mentions global flags", async () => {
     const { output } = await runFlag("--help")
     expect(output).toContain("--json")
-    expect(output).toContain("--verbose")
-    expect(output).toContain("--debug")
     expect(output).toContain("--version")
     expect(output).toContain("--help")
+  })
+
+  it("help output does not advertise removed flags", async () => {
+    const { output } = await runFlag("--help")
+    expect(output).not.toContain("--verbose")
+    expect(output).not.toContain("--debug")
   })
 
   it("-h alias works the same as --help", async () => {
@@ -140,10 +144,28 @@ describe("flag orthogonality", () => {
     expect(output).toMatch(/\d+\.\d+\.\d+/)
   })
 
-  it("--help with --verbose still prints help (flags are independent)", async () => {
-    const { output, exit } = await runFlag("--help", "--verbose")
+  it("--help with extra args still prints help (help wins)", async () => {
+    const { output, exit } = await runFlag("--help", "--json")
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(output).toContain("Usage")
+  })
+})
+
+describe("unknown options", () => {
+  it("an unknown long option is a usage error, not silently ignored", async () => {
+    const { exit } = await runFlag("status", "--bogus")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain("unknown option '--bogus'")
+    }
+  })
+
+  it("a --json typo is rejected instead of degrading to plain mode", async () => {
+    const { exit } = await runFlag("status", "--jsn")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain("unknown option '--jsn'")
+    }
   })
 })
 
