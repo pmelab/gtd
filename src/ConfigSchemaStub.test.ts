@@ -5,13 +5,18 @@ import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { NodeContext } from "@effect/platform-node"
 import { Effect, Exit, Layer } from "effect"
-import { ConfigService } from "./Config.js"
+import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 
-// ConfigService.Live now requires FileSystem + CommandExecutor (satisfied by
-// NodeContext.layer, exactly as main.ts provides them) alongside Cwd.
+// ConfigService.Live only loads/validates config; the stub write+commit lives
+// in ConfigInit (invoked by the program AFTER the repo-root guard, never at
+// layer construction). Both layers get FileSystem + CommandExecutor from
+// NodeContext.layer, exactly as main.ts provides them, alongside Cwd.
 const liveLayer = (dir: string) =>
   Layer.provide(ConfigService.Live, Layer.merge(Cwd.layer(dir), NodeContext.layer))
+
+const initLayer = (dir: string) =>
+  Layer.provide(ConfigInit.Live, Layer.merge(Cwd.layer(dir), NodeContext.layer))
 
 const runExit = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string) =>
   Effect.runPromiseExit(eff.pipe(Effect.provide(liveLayer(dir))))
@@ -20,6 +25,11 @@ const getConfig = (dir: string) =>
   runExit(
     Effect.flatMap(ConfigService, (c) => Effect.succeed(c)),
     dir,
+  )
+
+const runEnsure = (dir: string) =>
+  Effect.runPromiseExit(
+    Effect.flatMap(ConfigInit, (init) => init.ensure).pipe(Effect.provide(initLayer(dir))),
   )
 
 let projectDir: string
@@ -51,8 +61,15 @@ describe("ConfigService $schema + stub", () => {
     }
   })
 
-  it("creates a .gtdrc.json stub with the exact $schema content when no config exists", async () => {
+  it("loading config does NOT create a stub — only ConfigInit.ensure does", async () => {
     const exit = await getConfig(projectDir)
+
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(existsSync(join(projectDir, ".gtdrc.json"))).toBe(false)
+  })
+
+  it("ensure creates a .gtdrc.json stub with the exact $schema content when no config exists", async () => {
+    const exit = await runEnsure(projectDir)
 
     expect(Exit.isSuccess(exit)).toBe(true)
     const stubPath = join(projectDir, ".gtdrc.json")
@@ -62,8 +79,8 @@ describe("ConfigService $schema + stub", () => {
     )
   })
 
-  it("commits the stub with a path-scoped add and the chore message", async () => {
-    await getConfig(projectDir)
+  it("ensure commits the stub with a path-scoped add and the chore message", async () => {
+    await runEnsure(projectDir)
 
     const subject = execFileSync("git", ["log", "-1", "--pretty=%s"], {
       cwd: projectDir,
@@ -83,10 +100,10 @@ describe("ConfigService $schema + stub", () => {
     expect(committedFiles).toBe(".gtdrc.json")
   })
 
-  it("does not write or commit a stub when a config already exists", async () => {
+  it("ensure does not write or commit a stub when a config already exists", async () => {
     writeFileSync(join(projectDir, ".gtdrc.yaml"), `testCommand: "existing"\n`)
 
-    const exit = await getConfig(projectDir)
+    const exit = await runEnsure(projectDir)
 
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(existsSync(join(projectDir, ".gtdrc.json"))).toBe(false)

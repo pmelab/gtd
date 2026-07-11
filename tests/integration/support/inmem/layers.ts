@@ -20,6 +20,7 @@ import {
 } from "../../../../src/Git.js"
 import { TestRunner, type TestResult } from "../../../../src/TestRunner.js"
 import {
+  ConfigInit,
   ConfigService,
   type ConfigOperations,
   builtinTierDefault,
@@ -484,7 +485,7 @@ const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> 
 
 export function inMemoryLayers(
   repo: InMemRepo,
-): Layer.Layer<GitService | FileSystem.FileSystem | TestRunner | ConfigService | Cwd> {
+): Layer.Layer<GitService | FileSystem.FileSystem | TestRunner | ConfigService | ConfigInit | Cwd> {
   // Reader + Writer share the same repo instance
   const readerOps = makeGitReaderOps(repo)
   const writerOps = makeGitWriterOps(repo)
@@ -546,7 +547,14 @@ export function inMemoryLayers(
     }),
   ).pipe(Layer.provide(configLayer))
 
-  return Layer.mergeAll(gitServiceLayer, fsLayer, testRunnerLayer, configLayer, Cwd.layer(""))
+  return Layer.mergeAll(
+    gitServiceLayer,
+    fsLayer,
+    testRunnerLayer,
+    configLayer,
+    ConfigInit.Noop,
+    Cwd.layer(""),
+  )
 }
 
 // Fine-grained layer for unit tests that need only the git service.

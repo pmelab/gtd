@@ -384,3 +384,43 @@ Feature: .gtdrc config system
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
     And stdout contains "shared-parent-planner"
+
+  @live
+  Scenario: An invalid config reports the JSON error envelope with --json
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      bogusKey: 1
+      """
+    When I run gtd status with "--json"
+    Then it fails
+    And stdout contains "\"state\":\"error\""
+    And stderr contains "Invalid gtd config"
+
+  @live
+  Scenario: A refused subdirectory invocation performs no auto-init
+    Given a test project
+    And a commit "chore: seed" that adds "src/seed.ts" with:
+      """
+      export const seed = 1
+      """
+    Then I record the commit count
+    When I run gtd status from the subdirectory "src"
+    Then it fails
+    And stderr contains "must be run from the repository root"
+    And the file ".gtdrc.json" does not exist
+    And the file "src/.gtdrc.json" does not exist
+    And the commit count is unchanged
+
+  @live
+  Scenario: gtd format performs no auto-init
+    Given a test project
+    And a commit "chore: seed" that adds "notes.md" with:
+      """
+      hello
+      """
+    Then I record the commit count
+    When I run gtd with args "format notes.md"
+    Then it succeeds
+    And the file ".gtdrc.json" does not exist
+    And the commit count is unchanged

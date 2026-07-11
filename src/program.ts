@@ -1,7 +1,7 @@
 import { createRequire } from "node:module"
 import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
-import { ConfigService } from "./Config.js"
+import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { gatherEvents, perform, reviewAgainst } from "./Events.js"
 import * as Format from "./Format.js"
@@ -54,7 +54,27 @@ export interface RunOptions {
   write?: (chunk: string) => void
 }
 
-type ProgramRequirements = GitService | FileSystem.FileSystem | TestRunner | ConfigService | Cwd
+type ProgramRequirements =
+  | GitService
+  | FileSystem.FileSystem
+  | TestRunner
+  | ConfigService
+  | ConfigInit
+  | Cwd
+
+/**
+ * Marks an error as already reported inside the `--json` error envelope, so
+ * the composition root (main.ts) doesn't emit a second envelope for it.
+ * Errors that fail BEFORE `makeProgram` runs — e.g. a config-validation
+ * failure at layer construction — carry no mark, and main.ts writes the
+ * envelope for them instead.
+ */
+const ENVELOPED = Symbol.for("gtd/enveloped")
+const markEnveloped = (error: Error): Error => Object.assign(error, { [ENVELOPED]: true as const })
+export const isEnveloped = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as Record<symbol, unknown>)[ENVELOPED] === true
 
 type RunStepResult = {
   readonly state: string
@@ -474,8 +494,16 @@ const runReviewCommand = (
 const KNOWN_SUBCOMMANDS = ["step", "step-agent", "next", "status", "review"] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
-/** `--version`/`-v` or `--help`/`-h`: short-circuits before any git or state work, so it works outside a repo too. */
-const runVersionOrHelp = (argv: readonly string[], write: (chunk: string) => void): boolean => {
+/**
+ * `--version`/`-v` or `--help`/`-h`: short-circuits before any git or state
+ * work, so it works outside a repo too. Exported so main.ts can run the same
+ * check synchronously BEFORE the Effect runtime builds any layer — layer
+ * construction must never observe a version/help invocation.
+ */
+export const runVersionOrHelp = (
+  argv: readonly string[],
+  write: (chunk: string) => void,
+): boolean => {
   if (argv.includes("--version") || argv.includes("-v")) {
     write(GTD_VERSION + "\n")
     return true
@@ -587,6 +615,10 @@ export function makeProgram(
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
     yield* assertRunningFromRepoRoot(git, fs)
+    // Auto-init runs here and ONLY here: past the version/help short-circuit,
+    // the format branch, the known-subcommand guard, and the repo-root guard —
+    // a refused or rejected invocation must never mutate the repository.
+    yield* (yield* ConfigInit).ensure
     const config = yield* ConfigService
 
     yield* dispatchKnownSubcommand(sub, argv, git, config, json, write)
@@ -595,7 +627,7 @@ export function makeProgram(
       ? Effect.catchAll((error) =>
           Effect.sync(() =>
             write(JSON.stringify({ state: "error", prompt: error.message }) + "\n"),
-          ).pipe(Effect.zipRight(Effect.fail(error))),
+          ).pipe(Effect.zipRight(Effect.fail(markEnveloped(error)))),
         )
       : (x) => x,
   )

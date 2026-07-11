@@ -10,7 +10,7 @@
 import { NodeContext } from "@effect/platform-node"
 import { Effect, Exit, Layer } from "effect"
 import { describe, expect, it } from "vitest"
-import { ConfigService } from "./Config.js"
+import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { GitService } from "./Git.js"
 import { makeProgram } from "./program.js"
@@ -68,6 +68,7 @@ const testLayers = failingGitLayer.pipe(
   Layer.provideMerge(NodeContext.layer),
   Layer.provideMerge(stubConfigLayer),
   Layer.provideMerge(stubTestRunnerLayer),
+  Layer.provideMerge(ConfigInit.Noop),
   Layer.provideMerge(Cwd.layer("")),
 )
 

@@ -30,6 +30,15 @@ When("I run gtd from the subdirectory {string}", async (world: GtdWorld, sub: st
   world.runCwd = undefined
 })
 
+When(
+  "I run gtd {word} from the subdirectory {string}",
+  async (world: GtdWorld, arg: string, sub: string) => {
+    world.runCwd = join(world.repoDir, sub)
+    await world.runGtd(arg)
+    world.runCwd = undefined
+  },
+)
+
 Given("git config {string} is {string}", (world: GtdWorld, key: string, value: string) => {
   git(world.repoDir, "config", key, value)
 })
