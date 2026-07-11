@@ -101,6 +101,16 @@ const runPerform = (
       Effect.provide(GitService.Live),
       Effect.provide(NodeContext.layer),
       Effect.provide(Layer.succeed(TestRunner, { run: () => Effect.succeed(testResult) })),
+      Effect.provide(
+        Layer.succeed(ConfigService, {
+          testCommand: "npm run test",
+          resolveModel: () => "stub",
+          agenticReview: true,
+          squash: true,
+          fixAttemptCap: 3,
+          reviewThreshold: 3,
+        }),
+      ),
       Effect.provide(Cwd.layer(repoDir)),
     ),
   )
@@ -1122,7 +1132,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(true)
     const feedback = readFileSync(join(repoDir, ".gtd/FEEDBACK.md"), "utf8")
     expect(/\S/.test(feedback)).toBe(true)
-    expect(feedback).toContain("failed with no output")
+    expect(feedback).toContain("failed with exit code 1 and produced no output")
   })
 
   it("closePackage (empty FEEDBACK): removes FEEDBACK + last package + empty .gtd, commits gtd: package done", async () => {

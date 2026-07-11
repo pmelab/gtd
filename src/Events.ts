@@ -46,7 +46,8 @@ const SQUASH_MSG_FILE = `${GTD_DIR}/SQUASH_MSG.md`
 // COMMIT-event classification only (isFeedback), never for diffs or
 // working-tree probes — a root FEEDBACK.md in the tree today is project code.
 const LEGACY_FEEDBACK_FILE = "FEEDBACK.md"
-const EMPTY_FAILURE_SENTINEL = "Test command failed with no output (exit code non-zero)."
+const emptyFailureSentinel = (command: string, exitCode: number): string =>
+  `Test command \`${command}\` failed with exit code ${exitCode} and produced no output.`
 
 const DONE_SUBJECT = "gtd: done"
 
@@ -611,9 +612,15 @@ export const gatherEvents = (
 
       if (lastDoneIdxForSquash !== -1) {
         const squashCycle = squashHistory.slice(prevDoneIdx + 1, lastDoneIdxForSquash + 1)
-        // Cycle start = the first commit of the LAST contiguous run of grilling
-        // turn commits, or the `gtd: reviewing <hash>` anchor, whichever is
-        // nearest HEAD within the cycle.
+        // Cycle start = the LAST `gtd: reviewing <hash>` anchor when one
+        // exists (an ad-hoc review cycle; anything before the anchor —
+        // e.g. an abandoned grilling run — is not part of this cycle), else
+        // the FIRST grilling turn commit since the previous `gtd: done`
+        // boundary. First, not last: a review-feedback detour re-grills
+        // mid-cycle, and picking that later run would strand the whole
+        // pre-feedback half of the cycle (its grilling/building/review
+        // commits) permanently in history — the squash must collapse the
+        // entire cycle back to where it actually began.
         const isGrillingTurnSubject = (subject: string): boolean => {
           const parsed = parseSubject(subject)
           return parsed.kind === "turn" && parsed.gate === "grilling"
@@ -624,20 +631,17 @@ export const gatherEvents = (
         }
         let startIdx = -1
         for (let i = squashCycle.length - 1; i >= 0; i--) {
-          const subject = subjectOf(squashCycle[i]!.message)
-          if (isReviewingAnchor(subject)) {
+          if (isReviewingAnchor(subjectOf(squashCycle[i]!.message))) {
             startIdx = i
             break
           }
-          if (isGrillingTurnSubject(subject)) {
-            startIdx = i
-            while (
-              startIdx > 0 &&
-              isGrillingTurnSubject(subjectOf(squashCycle[startIdx - 1]!.message))
-            ) {
-              startIdx--
+        }
+        if (startIdx === -1) {
+          for (let i = 0; i < squashCycle.length; i++) {
+            if (isGrillingTurnSubject(subjectOf(squashCycle[i]!.message))) {
+              startIdx = i
+              break
             }
-            break
           }
         }
         const squashStart = startIdx === -1 ? undefined : squashCycle[startIdx]
@@ -824,7 +828,11 @@ const SQUASH_TEMPLATE = [
 // fallow-ignore-next-line complexity
 export const perform = (
   action: EdgeAction,
-): Effect.Effect<{ stop: boolean }, Error, GitService | FileSystem.FileSystem | TestRunner | Cwd> =>
+): Effect.Effect<
+  { stop: boolean },
+  Error,
+  GitService | FileSystem.FileSystem | TestRunner | ConfigService | Cwd
+> =>
   // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const git = yield* GitService
@@ -885,7 +893,10 @@ export const perform = (
           return { stop: false }
         }
         const target = action.capReached ? ERRORS_FILE : FEEDBACK_FILE
-        const body = /\S/.test(result.output) ? result.output : EMPTY_FAILURE_SENTINEL
+        const config = yield* ConfigService
+        const body = /\S/.test(result.output)
+          ? result.output
+          : emptyFailureSentinel(config.testCommand, result.exitCode)
         yield* ensureGtdDir
         yield* fs.writeFileString(resolve(target), body)
         yield* git.commitAllWithPrefix("gtd: errors")
@@ -946,7 +957,10 @@ export const perform = (
           }
           return { stop: true }
         }
-        const body = /\S/.test(result.output) ? result.output : EMPTY_FAILURE_SENTINEL
+        const config = yield* ConfigService
+        const body = /\S/.test(result.output)
+          ? result.output
+          : emptyFailureSentinel(config.testCommand, result.exitCode)
         const target = action.capReached ? ERRORS_FILE : HEALTH_FILE
         yield* ensureGtdDir
         yield* fs.writeFileString(resolve(target), body)
