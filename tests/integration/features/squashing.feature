@@ -190,3 +190,65 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     Then it succeeds
     And the last commit subject is "absolutely not a conventional commit and mentions gtd: errors on purpose"
     And the file ".gtd/SQUASH_MSG.md" does not exist
+
+  Scenario: A cycle with a review-feedback detour squashes back to the original cycle start
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      squash: true
+      """
+    And a commit "chore: pre-cycle work" that adds "src/existing.ts" with:
+      """
+      export const existing = 1
+      """
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      Build a calculator.
+      """
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd(agent): building" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    And a commit "gtd: package done"
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
+      """
+      - [ ] ./src/calc.ts#1
+      """
+    And a commit "gtd: awaiting review"
+    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd: review feedback"
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      Address the review feedback.
+      """
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd(agent): building" that adds "src/calc2.ts" with:
+      """
+      export const sub = (a: number, b: number) => a - b
+      """
+    And a commit "gtd: package done"
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
+      """
+      - [ ] ./src/calc2.ts#1
+      """
+    And a commit "gtd: awaiting review"
+    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd: done"
+    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+      """
+      chore: replace this template
+      """
+    And ".gtd/SQUASH_MSG.md" is modified to:
+      """
+      feat: add calculator
+      """
+    When I run gtd step-agent
+    Then it succeeds
+    And the last commit subject is "feat: add calculator"
+    And the git log does not contain "gtd: review feedback"
+    And the git log does not contain "gtd(human): grilling"
+    And the git log contains "chore: pre-cycle work"
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "idle"
