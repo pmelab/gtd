@@ -238,7 +238,7 @@ Feature: Hostile environments and unusual invocations
     When I run gtd with "--version"
     Then it succeeds
     And stderr does not contain "no precedence rule matched"
-    And stdout contains "1."
+    And stdout contains "2."
 
   Scenario: --help exits 0 and prints usage from a fresh project
     Given a test project
@@ -252,7 +252,7 @@ Feature: Hostile environments and unusual invocations
     Given a plain directory that is not a git repository
     When I run gtd with "--version"
     Then it succeeds
-    And stdout contains "1."
+    And stdout contains "2."
 
   Scenario: --help exits 0 outside a git repository
     Given a plain directory that is not a git repository
