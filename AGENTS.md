@@ -72,22 +72,26 @@ diff touched `.gtd/FEEDBACK.md` (or legacy root `FEEDBACK.md`) — a findings
 round). Derived counters accumulate inside the state machine from event flags,
 keeping the edge thin.
 
-### Stdout / Newline Handling
-
-- `ensureNewline` only flushes a `\n` when the state it tracks is `dirty`; any
-  code that writes to stdout directly (bypassing the handler) must also update
-  that dirty state, or the next line will be appended without a separator
-- When adding a `rendererDirty` guard, verify it is read inside every exit path
-  of the renderer (`succeed`, `fail`, `setText`, etc.) — missing a single call
-  site silently reintroduces the missing-newline bug for that transition
-
 ## CLI Design
 
-- Keep CLI flags orthogonal: `--verbose` and `--debug` must never imply each
-  other; each flag controls exactly one concern so users can combine them freely
+- Keep CLI flags orthogonal: each flag controls exactly one concern and no flag
+  implies another, so users can combine them freely
+- Never let an unknown `--` option pass silently — reject it with a usage error
+  (`--json` is the only long option in v2); a mistyped `--jsn` silently
+  degrading to plain-text output is a bug class, not a convenience
+- v2 renders plain line output only — there is no spinner/renderer and no
+  agent-event stream in the CLI. Do not re-add `--verbose`/`--debug` (or any
+  output-mode flag) without wiring it to a real, tested concern; the flags must
+  never exist only in the help text
 
-## Event Handler
+## Turn Capture
 
-- Gate every user-visible stdout write inside `createEventHandler` behind the
-  `verbose` flag — both `ThinkingDelta` and `ToolStart` (and any future event
-  type) must be suppressed together; a partially-silent handler leaks noise
+- An empty AGENT turn is inert at every gate whose move is a file artifact
+  (`grilling`, `grilled`, `building`, `fixing`, `agentic-review`, `review`, and
+  `squashing` while `SQUASH_MSG.md` is still the template) — the loop protocol
+  opens each iteration with `gtd step-agent` BEFORE the agent acts, so a
+  clean-tree capture there must author nothing. When adding a gate, decide
+  explicitly whether its empty turn is a signal (human accept-defaults,
+  health-fixing's environmental fix) or a no-op, and guard BOTH layers:
+  `applyTurnTaking` (don't capture) and `classifyHead` (don't consume state for
+  historical/crash-recovered empty turns)
