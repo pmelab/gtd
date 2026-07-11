@@ -30,7 +30,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Given a test project
     When I run gtd with "--version"
     Then it succeeds
-    And stdout contains "2."
+    And stdout matches "\d+\.\d+\.\d+"
 
   Scenario: --help exits 0 outside any workflow state
     Given a test project
@@ -50,4 +50,4 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
       """
     When I run gtd with "--version"
     Then it succeeds
-    And stdout contains "2."
+    And stdout matches "\d+\.\d+\.\d+"
