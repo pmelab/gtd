@@ -798,8 +798,17 @@ const resolveBaseline = (
   // Computed early (also reused below, past the classifyHead call) because
   // the FEEDBACK.md precedence check right below needs it: once the
   // review-fix threshold is reached (or agenticReview is off), a lingering
-  // FEEDBACK.md from a PRIOR (already-counted) findings round must not block
-  // the force-approve close — the threshold overrides stale findings content.
+  // FEEDBACK.md at the `gtd: tests green` rest must not block the
+  // force-approve close — the threshold overrides stale findings content.
+  // The skip applies ONLY at that tests-green HEAD (where classifyHead's
+  // force-approve branch performs the close). At any other HEAD — in
+  // particular the just-captured `gtd(agent): agentic-review` turn whose
+  // FEEDBACK.md write crossed the threshold — the precedence check below
+  // must still run: non-empty findings route to fixing (the final allowed
+  // round still gets fixed; the close then happens at the NEXT tests-green),
+  // and an empty FEEDBACK.md write is a normal approval close. Skipping here
+  // for turn HEADs would strand the package at an agentic-review rest that
+  // classifyHead treats as inert — an unrecoverable livelock.
   const forceApprove = !p.agenticReviewEnabled || counters.reviewFixCount >= p.reviewThreshold
   // Exception (mirrors headIsFixerTurn above): HEAD === `gtd(agent):
   // health-fixing` is the health-fixer's own turn commit consuming that very
@@ -814,7 +823,7 @@ const resolveBaseline = (
   if (p.healthPresent && !headIsHealthFixerTurn) {
     return { kind: "rest", state: "health-fixing", actor: "agent" }
   }
-  if (p.feedbackPresent && !headIsFixerTurn && !(forceApprove && !alreadyInFixLoop)) {
+  if (p.feedbackPresent && !headIsFixerTurn && !(forceApprove && head === "gtd: tests green")) {
     // FEEDBACK.md written live by the Agentic Review agent (HEAD is still
     // `gtd: tests green`, the rest that shows the agentic-review prompt) is
     // initially uncommitted — that write must be captured as the agent's
@@ -1139,6 +1148,17 @@ const applyTurnTaking = (
     p.workingTreeClean
 
   if (alreadyAtThisTurn) {
+    return { state: baseline.state, actor: awaited, pending: false, context }
+  }
+
+  // A clean tree at a fixing rest is a do-nothing invocation: capturing it
+  // would author an empty `gtd(agent): fixing` commit that classifyHead then
+  // parks right back at the same rest — one junk commit per attempt, and no
+  // re-test. Stay inert instead; `gtd next` re-emits the same fixing prompt.
+  // Real fixer turns always dirty the tree (a fix edits code; a dispute
+  // empties or deletes FEEDBACK.md — a tracked change), so they still capture
+  // and re-test as usual.
+  if (baseline.state === "fixing" && p.workingTreeClean) {
     return { state: baseline.state, actor: awaited, pending: false, context }
   }
 

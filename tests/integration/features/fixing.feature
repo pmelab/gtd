@@ -106,7 +106,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     And the file ".gtd/FEEDBACK.md" does not exist
     And the git log contains "gtd: tests green"
 
-  Scenario: An inert empty fixer turn is recorded once and next re-emits the fixing prompt
+  Scenario: A do-nothing fixer invocation is inert — no commit, no re-test, next re-emits the fixing prompt
     Given a test project
     And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
       """
@@ -116,13 +116,14 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       """
       AssertionError: expected helper('a') to equal 'a'
       """
+    Then I record the commit count
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): fixing"
+    And the last commit subject is "gtd: errors"
+    And the commit count is unchanged
     When I run gtd next
     Then it succeeds
     And stdout contains "AssertionError: expected helper('a') to equal 'a'"
-    Then I record the commit count
     When I run gtd step-agent
     Then it succeeds
     And the commit count is unchanged
