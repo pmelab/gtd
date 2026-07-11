@@ -212,6 +212,73 @@ the `.test-mode` toggle — re-assert red between the claude run and the next
 - [ ] Invalid config: unknown key / bad type → exit 1, `Invalid gtd config: …`
       on stderr, stdout untouched.
 
+## Interactive mode (Phases 13–15)
+
+The JSON phases above never exercise what a real user sees: the plain formatter,
+TTY rendering, or the loop skill driving an interactive session. Three layers,
+same toggle harness, fresh scratch repo per layer.
+
+## Phase 13 — plain-mode formatter pass (no claude, deterministic)
+
+The subject is the OUTPUT FORMAT, not prompt quality — for this layer only, the
+tester plays both actors by hand and asserts on plain (non-`--json`) output
+against the README contract:
+
+- [ ] `step`/`step-agent`: one `committed: <subject>` line per authored commit
+      (oldest→newest), then a final `state: <state>` line; nothing else.
+- [ ] `next` at an **agent** rest: prompt ends with the exact pinned tail
+      ("Finish your turn by running `gtd step-agent`. Then run `gtd next` …").
+- [ ] `next` at a **human** rest: no tail of any kind.
+- [ ] `next` at a mid-chain HEAD: the documented checkpoint line, naming the
+      correct mutator for the chain's actor.
+- [ ] Refusals: out-of-turn ("<state> awaits a … turn — run `gtd …`"),
+      dirty-tree `next`, repo-root guard — exact wording, stderr, exit 1.
+- [ ] `status`: exactly the four
+      `State/Awaits/Predicted commit/Predicted     state` lines; `(none)` at a
+      fixpoint.
+- [ ] `review <target>`: the one-line "anchored review at <hash> — …"
+      confirmation, never a prompt.
+
+## Phase 14 — PTY pass (spinner / newline behavior)
+
+Plain mode again, but under a real pseudo-terminal (`script -q /dev/null …` or a
+tmux pane) so the spinner/renderer code path runs — piped output cannot
+reproduce the `ensureNewline`/`rendererDirty` class of bugs:
+
+- [ ] No glued lines: every `committed:`/`state:` line starts at column 0; no
+      output appended to a spinner remnant, across succeed AND fail exits.
+- [ ] No stray ANSI/carriage-return artifacts in captured output.
+- [ ] `--verbose` and `--debug` each change exactly one concern, and neither
+      implies the other (run the same command all four ways).
+
+## Phase 15 — interactive dogfood (loop skill in a live session)
+
+The real contract: an interactive claude session drives the loop itself via
+`skills/loop/SKILL.md`. The tester supervises and plays only the human.
+
+- [ ] Setup: copy the BRANCH's `skills/loop/` into the scratch repo's
+      `.claude/skills/loop/` (never the installed copy — it goes stale), put the
+      branch `gtd` wrapper on PATH, seed an idea file.
+- [ ] Spawn an interactive claude session with cwd at the repo root (inside
+      herdr: a new tab via the herdr skill; otherwise tmux) and kick it off with
+      `/loop`.
+- [ ] **Halt discipline** (the core assertion): the session halts on its own at
+      every `actor:"human"` point — the answer gate, `await-review`, escalate —
+      reporting the state, and never acts on the human's behalf.
+- [ ] Agent-side chaining: successive build/test/review turns proceed without
+      the tester nudging between them; pending checkpoints resume via
+      `step-agent` alone.
+- [ ] Human beats: the tester edits files (answers, checkbox flips, deleting
+      `.gtd/ERRORS.md`) + `gtd step` from outside, then tells the session to
+      continue; the loop picks up correctly.
+- [ ] Stall detection: if state+prompt repeat with no new commits, the session
+      halts and escalates rather than spinning (provoke once via the red toggle
+      if the opportunity arises).
+- [ ] Red-phase supervision: a live agent will hunt the `.test-mode` toggle —
+      re-assert it between its actions; treat red phases as supervised beats.
+- [ ] Deliverable is a findings log (misread prompts, missed halts, skill-text
+      drift vs the binary), not pass/fail.
+
 ## Cross-cutting assertions (check continuously)
 
 - [ ] `next` and `status` never mutate: `git log` hash +
