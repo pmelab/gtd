@@ -5,13 +5,22 @@ import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
-import { ConfigService } from "./Config.js"
+import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 
-// ConfigService.Live now also requires FileSystem + CommandExecutor (auto-init
-// writes and git-commits `.gtdrc.json`); NodeContext.layer satisfies both.
+// ConfigService.Live only loads/validates; the auto-init stub write+commit
+// lives in ConfigInit. NodeContext.layer satisfies FileSystem + CommandExecutor.
 const layer = (dir: string) =>
   Layer.provide(ConfigService.Live, Layer.merge(Cwd.layer(dir), NodeContext.layer))
+
+const ensureInit = (dir: string = projectDir) =>
+  Effect.runPromise(
+    Effect.flatMap(ConfigInit, (init) => init.ensure).pipe(
+      Effect.provide(
+        Layer.provide(ConfigInit.Live, Layer.merge(Cwd.layer(dir), NodeContext.layer)),
+      ),
+    ),
+  )
 
 const run = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string = projectDir) =>
   Effect.runPromise(eff.pipe(Effect.provide(layer(dir))))
@@ -274,7 +283,7 @@ describe("ConfigService", () => {
   })
 
   it("auto-init: with no config, creates and commits `.gtdrc.json` at the root with the $schema URL", async () => {
-    await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    await ensureInit()
 
     const rcPath = join(projectDir, ".gtdrc.json")
     expect(existsSync(rcPath)).toBe(true)
@@ -300,7 +309,8 @@ describe("ConfigService", () => {
   })
 
   it("idempotency: loading twice succeeds without an `Invalid gtd config` error on excess $schema", async () => {
-    // First load auto-inits (or reads) the stub.
+    // Auto-init the stub first, then load twice.
+    await ensureInit()
     const first = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
     expect(Exit.isSuccess(first)).toBe(true)
 
