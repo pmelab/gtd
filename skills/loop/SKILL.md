@@ -44,21 +44,24 @@ Repeat this two-beat cycle until it halts:
      a dirty working tree — this should not normally happen right after
      `gtd step-agent`, so treat it as a real problem to investigate).
    - Parse the single-line JSON object:
-     `{"state", "actor", "pending", "prompt", "runStepAgent"}`. `runStepAgent`
-     is a boolean mirroring what a plain-mode prompt's tail sentence would say:
-     `true` means run `gtd step-agent` next, `false` means don't (either a human
-     gate, or a pending checkpoint that needs `gtd step` instead).
-   - If `pending` is `true`: mid-chain bookkeeping is ready to advance with no
-     prompt yet. Run `gtd step` and go back to step 2 (do not call
-     `gtd step-agent` again yet — nothing awaited your turn).
-   - If `actor` is `"human"`: this is a human gate. Halt — see "Halting on a
-     human gate" below.
-   - Otherwise (`actor` is `"agent"` and `pending` is `false`): treat `prompt`
-     as your next instructions. Execute exactly what it says. When your turn is
+     `{"state", "actor", "pending", "prompt"}`. `actor` is the single "proceed"
+     signal, mirroring what a plain-mode prompt's tail would say: `"agent"`
+     means the agent side keeps driving (another round ending in
+     `gtd step-agent`), `"human"` means the human owns the next move.
+   - If `actor` is `"human"`: halt — see "Halting on a human gate" below (a
+     human gate, or a human-driven pending checkpoint the human resumes with
+     `gtd step`).
+   - If `actor` is `"agent"` and `pending` is `true`: an agent-driven mid-chain
+     checkpoint — there is no prompt to act on. Go straight back to step 1
+     (`gtd step-agent` resumes the chain).
+   - Otherwise (`actor` is `"agent"`, `pending` is `false`): treat `prompt` as
+     your next instructions. Execute exactly what it says. When your turn is
      done, go back to step 1 (`gtd step-agent`) to close it out — the harness,
      not the prompt text, owns ending your turn, which is why `--json` prompts
-     carry no "finish your turn" tail sentence embedded in `prompt` (the
-     equivalent instruction is the `runStepAgent` boolean instead).
+     carry no "finish your turn" tail embedded in `prompt` (the equivalent
+     instruction is the `actor` field instead). This cycle repeats — multiple
+     agent turns and commits (e.g. successive test/fix rounds) chain until
+     `actor` comes back `"human"`.
 
 ## Halting on a human gate
 

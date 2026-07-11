@@ -40,9 +40,11 @@ gtd splits what used to be one mutating command into three:
 An agent loop is a two-beat protocol repeated forever:
 
 1. Run `gtd step-agent` to advance any agent-owned bookkeeping to a fixpoint.
-2. Run `gtd next --json`. If `actor` is `"human"`, **halt** — this is a human
-   gate, and the agent's job is done for this turn. Otherwise, feed `prompt` to
-   the agent, let it act, then go back to step 1.
+2. Run `gtd next --json` and read the `actor` field. If it is `"human"`,
+   **halt** — the human owns the next move, and the agent's job is done for this
+   turn. If it is `"agent"`, feed `prompt` (when non-null) to the agent, let it
+   act, then go back to step 1; at a pending checkpoint (`prompt` is null) go
+   straight back to step 1.
 
 A human acts by editing files (answering questions in `TODO.md`, annotating
 `REVIEW.md`, fixing code) and then running `gtd step` to capture the edit as
@@ -120,14 +122,20 @@ rest where a prompt would be shown, or a fixpoint where nothing changed.
 `gtd next`'s job.
 
 **Idempotence.** Re-running the same command again once the tree is settled at a
-rest authors **zero** new commits and exits 0.
+rest authors **zero** new commits. It exits 0 while the rest still awaits that
+command's actor (an inert empty agent turn, the idle health check); once the
+rest awaits the _other_ actor, the re-run is an out-of-turn refusal — still zero
+commits, but non-zero exit.
 
-**Out-of-turn refusal.** `gtd step-agent` run while a human turn is awaited
-refuses: exit non-zero, zero commits, stderr names the human gate it's waiting
-on (`"<state> awaits a human turn"`). The reverse — `gtd step` while an agent
-turn is awaited — does **not** refuse: a dirty tree records the human's edit as
-feedback-with-authority under the agent's own gate (`gtd(human): <gate>`, not
-`gtd(agent): <gate>`, since the human made the edit); a clean tree is a no-op.
+**Out-of-turn refusal.** Human and agent turns are strictly separated: the wrong
+mutator always errors, at every state, on clean and dirty trees alike.
+`gtd step-agent` while a human turn is awaited refuses with
+`"<state> awaits a human turn — run \`gtd step\`"`; `gtd
+step`while an agent turn is awaited refuses with`"<state> awaits an agent turn —
+run \`gtd
+step-agent\`"`— exit non-zero, zero commits either way. Human edits made while the agent is awaited (e.g. amendment notes in`.gtd/`package files after the`gtd:
+planning` commit lands) stay pending in the working tree and ride along as input
+to the agent's next captured turn; left unamended, the build proceeds.
 
 **Red-test fixpoints exit 0.** A red test run below the fix-attempt cap (or the
 health-fix cap) still writes its findings and commits — it is a normal,
@@ -161,26 +169,34 @@ steering-file set, `gtd next` refuses rather than guess at a prompt for a state
 that hasn't been captured yet:
 
 ```
-gtd next: working tree is dirty — run `gtd status` to inspect it, or `gtd step` to advance
+gtd next: working tree is dirty — run `gtd status` to inspect it, then advance with `gtd step` or `gtd step-agent` (whichever actor is awaited)
 ```
 
 **Pending.** If HEAD is mid-chain — bookkeeping the next `step`/`step-agent`
 invocation would perform before reaching a rest — `gtd next` reports
-`pending: true` with no prompt, and in plain mode prints
-`"mid-chain checkpoint — run \`gtd step\` to continue"`.
+`pending: true` with no prompt. Mid-chain bookkeeping is invoker-agnostic, so
+either mutator resumes it; the report names the actor whose chain it is. In
+plain mode an agent-driven checkpoint prints `"mid-chain checkpoint — run \`gtd
+step-agent\` to continue, then run \`gtd next\`
+again"`, a human-driven one prints `"mid-chain checkpoint — run \`gtd step\` to
+continue"`.
 
-**Agent tail line.** In plain-mode output, a prompt for the **agent** actor ends
-with the pinned tail sentence:
+**Agent tail lines.** In plain-mode output, a prompt for the **agent** actor
+ends with the pinned tail:
 
 ```
-Finish your turn by running `gtd step-agent`.
+Finish your turn by running `gtd step-agent`. Then run `gtd next` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 ```
 
-Human-actor prompts carry no tail sentence — the tail exists purely to close the
-loop for an agent reading plain-text output. `--json` output never embeds the
-sentence into `prompt` either, but carries the same instruction as the
-structured `runStepAgent` boolean (see JSON schemas below) so an automated
-driver can read it directly instead of hardcoding the step-first assumption.
+The first sentence closes the current turn; the second closes the outer loop —
+it is what lets a plain-text agent chain multiple iterations (e.g. successive
+test/fix cycles) without an external driver, until a human gate is reached.
+Human-actor prompts carry no tail. `--json` output never embeds the tail into
+`prompt` either — the structured `actor` field (see JSON schemas below) carries
+the same information: `"agent"` means another agent round, `"human"` means stop
+and hand off.
 
 ### `gtd status`
 
@@ -273,30 +289,28 @@ single-line JSON output instead of plain text.
   performed, oldest→newest.
 - `commits` — every commit subject this invocation authored, oldest→newest.
 
-**`next`** — `{state, actor, pending, prompt, runStepAgent}`:
+**`next`** — `{state, actor, pending, prompt}`:
 
 ```json
 {
   "state": "building",
   "actor": "agent",
   "pending": false,
-  "prompt": "...",
-  "runStepAgent": true
+  "prompt": "..."
 }
 ```
 
 - `state` — the resolved state.
-- `actor` — `"human"` or `"agent"`: who is awaited.
-- `pending` — `true` at a mid-chain HEAD (no prompt yet — run `gtd step` first);
-  `false` at a genuine rest.
+- `actor` — `"human"` or `"agent"`: who owns the next move. This is the single
+  loop-driver signal: `"agent"` means proceed with another round — act on
+  `prompt` when present, then run `gtd step-agent`; at an agent-driven pending
+  checkpoint (`prompt` is `null`, nothing to act on) just run `gtd step-agent`.
+  `"human"` means halt and hand off (a human rest, whose prompt body already
+  tells the human what to do, or a human-driven pending checkpoint resumed by
+  `gtd step`).
+- `pending` — `true` at a mid-chain HEAD (no prompt yet — resume with a mutator
+  first); `false` at a genuine rest.
 - `prompt` — the full prompt markdown when `pending` is `false`, else `null`.
-- `runStepAgent` — a boolean mirroring the plain-mode tail sentence as
-  structured data: `true` when `actor` is `"agent"` and `pending` is `false`
-  (run `gtd step-agent` next), `false` when `actor` is `"human"` (the prompt
-  body already tells the human what to do), and `false` while `pending`
-  (resuming a mid-chain checkpoint always runs `gtd step`, never `step-agent`).
-  A loop driver can read this field directly instead of hardcoding "always run
-  step-agent first" as an assumption.
 
 **`status`** — `{state, actor, predictedCommit, predictedState}`:
 
@@ -340,40 +354,40 @@ while true; do
   # 1. Advance the machine's own agent-owned bookkeeping to a fixpoint.
   gtd step-agent --json >/dev/null || true
 
-  # 2. Ask who's up next.
+  # 2. Ask who's up next. `actor` is the single "proceed" signal.
   next="$(gtd next --json)"
   actor="$(jq -r .actor <<<"$next")"
-  pending="$(jq -r .pending <<<"$next")"
+  prompt="$(jq -r .prompt <<<"$next")"
 
-  if [[ "$pending" == "true" ]]; then
-    # Mid-chain bookkeeping is waiting — step again to drive it.
-    gtd step >/dev/null
-    continue
+  if [[ "$actor" != "agent" ]]; then
+    echo "Halting — the human owns the next move."
+    break
   fi
 
-  if [[ "$actor" == "human" ]]; then
-    echo "Halting — a human turn is awaited."
-    break
+  if [[ "$prompt" == "null" ]]; then
+    # Agent-driven pending checkpoint: nothing to act on — loop back to
+    # step 1, whose `gtd step-agent` resumes the mid-chain bookkeeping.
+    continue
   fi
 
   # Agent's turn: feed the prompt to the agent, then let it finish with
   # `gtd step-agent` itself (the prompt's tail instructs it to).
-  prompt="$(jq -r .prompt <<<"$next")"
   claude -p "$prompt" --dangerously-skip-permissions
 done
 ```
 
 The agent is expected to run `gtd step-agent` itself once it finishes acting on
-the prompt (the plain-mode tail sentence says exactly this) — the driver's own
+the prompt (the plain-mode tail says exactly this) — the driver's own
 `step-agent` calls exist to advance any bookkeeping the agent doesn't own
 (routing commits, test runs) between agent turns.
 
-This driver hardcodes the step-first assumption (call `step-agent`
-unconditionally at the top of every iteration) rather than reading it. A driver
-that doesn't want to bake in that assumption can instead check `next`'s
-`runStepAgent` boolean: `true` means run `gtd step-agent` next, `false` with
-`pending: true` means run `gtd step`, and `false` with `pending: false` means
-halt (a human turn).
+The loop halts on `actor: "human"` alone: a human rest (`pending: false`, the
+prompt body addresses the human) or a human-driven pending checkpoint
+(`pending: true`, resumed by the human's own `gtd step`). Everything the agent
+side can drive — agent rests and agent-driven checkpoints — reports
+`actor: "agent"`, so multiple agent turns and commits (e.g. successive test/fix
+cycles, a force-approved package close) chain without human involvement until an
+actual human gate is hit.
 
 ## States & subjects overview
 
@@ -764,7 +778,8 @@ Each prompt-bearing state has a self-contained Eta template in
 `src/prompts/*.md` that owns its full prompt — header, context, and body. Shared
 fragments live as partials in `src/prompts/partials/`: `header`, the context
 renderers (`diff`, `feedback`, `package`), and the single `agent-turn` tail
-partial (the pinned "Finish your turn by running `gtd step-agent`." sentence).
+partial (the pinned "Finish your turn by running `gtd step-agent`. Then run
+`gtd next` …" loop-closing instructions).
 
 At module load, `src/Prompt.ts` registers every template on a single `new Eta()`
 instance via `loadTemplate`. `readFile` and `resolvePath` are nulled afterward

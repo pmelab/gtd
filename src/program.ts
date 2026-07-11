@@ -163,19 +163,6 @@ const isStaleEmptyTurnCapture = (
   resolveEvent.payload.workingTreeClean
 
 /**
- * An out-of-turn capture: `result.actor` (the actor actually awaited at this
- * rest) differs from this invocation's own `invoker` — the human recording
- * feedback-with-authority under the agent's current gate while the agent is
- * out of turn (or the symmetric case). It records ONE commit and stops: the
- * human didn't actually do the agent's job (write the code / run the tests),
- * so nothing downstream of it (mid-chain re-testing, etc.) should run in
- * this same invocation — that's the awaited actor's real turn, requiring its
- * own invocation.
- */
-const isOutOfTurnCapture = (result: Result, invoker: "human" | "agent"): boolean =>
-  result.edgeAction?.kind === "captureTurn" && result.actor !== invoker
-
-/**
  * True when this hop is one of `runStep`'s documented "this invocation's job
  * is done even though the machine could keep chaining" checkpoints above.
  * (The other stopping point — no `edgeAction` left to perform, a genuine
@@ -214,10 +201,12 @@ type RunStepHopOutcome =
  * description, and returns whether the loop should stop here (with the
  * resolved state) or continue with the folded loop state.
  *
- * Refusals only occur on the very first hop by construction (once an
- * `edgeAction` has been performed, the machine is mid-chain and no longer
- * awaiting the invoking actor for a fresh turn), so we only need to check for
- * `refusal` before anything has been performed this run.
+ * Refusals only fail on the very first hop: past that, a refusal result is
+ * how the loop notices the chain has handed the turn to the OTHER actor (a
+ * human step's grilling-accept chain lands on the agent-awaited grilled rest;
+ * an agent step's review chain lands on the human-awaited await-review rest).
+ * The work already performed is legitimate — the refusal carries no
+ * `edgeAction`, so the loop simply stops at that state instead of erroring.
  */
 const runStepHop = (
   invoker: "human" | "agent",
@@ -246,15 +235,12 @@ const runStepHop = (
       return { kind: "stop", state: result.state }
     }
 
-    const outOfTurn = isOutOfTurnCapture(result, invoker)
     const edgeAction = result.edgeAction
 
     actions.push(describeEdgeAction(edgeAction))
     const { stop } = yield* perform(edgeAction)
     const nextLoop = advanceRunStepLoop(loop, edgeAction)
-    return stop || outOfTurn
-      ? { kind: "stop", state: result.state }
-      : { kind: "continue", loop: nextLoop }
+    return stop ? { kind: "stop", state: result.state } : { kind: "continue", loop: nextLoop }
   })
 
 /**
@@ -361,7 +347,7 @@ const runNextCommand = (
     if (status.trim().length > 0) {
       return yield* Effect.fail(
         new Error(
-          "gtd next: working tree is dirty — run `gtd status` to inspect it, or `gtd step` to advance",
+          "gtd next: working tree is dirty — run `gtd status` to inspect it, then advance with `gtd step` or `gtd step-agent` (whichever actor is awaited)",
         ),
       )
     }
@@ -371,6 +357,11 @@ const runNextCommand = (
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
     if (result.pending) {
+      // Mid-chain bookkeeping is invoker-agnostic (`applyTurnTaking` hands the
+      // edge action to either actor's step), so `actor` names whose chain it
+      // is — a loop driver keys on it: "agent" means proceed (another
+      // `step-agent` round), "human" means halt. The plain message points at
+      // the natural resuming command for that actor.
       if (json) {
         write(
           JSON.stringify({
@@ -378,11 +369,14 @@ const runNextCommand = (
             actor: result.actor,
             pending: true,
             prompt: null,
-            runStepAgent: false,
           }) + "\n",
         )
       } else {
-        write("mid-chain checkpoint — run `gtd step` to continue\n")
+        write(
+          result.actor === "agent"
+            ? "mid-chain checkpoint — run `gtd step-agent` to continue, then run `gtd next` again\n"
+            : "mid-chain checkpoint — run `gtd step` to continue\n",
+        )
       }
       return
     }
@@ -394,7 +388,6 @@ const runNextCommand = (
           actor: result.actor,
           pending: false,
           prompt: builtPrompt,
-          runStepAgent: result.actor === "agent",
         }) + "\n",
       )
     } else {

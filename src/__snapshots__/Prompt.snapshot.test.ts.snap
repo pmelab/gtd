@@ -40,7 +40,9 @@ diff --git a/src/foo.ts b/src/foo.ts
 +export const foo = 1
 \`\`\`
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 
@@ -112,7 +114,9 @@ First task
 see \`\`\`block\`\`\` and - [ ] item
 \`\`\`\`
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 
@@ -222,7 +226,9 @@ First task
 see \`\`\`block\`\`\` and - [ ] item
 \`\`\`\`
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 
@@ -276,7 +282,9 @@ below:
 see \`\`\`snippet\`\`\` here
 \`\`\`\`
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 
@@ -314,7 +322,9 @@ below:
 4. **Leave every change uncommitted and finish your turn** — do **not** commit
    or stage.
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 
@@ -340,7 +350,9 @@ below:
 FAIL: expected 1 to equal 2
 \`\`\`
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 
@@ -444,7 +456,9 @@ task files:
 **DO NOT** commit any changes. This process runs within a larger orchestration
 that depends on uncommitted changes.
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 
@@ -506,7 +520,9 @@ The subagent works entirely by editing \`TODO.md\`:
 5. Leave \`TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
    next.
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 
@@ -553,7 +569,9 @@ Read the diff above as **feedback, not finished work**:
 - Plan-text changes are global feedback on the plan (or the reviewed work) as
   a whole.
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 
@@ -703,7 +721,9 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
 4. Leave \`REVIEW.md\` **uncommitted** and finish your turn — the human reviews
    it next.
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 
@@ -823,7 +843,9 @@ diff --git a/x b/x
 +hello
 \`\`\`
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 
@@ -921,6 +943,8 @@ diff --git a/x b/x
 +hello
 \`\`\`
 
-Finish your turn by running \`gtd step-agent\`.
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;

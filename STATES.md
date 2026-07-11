@@ -95,9 +95,10 @@ grilling | grilled | building | fixing | agentic-review | review
 ```
 
 `turnSubject(actor, gate)` produces `gtd(${actor}): ${gate}`. Not every
-`(actor, gate)` pair is reachable — e.g. there is no `gtd(human): building`
-under normal flow, though an out-of-turn human capture can author
-`gtd(human): <any gate the agent was awaited under>` (§3).
+`(actor, gate)` pair is reachable: turns are strictly separated (§3), so a gate
+is only ever authored by its awaited actor — there is no `gtd(human): building`
+at all, and `gtd(human)` appears only at the human gates (`grilling`'s entry and
+answer turns, `review`, `escalate`).
 
 ### 2.2 Routing phases (`RoutingPhase`) and their awaited actor
 
@@ -153,8 +154,10 @@ same chain rather than stopping; this is handled as a special case in
 `applyTurnTaking`, not in `classifyHead`. Likewise, `gtd: health-check` forces a
 re-test on **any** invoking actor once the fix-attempt budget is already
 exhausted (`capReached`) — there is nothing left to fix, so even a human's
-`gtd step` must force the escalating re-test rather than silently no-op as an
-out-of-turn step.
+`gtd step` must force the escalating re-test rather than be refused as an
+out-of-turn step. These two carve-outs sit _above_ the out-of-turn refusals in
+`applyTurnTaking` on purpose: they perform bookkeeping (a re-test), never a turn
+capture, so they don't breach the strict actor separation of turns (§3).
 
 ### 2.3 Compatibility rule and upgrade requirement
 
@@ -184,30 +187,35 @@ Drives the fixpoint loop as the human actor: `gatherEvents("human")` → `resolv
 mid-invocation checkpoints (below) is hit. Idempotent: re-running at a fixpoint
 authors zero commits.
 
-- **Out-of-turn, clean tree**: while an agent turn is awaited, a clean
-  `gtd step` is a plain no-op (zero commits).
-- **Out-of-turn, dirty tree**: while an agent turn is awaited, a dirty
-  `gtd step` captures the pending changes as feedback-with-authority, authored
-  as the human's _own_ turn under the agent's current gate —
-  `gtd(human): <gate>`, not `gtd(agent): <gate>` — since the human is the one
-  who actually made the edit.
+- **Out-of-turn: refused.** While an agent turn is awaited, `gtd step` refuses
+  (exit non-zero, zero commits, stderr
+  `"<state> awaits an agent turn — run \`gtd
+  step-agent\`"`) on both clean and dirty trees. Turns are strictly separated in both directions: the wrong mutator always errors instead of no-op-ing or adopting the dirty tree as a turn of its own. Human edits made while the agent is awaited (amendment notes in `.gtd/`
+  package files, extra TODO.md detail) stay pending and ride along as input to
+  the agent's next captured turn.
 - **Idle**: always re-runs the health check (§1's carve-out) — never an empty
   turn commit, never a plain no-op.
 
 ### `gtd step-agent` — agent mutator
 
 Same engine, `gatherEvents("agent")`. **Refuses** when the machine awaits a
-human turn: exits non-zero, authors **zero commits**, and prints
-`"<state> awaits a human turn"` to stderr. An **empty agent turn is inert**: it
-is recorded once (so `gtd next` re-emits the identical agent prompt), and a
-further clean `gtd step-agent` at that same rest authors nothing more.
+human turn (the mirror of `gtd step`'s out-of-turn refusal): exits non-zero,
+authors **zero commits**, and prints `"<state> awaits a human turn — run \`gtd
+step\`"`to stderr. An **empty agent turn is inert**: it is recorded once (so`gtd
+next`re-emits the identical agent prompt), and a further clean`gtd step-agent`
+at that same rest authors nothing more.
 
 ### Fixpoint chaining and mid-invocation checkpoints
 
 Both `step` and `step-agent` share `runStep`, which chains hops until one of:
 
 - `resolve` returns no `edgeAction` (true fixpoint).
-- `resolve` returns a `refusal` (only possible on the very first hop).
+- `resolve` returns a `refusal`. Only a first-hop refusal fails the invocation;
+  a refusal reached past hop 1 is how the loop notices the chain has handed the
+  turn to the _other_ actor (a human step's grilling-accept chain landing on the
+  agent-awaited grilled rest, an agent step's review chain landing on the
+  human-awaited await-review rest) — it carries no `edgeAction`, so the loop
+  just stops at that state with the work already performed.
 - A performed `EdgeAction` itself signals `{ stop: true }` (the health-check
   green settle with nothing further queued).
 - One of three documented **mid-invocation checkpoints**
@@ -227,26 +235,25 @@ Both `step` and `step-agent` share `runStep`, which chains hops until one of:
      same_ invocation (not as the very first thing it saw). A hop-1 empty
      capture is unaffected, which is what lets an out-of-band operational
      recovery (config fixed, code already committed by an earlier invocation)
-     proceed straight to re-testing.
-- An **out-of-turn capture** (`result.actor !== invoker`) always stops right
-  after recording that one commit — the human didn't do the agent's actual job,
-  so nothing downstream (re-testing, etc.) runs in this invocation.
-
-`runStep` is bounded by `MAX_EDGE_HOPS` (100): exceeding it is a machine/edge
-bug, and the driver fails loudly rather than spinning forever.
+     proceed straight to re-testing. `runStep` is bounded by `MAX_EDGE_HOPS`
+     (100): exceeding it is a machine/edge bug, and the driver fails loudly
+     rather than spinning forever.
 
 ### `gtd next` — pure prompt emitter
 
 `invoker: "none"`, never mutates. Reads the current state and prints the prompt
 for whichever actor is awaited:
 
-- **Dirty tree** → refuses (non-zero exit), pointing at `gtd status` /
-  `gtd step`.
+- **Dirty tree** → refuses (non-zero exit), pointing at `gtd status` and the
+  step command of whichever actor is awaited (`gtd step` / `gtd step-agent`).
 - **Clean tree, at rest** → prints that rest's prompt (or, in `--json` mode,
   `{ state, actor, pending: false, prompt }`).
-- **Clean tree, mid-chain** → reports `{ pending: true, prompt: null }` (plain
-  mode: `"mid-chain checkpoint — run \`gtd step\` to continue"`) rather than a
-  prompt — there is nothing to hand an agent yet.
+- **Clean tree, mid-chain** → reports `{ pending: true, prompt: null }` rather
+  than a prompt — there is nothing to hand an agent yet. Mid-chain bookkeeping
+  is invoker-agnostic, so either mutator resumes it; the plain-mode message
+  names the natural one for the reported actor (`"run \`gtd step-agent\` to
+  continue, then run \`gtd next\` again"`for an agent-driven checkpoint,`"run
+  \`gtd step\` to continue"` for a human-driven one).
 
 ### `gtd status` — pure prediction
 
@@ -300,15 +307,14 @@ committed.
 - `step` / `step-agent`: `{ state, actions, commits }` — `actions` is the
   human-readable list of edge actions performed, `commits` the ordered list of
   commit subjects authored this run.
-- `next`: `{ state, actor, pending, prompt, runStepAgent }` — `prompt` is `null`
-  when `pending` is true. `runStepAgent` is a boolean for automated loop
-  drivers, so they don't have to hardcode the step-first assumption to know what
-  finishes this turn: `true` when `actor` is `"agent"` and `pending` is `false`
-  (mirroring the plain-mode tail sentence — the driver should run
-  `gtd step-agent` next), `false` when `actor` is `"human"` (the prompt body
-  already spells out the human's next action), and `false` while `pending`
-  (resuming a mid-chain checkpoint always runs `gtd step`, never `step-agent`,
-  regardless of which actor's turn was interrupted).
+- `next`: `{ state, actor, pending, prompt }` — `prompt` is `null` when
+  `pending` is true. `actor` is the single "proceed" signal for automated loop
+  drivers: `"agent"` means another round — act on `prompt` when present (an
+  agent rest; mirrors the plain-mode tail), then run `gtd step-agent`; at an
+  agent-driven pending checkpoint (`prompt` is `null`, nothing to act on) just
+  run `gtd step-agent`. `"human"` means halt: the human owns the next move (a
+  human rest, whose prompt body already spells out the human's next action, or a
+  human-driven pending checkpoint resumed by `gtd step`).
 - `status`: `{ state, actor, predictedCommit, predictedState }` —
   `predictedCommit` is `null` when nothing would be committed (e.g. idle).
 - `review`: `{ state: "review", reviewBase, pending: false, prompt: null }`.
@@ -374,6 +380,13 @@ larger orchestration that depends on uncommitted state.
 
 **Exit:** `gtd(agent): grilled` mid-chains to `commitRouting "gtd: planning"`
 (also removing `TODO.md`) → **planning**.
+
+**Turn-taking:** `gtd step` (human) is refused here like at every agent-awaited
+rest (§3), and this rest is why the rule matters: the dirty tree is the
+decompose agent's uncommitted output, and adopting it as a `gtd(human): grilled`
+turn would misattribute agent work and regress the ladder to grilling. To amend
+the decomposition, leave notes in `.gtd/` package/task files after the
+`gtd: planning` commit lands; an unamended `.gtd/` proceeds to **building**.
 
 ### `planning`
 
@@ -938,16 +951,22 @@ The step-first two-beat loop an agent (or the `loop` skill) should run to drive
 
 1. Run `gtd step-agent`.
 2. Run `gtd next`.
-3. If the reported `actor` is `"human"` → **halt** (this is a human gate; stop
-   and let the human act, e.g. answer TODO.md questions, review, or fix an
-   escalation).
-4. Otherwise, feed the emitted prompt to the agent (spawn the subagent(s) the
-   prompt describes, let them make their edits, leave them uncommitted per the
-   prompt's instructions).
+3. If `actor` is `"human"` → **halt** (the human owns the next move: a human
+   gate — answer TODO.md questions, review, fix an escalation — or a
+   human-driven pending checkpoint resumed by `gtd step`).
+4. Otherwise: if a prompt was emitted, feed it to the agent (spawn the
+   subagent(s) the prompt describes, let them make their edits, leave them
+   uncommitted per the prompt's instructions); at an agent-driven pending
+   checkpoint (`prompt` is `null`) there is nothing to act on.
 5. Repeat from step 1.
 
 This mirrors the plain-mode prompt tail: every agent-awaited prompt ends with
-"Finish your turn by running `gtd step-agent`." (`@agent-turn` partial,
-suppressed in `--json` mode and for human-awaited prompts). `gtd step-agent`
-itself absorbs any number of mid-chain routing hops automatically (§3) — the
-loop only needs to re-invoke it once per actual agent turn, not once per commit.
+"Finish your turn by running `gtd step-agent`. Then run `gtd next` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off." (`@agent-turn` partial,
+suppressed in `--json` mode and for human-awaited prompts). The first sentence
+closes the current turn; the second closes the outer loop, so a plain-text agent
+chains multiple iterations (e.g. successive test/fix cycles) until a human gate.
+`gtd step-agent` itself absorbs any number of mid-chain routing hops
+automatically (§3) — the loop only needs to re-invoke it once per actual agent
+turn, not once per commit.
