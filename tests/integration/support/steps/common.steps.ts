@@ -201,6 +201,13 @@ Then("stdout contains {string}", (world: GtdWorld, text: string) => {
   )
 })
 
+Then("stdout matches {string}", (world: GtdWorld, pattern: string) => {
+  assert.ok(
+    new RegExp(pattern).test(world.lastResult.stdout),
+    `Expected stdout to match /${pattern}/. Got:\n${world.lastResult.stdout}`,
+  )
+})
+
 Then("stdout does not contain {string}", (world: GtdWorld, text: string) => {
   assert.ok(
     !world.lastResult.stdout.includes(text),
