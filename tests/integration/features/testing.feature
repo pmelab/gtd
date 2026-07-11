@@ -78,13 +78,13 @@ Feature: Testing — the bounded build/test/fix loop
     Then it succeeds
     And stdout contains "SENTINEL_FAILURE"
     # The fixing gate's awaited actor is the AGENT, not the human — a second
-    # gtd step-agent here is an inert empty fixer turn (nothing has been fixed
-    # yet), recorded once, not a refusal.
+    # gtd step-agent here is a do-nothing fixer invocation: inert (no commit,
+    # no re-test), not a refusal.
     Then I record the commit count
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): fixing"
-    And the commit count increased by 1
+    And the last commit subject is "gtd: errors"
+    And the commit count is unchanged
     When I run gtd next
     Then it succeeds
     And stdout contains "SENTINEL_FAILURE"

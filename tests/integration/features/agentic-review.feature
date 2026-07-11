@@ -76,9 +76,11 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
     And I run gtd step-agent
     Then I record the commit count
+    # The findings are on the record; a clean re-run has nothing to capture —
+    # it is inert (no empty fixer turn commit) and never an implicit approval.
     When I run gtd step-agent
     Then it succeeds
-    And the commit count increased by 1
+    And the commit count is unchanged
     And the git log does not contain "gtd: package done"
     When I run gtd next
     Then it succeeds
@@ -129,3 +131,56 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
     And the last commit subject is "gtd: package done"
     And stdout does not contain "Spawn a **reviewing subagent**"
     And the file ".gtd/01-foo/01-task.md" does not exist
+
+  Scenario: The findings round that crosses the review threshold routes to fixing instead of dead-resting
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: "true"
+      reviewThreshold: 2
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
+      """
+      Finding: round one.
+      """
+    And a commit "gtd(agent): fixing" that deletes ".gtd/FEEDBACK.md"
+    And a commit "gtd: tests green"
+    And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
+      """
+      Finding: round two.
+      """
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Finding: round two."
+    And stdout contains "Spawn a **fix subagent**"
+    And stdout does not contain "Spawn a **reviewing subagent**"
+
+  Scenario: An approval turn that crosses the review threshold still closes the package
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      testCommand: "true"
+      reviewThreshold: 2
+      """
+    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+      """
+      Implement the helper.
+      """
+    And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
+      """
+      Finding: round one.
+      """
+    And a commit "gtd(agent): fixing" that deletes ".gtd/FEEDBACK.md"
+    And a commit "gtd: tests green"
+    And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
+      """
+      """
+    When I run gtd step-agent
+    Then it succeeds
+    And the last commit subject is "gtd: package done"
+    And the file ".gtd/01-foo/01-task.md" does not exist
+    And the file ".gtd/FEEDBACK.md" does not exist
