@@ -10,7 +10,7 @@ Tell the user:
 - To answer a question, edit `.gtd/TODO.md` in place (replace the question's text
   with your answer, or annotate it), then run `gtd step`.
 - To accept **all** suggested defaults as-is, run `gtd step` with **no
-  edits** — this converges the plan and moves on to decomposition.
+  edits** — this converges the plan and moves on to technical architecting.
 
 <% if (it.tail) { %>
 <%~ include(it.tail) %>

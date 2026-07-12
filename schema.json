@@ -33,6 +33,9 @@
             "grilling": {
               "type": "string"
             },
+            "architecting": {
+              "type": "string"
+            },
             "building": {
               "type": "string"
             },

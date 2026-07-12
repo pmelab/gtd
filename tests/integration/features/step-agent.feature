@@ -75,11 +75,11 @@ Feature: gtd step-agent — the agent mutator
     And stderr contains "awaits a human turn"
     And the commit count is unchanged
 
-  Scenario: A do-nothing agent invocation at the grilled rest never consumes the plan
+  Scenario: A do-nothing agent invocation at the grilled rest never consumes the architecture
     Given a test project
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): architecting" that adds ".gtd/ARCHITECTURE.md" with:
       """
-      # Plan
+      # Architecture
 
       Build a calculator.
       """
@@ -88,17 +88,17 @@ Feature: gtd step-agent — the agent mutator
     When I run gtd step-agent
     Then it succeeds
     And the commit count is unchanged
-    And the file ".gtd/TODO.md" exists
+    And the file ".gtd/ARCHITECTURE.md" exists
     And the git log does not contain "gtd: planning"
     When I run gtd next
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
 
-  Scenario: A historical decompose turn without packages rests instead of deleting the plan
+  Scenario: A historical decompose turn without packages rests instead of deleting the architecture
     Given a test project
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): architecting" that adds ".gtd/ARCHITECTURE.md" with:
       """
-      # Plan
+      # Architecture
 
       Build a calculator.
       """
@@ -108,7 +108,7 @@ Feature: gtd step-agent — the agent mutator
     When I run gtd step-agent
     Then it succeeds
     And the commit count is unchanged
-    And the file ".gtd/TODO.md" exists
+    And the file ".gtd/ARCHITECTURE.md" exists
     And the git log does not contain "gtd: planning"
 
   Scenario: A do-nothing agent invocation at the planning rest never skips the build

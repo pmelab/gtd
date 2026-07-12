@@ -32,9 +32,9 @@ A transition is a pure function of four inputs, nothing else:
 2. **whether the working tree is dirty or clean**
 3. **the class of HEAD's commit subject** — turn commit, routing commit, or
    boundary commit (§2)
-4. **which steering files are present** (`.gtd/TODO.md`, `.gtd/NN-…/` work
-   packages, `.gtd/REVIEW.md`, `.gtd/FEEDBACK.md`, `.gtd/ERRORS.md`,
-   `.gtd/HEALTH.md`, `.gtd/SQUASH_MSG.md`)
+4. **which steering files are present** (`.gtd/TODO.md`, `.gtd/ARCHITECTURE.md`,
+   `.gtd/NN-…/` work packages, `.gtd/REVIEW.md`, `.gtd/FEEDBACK.md`,
+   `.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/SQUASH_MSG.md`)
 
 All steering files live under `.gtd/` — the directory is the workflow's
 namespace, and everything outside it is project code. A root-level `TODO.md` or
@@ -98,15 +98,15 @@ machine-authored namespaces, plus a catch-all:
 ### 2.1 Turn gates (`TurnGate`)
 
 ```
-grilling | grilled | building | fixing | agentic-review | review
+grilling | architecting | grilled | building | fixing | agentic-review | review
 | squashing | health-fixing | escalate
 ```
 
 `turnSubject(actor, gate)` produces `gtd(${actor}): ${gate}`. Not every
 `(actor, gate)` pair is reachable: turns are strictly separated (§3), so a gate
 is only ever authored by its awaited actor — there is no `gtd(human): building`
-at all, and `gtd(human)` appears only at the human gates (`grilling`'s entry and
-answer turns, `review`, `escalate`).
+at all, and `gtd(human)` appears only at the human gates (`grilling`'s and
+`architecting`'s entry and answer turns, `review`, `escalate`).
 
 ### 2.2 Routing phases (`RoutingPhase`) and their awaited actor
 
@@ -118,6 +118,7 @@ ladder, not by subject alone):
 
 | Subject                 | Class at that HEAD | Lands at (state, actor)                                                                                                                                                                                                                        |
 | ----------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gtd: architecting`     | rest               | `architecting`, agent                                                                                                                                                                                                                          |
 | `gtd: grilled`          | rest               | `grilled`, agent                                                                                                                                                                                                                               |
 | `gtd: planning`         | rest               | `building`, agent                                                                                                                                                                                                                              |
 | `gtd: tests green`      | rest or mid-chain  | `.gtd` present: force-approved → mid-chain `closePackage` → `close-package`, agent; not force-approved → rest `agentic-review`, agent. No `.gtd` (health path): squash-after-green → mid-chain `writeSquashTemplate`; else rest `idle`, human. |
@@ -142,8 +143,10 @@ ordinary review-scope rules (§4, Review).
 | Turn commit                  | Class                                      | Lands at                                                                                                                                                                                           |
 | ---------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `gtd(agent): grilling`       | empty diff → rest; non-empty → rest        | `grilling`, agent (empty, re-emit) or `grilling`, human (non-empty, answer gate)                                                                                                                   |
-| `gtd(human): grilling`       | empty diff → mid-chain; non-empty → rest   | empty → `commitRouting "gtd: grilled"` → `grilling`/agent picture; non-empty → rest `grilling`, agent                                                                                              |
-| `gtd(agent): grilled`        | mid-chain                                  | `commitRouting "gtd: planning"` (removes .gtd/TODO.md)                                                                                                                                             |
+| `gtd(human): grilling`       | empty diff → mid-chain; non-empty → rest   | empty → `commitRouting "gtd: architecting", seedArchitectureFromTodo: true` → `architecting`/agent; non-empty → rest `grilling`, agent                                                             |
+| `gtd(agent): architecting`   | empty diff → rest; non-empty → rest        | `architecting`, agent (empty, re-emit) or `architecting`, human (non-empty, answer gate)                                                                                                           |
+| `gtd(human): architecting`   | empty diff → mid-chain; non-empty → rest   | empty → `commitRouting "gtd: grilled"` → `grilled`/agent; non-empty → rest `architecting`, agent                                                                                                   |
+| `gtd(agent): grilled`        | mid-chain                                  | `commitRouting "gtd: planning"` (removes .gtd/ARCHITECTURE.md)                                                                                                                                     |
 | `gtd(agent): building`       | mid-chain                                  | `runTest`                                                                                                                                                                                          |
 | `gtd(agent): fixing`         | empty diff → rest; non-empty → mid-chain   | empty → rest `fixing`, agent (re-emit); non-empty → `runTest`                                                                                                                                      |
 | `gtd(agent): agentic-review` | rest                                       | `agentic-review`, agent (only reached when .gtd/FEEDBACK.md was never written at all — the .gtd/FEEDBACK.md-present cases are handled by the steering-file precedence check that runs before this) |
@@ -332,17 +335,19 @@ committed.
 
 ## 4. Per-state documentation
 
-The 16 frozen `GtdState`s (`src/Machine.ts`). 11 are prompt-bearing
-(`isPromptState` in `src/Prompt.ts`): `grilling`, `grilled`, `building`,
-`fixing`, `agentic-review`, `review`, `await-review`, `squashing`, `escalate`,
-`idle`, `health-fixing`. The other 5 — `testing`, `planning`, `close-package`,
-`done`, `health-check` — are performed entirely by the driver/edge and must
-never reach `buildPrompt` (it throws if they do).
+The 17 frozen `GtdState`s (`src/Machine.ts`). 12 are prompt-bearing
+(`isPromptState` in `src/Prompt.ts`): `grilling`, `architecting`, `grilled`,
+`building`, `fixing`, `agentic-review`, `review`, `await-review`, `squashing`,
+`escalate`, `idle`, `health-fixing`. The other 5 — `testing`, `planning`,
+`close-package`, `done`, `health-check` — are performed entirely by the
+driver/edge and must never reach `buildPrompt` (it throws if they do).
 
 ### `grilling`
 
-**Means:** developing a plan (`.gtd/TODO.md`) toward a concrete, implementation-
-ready form, iterating between agent and human.
+**Means:** developing a plan (`.gtd/TODO.md`) toward a concrete, product-level
+form — user-facing/product decisions only, iterating between agent and human.
+Technical/architectural decisions are explicitly out of scope here; they belong
+to the next phase (`architecting`).
 
 **Awaited actor:** `agent` or `human`, depending on which prompt renders —
 `awaitedActor("grilling")` alone only gives the generic default (`"agent"`); the
@@ -353,43 +358,87 @@ agent-develops rest (`@grilling-agent` template).
 **Prompt:**
 
 - `@grilling-agent` (agent awaited) — develop `.gtd/TODO.md` into a concrete
-  plan in one turn, using subagents; every remaining open question must carry a
-  suggested default; leave .gtd/TODO.md uncommitted. Inlines the latest human
-  turn's diff (workflow files excluded) as "feedback, not finished work" when
-  present.
+  product-level plan in one turn, using subagents; every remaining open question
+  must carry a suggested default; leave .gtd/TODO.md uncommitted. Inlines the
+  latest human turn's diff (workflow files excluded) as "feedback, not finished
+  work" when present.
 - `@grilling-answers` (human awaited) — a pure human gate: edit `.gtd/TODO.md`
   in place to answer/annotate, or run `gtd step` with no edits to accept all
   suggested defaults.
 
 **Entry:** a dirty boundary tree with `invoker: "human"` (no steering files, no
-committed .gtd/TODO.md) captures `gtd(human): grilling` — the v2 entry turn
-(`isDirtyBoundaryEntry` in `applyTurnTaking`). `gtd: done` counts as a boundary
-HEAD for this purpose too, even though it parses as `"routing"` — a settled
-cycle is exactly where the next feature's dirty tree lands.
-`gtd: review feedback` also rests here (agent awaited) — the re-grilling entry
-from review feedback (§4, Review-feedback re-grill below).
+committed .gtd/TODO.md, no committed .gtd/ARCHITECTURE.md) captures
+`gtd(human): grilling` — the v2 entry turn (`isDirtyBoundaryEntry` in
+`applyTurnTaking`). `gtd: done` counts as a boundary HEAD for this purpose too,
+even though it parses as `"routing"` — a settled cycle is exactly where the next
+feature's dirty tree lands. `gtd: review feedback` also rests here (agent
+awaited) — the re-grilling entry from review feedback (§4, Review-feedback
+re-grill below).
+
+**Escape hatch:** if the dirty boundary tree already contains
+`.gtd/ARCHITECTURE.md` (an already-technical sketch the human wrote directly),
+the entry turn is captured as `gtd(human): architecting` instead, skipping
+product grilling entirely for this cycle (see `architecting`'s Entry below).
+This is file-_presence_-based routing — the same mechanism every steering-file
+rung in the ladder already uses — not content-based steering.
 
 **Exit:** an empty human turn at the answer gate (`gtd(human): grilling` with an
-empty diff) mid-chains to `commitRouting "gtd: grilled"` → **grilled**.
+empty diff) mid-chains to
+`commitRouting "gtd: architecting", seedArchitectureFromTodo: true` (writes
+`.gtd/ARCHITECTURE.md` from the converged `.gtd/TODO.md` content and deletes
+`.gtd/TODO.md`, in one commit) → **architecting**.
+
+### `architecting`
+
+**Means:** developing the converged product plan (`.gtd/ARCHITECTURE.md`) into a
+concrete, implementation-ready technical/architectural plan — file/module
+structure, data models, tech-stack choices — iterating between agent and human.
+Mechanically an exact mirror of `grilling`, one file and one phase later.
+
+**Awaited actor:** `agent` or `human`, depending on which prompt renders — same
+`Result.actor` distinction as `grilling` (`@architecting-answers` vs.
+`@architecting-agent`).
+
+**Prompt:**
+
+- `@architecting-agent` (agent awaited) — develop `.gtd/ARCHITECTURE.md` into a
+  concrete technical plan in one turn, using subagents; every remaining open
+  question must carry a suggested default; leave .gtd/ARCHITECTURE.md
+  uncommitted. Must not re-open product/user-facing decisions already settled by
+  grilling. Inlines the latest human turn's diff as "feedback, not finished
+  work" when present.
+- `@architecting-answers` (human awaited) — a pure human gate: edit
+  `.gtd/ARCHITECTURE.md` in place to answer/annotate, or run `gtd step` with no
+  edits to accept all suggested defaults.
+
+**Entry:** the routing commit `gtd: architecting` is a rest landing here (agent)
+— reached either from grilling's converged exit (`.gtd/ARCHITECTURE.md` seeded
+from `.gtd/TODO.md`) or directly from the escape-hatch dirty-boundary entry
+(`.gtd/ARCHITECTURE.md` authored by the human from scratch, no `.gtd/TODO.md`
+ever existing).
+
+**Exit:** an empty human turn at the answer gate (`gtd(human): architecting`
+with an empty diff) mid-chains to `commitRouting "gtd: grilled"` → **grilled**.
 
 ### `grilled`
 
-**Means:** the plan has converged (no open questions, nothing pending); ready to
-be decomposed into ordered work packages.
+**Means:** the architecture has converged (no open questions, nothing pending);
+ready to be decomposed into ordered work packages.
 
 **Awaited actor:** agent.
 
-**Prompt:** `@decompose` — decompose `.gtd/TODO.md` into `.gtd/NN-<package>/`
-directories of numbered task `.md` files. Rules inlined in the prompt: packages
-are sequential/dependency-ordered, each package must be green on its own, tasks
-within a package are parallel and file-disjoint, packages are vertical slices,
-task files are self-contained. The subagent must not commit — this runs inside a
-larger orchestration that depends on uncommitted state.
+**Prompt:** `@decompose` — decompose `.gtd/ARCHITECTURE.md` into
+`.gtd/NN-<package>/` directories of numbered task `.md` files. Rules inlined in
+the prompt: packages are sequential/dependency-ordered, each package must be
+green on its own, tasks within a package are parallel and file-disjoint,
+packages are vertical slices, task files are self-contained. The subagent must
+not commit — this runs inside a larger orchestration that depends on uncommitted
+state.
 
 **Entry:** the routing commit `gtd: grilled` is a rest landing here (agent).
 
 **Exit:** `gtd(agent): grilled` mid-chains to `commitRouting "gtd: planning"`
-(also removing `.gtd/TODO.md`) → **planning**.
+(also removing `.gtd/ARCHITECTURE.md`) → **planning**.
 
 **Turn-taking:** `gtd step` (human) is refused here like at every agent-awaited
 rest (§3), and this rest is why the rule matters: the dirty tree is the
@@ -583,9 +632,9 @@ The human gate reached after drafting (`gtd: awaiting review`) is a separate
 - **Outside a process** (any branch, no grilling turn in this cycle) → no base
   is set; the branch review never fires (falls through to idle/health).
 
-Workflow files (`.gtd/TODO.md`, `.gtd/REVIEW.md`, `.gtd/FEEDBACK.md`,
-`.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/SQUASH_MSG.md`, `.gtd/`) are excluded
-from every review diff.
+Workflow files (`.gtd/TODO.md`, `.gtd/ARCHITECTURE.md`, `.gtd/REVIEW.md`,
+`.gtd/FEEDBACK.md`, `.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/SQUASH_MSG.md`,
+`.gtd/`) are excluded from every review diff.
 
 **Actions/Exit:**
 
@@ -669,9 +718,10 @@ into one conventional-commits message. Two entry points share this state:
    `.gtd/SQUASH_MSG.md` and commit it as `gtd: squash template`. No squash
    happens yet.
 2. `gtd next` at that rest renders `@squashing` — extract key decisions from the
-   grilling rounds' `.gtd/TODO.md` history, draft one conventional-commits
-   message, and **overwrite** `.gtd/SQUASH_MSG.md` with it (leaving it
-   uncommitted). No sentinel text appears anywhere in this prompt.
+   grilling and architecting rounds' `.gtd/TODO.md` and `.gtd/ARCHITECTURE.md`
+   history, draft one conventional-commits message, and **overwrite**
+   `.gtd/SQUASH_MSG.md` with it (leaving it uncommitted). No sentinel text
+   appears anywhere in this prompt.
 3. `gtd(agent): squashing`, once `.gtd/SQUASH_MSG.md` is present, mid-chains to
    `squashCommit`: read `.gtd/SQUASH_MSG.md`'s content, remove the file,
    `git reset --soft <squashBase>`, then commit-all under that content as the
@@ -763,6 +813,11 @@ the more generic single-file one), then the rest:
 .gtd/REVIEW.md + .gtd
 .gtd/REVIEW.md + committed .gtd/TODO.md
 uncommitted .gtd/REVIEW.md + .gtd/TODO.md
+.gtd/REVIEW.md + committed .gtd/ARCHITECTURE.md
+uncommitted .gtd/REVIEW.md + .gtd/ARCHITECTURE.md
+.gtd/TODO.md + .gtd/ARCHITECTURE.md   (the two never legitimately coexist —
+                          TODO.md is always deleted in the same commit that
+                          seeds ARCHITECTURE.md)
 .gtd/FEEDBACK.md + .gtd/REVIEW.md
 .gtd/FEEDBACK.md without .gtd
 .gtd/ERRORS.md + .gtd/FEEDBACK.md
@@ -805,24 +860,30 @@ In order:
 2. HEAD is `gtd: package done` → packages remain → **building**; else reviewable
    → **review**; else → idle/health.
 3. `.gtd/TODO.md` present (any other HEAD) → **grilling** continues.
-4. `.gtd/` exists with a pending package **and** the nearest workflow commit
+4. `.gtd/ARCHITECTURE.md` present (any other HEAD) → **architecting** continues
+   (mirrors rung 3 — the two files never coexist, per the illegal-combination
+   guard, so ordering between rungs 3 and 4 is inert).
+5. `.gtd/` exists with a pending package **and** the nearest workflow commit
    (skipping boundary commits stacked on top) is still `gtd(agent): building` →
    **building** (operational-recovery carve-out: a boundary commit, e.g. a
    config fix, landed on top of the checkpoint after a mid-chain failure, but
    the checkpoint is still the active one). Narrow by design — an unrecognized
    boundary HEAD with no such checkpoint in its history still hard-errors.
-5. No steering files at all, no recognized workflow HEAD → idle/health
+6. No steering files at all, no recognized workflow HEAD → idle/health
    (`resolveIdleOrHealth`): reviewable diff → **review**; else → **idle**,
    human.
-6. Anything else → `corrupt()` — hard error.
+7. Anything else → `corrupt()` — hard error.
 
 ### 5.5 Turn-taking layer (`applyTurnTaking`, always applied last)
 
 Independent of the ladder above, layered on every resolved baseline:
 
 1. **Dirty-boundary entry** (`invoker === "human"`, dirty tree, no committed
-   .gtd/TODO.md, no steering files, boundary/`gtd: done` HEAD) → captures
-   `gtd(human): grilling` unconditionally, short-circuiting everything else.
+   .gtd/TODO.md, no committed .gtd/ARCHITECTURE.md, no other steering files,
+   boundary/`gtd: done` HEAD) → captures `gtd(human): grilling`, short-
+   circuiting everything else — UNLESS the dirty tree already contains
+   `.gtd/ARCHITECTURE.md` (the escape hatch), in which case it captures
+   `gtd(human): architecting` instead, skipping product grilling for this cycle.
 2. **Mid-chain baseline** → `invoker === "none"` reports `pending: true`; any
    other invoker performs the edge action.
 3. **Rest baseline, `invoker === "none"`** → report state/actor, no mutation.
@@ -859,11 +920,14 @@ Mirrors `tests/integration/features/journeys.feature`. All examples below assume
 ```
 <boundary/init>
 gtd(human): grilling        # dirty-boundary entry turn
-gtd(agent): grilling        # agent develops the plan (non-empty)
+gtd(agent): grilling        # agent develops the product plan (non-empty)
 gtd(human): grilling        # human accepts (empty turn)
+gtd: architecting            # routing: .gtd/ARCHITECTURE.md seeded, .gtd/TODO.md removed
+gtd(agent): architecting    # agent develops the architecture (non-empty)
+gtd(human): architecting    # human accepts (empty turn)
 gtd: grilled                # routing: converged
 gtd(agent): grilled         # agent's own-gate turn (immediately mid-chains)
-gtd: planning                # routing: .gtd/TODO.md removed
+gtd: planning                # routing: .gtd/ARCHITECTURE.md removed
 gtd(agent): building        # agent writes code
 gtd: tests green             # routing: test passed
 gtd: package done             # routing: force-approved (agenticReview off)
@@ -911,12 +975,37 @@ gtd(human): grilling          # dirty-boundary entry (notes.md)
 gtd(agent): grilling          # agent leaves an open question with a suggested default
 gtd(human): grilling          # human answers inline in .gtd/TODO.md (non-empty!) — NOT accept
 gtd(agent): grilling          # agent converges, no more markers
-gtd: grilled                   # human's next clean step converges
+gtd: architecting               # human's next clean step converges
 ```
 
 Note the human's answer round is itself a **non-empty** human turn — it does not
 converge on its own; the agent still gets one more round to confirm convergence
-before the clean accept lands `gtd: grilled`.
+before the clean accept lands `gtd: architecting`.
+
+### Architecting round with a human answer
+
+```
+gtd: architecting               # routing: .gtd/ARCHITECTURE.md seeded from converged TODO.md
+gtd(agent): architecting      # agent leaves an open question with a suggested default
+gtd(human): architecting      # human answers inline in .gtd/ARCHITECTURE.md (non-empty!) — NOT accept
+gtd(agent): architecting      # agent converges, no more markers
+gtd: grilled                    # human's next clean step converges
+```
+
+Mechanically identical to the grilling round above, one file and one phase
+later.
+
+### Escape hatch: already-technical input
+
+```
+<boundary/init>
+gtd(human): architecting      # dirty-boundary entry, but the human authored
+                                 # .gtd/ARCHITECTURE.md directly — product
+                                 # grilling is skipped entirely
+gtd(agent): architecting      # agent develops the architecture from that raw input
+gtd(human): architecting      # human accepts (empty turn)
+gtd: grilled                    # routing: converged — .gtd/TODO.md never existed
+```
 
 ### Escalation and recovery
 
@@ -965,8 +1054,8 @@ The step-first two-beat loop an agent (or the `loop` skill) should run to drive
 1. Run `gtd step-agent`.
 2. Run `gtd next`.
 3. If `actor` is `"human"` → **halt** (the human owns the next move: a human
-   gate — answer .gtd/TODO.md questions, review, fix an escalation — or a
-   human-driven pending checkpoint resumed by `gtd step`).
+   gate — answer .gtd/TODO.md or .gtd/ARCHITECTURE.md questions, review, fix an
+   escalation — or a human-driven pending checkpoint resumed by `gtd step`).
 4. Otherwise: if a prompt was emitted, feed it to the agent (spawn the
    subagent(s) the prompt describes, let them make their edits, leave them
    uncommitted per the prompt's instructions); at an agent-driven pending

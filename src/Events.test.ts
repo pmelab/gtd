@@ -486,6 +486,21 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
     expect(p.todoCommitted).toBe(false)
   })
 
+  it("architectureCommitted: tracked at HEAD → true (even with pending edits)", async () => {
+    commitFile(turnSubject("agent", "architecting"), ".gtd/ARCHITECTURE.md", "# Architecture\n")
+    writeRepoFile(join(repoDir, ".gtd/ARCHITECTURE.md"), "# Architecture\n\nedited\n")
+    const p = resolveOf(await runGather())
+    expect(p.architectureExists).toBe(true)
+    expect(p.architectureCommitted).toBe(true)
+  })
+
+  it("architectureCommitted: freshly written (untracked) ARCHITECTURE.md → false", async () => {
+    writeRepoFile(join(repoDir, ".gtd/ARCHITECTURE.md"), "# Architecture\n")
+    const p = resolveOf(await runGather())
+    expect(p.architectureExists).toBe(true)
+    expect(p.architectureCommitted).toBe(false)
+  })
+
   it("pendingErrorsDeletion reflects a working-tree ERRORS.md deletion", async () => {
     commitFile("gtd: errors", ".gtd/ERRORS.md", "boom\n")
     rmSync(join(repoDir, ".gtd/ERRORS.md")) // human removes the committed ERRORS.md
@@ -619,6 +634,17 @@ describe("gatherEvents — headTurnDiff / headTurnIsEmpty", { timeout: 30_000 },
     expect(p.headTurnDiff).toContain("code.ts")
     expect(p.headTurnDiff).not.toContain(".gtd/TODO.md")
   })
+
+  it("headTurnDiff includes ARCHITECTURE.md for an architecting turn — it IS the gate's content", async () => {
+    writeRepoFile(join(repoDir, ".gtd/ARCHITECTURE.md"), "# Architecture\ngo with a REST API\n")
+    writeRepoFile(join(repoDir, "code.ts"), "export const c = 1\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", turnSubject("human", "architecting"))
+    const p = resolveOf(await runGather())
+    expect(p.headTurnDiff).toContain("code.ts")
+    expect(p.headTurnDiff).toContain(".gtd/ARCHITECTURE.md")
+    expect(p.headTurnDiff).toContain("REST API")
+  })
 })
 
 // ── gatherEvents: reviewAnchor ────────────────────────────────────────────────
@@ -690,6 +716,17 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
     commitFile("feat: add widget", "widget.ts", "export const widget = 1\n")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBe(grillingHash)
+  })
+
+  it("escape hatch: a cycle starting directly at an architecting turn (no grilling at all) still yields the correct review base", async () => {
+    initRepo(false)
+    commitFile(turnSubject("human", "architecting"), ".gtd/ARCHITECTURE.md", "# Architecture\n")
+    const architectingHash = git("rev-parse", "HEAD")
+    git("rm", "-q", ".gtd/ARCHITECTURE.md")
+    git("commit", "-q", "-m", "gtd: planning")
+    commitFile("feat: add widget", "widget.ts", "export const widget = 1\n")
+    const p = resolveOf(await runGather())
+    expect(p.reviewBase).toBe(architectingHash)
   })
 
   // Rule 2: within-process, incremental — `gtd: awaiting review` already
@@ -1044,6 +1081,14 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
+  it("captureTurn: formats a pending ARCHITECTURE.md before committing", async () => {
+    writeRepoFile(join(repoDir, ".gtd/ARCHITECTURE.md"), "#    Arch\nunformatted   \n")
+    await runPerform({ kind: "captureTurn", actor: "human", gate: "architecting" })
+    const formatted = readFileSync(join(repoDir, ".gtd/ARCHITECTURE.md"), "utf8")
+    expect(formatted).not.toBe("#    Arch\nunformatted   \n")
+    expect(git("status", "--porcelain").trim()).toBe("")
+  })
+
   it("commitRouting: commits pending changes under the given subject with no removals", async () => {
     writeRepoFile(join(repoDir, "src.ts"), "code\n")
     await runPerform({ kind: "commitRouting", subject: "gtd: grilled" })
@@ -1051,14 +1096,30 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
-  it("commitRouting removeTodo: deletes TODO.md and lands its removal in the commit", async () => {
-    commitFile("gtd: grilled", ".gtd/TODO.md", "# Plan\n")
+  it("commitRouting removeArchitecture: deletes ARCHITECTURE.md and lands its removal in the commit", async () => {
+    commitFile("gtd: grilled", ".gtd/ARCHITECTURE.md", "# Architecture\n")
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
     writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
-    await runPerform({ kind: "commitRouting", subject: "gtd: planning", removeTodo: true })
-    expect(existsSync(join(repoDir, ".gtd/TODO.md"))).toBe(false)
+    await runPerform({ kind: "commitRouting", subject: "gtd: planning", removeArchitecture: true })
+    expect(existsSync(join(repoDir, ".gtd/ARCHITECTURE.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: planning")
-    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\t.gtd/TODO.md")
+    expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\t.gtd/ARCHITECTURE.md")
+  })
+
+  it("commitRouting seedArchitectureFromTodo: seeds ARCHITECTURE.md from TODO.md's content and removes TODO.md", async () => {
+    commitFile("gtd(human): grilling", ".gtd/TODO.md", "# Plan\n\ngo with tailwind css\n")
+    await runPerform({
+      kind: "commitRouting",
+      subject: "gtd: architecting",
+      seedArchitectureFromTodo: true,
+    })
+    expect(existsSync(join(repoDir, ".gtd/TODO.md"))).toBe(false)
+    const architecture = readFileSync(join(repoDir, ".gtd/ARCHITECTURE.md"), "utf8")
+    expect(architecture).toContain("go with tailwind css")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: architecting")
+    const nameStatus = git("show", "--name-status", "--format=", "HEAD")
+    expect(nameStatus).toContain("D\t.gtd/TODO.md")
+    expect(nameStatus).toContain(".gtd/ARCHITECTURE.md")
   })
 
   it("commitRouting removeReview: deletes REVIEW.md and lands its removal in the commit", async () => {

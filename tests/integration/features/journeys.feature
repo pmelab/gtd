@@ -46,6 +46,27 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd(agent): grilling"
+    # A clean human step accepts (empty turn) and converges to gtd: architecting,
+    # seeding ARCHITECTURE.md from the converged plan and removing TODO.md.
+    When I run gtd step
+    Then it succeeds
+    And the last commit subject is "gtd: architecting"
+    And stdout contains "state: architecting"
+    And the file ".gtd/TODO.md" does not exist
+    And the file ".gtd/ARCHITECTURE.md" exists
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "Develop it into a concrete"
+    # The agent develops the architecture to convergence and accepts defaults.
+    When a file ".gtd/ARCHITECTURE.md" with:
+      """
+      # Architecture
+
+      Implement add() as a plain function export in src/calc.ts.
+      """
+    When I run gtd step-agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): architecting"
     # A clean human step accepts (empty turn) and converges to gtd: grilled.
     When I run gtd step
     Then it succeeds
@@ -54,7 +75,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd next
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
-    # The agent decomposes into one package; TODO.md is left for the machine to remove.
+    # The agent decomposes into one package; ARCHITECTURE.md is left for the machine to remove.
     When a file ".gtd/01-calc/01-add.md" with:
       """
       Implement add() in src/calc.ts.
@@ -62,7 +83,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd: planning"
-    And the file ".gtd/TODO.md" does not exist
+    And the file ".gtd/ARCHITECTURE.md" does not exist
     When I run gtd next
     Then it succeeds
     And stdout contains "Build the package described below"
@@ -113,6 +134,9 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       gtd(human): grilling
       gtd(agent): grilling
       gtd(human): grilling
+      gtd: architecting
+      gtd(agent): architecting
+      gtd(human): architecting
       gtd: grilled
       gtd(agent): grilled
       gtd: planning
@@ -151,6 +175,17 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       # Plan
 
       Implement a calculator with add only, in src/calc.ts.
+      """
+    When I run gtd step-agent
+    Then it succeeds
+    When I run gtd step
+    Then it succeeds
+    And the last commit subject is "gtd: architecting"
+    When a file ".gtd/ARCHITECTURE.md" with:
+      """
+      # Architecture
+
+      Implement add() as a plain function export in src/calc.ts.
       """
     When I run gtd step-agent
     Then it succeeds
@@ -207,6 +242,9 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     And the git log does not contain "gtd: grilling"
     And the git log does not contain "gtd(human): grilling"
     And the git log does not contain "gtd(agent): grilling"
+    And the git log does not contain "gtd: architecting"
+    And the git log does not contain "gtd(agent): architecting"
+    And the git log does not contain "gtd(human): architecting"
     And the git log does not contain "gtd: grilled"
     And the git log does not contain "gtd: planning"
     And the git log does not contain "gtd(agent): building"
@@ -352,6 +390,20 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd(agent): grilling"
+    # A clean human step (accept) converges to architecting.
+    When I run gtd step
+    Then it succeeds
+    And the last commit subject is "gtd: architecting"
+    # The architecting agent converges immediately, with no open questions.
+    When a file ".gtd/ARCHITECTURE.md" with:
+      """
+      # Architecture
+
+      Implement add, subtract, and multiply as plain function exports in src/calc.ts.
+      """
+    When I run gtd step-agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): architecting"
     # A clean human step (accept) converges to grilled.
     When I run gtd step
     Then it succeeds

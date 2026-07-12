@@ -9,8 +9,10 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
   `gtd step-agent`s a `gtd(agent): grilling` turn, which gates on a human to
   answer inline in TODO.md (or accept defaults). A clean `gtd step` at that gate
   is the sole convergence signal — no marker text is ever parsed — landing an
-  empty `gtd(human): grilling` plus routing `gtd: grilled` and prompting
-  decompose.
+  empty `gtd(human): grilling` plus routing `gtd: architecting`, which seeds
+  `.gtd/ARCHITECTURE.md` from the converged TODO.md content, removes TODO.md,
+  and prompts the architecting agent (see `architecting.feature` for that
+  phase's own contract).
 
   Scenario: A dirty boundary tree becomes one human grilling turn, nothing reverted
     Given a test project
@@ -112,7 +114,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
     And stdout contains "\"actor\":\"agent\""
     And stdout contains "add, subtract, and multiply"
 
-  Scenario: A clean step at the answer gate converges to Grilled and prompts decompose
+  Scenario: A clean step at the answer gate converges to Architecting, seeding ARCHITECTURE.md from TODO.md
     Given a test project
     And a file "notes.md" with:
       """
@@ -133,11 +135,14 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
     When I run gtd step
     Then it succeeds
     And the git log contains "gtd(human): grilling"
-    And the last commit subject is "gtd: grilled"
+    And the last commit subject is "gtd: architecting"
+    And the file ".gtd/TODO.md" does not exist
+    And the file ".gtd/ARCHITECTURE.md" exists
+    And the file ".gtd/ARCHITECTURE.md" contains "Build a calculator with add and subtract."
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
-    And stdout contains "Decompose it into an ordered set of"
+    And stdout contains "Develop it into a concrete"
 
   Scenario: The literal marker text is inert — it no longer stops for the user
     Given a test project
@@ -157,11 +162,11 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
     And I run gtd step-agent
     When I run gtd step
     Then it succeeds
-    And the last commit subject is "gtd: grilled"
+    And the last commit subject is "gtd: architecting"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
-    And stdout contains "Decompose it into an ordered set of"
+    And stdout contains "Develop it into a concrete"
 
   Scenario: A do-nothing agent invocation at the grilling rest is inert and re-emits the same prompt
     Given a test project

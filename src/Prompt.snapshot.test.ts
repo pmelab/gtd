@@ -118,6 +118,47 @@ describe("buildPrompt snapshots", () => {
     ).toMatchSnapshot()
   })
 
+  // ── architecting ─────────────────────────────────────────────────────────
+
+  it("architecting agent plain", () => {
+    expect(
+      buildPrompt(result("architecting", { actor: "agent" }), resolveModel, "plain"),
+    ).toMatchSnapshot()
+  })
+
+  it("architecting agent json", () => {
+    expect(
+      buildPrompt(result("architecting", { actor: "agent" }), resolveModel, "json"),
+    ).toMatchSnapshot()
+  })
+
+  it("architecting agent with turnDiff plain", () => {
+    expect(
+      buildPrompt(
+        result("architecting", {
+          actor: "agent",
+          context: {
+            turnDiff: "diff --git a/ARCHITECTURE.md b/ARCHITECTURE.md\n+- answer: use option A\n",
+          },
+        }),
+        resolveModel,
+        "plain",
+      ),
+    ).toMatchSnapshot()
+  })
+
+  it("architecting human plain", () => {
+    expect(
+      buildPrompt(result("architecting", { actor: "human" }), resolveModel, "plain"),
+    ).toMatchSnapshot()
+  })
+
+  it("architecting human json", () => {
+    expect(
+      buildPrompt(result("architecting", { actor: "human" }), resolveModel, "json"),
+    ).toMatchSnapshot()
+  })
+
   // ── grilled ───────────────────────────────────────────────────────────────
 
   it("grilled plain", () => {

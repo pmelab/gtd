@@ -31,6 +31,8 @@ import {
 const TURN_SUBJECTS = [
   "gtd(human): grilling",
   "gtd(agent): grilling",
+  "gtd(human): architecting",
+  "gtd(agent): architecting",
   "gtd(agent): grilled",
   "gtd(agent): building",
   "gtd(agent): fixing",
@@ -43,6 +45,7 @@ const TURN_SUBJECTS = [
 ] as const
 
 const ROUTING_SUBJECTS = [
+  "gtd: architecting",
   "gtd: grilled",
   "gtd: planning",
   "gtd: tests green",
@@ -82,6 +85,8 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
     checkboxOnlyRaw: fc.boolean(),
     todoExists: fc.boolean(),
     todoCommittedRaw: fc.boolean(),
+    architectureExists: fc.boolean(),
+    architectureCommittedRaw: fc.boolean(),
     packagesPresent: fc.boolean(),
     reviewPresent: fc.boolean(),
     reviewTrackedRaw: fc.boolean(),
@@ -116,6 +121,8 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       headTurnIsEmpty: isTurnHead ? raw.headTurnIsEmpty : false,
       todoExists: raw.todoExists,
       todoCommitted: raw.todoExists && raw.todoCommittedRaw,
+      architectureExists: raw.architectureExists,
+      architectureCommitted: raw.architectureExists && raw.architectureCommittedRaw,
       packagesPresent: raw.packagesPresent,
       reviewPresent: raw.reviewPresent,
       feedbackPresent: raw.feedbackPresent,
@@ -168,6 +175,9 @@ const isIllegal = (p: ResolvePayload): boolean =>
   (p.reviewPresent && p.packagesPresent) ||
   (p.reviewPresent && p.todoCommitted) ||
   (p.reviewPresent && !(p.reviewCommitted || p.reviewDirty) && p.todoExists) ||
+  (p.reviewPresent && p.architectureCommitted) ||
+  (p.reviewPresent && !(p.reviewCommitted || p.reviewDirty) && p.architectureExists) ||
+  (p.todoExists && p.architectureExists) ||
   (p.feedbackPresent && p.reviewPresent) ||
   (p.feedbackPresent && !p.packagesPresent) ||
   (p.errorsPresent && p.feedbackPresent) ||
@@ -182,20 +192,21 @@ const isIllegal = (p: ResolvePayload): boolean =>
 
 /**
  * Scopes property (a) to payloads where HEAD is an agent turn commit with an
- * empty diff AND, specifically, `gtd(agent): grilling` (agentic-review's
- * empty-FEEDBACK case is a legitimate mid-chain close-package, which IS a
- * captured change — so this invariant is scoped to grilling's inert-empty-
- * agent-turn rule specifically), the working tree is clean (a dirty tree at
- * this HEAD is fresh content for the agent to capture, not a repeat of the
- * same empty turn — out of scope for this invariant), and no higher-
- * precedence steering file shadows that HEAD entirely
- * (ERRORS/HEALTH/FEEDBACK/.gtd/REVIEW) — those are legal inputs but not what
- * this invariant is about.
+ * empty diff AND, specifically, `gtd(agent): grilling` or `gtd(agent):
+ * architecting` (agentic-review's empty-FEEDBACK case is a legitimate
+ * mid-chain close-package, which IS a captured change — so this invariant is
+ * scoped to grilling/architecting's inert-empty-agent-turn rule
+ * specifically), the working tree is clean (a dirty tree at this HEAD is
+ * fresh content for the agent to capture, not a repeat of the same empty
+ * turn — out of scope for this invariant), and no higher-precedence steering
+ * file shadows that HEAD entirely (ERRORS/HEALTH/FEEDBACK/.gtd/REVIEW) —
+ * those are legal inputs but not what this invariant is about.
  */
+const INERT_EMPTY_GATES = ["gtd(agent): grilling", "gtd(agent): architecting"] as const
+
 const isInScopeForInertEmptyGrillingTurnInvariant = (payload: ResolvePayload): boolean => {
-  if (!payload.lastCommitSubject.startsWith("gtd(agent): ")) return false
   if (!payload.headTurnIsEmpty) return false
-  if (payload.lastCommitSubject !== "gtd(agent): grilling") return false
+  if (!(INERT_EMPTY_GATES as readonly string[]).includes(payload.lastCommitSubject)) return false
   if (!payload.workingTreeClean) return false
   return !(
     payload.errorsPresent ||
@@ -208,6 +219,7 @@ const isInScopeForInertEmptyGrillingTurnInvariant = (payload: ResolvePayload): b
 
 const ALL_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
   "grilling",
+  "architecting",
   "grilled",
   "planning",
   "building",
@@ -310,9 +322,11 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
         }
         const human = resolve([{ type: "RESOLVE", payload: asHuman }])
         const agent = resolve([{ type: "RESOLVE", payload: asAgent }])
-        expect(none.state).toBe("grilling")
-        expect(human.state).toBe("grilling")
-        expect(agent.state).toBe("grilling")
+        const expectedState =
+          payload.lastCommitSubject === "gtd(agent): architecting" ? "architecting" : "grilling"
+        expect(none.state).toBe(expectedState)
+        expect(human.state).toBe(expectedState)
+        expect(agent.state).toBe(expectedState)
         // The agent re-invoking on its own empty turn never emits a captureTurn
         // (there is no change to capture) — it just re-reports the same prompt.
         expect(agent.edgeAction?.kind).not.toBe("captureTurn")

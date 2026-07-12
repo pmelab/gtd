@@ -37,6 +37,7 @@ import type {
 // code, never steering.
 const GTD_DIR = ".gtd"
 const TODO_FILE = `${GTD_DIR}/TODO.md`
+const ARCHITECTURE_FILE = `${GTD_DIR}/ARCHITECTURE.md`
 const REVIEW_FILE = `${GTD_DIR}/REVIEW.md`
 const FEEDBACK_FILE = `${GTD_DIR}/FEEDBACK.md`
 const ERRORS_FILE = `${GTD_DIR}/ERRORS.md`
@@ -67,6 +68,7 @@ const WORKFLOW_FILE_EXCLUDES: ReadonlyArray<string> = [GTD_DIR]
 // steering file.
 const GATE_OWN_STEERING_FILE: Partial<Record<string, string>> = {
   grilling: TODO_FILE,
+  architecting: ARCHITECTURE_FILE,
   review: REVIEW_FILE,
 }
 
@@ -433,6 +435,7 @@ export const gatherEvents = (
 
     // Steering-file presence (committed and/or pending).
     const todoExists = yield* fs.exists(resolve(TODO_FILE))
+    const architectureExists = yield* fs.exists(resolve(ARCHITECTURE_FILE))
     const reviewPresent = yield* fs.exists(resolve(REVIEW_FILE))
     const feedbackPresent = yield* fs.exists(resolve(FEEDBACK_FILE))
     const errorsPresent = yield* fs.exists(resolve(ERRORS_FILE))
@@ -458,6 +461,8 @@ export const gatherEvents = (
 
     // TODO.md tracked at HEAD.
     const todoCommitted = todoExists && !isUncommitted(TODO_FILE)
+    // ARCHITECTURE.md tracked at HEAD.
+    const architectureCommitted = architectureExists && !isUncommitted(ARCHITECTURE_FILE)
 
     // The working tree deletes a committed ERRORS.md (human resume → fresh
     // budget). A status probe, distinct from the committed `removedErrors` flag.
@@ -543,10 +548,14 @@ export const gatherEvents = (
         }
       }
 
-      // Find first grilling turn commit in the current cycle (task start).
+      // Find first grilling-or-architecting turn commit in the current cycle
+      // (task start) — the escape hatch lets a cycle start directly at
+      // `architecting` (no grilling turn at all), so both gates count.
       const isGrillingTurn = (message: string): boolean => {
         const parsed = parseSubject(subjectOf(message))
-        return parsed.kind === "turn" && parsed.gate === "grilling"
+        return (
+          parsed.kind === "turn" && (parsed.gate === "grilling" || parsed.gate === "architecting")
+        )
       }
       const firstGrilling = currentCycle.find((c) => isGrillingTurn(c.message))
       // Find last `gtd: awaiting review` in the current cycle.
@@ -631,7 +640,9 @@ export const gatherEvents = (
         // entire cycle back to where it actually began.
         const isGrillingTurnSubject = (subject: string): boolean => {
           const parsed = parseSubject(subject)
-          return parsed.kind === "turn" && parsed.gate === "grilling"
+          return (
+            parsed.kind === "turn" && (parsed.gate === "grilling" || parsed.gate === "architecting")
+          )
         }
         const isReviewingAnchor = (subject: string): boolean => {
           const parsed = parseSubject(subject)
@@ -746,6 +757,8 @@ export const gatherEvents = (
       ...(headTurnReviewSubstantive !== undefined ? { headTurnReviewSubstantive } : {}),
       todoExists,
       todoCommitted,
+      architectureExists,
+      architectureCommitted,
       packagesPresent: packages.length > 0,
       reviewPresent,
       feedbackPresent,
@@ -831,6 +844,15 @@ const SQUASH_TEMPLATE = [
 ].join("\n")
 
 /**
+ * A short scaffold banner prefixed to `.gtd/ARCHITECTURE.md` when it is
+ * seeded from the converged `.gtd/TODO.md` (the grilling→architecting
+ * hand-off) — mirrors `SQUASH_TEMPLATE`'s role of orienting the NEXT turn's
+ * agent rather than steering the machine (file content never steers).
+ */
+const ARCHITECTURE_SEED_BANNER =
+  "<!-- gtd: seeded from the converged product plan (.gtd/TODO.md); decide the technical/architectural questions below. -->\n\n"
+
+/**
  * Execute the side effect the machine's `resolve()` chose. The driver performs
  * this, then re-gathers + re-resolves. Each case maps to the primitives in
  * Git.ts / the FileSystem; the machine only decides *which* action.
@@ -862,12 +884,16 @@ export const perform = (
       .pipe(Effect.catchAll(() => Effect.void))
 
     switch (action.kind) {
-      // Capture a human/agent turn: format the pending TODO.md (best-effort),
-      // then commit-all under `gtd(<actor>): <gate>` (--allow-empty).
+      // Capture a human/agent turn: format the pending TODO.md/ARCHITECTURE.md
+      // (best-effort), then commit-all under `gtd(<actor>): <gate>` (--allow-empty).
       case "captureTurn": {
         const todoExists = yield* fs.exists(resolve(TODO_FILE))
         if (todoExists) {
           yield* formatFile(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        }
+        const architectureExists = yield* fs.exists(resolve(ARCHITECTURE_FILE))
+        if (architectureExists) {
+          yield* formatFile(resolve(ARCHITECTURE_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
         yield* git.commitAllWithPrefix(turnSubject(action.actor, action.gate))
         return { stop: false }
@@ -875,9 +901,23 @@ export const perform = (
 
       // Routing bookkeeping: delete the flagged files FIRST so their removal
       // lands in this same commit, then commit-all under `subject`.
+      // `seedArchitectureFromTodo` instead reads TODO.md, writes it (with a
+      // scaffold banner) as ARCHITECTURE.md, and deletes TODO.md — the
+      // grilling→architecting hand-off, in this same commit.
       case "commitRouting": {
-        if (action.removeTodo === true) {
+        if (action.seedArchitectureFromTodo === true) {
+          const todoContent = yield* fs
+            .readFileString(resolve(TODO_FILE))
+            .pipe(Effect.catchAll(() => Effect.succeed("")))
+          yield* ensureGtdDir
+          yield* fs.writeFileString(
+            resolve(ARCHITECTURE_FILE),
+            ARCHITECTURE_SEED_BANNER + todoContent,
+          )
           yield* fs.remove(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        }
+        if (action.removeArchitecture === true) {
+          yield* fs.remove(resolve(ARCHITECTURE_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
         if (action.removeReview === true) {
           yield* fs.remove(resolve(REVIEW_FILE)).pipe(Effect.catchAll(() => Effect.void))

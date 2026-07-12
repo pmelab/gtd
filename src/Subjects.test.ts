@@ -20,6 +20,7 @@ describe("turn subject round-trip", () => {
   const actors: ReadonlyArray<Actor> = ["human", "agent"]
   const gates: ReadonlyArray<TurnGate> = [
     "grilling",
+    "architecting",
     "grilled",
     "building",
     "fixing",

@@ -37,6 +37,7 @@ export type Actor = "human" | "agent"
 /** The closed set of gate labels a turn commit can carry. */
 export type TurnGate =
   | "grilling"
+  | "architecting"
   | "grilled"
   | "building"
   | "fixing"
@@ -51,6 +52,7 @@ export const turnSubject = (actor: Actor, gate: TurnGate): string => `gtd(${acto
 
 /** The closed set of routing phases the machine can author as bookkeeping. */
 export type RoutingPhase =
+  | "architecting"
   | "grilled"
   | "planning"
   | "tests-green"
@@ -66,6 +68,7 @@ export type RoutingPhase =
 
 /** Literal subjects for the non-parameterized routing phases. */
 export const ROUTING_SUBJECT: Record<Exclude<RoutingPhase, "reviewing">, string> = {
+  architecting: "gtd: architecting",
   grilled: "gtd: grilled",
   planning: "gtd: planning",
   "tests-green": "gtd: tests green",
@@ -100,6 +103,7 @@ const TURN_RE = /^gtd\((human|agent)\): (.+)$/
 
 const TURN_GATES: ReadonlySet<string> = new Set<TurnGate>([
   "grilling",
+  "architecting",
   "grilled",
   "building",
   "fixing",

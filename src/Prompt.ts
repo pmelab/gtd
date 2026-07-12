@@ -6,6 +6,8 @@ import packageMd from "./prompts/partials/package.md"
 import agentTurnMd from "./prompts/partials/agent-turn.md"
 import grillingAgentMd from "./prompts/grilling-agent.md"
 import grillingAnswersMd from "./prompts/grilling-answers.md"
+import architectingAgentMd from "./prompts/architecting-agent.md"
+import architectingAnswersMd from "./prompts/architecting-answers.md"
 import decomposeMd from "./prompts/decompose.md"
 import buildingMd from "./prompts/building.md"
 import fixingMd from "./prompts/fixing.md"
@@ -20,7 +22,7 @@ import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdState, Result } from "./Machine.js"
 
 /**
- * The 11 prompt-bearing states (frozen contract) — `src/State.ts` consumes
+ * The 12 prompt-bearing states (frozen contract) — `src/State.ts` consumes
  * this single classification instead of duplicating an edge-only set.
  * `buildPrompt` throws for the other five (testing, planning, close-package,
  * done, health-check), which are performed by the driver and must never
@@ -28,6 +30,7 @@ import type { GtdState, Result } from "./Machine.js"
  */
 const PROMPT_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
   "grilling",
+  "architecting",
   "grilled",
   "building",
   "fixing",
@@ -45,6 +48,7 @@ export const isPromptState = (state: GtdState): boolean => PROMPT_STATES.has(sta
 /** The prompt-bearing states `buildPrompt` renders a section for. */
 type PromptState =
   | "grilling"
+  | "architecting"
   | "grilled"
   | "building"
   | "fixing"
@@ -64,6 +68,7 @@ type PromptState =
  */
 const MODEL_STATE: Partial<Record<PromptState, ModelState>> = {
   grilling: "grilling",
+  architecting: "architecting",
   grilled: "decompose",
   building: "building",
   fixing: "fixing",
@@ -112,6 +117,8 @@ eta.loadTemplate("@agent-turn", agentTurnMd)
 // Register state templates
 eta.loadTemplate("@grilling-agent", grillingAgentMd)
 eta.loadTemplate("@grilling-answers", grillingAnswersMd)
+eta.loadTemplate("@architecting-agent", architectingAgentMd)
+eta.loadTemplate("@architecting-answers", architectingAnswersMd)
 eta.loadTemplate("@decompose", decomposeMd)
 eta.loadTemplate("@building", buildingMd)
 eta.loadTemplate("@fixing", fixingMd)
@@ -129,8 +136,8 @@ eta.loadTemplate("@idle", idleMd)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(eta as any).resolvePath = null
 
-/** Maps each non-grilling PromptState to its registered template name. */
-const STATE_TEMPLATE: Record<Exclude<PromptState, "grilling">, string> = {
+/** Maps each non-grilling/architecting PromptState to its registered template name. */
+const STATE_TEMPLATE: Record<Exclude<PromptState, "grilling" | "architecting">, string> = {
   grilled: "@decompose",
   building: "@building",
   fixing: "@fixing",
@@ -171,11 +178,13 @@ export const buildPrompt = (
   // human turns and any --json output carry no tail at all.
   const tail = output === "plain" && result.actor === "agent" ? "@agent-turn" : undefined
 
-  // Select the state template. For `grilling`, which prompt renders depends
-  // on which actor the resolver is awaiting at this rest.
+  // Select the state template. For `grilling`/`architecting`, which prompt
+  // renders depends on which actor the resolver is awaiting at this rest.
   let templateName: string
   if (promptState === "grilling") {
     templateName = result.actor === "human" ? "@grilling-answers" : "@grilling-agent"
+  } else if (promptState === "architecting") {
+    templateName = result.actor === "human" ? "@architecting-answers" : "@architecting-agent"
   } else {
     templateName = STATE_TEMPLATE[promptState]
   }

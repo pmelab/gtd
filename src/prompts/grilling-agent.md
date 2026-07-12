@@ -1,9 +1,14 @@
 <%~ include("@header") %>
 
 `.gtd/TODO.md` holds the plan under development. Develop it into a concrete,
-implementation-ready plan **in this one turn** — use subagents / internal
-iteration to go as deep as needed; there is no further agent-only round after
-this one.
+product-level plan **in this one turn** — use subagents / internal iteration
+to go as deep as needed; there is no further agent-only round after this one.
+
+**Scope: product and user-facing decisions only.** Do not decide
+implementation details in this file — file/module structure, data models,
+library or tech-stack choices, and other architecture questions belong to the
+next phase (`.gtd/ARCHITECTURE.md`) and must not be treated as open questions
+here.
 
 ### Develop the plan
 
@@ -13,9 +18,9 @@ The subagent works entirely by editing `.gtd/TODO.md`:
 1. **Explore the codebase before asking anything** — read the relevant files,
    tests, and docs so every question below is one the codebase genuinely
    cannot answer.
-2. **Replace the captured input / seed template with a real implementation
-   plan** — the files to change, exactly what changes, and why, grounded in
-   the codebase.
+2. **Replace the captured input / seed template with a real product plan** —
+   what to build and why, and the user-facing behavior it should have,
+   grounded in the codebase. Leave *how* to build it for the next phase.
 3. **Iterate internally** (spawn further subagents, reconsider, cross-check)
    until the plan is as complete as it can get without human input. Do not
    leave this to a future round — there isn't one before the human is asked.
