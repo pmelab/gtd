@@ -152,6 +152,11 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
       : Effect.fail(new Error(`Cannot resolve ref: ${ref}`))
   },
 
+  readRefOption: (ref: string) => {
+    const hash = repo.resolveRef(ref)
+    return Effect.succeed(hash !== null ? Option.some(hash) : Option.none<string>())
+  },
+
   topLevel: () => Effect.succeed("/repo"),
 
   resolveDefaultBranch: () => {
@@ -224,6 +229,17 @@ const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => ({
   commitAllWithPrefix: (prefix: string) => tryCatch(() => repo.commitAllWithPrefix(prefix)),
 
   softResetTo: (ref: string) => tryCatch(() => repo.softResetTo(ref)),
+
+  updateRef: (ref: string, hash: string) => tryCatch(() => repo.updateRef(ref, hash)),
+
+  deleteRef: (ref: string) => tryCatch(() => repo.deleteRef(ref)),
+
+  mixedResetTo: (ref: string) => tryCatch(() => repo.mixedResetTo(ref)),
+
+  restoreStagedFrom: (source: string, paths: ReadonlyArray<string>) =>
+    tryCatch(() => repo.restoreStagedFrom(source, paths)),
+
+  addIntentToAdd: () => tryCatch(() => repo.addIntentToAdd()),
 
   mixedResetHead: () => tryCatch(() => repo.mixedResetHead()),
 

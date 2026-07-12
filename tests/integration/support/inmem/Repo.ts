@@ -28,6 +28,7 @@ function makeHash(message: string, parent: string | null, tree: Map<string, stri
 export class InMemRepo {
   private commits: Map<string, Commit> = new Map()
   private branches: Map<string, string> = new Map() // branch name → hash
+  private refs: Map<string, string> = new Map() // fully qualified ref (refs/gtd/…) → hash
   private head: string | null = null // current commit hash
   private currentBranch: string = "main"
   private worktree: Map<string, string> = new Map()
@@ -139,6 +140,10 @@ export class InMemRepo {
       return cur
     }
 
+    // Fully qualified repo-local ref (refs/gtd/…)
+    const refHash = this.refs.get(ref)
+    if (refHash !== undefined) return refHash
+
     // Branch name
     return this.branches.get(ref) ?? null
   }
@@ -233,6 +238,17 @@ export class InMemRepo {
     })
   }
 
+  /** One-line log ("<short-hash> <subject>", newest→oldest) starting from `ref`. */
+  logFrom(ref: string): string {
+    const hash = this.resolveRef(ref)
+    if (!hash) throw new Error(`Cannot resolve ref: ${ref}`)
+    return (
+      this.ancestorChain(hash)
+        .map((h) => `${h.slice(0, 7)} ${this.getCommit(h)?.message.split("\n")[0] ?? ""}`)
+        .join("\n") + "\n"
+    )
+  }
+
   fileAtRef(ref: string, path: string): string | null {
     const hash = this.resolveRef(ref)
     if (!hash) return null
@@ -304,6 +320,52 @@ export class InMemRepo {
     this.head = hash
     this.branches.set(this.currentBranch, hash)
     // worktree and index unchanged
+  }
+
+  updateRef(ref: string, hash: string): void {
+    const resolved = this.resolveRef(hash)
+    if (!resolved) throw new Error(`Cannot resolve ref: ${hash}`)
+    this.refs.set(ref, resolved)
+  }
+
+  deleteRef(ref: string): void {
+    // Idempotent, like `git update-ref -d` wrapped tolerantly in src/Git.ts.
+    this.refs.delete(ref)
+  }
+
+  mixedResetTo(ref: string): void {
+    const hash = this.resolveRef(ref)
+    if (!hash) throw new Error(`Cannot resolve ref: ${ref}`)
+    const c = this.getCommit(hash)
+    if (!c) throw new Error(`Commit not found: ${hash}`)
+    this.head = hash
+    this.branches.set(this.currentBranch, hash)
+    // Index resets to the target tree, worktree untouched.
+    this.index = new Map(c.files)
+  }
+
+  restoreStagedFrom(source: string, paths: ReadonlyArray<string>): void {
+    const hash = this.resolveRef(source)
+    if (!hash) throw new Error(`Cannot resolve ref: ${source}`)
+    const tree = this.getCommit(hash)?.files ?? new Map<string, string>()
+    const matchesAny = (path: string): boolean =>
+      paths.some((spec) => path === spec || path.startsWith(spec.endsWith("/") ? spec : `${spec}/`))
+    // Index entries under the pathspecs absent from source → removed…
+    for (const key of [...this.index.keys()]) {
+      if (matchesAny(key) && !tree.has(key)) this.index.delete(key)
+    }
+    // …and source entries under the pathspecs copied in.
+    for (const [key, content] of tree) {
+      if (matchesAny(key)) this.index.set(key, content)
+    }
+  }
+
+  addIntentToAdd(): void {
+    // Real git records an empty placeholder blob for untracked files; the
+    // content diff then shows up as unstaged. An empty string plays that role.
+    for (const path of this.worktree.keys()) {
+      if (!this.index.has(path)) this.index.set(path, "")
+    }
   }
 
   mixedResetHead(): void {

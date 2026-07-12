@@ -55,11 +55,17 @@ Feature: gtd-loop — the packaged reference loop driver
     When I run gtd-loop
     Then it succeeds
     And stdout contains "--- Your turn (await-review) ---"
-    And the git log contains "gtd(agent): building"
-    And the git log contains "gtd: tests green"
-    And the git log contains "gtd: package done"
-    And the git log contains "gtd(agent): review"
-    And the last commit subject is "gtd: awaiting review"
+    # The loop halts with the review checkout window open: HEAD/index rest at
+    # the review base so the whole package diff shows as uncommitted changes in
+    # the reviewer's editor; the real head sits in refs/gtd/review-head.
+    And the git ref "refs/gtd/review-head" exists
+    And the last commit subject is "gtd(agent): grilling"
+    And the git log at "refs/gtd/review-head" contains "gtd(agent): building"
+    And the git log at "refs/gtd/review-head" contains "gtd: tests green"
+    And the git log at "refs/gtd/review-head" contains "gtd: package done"
+    And the git log at "refs/gtd/review-head" contains "gtd(agent): review"
+    And the git log at "refs/gtd/review-head" contains "gtd: awaiting review"
+    And the git status contains "src/calc.ts"
 
   Scenario: Rerunning after an uncommitted human edit picks it up and continues
     Given a test project
@@ -107,14 +113,16 @@ Feature: gtd-loop — the packaged reference loop driver
       """
     When I run gtd-loop
     Then it succeeds
-    And the last commit subject is "gtd: awaiting review"
+    And the git ref "refs/gtd/review-head" exists
+    And the git log at "refs/gtd/review-head" contains "gtd: awaiting review"
     # The human approves the review by deleting REVIEW.md, without committing —
     # exactly the "edit, don't commit, just rerun" workflow gtd-loop supports.
-    Given a deleted committed file ".gtd/REVIEW.md"
+    Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd-loop
     Then it succeeds
     And the git log contains "gtd(human): review"
     And the git log contains "gtd: done"
+    And the git ref "refs/gtd/review-head" does not exist
     And stdout contains "--- Your turn (idle) ---"
 
   Scenario: Stops instead of spinning when the agent's turn makes no progress

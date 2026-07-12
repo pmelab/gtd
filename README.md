@@ -116,6 +116,12 @@ to cwd, so it refuses with a clear error if invoked from a subdirectory.
 `--jsn`) is rejected with a usage error rather than silently ignored, so a
 mistyped flag can never degrade a JSON caller to plain-text mode.
 
+One nuance to "(no mutation)": `next` and `status` never author commits or
+change workflow state, but while a human review is pending they do maintain the
+review checkout window (closing it to read state, re-arming it on the way out —
+see [Human review gate](#human-review-gate)), which transiently moves HEAD and
+the index. The working tree is never touched.
+
 ### `gtd step` / `gtd step-agent`
 
 Both drive the **same fixpoint loop** — gather → resolve → perform the returned
@@ -547,11 +553,38 @@ Once `.gtd/` is fully closed, the machine writes `.gtd/REVIEW.md` and rests at
   plus routing `gtd: done`.
 - Flipping only `- [ ]` → `- [x]` checkboxes in `.gtd/REVIEW.md` — checkbox-only
   edits are also treated as clean approval.
+- Deleting `.gtd/REVIEW.md` outright.
 
 Any **substantive** edit — to `.gtd/REVIEW.md` prose, or to the reviewed code
 itself — is feedback: `gtd(human): review` plus routing `gtd: review feedback`,
 `.gtd/REVIEW.md` removed, and `gtd next` re-emits a grilling prompt to the agent
 that inlines the human's finding.
+
+**The review diff lives in your editor.** While the gate is pending, gtd holds
+open a _review checkout window_: it saves the real head to
+`refs/gtd/review-head`, then rewinds HEAD and the index to the review base with
+`git reset --mixed`, leaving the working tree untouched. Every editor's standard
+git integration now shows the entire reviewable diff as ordinary uncommitted
+changes — SCM panel, gutter marks, per-file diffs. Review it there:
+
+- **Edit** anything (code or `.gtd/REVIEW.md` prose) → feedback.
+- **Discard a hunk** in the editor → that reversion IS the feedback: the agent
+  is re-grilled with it.
+- **Delete a surfaced file** → reject-this-file feedback.
+- Touch nothing (or tick checkboxes / delete `.gtd/REVIEW.md`) → approval.
+
+Any gtd invocation closes the window first (restoring HEAD/index exactly, so
+only your own edits remain dirty — they land as their own separate
+`gtd(human): review` commit, never mixed into the reviewed work), and
+`gtd next`/`gtd status` re-arm it on their way out. The mechanics are
+crash-safe; details and invariants in STATES.md ("The review checkout window").
+
+Caveats while a review is pending: don't push (the branch tip rests at the
+review base — the real head is safe under `refs/gtd/review-head`); commits you
+make manually survive as working-tree content and become review feedback, but
+their commit message is discarded; linked `git worktree` checkouts are
+unsupported. If you switch branches mid-review, gtd refuses to touch the foreign
+branch and prints the manual recovery command.
 
 ### Squash
 

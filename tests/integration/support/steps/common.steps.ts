@@ -84,6 +84,13 @@ Given("{string} has appended {string}", (world: GtdWorld, path: string, text: st
   }
 })
 
+// Plain working-tree deletion — what an editor's "delete file" does. Distinct
+// from "a deleted committed file" (git rm), which refuses when the index entry
+// differs from HEAD, e.g. inside an open review checkout window.
+Given("the file {string} is deleted", (world: GtdWorld, path: string) => {
+  world.deleteWorktreeFile(path)
+})
+
 Given("a directory {string}", (world: GtdWorld, path: string) => {
   if (world.tier === "inmem") {
     // Directories are implicit in the in-memory store; no-op.
@@ -256,6 +263,52 @@ Then("the git log contains {string}", (world: GtdWorld, subject: string) => {
 Then("the git log does not contain {string}", (world: GtdWorld, subject: string) => {
   const log = world.gitLog()
   assert.ok(!log.includes(subject), `Expected git log NOT to contain "${subject}". Got:\n${log}`)
+})
+
+// ── Git refs / status / ref-scoped log ──────────────────────────────────────
+// Observables for the review checkout window (refs/gtd/review-head rewind),
+// generic over any revision so other fixtures can reuse them.
+
+Given("the git ref {string} points at {string}", (world: GtdWorld, ref: string, target: string) => {
+  world.setGitRef(ref, target)
+})
+
+Given("HEAD is soft-reset to {string}", (world: GtdWorld, target: string) => {
+  world.softResetHead(target)
+})
+
+Then("the git ref {string} exists", (world: GtdWorld, ref: string) => {
+  assert.ok(world.resolveRefOrNull(ref) !== null, `Expected git ref "${ref}" to exist.`)
+})
+
+Then("the git ref {string} does not exist", (world: GtdWorld, ref: string) => {
+  assert.ok(world.resolveRefOrNull(ref) === null, `Expected git ref "${ref}" NOT to exist.`)
+})
+
+Then(
+  "the git log at {string} contains {string}",
+  (world: GtdWorld, ref: string, subject: string) => {
+    const log = world.gitLogAt(ref)
+    assert.ok(
+      log.includes(subject),
+      `Expected git log at ${ref} to contain "${subject}". Got:\n${log}`,
+    )
+  },
+)
+
+Then("the git status contains {string}", (world: GtdWorld, text: string) => {
+  const status = world.gitStatus()
+  assert.ok(status.includes(text), `Expected git status to contain "${text}". Got:\n${status}`)
+})
+
+Then("the git status does not contain {string}", (world: GtdWorld, text: string) => {
+  const status = world.gitStatus()
+  assert.ok(!status.includes(text), `Expected git status NOT to contain "${text}". Got:\n${status}`)
+})
+
+Then("the git status is clean", (world: GtdWorld) => {
+  const status = world.gitStatus()
+  assert.strictEqual(status.trim(), "", `Expected a clean git status. Got:\n${status}`)
 })
 
 Then("the file {string} exists", (world: GtdWorld, path: string) => {
