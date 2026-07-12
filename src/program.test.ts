@@ -63,6 +63,7 @@ const stubConfigLayer = Layer.succeed(ConfigService, {
   resolveModel: () => "stub",
   agenticReview: false,
   squash: false,
+  learning: false,
   fixAttemptCap: 0,
   reviewThreshold: 0,
 })

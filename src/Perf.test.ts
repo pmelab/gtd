@@ -70,6 +70,7 @@ describe("performance smoke", { timeout: 180_000 }, () => {
             resolveModel: () => "claude-opus-4-8",
             agenticReview: true,
             squash: true,
+            learning: false,
             fixAttemptCap: 3,
             reviewThreshold: 3,
           }),

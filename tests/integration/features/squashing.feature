@@ -21,6 +21,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     And a gtd config file at ".gtdrc" with:
       """
       squash: true
+      learning: false
       """
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
@@ -49,6 +50,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     And a gtd config file at ".gtdrc" with:
       """
       squash: true
+      learning: false
       """
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
@@ -81,6 +83,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     And a gtd config file at ".gtdrc" with:
       """
       squash: true
+      learning: false
       """
     And a commit "chore: pre-cycle work" that adds "src/existing.ts" with:
       """
@@ -131,6 +134,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     And a gtd config file at ".gtdrc" with:
       """
       squash: false
+      learning: false
       """
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
@@ -161,6 +165,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     And a gtd config file at ".gtdrc" with:
       """
       squash: true
+      learning: false
       """
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
@@ -196,6 +201,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     And a gtd config file at ".gtdrc" with:
       """
       squash: true
+      learning: false
       """
     And a commit "chore: pre-cycle work" that adds "src/existing.ts" with:
       """
@@ -258,6 +264,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     And a gtd config file at ".gtdrc" with:
       """
       squash: true
+      learning: false
       """
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """

@@ -30,6 +30,7 @@ const edgeActionHandlers: EdgeActionHandlers = {
     if (a.removeReview) removed.push(".gtd/REVIEW.md")
     if (a.removeFeedback) removed.push(".gtd/FEEDBACK.md")
     if (a.removeHealth) removed.push(".gtd/HEALTH.md")
+    if (a.removeLearning) removed.push(".gtd/LEARNINGS.md")
     if (removed.length > 0) msg += ` (removing ${removed.join(", ")})`
     return msg
   },
@@ -38,9 +39,10 @@ const edgeActionHandlers: EdgeActionHandlers = {
   closePackage: () => "close the active package",
   writeSquashTemplate: () => "write the squash message template",
   squashCommit: (a) => `squash the cycle onto ${a.squashBase}`,
+  writeLearningTemplate: () => "write the learnings template",
   runHealthCheck: (a) =>
     `run the health check (attempt ${a.errorCount + 1}${a.capReached ? ", cap reached" : ""}${
-      a.squashAfterGreen ? ", squash after green" : ""
+      a.chainAfterGreen ? ", chain after green" : ""
     })`,
 }
 

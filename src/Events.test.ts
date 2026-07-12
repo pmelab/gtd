@@ -66,6 +66,9 @@ const fakeConfig = (o: Partial<ConfigOperations> = {}): ConfigOperations => ({
   resolveModel: () => "claude-opus-4-8",
   agenticReview: true,
   squash: true,
+  // Isolated from squash-specific tests below by default — learning has its
+  // own describe block that opts back in via the `o` override.
+  learning: false,
   fixAttemptCap: 3,
   reviewThreshold: 3,
   ...o,
@@ -107,6 +110,7 @@ const runPerform = (
           resolveModel: () => "stub",
           agenticReview: true,
           squash: true,
+          learning: false,
           fixAttemptCap: 3,
           reviewThreshold: 3,
         }),
@@ -1209,10 +1213,10 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(result.stop).toBe(false)
   })
 
-  it("runHealthCheck green, no squash chain queued → no commit, stop: true", async () => {
+  it("runHealthCheck green, no learning/squash chain queued → no commit, stop: true", async () => {
     const countBefore = git("rev-list", "--count", "HEAD")
     const result = await runPerform(
-      { kind: "runHealthCheck", errorCount: 0, capReached: false, squashAfterGreen: false },
+      { kind: "runHealthCheck", errorCount: 0, capReached: false, chainAfterGreen: false },
       { exitCode: 0, output: "all good" },
     )
     expect(result.stop).toBe(true)
@@ -1220,10 +1224,10 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
   })
 
-  it("runHealthCheck green, squashAfterGreen → commits gtd: tests green, stop: false", async () => {
+  it("runHealthCheck green, chainAfterGreen → commits gtd: tests green, stop: false", async () => {
     const countBefore = Number(git("rev-list", "--count", "HEAD"))
     const result = await runPerform(
-      { kind: "runHealthCheck", errorCount: 1, capReached: false, squashAfterGreen: true },
+      { kind: "runHealthCheck", errorCount: 1, capReached: false, chainAfterGreen: true },
       { exitCode: 0, output: "all good" },
     )
     expect(result.stop).toBe(false)
@@ -1235,7 +1239,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
 
   it("runHealthCheck red below cap → writes HEALTH.md, commits gtd: health-check, stop: false", async () => {
     const result = await runPerform(
-      { kind: "runHealthCheck", errorCount: 1, capReached: false, squashAfterGreen: false },
+      { kind: "runHealthCheck", errorCount: 1, capReached: false, chainAfterGreen: false },
       { exitCode: 1, output: "FAIL: test boom\n" },
     )
     expect(result.stop).toBe(false)
@@ -1249,7 +1253,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
 
   it("runHealthCheck red at cap → writes ERRORS.md, commits gtd: health-check, stop: false", async () => {
     const result = await runPerform(
-      { kind: "runHealthCheck", errorCount: 3, capReached: true, squashAfterGreen: false },
+      { kind: "runHealthCheck", errorCount: 3, capReached: true, chainAfterGreen: false },
       { exitCode: 1, output: "FAIL: persistent\n" },
     )
     expect(result.stop).toBe(false)

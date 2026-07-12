@@ -42,6 +42,7 @@ const FEEDBACK_FILE = `${GTD_DIR}/FEEDBACK.md`
 const ERRORS_FILE = `${GTD_DIR}/ERRORS.md`
 const HEALTH_FILE = `${GTD_DIR}/HEALTH.md`
 const SQUASH_MSG_FILE = `${GTD_DIR}/SQUASH_MSG.md`
+const LEARNINGS_FILE = `${GTD_DIR}/LEARNINGS.md`
 // Pre-namespace history wrote FEEDBACK.md at the repo root. Recognized for
 // COMMIT-event classification only (isFeedback), never for diffs or
 // working-tree probes — a root FEEDBACK.md in the tree today is project code.
@@ -69,6 +70,24 @@ const GATE_OWN_STEERING_FILE: Partial<Record<string, string>> = {
   grilling: TODO_FILE,
   review: REVIEW_FILE,
 }
+
+// Routing phases and turn gates spanning the squash/learning chain
+// (`gtd: done` → … → `gtd(agent): squashing`) — used to decide when
+// `squashBase`/`squashDiff` must stay computed so the range is stable across
+// the whole chain, including the learning phase now spliced in front of the
+// squash template write.
+const SQUASH_OR_LEARNING_ROUTING_PHASES: ReadonlySet<string> = new Set([
+  "squash-template",
+  "learning-template",
+  "learning-drafted",
+  "learning-approved",
+  "learning-applied",
+])
+const SQUASH_OR_LEARNING_TURN_GATES: ReadonlySet<string> = new Set([
+  "squashing",
+  "learning",
+  "learning-apply",
+])
 
 const turnDiffExcludes = (gate: string): ReadonlyArray<string> => {
   const ownFile = GATE_OWN_STEERING_FILE[gate]
@@ -585,23 +604,25 @@ export const gatherEvents = (
     }
 
     // --- Squash base + diff (squashing after gtd: done) ----------------------
-    // Computed whenever HEAD is `gtd: done` or anywhere in the squash chain
-    // `gtd: done` → `gtd: squash template` → `gtd(agent): squashing` triggers
-    // (squash is enabled): the mid-chain `squashCommit` action performed at
-    // the `gtd(agent): squashing` HEAD needs `squashBase` on THAT hop, by
-    // which point HEAD has moved past `gtd: done` itself. The squash range is
+    // Computed whenever HEAD is `gtd: done` or anywhere in the squash/learning
+    // chain `gtd: done` → [learning phase] → `gtd: squash template` →
+    // `gtd(agent): squashing` (squash and/or learning enabled): every
+    // mid-chain hop across that whole range needs `squashBase` stable and
+    // available — in particular the learning-draft agent turn (`gtd(agent):
+    // learning`), which would otherwise never see `hasSquashBase` true and
+    // livelock re-capturing an empty turn forever. The squash range is
     // the cycle ENDING at the last `gtd: done` found in history (not
     // necessarily HEAD), not `currentCycle` which is empty once HEAD is past it.
     let squashBase: string | undefined
     let squashDiff: string | undefined
     const headParsedForSquash = parseSubject(lastCommitSubject)
-    const inSquashChain =
+    const inSquashOrLearningChain =
       lastCommitSubject === DONE_SUBJECT ||
-      (headParsedForSquash.kind === "routing" && headParsedForSquash.phase === "squash-template") ||
+      (headParsedForSquash.kind === "routing" &&
+        SQUASH_OR_LEARNING_ROUTING_PHASES.has(headParsedForSquash.phase)) ||
       (headParsedForSquash.kind === "turn" &&
-        headParsedForSquash.actor === "agent" &&
-        headParsedForSquash.gate === "squashing")
-    if (hasCommits && inSquashChain && config.squash) {
+        SQUASH_OR_LEARNING_TURN_GATES.has(headParsedForSquash.gate))
+    if (hasCommits && inSquashOrLearningChain && (config.squash || config.learning)) {
       // Scan `history` (merge-base..HEAD on a feature branch), NOT the whole
       // history: commits below the merge-base exist on the default branch, and
       // a squash reset must never rewrite them. On trunk (no merge-base),
@@ -681,18 +702,27 @@ export const gatherEvents = (
       squashMsgPresent &&
       (yield* fs.readFileString(resolve(SQUASH_MSG_FILE))).trim() === SQUASH_TEMPLATE.trim()
 
+    // --- LEARNINGS.md presence (learning template written+overwritten) -------
+    const learningMsgPresent = yield* fs.exists(resolve(LEARNINGS_FILE))
+    // Unmodified template → the machine must not mid-chain the agent's draft
+    // turn yet (mirrors squashMsgIsTemplate).
+    const learningMsgIsTemplate =
+      learningMsgPresent &&
+      (yield* fs.readFileString(resolve(LEARNINGS_FILE))).trim() === LEARNING_TEMPLATE.trim()
+
     // --- HEALTH.md presence (health-check output written by runHealthCheck) -----
     const healthPresent = yield* fs.exists(resolve(HEALTH_FILE))
     const healthContent = healthPresent ? yield* fs.readFileString(resolve(HEALTH_FILE)) : ""
     const healthCommitted = healthPresent && !isUncommitted(HEALTH_FILE)
 
-    // --- Health squash base (squash after green health-fix run) ------------------
-    // Only computed when squash is enabled. Mirrors foldCounters: scans all of
-    // history forward, resetting on isPackageStart/removedErrors events,
-    // tracking the FIRST `gtd: health-check` of the current health run.
-    // healthFixBase is the parent of that first health-check commit.
+    // --- Health squash base (squash/learning after green health-fix run) --------
+    // Only computed when squash and/or learning is enabled. Mirrors
+    // foldCounters: scans all of history forward, resetting on
+    // isPackageStart/removedErrors events, tracking the FIRST
+    // `gtd: health-check` of the current health run. healthFixBase is the
+    // parent of that first health-check commit.
     let healthFixBase: string | undefined
-    if (config.squash) {
+    if (config.squash || config.learning) {
       let firstHealthCheckHash: string | undefined
       let healthCheckCount = 0
       for (const commit of commitEvents) {
@@ -779,6 +809,9 @@ export const gatherEvents = (
       healthContent,
       healthCommitted,
       ...(healthFixBase !== undefined ? { healthFixBase } : {}),
+      learningEnabled: config.learning,
+      learningMsgPresent,
+      learningMsgIsTemplate,
     }
 
     const resolveEvent: GtdEvent = { type: "RESOLVE", payload }
@@ -827,6 +860,20 @@ const SQUASH_TEMPLATE = [
   "type: short summary",
   "",
   "Longer description of the change, if needed.",
+  "",
+].join("\n")
+
+/**
+ * A short skeleton written by `writeLearningTemplate`, instructing the
+ * learning agent to replace it with the real distilled learnings.
+ */
+const LEARNING_TEMPLATE = [
+  "<!-- gtd: replace this file's content with the actual distilled learnings for this cycle. -->",
+  "<!-- Keep only durable, generalizable lessons — delete anything that's a one-off detail. -->",
+  "",
+  "## Learnings",
+  "",
+  "- ...",
   "",
 ].join("\n")
 
@@ -888,6 +935,9 @@ export const perform = (
         if (action.removeHealth === true) {
           yield* fs.remove(resolve(HEALTH_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
+        if (action.removeLearning === true) {
+          yield* fs.remove(resolve(LEARNINGS_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        }
         yield* git.commitAllWithPrefix(action.subject)
         return { stop: false }
       }
@@ -941,6 +991,15 @@ export const perform = (
         return { stop: false }
       }
 
+      // Write the LEARNINGS.md template (a durable-lessons skeleton) and
+      // commit routing `gtd: learning template`.
+      case "writeLearningTemplate": {
+        yield* ensureGtdDir
+        yield* fs.writeFileString(resolve(LEARNINGS_FILE), LEARNING_TEMPLATE)
+        yield* git.commitAllWithPrefix("gtd: learning template")
+        return { stop: false }
+      }
+
       // Squash: read SQUASH_MSG.md content (the real message authored by the
       // squashing turn), rm it, soft-reset to squashBase, commit-all under the
       // file's content as the message.
@@ -955,10 +1014,11 @@ export const perform = (
       }
 
       // Health check: run tests on an idle/clean tree.
-      // Green, no squash-after chain queued → stop immediately, no commit/write.
-      // Green, `squashAfterGreen` → commit routing `gtd: tests green` (the
+      // Green, no learning/squash-after chain queued → stop immediately, no
+      //   commit/write.
+      // Green, `chainAfterGreen` → commit routing `gtd: tests green` (the
       //   observable green marker) and continue — the resolver chains
-      //   `writeSquashTemplate` at that HEAD next.
+      //   `writeLearningTemplate` or `writeSquashTemplate` at that HEAD next.
       // Red below cap → write HEALTH.md, commit routing `gtd: health-check` (the
       //   always-clean invariant: write-and-commit in the same chain).
       // Red at cap → write ERRORS.md, commit routing `gtd: health-check`.
@@ -966,7 +1026,7 @@ export const perform = (
         const runner = yield* TestRunner
         const result = yield* runner.run()
         if (result.exitCode === 0) {
-          if (action.squashAfterGreen) {
+          if (action.chainAfterGreen) {
             yield* git.commitAllWithPrefix("gtd: tests green")
             return { stop: false }
           }

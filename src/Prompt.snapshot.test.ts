@@ -275,4 +275,56 @@ describe("buildPrompt snapshots", () => {
       ),
     ).toMatchSnapshot()
   })
+
+  // ── learning ──────────────────────────────────────────────────────────────
+
+  it("learning with squashDiff and squashBase plain", () => {
+    expect(
+      buildPrompt(
+        result("learning", {
+          context: {
+            squashDiff: "diff --git a/x b/x\n+hello\n",
+            squashBase: "abc1234",
+          },
+        }),
+        resolveModel,
+        "plain",
+      ),
+    ).toMatchSnapshot()
+  })
+
+  it("learning with squashDiff and squashBase json", () => {
+    expect(
+      buildPrompt(
+        result("learning", {
+          context: {
+            squashDiff: "diff --git a/x b/x\n+hello\n",
+            squashBase: "abc1234",
+          },
+        }),
+        resolveModel,
+        "json",
+      ),
+    ).toMatchSnapshot()
+  })
+
+  it("await-learning-review plain", () => {
+    expect(
+      buildPrompt(result("await-learning-review", { actor: "human" }), resolveModel, "plain"),
+    ).toMatchSnapshot()
+  })
+
+  it("await-learning-review json", () => {
+    expect(
+      buildPrompt(result("await-learning-review", { actor: "human" }), resolveModel, "json"),
+    ).toMatchSnapshot()
+  })
+
+  it("learning-apply plain", () => {
+    expect(buildPrompt(result("learning-apply"), resolveModel, "plain")).toMatchSnapshot()
+  })
+
+  it("learning-apply json", () => {
+    expect(buildPrompt(result("learning-apply"), resolveModel, "json")).toMatchSnapshot()
+  })
 })

@@ -28,6 +28,8 @@ describe("turn subject round-trip", () => {
     "squashing",
     "health-fixing",
     "escalate",
+    "learning",
+    "learning-apply",
   ]
 
   it("round-trips every actor x gate combination", () => {

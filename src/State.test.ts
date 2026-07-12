@@ -45,7 +45,8 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
     { kind: "closePackage" },
     { kind: "writeSquashTemplate" },
     { kind: "squashCommit", squashBase: "abc1234" },
-    { kind: "runHealthCheck", errorCount: 0, capReached: false, squashAfterGreen: false },
+    { kind: "writeLearningTemplate" },
+    { kind: "runHealthCheck", errorCount: 0, capReached: false, chainAfterGreen: false },
   ]
 
   it("returns a non-empty phrase for every EdgeAction variant", () => {
@@ -78,6 +79,16 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
     ).toBe('commit routing as "gtd: package done" (removing .gtd/TODO.md, .gtd/FEEDBACK.md)')
   })
 
+  it("commitRouting lists removeLearning", () => {
+    expect(
+      describeEdgeAction({
+        kind: "commitRouting",
+        subject: "gtd: learning applied",
+        removeLearning: true,
+      }),
+    ).toBe('commit routing as "gtd: learning applied" (removing .gtd/LEARNINGS.md)')
+  })
+
   it("runTest reports the 1-indexed attempt number", () => {
     expect(describeEdgeAction({ kind: "runTest", errorCount: 2, capReached: false })).toBe(
       "run the test suite (attempt 3)",
@@ -96,14 +107,20 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
     )
   })
 
-  it("runHealthCheck reports attempt, cap, and squash-after-green together", () => {
+  it("writeLearningTemplate returns a fixed phrase", () => {
+    expect(describeEdgeAction({ kind: "writeLearningTemplate" })).toBe(
+      "write the learnings template",
+    )
+  })
+
+  it("runHealthCheck reports attempt, cap, and chain-after-green together", () => {
     expect(
       describeEdgeAction({
         kind: "runHealthCheck",
         errorCount: 0,
         capReached: true,
-        squashAfterGreen: true,
+        chainAfterGreen: true,
       }),
-    ).toBe("run the health check (attempt 1, cap reached, squash after green)")
+    ).toBe("run the health check (attempt 1, cap reached, chain after green)")
   })
 })
