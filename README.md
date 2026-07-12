@@ -7,8 +7,9 @@
 A git-aware CLI that drives a turn-taking loop between a human and an autonomous
 coding agent: capture an idea, grill it into a plan, decompose it into work
 packages, execute with parallel subagents, test, agentically review each
-package, and finally walk a human through a review — squashing the whole cycle
-into one conventional-commits commit at the end.
+package, walk a human through a review, distill durable lessons from the cycle
+into the project's own docs, and finally squash the whole cycle into one
+conventional-commits commit at the end.
 
 Internally, gtd is a **pure fold** over git history. The decision core
 (`src/Machine.ts`) is a single IO-free function, `resolve(events)` — **no
@@ -18,7 +19,7 @@ merge-base with the default branch (whole-history fallback when there is no
 default branch, when HEAD equals the merge-base, or when there is no merge-base)
 plus the working tree, turns them into a `COMMIT[]` + single terminal `RESOLVE`
 event stream, and folds them through the machine. The fold lands on exactly
-**one** of 16 states, plus which actor (human or agent) is awaited there. A
+**one** of 20 states, plus which actor (human or agent) is awaited there. A
 single call resolves to a single state.
 
 Steering is entirely **machine-authored commit subjects** — there are no marker
@@ -29,12 +30,12 @@ the machine performs itself between turns) looks like `gtd: tests green`.
 
 All workflow state lives under **`.gtd/`**: the plan (`.gtd/TODO.md`), work
 packages (`.gtd/01-…/`), review records (`.gtd/REVIEW.md`, `.gtd/FEEDBACK.md`),
-and loop bookkeeping (`.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/SQUASH_MSG.md`).
-One rule follows for every agent in the loop: **never touch `.gtd/`** except the
-single file a prompt explicitly grants. A `TODO.md` or `REVIEW.md` at the
-repository root is the project's own file — gtd never reads, consumes, or
-deletes it. (Corollary: don't gitignore `.gtd/` — the workflow commits its state
-through it.)
+and loop bookkeeping (`.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/LEARNINGS.md`,
+`.gtd/SQUASH_MSG.md`). One rule follows for every agent in the loop: **never
+touch `.gtd/`** except the single file a prompt explicitly grants. A `TODO.md`
+or `REVIEW.md` at the repository root is the project's own file — gtd never
+reads, consumes, or deletes it. (Corollary: don't gitignore `.gtd/` — the
+workflow commits its state through it.)
 
 ## Quick start: the two-beat loop
 
@@ -428,12 +429,14 @@ GTD_LOOP_AGENT_CMD='my-agent-cli --prompt "$GTD_LOOP_PROMPT"' gtd-loop
 
 ## States & subjects overview
 
-`resolve()` lands on exactly one of **16 states**: `grilling`, `grilled`,
+`resolve()` lands on exactly one of **20 states**: `grilling`, `grilled`,
 `planning`, `building`, `testing`, `fixing`, `escalate`, `agentic-review`,
-`close-package`, `review`, `await-review`, `done`, `squashing`, `idle`,
-`health-check`, `health-fixing`. Each state has a fixed awaited actor (see
-`awaitedActor` in `src/Machine.ts`): `idle`, `escalate`, and `await-review`
-await the **human**; every other state awaits the **agent**.
+`close-package`, `review`, `await-review`, `done`, `learning`,
+`await-learning-review`, `learning-apply`, `learning-applied`, `squashing`,
+`idle`, `health-check`, `health-fixing`. Each state has a fixed awaited actor
+(see `awaitedActor` in `src/Machine.ts`): `idle`, `escalate`, `await-review`,
+and `await-learning-review` await the **human**; every other state awaits the
+**agent**.
 
 For the full precedence ladder, illegal combinations, and the counter folds that
 drive the fix loops, see [STATES.md](STATES.md) — this section is a summary.
@@ -452,6 +455,8 @@ The closed set of gates:
 | `agentic-review` | agent (writes .gtd/FEEDBACK.md verdict)                            |
 | `review`         | agent (writes .gtd/REVIEW.md) / human (approves or gives feedback) |
 | `squashing`      | agent (overwrites .gtd/SQUASH_MSG.md)                              |
+| `learning`       | agent (overwrites .gtd/LEARNINGS.md) / human (accepts or edits)    |
+| `learning-apply` | agent (integrates .gtd/LEARNINGS.md into CLAUDE.md/AGENTS.md/docs) |
 | `health-fixing`  | agent (idle health-check repair)                                   |
 | `escalate`       | human (deletes .gtd/ERRORS.md to resume)                           |
 
@@ -462,7 +467,8 @@ agent "wins": `gtd: grilled`, `gtd: planning`, `gtd: tests green`,
 `gtd: errors`, `gtd: package done`, `gtd: awaiting review`,
 `gtd: review feedback`, `gtd: done`, `gtd: squash template`,
 `gtd: reviewing <hash>` (parameterized, from `gtd review`), `gtd: health-check`,
-`gtd: health-fix`.
+`gtd: health-fix`, `gtd: learning template`, `gtd: learning drafted`,
+`gtd: learning approved`, `gtd: learning applied`.
 
 Everything else — any non-`gtd` subject, and any `gtd: *` subject outside this
 closed set — is a **boundary commit**: inert as far as the machine's grammar is
@@ -526,23 +532,25 @@ the threshold simply closes the package as usual.) Setting
 
 A **do-nothing agent invocation** — `gtd step-agent` on a clean tree at ANY
 agent-awaited rest whose move is a file artifact (`grilling`, `grilled`,
-`building`, `fixing`, `agentic-review`, `review`, and `squashing` while
-`.gtd/SQUASH_MSG.md` still holds the unmodified template) — is inert: zero
-commits, no state consumed; `gtd next` re-emits the same prompt. This is
-load-bearing for the loop protocol, whose every iteration opens with
-`gtd step-agent` before the agent has acted: without the guard that opening beat
-would author junk empty turns — and worse, consume workflow state (an empty
-decompose turn would delete `.gtd/TODO.md` with no packages written; an empty
-squashing turn would squash the cycle under the placeholder template). The same
-guards hold at the classification layer for histories that already carry such
-turns: a `gtd(agent): grilled` HEAD only routes to `gtd: planning` when packages
-exist, a `gtd(agent): review` HEAD only routes to `gtd: awaiting review` when
-`.gtd/REVIEW.md` exists, and a squashing turn only squashes once the template
-has been overwritten. The one deliberate exception is `health-fixing`, whose
-empty turn is meaningful (the failure may have been environmental — the machine
-removes `.gtd/HEALTH.md` and re-tests). Human gates are unaffected: an empty
-**human** turn stays a signal (accept-defaults at grilling, clean approval at
-review).
+`building`, `fixing`, `agentic-review`, `review`, `squashing` while
+`.gtd/SQUASH_MSG.md` still holds the unmodified template, `learning` while
+`.gtd/LEARNINGS.md` still holds the unmodified template, and `learning-apply`
+unconditionally) — is inert: zero commits, no state consumed; `gtd next`
+re-emits the same prompt. This is load-bearing for the loop protocol, whose
+every iteration opens with `gtd step-agent` before the agent has acted: without
+the guard that opening beat would author junk empty turns — and worse, consume
+workflow state (an empty decompose turn would delete `.gtd/TODO.md` with no
+packages written; an empty squashing turn would squash the cycle under the
+placeholder template). The same guards hold at the classification layer for
+histories that already carry such turns: a `gtd(agent): grilled` HEAD only
+routes to `gtd: planning` when packages exist, a `gtd(agent): review` HEAD only
+routes to `gtd: awaiting review` when `.gtd/REVIEW.md` exists, and a squashing
+(or learning) turn only proceeds once its template has been overwritten. The one
+deliberate exception is `health-fixing`, whose empty turn is meaningful (the
+failure may have been environmental — the machine removes `.gtd/HEALTH.md` and
+re-tests). Human gates are unaffected: an empty **human** turn stays a signal
+(accept-defaults at grilling, clean approval at review, accept-the-draft-as-is
+at the learning review gate).
 
 ### Human review gate
 
@@ -586,22 +594,46 @@ their commit message is discarded; linked `git worktree` checkouts are
 unsupported. If you switch branches mid-review, gtd refuses to touch the foreign
 branch and prints the manual recovery command.
 
+### Learning
+
+With `learning: true` (the default), `gtd: done` (or the health-fix path's green
+re-test) is **not** a rest — the chain continues straight to
+`gtd: learning template`, writing and committing a `.gtd/LEARNINGS.md` template,
+running _before_ the squash decision so it still sees the pre-squash history.
+`gtd next` then emits the learning prompt: the agent walks the cycle's test
+failures, review feedback, and health-check rounds, keeps only
+durable/generalizable lessons, and overwrites `.gtd/LEARNINGS.md` with them.
+Once `gtd step-agent` captures that draft (`gtd(agent): learning`), it rests at
+**await-learning-review** for a human — who either accepts the draft as-is (an
+empty turn) or edits it; there is no reject path, so the very next `gtd step`
+always proceeds (`gtd(human): learning` → `gtd: learning approved`), resting at
+**learning-apply** for the agent. The agent integrates the approved learnings
+into the project's own docs (`CLAUDE.md`/`AGENTS.md`/wherever fits, its
+judgment); its turn (`gtd(agent): learning-apply`) removes `.gtd/LEARNINGS.md`
+and lands at `gtd: learning applied`, which then runs the same squash decision
+`gtd: done` runs today. With `learning: false`, `gtd: done` behaves exactly as
+it does without this section: no `.gtd/LEARNINGS.md` is ever written. Learning
+and squash are independent flags — either can be on without the other.
+
 ### Squash
 
-With `squash: true` (the default), `gtd: done` is **not** a rest — the same
-chain continues straight to `gtd: squash template`, writing and committing a
-`.gtd/SQUASH_MSG.md` template. `gtd next` then emits the squashing prompt: the
-agent overwrites `.gtd/SQUASH_MSG.md` with a real conventional-commits message
-(drawing on grilling-round decisions from history) and finishes its turn.
-`gtd step-agent` then performs the squash itself: `git reset --soft <base>` +
-`git commit`, collapsing every intermediate `gtd: *` commit of the cycle into
-one — including any review-feedback detours: the squash base is the cycle's
-ORIGINAL start (the first grilling run since the previous `gtd: done` boundary,
-or the `gtd: reviewing <hash>` anchor for an ad-hoc review cycle), not the most
-recent re-grilling round — the collapse folds the whole cycle into one, using
-the overwritten message's content verbatim (turn position, not message content,
-triggers the squash). With `squash: false`, `gtd: done` is the resting boundary
-and no template is ever written.
+With `squash: true` (the default), `gtd: done` (or, once learning has run,
+`gtd: learning applied`) is **not** a rest — the same chain continues straight
+to `gtd: squash template`, writing and committing a `.gtd/SQUASH_MSG.md`
+template. `gtd next` then emits the squashing prompt: the agent overwrites
+`.gtd/SQUASH_MSG.md` with a real conventional-commits message (drawing on
+grilling-round decisions from history) and finishes its turn. `gtd step-agent`
+then performs the squash itself: `git reset --soft <base>` + `git commit`,
+collapsing every intermediate `gtd: *` commit of the cycle into one — including
+any review-feedback detours, and the learning phase's own commits if learning
+ran: the squash base is the cycle's ORIGINAL start (the first grilling run since
+the previous `gtd: done` boundary, or the `gtd: reviewing <hash>` anchor for an
+ad-hoc review cycle), not the most recent re-grilling round — the collapse folds
+the whole cycle into one, using the overwritten message's content verbatim (turn
+position, not message content, triggers the squash). Doc edits made during
+`learning-apply` survive in the squashed tree, not as their own commit. With
+`squash: false`, `gtd: done` (or `gtd: learning applied`) is the resting
+boundary and no template is ever written.
 
 ### Health check
 
@@ -610,9 +642,9 @@ runs `testCommand` as a health check rather than settling immediately. Green
 settles idle with zero commits. Red below `fixAttemptCap` writes
 `.gtd/HEALTH.md` and rests at **Health Fixing** for the agent; the fixer's own
 turn (`gtd(agent): health-fixing`) removes `.gtd/HEALTH.md` and re-tests in the
-same chain — a green re-test continues to squash (if enabled) or idle; red
-repeats the health-fix loop; red at the cap writes `.gtd/ERRORS.md` and
-escalates.
+same chain — a green re-test continues to learning (if enabled), then squash (if
+enabled), or idle; red repeats the health-fix loop; red at the cap writes
+`.gtd/ERRORS.md` and escalates.
 
 ### Escalate / budget reset
 
@@ -624,24 +656,28 @@ fix-attempt budget to zero.
 
 ## States & subjects: overview table
 
-| State            | Awaits         | Turn/routing subject at rest                                     |
-| ---------------- | -------------- | ---------------------------------------------------------------- |
-| `grilling`       | human or agent | `gtd(human): grilling` / `gtd(agent): grilling`                  |
-| `grilled`        | agent          | `gtd: grilled`                                                   |
-| `planning`       | agent          | `.gtd/` modified                                                 |
-| `building`       | agent          | `gtd: planning` / `gtd: package done`                            |
-| `testing`        | — (edge-only)  | mid-chain only                                                   |
-| `fixing`         | agent          | `gtd: errors`                                                    |
-| `escalate`       | human          | `.gtd/ERRORS.md` present                                         |
-| `agentic-review` | agent          | `gtd: tests green`                                               |
-| `close-package`  | — (edge-only)  | mid-chain only                                                   |
-| `review`         | agent          | `gtd: package done` (no more packages) / `gtd: reviewing <hash>` |
-| `await-review`   | human          | `gtd: awaiting review`                                           |
-| `done`           | — (edge-only)  | `gtd: done`                                                      |
-| `squashing`      | agent          | `gtd: squash template`                                           |
-| `idle`           | human          | no steering files, green health check                            |
-| `health-check`   | — (edge-only)  | mid-chain only                                                   |
-| `health-fixing`  | agent          | `.gtd/HEALTH.md` present                                         |
+| State                   | Awaits         | Turn/routing subject at rest                                     |
+| ----------------------- | -------------- | ---------------------------------------------------------------- |
+| `grilling`              | human or agent | `gtd(human): grilling` / `gtd(agent): grilling`                  |
+| `grilled`               | agent          | `gtd: grilled`                                                   |
+| `planning`              | agent          | `.gtd/` modified                                                 |
+| `building`              | agent          | `gtd: planning` / `gtd: package done`                            |
+| `testing`               | — (edge-only)  | mid-chain only                                                   |
+| `fixing`                | agent          | `gtd: errors`                                                    |
+| `escalate`              | human          | `.gtd/ERRORS.md` present                                         |
+| `agentic-review`        | agent          | `gtd: tests green`                                               |
+| `close-package`         | — (edge-only)  | mid-chain only                                                   |
+| `review`                | agent          | `gtd: package done` (no more packages) / `gtd: reviewing <hash>` |
+| `await-review`          | human          | `gtd: awaiting review`                                           |
+| `done`                  | — (edge-only)  | `gtd: done`                                                      |
+| `learning`              | agent          | `gtd: learning template`                                         |
+| `await-learning-review` | human          | `gtd: learning drafted`                                          |
+| `learning-apply`        | agent          | `gtd: learning approved`                                         |
+| `learning-applied`      | — (edge-only)  | `gtd: learning applied`                                          |
+| `squashing`             | agent          | `gtd: squash template`                                           |
+| `idle`                  | human          | no steering files, green health check                            |
+| `health-check`          | — (edge-only)  | mid-chain only                                                   |
+| `health-fixing`         | agent          | `.gtd/HEALTH.md` present                                         |
 
 See [STATES.md](STATES.md) for the full precedence ladder, the counter folds,
 and every illegal steering-file combination.
@@ -674,13 +710,19 @@ built-in defaults apply. Supported filenames (searched in this order):
 - **`agenticReview`** (boolean, default `true`) — kill-switch for the
   per-package Agentic Review gate. Set `false` to force-approve every package
   and proceed directly to human review.
-- **`squash`** (boolean, default `true`) — after `gtd: done`, collapse the
-  cycle's `gtd: *` commits into a single conventional-commits commit. Set
-  `false` to keep the granular history.
+- **`squash`** (boolean, default `true`) — after `gtd: done` (or, once learning
+  has run, `gtd: learning applied`), collapse the cycle's `gtd: *` commits into
+  a single conventional-commits commit. Set `false` to keep the granular
+  history.
+- **`learning`** (boolean, default `true`) — after `gtd: done` (or the
+  health-fix path's green re-test), distill durable lessons from the cycle into
+  `.gtd/LEARNINGS.md`, have a human review them, then integrate them into the
+  project's own docs before the squash decision runs. Set `false` to skip the
+  phase entirely — independent of `squash`.
 - **`models`** — model selection for the subagent-spawning states:
   - `planning` — high-reasoning tier (default `claude-opus-4-8`), used by
     `decompose` (the `grilled`/`planning` states), `grilling`, `agentic-review`,
-    and `clean` (the `review`/`squashing` states).
+    and `clean` (the `review`/`squashing`/`learning`/`learning-apply` states).
   - `execution` — everyday tier (default `claude-sonnet-4-8`), used by
     `building` and `fixing`.
   - `states.*` — per-state overrides keyed by `decompose`, `grilling`,
@@ -739,6 +781,7 @@ fixAttemptCap: 3
 reviewThreshold: 3
 agenticReview: true
 squash: true
+learning: true
 models:
   planning: claude-opus-4-8
   execution: claude-sonnet-4-8

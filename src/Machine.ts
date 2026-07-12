@@ -24,7 +24,7 @@
 import type { Actor, TurnGate } from "./Subjects.js"
 import { parseSubject } from "./Subjects.js"
 
-/** The 16 resolved states (frozen contract). `Result.state` is one of these. */
+/** The 20 resolved states (frozen contract). `Result.state` is one of these. */
 export type GtdState =
   | "grilling"
   | "grilled"
@@ -38,6 +38,10 @@ export type GtdState =
   | "review"
   | "await-review"
   | "done"
+  | "learning"
+  | "await-learning-review"
+  | "learning-apply"
+  | "learning-applied"
   | "squashing"
   | "idle"
   | "health-check"
@@ -185,6 +189,17 @@ export interface ResolvePayload {
   readonly healthCommitted: boolean
   /** Parent commit of the first persisting health-fix cycle commit. */
   readonly healthFixBase?: string
+  /** Learning phase enabled (config kill-switch). */
+  readonly learningEnabled: boolean
+  /** `.gtd/LEARNINGS.md` is present (committed or pending). */
+  readonly learningMsgPresent: boolean
+  /**
+   * `LEARNINGS.md` still holds the unmodified template written by
+   * `writeLearningTemplate` (or is absent). Mirrors `squashMsgIsTemplate`:
+   * guards the agent's draft turn so the machine never mid-chains on an
+   * unmodified placeholder.
+   */
+  readonly learningMsgIsTemplate: boolean
 }
 
 /**
@@ -208,12 +223,14 @@ export interface ResolvePayload {
  *   - `writeSquashTemplate` — write + commit SQUASH_MSG.md `gtd: squash template`.
  *   - `squashCommit`     — soft-reset to `squashBase`, then `gtd(agent): squashing`
  *                          reads SQUASH_MSG.md at perform time for the message.
+ *   - `writeLearningTemplate` — write + commit LEARNINGS.md `gtd: learning template`.
  *   - `runHealthCheck`   — run the configured test command; on red write
  *                          HEALTH.md (below cap) or ERRORS.md (`capReached`),
  *                          commit `gtd: health-check`; on green with prior
- *                          fixes and `squashAfterGreen`, commit
- *                          `gtd: tests green` to chain into the squash
- *                          template; otherwise stop idle with zero commits.
+ *                          fixes and `chainAfterGreen` (squash and/or learning
+ *                          enabled), commit `gtd: tests green` to chain into
+ *                          the learning/squash template; otherwise stop idle
+ *                          with zero commits.
  */
 export type EdgeAction =
   | { readonly kind: "captureTurn"; readonly actor: Actor; readonly gate: TurnGate }
@@ -224,16 +241,18 @@ export type EdgeAction =
       readonly removeReview?: boolean
       readonly removeFeedback?: boolean
       readonly removeHealth?: boolean
+      readonly removeLearning?: boolean
     }
   | { readonly kind: "runTest"; readonly errorCount: number; readonly capReached: boolean }
   | { readonly kind: "closePackage" }
   | { readonly kind: "writeSquashTemplate" }
   | { readonly kind: "squashCommit"; readonly squashBase: string }
+  | { readonly kind: "writeLearningTemplate" }
   | {
       readonly kind: "runHealthCheck"
       readonly errorCount: number
       readonly capReached: boolean
-      readonly squashAfterGreen: boolean
+      readonly chainAfterGreen: boolean
     }
 
 /** The folded prompt context carried on every `Result`. */
@@ -409,6 +428,9 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   healthPresent: false,
   healthContent: "",
   healthCommitted: false,
+  learningEnabled: false,
+  learningMsgPresent: false,
+  learningMsgIsTemplate: false,
 }
 
 /** Build the prompt context from the payload passthrough + the folded counters. */
@@ -455,6 +477,39 @@ const healthFileConflictRules: readonly IllegalCombinationRule[] = [
   {
     isViolated: (p) => p.healthPresent && p.errorsPresent,
     message: ".gtd/HEALTH.md + .gtd/ERRORS.md",
+  },
+]
+
+// LEARNINGS.md, like SQUASH_MSG.md, is HEAD-classification-driven, not
+// precedence-driven — none of these can fire on a legal history (packages,
+// REVIEW.md, FEEDBACK.md, ERRORS.md, and TODO.md are all gone by `gtd: done`;
+// HEALTH.md is removed before tests-green; SQUASH_MSG.md is only written
+// after `gtd: learning applied` removes LEARNINGS.md). Defensive only: refuse
+// to guess on a corrupted repo rather than silently mis-resolve.
+const learningFileConflictRules: readonly IllegalCombinationRule[] = [
+  {
+    isViolated: (p) => p.learningMsgPresent && p.packagesPresent,
+    message: ".gtd/LEARNINGS.md + packages",
+  },
+  {
+    isViolated: (p) => p.learningMsgPresent && p.reviewPresent,
+    message: ".gtd/LEARNINGS.md + .gtd/REVIEW.md",
+  },
+  {
+    isViolated: (p) => p.learningMsgPresent && p.feedbackPresent,
+    message: ".gtd/LEARNINGS.md + .gtd/FEEDBACK.md",
+  },
+  {
+    isViolated: (p) => p.learningMsgPresent && p.errorsPresent,
+    message: ".gtd/LEARNINGS.md + .gtd/ERRORS.md",
+  },
+  {
+    isViolated: (p) => p.learningMsgPresent && p.healthPresent,
+    message: ".gtd/LEARNINGS.md + .gtd/HEALTH.md",
+  },
+  {
+    isViolated: (p) => p.learningMsgPresent && p.squashMsgPresent,
+    message: ".gtd/LEARNINGS.md + .gtd/SQUASH_MSG.md",
   },
 ]
 
@@ -508,7 +563,11 @@ const reviewAndFeedbackRules: readonly IllegalCombinationRule[] = [
  * documented precedence order.
  */
 const assertLegal = (p: ResolvePayload): void => {
-  for (const rule of [...healthFileConflictRules, ...reviewAndFeedbackRules]) {
+  for (const rule of [
+    ...healthFileConflictRules,
+    ...learningFileConflictRules,
+    ...reviewAndFeedbackRules,
+  ]) {
     if (rule.isViolated(p)) {
       throw new GtdStateError("illegal-combination", `illegal combination: ${rule.message}`)
     }
@@ -538,6 +597,26 @@ type HeadClass =
       readonly action: EdgeAction
     }
 
+/**
+ * The learning/squash decision shared by `gtd: done`, `gtd: tests green`
+ * (health path, no packages), and `gtd: learning applied`: learning first
+ * (when it hasn't already run), then squash, else rest at idle. `state` is
+ * the label the mid-chain hop reports (mirrors the just-consumed routing
+ * phase's own name, e.g. "done" for the `gtd: done` case).
+ */
+const nextAfterReviewOrLearning = (
+  flags: ClassifyFlags,
+  state: GtdState,
+  learningAlreadyRan: boolean,
+): HeadClass => {
+  if (!learningAlreadyRan && flags.learningEnabled && flags.hasSquashBase) {
+    return { kind: "mid-chain", state, actor: "agent", action: { kind: "writeLearningTemplate" } }
+  }
+  return flags.squashEnabled && flags.hasSquashBase
+    ? { kind: "mid-chain", state, actor: "agent", action: { kind: "writeSquashTemplate" } }
+    : { kind: "rest", state: "idle", actor: "human" }
+}
+
 /** The small set of config/content-dependent facts a subject-only classification still needs. */
 interface ClassifyFlags {
   readonly headTurnIsEmpty: boolean
@@ -545,11 +624,63 @@ interface ClassifyFlags {
   readonly agenticReviewForceApproved: boolean
   readonly squashEnabled: boolean
   readonly hasSquashBase: boolean
-  readonly squashAfterGreen: boolean
+  readonly learningEnabled: boolean
+  readonly learningMsgIsTemplate: boolean
   readonly reviewSubstantive: boolean
   readonly errorsPresent: boolean
   readonly reviewPresent: boolean
   readonly squashMsgIsTemplate: boolean
+}
+
+/**
+ * Classify a learning-gate turn commit — `gtd(agent): learning` (draft),
+ * `gtd(human): learning` (review), or `gtd(agent): learning-apply` (doc
+ * integration). Returns `null` for any other `(actor, gate)` pair, mirroring
+ * `classifyHead`'s own null-means-"not handled here" convention, so the
+ * caller can fall through to its remaining branches unchanged.
+ */
+const classifyLearningTurn = (
+  actor: Actor,
+  gate: string,
+  flags: ClassifyFlags,
+): HeadClass | null => {
+  if (actor === "agent" && gate === "learning") {
+    // Mirrors squashing: never mid-chain while `.gtd/LEARNINGS.md` still
+    // holds the unmodified template — rest so `gtd next` re-emits the same
+    // prompt until the agent actually drafts real learnings.
+    return flags.hasSquashBase && !flags.learningMsgIsTemplate
+      ? {
+          kind: "mid-chain",
+          state: "learning",
+          actor: "agent",
+          action: { kind: "commitRouting", subject: "gtd: learning drafted" },
+        }
+      : { kind: "rest", state: "learning", actor: "agent" }
+  }
+  if (actor === "human" && gate === "learning") {
+    // No reject/redo path: any human turn here — even an empty one, meaning
+    // "accept the draft as-is" — always proceeds forward to the agent's
+    // apply turn.
+    return {
+      kind: "mid-chain",
+      state: "learning",
+      actor: "human",
+      action: { kind: "commitRouting", subject: "gtd: learning approved" },
+    }
+  }
+  if (actor === "agent" && gate === "learning-apply") {
+    return {
+      kind: "mid-chain",
+      state: "learning-apply",
+      actor: "agent",
+      action: {
+        kind: "commitRouting",
+        subject: "gtd: learning applied",
+        removeLearning: true,
+      },
+    }
+  }
+  return null
 }
 
 /**
@@ -685,6 +816,9 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
         : { kind: "rest", state: "squashing", actor: "agent" }
     }
 
+    const learningTurn = classifyLearningTurn(actor, gate, flags)
+    if (learningTurn !== null) return learningTurn
+
     if (actor === "agent" && gate === "health-fixing") {
       return {
         kind: "mid-chain",
@@ -723,14 +857,7 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
               }
             : { kind: "rest", state: "agentic-review", actor: "agent" }
         }
-        return flags.squashEnabled && flags.squashAfterGreen
-          ? {
-              kind: "mid-chain",
-              state: "testing",
-              actor: "agent",
-              action: { kind: "writeSquashTemplate" },
-            }
-          : { kind: "rest", state: "idle", actor: "human" }
+        return nextAfterReviewOrLearning(flags, "testing", false)
       case "errors":
         return flags.errorsPresent
           ? { kind: "rest", state: "escalate", actor: "human" }
@@ -743,18 +870,19 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
       case "review-feedback":
         return { kind: "rest", state: "grilling", actor: "agent" }
       case "done":
-        return flags.squashEnabled && flags.hasSquashBase
-          ? {
-              kind: "mid-chain",
-              state: "done",
-              actor: "agent",
-              action: { kind: "writeSquashTemplate" },
-            }
-          : { kind: "rest", state: "idle", actor: "human" }
+        return nextAfterReviewOrLearning(flags, "done", false)
       case "squash-template":
         return { kind: "rest", state: "squashing", actor: "agent" }
       case "reviewing":
         return { kind: "rest", state: "review", actor: "agent" }
+      case "learning-template":
+        return { kind: "rest", state: "learning", actor: "agent" }
+      case "learning-drafted":
+        return { kind: "rest", state: "await-learning-review", actor: "human" }
+      case "learning-approved":
+        return { kind: "rest", state: "learning-apply", actor: "agent" }
+      case "learning-applied":
+        return nextAfterReviewOrLearning(flags, "learning-applied", true)
       case "health-check":
         return flags.errorsPresent
           ? { kind: "rest", state: "escalate", actor: "human" }
@@ -777,8 +905,9 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
 /**
  * States that author a turn under their own same-named gate. Every other
  * `GtdState` (planning, testing, close-package, await-review, done, idle,
- * health-check — none of which are themselves turn gates) falls through to
- * "review", `gateForState`'s documented default.
+ * health-check, learning-applied — none of which are themselves turn gates)
+ * falls through to "review", `gateForState`'s documented default, unless
+ * overridden by `GATE_OVERRIDES` below.
  */
 const STATE_IS_OWN_GATE: ReadonlySet<GtdState> = new Set<GtdState>([
   "grilling",
@@ -790,11 +919,24 @@ const STATE_IS_OWN_GATE: ReadonlySet<GtdState> = new Set<GtdState>([
   "squashing",
   "health-fixing",
   "escalate",
+  "learning",
+  "learning-apply",
 ])
+
+/**
+ * Explicit gate overrides for non-own-gate states whose turn gate is neither
+ * their own state name nor the hardcoded "review" default. `await-review`
+ * doesn't need one (it genuinely reuses "review"); `await-learning-review`
+ * does, since its human turn is authored under gate `"learning"` (shared
+ * with the agent's draft turn), not `"review"`.
+ */
+const GATE_OVERRIDES: Partial<Record<GtdState, TurnGate>> = {
+  "await-learning-review": "learning",
+}
 
 /** Map a state to the turn gate an invocation at that state's rest would author. */
 const gateForState = (state: GtdState): TurnGate =>
-  STATE_IS_OWN_GATE.has(state) ? (state as TurnGate) : "review"
+  STATE_IS_OWN_GATE.has(state) ? (state as TurnGate) : (GATE_OVERRIDES[state] ?? "review")
 
 /**
  * Agent-awaited rests whose move is a file artifact (a developed plan,
@@ -802,9 +944,12 @@ const gateForState = (state: GtdState): TurnGate =>
  * dirties the tree, so a clean tree here is a do-nothing invocation.
  * `squashing` joins the set only while `.gtd/SQUASH_MSG.md` still holds the
  * unmodified template — squashing then would stamp the placeholder text onto
- * the collapsed cycle. `health-fixing` is deliberately absent: its empty turn
- * is meaningful (environmental fix; the machine removes HEALTH.md and
- * re-tests).
+ * the collapsed cycle. `learning` joins the same way, guarded by
+ * `learningMsgIsTemplate` instead. `learning-apply`'s move is a doc edit
+ * (CLAUDE.md/AGENTS.md/docs), so it's unconditionally inert on a clean tree,
+ * same as `building`/`fixing`. `health-fixing` is deliberately absent: its
+ * empty turn is meaningful (environmental fix; the machine removes
+ * HEALTH.md and re-tests).
  */
 const INERT_EMPTY_AGENT_GATES: ReadonlySet<GtdState> = new Set([
   "grilling",
@@ -813,6 +958,7 @@ const INERT_EMPTY_AGENT_GATES: ReadonlySet<GtdState> = new Set([
   "fixing",
   "agentic-review",
   "review",
+  "learning-apply",
 ])
 
 /**
@@ -822,7 +968,9 @@ const INERT_EMPTY_AGENT_GATES: ReadonlySet<GtdState> = new Set([
  */
 const isInertEmptyAgentRest = (state: GtdState, p: ResolvePayload): boolean =>
   p.workingTreeClean &&
-  (INERT_EMPTY_AGENT_GATES.has(state) || (state === "squashing" && p.squashMsgIsTemplate))
+  (INERT_EMPTY_AGENT_GATES.has(state) ||
+    (state === "squashing" && p.squashMsgIsTemplate) ||
+    (state === "learning" && p.learningMsgIsTemplate))
 
 /**
  * The baseline decision: classify HEAD, falling through to the payload-driven
@@ -921,8 +1069,6 @@ const resolveBaseline = (
       : { kind: "rest", state: "fixing", actor: "agent" }
   }
 
-  const squashAfterGreen =
-    p.squashEnabled && counters.healthFixCount > 0 && p.healthFixBase !== undefined
   // Prefer the turn commit's own diff (set only when HEAD is the
   // `gtd(human): review` turn commit being classified right now) over live
   // working-tree dirtiness, which is already clean by the time this mid-chain
@@ -938,7 +1084,8 @@ const resolveBaseline = (
     agenticReviewForceApproved: forceApprove,
     squashEnabled: p.squashEnabled,
     hasSquashBase: p.squashBase !== undefined,
-    squashAfterGreen,
+    learningEnabled: p.learningEnabled,
+    learningMsgIsTemplate: p.learningMsgIsTemplate,
     reviewSubstantive,
     // A pending (uncommitted) deletion of ERRORS.md still counts as "ERRORS.md
     // was committed at this HEAD" for classification purposes: `fs.exists`
@@ -988,7 +1135,7 @@ const resolveBaseline = (
           kind: "runHealthCheck",
           errorCount: counters.healthFixCount,
           capReached: counters.healthFixCount >= p.fixAttemptCap,
-          squashAfterGreen: classified.action.squashAfterGreen,
+          chainAfterGreen: classified.action.chainAfterGreen,
         },
       }
     }
@@ -1157,8 +1304,10 @@ const applyTurnTaking = (
     (head === "gtd: health-fix" && baseline.state === "idle") ||
     (healthCheckCapReached && baseline.state === "health-fixing")
   ) {
-    const squashAfterGreenAtHealthFix =
-      p.squashEnabled && counters.healthFixCount > 0 && p.healthFixBase !== undefined
+    const chainAfterGreenAtHealthFix =
+      (p.squashEnabled || p.learningEnabled) &&
+      counters.healthFixCount > 0 &&
+      p.healthFixBase !== undefined
     return {
       state: "idle",
       actor: "agent",
@@ -1167,7 +1316,7 @@ const applyTurnTaking = (
         kind: "runHealthCheck",
         errorCount: counters.healthFixCount,
         capReached: counters.healthFixCount >= p.fixAttemptCap,
-        squashAfterGreen: squashAfterGreenAtHealthFix,
+        chainAfterGreen: chainAfterGreenAtHealthFix,
       },
       context,
     }
@@ -1199,8 +1348,10 @@ const applyTurnTaking = (
   // Idle carve-out: a human step at idle always re-runs the health check —
   // never an empty turn commit, and never a plain fixpoint no-op.
   if (baseline.state === "idle" && invoker === "human") {
-    const squashAfterGreen =
-      p.squashEnabled && counters.healthFixCount > 0 && p.healthFixBase !== undefined
+    const chainAfterGreen =
+      (p.squashEnabled || p.learningEnabled) &&
+      counters.healthFixCount > 0 &&
+      p.healthFixBase !== undefined
     return {
       state: "idle",
       actor: "human",
@@ -1209,7 +1360,7 @@ const applyTurnTaking = (
         kind: "runHealthCheck",
         errorCount: counters.healthFixCount,
         capReached: counters.healthFixCount >= p.fixAttemptCap,
-        squashAfterGreen,
+        chainAfterGreen,
       },
       context,
     }
@@ -1386,6 +1537,7 @@ export const awaitedActor = (state: GtdState): Actor => {
     case "idle":
     case "escalate":
     case "await-review":
+    case "await-learning-review":
       return "human"
     default:
       return "agent"

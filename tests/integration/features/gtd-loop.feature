@@ -74,6 +74,7 @@ Feature: gtd-loop — the packaged reference loop driver
       testCommand: "true"
       agenticReview: false
       squash: false
+      learning: false
       """
     And a commit "gtd(agent): grilling" that adds ".gtd/TODO.md" with:
       """

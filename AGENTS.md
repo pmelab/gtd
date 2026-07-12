@@ -24,6 +24,9 @@ cleanup), trace **every** reference before deleting:
 - `src/Events.ts` (`gatherEvents` flag derivation, `perform`)
 - `src/program.ts` dispatch
 - `src/Prompt.ts` (`isPromptState`, `MODEL_STATE`, templates)
+- `src/State.ts` (`edgeActionHandlers` — a total map over `EdgeAction["kind"]`,
+  so it won't fail to compile on a removed/added variant the way an
+  exhaustive-switch-free table can silently drift)
 - STATES.md / README.md
 - All feature files
 

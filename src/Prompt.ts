@@ -14,17 +14,20 @@ import agenticReviewMd from "./prompts/agentic-review.md"
 import reviewMd from "./prompts/review.md"
 import awaitReviewMd from "./prompts/await-review.md"
 import squashingMd from "./prompts/squashing.md"
+import learningMd from "./prompts/learning.md"
+import awaitLearningReviewMd from "./prompts/await-learning-review.md"
+import learningApplyMd from "./prompts/learning-apply.md"
 import escalateMd from "./prompts/escalate.md"
 import idleMd from "./prompts/idle.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import type { GtdState, Result } from "./Machine.js"
 
 /**
- * The 11 prompt-bearing states (frozen contract) — `src/State.ts` consumes
+ * The 14 prompt-bearing states (frozen contract) — `src/State.ts` consumes
  * this single classification instead of duplicating an edge-only set.
- * `buildPrompt` throws for the other five (testing, planning, close-package,
- * done, health-check), which are performed by the driver and must never
- * render a prompt.
+ * `buildPrompt` throws for the other six (testing, planning, close-package,
+ * done, health-check, learning-applied), which are performed by the driver
+ * and must never render a prompt.
  */
 const PROMPT_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
   "grilling",
@@ -35,6 +38,9 @@ const PROMPT_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
   "review",
   "await-review",
   "squashing",
+  "learning",
+  "await-learning-review",
+  "learning-apply",
   "escalate",
   "idle",
   "health-fixing",
@@ -52,15 +58,19 @@ type PromptState =
   | "review"
   | "await-review"
   | "squashing"
+  | "learning"
+  | "await-learning-review"
+  | "learning-apply"
   | "escalate"
   | "idle"
   | "health-fixing"
 
 /**
  * Which `ModelState` a prompt-bearing state resolves `{{MODEL}}` against.
- * `grilled` shares the `decompose` tier; `review` and `squashing` share the
- * `clean` tier (renamed states, same model tier); the human-gated states
- * (`await-review`, `escalate`, `idle`) spawn no subagent and carry none.
+ * `grilled` shares the `decompose` tier; `review`, `squashing`, `learning`,
+ * and `learning-apply` share the `clean` tier (renamed states, same model
+ * tier); the human-gated states (`await-review`, `await-learning-review`,
+ * `escalate`, `idle`) spawn no subagent and carry none.
  */
 const MODEL_STATE: Partial<Record<PromptState, ModelState>> = {
   grilling: "grilling",
@@ -71,6 +81,8 @@ const MODEL_STATE: Partial<Record<PromptState, ModelState>> = {
   "agentic-review": "agentic-review",
   review: "clean",
   squashing: "clean",
+  learning: "clean",
+  "learning-apply": "clean",
 }
 
 /**
@@ -120,6 +132,9 @@ eta.loadTemplate("@agentic-review", agenticReviewMd)
 eta.loadTemplate("@review", reviewMd)
 eta.loadTemplate("@await-review", awaitReviewMd)
 eta.loadTemplate("@squashing", squashingMd)
+eta.loadTemplate("@learning", learningMd)
+eta.loadTemplate("@await-learning-review", awaitLearningReviewMd)
+eta.loadTemplate("@learning-apply", learningApplyMd)
 eta.loadTemplate("@escalate", escalateMd)
 eta.loadTemplate("@idle", idleMd)
 
@@ -138,6 +153,9 @@ const STATE_TEMPLATE: Record<Exclude<PromptState, "grilling">, string> = {
   review: "@review",
   "await-review": "@await-review",
   squashing: "@squashing",
+  learning: "@learning",
+  "await-learning-review": "@await-learning-review",
+  "learning-apply": "@learning-apply",
   escalate: "@escalate",
   idle: "@idle",
   "health-fixing": "@health-fixing",

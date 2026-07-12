@@ -153,6 +153,56 @@ agent); when it awaits the human, stop and hand off.
 "
 `;
 
+exports[`buildPrompt snapshots > await-learning-review json 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/LEARNINGS.md\` holds the distilled learnings from this cycle, drafted by
+the agent. This is a human gate; there is nothing for the agent to do.
+
+Tell the user:
+
+- Read \`.gtd/LEARNINGS.md\`.
+- Delete anything not worth keeping, or edit/add anything the draft missed.
+- Run \`gtd step\` — with or without edits, either way proceeds: the agent
+  integrates whatever remains into the project's own memory
+  (CLAUDE.md/AGENTS.md/docs) next.
+
+There is no reject path — this gate only refines what gets kept, it doesn't
+send the cycle back for rework.
+"
+`;
+
+exports[`buildPrompt snapshots > await-learning-review plain 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/LEARNINGS.md\` holds the distilled learnings from this cycle, drafted by
+the agent. This is a human gate; there is nothing for the agent to do.
+
+Tell the user:
+
+- Read \`.gtd/LEARNINGS.md\`.
+- Delete anything not worth keeping, or edit/add anything the draft missed.
+- Run \`gtd step\` — with or without edits, either way proceeds: the agent
+  integrates whatever remains into the project's own memory
+  (CLAUDE.md/AGENTS.md/docs) next.
+
+There is no reject path — this gate only refines what gets kept, it doesn't
+send the cycle back for rework.
+"
+`;
+
 exports[`buildPrompt snapshots > await-review json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
@@ -783,6 +833,194 @@ green. Nothing to do.
 
 Start a new cycle by sketching an idea in the working tree (edit code or add a
 short note, e.g. \`IDEA.md\`) and running \`gtd step\` to capture it.
+"
+`;
+
+exports[`buildPrompt snapshots > learning with squashDiff and squashBase json 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+The process is **approved and done**, and headed for a squash. Before that
+happens, \`.gtd/LEARNINGS.md\` has been committed with a template — your job is
+to overwrite it with the real, distilled learnings from this cycle so they
+survive the squash even though the granular history won't.
+
+### Step 1 — Walk the cycle's history
+
+Scan the git history back to the cycle's start (the full-process diff is
+inlined below, and \`git log\` over the same range shows every \`gtd: ...\` /
+\`gtd(agent): ...\` / \`gtd(human): ...\` commit). Look specifically for:
+
+- **Test failures and fixes** — each \`gtd: errors\` round and the fix that
+  followed it. What broke, and what actually made it pass?
+- **Review feedback** — human \`.gtd/REVIEW.md\` notes and \`gtd: review
+  feedback\` detours. What did the human have to correct that the agent got
+  wrong on its own?
+- **Health-check rounds** — any \`gtd: health-check\` / \`gtd: health-fix\`
+  cycles. Environmental or systemic issues surfaced outside normal building?
+- **Grilling decisions** — \`.gtd/TODO.md\`'s "## Captured input" sections and
+  plan edits. Trade-offs or conventions the human specified that a future
+  agent should already know.
+
+### Step 2 — Distill, don't transcribe
+
+For each thing you found, ask: is this a **durable, generalizable lesson**
+(a convention, a gotcha, a pattern this project wants followed next time), or
+a **one-off detail** specific to this change? Keep only the former. A future
+agent reading this should learn something that changes how it works on this
+project, not a recap of what happened.
+
+### Step 3 — Overwrite .gtd/LEARNINGS.md
+
+Replace the **entire content** of \`.gtd/LEARNINGS.md\` with your distilled
+learnings (plain markdown, no leftover template scaffolding). If nothing
+durable surfaced this cycle, write a short explicit note saying so — don't
+leave the placeholder text in place. Leave the file uncommitted and finish
+your turn; a human reviews it next before it's integrated into the project's
+own memory (CLAUDE.md/AGENTS.md/docs).
+
+Cycle base: abc1234
+
+### Full-process diff (\`git diff abc1234 HEAD\`)
+
+\`\`\`diff
+diff --git a/x b/x
++hello
+\`\`\`
+"
+`;
+
+exports[`buildPrompt snapshots > learning with squashDiff and squashBase plain 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+The process is **approved and done**, and headed for a squash. Before that
+happens, \`.gtd/LEARNINGS.md\` has been committed with a template — your job is
+to overwrite it with the real, distilled learnings from this cycle so they
+survive the squash even though the granular history won't.
+
+### Step 1 — Walk the cycle's history
+
+Scan the git history back to the cycle's start (the full-process diff is
+inlined below, and \`git log\` over the same range shows every \`gtd: ...\` /
+\`gtd(agent): ...\` / \`gtd(human): ...\` commit). Look specifically for:
+
+- **Test failures and fixes** — each \`gtd: errors\` round and the fix that
+  followed it. What broke, and what actually made it pass?
+- **Review feedback** — human \`.gtd/REVIEW.md\` notes and \`gtd: review
+  feedback\` detours. What did the human have to correct that the agent got
+  wrong on its own?
+- **Health-check rounds** — any \`gtd: health-check\` / \`gtd: health-fix\`
+  cycles. Environmental or systemic issues surfaced outside normal building?
+- **Grilling decisions** — \`.gtd/TODO.md\`'s "## Captured input" sections and
+  plan edits. Trade-offs or conventions the human specified that a future
+  agent should already know.
+
+### Step 2 — Distill, don't transcribe
+
+For each thing you found, ask: is this a **durable, generalizable lesson**
+(a convention, a gotcha, a pattern this project wants followed next time), or
+a **one-off detail** specific to this change? Keep only the former. A future
+agent reading this should learn something that changes how it works on this
+project, not a recap of what happened.
+
+### Step 3 — Overwrite .gtd/LEARNINGS.md
+
+Replace the **entire content** of \`.gtd/LEARNINGS.md\` with your distilled
+learnings (plain markdown, no leftover template scaffolding). If nothing
+durable surfaced this cycle, write a short explicit note saying so — don't
+leave the placeholder text in place. Leave the file uncommitted and finish
+your turn; a human reviews it next before it's integrated into the project's
+own memory (CLAUDE.md/AGENTS.md/docs).
+
+Cycle base: abc1234
+
+### Full-process diff (\`git diff abc1234 HEAD\`)
+
+\`\`\`diff
+diff --git a/x b/x
++hello
+\`\`\`
+
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
+"
+`;
+
+exports[`buildPrompt snapshots > learning-apply json 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+The human has approved (and possibly amended) \`.gtd/LEARNINGS.md\`. Your job is
+to integrate those learnings into the project's own memory, not to touch
+\`.gtd/LEARNINGS.md\` itself.
+
+1. **Read \`.gtd/LEARNINGS.md\`.**
+2. **Pick the right home for each point**, using your judgment and this
+   project's existing convention:
+   - An existing \`CLAUDE.md\` or \`AGENTS.md\` at the repo root (or a directory
+     closer to what the learning concerns) is usually the right place.
+   - If neither exists and the learnings warrant one, create \`AGENTS.md\` at
+     the repo root.
+   - A learning about a specific subsystem may fit better in that
+     subsystem's own docs than a root-level file — use your judgment.
+3. **Integrate, don't just append** — merge each point into the relevant
+   section of the target file(s); rephrase for clarity, dedupe against what's
+   already documented, and keep the existing document's structure and tone.
+4. **Never delete or edit \`.gtd/LEARNINGS.md\`** — the machine removes it once
+   your turn is captured.
+5. **Leave every change uncommitted and finish your turn.**
+"
+`;
+
+exports[`buildPrompt snapshots > learning-apply plain 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+The human has approved (and possibly amended) \`.gtd/LEARNINGS.md\`. Your job is
+to integrate those learnings into the project's own memory, not to touch
+\`.gtd/LEARNINGS.md\` itself.
+
+1. **Read \`.gtd/LEARNINGS.md\`.**
+2. **Pick the right home for each point**, using your judgment and this
+   project's existing convention:
+   - An existing \`CLAUDE.md\` or \`AGENTS.md\` at the repo root (or a directory
+     closer to what the learning concerns) is usually the right place.
+   - If neither exists and the learnings warrant one, create \`AGENTS.md\` at
+     the repo root.
+   - A learning about a specific subsystem may fit better in that
+     subsystem's own docs than a root-level file — use your judgment.
+3. **Integrate, don't just append** — merge each point into the relevant
+   section of the target file(s); rephrase for clarity, dedupe against what's
+   already documented, and keep the existing document's structure and tone.
+4. **Never delete or edit \`.gtd/LEARNINGS.md\`** — the machine removes it once
+   your turn is captured.
+5. **Leave every change uncommitted and finish your turn.**
+
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
 "
 `;
 

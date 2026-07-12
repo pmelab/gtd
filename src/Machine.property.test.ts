@@ -40,6 +40,9 @@ const TURN_SUBJECTS = [
   "gtd(agent): squashing",
   "gtd(agent): health-fixing",
   "gtd(human): escalate",
+  "gtd(agent): learning",
+  "gtd(human): learning",
+  "gtd(agent): learning-apply",
 ] as const
 
 const ROUTING_SUBJECTS = [
@@ -54,6 +57,10 @@ const ROUTING_SUBJECTS = [
   "gtd: squash template",
   "gtd: health-check",
   "gtd: health-fix",
+  "gtd: learning template",
+  "gtd: learning drafted",
+  "gtd: learning approved",
+  "gtd: learning applied",
 ] as const
 
 const BOUNDARY_SUBJECTS = [
@@ -98,6 +105,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
     healthCommittedRaw: fc.boolean(),
     squashEnabled: fc.boolean(),
     hasSquashBase: fc.boolean(),
+    learningEnabled: fc.boolean(),
   })
   // fallow-ignore-next-line complexity
   .map((raw): ResolvePayload => {
@@ -145,6 +153,9 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       healthContent: raw.healthPresent ? "health finding" : "",
       healthCommitted: raw.healthPresent && raw.healthCommittedRaw,
       ...(raw.hasSquashBase ? { squashBase: "def456", squashDiff: "diff" } : {}),
+      learningEnabled: raw.learningEnabled,
+      learningMsgPresent: false,
+      learningMsgIsTemplate: false,
     }
   })
 
@@ -219,6 +230,10 @@ const ALL_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
   "review",
   "await-review",
   "done",
+  "learning",
+  "await-learning-review",
+  "learning-apply",
+  "learning-applied",
   "squashing",
   "idle",
   "health-check",

@@ -21,6 +21,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       testCommand: "true"
       agenticReview: false
       squash: false
+      learning: false
       """
     And a file "src/input.ts" with:
       """
@@ -149,6 +150,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       testCommand: "true"
       agenticReview: false
       squash: true
+      learning: false
       """
     And a file "src/input.ts" with:
       """
