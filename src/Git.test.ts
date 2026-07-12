@@ -640,6 +640,123 @@ for (const [tierName, makeTier] of tiers) {
     })
 
     // -----------------------------------------------------------------------
+    describe("updateRef / readRefOption / deleteRef", () => {
+      it("roundtrips a repo-local ref", async () => {
+        const headHash = t.resolveRef("HEAD")
+
+        await t.run(
+          Effect.flatMap(GitService, (g) => g.updateRef("refs/gtd/review-head", headHash)),
+        )
+        const read = await t.run(
+          Effect.flatMap(GitService, (g) => g.readRefOption("refs/gtd/review-head")),
+        )
+
+        expect(Option.isSome(read)).toBe(true)
+        expect(Option.getOrThrow(read)).toBe(headHash)
+      })
+
+      it("readRefOption returns none for a missing ref", async () => {
+        const read = await t.run(
+          Effect.flatMap(GitService, (g) => g.readRefOption("refs/gtd/does-not-exist")),
+        )
+        expect(Option.isNone(read)).toBe(true)
+      })
+
+      it("deleteRef removes the ref and is idempotent when it is already gone", async () => {
+        const headHash = t.resolveRef("HEAD")
+        await t.run(
+          Effect.flatMap(GitService, (g) => g.updateRef("refs/gtd/review-head", headHash)),
+        )
+
+        await t.run(Effect.flatMap(GitService, (g) => g.deleteRef("refs/gtd/review-head")))
+        const read = await t.run(
+          Effect.flatMap(GitService, (g) => g.readRefOption("refs/gtd/review-head")),
+        )
+        expect(Option.isNone(read)).toBe(true)
+
+        // Second delete of the now-missing ref must not fail.
+        await t.run(Effect.flatMap(GitService, (g) => g.deleteRef("refs/gtd/review-head")))
+      })
+    })
+
+    // -----------------------------------------------------------------------
+    describe("mixedResetTo", () => {
+      it("moves HEAD and index to the target, keeping the worktree", async () => {
+        const firstHash = t.resolveRef("HEAD")
+        t.commit("feat: second", { "second.txt": "second content" })
+        t.writeFile("readme.txt", "edited after second")
+
+        await t.run(Effect.flatMap(GitService, (g) => g.mixedResetTo(firstHash)))
+
+        expect(t.resolveRef("HEAD")).toBe(firstHash)
+        const status = t.statusPorcelain()
+        // second.txt: in worktree, not in the reset index → untracked
+        expect(status).toContain("?? second.txt")
+        // readme.txt: worktree edit vs the reset index → unstaged modification
+        expect(status).toContain("readme.txt")
+      })
+
+      it("resolves a repo-local ref as the target", async () => {
+        const firstHash = t.resolveRef("HEAD")
+        t.commit("feat: second", { "second.txt": "second content" })
+        await t.run(Effect.flatMap(GitService, (g) => g.updateRef("refs/gtd/base", firstHash)))
+
+        await t.run(Effect.flatMap(GitService, (g) => g.mixedResetTo("refs/gtd/base")))
+
+        expect(t.resolveRef("HEAD")).toBe(firstHash)
+      })
+    })
+
+    // -----------------------------------------------------------------------
+    describe("restoreStagedFrom", () => {
+      it("copies the source tree's entries under the pathspec into the index", async () => {
+        const firstHash = t.resolveRef("HEAD")
+        t.writeFileDeep(".gtd/REVIEW.md", "# Review")
+        t.writeFile("code.ts", "export const x = 1")
+        t.stageAndCommit("feat: work")
+        const headHash = t.resolveRef("HEAD")
+
+        // Rewind index to the first commit, then restore only .gtd from HEAD's ref.
+        await t.run(Effect.flatMap(GitService, (g) => g.updateRef("refs/gtd/saved", headHash)))
+        await t.run(Effect.flatMap(GitService, (g) => g.mixedResetTo(firstHash)))
+        await t.run(
+          Effect.flatMap(GitService, (g) => g.restoreStagedFrom("refs/gtd/saved", [".gtd"])),
+        )
+
+        const status = t.statusPorcelain()
+        // .gtd/REVIEW.md matches the index again → no untracked entry, only a
+        // staged addition vs the rewound HEAD (the live helper's porcelain has
+        // no -uall, so the untracked-dir form would collapse to `?? .gtd/`).
+        expect(status).not.toContain("?? .gtd/")
+        expect(status).toContain("A  .gtd/REVIEW.md")
+        // code.ts stays untracked (outside the pathspec).
+        expect(status).toContain("?? code.ts")
+      })
+
+      it("is a no-op when the pathspec matches nothing on either side", async () => {
+        await t.run(Effect.flatMap(GitService, (g) => g.restoreStagedFrom("HEAD", [".gtd"])))
+        expect(t.statusPorcelain().trim()).toBe("")
+      })
+    })
+
+    // -----------------------------------------------------------------------
+    describe("addIntentToAdd", () => {
+      it("registers untracked files so they no longer show as ??", async () => {
+        const firstHash = t.resolveRef("HEAD")
+        t.commit("feat: second", { "second.txt": "second content" })
+
+        await t.run(Effect.flatMap(GitService, (g) => g.mixedResetTo(firstHash)))
+        await t.run(Effect.flatMap(GitService, (g) => g.addIntentToAdd()))
+
+        const status = t.statusPorcelain()
+        // Exact XY codes differ between real git (` A`, intent-to-add) and the
+        // in-memory placeholder (`AM`); both agree the file is no longer ??.
+        expect(status).toContain("second.txt")
+        expect(status).not.toContain("?? second.txt")
+      })
+    })
+
+    // -----------------------------------------------------------------------
     describe("mixedResetHead on root commit", () => {
       it("fails with an error when HEAD is the root commit", async () => {
         // Create a fresh repo with only one commit

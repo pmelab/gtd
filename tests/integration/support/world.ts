@@ -6,7 +6,7 @@ import { execSync, execFile as execFileCb } from "node:child_process"
 import { promisify } from "node:util"
 
 const execFile = promisify(execFileCb)
-import { readFileSync, existsSync } from "node:fs"
+import { readFileSync, existsSync, unlinkSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { makeProgram } from "../../../src/program.js"
 import { inMemoryLayers } from "./inmem/layers.js"
@@ -201,6 +201,71 @@ export class GtdWorld extends QuickPickleWorld {
       }).trim(),
       10,
     )
+  }
+
+  /** Resolve any revision (ref, HEAD~N, branch) to a hash, or null when it doesn't resolve. */
+  resolveRefOrNull(ref: string): string | null {
+    if (this.repo !== undefined) {
+      return this.repo.resolveRef(ref)
+    }
+    try {
+      return execSync(`git rev-parse --verify --quiet ${ref}`, {
+        cwd: this.repoDir,
+        encoding: "utf-8",
+        stdio: "pipe",
+      }).trim()
+    } catch {
+      return null
+    }
+  }
+
+  /** Create or move a repo-local ref (e.g. refs/gtd/review-head) to the given revision. */
+  setGitRef(ref: string, target: string): void {
+    if (this.repo !== undefined) {
+      this.repo.updateRef(ref, target)
+      return
+    }
+    execSync(`git update-ref ${ref} ${target}`, { cwd: this.repoDir, stdio: "pipe" })
+  }
+
+  /** Porcelain status with untracked files listed individually. */
+  gitStatus(): string {
+    if (this.repo !== undefined) {
+      return this.repo.statusPorcelain()
+    }
+    return execSync("git status --porcelain -uall", {
+      cwd: this.repoDir,
+      encoding: "utf-8",
+    })
+  }
+
+  /** One-line log starting from an arbitrary revision (not just HEAD). */
+  gitLogAt(ref: string): string {
+    if (this.repo !== undefined) {
+      return this.repo.logFrom(ref)
+    }
+    return execSync(`git log --oneline ${ref}`, {
+      cwd: this.repoDir,
+      encoding: "utf-8",
+    })
+  }
+
+  /** Plain working-tree deletion (no git involvement — what an editor's delete does). */
+  deleteWorktreeFile(path: string): void {
+    if (this.repo !== undefined) {
+      this.repo.deleteFile(path)
+      return
+    }
+    unlinkSync(join(this.repoDir, path))
+  }
+
+  /** Move HEAD (and branch tip) to a revision without touching index or worktree. */
+  softResetHead(target: string): void {
+    if (this.repo !== undefined) {
+      this.repo.softResetTo(target)
+      return
+    }
+    execSync(`git reset -q --soft ${target}`, { cwd: this.repoDir, stdio: "pipe" })
   }
 
   execInRepo(cmd: string, args: string[] = []): string {

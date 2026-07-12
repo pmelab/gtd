@@ -123,7 +123,7 @@ ladder, not by subject alone):
 | `gtd: tests green`      | rest or mid-chain  | `.gtd` present: force-approved → mid-chain `closePackage` → `close-package`, agent; not force-approved → rest `agentic-review`, agent. No `.gtd` (health path): squash-after-green → mid-chain `writeSquashTemplate`; else rest `idle`, human. |
 | `gtd: errors`           | rest               | `.gtd/ERRORS.md` present → `escalate`, human; else → `fixing`, agent                                                                                                                                                                           |
 | `gtd: package done`     | — (ladder)         | remaining packages → `building`, agent; else reviewable diff → `review`, agent; else idle/health                                                                                                                                               |
-| `gtd: awaiting review`  | rest               | `await-review`, human                                                                                                                                                                                                                          |
+| `gtd: awaiting review`  | rest               | `await-review`, human — while an invocation rests here, the program edge opens the review checkout window (see `await-review`, §4)                                                                                                             |
 | `gtd: review feedback`  | rest               | `grilling`, agent                                                                                                                                                                                                                              |
 | `gtd: done`             | rest or mid-chain  | squash enabled + squash base present → mid-chain `writeSquashTemplate`; else rest `idle`, human                                                                                                                                                |
 | `gtd: squash template`  | rest               | `squashing`, agent                                                                                                                                                                                                                             |
@@ -635,6 +635,47 @@ substantiveness as described under `review` above: non-substantive mid-chains to
 `commitRouting "gtd: done"` → **done**; substantive mid-chains to
 `commitRouting "gtd: review feedback"` → the review-feedback re-grill
 (**grilling**).
+
+**The review checkout window** (`src/ReviewWindow.ts`) — a driver/IO concern
+layered on this rest, invisible to the machine. Editors' standard git
+integration only surfaces _uncommitted_ changes, and at this rest everything is
+committed — so whenever a gtd invocation finishes resting at
+`gtd: awaiting review`, the program edge (`src/program.ts`) opens a window:
+
+1. Save HEAD to `refs/gtd/review-head` and the review base to
+   `refs/gtd/review-base`. The base mirrors the review-scope rules
+   (`reviewWindowBase`, with HEAD itself excluded so rule 2 means the _previous_
+   round's `gtd: awaiting review`).
+2. `git reset --mixed <base>` — HEAD/index at the base, working tree untouched →
+   the whole reviewable diff shows as uncommitted changes in any editor.
+3. Pin `.gtd/` index entries back to the saved head (plumbing stays out of the
+   unstaged view) and intent-to-add untracked files (added files render as
+   content diffs, and editor "discard" is a coherent reject-this-file gesture).
+
+Every gtd invocation **closes** the window first (keyed on ref existence, before
+`ConfigInit.ensure` and any `gatherEvents`):
+`git reset --mixed refs/gtd/review-head` restores HEAD/index exactly and deletes
+the refs, leaving only the reviewer's own edits dirty. Read-only commands
+(`gtd next`, `gtd status`) and refused invocations re-arm the window on their
+way out.
+
+Invariants:
+
+- The machine never observes an open window, and the working tree is never
+  touched — so the reviewer's edits (including editor "discard hunk" reversions
+  and plain file deletions) are captured as their own separate
+  `gtd(human): review` turn commit, never mixed into the package commits, and
+  substantiveness classification is unchanged.
+- Every open/close step is idempotent under re-entry: a crash at any point is
+  recovered by the next invocation's close, and `refs/gtd/review-head` keeps the
+  real head GC-reachable throughout.
+- Manual commits made during the window survive as working-tree content (they
+  become review feedback); the commit object and its message are discarded.
+- If HEAD leaves the reviewed branch while a window is open (the saved base is
+  no longer an ancestor of HEAD), the close fails loudly with recovery
+  instructions and leaves the refs in place rather than resetting a foreign
+  branch. Linked worktrees are unsupported (the refs are repo-global; HEAD and
+  index are per-worktree).
 
 ### `done`
 

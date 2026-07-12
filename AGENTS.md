@@ -60,6 +60,17 @@ Same pattern for the `invoker` actor (`"human" | "agent" | "none"`,
 because it's a pure-decision input consumed by the resolver's turn guards
 (`applyTurnTaking`), not something every side effect needs to see.
 
+### Review Checkout Window (Program-Edge Concern)
+
+The review checkout window (`src/ReviewWindow.ts` — HEAD/index rewound to the
+review base while `gtd: awaiting review` rests, so editors surface the diff) is
+wired ONLY in `src/program.ts`: closed before `ConfigInit.ensure` and every
+`gatherEvents`, re-armed after dispatch (success AND failure paths). The
+machine, `gatherEvents`, and `perform` must never know it exists — no
+`ResolvePayload` field, no `GtdState`, no Context tag. Anything that reads git
+state through a new entry point must run AFTER the close hook, or it will
+classify against the rewound HEAD.
+
 ### Agentic Cycle Count Fold
 
 `testFixCount` / `reviewFixCount` / `healthFixCount` are **folded in the
