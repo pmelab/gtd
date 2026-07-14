@@ -73,10 +73,22 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
       describeEdgeAction({
         kind: "commitRouting",
         subject: "gtd: package done",
-        removeTodo: true,
+        removeArchitecture: true,
         removeFeedback: true,
       }),
-    ).toBe('commit routing as "gtd: package done" (removing .gtd/TODO.md, .gtd/FEEDBACK.md)')
+    ).toBe(
+      'commit routing as "gtd: package done" (removing .gtd/ARCHITECTURE.md, .gtd/FEEDBACK.md)',
+    )
+  })
+
+  it("commitRouting notes the seedArchitectureFromTodo hand-off", () => {
+    expect(
+      describeEdgeAction({
+        kind: "commitRouting",
+        subject: "gtd: architecting",
+        seedArchitectureFromTodo: true,
+      }),
+    ).toBe('commit routing as "gtd: architecting" (seeding .gtd/ARCHITECTURE.md from .gtd/TODO.md)')
   })
 
   it("commitRouting lists removeLearning", () => {

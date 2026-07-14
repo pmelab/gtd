@@ -24,9 +24,10 @@
 import type { Actor, TurnGate } from "./Subjects.js"
 import { parseSubject } from "./Subjects.js"
 
-/** The 20 resolved states (frozen contract). `Result.state` is one of these. */
+/** The 21 resolved states (frozen contract). `Result.state` is one of these. */
 export type GtdState =
   | "grilling"
+  | "architecting"
   | "grilled"
   | "planning"
   | "building"
@@ -121,6 +122,10 @@ export interface ResolvePayload {
   readonly todoExists: boolean
   /** The present `TODO.md` is tracked at HEAD. */
   readonly todoCommitted: boolean
+  /** `ARCHITECTURE.md` exists (committed or pending). */
+  readonly architectureExists: boolean
+  /** The present `ARCHITECTURE.md` is tracked at HEAD. */
+  readonly architectureCommitted: boolean
   /** Numbered work packages exist under `.gtd/` (committed or pending). NOT "the directory exists" — steering files share `.gtd/`, so bare dir presence means nothing. */
   readonly packagesPresent: boolean
   /** `REVIEW.md` is present (committed and/or pending). */
@@ -209,10 +214,15 @@ export interface ResolvePayload {
  *                          `git add -A` + `git commit --allow-empty` with
  *                          subject `gtd(<actor>): <gate>`.
  *   - `commitRouting`    — machine bookkeeping commit with a fixed `subject`
- *                          (one of the routing subjects). `removeTodo` /
+ *                          (one of the routing subjects). `removeArchitecture` /
  *                          `removeReview` / `removeFeedback` / `removeHealth`
  *                          delete the named steering file first so its
  *                          removal lands in this commit.
+ *                          `seedArchitectureFromTodo` instead reads the
+ *                          present `TODO.md`, writes its content (with a
+ *                          short scaffold banner) as `ARCHITECTURE.md`, and
+ *                          deletes `TODO.md` — the grilling→architecting
+ *                          hand-off, all in this one commit.
  *   - `runTest`          — run the configured test command; on red write
  *                          FEEDBACK (below cap) or ERRORS (`capReached`),
  *                          commit `gtd: errors`; on green commit
@@ -237,7 +247,8 @@ export type EdgeAction =
   | {
       readonly kind: "commitRouting"
       readonly subject: string
-      readonly removeTodo?: boolean
+      readonly seedArchitectureFromTodo?: boolean
+      readonly removeArchitecture?: boolean
       readonly removeReview?: boolean
       readonly removeFeedback?: boolean
       readonly removeHealth?: boolean
@@ -401,6 +412,8 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   headTurnIsEmpty: false,
   todoExists: false,
   todoCommitted: false,
+  architectureExists: false,
+  architectureCommitted: false,
   packagesPresent: false,
   reviewPresent: false,
   feedbackPresent: false,
@@ -522,6 +535,16 @@ const isReviewCommittedTodoConflict = (p: ResolvePayload): boolean =>
 const isUncommittedReviewWithTodoConflict = (p: ResolvePayload): boolean =>
   p.reviewPresent && !(p.reviewCommitted || p.reviewDirty) && p.todoExists
 
+const isReviewCommittedArchitectureConflict = (p: ResolvePayload): boolean =>
+  p.reviewPresent && p.architectureCommitted
+
+const isUncommittedReviewWithArchitectureConflict = (p: ResolvePayload): boolean =>
+  p.reviewPresent && !(p.reviewCommitted || p.reviewDirty) && p.architectureExists
+
+/** TODO.md and ARCHITECTURE.md are two lifecycle stages of the same document — they never legitimately coexist. */
+const isTodoArchitectureConflict = (p: ResolvePayload): boolean =>
+  p.todoExists && p.architectureExists
+
 const isFeedbackReviewConflict = (p: ResolvePayload): boolean =>
   p.feedbackPresent && p.reviewPresent
 
@@ -548,6 +571,15 @@ const reviewAndFeedbackRules: readonly IllegalCombinationRule[] = [
     isViolated: isUncommittedReviewWithTodoConflict,
     message: "uncommitted .gtd/REVIEW.md + .gtd/TODO.md",
   },
+  {
+    isViolated: isReviewCommittedArchitectureConflict,
+    message: ".gtd/REVIEW.md + committed .gtd/ARCHITECTURE.md",
+  },
+  {
+    isViolated: isUncommittedReviewWithArchitectureConflict,
+    message: "uncommitted .gtd/REVIEW.md + .gtd/ARCHITECTURE.md",
+  },
+  { isViolated: isTodoArchitectureConflict, message: ".gtd/TODO.md + .gtd/ARCHITECTURE.md" },
   { isViolated: isFeedbackReviewConflict, message: ".gtd/FEEDBACK.md + .gtd/REVIEW.md" },
   { isViolated: isFeedbackWithoutPackages, message: ".gtd/FEEDBACK.md without packages" },
   { isViolated: isErrorsFeedbackConflict, message: ".gtd/ERRORS.md + .gtd/FEEDBACK.md" },
@@ -709,25 +741,47 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
             kind: "mid-chain",
             state: "grilling",
             actor: "agent",
-            action: { kind: "commitRouting", subject: "gtd: grilled" },
+            action: {
+              kind: "commitRouting",
+              subject: "gtd: architecting",
+              seedArchitectureFromTodo: true,
+            },
           }
         : { kind: "rest", state: "grilling", actor: "agent" }
     }
 
+    if (gate === "architecting") {
+      if (actor === "agent") {
+        // Non-empty → human answer gate. Empty → inert re-emit of the same prompt.
+        return flags.headTurnIsEmpty
+          ? { kind: "rest", state: "architecting", actor: "agent" }
+          : { kind: "rest", state: "architecting", actor: "human" }
+      }
+      // actor === "human"
+      return flags.headTurnIsEmpty
+        ? {
+            kind: "mid-chain",
+            state: "architecting",
+            actor: "agent",
+            action: { kind: "commitRouting", subject: "gtd: grilled" },
+          }
+        : { kind: "rest", state: "architecting", actor: "agent" }
+    }
+
     if (actor === "agent" && gate === "grilled") {
       // The decompose turn must actually have produced packages before the
-      // machine consumes the plan: routing to `gtd: planning` removes
-      // `.gtd/TODO.md`, and doing that for a turn WITHOUT packages (e.g. a
-      // loop driver's opening `gtd step-agent` captured before the agent
-      // acted) would destroy the plan and drop the cycle into a package-less
-      // building state that silently skips every review gate. No packages →
-      // rest so `gtd next` re-emits the decompose prompt.
+      // machine consumes the architecture: routing to `gtd: planning` removes
+      // `.gtd/ARCHITECTURE.md`, and doing that for a turn WITHOUT packages
+      // (e.g. a loop driver's opening `gtd step-agent` captured before the
+      // agent acted) would destroy the architecture and drop the cycle into a
+      // package-less building state that silently skips every review gate. No
+      // packages → rest so `gtd next` re-emits the decompose prompt.
       return flags.hasPackages
         ? {
             kind: "mid-chain",
             state: "grilled",
             actor: "agent",
-            action: { kind: "commitRouting", subject: "gtd: planning", removeTodo: true },
+            action: { kind: "commitRouting", subject: "gtd: planning", removeArchitecture: true },
           }
         : { kind: "rest", state: "grilled", actor: "agent" }
     }
@@ -842,6 +896,8 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
 
   if (parsed.kind === "routing") {
     switch (parsed.phase) {
+      case "architecting":
+        return { kind: "rest", state: "architecting", actor: "agent" }
       case "grilled":
         return { kind: "rest", state: "grilled", actor: "agent" }
       case "planning":
@@ -911,6 +967,7 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
  */
 const STATE_IS_OWN_GATE: ReadonlySet<GtdState> = new Set<GtdState>([
   "grilling",
+  "architecting",
   "grilled",
   "building",
   "fixing",
@@ -953,6 +1010,7 @@ const gateForState = (state: GtdState): TurnGate =>
  */
 const INERT_EMPTY_AGENT_GATES: ReadonlySet<GtdState> = new Set([
   "grilling",
+  "architecting",
   "grilled",
   "building",
   "fixing",
@@ -1165,6 +1223,13 @@ const resolveBaseline = (
     return { kind: "rest", state: "grilling", actor: "agent" }
   }
 
+  // ARCHITECTURE.md present, boundary/other HEAD — architecting continues.
+  // Mirrors the TODO.md rung above; the two never coexist (assertLegal
+  // guards it), so ordering between the two rungs is inert.
+  if (p.architectureExists) {
+    return { kind: "rest", state: "architecting", actor: "agent" }
+  }
+
   // `.gtd/` exists with a pending package, and the nearest workflow commit
   // (skipping any boundary commits on top of it) is still the
   // `gtd(agent): building` checkpoint — an operational recovery commit (e.g. a
@@ -1200,7 +1265,8 @@ const resolveBaseline = (
     !p.feedbackPresent &&
     !p.errorsPresent &&
     !p.healthPresent &&
-    !p.todoExists
+    !p.todoExists &&
+    !p.architectureExists
   ) {
     return resolveIdleOrHealth(p)
   }
@@ -1232,19 +1298,29 @@ const applyTurnTaking = (
   const context = buildContext(p, counters)
   const invoker = p.invoker
 
-  // Dirty boundary + invoker human, no steering files, no COMMITTED TODO, HEAD
-  // is not itself a turn commit — the v2 entry turn. Checks `todoCommitted`
-  // rather than `todoExists`: a TODO.md the human just wrote as part of THIS
-  // dirty tree (uncommitted) is exactly what gets captured by this turn (a
-  // pre-existing coincidentally-named file must not be mistaken for an
-  // already-in-progress grilling process — only a TODO.md already tracked at
-  // HEAD indicates that). `gtd: done` counts as a boundary HEAD here too (a
-  // settled cycle is exactly where the next feature's dirty tree lands), even
-  // though it parses as a `"routing"` subject in the general taxonomy.
+  // Dirty boundary + invoker human, no steering files, no COMMITTED TODO/
+  // ARCHITECTURE, HEAD is not itself a turn commit — the v2 entry turn.
+  // Checks `todoCommitted`/`architectureCommitted` rather than
+  // `todoExists`/`architectureExists`: a steering file the human just wrote
+  // as part of THIS dirty tree (uncommitted) is exactly what gets captured
+  // by this turn (a pre-existing coincidentally-named file must not be
+  // mistaken for an already-in-progress grilling/architecting process — only
+  // a file already tracked at HEAD indicates that). `gtd: done` counts as a
+  // boundary HEAD here too (a settled cycle is exactly where the next
+  // feature's dirty tree lands), even though it parses as a `"routing"`
+  // subject in the general taxonomy.
+  //
+  // Escape hatch: which gate the entry turn is captured under depends on
+  // whether the human's dirty tree already contains `.gtd/ARCHITECTURE.md`
+  // — an already-technical sketch skips product grilling entirely and enters
+  // directly at `architecting` (file *presence*, never content, decides
+  // this — the same mechanism every other steering-file rung in this
+  // ladder already uses).
   const isDirtyBoundaryEntry =
     invoker === "human" &&
     !p.workingTreeClean &&
     !p.todoCommitted &&
+    !p.architectureCommitted &&
     !p.packagesPresent &&
     !p.reviewPresent &&
     !p.feedbackPresent &&
@@ -1253,11 +1329,12 @@ const applyTurnTaking = (
     (parseSubject(head).kind === "boundary" || head === "gtd: done")
 
   if (isDirtyBoundaryEntry) {
+    const entryGate: TurnGate = p.architectureExists ? "architecting" : "grilling"
     return {
-      state: "grilling",
+      state: entryGate as GtdState,
       actor: "human",
       pending: false,
-      edgeAction: { kind: "captureTurn", actor: "human", gate: "grilling" },
+      edgeAction: { kind: "captureTurn", actor: "human", gate: entryGate },
       context,
     }
   }
@@ -1497,6 +1574,7 @@ export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
   const isDirtyBoundaryEntry =
     !payload.workingTreeClean &&
     !payload.todoCommitted &&
+    !payload.architectureCommitted &&
     !payload.packagesPresent &&
     !payload.reviewPresent &&
     !payload.feedbackPresent &&
@@ -1504,7 +1582,12 @@ export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
     !payload.healthPresent &&
     (parseSubject(head).kind === "boundary" || head === "gtd: done")
   if (isDirtyBoundaryEntry) {
-    return { actor: "human", subject: "gtd(human): grilling", state: "grilling" }
+    const entryGate: TurnGate = payload.architectureExists ? "architecting" : "grilling"
+    return {
+      actor: "human",
+      subject: `gtd(human): ${entryGate}`,
+      state: entryGate as GtdState,
+    }
   }
 
   if (baseline.state === "idle") {

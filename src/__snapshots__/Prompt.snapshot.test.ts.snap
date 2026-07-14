@@ -153,6 +153,214 @@ agent); when it awaits the human, stop and hand off.
 "
 `;
 
+exports[`buildPrompt snapshots > architecting agent json 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/ARCHITECTURE.md\` holds the technical plan under development — seeded
+from the converged product plan, or, if this is the very first turn on
+already-technical input, written directly by the human. Develop it into a concrete,
+implementation-ready technical plan **in this one turn** — use subagents /
+internal iteration to go as deep as needed; there is no further agent-only
+round after this one.
+
+**Scope: technical/architectural decisions only.** Decide file/module
+structure, data models, module boundaries, library or tech-stack choices, and
+error-handling/concurrency strategy — the *how*, building on the *what*
+already settled in this file's product content. Do not re-open or re-litigate
+product/user-facing decisions from the prior phase; treat them as settled
+context.
+
+### Develop the architecture
+
+Spawn a **planning-model subagent** using model \`MODEL-architecting\` to develop the
+architecture. The subagent works entirely by editing \`.gtd/ARCHITECTURE.md\`:
+
+1. **Explore the codebase before asking anything** — read the relevant files,
+   tests, and docs so every question below is one the codebase genuinely
+   cannot answer.
+2. **Replace the seeded/captured content with a real architecture** — the
+   files to change, module/data-model structure, and why, grounded in the
+   codebase.
+3. **Iterate internally** (spawn further subagents, reconsider, cross-check)
+   until the architecture is as complete as it can get without human input.
+   Do not leave this to a future round — there isn't one before the human is
+   asked.
+4. For every remaining open question, write it near the top of the file with
+   a **suggested default** — your best-guess answer, stated plainly, that the
+   human can accept as-is. A question with no suggested default is incomplete.
+5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step\`)
+   reads it next.
+"
+`;
+
+exports[`buildPrompt snapshots > architecting agent plain 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/ARCHITECTURE.md\` holds the technical plan under development — seeded
+from the converged product plan, or, if this is the very first turn on
+already-technical input, written directly by the human. Develop it into a concrete,
+implementation-ready technical plan **in this one turn** — use subagents /
+internal iteration to go as deep as needed; there is no further agent-only
+round after this one.
+
+**Scope: technical/architectural decisions only.** Decide file/module
+structure, data models, module boundaries, library or tech-stack choices, and
+error-handling/concurrency strategy — the *how*, building on the *what*
+already settled in this file's product content. Do not re-open or re-litigate
+product/user-facing decisions from the prior phase; treat them as settled
+context.
+
+### Develop the architecture
+
+Spawn a **planning-model subagent** using model \`MODEL-architecting\` to develop the
+architecture. The subagent works entirely by editing \`.gtd/ARCHITECTURE.md\`:
+
+1. **Explore the codebase before asking anything** — read the relevant files,
+   tests, and docs so every question below is one the codebase genuinely
+   cannot answer.
+2. **Replace the seeded/captured content with a real architecture** — the
+   files to change, module/data-model structure, and why, grounded in the
+   codebase.
+3. **Iterate internally** (spawn further subagents, reconsider, cross-check)
+   until the architecture is as complete as it can get without human input.
+   Do not leave this to a future round — there isn't one before the human is
+   asked.
+4. For every remaining open question, write it near the top of the file with
+   a **suggested default** — your best-guess answer, stated plainly, that the
+   human can accept as-is. A question with no suggested default is incomplete.
+5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step\`)
+   reads it next.
+
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
+"
+`;
+
+exports[`buildPrompt snapshots > architecting agent with turnDiff plain 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/ARCHITECTURE.md\` holds the technical plan under development — seeded
+from the converged product plan, or, if this is the very first turn on
+already-technical input, written directly by the human. Develop it into a concrete,
+implementation-ready technical plan **in this one turn** — use subagents /
+internal iteration to go as deep as needed; there is no further agent-only
+round after this one.
+
+**Scope: technical/architectural decisions only.** Decide file/module
+structure, data models, module boundaries, library or tech-stack choices, and
+error-handling/concurrency strategy — the *how*, building on the *what*
+already settled in this file's product content. Do not re-open or re-litigate
+product/user-facing decisions from the prior phase; treat them as settled
+context.
+
+### Develop the architecture
+
+Spawn a **planning-model subagent** using model \`MODEL-architecting\` to develop the
+architecture. The subagent works entirely by editing \`.gtd/ARCHITECTURE.md\`:
+
+1. **Explore the codebase before asking anything** — read the relevant files,
+   tests, and docs so every question below is one the codebase genuinely
+   cannot answer.
+2. **Replace the seeded/captured content with a real architecture** — the
+   files to change, module/data-model structure, and why, grounded in the
+   codebase.
+3. **Iterate internally** (spawn further subagents, reconsider, cross-check)
+   until the architecture is as complete as it can get without human input.
+   Do not leave this to a future round — there isn't one before the human is
+   asked.
+4. For every remaining open question, write it near the top of the file with
+   a **suggested default** — your best-guess answer, stated plainly, that the
+   human can accept as-is. A question with no suggested default is incomplete.
+5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step\`)
+   reads it next.
+
+### Latest human input (answers / sketch / review feedback)
+
+\`\`\`diff
+diff --git a/ARCHITECTURE.md b/ARCHITECTURE.md
++- answer: use option A
+\`\`\`
+
+Read the diff above as **feedback, not finished work**:
+
+- Code changes are suggestions — fold them into the architecture and
+  re-implement them properly, including test coverage, rather than restoring
+  them verbatim.
+- Code comments are positional feedback about the code at that location.
+- Plan-text changes are global feedback on the architecture (or the reviewed
+  work) as a whole.
+
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
+"
+`;
+
+exports[`buildPrompt snapshots > architecting human json 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/ARCHITECTURE.md\` holds the technical plan under development, with open
+questions written near the top — each one carrying a suggested default.
+
+This is a human gate; there is nothing for the agent to do.
+
+Tell the user:
+
+- To answer a question, edit \`.gtd/ARCHITECTURE.md\` in place (replace the
+  question's text with your answer, or annotate it), then run \`gtd step\`.
+- To accept **all** suggested defaults as-is, run \`gtd step\` with **no
+  edits** — this converges the architecture and moves on to decomposition.
+"
+`;
+
+exports[`buildPrompt snapshots > architecting human plain 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/ARCHITECTURE.md\` holds the technical plan under development, with open
+questions written near the top — each one carrying a suggested default.
+
+This is a human gate; there is nothing for the agent to do.
+
+Tell the user:
+
+- To answer a question, edit \`.gtd/ARCHITECTURE.md\` in place (replace the
+  question's text with your answer, or annotate it), then run \`gtd step\`.
+- To accept **all** suggested defaults as-is, run \`gtd step\` with **no
+  edits** — this converges the architecture and moves on to decomposition.
+"
+`;
+
 exports[`buildPrompt snapshots > await-learning-review json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
@@ -518,9 +726,10 @@ never instruct a subagent to — except the specific \`.gtd/\` file this prompt
 explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
 *outside* \`.gtd/\` is ordinary project code, not workflow state.
 
-\`.gtd/TODO.md\` contains an implementation plan. Decompose it into an ordered set of
-executable work packages stored in the \`.gtd/\` directory. If \`.gtd/\` already
-holds packages from an earlier turn, immediately abort and raise an error.
+\`.gtd/ARCHITECTURE.md\` contains a converged architecture/technical plan.
+Decompose it into an ordered set of executable work packages stored in the
+\`.gtd/\` directory. If \`.gtd/\` already holds packages from an earlier turn,
+immediately abort and raise an error.
 
 Spawn a **planning-model subagent** using model \`MODEL-decompose\` to perform the
 decomposition. It creates numbered package directories, each holding numbered
@@ -561,8 +770,8 @@ task files:
    cases. It is the only context building agents will receive to work on the
    task.
 
-6. **Specs must never reference \`.gtd/\` files** — \`.gtd/TODO.md\` is consumed
-   and **deleted** the moment decomposition completes, and every other file
+6. **Specs must never reference \`.gtd/\` files** — \`.gtd/ARCHITECTURE.md\` is
+   consumed and **deleted** the moment decomposition completes, and every other file
    under \`.gtd/\` (including these task specs) is machine-managed workflow
    state. No task description, acceptance criterion, or constraint may require
    creating, preserving, updating, or checking any \`.gtd/\` file — such a
@@ -582,9 +791,10 @@ never instruct a subagent to — except the specific \`.gtd/\` file this prompt
 explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
 *outside* \`.gtd/\` is ordinary project code, not workflow state.
 
-\`.gtd/TODO.md\` contains an implementation plan. Decompose it into an ordered set of
-executable work packages stored in the \`.gtd/\` directory. If \`.gtd/\` already
-holds packages from an earlier turn, immediately abort and raise an error.
+\`.gtd/ARCHITECTURE.md\` contains a converged architecture/technical plan.
+Decompose it into an ordered set of executable work packages stored in the
+\`.gtd/\` directory. If \`.gtd/\` already holds packages from an earlier turn,
+immediately abort and raise an error.
 
 Spawn a **planning-model subagent** using model \`MODEL-decompose\` to perform the
 decomposition. It creates numbered package directories, each holding numbered
@@ -625,8 +835,8 @@ task files:
    cases. It is the only context building agents will receive to work on the
    task.
 
-6. **Specs must never reference \`.gtd/\` files** — \`.gtd/TODO.md\` is consumed
-   and **deleted** the moment decomposition completes, and every other file
+6. **Specs must never reference \`.gtd/\` files** — \`.gtd/ARCHITECTURE.md\` is
+   consumed and **deleted** the moment decomposition completes, and every other file
    under \`.gtd/\` (including these task specs) is machine-managed workflow
    state. No task description, acceptance criterion, or constraint may require
    creating, preserving, updating, or checking any \`.gtd/\` file — such a
@@ -651,9 +861,14 @@ explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
 *outside* \`.gtd/\` is ordinary project code, not workflow state.
 
 \`.gtd/TODO.md\` holds the plan under development. Develop it into a concrete,
-implementation-ready plan **in this one turn** — use subagents / internal
-iteration to go as deep as needed; there is no further agent-only round after
-this one.
+product-level plan **in this one turn** — use subagents / internal iteration
+to go as deep as needed; there is no further agent-only round after this one.
+
+**Scope: product and user-facing decisions only.** Do not decide
+implementation details in this file — file/module structure, data models,
+library or tech-stack choices, and other architecture questions belong to the
+next phase (\`.gtd/ARCHITECTURE.md\`) and must not be treated as open questions
+here.
 
 ### Develop the plan
 
@@ -663,9 +878,9 @@ The subagent works entirely by editing \`.gtd/TODO.md\`:
 1. **Explore the codebase before asking anything** — read the relevant files,
    tests, and docs so every question below is one the codebase genuinely
    cannot answer.
-2. **Replace the captured input / seed template with a real implementation
-   plan** — the files to change, exactly what changes, and why, grounded in
-   the codebase.
+2. **Replace the captured input / seed template with a real product plan** —
+   what to build and why, and the user-facing behavior it should have,
+   grounded in the codebase. Leave *how* to build it for the next phase.
 3. **Iterate internally** (spawn further subagents, reconsider, cross-check)
    until the plan is as complete as it can get without human input. Do not
    leave this to a future round — there isn't one before the human is asked.
@@ -687,9 +902,14 @@ explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
 *outside* \`.gtd/\` is ordinary project code, not workflow state.
 
 \`.gtd/TODO.md\` holds the plan under development. Develop it into a concrete,
-implementation-ready plan **in this one turn** — use subagents / internal
-iteration to go as deep as needed; there is no further agent-only round after
-this one.
+product-level plan **in this one turn** — use subagents / internal iteration
+to go as deep as needed; there is no further agent-only round after this one.
+
+**Scope: product and user-facing decisions only.** Do not decide
+implementation details in this file — file/module structure, data models,
+library or tech-stack choices, and other architecture questions belong to the
+next phase (\`.gtd/ARCHITECTURE.md\`) and must not be treated as open questions
+here.
 
 ### Develop the plan
 
@@ -699,9 +919,9 @@ The subagent works entirely by editing \`.gtd/TODO.md\`:
 1. **Explore the codebase before asking anything** — read the relevant files,
    tests, and docs so every question below is one the codebase genuinely
    cannot answer.
-2. **Replace the captured input / seed template with a real implementation
-   plan** — the files to change, exactly what changes, and why, grounded in
-   the codebase.
+2. **Replace the captured input / seed template with a real product plan** —
+   what to build and why, and the user-facing behavior it should have,
+   grounded in the codebase. Leave *how* to build it for the next phase.
 3. **Iterate internally** (spawn further subagents, reconsider, cross-check)
    until the plan is as complete as it can get without human input. Do not
    leave this to a future round — there isn't one before the human is asked.
@@ -727,9 +947,14 @@ explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
 *outside* \`.gtd/\` is ordinary project code, not workflow state.
 
 \`.gtd/TODO.md\` holds the plan under development. Develop it into a concrete,
-implementation-ready plan **in this one turn** — use subagents / internal
-iteration to go as deep as needed; there is no further agent-only round after
-this one.
+product-level plan **in this one turn** — use subagents / internal iteration
+to go as deep as needed; there is no further agent-only round after this one.
+
+**Scope: product and user-facing decisions only.** Do not decide
+implementation details in this file — file/module structure, data models,
+library or tech-stack choices, and other architecture questions belong to the
+next phase (\`.gtd/ARCHITECTURE.md\`) and must not be treated as open questions
+here.
 
 ### Develop the plan
 
@@ -739,9 +964,9 @@ The subagent works entirely by editing \`.gtd/TODO.md\`:
 1. **Explore the codebase before asking anything** — read the relevant files,
    tests, and docs so every question below is one the codebase genuinely
    cannot answer.
-2. **Replace the captured input / seed template with a real implementation
-   plan** — the files to change, exactly what changes, and why, grounded in
-   the codebase.
+2. **Replace the captured input / seed template with a real product plan** —
+   what to build and why, and the user-facing behavior it should have,
+   grounded in the codebase. Leave *how* to build it for the next phase.
 3. **Iterate internally** (spawn further subagents, reconsider, cross-check)
    until the plan is as complete as it can get without human input. Do not
    leave this to a future round — there isn't one before the human is asked.
@@ -791,7 +1016,7 @@ Tell the user:
 - To answer a question, edit \`.gtd/TODO.md\` in place (replace the question's text
   with your answer, or annotate it), then run \`gtd step\`.
 - To accept **all** suggested defaults as-is, run \`gtd step\` with **no
-  edits** — this converges the plan and moves on to decomposition.
+  edits** — this converges the plan and moves on to technical architecting.
 "
 `;
 
@@ -814,7 +1039,7 @@ Tell the user:
 - To answer a question, edit \`.gtd/TODO.md\` in place (replace the question's text
   with your answer, or annotate it), then run \`gtd step\`.
 - To accept **all** suggested defaults as-is, run \`gtd step\` with **no
-  edits** — this converges the plan and moves on to decomposition.
+  edits** — this converges the plan and moves on to technical architecting.
 "
 `;
 
@@ -1290,10 +1515,11 @@ conventional-commits squash message and finish your turn.
 ### Step 1 — Extract decisions from grilling rounds
 
 Scan the git history of recent \`gtd: ...\` / \`gtd(agent): ...\` /
-\`gtd(human): ...\` commits. Look for changes to \`.gtd/TODO.md\` — specifically the
-\`## Captured input\` sections and any edits to plan text. Extract **key
-decisions, trade-offs, and design choices** made during grilling rounds. These
-will appear in the commit body so the history is self-documenting.
+\`gtd(human): ...\` commits. Look for changes to \`.gtd/TODO.md\` and
+\`.gtd/ARCHITECTURE.md\` — specifically the \`## Captured input\` sections and any
+edits to plan/architecture text. Extract **key decisions, trade-offs, and
+design choices** made during grilling and architecting rounds. These will
+appear in the commit body so the history is self-documenting.
 
 ### Step 2 — Draft the commit message
 
@@ -1344,10 +1570,11 @@ conventional-commits squash message and finish your turn.
 ### Step 1 — Extract decisions from grilling rounds
 
 Scan the git history of recent \`gtd: ...\` / \`gtd(agent): ...\` /
-\`gtd(human): ...\` commits. Look for changes to \`.gtd/TODO.md\` — specifically the
-\`## Captured input\` sections and any edits to plan text. Extract **key
-decisions, trade-offs, and design choices** made during grilling rounds. These
-will appear in the commit body so the history is self-documenting.
+\`gtd(human): ...\` commits. Look for changes to \`.gtd/TODO.md\` and
+\`.gtd/ARCHITECTURE.md\` — specifically the \`## Captured input\` sections and any
+edits to plan/architecture text. Extract **key decisions, trade-offs, and
+design choices** made during grilling and architecting rounds. These will
+appear in the commit body so the history is self-documenting.
 
 ### Step 2 — Draft the commit message
 

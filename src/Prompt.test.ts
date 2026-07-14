@@ -37,6 +37,7 @@ const EXECUTION_MODEL = "claude-sonnet-4-8"
 
 const PROMPT_STATES: ReadonlyArray<GtdState> = [
   "grilling",
+  "architecting",
   "grilled",
   "building",
   "fixing",
@@ -62,7 +63,7 @@ const EDGE_ONLY_STATES: ReadonlyArray<GtdState> = [
 ]
 
 describe("isPromptState", () => {
-  it("matches exactly the pinned 14-state set", () => {
+  it("matches exactly the pinned 15-state set", () => {
     for (const state of PROMPT_STATES) expect(isPromptState(state)).toBe(true)
     for (const state of EDGE_ONLY_STATES) expect(isPromptState(state)).toBe(false)
   })
@@ -89,6 +90,16 @@ describe("buildPrompt", () => {
 
     it("grilling (human) renders the grilling-answers section", () => {
       const out = buildPrompt(result("grilling", { actor: "human" }))
+      expect(out).toContain("nothing for the agent to do")
+    })
+
+    it("architecting (agent) renders the architecting-agent section", () => {
+      const out = buildPrompt(result("architecting", { actor: "agent" }))
+      expect(out).toContain("Develop it into a concrete")
+    })
+
+    it("architecting (human) renders the architecting-answers section", () => {
+      const out = buildPrompt(result("architecting", { actor: "human" }))
       expect(out).toContain("nothing for the agent to do")
     })
 
@@ -198,6 +209,12 @@ describe("buildPrompt", () => {
       expect(out).not.toContain("{{MODEL}}")
     })
 
+    it("architecting (agent) injects the planning model and leaves no {{MODEL}}", () => {
+      const out = buildPrompt(result("architecting", { actor: "agent" }))
+      expect(out).toContain(PLANNING_MODEL)
+      expect(out).not.toContain("{{MODEL}}")
+    })
+
     it("agentic-review injects the planning model and leaves no {{MODEL}}", () => {
       const out = buildPrompt(withPackage("agentic-review"))
       expect(out).toContain(PLANNING_MODEL)
@@ -220,6 +237,9 @@ describe("buildPrompt", () => {
       const custom = (s: string): string => `MODEL-FOR-${s}`
       expect(buildPrompt(result("grilling", { actor: "agent" }), custom)).toContain(
         "MODEL-FOR-grilling",
+      )
+      expect(buildPrompt(result("architecting", { actor: "agent" }), custom)).toContain(
+        "MODEL-FOR-architecting",
       )
       expect(buildPrompt(result("grilled"), custom)).toContain("MODEL-FOR-decompose")
       expect(buildPrompt(withPackage("building"), custom)).toContain("MODEL-FOR-building")
@@ -244,6 +264,7 @@ describe("buildPrompt", () => {
     it("plain agent prompts end with the exact turn-ending tail", () => {
       const cases: ReadonlyArray<Result> = [
         result("grilling", { actor: "agent" }),
+        result("architecting", { actor: "agent" }),
         result("grilled"),
         withPackage("building"),
         result("fixing"),
@@ -267,6 +288,7 @@ describe("buildPrompt", () => {
     it("plain human prompts have no tail", () => {
       const cases: ReadonlyArray<Result> = [
         result("grilling", { actor: "human" }),
+        result("architecting", { actor: "human" }),
         result("await-review", { actor: "human" }),
         result("await-learning-review", { actor: "human" }),
         result("escalate", { actor: "human" }),
@@ -293,6 +315,8 @@ describe("buildPrompt", () => {
     const allPromptResults = (): ReadonlyArray<Result> => [
       result("grilling", { actor: "agent" }),
       result("grilling", { actor: "human" }),
+      result("architecting", { actor: "agent" }),
+      result("architecting", { actor: "human" }),
       result("grilled"),
       withPackage("building"),
       result("fixing"),
@@ -337,6 +361,25 @@ describe("buildPrompt", () => {
 
     it("omits the diff block when turnDiff is absent", () => {
       const out = buildPrompt(result("grilling", { actor: "agent" }))
+      expect(out).not.toContain("```diff")
+    })
+  })
+
+  describe("architecting-agent turnDiff inlining", () => {
+    it("inlines context.turnDiff as a fenced diff with the reading rules when present", () => {
+      const out = buildPrompt(
+        result("architecting", {
+          actor: "agent",
+          context: { turnDiff: "diff --git a/x b/x\n+hello\n" },
+        }),
+      )
+      expect(out).toContain("```diff")
+      expect(out).toContain("+hello")
+      expect(out).toContain("feedback, not finished work")
+    })
+
+    it("omits the diff block when turnDiff is absent", () => {
+      const out = buildPrompt(result("architecting", { actor: "agent" }))
       expect(out).not.toContain("```diff")
     })
   })
@@ -474,6 +517,8 @@ describe("buildPrompt", () => {
     for (const [label, res] of [
       ["grilling (agent)", result("grilling", { actor: "agent" })],
       ["grilling (human)", result("grilling", { actor: "human" })],
+      ["architecting (agent)", result("architecting", { actor: "agent" })],
+      ["architecting (human)", result("architecting", { actor: "human" })],
       ["grilled", result("grilled")],
       ["building", withPackage("building")],
       ["fixing", result("fixing")],

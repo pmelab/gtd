@@ -5,11 +5,12 @@
 > in the first place. Now I have something that actually helps me.
 
 A git-aware CLI that drives a turn-taking loop between a human and an autonomous
-coding agent: capture an idea, grill it into a plan, decompose it into work
-packages, execute with parallel subagents, test, agentically review each
-package, walk a human through a review, distill durable lessons from the cycle
-into the project's own docs, and finally squash the whole cycle into one
-conventional-commits commit at the end.
+coding agent: capture an idea, grill it into a product-level plan, grill that
+into a technical architecture, decompose it into work packages, execute with
+parallel subagents, test, agentically review each package, walk a human through
+a review, distill durable lessons from the cycle into the project's own docs,
+and finally squash the whole cycle into one conventional-commits commit at the
+end.
 
 Internally, gtd is a **pure fold** over git history. The decision core
 (`src/Machine.ts`) is a single IO-free function, `resolve(events)` — **no
@@ -19,7 +20,7 @@ merge-base with the default branch (whole-history fallback when there is no
 default branch, when HEAD equals the merge-base, or when there is no merge-base)
 plus the working tree, turns them into a `COMMIT[]` + single terminal `RESOLVE`
 event stream, and folds them through the machine. The fold lands on exactly
-**one** of 20 states, plus which actor (human or agent) is awaited there. A
+**one** of 21 states, plus which actor (human or agent) is awaited there. A
 single call resolves to a single state.
 
 Steering is entirely **machine-authored commit subjects** — there are no marker
@@ -28,7 +29,8 @@ files, sentinels, or auto-advance tails to parse. A turn commit looks like
 the machine performs itself between turns) looks like `gtd: tests green`.
 `src/Subjects.ts` is the closed grammar both the machine and the edge read.
 
-All workflow state lives under **`.gtd/`**: the plan (`.gtd/TODO.md`), work
+All workflow state lives under **`.gtd/`**: the product plan (`.gtd/TODO.md`),
+the technical architecture it converges into (`.gtd/ARCHITECTURE.md`), work
 packages (`.gtd/01-…/`), review records (`.gtd/REVIEW.md`, `.gtd/FEEDBACK.md`),
 and loop bookkeeping (`.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/LEARNINGS.md`,
 `.gtd/SQUASH_MSG.md`). One rule follows for every agent in the loop: **never
@@ -56,9 +58,10 @@ An agent loop is a two-beat protocol repeated forever:
    act, then go back to step 1; at a pending checkpoint (`prompt` is null) go
    straight back to step 1.
 
-A human acts by editing files (answering questions in `.gtd/TODO.md`, annotating
-`.gtd/REVIEW.md`, fixing code) and then running `gtd step` to capture the edit
-as their turn and hand control back to the agent side of the loop.
+A human acts by editing files (answering questions in `.gtd/TODO.md` or
+`.gtd/ARCHITECTURE.md`, annotating `.gtd/REVIEW.md`, fixing code) and then
+running `gtd step` to capture the edit as their turn and hand control back to
+the agent side of the loop.
 
 ```bash
 gtd step-agent            # advance the machine's own bookkeeping
@@ -166,8 +169,8 @@ invocation authored (oldest→newest), then a final `state: <state>` line:
 
 ```
 committed: gtd(human): grilling
-committed: gtd: grilled
-state: grilled
+committed: gtd: architecting
+state: architecting
 ```
 
 `--json` emits `{state, actions, commits}` instead (see
@@ -296,9 +299,9 @@ single-line JSON output instead of plain text.
 
 ```json
 {
-  "state": "grilled",
+  "state": "architecting",
   "actions": ["capture the human turn as \"gtd(human): grilling\""],
-  "commits": ["gtd(human): grilling", "gtd: grilled"]
+  "commits": ["gtd(human): grilling", "gtd: architecting"]
 }
 ```
 
@@ -429,9 +432,9 @@ GTD_LOOP_AGENT_CMD='my-agent-cli --prompt "$GTD_LOOP_PROMPT"' gtd-loop
 
 ## States & subjects overview
 
-`resolve()` lands on exactly one of **20 states**: `grilling`, `grilled`,
-`planning`, `building`, `testing`, `fixing`, `escalate`, `agentic-review`,
-`close-package`, `review`, `await-review`, `done`, `learning`,
+`resolve()` lands on exactly one of **21 states**: `grilling`, `architecting`,
+`grilled`, `planning`, `building`, `testing`, `fixing`, `escalate`,
+`agentic-review`, `close-package`, `review`, `await-review`, `done`, `learning`,
 `await-learning-review`, `learning-apply`, `learning-applied`, `squashing`,
 `idle`, `health-check`, `health-fixing`. Each state has a fixed awaited actor
 (see `awaitedActor` in `src/Machine.ts`): `idle`, `escalate`, `await-review`,
@@ -448,7 +451,8 @@ The closed set of gates:
 
 | Gate             | Authored by                                                        |
 | ---------------- | ------------------------------------------------------------------ |
-| `grilling`       | human (answers) / agent (plan iteration)                           |
+| `grilling`       | human (answers) / agent (product-plan iteration)                   |
+| `architecting`   | human (answers) / agent (architecture iteration)                   |
 | `grilled`        | agent (converged, ready to decompose)                              |
 | `building`       | agent (package work, or human feedback while agent is out of turn) |
 | `fixing`         | agent (test-fix or review-fix round)                               |
@@ -463,8 +467,8 @@ The closed set of gates:
 ### Routing commits — `gtd: <phase>`
 
 Bookkeeping the machine authors itself between turns, never a turn a human or
-agent "wins": `gtd: grilled`, `gtd: planning`, `gtd: tests green`,
-`gtd: errors`, `gtd: package done`, `gtd: awaiting review`,
+agent "wins": `gtd: architecting`, `gtd: grilled`, `gtd: planning`,
+`gtd: tests green`, `gtd: errors`, `gtd: package done`, `gtd: awaiting review`,
 `gtd: review feedback`, `gtd: done`, `gtd: squash template`,
 `gtd: reviewing <hash>` (parameterized, from `gtd review`), `gtd: health-check`,
 `gtd: health-fix`, `gtd: learning template`, `gtd: learning drafted`,
@@ -477,24 +481,38 @@ this matters on upgrade.
 
 ## Workflow walkthroughs
 
-### Grilling
+### Grilling: two phases, product then architecture
 
 A dirty tree at a boundary HEAD (a fresh idea, sketched in a file or just left
 as pending code) is captured in **one** human turn: `gtd step` commits
 everything pending as `gtd(human): grilling` — nothing is reverted or seeded,
 the captured files stay in history. `gtd next` hands the agent that turn's diff;
-the agent develops `.gtd/TODO.md` into a concrete plan **in one turn**,
-proposing a **suggested default** for every open question, and leaves
-`.gtd/TODO.md` uncommitted for `gtd(agent): grilling`.
+the agent develops `.gtd/TODO.md` into a concrete **product-level** plan **in
+one turn** — user-facing decisions only, no architecture — proposing a
+**suggested default** for every open question, and leaves `.gtd/TODO.md`
+uncommitted for `gtd(agent): grilling`.
 
 There are no markers to answer — the human either:
 
 - **Accepts the suggested defaults**: runs a clean `gtd step` at the answer
-  gate. An empty `gtd(human): grilling` turn plus routing `gtd: grilled` lands
-  automatically, and `gtd next` emits the decompose prompt.
+  gate. An empty `gtd(human): grilling` turn plus routing `gtd: architecting`
+  lands automatically — `.gtd/ARCHITECTURE.md` is seeded from the converged
+  `.gtd/TODO.md` content and `.gtd/TODO.md` is deleted, in that one commit.
 - **Edits `.gtd/TODO.md`** with real answers, then runs `gtd step`, which
   captures the edit as a fresh `gtd(human): grilling` turn and hands it back to
   the agent for another round.
+
+Technical architecting works exactly the same way, one file later: the agent
+develops `.gtd/ARCHITECTURE.md` into a concrete **technical** plan — file/module
+structure, data model, tech-stack choices — and the human answers or accepts
+defaults at the `architecting` gate. Accepting converges to `gtd: grilled` and
+`gtd next` emits the decompose prompt (which now reads `.gtd/ARCHITECTURE.md`).
+
+**Escape hatch for already-technical input:** if the human's initial dirty tree
+already contains `.gtd/ARCHITECTURE.md` (their own technical sketch), `gtd step`
+captures the entry turn as `gtd(human): architecting` directly, skipping product
+grilling for that cycle entirely — no CLI flag needed, it's driven purely by
+which steering file is present.
 
 ### Build lifecycle: budgets
 
@@ -531,16 +549,16 @@ the threshold simply closes the package as usual.) Setting
 `agenticReview: false` force-approves every package immediately.
 
 A **do-nothing agent invocation** — `gtd step-agent` on a clean tree at ANY
-agent-awaited rest whose move is a file artifact (`grilling`, `grilled`,
-`building`, `fixing`, `agentic-review`, `review`, `squashing` while
+agent-awaited rest whose move is a file artifact (`grilling`, `architecting`,
+`grilled`, `building`, `fixing`, `agentic-review`, `review`, `squashing` while
 `.gtd/SQUASH_MSG.md` still holds the unmodified template, `learning` while
 `.gtd/LEARNINGS.md` still holds the unmodified template, and `learning-apply`
 unconditionally) — is inert: zero commits, no state consumed; `gtd next`
 re-emits the same prompt. This is load-bearing for the loop protocol, whose
 every iteration opens with `gtd step-agent` before the agent has acted: without
 the guard that opening beat would author junk empty turns — and worse, consume
-workflow state (an empty decompose turn would delete `.gtd/TODO.md` with no
-packages written; an empty squashing turn would squash the cycle under the
+workflow state (an empty decompose turn would delete `.gtd/ARCHITECTURE.md` with
+no packages written; an empty squashing turn would squash the cycle under the
 placeholder template). The same guards hold at the classification layer for
 histories that already carry such turns: a `gtd(agent): grilled` HEAD only
 routes to `gtd: planning` when packages exist, a `gtd(agent): review` HEAD only
@@ -549,8 +567,8 @@ routes to `gtd: awaiting review` when `.gtd/REVIEW.md` exists, and a squashing
 deliberate exception is `health-fixing`, whose empty turn is meaningful (the
 failure may have been environmental — the machine removes `.gtd/HEALTH.md` and
 re-tests). Human gates are unaffected: an empty **human** turn stays a signal
-(accept-defaults at grilling, clean approval at review, accept-the-draft-as-is
-at the learning review gate).
+(accept-defaults at grilling/architecting, clean approval at review,
+accept-the-draft-as-is at the learning review gate).
 
 ### Human review gate
 
@@ -622,15 +640,16 @@ With `squash: true` (the default), `gtd: done` (or, once learning has run,
 to `gtd: squash template`, writing and committing a `.gtd/SQUASH_MSG.md`
 template. `gtd next` then emits the squashing prompt: the agent overwrites
 `.gtd/SQUASH_MSG.md` with a real conventional-commits message (drawing on
-grilling-round decisions from history) and finishes its turn. `gtd step-agent`
-then performs the squash itself: `git reset --soft <base>` + `git commit`,
-collapsing every intermediate `gtd: *` commit of the cycle into one — including
-any review-feedback detours, and the learning phase's own commits if learning
-ran: the squash base is the cycle's ORIGINAL start (the first grilling run since
-the previous `gtd: done` boundary, or the `gtd: reviewing <hash>` anchor for an
-ad-hoc review cycle), not the most recent re-grilling round — the collapse folds
-the whole cycle into one, using the overwritten message's content verbatim (turn
-position, not message content, triggers the squash). Doc edits made during
+grilling- and architecting-round decisions from history) and finishes its turn.
+`gtd step-agent` then performs the squash itself: `git reset --soft <base>` +
+`git commit`, collapsing every intermediate `gtd: *` commit of the cycle into
+one — including any review-feedback detours, and the learning phase's own
+commits if learning ran: the squash base is the cycle's ORIGINAL start (the
+first grilling or, via the escape hatch, architecting turn since the previous
+`gtd: done` boundary, or the `gtd: reviewing <hash>` anchor for an ad-hoc review
+cycle), not the most recent re-grilling round — the collapse folds the whole
+cycle into one, using the overwritten message's content verbatim (turn position,
+not message content, triggers the squash). Doc edits made during
 `learning-apply` survive in the squashed tree, not as their own commit. With
 `squash: false`, `gtd: done` (or `gtd: learning applied`) is the resting
 boundary and no template is ever written.
@@ -659,6 +678,7 @@ fix-attempt budget to zero.
 | State                   | Awaits         | Turn/routing subject at rest                                     |
 | ----------------------- | -------------- | ---------------------------------------------------------------- |
 | `grilling`              | human or agent | `gtd(human): grilling` / `gtd(agent): grilling`                  |
+| `architecting`          | human or agent | `gtd: architecting` / `gtd(agent): architecting`                 |
 | `grilled`               | agent          | `gtd: grilled`                                                   |
 | `planning`              | agent          | `.gtd/` modified                                                 |
 | `building`              | agent          | `gtd: planning` / `gtd: package done`                            |
@@ -721,13 +741,14 @@ built-in defaults apply. Supported filenames (searched in this order):
   phase entirely — independent of `squash`.
 - **`models`** — model selection for the subagent-spawning states:
   - `planning` — high-reasoning tier (default `claude-opus-4-8`), used by
-    `decompose` (the `grilled`/`planning` states), `grilling`, `agentic-review`,
-    and `clean` (the `review`/`squashing`/`learning`/`learning-apply` states).
+    `decompose` (the `grilled`/`planning` states), `grilling`, `architecting`,
+    `agentic-review`, and `clean` (the `review`/`squashing`/`learning`/
+    `learning-apply` states).
   - `execution` — everyday tier (default `claude-sonnet-4-8`), used by
     `building` and `fixing`.
   - `states.*` — per-state overrides keyed by `decompose`, `grilling`,
-    `building`, `fixing`, `agentic-review`, `clean`. Unknown `states` keys are
-    **rejected**.
+    `architecting`, `building`, `fixing`, `agentic-review`, `clean`. Unknown
+    `states` keys are **rejected**.
 - **`$schema`** (string, optional) — stripped before validation, so it never
   counts as an unknown key. Point it at the published schema for editor-backed
   autocompletion. A `schema.json` is generated from the config schema at build
@@ -815,7 +836,7 @@ models:
 ### Decompose
 
 The Grilled/Planning states spawn a planning-model subagent that breaks
-`.gtd/TODO.md` into executable work packages under `.gtd/`:
+`.gtd/ARCHITECTURE.md` into executable work packages under `.gtd/`:
 
 ```
 .gtd/

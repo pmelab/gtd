@@ -7,10 +7,11 @@ conventional-commits squash message and finish your turn.
 ### Step 1 — Extract decisions from grilling rounds
 
 Scan the git history of recent `gtd: ...` / `gtd(agent): ...` /
-`gtd(human): ...` commits. Look for changes to `.gtd/TODO.md` — specifically the
-`## Captured input` sections and any edits to plan text. Extract **key
-decisions, trade-offs, and design choices** made during grilling rounds. These
-will appear in the commit body so the history is self-documenting.
+`gtd(human): ...` commits. Look for changes to `.gtd/TODO.md` and
+`.gtd/ARCHITECTURE.md` — specifically the `## Captured input` sections and any
+edits to plan/architecture text. Extract **key decisions, trade-offs, and
+design choices** made during grilling and architecting rounds. These will
+appear in the commit body so the history is self-documenting.
 
 ### Step 2 — Draft the commit message
 

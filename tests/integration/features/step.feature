@@ -46,7 +46,7 @@ Feature: gtd step — the human mutator
     And stderr contains "awaits an agent turn"
     And the commit count is unchanged
 
-  Scenario: An empty human turn at the grilling answer gate accepts and advances to gtd: grilled
+  Scenario: An empty human turn at the grilling answer gate accepts and advances to gtd: architecting
     Given a test project
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
@@ -74,14 +74,16 @@ Feature: gtd step — the human mutator
       gtd(human): grilling
       gtd(agent): grilling
       gtd(human): grilling
-      gtd: grilled
+      gtd: architecting
       """
+    And the file ".gtd/TODO.md" does not exist
+    And the file ".gtd/ARCHITECTURE.md" exists
 
   Scenario: Human step at the grilled rest is refused — the decompose window belongs to the agent
     Given a test project
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): architecting" that adds ".gtd/ARCHITECTURE.md" with:
       """
-      # Plan
+      # Architecture
 
       Build a calculator with add and subtract.
       """
@@ -100,13 +102,13 @@ Feature: gtd step — the human mutator
     Then it fails
     And stderr contains "run `gtd step-agent`"
     And the commit count is unchanged
-    And the file ".gtd/TODO.md" exists
+    And the file ".gtd/ARCHITECTURE.md" exists
     # The agent step is the only legal move: it commits the decomposition and
-    # removes TODO.md in one chain.
+    # removes ARCHITECTURE.md in one chain.
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "gtd: planning"
-    And the file ".gtd/TODO.md" does not exist
+    And the file ".gtd/ARCHITECTURE.md" does not exist
 
   Scenario: Out-of-turn human step while the agent is awaited is refused on a clean tree
     Given a test project

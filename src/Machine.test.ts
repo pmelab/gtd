@@ -187,6 +187,32 @@ describe("assertLegal / GtdStateError", () => {
       GtdStateError,
     )
   })
+
+  it("throws illegal-combination for REVIEW.md + committed ARCHITECTURE.md", () => {
+    expect(() =>
+      resolve([R({ reviewPresent: true, architectureExists: true, architectureCommitted: true })]),
+    ).toThrow(GtdStateError)
+  })
+
+  it("throws illegal-combination for uncommitted REVIEW.md + ARCHITECTURE.md", () => {
+    expect(() =>
+      resolve([
+        R({
+          reviewPresent: true,
+          reviewCommitted: false,
+          reviewDirty: false,
+          architectureExists: true,
+          architectureCommitted: false,
+        }),
+      ]),
+    ).toThrow(GtdStateError)
+  })
+
+  it("throws illegal-combination for TODO.md + ARCHITECTURE.md coexisting", () => {
+    expect(() => resolve([R({ todoExists: true, architectureExists: true })])).toThrow(
+      GtdStateError,
+    )
+  })
 })
 
 // ── Boundary entry: dirty tree + human invoker → grilling capture ─────────
@@ -197,6 +223,19 @@ describe("dirty boundary entry", () => {
     expect(result.state).toBe("grilling")
     expect(result.actor).toBe("human")
     expect(result.edgeAction).toEqual({ kind: "captureTurn", actor: "human", gate: "grilling" })
+  })
+
+  it("escape hatch: a dirty tree that already contains ARCHITECTURE.md captures gtd(human): architecting instead", () => {
+    const result = resolve([
+      R({ invoker: "human", workingTreeClean: false, architectureExists: true }),
+    ])
+    expect(result.state).toBe("architecting")
+    expect(result.actor).toBe("human")
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "human",
+      gate: "architecting",
+    })
   })
 
   it("agent step-agent on a dirty boundary tree is refused (awaits human)", () => {
@@ -213,8 +252,8 @@ describe("dirty boundary entry", () => {
 
 // ── Empty-turn semantics ────────────────────────────────────────────────────
 
-describe("empty human grilling turn chains to gtd: grilled", () => {
-  it("clean tree under gtd(human): grilling → routes to gtd: grilled", () => {
+describe("empty human grilling turn chains to gtd: architecting", () => {
+  it("clean tree under gtd(human): grilling → routes to gtd: architecting, seeding ARCHITECTURE.md", () => {
     const result = resolve([
       R({
         invoker: "agent",
@@ -225,7 +264,87 @@ describe("empty human grilling turn chains to gtd: grilled", () => {
         workingTreeClean: true,
       }),
     ])
+    expect(result.edgeAction).toEqual({
+      kind: "commitRouting",
+      subject: "gtd: architecting",
+      seedArchitectureFromTodo: true,
+    })
+  })
+})
+
+describe("empty human architecting turn chains to gtd: grilled", () => {
+  it("clean tree under gtd(human): architecting → routes to gtd: grilled", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd(human): architecting",
+        headTurnIsEmpty: true,
+        architectureExists: true,
+        architectureCommitted: true,
+        workingTreeClean: true,
+      }),
+    ])
     expect(result.edgeAction).toEqual({ kind: "commitRouting", subject: "gtd: grilled" })
+  })
+})
+
+describe("architecting turn-taking", () => {
+  it("empty agent turn at architecting is inert (rest, re-emit)", () => {
+    const result = resolve([
+      R({
+        invoker: "none",
+        lastCommitSubject: "gtd(agent): architecting",
+        headTurnIsEmpty: true,
+        architectureExists: true,
+        architectureCommitted: true,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("architecting")
+    expect(result.actor).toBe("agent")
+  })
+
+  it("non-empty agent turn at architecting rests at the human answer gate", () => {
+    const result = resolve([
+      R({
+        invoker: "none",
+        lastCommitSubject: "gtd(agent): architecting",
+        headTurnIsEmpty: false,
+        architectureExists: true,
+        architectureCommitted: false,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("architecting")
+    expect(result.actor).toBe("human")
+  })
+
+  it("non-empty human turn at architecting rests back at the agent", () => {
+    const result = resolve([
+      R({
+        invoker: "none",
+        lastCommitSubject: "gtd(human): architecting",
+        headTurnIsEmpty: false,
+        architectureExists: true,
+        architectureCommitted: false,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("architecting")
+    expect(result.actor).toBe("agent")
+  })
+
+  it("gtd: architecting routing subject rests at architecting, agent", () => {
+    const result = resolve([
+      R({
+        invoker: "none",
+        lastCommitSubject: "gtd: architecting",
+        architectureExists: true,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("architecting")
+    expect(result.actor).toBe("agent")
   })
 })
 
@@ -321,8 +440,8 @@ describe("out-of-turn: human step while agent awaited", () => {
       R({
         invoker: "human",
         lastCommitSubject: "gtd: grilled",
-        todoExists: true,
-        todoCommitted: true,
+        architectureExists: true,
+        architectureCommitted: true,
         packagesPresent: true,
         gtdModified: true,
         workingTreeClean: false,
@@ -338,13 +457,49 @@ describe("out-of-turn: human step while agent awaited", () => {
       R({
         invoker: "human",
         lastCommitSubject: "gtd: grilled",
-        todoExists: true,
-        todoCommitted: true,
+        architectureExists: true,
+        architectureCommitted: true,
         workingTreeClean: true,
       }),
     ])
     expect(result.state).toBe("grilled")
     expect(result.refusal).toContain("run `gtd step-agent`")
+    expect(result.edgeAction).toBeUndefined()
+  })
+})
+
+describe("gtd(agent): grilled mid-chains to gtd: planning", () => {
+  it("with packages present, routes to planning and removes ARCHITECTURE.md", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd(agent): grilled",
+        architectureExists: true,
+        architectureCommitted: false,
+        packagesPresent: true,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "commitRouting",
+      subject: "gtd: planning",
+      removeArchitecture: true,
+    })
+  })
+
+  it("with no packages yet, rests so gtd next re-emits the decompose prompt", () => {
+    const result = resolve([
+      R({
+        invoker: "none",
+        lastCommitSubject: "gtd(agent): grilled",
+        architectureExists: true,
+        architectureCommitted: false,
+        packagesPresent: false,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("grilled")
+    expect(result.actor).toBe("agent")
     expect(result.edgeAction).toBeUndefined()
   })
 })
@@ -582,7 +737,14 @@ describe("predictTurn", () => {
         workingTreeClean: true,
       }),
     ])
-    expect(prediction.subject).toBe("gtd: grilled")
+    expect(prediction.subject).toBe("gtd: architecting")
+  })
+
+  it("escape hatch: predicts the human architecting capture when ARCHITECTURE.md is already in the dirty tree", () => {
+    const prediction = predictTurn([R({ workingTreeClean: false, architectureExists: true })])
+    expect(prediction.actor).toBe("human")
+    expect(prediction.subject).toBe("gtd(human): architecting")
+    expect(prediction.state).toBe("architecting")
   })
 
   it("predicts null at a settled rest (idle, health check is not a commit-predicting action)", () => {

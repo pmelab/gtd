@@ -1,8 +1,9 @@
 <%~ include("@header") %>
 
-`.gtd/TODO.md` contains an implementation plan. Decompose it into an ordered set of
-executable work packages stored in the `.gtd/` directory. If `.gtd/` already
-holds packages from an earlier turn, immediately abort and raise an error.
+`.gtd/ARCHITECTURE.md` contains a converged architecture/technical plan.
+Decompose it into an ordered set of executable work packages stored in the
+`.gtd/` directory. If `.gtd/` already holds packages from an earlier turn,
+immediately abort and raise an error.
 
 Spawn a **planning-model subagent** using model `<%= it.model %>` to perform the
 decomposition. It creates numbered package directories, each holding numbered
@@ -43,8 +44,8 @@ task files:
    cases. It is the only context building agents will receive to work on the
    task.
 
-6. **Specs must never reference `.gtd/` files** — `.gtd/TODO.md` is consumed
-   and **deleted** the moment decomposition completes, and every other file
+6. **Specs must never reference `.gtd/` files** — `.gtd/ARCHITECTURE.md` is
+   consumed and **deleted** the moment decomposition completes, and every other file
    under `.gtd/` (including these task specs) is machine-managed workflow
    state. No task description, acceptance criterion, or constraint may require
    creating, preserving, updating, or checking any `.gtd/` file — such a

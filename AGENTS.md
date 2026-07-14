@@ -101,11 +101,11 @@ keeping the edge thin.
 ## Turn Capture
 
 - An empty AGENT turn is inert at every gate whose move is a file artifact
-  (`grilling`, `grilled`, `building`, `fixing`, `agentic-review`, `review`, and
-  `squashing` while `SQUASH_MSG.md` is still the template) — the loop protocol
-  opens each iteration with `gtd step-agent` BEFORE the agent acts, so a
-  clean-tree capture there must author nothing. When adding a gate, decide
-  explicitly whether its empty turn is a signal (human accept-defaults,
-  health-fixing's environmental fix) or a no-op, and guard BOTH layers:
-  `applyTurnTaking` (don't capture) and `classifyHead` (don't consume state for
-  historical/crash-recovered empty turns)
+  (`grilling`, `architecting`, `grilled`, `building`, `fixing`,
+  `agentic-review`, `review`, and `squashing` while `SQUASH_MSG.md` is still the
+  template) — the loop protocol opens each iteration with `gtd step-agent`
+  BEFORE the agent acts, so a clean-tree capture there must author nothing. When
+  adding a gate, decide explicitly whether its empty turn is a signal (human
+  accept-defaults, health-fixing's environmental fix) or a no-op, and guard BOTH
+  layers: `applyTurnTaking` (don't capture) and `classifyHead` (don't consume
+  state for historical/crash-recovered empty turns)

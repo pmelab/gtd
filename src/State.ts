@@ -25,8 +25,11 @@ const edgeActionHandlers: EdgeActionHandlers = {
   captureTurn: (a) => `capture the ${a.actor} turn as "gtd(${a.actor}): ${a.gate}"`,
   commitRouting: (a) => {
     let msg = `commit routing as "${a.subject}"`
+    if (a.seedArchitectureFromTodo) {
+      msg += " (seeding .gtd/ARCHITECTURE.md from .gtd/TODO.md)"
+    }
     const removed: string[] = []
-    if (a.removeTodo) removed.push(".gtd/TODO.md")
+    if (a.removeArchitecture) removed.push(".gtd/ARCHITECTURE.md")
     if (a.removeReview) removed.push(".gtd/REVIEW.md")
     if (a.removeFeedback) removed.push(".gtd/FEEDBACK.md")
     if (a.removeHealth) removed.push(".gtd/HEALTH.md")

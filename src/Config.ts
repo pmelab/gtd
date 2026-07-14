@@ -16,6 +16,7 @@ import { ArrayFormatter, ParseError } from "effect/ParseResult"
 export type ModelState =
   | "decompose"
   | "grilling"
+  | "architecting"
   | "building"
   | "fixing"
   | "agentic-review"
@@ -31,6 +32,7 @@ export type ModelTier = "planning" | "execution"
 export const stateTier: Record<ModelState, ModelTier> = {
   decompose: "planning",
   grilling: "planning",
+  architecting: "planning",
   building: "execution",
   fixing: "execution",
   "agentic-review": "planning",
@@ -56,6 +58,7 @@ const DEFAULT_REVIEW_THRESHOLD = 3
 const ModelStatesSchema = Schema.Struct({
   decompose: Schema.optional(Schema.String),
   grilling: Schema.optional(Schema.String),
+  architecting: Schema.optional(Schema.String),
   building: Schema.optional(Schema.String),
   fixing: Schema.optional(Schema.String),
   "agentic-review": Schema.optional(Schema.String),
