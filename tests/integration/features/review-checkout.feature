@@ -18,6 +18,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
       testCommand: "true"
       agenticReview: false
       squash: false
+      learning: false
       """
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
