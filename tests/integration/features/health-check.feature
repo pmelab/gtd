@@ -64,6 +64,7 @@ Feature: Health check — the idle test loop
       """
       testCommand: bash gate.sh
       squash: true
+      learning: false
       """
     And a commit "feat: initial feature" that adds "src/lib.ts" with:
       """
@@ -98,6 +99,7 @@ Feature: Health check — the idle test loop
       """
       testCommand: bash gate.sh
       squash: false
+      learning: false
       """
     And a commit "feat: initial feature" that adds "src/lib.ts" with:
       """

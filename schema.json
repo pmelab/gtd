@@ -60,6 +60,9 @@
     "squash": {
       "type": "boolean"
     },
+    "learning": {
+      "type": "boolean"
+    },
     "fixAttemptCap": {
       "$ref": "#/$defs/Int",
       "description": "a non-negative number",

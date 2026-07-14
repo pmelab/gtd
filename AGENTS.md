@@ -24,6 +24,9 @@ cleanup), trace **every** reference before deleting:
 - `src/Events.ts` (`gatherEvents` flag derivation, `perform`)
 - `src/program.ts` dispatch
 - `src/Prompt.ts` (`isPromptState`, `MODEL_STATE`, templates)
+- `src/State.ts` (`edgeActionHandlers` — a total map over `EdgeAction["kind"]`,
+  so it won't fail to compile on a removed/added variant the way an
+  exhaustive-switch-free table can silently drift)
 - STATES.md / README.md
 - All feature files
 
@@ -59,6 +62,17 @@ Same pattern for the `invoker` actor (`"human" | "agent" | "none"`,
 `src/Machine.ts`): it travels as a `ResolvePayload` field, not a Context tag,
 because it's a pure-decision input consumed by the resolver's turn guards
 (`applyTurnTaking`), not something every side effect needs to see.
+
+### Review Checkout Window (Program-Edge Concern)
+
+The review checkout window (`src/ReviewWindow.ts` — HEAD/index rewound to the
+review base while `gtd: awaiting review` rests, so editors surface the diff) is
+wired ONLY in `src/program.ts`: closed before `ConfigInit.ensure` and every
+`gatherEvents`, re-armed after dispatch (success AND failure paths). The
+machine, `gatherEvents`, and `perform` must never know it exists — no
+`ResolvePayload` field, no `GtdState`, no Context tag. Anything that reads git
+state through a new entry point must run AFTER the close hook, or it will
+classify against the rewound HEAD.
 
 ### Agentic Cycle Count Fold
 

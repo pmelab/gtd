@@ -25,6 +25,12 @@ export interface GitReaderOperations {
   readonly diffRef: (ref: string, exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly diffPath: (path: string) => Effect.Effect<string, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
+  /**
+   * `git rev-parse --verify --quiet <ref>` as a probe: `Option.some(hash)`
+   * when the ref exists, `Option.none()` when it doesn't (unlike `resolveRef`,
+   * which fails). Used for optional repo-local refs like `refs/gtd/*`.
+   */
+  readonly readRefOption: (ref: string) => Effect.Effect<Option.Option<string>, Error>
   /** `git rev-parse --show-toplevel` — the working-tree root; fails outside a repository. */
   readonly topLevel: () => Effect.Effect<string, Error>
   readonly resolveDefaultBranch: () => Effect.Effect<Option.Option<string>, Error>
@@ -80,6 +86,27 @@ export interface GitWriterOperations {
    */
   readonly commitAllWithPrefix: (prefix: string) => Effect.Effect<void, Error>
   readonly softResetTo: (ref: string) => Effect.Effect<void, Error>
+  /** `git update-ref <ref> <hash>` — create or move a repo-local ref (e.g. `refs/gtd/*`). */
+  readonly updateRef: (ref: string, hash: string) => Effect.Effect<void, Error>
+  /** `git update-ref -d <ref>` — idempotent: deleting a missing ref is a no-op. */
+  readonly deleteRef: (ref: string) => Effect.Effect<void, Error>
+  /** `git reset --mixed <ref>` — HEAD and index move to `ref`, the working tree is untouched. */
+  readonly mixedResetTo: (ref: string) => Effect.Effect<void, Error>
+  /**
+   * `git restore --staged --source=<source> -- <paths…>` — set the index
+   * entries under each path to their state at `source` (including removals),
+   * leaving HEAD and the working tree untouched. Tolerant when no path matches.
+   */
+  readonly restoreStagedFrom: (
+    source: string,
+    paths: ReadonlyArray<string>,
+  ) => Effect.Effect<void, Error>
+  /**
+   * `git add --intent-to-add .` — register untracked files in the index with
+   * an empty placeholder so they render as additions (with content hunks) in
+   * `git diff` and editor SCM views, without staging their content.
+   */
+  readonly addIntentToAdd: () => Effect.Effect<void, Error>
   /** `git reset HEAD~1` (mixed) — undoes the last commit, keeping changes in the working tree. */
   readonly mixedResetHead: () => Effect.Effect<void, Error>
   /**
@@ -398,6 +425,12 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         ),
       ),
 
+    readRefOption: (ref: string) =>
+      exec("git", "rev-parse", "--verify", "--quiet", ref).pipe(
+        Effect.map((s) => Option.some(s.trim())),
+        Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+      ),
+
     topLevel: () => exec("git", "rev-parse", "--show-toplevel").pipe(Effect.map((s) => s.trim())),
 
     resolveDefaultBranch: () =>
@@ -571,6 +604,29 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       }).pipe(Effect.asVoid),
 
     softResetTo: (ref: string) => exec("git", "reset", "--soft", ref).pipe(Effect.asVoid),
+
+    updateRef: (ref: string, hash: string) =>
+      exec("git", "update-ref", ref, hash).pipe(Effect.asVoid),
+
+    deleteRef: (ref: string) =>
+      exec("git", "update-ref", "-d", ref).pipe(
+        Effect.asVoid,
+        Effect.catchAll(() => Effect.void),
+      ),
+
+    mixedResetTo: (ref: string) => exec("git", "reset", "--mixed", ref).pipe(Effect.asVoid),
+
+    restoreStagedFrom: (source: string, paths: ReadonlyArray<string>) =>
+      paths.length === 0
+        ? Effect.void
+        : exec("git", "restore", "--staged", `--source=${source}`, "--", ...paths).pipe(
+            Effect.asVoid,
+            // `git restore` errors when a pathspec matches nothing at either
+            // side — for an optional dir like `.gtd/` that's a no-op, not a failure.
+            Effect.catchAll(() => Effect.void),
+          ),
+
+    addIntentToAdd: () => exec("git", "add", "--intent-to-add", ".").pipe(Effect.asVoid),
   }
 }
 

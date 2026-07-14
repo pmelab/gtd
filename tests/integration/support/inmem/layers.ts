@@ -152,6 +152,11 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
       : Effect.fail(new Error(`Cannot resolve ref: ${ref}`))
   },
 
+  readRefOption: (ref: string) => {
+    const hash = repo.resolveRef(ref)
+    return Effect.succeed(hash !== null ? Option.some(hash) : Option.none<string>())
+  },
+
   topLevel: () => Effect.succeed("/repo"),
 
   resolveDefaultBranch: () => {
@@ -224,6 +229,17 @@ const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => ({
   commitAllWithPrefix: (prefix: string) => tryCatch(() => repo.commitAllWithPrefix(prefix)),
 
   softResetTo: (ref: string) => tryCatch(() => repo.softResetTo(ref)),
+
+  updateRef: (ref: string, hash: string) => tryCatch(() => repo.updateRef(ref, hash)),
+
+  deleteRef: (ref: string) => tryCatch(() => repo.deleteRef(ref)),
+
+  mixedResetTo: (ref: string) => tryCatch(() => repo.mixedResetTo(ref)),
+
+  restoreStagedFrom: (source: string, paths: ReadonlyArray<string>) =>
+    tryCatch(() => repo.restoreStagedFrom(source, paths)),
+
+  addIntentToAdd: () => tryCatch(() => repo.addIntentToAdd()),
 
   mixedResetHead: () => tryCatch(() => repo.mixedResetHead()),
 
@@ -432,12 +448,22 @@ const parseConfigContent = (filename: string, content: string): Record<string, u
   }
 }
 
+const stringField = (raw: Record<string, unknown>, key: string, fallback: string): string =>
+  typeof raw[key] === "string" ? (raw[key] as string) : fallback
+
+const boolField = (raw: Record<string, unknown>, key: string, fallback: boolean): boolean =>
+  typeof raw[key] === "boolean" ? (raw[key] as boolean) : fallback
+
+const numberField = (raw: Record<string, unknown>, key: string, fallback: number): number =>
+  typeof raw[key] === "number" ? (raw[key] as number) : fallback
+
 const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
-  const testCommand = typeof raw["testCommand"] === "string" ? raw["testCommand"] : "npm run test"
-  const agenticReview = typeof raw["agenticReview"] === "boolean" ? raw["agenticReview"] : true
-  const squash = typeof raw["squash"] === "boolean" ? raw["squash"] : true
-  const fixAttemptCap = typeof raw["fixAttemptCap"] === "number" ? raw["fixAttemptCap"] : 3
-  const reviewThreshold = typeof raw["reviewThreshold"] === "number" ? raw["reviewThreshold"] : 3
+  const testCommand = stringField(raw, "testCommand", "npm run test")
+  const agenticReview = boolField(raw, "agenticReview", true)
+  const squash = boolField(raw, "squash", true)
+  const learning = boolField(raw, "learning", true)
+  const fixAttemptCap = numberField(raw, "fixAttemptCap", 3)
+  const reviewThreshold = numberField(raw, "reviewThreshold", 3)
 
   const modelsRaw = raw["models"]
   const models =
@@ -458,7 +484,15 @@ const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
     return builtinTierDefault[tier]
   }
 
-  return { testCommand, resolveModel, agenticReview, squash, fixAttemptCap, reviewThreshold }
+  return {
+    testCommand,
+    resolveModel,
+    agenticReview,
+    squash,
+    learning,
+    fixAttemptCap,
+    reviewThreshold,
+  }
 }
 
 const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> => {

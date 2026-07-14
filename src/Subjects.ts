@@ -46,6 +46,8 @@ export type TurnGate =
   | "squashing"
   | "health-fixing"
   | "escalate"
+  | "learning"
+  | "learning-apply"
 
 /** `gtd(${actor}): ${gate}` — the subject `gtd step`/`gtd step-agent` write. */
 export const turnSubject = (actor: Actor, gate: TurnGate): string => `gtd(${actor}): ${gate}`
@@ -65,6 +67,10 @@ export type RoutingPhase =
   | "reviewing"
   | "health-check"
   | "health-fix"
+  | "learning-template"
+  | "learning-drafted"
+  | "learning-approved"
+  | "learning-applied"
 
 /** Literal subjects for the non-parameterized routing phases. */
 export const ROUTING_SUBJECT: Record<Exclude<RoutingPhase, "reviewing">, string> = {
@@ -80,6 +86,10 @@ export const ROUTING_SUBJECT: Record<Exclude<RoutingPhase, "reviewing">, string>
   "squash-template": "gtd: squash template",
   "health-check": "gtd: health-check",
   "health-fix": "gtd: health-fix",
+  "learning-template": "gtd: learning template",
+  "learning-drafted": "gtd: learning drafted",
+  "learning-approved": "gtd: learning approved",
+  "learning-applied": "gtd: learning applied",
 }
 
 /** `gtd: reviewing ${baseHash}` — the ad-hoc review anchor. */
@@ -112,6 +122,8 @@ const TURN_GATES: ReadonlySet<string> = new Set<TurnGate>([
   "squashing",
   "health-fixing",
   "escalate",
+  "learning",
+  "learning-apply",
 ])
 
 const ROUTING_SUBJECT_TO_PHASE: ReadonlyMap<string, Exclude<RoutingPhase, "reviewing">> = new Map(

@@ -5,7 +5,17 @@
       "Bash(npm run typecheck)",
       "Bash(npm run format:check)",
       "Bash(npm run test:unit)",
-      "Bash(npx vitest run --project unit *)"
+      "Bash(npm run test:e2e)",
+      "Bash(npm test)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx vitest run --project unit *)",
+      "Bash(npx vitest run --project e2e *)",
+      "Bash(npm run typecheck *)",
+      "Bash(npm run lint *)",
+      "Bash(npm run test:unit *)",
+      "Bash(npx vitest run *)",
+      "Bash(npx fallow health *)",
+      "Bash(npx fallow --summary *)"
     ],
     "deny": ["Bash(npm run test:mutation)", "Bash(npx stryker run)", "Bash(stryker run)"]
   },

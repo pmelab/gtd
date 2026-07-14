@@ -21,6 +21,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       testCommand: "true"
       agenticReview: false
       squash: false
+      learning: false
       """
     And a file "src/input.ts" with:
       """
@@ -115,18 +116,29 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       """
     When I run gtd step-agent
     Then it succeeds
-    And the git log contains "gtd(agent): review"
-    And the last commit subject is "gtd: awaiting review"
+    # The review checkout window is now open: HEAD and index rest at the review
+    # base (the cycle's first grilling turn) while the worktree still holds the
+    # finished work, so any editor's git integration shows the whole package
+    # diff as uncommitted changes. The real head is preserved under
+    # refs/gtd/review-head until the review resolves.
+    And the git ref "refs/gtd/review-head" exists
+    And the last commit subject is "gtd(human): grilling"
+    And the git log at "refs/gtd/review-head" contains "gtd(agent): review"
+    And the git log at "refs/gtd/review-head" contains "gtd: awaiting review"
+    And the git status contains "src/calc.ts"
     When I run gtd next
     Then it succeeds
     And stdout contains ".gtd/REVIEW.md"
-    # The human approves by deleting REVIEW.md.
-    Given a deleted committed file ".gtd/REVIEW.md"
+    # Read-only commands re-arm the window on their way out.
+    And the git ref "refs/gtd/review-head" exists
+    # The human approves by deleting REVIEW.md (a plain worktree deletion).
+    Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd step
     Then it succeeds
     And the git log contains "gtd(human): review"
     And the last commit subject is "gtd: done"
     And the file ".gtd/REVIEW.md" does not exist
+    And the git ref "refs/gtd/review-head" does not exist
     And the commit subjects from oldest to newest are:
       """
       chore: initial commit
@@ -162,6 +174,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       testCommand: "true"
       agenticReview: false
       squash: true
+      learning: false
       """
     And a file "src/input.ts" with:
       """
@@ -216,8 +229,12 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       """
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: awaiting review"
-    Given a deleted committed file ".gtd/REVIEW.md"
+    # The review checkout window opens at the human gate: HEAD rests at the
+    # base, the real head is preserved under refs/gtd/review-head.
+    And the git ref "refs/gtd/review-head" exists
+    And the last commit subject is "gtd(human): grilling"
+    And the git log at "refs/gtd/review-head" contains "gtd: awaiting review"
+    Given the file ".gtd/REVIEW.md" is deleted
     # Squash on: gtd: done is not a rest — the chain continues straight to the
     # squash template in the same human-turn invocation.
     When I run gtd step

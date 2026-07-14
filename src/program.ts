@@ -8,6 +8,7 @@ import * as Format from "./Format.js"
 import { GitService, type GitOperations } from "./Git.js"
 import { predictTurn, resolve, type EdgeAction, type GtdEvent, type Result } from "./Machine.js"
 import { buildPrompt } from "./Prompt.js"
+import { closeReviewWindow, openReviewWindow } from "./ReviewWindow.js"
 import { reviewingSubject } from "./Subjects.js"
 import { describeEdgeAction, describeStatus } from "./State.js"
 import { TestRunner } from "./TestRunner.js"
@@ -623,13 +624,27 @@ export function makeProgram(
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
     yield* assertRunningFromRepoRoot(git, fs)
+    // A pending review checkout window (HEAD/index rewound to the review base
+    // so editors surface the diff — see src/ReviewWindow.ts) is closed before
+    // ANYTHING reads or mutates state: `gatherEvents` must only ever see the
+    // real head, and ConfigInit's auto-init amend below must never rewrite the
+    // base commit the window rests on.
+    yield* closeReviewWindow
     // Auto-init runs here and ONLY here: past the version/help short-circuit,
     // the format branch, the known-subcommand guard, and the repo-root guard —
     // a refused or rejected invocation must never mutate the repository.
     yield* (yield* ConfigInit).ensure
     const config = yield* ConfigService
 
-    yield* dispatchKnownSubcommand(sub, argv, git, config, json, write)
+    // Re-open the window after the invocation finishes — including failed
+    // ones (a `step-agent` refusal at the human gate, `next`'s dirty-tree
+    // guard): `openReviewWindow` self-guards on HEAD being exactly
+    // `gtd: awaiting review`, so this is a no-op everywhere else and the
+    // reviewer's editor keeps showing the diff until the review resolves.
+    yield* dispatchKnownSubcommand(sub, argv, git, config, json, write).pipe(
+      Effect.tap(() => openReviewWindow),
+      Effect.tapError(() => openReviewWindow.pipe(Effect.ignore)),
+    )
   }).pipe(
     json
       ? Effect.catchAll((error) =>

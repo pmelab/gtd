@@ -45,6 +45,9 @@ const PROMPT_STATES: ReadonlyArray<GtdState> = [
   "review",
   "await-review",
   "squashing",
+  "learning",
+  "await-learning-review",
+  "learning-apply",
   "escalate",
   "idle",
   "health-fixing",
@@ -56,10 +59,11 @@ const EDGE_ONLY_STATES: ReadonlyArray<GtdState> = [
   "close-package",
   "done",
   "health-check",
+  "learning-applied",
 ]
 
 describe("isPromptState", () => {
-  it("matches exactly the pinned 12-state set", () => {
+  it("matches exactly the pinned 15-state set", () => {
     for (const state of PROMPT_STATES) expect(isPromptState(state)).toBe(true)
     for (const state of EDGE_ONLY_STATES) expect(isPromptState(state)).toBe(false)
   })
@@ -133,6 +137,22 @@ describe("buildPrompt", () => {
     it("squashing renders the squashing section", () => {
       const out = buildPrompt(result("squashing"))
       expect(out).toContain("conventional-commits")
+    })
+
+    it("learning renders the learning section", () => {
+      const out = buildPrompt(result("learning"))
+      expect(out).toContain(".gtd/LEARNINGS.md")
+    })
+
+    it("await-learning-review renders the await-learning-review section", () => {
+      const out = buildPrompt(result("await-learning-review", { actor: "human" }))
+      expect(out).toContain("LEARNINGS.md")
+      expect(out).toMatch(/human\s+gate/)
+    })
+
+    it("learning-apply renders the learning-apply section", () => {
+      const out = buildPrompt(result("learning-apply"))
+      expect(out).toContain("CLAUDE.md")
     })
 
     it("escalate renders the escalate section", () => {
@@ -232,7 +252,7 @@ describe("buildPrompt", () => {
 
     it("human-gated states carry no {{MODEL}} and no injected model", () => {
       const custom = (s: string): string => `SHOULD-NOT-APPEAR-${s}`
-      for (const state of ["escalate", "idle", "await-review"] as const) {
+      for (const state of ["escalate", "idle", "await-review", "await-learning-review"] as const) {
         const out = buildPrompt(result(state, { actor: "human" }), custom)
         expect(out).not.toContain("{{MODEL}}")
         expect(out).not.toContain("SHOULD-NOT-APPEAR")
@@ -251,6 +271,8 @@ describe("buildPrompt", () => {
         withPackage("agentic-review"),
         result("review"),
         result("squashing"),
+        result("learning"),
+        result("learning-apply"),
         result("health-fixing"),
       ]
       const tail =
@@ -268,6 +290,7 @@ describe("buildPrompt", () => {
         result("grilling", { actor: "human" }),
         result("architecting", { actor: "human" }),
         result("await-review", { actor: "human" }),
+        result("await-learning-review", { actor: "human" }),
         result("escalate", { actor: "human" }),
         result("idle", { actor: "human" }),
       ]
@@ -301,6 +324,9 @@ describe("buildPrompt", () => {
       result("review"),
       result("await-review", { actor: "human" }),
       result("squashing"),
+      result("learning"),
+      result("await-learning-review", { actor: "human" }),
+      result("learning-apply"),
       result("escalate", { actor: "human" }),
       result("idle", { actor: "human" }),
       result("health-fixing"),
@@ -469,6 +495,17 @@ describe("buildPrompt", () => {
       )
       expect(out).toContain("abc1234def")
     })
+
+    it("learning inlines squashDiff under a full-process heading", () => {
+      const out = buildPrompt(
+        result("learning", {
+          context: { squashDiff: "diff --git a/x b/x\n+hello\n", squashBase: "abc1234" },
+        }),
+      )
+      expect(out).toContain("Full-process diff")
+      expect(out).toContain("```diff")
+      expect(out).toContain("+hello")
+    })
   })
 
   describe("json output mode", () => {
@@ -489,6 +526,9 @@ describe("buildPrompt", () => {
       ["review", result("review")],
       ["await-review", result("await-review", { actor: "human" })],
       ["squashing", result("squashing")],
+      ["learning", result("learning")],
+      ["await-learning-review", result("await-learning-review", { actor: "human" })],
+      ["learning-apply", result("learning-apply")],
       ["escalate", result("escalate", { actor: "human" })],
       ["idle", result("idle", { actor: "human" })],
     ] as const) {

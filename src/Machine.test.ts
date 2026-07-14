@@ -143,12 +143,22 @@ describe("awaitedActor", () => {
     expect(awaitedActor("await-review")).toBe("human")
   })
 
+  it("is human for await-learning-review", () => {
+    expect(awaitedActor("await-learning-review")).toBe("human")
+  })
+
   it("is agent for building, fixing, agentic-review, squashing, health-fixing", () => {
     expect(awaitedActor("building")).toBe("agent")
     expect(awaitedActor("fixing")).toBe("agent")
     expect(awaitedActor("agentic-review")).toBe("agent")
     expect(awaitedActor("squashing")).toBe("agent")
     expect(awaitedActor("health-fixing")).toBe("agent")
+  })
+
+  it("is agent for learning, learning-apply, learning-applied", () => {
+    expect(awaitedActor("learning")).toBe("agent")
+    expect(awaitedActor("learning-apply")).toBe("agent")
+    expect(awaitedActor("learning-applied")).toBe("agent")
   })
 })
 
@@ -529,6 +539,182 @@ describe("squash chain", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({ kind: "squashCommit", squashBase: "abc123" })
+  })
+
+  it("gtd: done + squash enabled + learning enabled + squashBase → writeLearningTemplate (learning runs first)", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd: done",
+        squashEnabled: true,
+        learningEnabled: true,
+        squashBase: "abc123",
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.edgeAction).toEqual({ kind: "writeLearningTemplate" })
+  })
+
+  it("gtd: done + learning enabled + squash disabled + squashBase → writeLearningTemplate (orthogonal to squash)", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd: done",
+        squashEnabled: false,
+        learningEnabled: true,
+        squashBase: "abc123",
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.edgeAction).toEqual({ kind: "writeLearningTemplate" })
+  })
+})
+
+// ── Learning chain ────────────────────────────────────────────────────────
+
+describe("learning chain", () => {
+  it("gtd: learning template → rest learning prompt for agent", () => {
+    const result = resolve([
+      R({ invoker: "none", lastCommitSubject: "gtd: learning template", workingTreeClean: true }),
+    ])
+    expect(result.state).toBe("learning")
+    expect(result.actor).toBe("agent")
+    expect(result.edgeAction).toBeUndefined()
+  })
+
+  it("unmodified LEARNINGS.md template never mid-chains — rests until the agent drafts real content", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd(agent): learning",
+        squashBase: "abc123",
+        learningMsgIsTemplate: true,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("learning")
+    expect(result.actor).toBe("agent")
+    expect(result.edgeAction).toBeUndefined()
+  })
+
+  it("gtd(agent): learning with real content → commitRouting gtd: learning drafted", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd(agent): learning",
+        squashBase: "abc123",
+        learningMsgIsTemplate: false,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "commitRouting",
+      subject: "gtd: learning drafted",
+    })
+  })
+
+  it("gtd: learning drafted → rest await-learning-review prompt for human", () => {
+    const result = resolve([
+      R({ invoker: "none", lastCommitSubject: "gtd: learning drafted", workingTreeClean: true }),
+    ])
+    expect(result.state).toBe("await-learning-review")
+    expect(result.actor).toBe("human")
+    expect(result.edgeAction).toBeUndefined()
+  })
+
+  it("gtd(human): learning (even empty — accept as-is) → commitRouting gtd: learning approved", () => {
+    const result = resolve([
+      R({
+        invoker: "human",
+        lastCommitSubject: "gtd(human): learning",
+        headTurnIsEmpty: true,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "commitRouting",
+      subject: "gtd: learning approved",
+    })
+  })
+
+  it("gtd: learning approved → rest learning-apply prompt for agent", () => {
+    const result = resolve([
+      R({ invoker: "none", lastCommitSubject: "gtd: learning approved", workingTreeClean: true }),
+    ])
+    expect(result.state).toBe("learning-apply")
+    expect(result.actor).toBe("agent")
+    expect(result.edgeAction).toBeUndefined()
+  })
+
+  it("a clean tree at learning-apply is inert (no doc edits to capture)", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd: learning approved",
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("learning-apply")
+    expect(result.actor).toBe("agent")
+    expect(result.edgeAction).toBeUndefined()
+  })
+
+  it("gtd(agent): learning-apply → commitRouting gtd: learning applied, removeLearning", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd(agent): learning-apply",
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "commitRouting",
+      subject: "gtd: learning applied",
+      removeLearning: true,
+    })
+  })
+
+  it("gtd: learning applied + squash enabled + squashBase → writeSquashTemplate", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd: learning applied",
+        squashEnabled: true,
+        squashBase: "abc123",
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.edgeAction).toEqual({ kind: "writeSquashTemplate" })
+  })
+
+  it("gtd: learning applied + squash disabled → rest idle for human", () => {
+    const result = resolve([
+      R({
+        invoker: "none",
+        lastCommitSubject: "gtd: learning applied",
+        squashEnabled: false,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("idle")
+    expect(result.actor).toBe("human")
+    expect(result.edgeAction).toBeUndefined()
+  })
+
+  it('human turn authored at await-learning-review captures under gate "learning", not "review"', () => {
+    const result = resolve([
+      R({
+        invoker: "human",
+        lastCommitSubject: "gtd: learning drafted",
+        workingTreeClean: false,
+        codeDirty: true,
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "human",
+      gate: "learning",
+    })
   })
 })
 
