@@ -35,7 +35,10 @@ import { Cwd } from "../../../../src/Cwd.js"
 // ---------------------------------------------------------------------------
 
 const tryCatch = <A>(fn: () => A): Effect.Effect<A, Error> =>
-  Effect.try({ try: fn, catch: (e) => (e instanceof Error ? e : new Error(String(e))) })
+  Effect.try({
+    try: fn,
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
 
 // Git's empty-tree object SHA: used as the diff base for a root commit (no parent).
 // Mirrors InMemRepo's private EMPTY_TREE constant (used there for softResetTo).
@@ -306,7 +309,7 @@ const makeInMemoryFileSystem = (repo: InMemRepo): FileSystem.FileSystem => {
     const worktree = getWorktree()
     if (options?.recursive === true) {
       const prefix = path.endsWith("/") ? path : `${path}/`
-      for (const key of [...worktree.keys()]) {
+      for (const key of worktree.keys()) {
         if (key === path || key.startsWith(prefix)) {
           repo.deleteFile(key)
         }
@@ -549,12 +552,18 @@ export function inMemoryLayers(
         const testFMatch = /^test -f (.+)$/.exec(cmd)
         if (testFMatch !== null) {
           const path = testFMatch[1]!.trim()
-          return Effect.succeed({ exitCode: worktreeHasPath(path) ? 0 : 1, output: "" })
+          return Effect.succeed({
+            exitCode: worktreeHasPath(path) ? 0 : 1,
+            output: "",
+          })
         }
         const bashTestFMatch = /^bash -c 'test -f (.+)'$/.exec(cmd)
         if (bashTestFMatch !== null) {
           const path = bashTestFMatch[1]!.trim()
-          return Effect.succeed({ exitCode: worktreeHasPath(path) ? 0 : 1, output: "" })
+          return Effect.succeed({
+            exitCode: worktreeHasPath(path) ? 0 : 1,
+            output: "",
+          })
         }
         // bash <script.sh>
         const bashScriptMatch = /^bash\s+(\S+)$/.exec(cmd)
@@ -593,4 +602,7 @@ export function inMemoryLayers(
 
 // Fine-grained layer for unit tests that need only the git service.
 export const makeGitServiceLayer = (repo: InMemRepo): Layer.Layer<GitService> =>
-  Layer.succeed(GitService, { ...makeGitReaderOps(repo), ...makeGitWriterOps(repo) })
+  Layer.succeed(GitService, {
+    ...makeGitReaderOps(repo),
+    ...makeGitWriterOps(repo),
+  })

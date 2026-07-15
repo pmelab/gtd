@@ -351,7 +351,7 @@ export class InMemRepo {
     const matchesAny = (path: string): boolean =>
       paths.some((spec) => path === spec || path.startsWith(spec.endsWith("/") ? spec : `${spec}/`))
     // Index entries under the pathspecs absent from source → removed…
-    for (const key of [...this.index.keys()]) {
+    for (const key of this.index.keys()) {
       if (matchesAny(key) && !tree.has(key)) this.index.delete(key)
     }
     // …and source entries under the pathspecs copied in.
@@ -447,13 +447,13 @@ export class InMemRepo {
   }
 
   removeGtdDir(): void {
-    for (const path of [...this.worktree.keys()]) {
+    for (const path of this.worktree.keys()) {
       if (path === ".gtd" || path.startsWith(".gtd/")) {
         this.worktree.delete(path)
         this.index.delete(path)
       }
     }
-    for (const path of [...this.index.keys()]) {
+    for (const path of this.index.keys()) {
       if (path === ".gtd" || path.startsWith(".gtd/")) {
         this.index.delete(path)
       }
@@ -464,13 +464,13 @@ export class InMemRepo {
     const prefix = dir.endsWith("/") ? dir : `${dir}/`
 
     // Remove from worktree and index
-    for (const path of [...this.worktree.keys()]) {
+    for (const path of this.worktree.keys()) {
       if (path === dir || path.startsWith(prefix)) {
         this.worktree.delete(path)
         this.index.delete(path)
       }
     }
-    for (const path of [...this.index.keys()]) {
+    for (const path of this.index.keys()) {
       if (path === dir || path.startsWith(prefix)) {
         this.index.delete(path)
       }

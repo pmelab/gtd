@@ -1,4 +1,4 @@
-import { defineConfig } from "tsup"
+import { defineConfig } from "tsdown"
 
 export default defineConfig({
   entry: { "gtd.bundle": "src/main.ts" },
@@ -6,9 +6,7 @@ export default defineConfig({
   platform: "node",
   target: "node20",
   outDir: "dist",
-  noExternal: [/.*/],
-  splitting: false,
-  outExtension: () => ({ js: ".mjs" }),
+  outExtensions: () => ({ js: ".mjs" }),
   loader: { ".md": "text" },
   banner: {
     js: `#!/usr/bin/env node
@@ -16,4 +14,9 @@ import { createRequire as __createRequire } from 'module';
 const require = __createRequire(import.meta.url);`,
   },
   clean: true,
+  deps: {
+    alwaysBundle: [/.*/],
+  },
+  dts: false,
+  outputOptions: { codeSplitting: false },
 })

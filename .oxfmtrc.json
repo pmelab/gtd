@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "semi": false,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "scripts/gtd.bundle.mjs",
+    "src/prompts/**/*.md",
+    ".stryker-tmp/",
+    "stryker-incremental.json",
+    "stryker-incremental.scenarios.json",
+    "stryker-incremental.io-edge.json",
+    "reports/"
+  ],
+  "overrides": [
+    {
+      "files": ["*.md"],
+      "options": { "printWidth": 80, "proseWrap": "always" }
+    }
+  ]
+}

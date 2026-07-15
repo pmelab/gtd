@@ -1,10 +1,10 @@
 // Dev-only ESM hooks so `node` can run the TypeScript sources directly:
 //   - resolve relative `./Foo.js` specifiers to the on-disk `./Foo.ts`
 //     (the build uses `allowImportingTsExtensions`; native Node does not)
-//   - import `*.md` files as their raw text default export, mirroring tsup's
+//   - import `*.md` files as their raw text default export, mirroring tsdown's
 //     `loader: { ".md": "text" }`
 // Node strips the TypeScript types natively; these hooks only fill the two
-// gaps tsup would otherwise cover.
+// gaps tsdown would otherwise cover.
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { fileURLToPath, URL } from "node:url"
