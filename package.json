@@ -40,12 +40,12 @@
     "test:e2e": "vitest run --project e2e",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint .",
-    "format": "prettier --write .",
-    "format:check": "prettier --check . --log-level warn",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
     "test:mutation": "stryker run"
   },
   "lint-staged": {
-    "*": "prettier --ignore-unknown --write"
+    "*": "oxfmt --no-error-on-unmatched-pattern --write"
   },
   "devDependencies": {
     "@effect/language-service": "^0.72.0",
@@ -63,6 +63,7 @@
     "husky": "^9.1.7",
     "jiti": "^2.7.0",
     "lint-staged": "^17.0.8",
+    "oxfmt": "^0.59.0",
     "oxlint": "^1.74.0",
     "quickpickle": "1.11.2",
     "semantic-release": "^25.0.5",

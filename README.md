@@ -939,9 +939,9 @@ npm run lint
 A pre-commit hook is installed automatically via the `prepare` script when you
 run `npm install` on a fresh clone — no manual setup needed. The hook runs
 [lint-staged](https://github.com/lint-staged/lint-staged) with
-[Prettier](https://prettier.io/), formatting every staged file before each
-commit (`prettier --ignore-unknown --write`), mirroring the `format:check` step
-enforced in CI (`prettier --check .`).
+[oxfmt](https://oxc.rs/docs/guide/usage/formatter.html), formatting every staged
+file before each commit (`oxfmt --no-error-on-unmatched-pattern --write`),
+mirroring the `format:check` step enforced in CI (`oxfmt --check .`).
 
 ### Prompt templates
 
