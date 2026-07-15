@@ -925,7 +925,7 @@ minor/patch bump.
 ```bash
 npm install
 npm run dev          # run from source, no build (node dev/run.mjs)
-npm run build        # tsup → dist/gtd.bundle.mjs
+npm run build        # tsdown → dist/gtd.bundle.mjs
 npm test             # format:check, typecheck, lint, unit + e2e tests, fallow
 npm run test:unit    # vitest unit tests (the pure resolver) — --project unit
 npm run test:e2e     # gherkin e2e via vitest + quickpickle — --project e2e
@@ -966,9 +966,9 @@ performed entirely by the edge.
 
 `npm run dev` runs `src/main.ts` directly via Node's native TypeScript
 type-stripping (requires Node 22.6+). It registers `dev/hooks.mjs`, which fills
-the two gaps the tsup build otherwise covers: resolving `./Foo.js` specifiers to
-the on-disk `./Foo.ts`, and importing `*.md` prompt files as text. Pass CLI args
-after `--`, e.g. `npm run dev -- format <file>`.
+the two gaps the tsdown build otherwise covers: resolving `./Foo.js` specifiers
+to the on-disk `./Foo.ts`, and importing `*.md` prompt files as text. Pass CLI
+args after `--`, e.g. `npm run dev -- format <file>`.
 
 The decision core (`src/Machine.ts`) is pure and IO-free, so the whole 16-state
 ladder and both counter folds are trivially unit-testable in isolation; all
