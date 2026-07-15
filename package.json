@@ -39,7 +39,7 @@
     "pretest:e2e": "tsup --silent",
     "test:e2e": "vitest run --project e2e",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
+    "lint": "oxlint .",
     "format": "prettier --write .",
     "format:check": "prettier --check . --log-level warn",
     "test:mutation": "stryker run"
@@ -48,9 +48,7 @@
     "*": "prettier --ignore-unknown --write"
   },
   "devDependencies": {
-    "@effect/eslint-plugin": "^0.3.2",
     "@effect/language-service": "^0.72.0",
-    "@eslint/js": "^9.39.2",
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/github": "^12.0.8",
@@ -60,16 +58,15 @@
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/diff": "^7.0.2",
     "@types/node": "^25.9.3",
-    "eslint": "^9.39.2",
     "fallow": "^2.104.0",
     "fast-check": "^4.8.0",
     "husky": "^9.1.7",
     "jiti": "^2.7.0",
     "lint-staged": "^17.0.8",
+    "oxlint": "^1.74.0",
     "quickpickle": "1.11.2",
     "semantic-release": "^25.0.5",
     "tsup": "^8.4.0",
-    "typescript-eslint": "^8.54.0",
     "vitest": "^3.2.0",
     "yaml": "^2.8.2"
   },
