@@ -5,10 +5,7 @@
     "correctness": "error"
   },
   "rules": {
-    "no-unused-vars": [
-      "error",
-      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }
-    ]
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }]
   },
   "overrides": [
     {
@@ -18,11 +15,5 @@
       }
     }
   ],
-  "ignorePatterns": [
-    "dist",
-    "node_modules",
-    "scripts",
-    ".stryker-tmp",
-    "reports"
-  ]
+  "ignorePatterns": ["dist", "node_modules", "scripts", ".stryker-tmp", "reports"]
 }

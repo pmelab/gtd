@@ -1,4 +1,4 @@
-import { defineConfig } from "tsdown";
+import { defineConfig } from "tsdown"
 
 export default defineConfig({
   entry: { "gtd.bundle": "src/main.ts" },
@@ -19,4 +19,4 @@ const require = __createRequire(import.meta.url);`,
   },
   dts: false,
   outputOptions: { codeSplitting: false },
-});
+})
