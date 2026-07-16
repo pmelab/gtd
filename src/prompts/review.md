@@ -41,6 +41,10 @@ Spawn a **planning-model subagent** using model `<%= it.model %>` to author a
      `.gtd/REVIEW.md` (or any code edits) are treated as a change-request.
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
+   - This structure is enforced: the `# Review: <hash>` header, the
+     `<!-- base: ... -->` comment, and at least one file pointer per chunk
+     are all required — a missing one blocks your turn (`gtd step-agent`
+     refuses until it's fixed).
 
 4. Leave `.gtd/REVIEW.md` **uncommitted** and finish your turn — the human reviews
    it next.

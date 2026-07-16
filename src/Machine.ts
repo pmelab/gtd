@@ -205,6 +205,23 @@ export interface ResolvePayload {
    * unmodified placeholder.
    */
   readonly learningMsgIsTemplate: boolean
+  /**
+   * Structural-validation errors for whichever of `TODO.md`/`ARCHITECTURE.md`
+   * is present (the two never coexist, so one field covers both phases), from
+   * `parseOpenQuestions` (`src/OpenQuestions.ts`). Empty/absent when the
+   * present file is well-formed or neither file exists. Consulted ONLY when
+   * the AGENT is about to capture a fresh `grilling`/`architecting` turn
+   * (`applyTurnTaking`) — a human's own turn is never blocked by this.
+   */
+  readonly grillingDocErrors?: readonly string[]
+  /**
+   * Structural-validation errors for the present `REVIEW.md`, from
+   * `parseReviewDoc` (`src/ReviewDoc.ts`). Empty/absent when well-formed or
+   * absent. Consulted ONLY when the AGENT is about to capture a fresh
+   * `review` turn (the human's checkbox/feedback turn at `await-review` is
+   * never blocked by this).
+   */
+  readonly reviewDocErrors?: readonly string[]
 }
 
 /**
@@ -1485,6 +1502,38 @@ const applyTurnTaking = (
   //   (accept-defaults at grilling, clean approval at review).
   if (invoker === "agent" && isInertEmptyAgentRest(baseline.state, p)) {
     return { state: baseline.state, actor: awaited, pending: false, context }
+  }
+
+  // A malformed grilling/architecting/review draft blocks the AGENT's own
+  // turn capture — a third narrow content-inspection exception, alongside
+  // FEEDBACK.md emptiness and REVIEW.md checkbox-only diffs (STATES.md §1).
+  // `invoker === "agent"` is what keeps this from ever firing on a HUMAN's
+  // turn capture at these same gate names (their answer at the grilling
+  // gate, their feedback/approval at the review gate) — those are never
+  // structurally validated.
+  if (invoker === "agent") {
+    if (
+      (gate === "grilling" || gate === "architecting") &&
+      (p.grillingDocErrors?.length ?? 0) > 0
+    ) {
+      const file = gate === "grilling" ? ".gtd/TODO.md" : ".gtd/ARCHITECTURE.md"
+      return {
+        state: baseline.state,
+        actor: awaited,
+        pending: false,
+        refusal: `${file} does not match the required structure:\n- ${p.grillingDocErrors!.join("\n- ")}\n\nFix the file and re-run \`gtd step-agent\`.`,
+        context,
+      }
+    }
+    if (gate === "review" && (p.reviewDocErrors?.length ?? 0) > 0) {
+      return {
+        state: baseline.state,
+        actor: awaited,
+        pending: false,
+        refusal: `.gtd/REVIEW.md does not match the required structure:\n- ${p.reviewDocErrors!.join("\n- ")}\n\nFix the file and re-run \`gtd step-agent\`.`,
+        context,
+      }
+    }
   }
 
   return {

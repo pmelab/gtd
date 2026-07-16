@@ -101,6 +101,8 @@ Commands:
   next             Print the prompt for whichever actor is awaited (no mutation)
   status           Predict the next commit and state from the working tree (no mutation)
   review <target>  Anchor an ad-hoc human review against a git ref or branch
+  questions        List open questions from the active grilling/architecting doc
+  changesets       List changesets/files from the active review doc
   format <file>    Format a markdown file in place
 
 Options:
@@ -273,6 +275,30 @@ Errors (all exit 1, message on stderr):
 - Empty diff:
   `gtd review: nothing to review (<target> diff is empty after filtering)`
 
+### `gtd questions` / `gtd changesets`
+
+Pure, read-only reporters — no dirty-tree check, no mutation — that parse the
+structured content out of the active grilling/architecting and review documents,
+for a future UI:
+
+- **`gtd questions`** reads whichever of `.gtd/TODO.md` / `.gtd/ARCHITECTURE.md`
+  is present and reports its `## Open Questions` list (see
+  [Structured grilling/architecting and review files](#structured-grillingarchitecting-and-review-files)
+  below). Reports an empty list when neither file exists.
+- **`gtd changesets`** reads `.gtd/REVIEW.md`, if present, and reports its
+  chunks/file-pointer list. Reports an empty list when the file doesn't exist.
+
+Both take no arguments and always exit 0 — a malformed file is reported via the
+`errors` field/lines rather than failing the command (the same diagnosis
+`gtd step-agent` would refuse the agent's next turn capture with).
+
+```bash
+gtd questions --json
+# {"file":".gtd/TODO.md","questions":[{"question":"Which operations?","status":"suggested","text":"add and subtract."}],"errors":[]}
+gtd changesets --json
+# {"file":".gtd/REVIEW.md","shortHash":"abc1234","fullHash":"abc1234...","changesets":[...],"errors":[]}
+```
+
 ### `gtd format <file>`
 
 Unchanged from v1: formats a markdown file in place with a bundled prettier
@@ -292,8 +318,9 @@ Errors (all exit 1, message on stderr):
 
 ## JSON schemas
 
-Pass `--json` to `step`, `step-agent`, `next`, or `status` for machine-readable
-single-line JSON output instead of plain text.
+Pass `--json` to `step`, `step-agent`, `next`, `status`, `review`, `questions`,
+or `changesets` for machine-readable single-line JSON output instead of plain
+text.
 
 **`step` / `step-agent`** — `{state, actions, commits}`:
 
@@ -346,6 +373,47 @@ single-line JSON output instead of plain text.
 
 `predictedCommit` is `null` when the next invocation would author nothing (e.g.
 idle with a green health check).
+
+**`questions`** — `{file, questions, errors}`:
+
+```json
+{
+  "file": ".gtd/TODO.md",
+  "questions": [
+    {
+      "question": "Which operations?",
+      "status": "suggested",
+      "text": "add and subtract."
+    }
+  ],
+  "errors": []
+}
+```
+
+`file` is `null` when neither `.gtd/TODO.md` nor `.gtd/ARCHITECTURE.md` is
+present. `errors` lists any structural problems in the file — the same diagnosis
+that would make `gtd step-agent` refuse the agent's next turn capture.
+
+**`changesets`** — `{file, shortHash, fullHash, changesets, errors}`:
+
+```json
+{
+  "file": ".gtd/REVIEW.md",
+  "shortHash": "abc1234",
+  "fullHash": "abc1234def5678901234567890123456789abcd",
+  "changesets": [
+    {
+      "title": "Add calculator",
+      "description": "New add function for the calculator.",
+      "files": [{ "path": "./src/calc.ts", "line": 1, "checked": false }]
+    }
+  ],
+  "errors": []
+}
+```
+
+`file` is `null` when `.gtd/REVIEW.md` doesn't exist. `errors` mirrors
+`questions`' field above.
 
 **Error envelope** — every command, in `--json` mode, reports failures inside
 the JSON object rather than as unstructured text, and still exits 1:
@@ -489,8 +557,10 @@ everything pending as `gtd(human): grilling` — nothing is reverted or seeded,
 the captured files stay in history. `gtd next` hands the agent that turn's diff;
 the agent develops `.gtd/TODO.md` into a concrete **product-level** plan **in
 one turn** — user-facing decisions only, no architecture — proposing a
-**suggested default** for every open question, and leaves `.gtd/TODO.md`
-uncommitted for `gtd(agent): grilling`.
+**suggested default** for every open question under an enforced
+`## Open Questions` structure (see
+[Structured grilling/architecting and review files](#structured-grillingarchitecting-and-review-files)),
+and leaves `.gtd/TODO.md` uncommitted for `gtd(agent): grilling`.
 
 There are no markers to answer — the human either:
 
@@ -513,6 +583,46 @@ already contains `.gtd/ARCHITECTURE.md` (their own technical sketch), `gtd step`
 captures the entry turn as `gtd(human): architecting` directly, skipping product
 grilling for that cycle entirely — no CLI flag needed, it's driven purely by
 which steering file is present.
+
+### Structured grilling/architecting and review files
+
+`.gtd/TODO.md`, `.gtd/ARCHITECTURE.md`, and `.gtd/REVIEW.md` stay plain,
+human-readable markdown, but each follows an enforced structure so the data can
+be parsed out programmatically (`gtd questions` / `gtd changesets`, both
+`--json`-able, for a future UI) instead of staying opaque prose.
+
+**Grilling/architecting** (identical contract, one file and phase apart): an
+OPTIONAL `## Open Questions` section — omitted entirely means zero open
+questions, not an error. Every `###` sub-heading directly under it is one open
+question; its first body line must be `Suggested default: <text>` (the agent's
+proposal) or `Answer: <text>` (a human's answer):
+
+```markdown
+# Plan
+
+Build a calculator that can add and subtract.
+
+## Open Questions
+
+### Which operations?
+
+Suggested default: add and subtract.
+```
+
+**Review**: a `# Review: <short-hash>` header as the first line, an
+`<!-- base: <full-hash> -->` comment, and at least one `##` chunk with a
+non-empty title and at least one `- [ ]` / `- [x]` file-pointer line — the same
+format `@review` already instructs the agent to write (see
+[Human review gate](#human-review-gate) below).
+
+Validation applies ONLY to the **agent's own authored draft** at the gate that
+writes the file — never to a human's free-form edits (their answer at the
+grilling/architecting gate, their feedback/approval at the review gate). When
+the active file is malformed, `gtd step-agent` refuses (zero commits, a stderr
+message listing every structural problem) instead of capturing the turn; the
+agent fixes the file and reruns `gtd step-agent`. `gtd questions --json` /
+`gtd changesets --json` surface the same `errors` without blocking anything, so
+an agent (or a UI) can self-check before committing to a turn.
 
 ### Build lifecycle: budgets
 

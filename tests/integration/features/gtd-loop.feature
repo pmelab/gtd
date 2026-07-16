@@ -39,7 +39,9 @@ Feature: gtd-loop — the packaged reference loop driver
         *"help a human to review the changes"*)
           mkdir -p .gtd
           cat > .gtd/REVIEW.md <<'REVIEW'
-      # Review
+      # Review: abc1234
+
+      <!-- base: abc1234000000000000000000000000000000 -->
 
       ## Add calculator
 
@@ -99,7 +101,9 @@ Feature: gtd-loop — the packaged reference loop driver
         *"help a human to review the changes"*)
           mkdir -p .gtd
           cat > .gtd/REVIEW.md <<'REVIEW'
-      # Review
+      # Review: abc1234
+
+      <!-- base: abc1234000000000000000000000000000000 -->
 
       ## Add calculator
 

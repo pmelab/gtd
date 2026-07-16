@@ -191,9 +191,13 @@ architecture. The subagent works entirely by editing \`.gtd/ARCHITECTURE.md\`:
    until the architecture is as complete as it can get without human input.
    Do not leave this to a future round — there isn't one before the human is
    asked.
-4. For every remaining open question, write it near the top of the file with
-   a **suggested default** — your best-guess answer, stated plainly, that the
-   human can accept as-is. A question with no suggested default is incomplete.
+4. For every remaining open question, add it under a \`## Open Questions\`
+   section near the top of the file, one \`### <question>\` sub-heading per
+   question, whose first body line is \`Suggested default: <answer>\` — your
+   best-guess answer, stated plainly, that the human can accept as-is. This
+   structure is enforced: a \`###\` question with no \`Suggested default:\` line
+   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   \`## Open Questions\` section entirely once there are none.
 5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step\`)
    reads it next.
 "
@@ -237,9 +241,13 @@ architecture. The subagent works entirely by editing \`.gtd/ARCHITECTURE.md\`:
    until the architecture is as complete as it can get without human input.
    Do not leave this to a future round — there isn't one before the human is
    asked.
-4. For every remaining open question, write it near the top of the file with
-   a **suggested default** — your best-guess answer, stated plainly, that the
-   human can accept as-is. A question with no suggested default is incomplete.
+4. For every remaining open question, add it under a \`## Open Questions\`
+   section near the top of the file, one \`### <question>\` sub-heading per
+   question, whose first body line is \`Suggested default: <answer>\` — your
+   best-guess answer, stated plainly, that the human can accept as-is. This
+   structure is enforced: a \`###\` question with no \`Suggested default:\` line
+   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   \`## Open Questions\` section entirely once there are none.
 5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step\`)
    reads it next.
 
@@ -287,9 +295,13 @@ architecture. The subagent works entirely by editing \`.gtd/ARCHITECTURE.md\`:
    until the architecture is as complete as it can get without human input.
    Do not leave this to a future round — there isn't one before the human is
    asked.
-4. For every remaining open question, write it near the top of the file with
-   a **suggested default** — your best-guess answer, stated plainly, that the
-   human can accept as-is. A question with no suggested default is incomplete.
+4. For every remaining open question, add it under a \`## Open Questions\`
+   section near the top of the file, one \`### <question>\` sub-heading per
+   question, whose first body line is \`Suggested default: <answer>\` — your
+   best-guess answer, stated plainly, that the human can accept as-is. This
+   structure is enforced: a \`###\` question with no \`Suggested default:\` line
+   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   \`## Open Questions\` section entirely once there are none.
 5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step\`)
    reads it next.
 
@@ -325,14 +337,16 @@ explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
 *outside* \`.gtd/\` is ordinary project code, not workflow state.
 
 \`.gtd/ARCHITECTURE.md\` holds the technical plan under development, with open
-questions written near the top — each one carrying a suggested default.
+questions under a \`## Open Questions\` section — each \`### <question>\`
+carrying a suggested default.
 
 This is a human gate; there is nothing for the agent to do.
 
 Tell the user:
 
-- To answer a question, edit \`.gtd/ARCHITECTURE.md\` in place (replace the
-  question's text with your answer, or annotate it), then run \`gtd step\`.
+- To answer a question, edit its \`### <question>\` entry under \`## Open
+  Questions\` in place — replace the \`Suggested default: ...\` line with
+  \`Answer: ...\` (or annotate it further), then run \`gtd step\`.
 - To accept **all** suggested defaults as-is, run \`gtd step\` with **no
   edits** — this converges the architecture and moves on to decomposition.
 "
@@ -348,14 +362,16 @@ explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
 *outside* \`.gtd/\` is ordinary project code, not workflow state.
 
 \`.gtd/ARCHITECTURE.md\` holds the technical plan under development, with open
-questions written near the top — each one carrying a suggested default.
+questions under a \`## Open Questions\` section — each \`### <question>\`
+carrying a suggested default.
 
 This is a human gate; there is nothing for the agent to do.
 
 Tell the user:
 
-- To answer a question, edit \`.gtd/ARCHITECTURE.md\` in place (replace the
-  question's text with your answer, or annotate it), then run \`gtd step\`.
+- To answer a question, edit its \`### <question>\` entry under \`## Open
+  Questions\` in place — replace the \`Suggested default: ...\` line with
+  \`Answer: ...\` (or annotate it further), then run \`gtd step\`.
 - To accept **all** suggested defaults as-is, run \`gtd step\` with **no
   edits** — this converges the architecture and moves on to decomposition.
 "
@@ -884,9 +900,13 @@ The subagent works entirely by editing \`.gtd/TODO.md\`:
 3. **Iterate internally** (spawn further subagents, reconsider, cross-check)
    until the plan is as complete as it can get without human input. Do not
    leave this to a future round — there isn't one before the human is asked.
-4. For every remaining open question, write it near the top of the file with
-   a **suggested default** — your best-guess answer, stated plainly, that the
-   human can accept as-is. A question with no suggested default is incomplete.
+4. For every remaining open question, add it under a \`## Open Questions\`
+   section near the top of the file, one \`### <question>\` sub-heading per
+   question, whose first body line is \`Suggested default: <answer>\` — your
+   best-guess answer, stated plainly, that the human can accept as-is. This
+   structure is enforced: a \`###\` question with no \`Suggested default:\` line
+   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   \`## Open Questions\` section entirely once there are none.
 5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
    next.
 "
@@ -925,9 +945,13 @@ The subagent works entirely by editing \`.gtd/TODO.md\`:
 3. **Iterate internally** (spawn further subagents, reconsider, cross-check)
    until the plan is as complete as it can get without human input. Do not
    leave this to a future round — there isn't one before the human is asked.
-4. For every remaining open question, write it near the top of the file with
-   a **suggested default** — your best-guess answer, stated plainly, that the
-   human can accept as-is. A question with no suggested default is incomplete.
+4. For every remaining open question, add it under a \`## Open Questions\`
+   section near the top of the file, one \`### <question>\` sub-heading per
+   question, whose first body line is \`Suggested default: <answer>\` — your
+   best-guess answer, stated plainly, that the human can accept as-is. This
+   structure is enforced: a \`###\` question with no \`Suggested default:\` line
+   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   \`## Open Questions\` section entirely once there are none.
 5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
    next.
 
@@ -970,9 +994,13 @@ The subagent works entirely by editing \`.gtd/TODO.md\`:
 3. **Iterate internally** (spawn further subagents, reconsider, cross-check)
    until the plan is as complete as it can get without human input. Do not
    leave this to a future round — there isn't one before the human is asked.
-4. For every remaining open question, write it near the top of the file with
-   a **suggested default** — your best-guess answer, stated plainly, that the
-   human can accept as-is. A question with no suggested default is incomplete.
+4. For every remaining open question, add it under a \`## Open Questions\`
+   section near the top of the file, one \`### <question>\` sub-heading per
+   question, whose first body line is \`Suggested default: <answer>\` — your
+   best-guess answer, stated plainly, that the human can accept as-is. This
+   structure is enforced: a \`###\` question with no \`Suggested default:\` line
+   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   \`## Open Questions\` section entirely once there are none.
 5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
    next.
 
@@ -1006,15 +1034,17 @@ never instruct a subagent to — except the specific \`.gtd/\` file this prompt
 explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
 *outside* \`.gtd/\` is ordinary project code, not workflow state.
 
-\`.gtd/TODO.md\` holds the plan under development, with open questions written near
-the top — each one carrying a suggested default.
+\`.gtd/TODO.md\` holds the plan under development, with open questions under a
+\`## Open Questions\` section — each \`### <question>\` carrying a suggested
+default.
 
 This is a human gate; there is nothing for the agent to do.
 
 Tell the user:
 
-- To answer a question, edit \`.gtd/TODO.md\` in place (replace the question's text
-  with your answer, or annotate it), then run \`gtd step\`.
+- To answer a question, edit its \`### <question>\` entry under \`## Open
+  Questions\` in place — replace the \`Suggested default: ...\` line with
+  \`Answer: ...\` (or annotate it further), then run \`gtd step\`.
 - To accept **all** suggested defaults as-is, run \`gtd step\` with **no
   edits** — this converges the plan and moves on to technical architecting.
 "
@@ -1029,15 +1059,17 @@ never instruct a subagent to — except the specific \`.gtd/\` file this prompt
 explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
 *outside* \`.gtd/\` is ordinary project code, not workflow state.
 
-\`.gtd/TODO.md\` holds the plan under development, with open questions written near
-the top — each one carrying a suggested default.
+\`.gtd/TODO.md\` holds the plan under development, with open questions under a
+\`## Open Questions\` section — each \`### <question>\` carrying a suggested
+default.
 
 This is a human gate; there is nothing for the agent to do.
 
 Tell the user:
 
-- To answer a question, edit \`.gtd/TODO.md\` in place (replace the question's text
-  with your answer, or annotate it), then run \`gtd step\`.
+- To answer a question, edit its \`### <question>\` entry under \`## Open
+  Questions\` in place — replace the \`Suggested default: ...\` line with
+  \`Answer: ...\` (or annotate it further), then run \`gtd step\`.
 - To accept **all** suggested defaults as-is, run \`gtd step\` with **no
   edits** — this converges the plan and moves on to technical architecting.
 "
@@ -1299,6 +1331,10 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      \`.gtd/REVIEW.md\` (or any code edits) are treated as a change-request.
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
+   - This structure is enforced: the \`# Review: <hash>\` header, the
+     \`<!-- base: ... -->\` comment, and at least one file pointer per chunk
+     are all required — a missing one blocks your turn (\`gtd step-agent\`
+     refuses until it's fixed).
 
 4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
    it next.
@@ -1355,6 +1391,10 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      \`.gtd/REVIEW.md\` (or any code edits) are treated as a change-request.
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
+   - This structure is enforced: the \`# Review: <hash>\` header, the
+     \`<!-- base: ... -->\` comment, and at least one file pointer per chunk
+     are all required — a missing one blocks your turn (\`gtd step-agent\`
+     refuses until it's fixed).
 
 4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
    it next.
@@ -1415,6 +1455,10 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      \`.gtd/REVIEW.md\` (or any code edits) are treated as a change-request.
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
+   - This structure is enforced: the \`# Review: <hash>\` header, the
+     \`<!-- base: ... -->\` comment, and at least one file pointer per chunk
+     are all required — a missing one blocks your turn (\`gtd step-agent\`
+     refuses until it's fixed).
 
 4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
    it next.
@@ -1480,6 +1524,10 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      \`.gtd/REVIEW.md\` (or any code edits) are treated as a change-request.
    - The user checks off or edits items in place as they work through the
      review; there is no separate Resolved section.
+   - This structure is enforced: the \`# Review: <hash>\` header, the
+     \`<!-- base: ... -->\` comment, and at least one file pointer per chunk
+     are all required — a missing one blocks your turn (\`gtd step-agent\`
+     refuses until it's fixed).
 
 4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
    it next.

@@ -29,9 +29,13 @@ architecture. The subagent works entirely by editing `.gtd/ARCHITECTURE.md`:
    until the architecture is as complete as it can get without human input.
    Do not leave this to a future round — there isn't one before the human is
    asked.
-4. For every remaining open question, write it near the top of the file with
-   a **suggested default** — your best-guess answer, stated plainly, that the
-   human can accept as-is. A question with no suggested default is incomplete.
+4. For every remaining open question, add it under a `## Open Questions`
+   section near the top of the file, one `### <question>` sub-heading per
+   question, whose first body line is `Suggested default: <answer>` — your
+   best-guess answer, stated plainly, that the human can accept as-is. This
+   structure is enforced: a `###` question with no `Suggested default:` line
+   blocks your turn — `gtd step-agent` refuses until it's fixed. Omit the
+   `## Open Questions` section entirely once there are none.
 5. Leave `.gtd/ARCHITECTURE.md` **uncommitted** — the human's turn (`gtd step`)
    reads it next.
 <% if (it.context.turnDiff && it.context.turnDiff.trim()) { %>

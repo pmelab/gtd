@@ -108,7 +108,9 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     # The review agent writes REVIEW.md.
     When a file ".gtd/REVIEW.md" with:
       """
-      # Review
+      # Review: abc1234
+
+      <!-- base: abc1234000000000000000000000000000000 -->
 
       ## Add calculator
 
@@ -221,7 +223,9 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     And the last commit subject is "gtd: package done"
     When a file ".gtd/REVIEW.md" with:
       """
-      # Review
+      # Review: abc1234
+
+      <!-- base: abc1234000000000000000000000000000000 -->
 
       ## Add calculator
 
