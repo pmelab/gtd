@@ -7,6 +7,8 @@ import { Cwd } from "./Cwd.js"
 import { formatFile } from "./Format.js"
 import { TestRunner } from "./TestRunner.js"
 import { parseSubject, turnSubject, type Actor } from "./Subjects.js"
+import { parseOpenQuestions } from "./OpenQuestions.js"
+import { parseReviewDoc } from "./ReviewDoc.js"
 import type {
   CommitEvent,
   EdgeAction,
@@ -483,6 +485,22 @@ export const gatherEvents = (
     // ARCHITECTURE.md tracked at HEAD.
     const architectureCommitted = architectureExists && !isUncommitted(ARCHITECTURE_FILE)
 
+    // Structural validation of whichever grilling-phase file is present (the
+    // two never coexist) and of REVIEW.md, consulted ONLY by the machine when
+    // the AGENT is about to capture a fresh turn at that gate (a human's own
+    // turn is never blocked by this — see `applyTurnTaking`).
+    const grillingDocPath = todoExists
+      ? TODO_FILE
+      : architectureExists
+        ? ARCHITECTURE_FILE
+        : undefined
+    const grillingDocErrors = grillingDocPath
+      ? parseOpenQuestions(yield* fs.readFileString(resolve(grillingDocPath))).errors
+      : []
+    const reviewDocErrors = reviewPresent
+      ? parseReviewDoc(yield* fs.readFileString(resolve(REVIEW_FILE))).errors
+      : []
+
     // The working tree deletes a committed ERRORS.md (human resume → fresh
     // budget). A status probe, distinct from the committed `removedErrors` flag.
     const pendingErrorsDeletion = entries.some(
@@ -801,6 +819,8 @@ export const gatherEvents = (
       reviewCommitted,
       reviewDirty,
       reviewCheckboxOnly,
+      ...(grillingDocErrors.length > 0 ? { grillingDocErrors } : {}),
+      ...(reviewDocErrors.length > 0 ? { reviewDocErrors } : {}),
       pendingErrorsDeletion,
       pendingFeedbackDeletion,
       lastCommitSubject,
@@ -860,6 +880,59 @@ export const reviewAgainst = (
     const refDiff = yield* git.diffRef(mergeBaseHash, WORKFLOW_FILE_EXCLUDES)
     if (refDiff.trim().length === 0) return undefined
     return { reviewBase: mergeBaseHash, refDiff }
+  })
+
+/** The `gtd questions` CLI command's result shape — the file it read (if any) plus the parsed doc. */
+export type OpenQuestionsResult = { file: string | null } & ReturnType<typeof parseOpenQuestions>
+
+/**
+ * Reads and parses whichever of `.gtd/TODO.md` / `.gtd/ARCHITECTURE.md` is
+ * present (the two never coexist) for the `gtd questions` CLI command. Pure
+ * read — no dirty-tree check, no mutation; reports whatever is on disk right
+ * now, well-formed or not.
+ */
+export const readOpenQuestionsDoc = (): Effect.Effect<
+  OpenQuestionsResult,
+  Error,
+  FileSystem.FileSystem | Cwd
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const { root } = yield* Cwd
+    const resolve = (p: string) => join(root, p)
+
+    const todoExists = yield* fs.exists(resolve(TODO_FILE))
+    const architectureExists = yield* fs.exists(resolve(ARCHITECTURE_FILE))
+    const file = todoExists ? TODO_FILE : architectureExists ? ARCHITECTURE_FILE : null
+    if (file === null) return { file, questions: [], errors: [] }
+
+    const content = yield* fs.readFileString(resolve(file))
+    return { file, ...parseOpenQuestions(content) }
+  })
+
+/** The `gtd changesets` CLI command's result shape — the file it read (if any) plus the parsed doc. */
+export type ReviewDocResult = { file: string | null } & ReturnType<typeof parseReviewDoc>
+
+/**
+ * Reads and parses `.gtd/REVIEW.md`, if present, for the `gtd changesets` CLI
+ * command. Pure read — no dirty-tree check, no mutation; reports whatever is
+ * on disk right now, well-formed or not.
+ */
+export const readReviewDoc = (): Effect.Effect<
+  ReviewDocResult,
+  Error,
+  FileSystem.FileSystem | Cwd
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const { root } = yield* Cwd
+    const resolve = (p: string) => join(root, p)
+
+    const present = yield* fs.exists(resolve(REVIEW_FILE))
+    if (!present) return { file: null, changesets: [], errors: [] }
+
+    const content = yield* fs.readFileString(resolve(REVIEW_FILE))
+    return { file: REVIEW_FILE, ...parseReviewDoc(content) }
   })
 
 /**

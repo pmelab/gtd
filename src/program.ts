@@ -3,7 +3,14 @@ import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
-import { gatherEvents, perform, reviewAgainst } from "./Events.js"
+import {
+  gatherEvents,
+  perform,
+  readOpenQuestionsDoc,
+  readReviewDoc,
+  reviewAgainst,
+  type ReviewDocResult,
+} from "./Events.js"
 import * as Format from "./Format.js"
 import { GitService, type GitOperations } from "./Git.js"
 import { predictTurn, resolve, type EdgeAction, type GtdEvent, type Result } from "./Machine.js"
@@ -24,6 +31,8 @@ Commands:
   next             Print the prompt for whichever actor is awaited (no mutation)
   status           Predict the next commit and state from the working tree (no mutation)
   review <target>  Anchor an ad-hoc human review against a git ref or branch
+  questions        List open questions from the active grilling/architecting doc
+  changesets       List changesets/files from the active review doc
   format <file>    Format a markdown file in place
 
 Options:
@@ -314,6 +323,17 @@ const runStep = (
 const commandArgs = (argv: readonly string[]): string[] =>
   argv.slice(3).filter((a) => a.length > 0 && !a.startsWith("--"))
 
+/** Rejects extra positional arguments for a subcommand that takes none (`status`, `questions`, `changesets`). */
+const rejectExtraArgs = (command: string, argv: readonly string[]): Effect.Effect<void, Error> => {
+  const args = commandArgs(argv)
+  if (args.length > 0) {
+    return Effect.fail(
+      new Error(`gtd ${command}: too many arguments — expected none, got: ${args.join(", ")}`),
+    )
+  }
+  return Effect.void
+}
+
 /** `gtd format <file>`: reformat a markdown file in place. Rejects `--json` (not a v2 state command). */
 const runFormatCommand = (
   argv: readonly string[],
@@ -421,12 +441,7 @@ const runStatusCommand = (
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, ProgramRequirements> =>
   Effect.gen(function* () {
-    const args = commandArgs(argv)
-    if (args.length > 0) {
-      return yield* Effect.fail(
-        new Error(`gtd status: too many arguments — expected none, got: ${args.join(", ")}`),
-      )
-    }
+    yield* rejectExtraArgs("status", argv)
     const events = yield* gatherEvents("none")
     const prediction = yield* Effect.try({
       try: () => predictTurn(events),
@@ -490,7 +505,92 @@ const runReviewCommand = (
     }
   })
 
-const KNOWN_SUBCOMMANDS = ["step", "step-agent", "next", "status", "review"] as const
+/**
+ * `gtd questions`: pure reader over whichever of `.gtd/TODO.md` /
+ * `.gtd/ARCHITECTURE.md` is present — the open-questions list, for a future
+ * UI. No dirty-tree check, no mutation: reports whatever is on disk right
+ * now, well-formed or not (`errors` surfaces the same structural problems
+ * that would refuse `gtd step-agent`'s next agent turn).
+ */
+const runQuestionsCommand = (
+  argv: readonly string[],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, ProgramRequirements> =>
+  Effect.gen(function* () {
+    yield* rejectExtraArgs("questions", argv)
+    const result = yield* readOpenQuestionsDoc()
+    if (json) {
+      write(JSON.stringify(result) + "\n")
+      return
+    }
+    if (result.file === null) {
+      write("no open questions (not currently grilling or architecting)\n")
+      return
+    }
+    const lines = [`${result.file}:`]
+    if (result.questions.length === 0 && result.errors.length === 0) {
+      lines.push("  (no open questions)")
+    }
+    for (const q of result.questions) {
+      lines.push(`  - ${q.question}`, `    ${q.status}: ${q.text}`)
+    }
+    for (const err of result.errors) {
+      lines.push(`  error: ${err}`)
+    }
+    write(lines.join("\n") + "\n")
+  })
+
+/** Renders one changeset's title plus its file-pointer lines, plain-text. */
+const formatChangesetPlain = (c: ReviewDocResult["changesets"][number]) => [
+  `  - ${c.title}`,
+  ...c.files.map(
+    (f) =>
+      `      ${f.checked ? "[x]" : "[ ]"} ${f.path}${f.line !== undefined ? `#${f.line}` : ""}`,
+  ),
+]
+
+/** Renders a `readReviewDoc` result as the plain-text `gtd changesets` body (never called when `result.file` is `null`). */
+const formatChangesetsResultPlain = (result: ReviewDocResult): string =>
+  [
+    `${result.file}${result.shortHash ? ` (${result.shortHash})` : ""}:`,
+    ...result.changesets.flatMap(formatChangesetPlain),
+    ...result.errors.map((err) => `  error: ${err}`),
+  ].join("\n") + "\n"
+
+/**
+ * `gtd changesets`: pure reader over `.gtd/REVIEW.md`, if present — the
+ * changeset/file list, for a future UI. No dirty-tree check, no mutation:
+ * reports whatever is on disk right now, well-formed or not (`errors`
+ * surfaces the same structural problems that would refuse `gtd step-agent`'s
+ * next agent turn).
+ */
+const runChangesetsCommand = (
+  argv: readonly string[],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, ProgramRequirements> =>
+  Effect.gen(function* () {
+    yield* rejectExtraArgs("changesets", argv)
+    const result = yield* readReviewDoc()
+    if (json) {
+      write(JSON.stringify(result) + "\n")
+    } else if (result.file === null) {
+      write("no review in progress\n")
+    } else {
+      write(formatChangesetsResultPlain(result))
+    }
+  })
+
+const KNOWN_SUBCOMMANDS = [
+  "step",
+  "step-agent",
+  "next",
+  "status",
+  "review",
+  "questions",
+  "changesets",
+] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
 /**
@@ -577,6 +677,10 @@ const dispatchKnownSubcommand = (
       return runStatusCommand(argv, json, write)
     case "review":
       return runReviewCommand(argv, git, json, write)
+    case "questions":
+      return runQuestionsCommand(argv, json, write)
+    case "changesets":
+      return runChangesetsCommand(argv, json, write)
   }
 }
 

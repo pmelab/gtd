@@ -43,7 +43,7 @@ namespace, and everything outside it is project code. A root-level `TODO.md` or
 deletes it, and agents are prompted never to touch `.gtd/` except the single
 file their turn explicitly grants.
 
-**File content never steers**, with exactly two machine-verified exceptions:
+**File content never steers**, with exactly three machine-verified exceptions:
 
 - **.gtd/FEEDBACK.md emptiness** — a whitespace-only `.gtd/FEEDBACK.md` written
   by a fresh agentic review is the approval signal (`feedbackEmpty` in
@@ -51,6 +51,15 @@ file their turn explicitly grants.
 - **.gtd/REVIEW.md checkbox-only diffs** — a pending `.gtd/REVIEW.md` edit that
   is purely `- [ ]` ↔ `- [x]` flips (and nothing else dirty) is an approval
   signal, not review feedback (`isCheckboxOnlyDiff` in `src/Events.ts`).
+- **Structural validation of the AGENT's own draft** at the grilling,
+  architecting, and review gates — `.gtd/TODO.md` / `.gtd/ARCHITECTURE.md`'s
+  `## Open Questions` structure (`src/OpenQuestions.ts`) and `.gtd/REVIEW.md`'s
+  header/base-comment/chunk structure (`src/ReviewDoc.ts`), surfaced as
+  `grillingDocErrors` / `reviewDocErrors` in `ResolvePayload`. This never
+  inspects a HUMAN's own turn (their answer at grilling, their feedback/approval
+  at review) — only the agent's own turn capture can be refused this way
+  (`applyTurnTaking` in `src/Machine.ts`). See "Open questions and review
+  structure" below.
 
 `.gtd/LEARNINGS.md` and `.gtd/SQUASH_MSG.md` are the two exceptions to this rule
 at a different layer: their content becomes the human-review draft / the final
@@ -83,6 +92,36 @@ commit and never plain no-ops: it always re-runs the configured `testCommand` as
 a health check. A green result stops the loop with **zero commits** — idle is a
 true steady state, not a place that accumulates empty-commit noise. A red result
 writes `.gtd/HEALTH.md` and commits it, entering the health-fixing detour (§4).
+
+### Open questions and review structure
+
+`.gtd/TODO.md` / `.gtd/ARCHITECTURE.md` and `.gtd/REVIEW.md` stay plain,
+human-readable markdown, but each has an enforced structure so the data can be
+parsed out (`gtd questions` / `gtd changesets`, §3) instead of staying opaque
+prose:
+
+- **`.gtd/TODO.md` / `.gtd/ARCHITECTURE.md`** (identical contract, mirrored
+  phases, parsed by `parseOpenQuestions` in `src/OpenQuestions.ts`): an OPTIONAL
+  `## Open Questions` section (omitted entirely = zero open questions, not an
+  error). Every `###` sub-heading directly under it is one open question; its
+  body's first non-blank line must be `Suggested default: <text>` (the agent's
+  unanswered default) or `Answer: <text>` (a human's answer). A `###` question
+  with neither is a structural error.
+- **`.gtd/REVIEW.md`** (parsed by `parseReviewDoc` in `src/ReviewDoc.ts`): a
+  `# Review: <short-hash>` header as the document's first line, an
+  `<!-- base: <full-hash> -->` comment, and at least one `##` chunk, each with a
+  non-empty title and at least one `- [ ]` / `- [x]` file-pointer line. A chunk
+  with zero file pointers, or a missing header/base comment, is a structural
+  error.
+
+Validation applies ONLY to the **agent's own authored draft** at the gate that
+writes the file (`gtd(agent): grilling`, `gtd(agent): architecting`,
+`gtd(agent): review`) — never to a human's free-form edits (their answer at the
+grilling/architecting gate, their feedback/approval at the review gate). When
+the active file is malformed, `gtd step-agent` refuses (zero commits, a stderr
+message listing every structural error) instead of capturing the turn — the
+agent fixes the file and reruns `gtd step-agent`. This is the third of the
+narrow, machine-verified exceptions to "file content never steers" above.
 
 ## 2. The commit-subject grammar
 
@@ -300,6 +339,23 @@ commits `gtd: reviewing <hash>`. Refuses on a dirty tree or an empty filtered
 diff. This anchor takes precedence over the ordinary in-process review-scope
 rules (§4, Review) the next time the machine resolves a review.
 
+### `gtd questions` — pure reader
+
+`invoker`-agnostic pure read: no dirty-tree check, no mutation. Reads whichever
+of `.gtd/TODO.md` / `.gtd/ARCHITECTURE.md` is present (they never coexist),
+parses it per "Open questions and review structure" above (§1), and reports the
+open-questions list — plus any structural errors, the same ones that would
+refuse the next `gtd(agent): grilling`/`gtd(agent): architecting` turn capture.
+Reports an empty list (no file, no error) when neither file is present. Rejects
+extra positional arguments. For a future UI.
+
+### `gtd changesets` — pure reader
+
+Mirrors `gtd questions` for the review side: reads `.gtd/REVIEW.md`, if present,
+parses it per §1 above, and reports the changeset/file list plus any structural
+errors. Reports an empty list (no file, no error) when the file is absent.
+Rejects extra positional arguments. For a future UI.
+
 ### `gtd format <file>`
 
 Reformats a single markdown file in place (via the same formatter `gtd` applies
@@ -329,8 +385,8 @@ committed.
 
 ### JSON shapes
 
-`--json` is supported on `step`, `step-agent`, `next`, `status`, and `review`
-(not `format`). Representative shapes:
+`--json` is supported on `step`, `step-agent`, `next`, `status`, `review`,
+`questions`, and `changesets` (not `format`). Representative shapes:
 
 - `step` / `step-agent`: `{ state, actions, commits }` — `actions` is the
   human-readable list of edge actions performed, `commits` the ordered list of
@@ -346,6 +402,15 @@ committed.
 - `status`: `{ state, actor, predictedCommit, predictedState }` —
   `predictedCommit` is `null` when nothing would be committed (e.g. idle).
 - `review`: `{ state: "review", reviewBase, pending: false, prompt: null }`.
+- `questions`: `{ file, questions, errors }` — `file` is `.gtd/TODO.md` /
+  `.gtd/ARCHITECTURE.md` / `null`; `questions` is
+  `{ question, status: "suggested" | "answered", text }[]`; `errors` lists any
+  structural violations found (same diagnosis `gtd step-agent` would refuse the
+  agent's turn capture with).
+- `changesets`: `{ file, shortHash, fullHash, changesets, errors }` — `file` is
+  `.gtd/REVIEW.md` / `null`; `changesets` is
+  `{ title, description, files: { path, line, checked, note }[] }[]`; `errors`
+  mirrors `questions`' field above.
 - Any top-level failure (including inside the Effect pipeline) renders as
   `{ state: "error", prompt: <message> }` before the process exits non-zero.
 
@@ -376,9 +441,10 @@ agent-develops rest (`@grilling-agent` template).
 
 - `@grilling-agent` (agent awaited) — develop `.gtd/TODO.md` into a concrete
   product-level plan in one turn, using subagents; every remaining open question
-  must carry a suggested default; leave .gtd/TODO.md uncommitted. Inlines the
-  latest human turn's diff (workflow files excluded) as "feedback, not finished
-  work" when present.
+  goes under a `## Open Questions` section (§1, "Open questions and review
+  structure") with a suggested default; leave .gtd/TODO.md uncommitted. Inlines
+  the latest human turn's diff (workflow files excluded) as "feedback, not
+  finished work" when present.
 - `@grilling-answers` (human awaited) — a pure human gate: edit `.gtd/TODO.md`
   in place to answer/annotate, or run `gtd step` with no edits to accept all
   suggested defaults.
@@ -420,7 +486,8 @@ Mechanically an exact mirror of `grilling`, one file and one phase later.
 
 - `@architecting-agent` (agent awaited) — develop `.gtd/ARCHITECTURE.md` into a
   concrete technical plan in one turn, using subagents; every remaining open
-  question must carry a suggested default; leave .gtd/ARCHITECTURE.md
+  question goes under a `## Open Questions` section (§1, "Open questions and
+  review structure") with a suggested default; leave .gtd/ARCHITECTURE.md
   uncommitted. Must not re-open product/user-facing decisions already settled by
   grilling. Inlines the latest human turn's diff as "feedback, not finished
   work" when present.
@@ -627,12 +694,12 @@ the `grilling` section's Entry paragraph.)
 
 **Prompt (agent draft, `@review`):** spawn a subagent to read the inlined diff
 (`git diff <reviewBase> HEAD`, workflow files excluded), group hunks
-semantically into chunks, and write `.gtd/REVIEW.md` with a fixed format: a
-`# Review: <short-hash>` header, an HTML-comment `base:` line, and per-chunk
-`- [ ]` file-pointer checkboxes (`./path#line`). Checkboxes are the approval
-mechanism — ticking them with nothing else edited approves; any other edit (to
-.gtd/REVIEW.md or the code) is a change request. Leave `.gtd/REVIEW.md`
-uncommitted.
+semantically into chunks, and write `.gtd/REVIEW.md` with a fixed, enforced
+format (§1, "Open questions and review structure"): a `# Review: <short-hash>`
+header, an HTML-comment `base:` line, and per-chunk `- [ ]` file-pointer
+checkboxes (`./path#line`). Checkboxes are the approval mechanism — ticking them
+with nothing else edited approves; any other edit (to .gtd/REVIEW.md or the
+code) is a change request. Leave `.gtd/REVIEW.md` uncommitted.
 
 The human gate reached after drafting (`gtd: awaiting review`) is a separate
 `GtdState`, `await-review`, with its own `@await-review` prompt — see below.
