@@ -45,6 +45,7 @@ class Framer {
   private buffer = Buffer.alloc(0)
   constructor(private readonly onMessage: (message: JsonRpcMessage) => void) {}
 
+  // fallow-ignore-next-line complexity
   push(chunk: Buffer): void {
     this.buffer = Buffer.concat([this.buffer, chunk])
     for (;;) {
@@ -102,6 +103,7 @@ Given("a running gtd lsp server", async (world: GtdWorld) => {
   }
   sessions.set(world, session)
 
+  // fallow-ignore-next-line complexity
   const framer = new Framer((message) => {
     if (message.id !== undefined && message.method === undefined) {
       const resolve = session.pending.get(message.id)

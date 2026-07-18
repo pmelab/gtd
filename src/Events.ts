@@ -38,18 +38,30 @@ import type {
 // root-level TODO.md (or REVIEW.md, …) is the project's own file: ordinary
 // code, never steering.
 const GTD_DIR = ".gtd"
-export const TODO_FILE = `${GTD_DIR}/TODO.md`
-export const ARCHITECTURE_FILE = `${GTD_DIR}/ARCHITECTURE.md`
-export const REVIEW_FILE = `${GTD_DIR}/REVIEW.md`
-export const FEEDBACK_FILE = `${GTD_DIR}/FEEDBACK.md`
-export const ERRORS_FILE = `${GTD_DIR}/ERRORS.md`
-export const HEALTH_FILE = `${GTD_DIR}/HEALTH.md`
-export const SQUASH_MSG_FILE = `${GTD_DIR}/SQUASH_MSG.md`
-export const LEARNINGS_FILE = `${GTD_DIR}/LEARNINGS.md`
+const TODO_FILE = `${GTD_DIR}/TODO.md`
+const ARCHITECTURE_FILE = `${GTD_DIR}/ARCHITECTURE.md`
+const REVIEW_FILE = `${GTD_DIR}/REVIEW.md`
+const FEEDBACK_FILE = `${GTD_DIR}/FEEDBACK.md`
+const ERRORS_FILE = `${GTD_DIR}/ERRORS.md`
+const HEALTH_FILE = `${GTD_DIR}/HEALTH.md`
+const SQUASH_MSG_FILE = `${GTD_DIR}/SQUASH_MSG.md`
+const LEARNINGS_FILE = `${GTD_DIR}/LEARNINGS.md`
 // Pre-namespace history wrote FEEDBACK.md at the repo root. Recognized for
 // COMMIT-event classification only (isFeedback), never for diffs or
 // working-tree probes — a root FEEDBACK.md in the tree today is project code.
 const LEGACY_FEEDBACK_FILE = "FEEDBACK.md"
+
+/** The `.gtd/` steering-file paths, grouped for external consumers (e.g. src/Lsp.ts) that need the whole set rather than one. */
+export const STEERING_FILES = {
+  todo: TODO_FILE,
+  architecture: ARCHITECTURE_FILE,
+  review: REVIEW_FILE,
+  feedback: FEEDBACK_FILE,
+  errors: ERRORS_FILE,
+  health: HEALTH_FILE,
+  squashMsg: SQUASH_MSG_FILE,
+  learnings: LEARNINGS_FILE,
+} as const
 const emptyFailureSentinel = (command: string, exitCode: number): string =>
   `Test command \`${command}\` failed with exit code ${exitCode} and produced no output.`
 

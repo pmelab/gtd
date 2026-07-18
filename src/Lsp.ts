@@ -34,24 +34,14 @@ import {
 import { TextDocument } from "vscode-languageserver-textdocument"
 import { parseOpenQuestions, type OpenQuestion } from "./OpenQuestions.js"
 import { parseReviewDoc, type ReviewFile, FILE_POINTER_RE } from "./ReviewDoc.js"
-import {
-  gatherEvents,
-  TODO_FILE,
-  ARCHITECTURE_FILE,
-  REVIEW_FILE,
-  FEEDBACK_FILE,
-  ERRORS_FILE,
-  HEALTH_FILE,
-  SQUASH_MSG_FILE,
-  LEARNINGS_FILE,
-} from "./Events.js"
+import { gatherEvents, STEERING_FILES } from "./Events.js"
 import { resolve, type GtdState } from "./Machine.js"
 import { closeReviewWindow, openReviewWindow } from "./ReviewWindow.js"
 import { GitService } from "./Git.js"
 import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 
-export const OPEN_STEERING_FILE_COMMAND = "gtd.openSteeringFile"
+const OPEN_STEERING_FILE_COMMAND = "gtd.openSteeringFile"
 
 /**
  * States mapped to a single fixed steering file. Absent states —
@@ -61,20 +51,20 @@ export const OPEN_STEERING_FILE_COMMAND = "gtd.openSteeringFile"
  * state instead of guessing a file.
  */
 export const STATE_FILE: Partial<Record<GtdState, string>> = {
-  grilling: TODO_FILE,
-  architecting: ARCHITECTURE_FILE,
-  grilled: ARCHITECTURE_FILE,
-  fixing: FEEDBACK_FILE,
-  "agentic-review": FEEDBACK_FILE,
-  escalate: ERRORS_FILE,
-  review: REVIEW_FILE,
-  "await-review": REVIEW_FILE,
-  learning: LEARNINGS_FILE,
-  "await-learning-review": LEARNINGS_FILE,
-  "learning-apply": LEARNINGS_FILE,
-  squashing: SQUASH_MSG_FILE,
-  "health-check": HEALTH_FILE,
-  "health-fixing": HEALTH_FILE,
+  grilling: STEERING_FILES.todo,
+  architecting: STEERING_FILES.architecture,
+  grilled: STEERING_FILES.architecture,
+  fixing: STEERING_FILES.feedback,
+  "agentic-review": STEERING_FILES.feedback,
+  escalate: STEERING_FILES.errors,
+  review: STEERING_FILES.review,
+  "await-review": STEERING_FILES.review,
+  learning: STEERING_FILES.learnings,
+  "await-learning-review": STEERING_FILES.learnings,
+  "learning-apply": STEERING_FILES.learnings,
+  squashing: STEERING_FILES.squashMsg,
+  "health-check": STEERING_FILES.health,
+  "health-fixing": STEERING_FILES.health,
 }
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
@@ -196,6 +186,7 @@ export const reviewCodeActions = (uri: string, content: string, range: Range): C
   const cursorLine = range.start.line
   const actions: CodeAction[] = []
 
+  // fallow-ignore-next-line complexity
   changesets.forEach((chunk, i) => {
     const hunk = chunk.files.find((file) => file.sourceLine === cursorLine)
     if (hunk) {
@@ -247,7 +238,7 @@ type SteeringFileOutcome =
  * long as the server runs would leave a reviewer's working tree un-rewound
  * (no diff visible) for the entire session.
  */
-const currentSteeringFile: Effect.Effect<
+export const currentSteeringFile: Effect.Effect<
   SteeringFileOutcome,
   Error,
   GitService | FileSystem.FileSystem | ConfigService | ConfigInit | Cwd

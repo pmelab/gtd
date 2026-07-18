@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest"
+import { Effect } from "effect"
 import {
   questionSymbols,
   reviewSymbols,
   toggleHunkEdit,
   toggleChunkEdits,
   reviewCodeActions,
+  currentSteeringFile,
   STATE_FILE,
 } from "./Lsp.js"
+import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
+import { inMemoryLayers } from "../tests/integration/support/inmem/layers.js"
 
 const questionsDoc = [
   "# Plan",
@@ -150,5 +154,38 @@ describe("STATE_FILE", () => {
   it("omits work-package and no-file states, leaving the caller to fall back", () => {
     expect(STATE_FILE["building"]).toBeUndefined()
     expect(STATE_FILE["idle"]).toBeUndefined()
+  })
+})
+
+describe("currentSteeringFile", () => {
+  const runWith = (repo: InMemRepo) =>
+    Effect.runPromise(currentSteeringFile.pipe(Effect.provide(inMemoryLayers(repo))))
+
+  it("resolves to REVIEW.md while resting at await-review", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc", 'testCommand: "true"\n')
+    repo.writeFile("readme.txt", "hello")
+    repo.commitAllWithPrefix("init: first commit")
+    repo.writeFile("src/code.ts", "export const x = 1")
+    repo.commitAllWithPrefix("gtd(agent): building")
+    repo.writeFile(
+      ".gtd/REVIEW.md",
+      "# Review: abc1234\n\n<!-- base: abc1234 -->\n\n## Chunk\n\n- [ ] ./src/code.ts#1\n",
+    )
+    repo.commitAllWithPrefix("gtd(agent): review")
+    repo.commitAllWithPrefix("gtd: awaiting review")
+
+    const outcome = await runWith(repo)
+    expect(outcome).toEqual({ kind: "file", uri: expect.stringContaining("REVIEW.md") })
+  })
+
+  it("reports the state when it has no single mapped file", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc", 'testCommand: "true"\n')
+    repo.writeFile("readme.txt", "hello")
+    repo.commitAllWithPrefix("init: first commit")
+
+    const outcome = await runWith(repo)
+    expect(outcome).toEqual({ kind: "none", state: "idle" })
   })
 })
