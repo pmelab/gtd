@@ -22,6 +22,8 @@ export interface OpenQuestion {
   readonly question: string
   readonly status: OpenQuestionStatus
   readonly text: string
+  /** 0-based line index of this question's `###` heading, for editor tooling. */
+  readonly headingLine: number
 }
 
 export interface OpenQuestionsDoc {
@@ -41,6 +43,7 @@ const headingLevel = (line: string): number | undefined => {
 /** One `###` heading under `## Open Questions`, with its raw body lines (up to the next heading of any level). */
 interface QuestionBlock {
   readonly question: string
+  readonly headingLine: number
   readonly body: readonly string[]
 }
 
@@ -66,13 +69,14 @@ const splitQuestionBlocks = (lines: readonly string[], start: number): readonly 
     const question = lines[i]!.trim()
       .replace(/^#{3}\s+/, "")
       .trim()
+    const headingLine = i
     i += 1
     const body: string[] = []
     while (i < lines.length && headingLevel(lines[i]!) === undefined) {
       body.push(lines[i]!)
       i += 1
     }
-    blocks.push({ question, body })
+    blocks.push({ question, headingLine, body })
   }
 
   return blocks
@@ -99,6 +103,7 @@ const parseQuestionBlock = (block: QuestionBlock): OpenQuestion | { readonly err
     question: block.question,
     status: responseMatch[1] === "Answer" ? "answered" : "suggested",
     text,
+    headingLine: block.headingLine,
   }
 }
 

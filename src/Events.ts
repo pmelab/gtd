@@ -50,6 +50,18 @@ const LEARNINGS_FILE = `${GTD_DIR}/LEARNINGS.md`
 // COMMIT-event classification only (isFeedback), never for diffs or
 // working-tree probes — a root FEEDBACK.md in the tree today is project code.
 const LEGACY_FEEDBACK_FILE = "FEEDBACK.md"
+
+/** The `.gtd/` steering-file paths, grouped for external consumers (e.g. src/Lsp.ts) that need the whole set rather than one. */
+export const STEERING_FILES = {
+  todo: TODO_FILE,
+  architecture: ARCHITECTURE_FILE,
+  review: REVIEW_FILE,
+  feedback: FEEDBACK_FILE,
+  errors: ERRORS_FILE,
+  health: HEALTH_FILE,
+  squashMsg: SQUASH_MSG_FILE,
+  learnings: LEARNINGS_FILE,
+} as const
 const emptyFailureSentinel = (command: string, exitCode: number): string =>
   `Test command \`${command}\` failed with exit code ${exitCode} and produced no output.`
 

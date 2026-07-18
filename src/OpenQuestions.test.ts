@@ -31,7 +31,12 @@ describe("parseOpenQuestions", () => {
     ].join("\n")
     expect(parseOpenQuestions(content)).toEqual({
       questions: [
-        { question: "Which operations?", status: "suggested", text: "add and subtract." },
+        {
+          question: "Which operations?",
+          status: "suggested",
+          text: "add and subtract.",
+          headingLine: 6,
+        },
       ],
       errors: [],
     })
@@ -48,7 +53,12 @@ describe("parseOpenQuestions", () => {
     ].join("\n")
     expect(parseOpenQuestions(content)).toEqual({
       questions: [
-        { question: "Which operations?", status: "answered", text: "add, subtract, and multiply." },
+        {
+          question: "Which operations?",
+          status: "answered",
+          text: "add, subtract, and multiply.",
+          headingLine: 2,
+        },
       ],
       errors: [],
     })
@@ -68,8 +78,18 @@ describe("parseOpenQuestions", () => {
       "",
     ].join("\n")
     expect(parseOpenQuestions(content).questions).toEqual([
-      { question: "Which operations?", status: "suggested", text: "add and subtract." },
-      { question: "What is the target platform?", status: "answered", text: "web only." },
+      {
+        question: "Which operations?",
+        status: "suggested",
+        text: "add and subtract.",
+        headingLine: 2,
+      },
+      {
+        question: "What is the target platform?",
+        status: "answered",
+        text: "web only.",
+        headingLine: 6,
+      },
     ])
   })
 
@@ -90,7 +110,12 @@ describe("parseOpenQuestions", () => {
     ].join("\n")
     expect(parseOpenQuestions(content)).toEqual({
       questions: [
-        { question: "Which operations?", status: "suggested", text: "add and subtract." },
+        {
+          question: "Which operations?",
+          status: "suggested",
+          text: "add and subtract.",
+          headingLine: 2,
+        },
       ],
       errors: [],
     })
@@ -141,7 +166,12 @@ describe("parseOpenQuestions", () => {
       'Open question "Which operations?" is missing a "Suggested default: ..." or "Answer: ..." line',
     ])
     expect(result.questions).toEqual([
-      { question: "What is the target platform?", status: "answered", text: "web only." },
+      {
+        question: "What is the target platform?",
+        status: "answered",
+        text: "web only.",
+        headingLine: 3,
+      },
     ])
   })
 
@@ -163,7 +193,9 @@ describe("parseOpenQuestions", () => {
       "",
     ].join("\n")
     const result = parseOpenQuestions(content)
-    expect(result.questions).toEqual([{ question: "Second?", status: "suggested", text: "yes." }])
+    expect(result.questions).toEqual([
+      { question: "Second?", status: "suggested", text: "yes.", headingLine: 6 },
+    ])
     expect(result.errors).toHaveLength(2)
   })
 })
