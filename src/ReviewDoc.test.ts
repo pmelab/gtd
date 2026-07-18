@@ -23,10 +23,11 @@ describe("parseReviewDoc", () => {
       changesets: [
         {
           title: "Add calculator",
+          headingLine: 4,
           description: "New add function for the calculator.",
           files: [
-            { path: "./src/calc.ts", line: 1, checked: false },
-            { path: "./src/calc.ts", line: 5, checked: false },
+            { path: "./src/calc.ts", line: 1, checked: false, sourceLine: 8 },
+            { path: "./src/calc.ts", line: 5, checked: false, sourceLine: 9 },
           ],
         },
       ],
@@ -54,13 +55,23 @@ describe("parseReviewDoc", () => {
     expect(result.changesets).toEqual([
       {
         title: "Add calculator",
+        headingLine: 3,
         description: "",
-        files: [{ path: "./src/calc.ts", line: 1, checked: true, note: "new add function" }],
+        files: [
+          {
+            path: "./src/calc.ts",
+            line: 1,
+            checked: true,
+            note: "new add function",
+            sourceLine: 5,
+          },
+        ],
       },
       {
         title: "Wire it up",
+        headingLine: 7,
         description: "",
-        files: [{ path: "./src/index.ts", line: 10, checked: false }],
+        files: [{ path: "./src/index.ts", line: 10, checked: false, sourceLine: 9 }],
       },
     ])
   })
@@ -108,7 +119,12 @@ describe("parseReviewDoc", () => {
     const result = parseReviewDoc(content)
     expect(result.errors).toContain('Chunk "Add calculator" has no file pointers')
     expect(result.changesets).toEqual([
-      { title: "Add calculator", description: "Just prose, no pointers.", files: [] },
+      {
+        title: "Add calculator",
+        headingLine: 3,
+        description: "Just prose, no pointers.",
+        files: [],
+      },
     ])
   })
 

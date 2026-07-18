@@ -15,6 +15,7 @@ import * as Format from "./Format.js"
 import { GitService, type GitOperations } from "./Git.js"
 import { predictTurn, resolve, type EdgeAction, type GtdEvent, type Result } from "./Machine.js"
 import { buildPrompt } from "./Prompt.js"
+import { startLspServer } from "./Lsp.js"
 import { closeReviewWindow, openReviewWindow } from "./ReviewWindow.js"
 import { reviewingSubject } from "./Subjects.js"
 import { describeEdgeAction, describeStatus } from "./State.js"
@@ -34,6 +35,7 @@ Commands:
   questions        List open questions from the active grilling/architecting doc
   changesets       List changesets/files from the active review doc
   format <file>    Format a markdown file in place
+  lsp              Start the LSP server for .gtd/ steering files (stdio)
 
 Options:
   --json           Output structured JSON instead of plain text
@@ -721,6 +723,17 @@ export function makeProgram(
 
     if (positional === "format") {
       return yield* runFormatCommand(argv, json)
+    }
+
+    // `lsp` is long-running and manages its own review-window close/open
+    // cycle per request (see src/Lsp.ts) rather than the once-per-invocation
+    // wrap every other subcommand gets below — so it's dispatched here,
+    // before that wrap, exactly like `format`.
+    if (positional === "lsp") {
+      if (json) {
+        return yield* Effect.fail(new Error("gtd lsp does not accept --json"))
+      }
+      return yield* startLspServer()
     }
 
     const sub = yield* requireKnownSubcommand(positional, json, write)
