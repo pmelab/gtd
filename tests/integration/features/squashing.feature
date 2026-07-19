@@ -301,7 +301,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     Then it succeeds
     And stdout contains ".gtd/SQUASH_MSG.md"
 
-  Scenario: Squashing's decision-log update rides into the squash commit alongside the message
+  Scenario: A squash message's ## Decisions section + trailer survive into the commit and are read back later
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -336,17 +336,27 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     And ".gtd/SQUASH_MSG.md" is modified to:
       """
       feat: add calculator with configurable precision
-      """
-    And a file ".gtd/DECISIONS.md" with:
-      """
-      # Architecture & Product Decisions
+
+      ## Decisions
 
       ### Which display precision should the calculator default to?
       Answer: 2 decimal places
+
+      Gtd-Decisions: true
       """
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "feat: add calculator with configurable precision"
-    And the file ".gtd/DECISIONS.md" exists
-    And the file ".gtd/DECISIONS.md" contains "Which display precision should the calculator default to?"
-    And the file ".gtd/DECISIONS.md" contains "2 decimal places"
+    And the git log contains "## Decisions"
+    And the git log contains "Which display precision should the calculator default to?"
+    And the git log contains "Gtd-Decisions: true"
+    And a file "notes.md" with:
+      """
+      Add a memory-recall feature.
+      """
+    When I run gtd step
+    And I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "Prior decisions"
+    And stdout contains "Which display precision should the calculator default to?"
+    And stdout contains "2 decimal places"

@@ -46,12 +46,6 @@ const ERRORS_FILE = `${GTD_DIR}/ERRORS.md`
 const HEALTH_FILE = `${GTD_DIR}/HEALTH.md`
 const SQUASH_MSG_FILE = `${GTD_DIR}/SQUASH_MSG.md`
 const LEARNINGS_FILE = `${GTD_DIR}/LEARNINGS.md`
-// Unlike every other steering file above, DECISIONS.md is never deleted by
-// gtd — it accumulates across the project's whole life (see the `decisionLog`
-// computation below and squashing's decision-merge step). A future engineer
-// extending the "steering files get cleaned up" assumption elsewhere must not
-// apply it here.
-const DECISIONS_FILE = `${GTD_DIR}/DECISIONS.md`
 // Pre-namespace history wrote FEEDBACK.md at the repo root. Recognized for
 // COMMIT-event classification only (isFeedback), never for diffs or
 // working-tree probes — a root FEEDBACK.md in the tree today is project code.
@@ -67,7 +61,6 @@ export const STEERING_FILES = {
   health: HEALTH_FILE,
   squashMsg: SQUASH_MSG_FILE,
   learnings: LEARNINGS_FILE,
-  decisions: DECISIONS_FILE,
 } as const
 const emptyFailureSentinel = (command: string, exitCode: number): string =>
   `Test command \`${command}\` failed with exit code ${exitCode} and produced no output.`
@@ -331,6 +324,36 @@ const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").tr
 const touchedFeedback = (touched: ReadonlyArray<string>): boolean =>
   touched.includes(FEEDBACK_FILE) || touched.includes(LEGACY_FEEDBACK_FILE)
 
+// A squash commit's marker for "this message carries a `## Decisions`
+// section" — a body-only trailer, since squash commits take on arbitrary
+// conventional-commit subjects (`feat:`, `fix:`, ...) and can't be identified
+// by subject. Checked before any section parsing so a commit that merely
+// mentions "## Decisions" in prose (without the trailer) is never touched.
+const DECISIONS_TRAILER_RE = /^Gtd-Decisions:\s*true\s*$/m
+const DECISIONS_HEADING = "## Decisions"
+
+/**
+ * Extracts one commit message's `## Decisions` section verbatim (heading
+ * through the next `#`/`##` heading or end of message, trailer line
+ * excluded), or `undefined` when the trailer is absent or the heading can't
+ * be found despite it (a malformed historical commit — skipped, not an
+ * error, since this reads commits the current turn doesn't own and can't be
+ * asked to fix). Total, never throws.
+ */
+const extractDecisionsSection = (message: string): string | undefined => {
+  if (!DECISIONS_TRAILER_RE.test(message)) return undefined
+  const lines = message.split(/\r?\n/)
+  const headingIdx = lines.findIndex((line) => line.trim() === DECISIONS_HEADING)
+  if (headingIdx === -1) return undefined
+  const endIdx = lines.findIndex((line, i) => i > headingIdx && /^#{1,2}\s+\S/.test(line.trim()))
+  const section = lines
+    .slice(headingIdx, endIdx === -1 ? lines.length : endIdx)
+    .filter((line) => !DECISIONS_TRAILER_RE.test(line))
+    .join("\n")
+    .trim()
+  return section.length > 0 ? section : undefined
+}
+
 /**
  * Gather ALL git/filesystem facts and produce the typed event stream the pure
  * machine folds: one `COMMIT` per first-parent commit (oldest→newest) followed
@@ -520,28 +543,6 @@ export const gatherEvents = (
       ? parseReviewDoc(yield* fs.readFileString(resolve(REVIEW_FILE))).errors
       : []
 
-    // `.gtd/DECISIONS.md` — the running architecture/product decision log.
-    // Read directly when present. If it's missing, either it was never
-    // written or a human deleted it; self-heal by recovering the last known
-    // content from git history (the commit right before whichever commit
-    // deleted it) rather than silently starting over. This restore is
-    // read-only — the file is only physically re-written to disk the next
-    // time squashing merges into it. Consumed as prior-decision context by
-    // grilling/architecting and as the merge base by squashing.
-    let decisionLog = ""
-    if (config.decisionLog && hasCommits) {
-      const decisionsExists = yield* fs.exists(resolve(DECISIONS_FILE))
-      if (decisionsExists) {
-        decisionLog = yield* fs.readFileString(resolve(DECISIONS_FILE))
-      } else {
-        const deletedAt = yield* git.lastDeletionOf(DECISIONS_FILE)
-        if (Option.isSome(deletedAt)) {
-          const restored = yield* git.contentAt(`${deletedAt.value}~1`, DECISIONS_FILE)
-          decisionLog = Option.getOrElse(restored, () => "")
-        }
-      }
-    }
-
     // The working tree deletes a committed ERRORS.md (human resume → fresh
     // budget). A status probe, distinct from the committed `removedErrors` flag.
     const pendingErrorsDeletion = entries.some(
@@ -596,12 +597,28 @@ export const gatherEvents = (
     let refDiff: string | undefined
     let reviewAnchor: string | undefined
     let hasCommitsAfterLastDone = true
+    // Concatenation of every squash commit's `## Decisions` section
+    // (marked by a trailing `Gtd-Decisions: true` line), oldest to newest, no
+    // deduplication — a later entry doesn't erase an earlier one from this
+    // string. Completed cycles' squash commits are immutable, so this text is
+    // a stable, append-only prefix across invocations: conflicts are left for
+    // the reading prompt to resolve by recency (newer wins) rather than
+    // merged in code, and the resulting stable-prefix-plus-small-suffix shape
+    // is exactly what LLM prompt caching wants — no local cache needed.
+    let decisionLog = ""
     if (hasCommits) {
       // Scan ALL commits (no base arg) to properly detect process boundaries
       // across `gtd: done` commits even on trunk. When the COMMIT stream above
       // already scanned the whole history (no merge-base), reuse it rather
       // than spawning the identical `git log` again.
       const allHistory = Option.isNone(base) ? history : yield* git.commitHistory()
+
+      if (config.decisionLog) {
+        decisionLog = allHistory
+          .map((c) => extractDecisionsSection(c.message))
+          .filter((section): section is string => section !== undefined)
+          .join("\n\n")
+      }
 
       // Find the current task cycle: commits after the last `gtd: done`.
       const lastDoneIdx = (() => {

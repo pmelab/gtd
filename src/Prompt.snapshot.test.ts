@@ -334,23 +334,6 @@ describe("buildPrompt snapshots", () => {
     ).toMatchSnapshot()
   })
 
-  it("squashing with decisionLog plain", () => {
-    expect(
-      buildPrompt(
-        result("squashing", {
-          context: {
-            squashDiff: "diff --git a/x b/x\n+hello\n",
-            squashBase: "abc1234",
-            decisionLog:
-              "# Architecture & Product Decisions\n\n### Calculator display precision\nDecimal display defaults to 2 places.\n",
-          },
-        }),
-        resolveModel,
-        "plain",
-      ),
-    ).toMatchSnapshot()
-  })
-
   // ── learning ──────────────────────────────────────────────────────────────
 
   it("learning with squashDiff and squashBase plain", () => {

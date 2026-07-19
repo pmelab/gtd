@@ -179,11 +179,6 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
     return Effect.succeed(hash !== null ? Option.some(hash) : Option.none<string>())
   },
 
-  contentAt: (ref: string, path: string) => {
-    const content = repo.fileAtRef(ref, path)
-    return Effect.succeed(content !== null ? Option.some(content) : Option.none<string>())
-  },
-
   commitHistory: (base?: string) => Effect.succeed(repo.commitHistory(base)),
 
   diffHead: (exclude: ReadonlyArray<string> = []) =>

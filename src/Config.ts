@@ -91,7 +91,7 @@ export interface ConfigOperations {
   readonly agenticReview: boolean
   readonly squash: boolean
   readonly learning: boolean
-  /** Maintain `.gtd/DECISIONS.md` (kill-switch, default true) — see `src/Events.ts`'s `decisionLog` computation. */
+  /** Record/read squash commits' `## Decisions` sections (kill-switch, default true) — see `src/Events.ts`'s `decisionLog` computation. */
   readonly decisionLog: boolean
   readonly fixAttemptCap: number
   readonly reviewThreshold: number

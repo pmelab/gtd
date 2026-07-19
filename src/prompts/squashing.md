@@ -14,28 +14,6 @@ design choices** made during grilling and architecting rounds — specifically
 the `### <question>` entries under `## Open Questions` that got resolved
 (`Answer:`, or an accepted `Suggested default:`) this cycle.
 
-### Step 1a — Update `.gtd/DECISIONS.md`
-<% if (it.context.decisionLog && it.context.decisionLog.trim()) { %>
-The current content is shown below.
-<%~ include("@decision-log", { decisionLog: it.context.decisionLog, fenceFor: it.fenceFor }) %>
-<% } else { %>
-`.gtd/DECISIONS.md` doesn't exist yet (or has no recorded decisions).
-<% } %>
-
-For each decision extracted in Step 1: if it relates to an existing entry
-shown above and contradicts or refines it, **replace that entry in place** —
-the newer decision wins, don't keep both and don't append a
-contradiction/history trail. If it's genuinely new, append it as its own
-`### <topic>` entry. This is a judgment call, not a mechanical key match — the
-same topic is rarely worded identically across cycles.
-
-Write the **complete** resulting document back to `.gtd/DECISIONS.md` (create
-it with just a `# Architecture & Product Decisions` heading plus this cycle's
-entries if it didn't exist). Leave it **uncommitted** — `gtd step-agent`'s
-squash sweeps up every working-tree change, including this file, into the one
-squash commit below. If this cycle recorded no decisions, leave the file
-untouched (don't create an empty one).
-
 ### Step 2 — Draft the commit message
 
 Draft ONE conventional-commits message:
@@ -44,13 +22,27 @@ Draft ONE conventional-commits message:
 type(scope): subject
 
 body (explain the why — motivation, trade-offs, key decisions from grilling)
+
+## Decisions
+
+### <question, verbatim from Step 1>
+Answer: <the resolved answer> (default accepted | human override: <reason>)
+
+Gtd-Decisions: true
 ```
 
 - **type**: `feat` / `fix` / `refactor` / `chore` / `docs` / `test`
 - **subject**: imperative mood, ≤ 72 characters, lowercase after the colon
-- **body**: a brief motivation/trade-off summary. Don't restate the detailed
-  decisions already recorded in `.gtd/DECISIONS.md` (Step 1a) — that's their
-  durable home now.
+- **body**: a brief motivation/trade-off summary.
+- **`## Decisions`**: one block per question resolved THIS cycle (from Step
+  1) — omit the whole section (and the `Gtd-Decisions: true` line) entirely
+  when this cycle recorded no decisions. Don't restate decisions from earlier
+  cycles — this commit only records what changed now; a later grilling round
+  reads the full history of these sections back as context, so repeating old
+  entries here would just duplicate them forever. If this cycle's answer
+  contradicts an earlier cycle's, don't try to edit or annotate the old one —
+  just state the new answer plainly; the newer commit naturally reads as the
+  current truth.
 
 ### Step 3 — Overwrite .gtd/SQUASH_MSG.md
 

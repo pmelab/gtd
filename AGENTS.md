@@ -63,18 +63,22 @@ Same pattern for the `invoker` actor (`"human" | "agent" | "none"`,
 because it's a pure-decision input consumed by the resolver's turn guards
 (`applyTurnTaking`), not something every side effect needs to see.
 
-Same pattern again for `decisionLog` (the full text of `.gtd/DECISIONS.md`,
-`src/Events.ts`): it's a per-prompt input consumed only by the
-grilling/architecting/squashing templates, not a cross-cutting IO mode, so it
-travels as a `ResolvePayload`/`ResolveContext` string field. Unlike every other
-steering file, `.gtd/DECISIONS.md` is never deleted by gtd — if it's missing,
-`gatherEvents` restores its last content from git history
-(`GitService.lastDeletionOf`
-
-- `contentAt`) rather than treating absence as "no decisions ever recorded". A
-  future engineer applying the "steering files get cleaned up" assumption
-  elsewhere (e.g. the "Removing a Workflow Step" checklist above) must not apply
-  it to this file.
+Same pattern again for `decisionLog` (`src/Events.ts`): it's a per-prompt input
+consumed only by the grilling/architecting templates, not a cross-cutting IO
+mode, so it travels as a `ResolvePayload`/`ResolveContext` string field. Unlike
+`squashDiff`/`turnDiff`, it isn't sourced from a single steering file —
+`gatherEvents` scans the full first-parent commit history (reusing `allHistory`,
+never a second `git log` spawn) for squash commits carrying a
+`Gtd-Decisions: true` trailer, extracts each one's `## Decisions` section, and
+concatenates them oldest to newest with **no deduplication**. This is
+deliberate: grilling questions are freshly worded every cycle, so a later
+cycle's answer to "the same" topic essentially never matches an earlier
+`### <question>` heading verbatim — a mechanical key-based merge can't detect a
+revisit, so conflict resolution is left to whichever prompt reads the text
+(prefer the more recent entry) rather than attempted in code. Because completed
+cycles' squash commits are immutable, this concatenated text is a stable,
+append-only prefix across invocations — that shape is intentional: it's what
+makes LLM prompt caching effective without an in-repo cache of our own.
 
 ### Review Checkout Window (Program-Edge Concern)
 

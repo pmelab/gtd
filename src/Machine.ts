@@ -206,12 +206,10 @@ export interface ResolvePayload {
    */
   readonly learningMsgIsTemplate: boolean
   /**
-   * Full text of `.gtd/DECISIONS.md` ("" when absent/never recorded/config
-   * disabled), the running architecture/product decision log — see
-   * `src/Events.ts`'s `decisionLog` computation for the git-history restore
-   * fallback when a human has deleted the file. Pure per-prompt input (like
-   * `squashDiff`), consumed as prior-decision context by
-   * grilling/architecting and as the merge base by squashing.
+   * Every past squash commit's `## Decisions` section, concatenated oldest to
+   * newest with no deduplication ("" when none/config disabled) — see
+   * `src/Events.ts`'s `decisionLog` computation. Pure per-prompt input (like
+   * `squashDiff`), consumed as prior-decision context by grilling/architecting.
    */
   readonly decisionLog: string
   /**
@@ -312,7 +310,7 @@ export interface ResolveContext {
   readonly feedbackContent: string
   /** `headTurnDiff` passthrough, for prompts that inline the turn diff (e.g. re-grilling from review feedback). */
   readonly turnDiff?: string
-  /** Full `.gtd/DECISIONS.md` text (passthrough); "" when absent. Inlined into grilling/architecting/squashing prompts. */
+  /** Concatenated `## Decisions` history from past squash commits (passthrough); "" when none. Inlined into grilling/architecting prompts. */
   readonly decisionLog: string
 }
 

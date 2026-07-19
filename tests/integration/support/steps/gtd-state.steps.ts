@@ -26,6 +26,18 @@ Given("a commit {string}", (world: GtdWorld, message: string) => {
   }
 })
 
+// Same as "a commit {string}" but sources the message from a docstring instead
+// of a quoted string — for a multi-line message (subject + body + trailer),
+// which Gherkin's single-line `{string}` can't express. E.g. a squash commit
+// carrying a `## Decisions` section and its `Gtd-Decisions: true` trailer.
+Given("a commit with message:", (world: GtdWorld, message: string) => {
+  if (world.tier === "inmem") {
+    world.repo!.commitAllWithPrefix(message)
+  } else {
+    git(world.repoDir, "commit", "--allow-empty", "-q", "-m", message)
+  }
+})
+
 // A commit that deletes a tracked file under the given subject — the `gtd: done`
 // that removes REVIEW.md (the default-branch review base), or a commit whose
 // diff removes ERRORS.md (the `removedErrors` reset boundary).

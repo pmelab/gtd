@@ -1,26 +1,34 @@
 @inmem
-Feature: Decision log — .gtd/DECISIONS.md as durable prior-decision context
+Feature: Decision log — architecture decisions recorded in squash commits
 
-  `.gtd/DECISIONS.md` is the one steering file gtd never deletes itself: unlike
-  TODO.md/ARCHITECTURE.md/REVIEW.md, it accumulates across the project's whole
-  life. Grilling/architecting/squashing prompts inline its current content as
-  "Prior decisions" context. If a human deletes it, gtd doesn't silently start
-  over — it recovers the last known content from git history (the commit right
-  before the deletion) so the context survives until squashing next
-  re-materializes the file on disk. The `decisionLog` config kill-switch turns
-  the whole feature off.
+  A squash commit's message MAY carry a `## Decisions` section (one block per
+  product/architecture question resolved that cycle), marked unambiguously by
+  a trailing `Gtd-Decisions: true` line — squash commits take on arbitrary
+  conventional-commit subjects, so the trailer, not the subject, is what makes
+  a commit findable. Grilling/architecting prompts inline every such section
+  found in history, oldest to newest, concatenated with no deduplication: a
+  later cycle's answer to the same question doesn't erase an earlier one from
+  the text, it just reads afterward as the more recent (and therefore
+  authoritative) entry. Because completed cycles' squash commits are
+  immutable, this concatenated text is a stable, append-only prefix across
+  invocations — no local cache is needed, and the shape is exactly what LLM
+  prompt caching wants. The `decisionLog` config kill-switch turns the whole
+  feature off.
 
-  Scenario: A grilling prompt surfaces decisions recorded in .gtd/DECISIONS.md
+  Scenario: A grilling prompt surfaces a decision recorded in a squash commit
     Given a test project
-    And a file ".gtd/DECISIONS.md" with:
+    And a commit with message:
       """
-      # Architecture & Product Decisions
+      feat: add calculator
 
-      ### Calculator display precision
-      Decimal display defaults to 2 places (matches the invoicing module's
-      rounding convention; human override, not the agent's suggested default).
+      ## Decisions
+
+      ### Which display precision should the calculator default to?
+      Answer: 2 decimal places (matches the invoicing module's rounding
+      convention; human override, not the agent's suggested default).
+
+      Gtd-Decisions: true
       """
-    And the working tree is committed as "chore: seed decisions"
     And a file "notes.md" with:
       """
       Build a calculator that can add and subtract.
@@ -30,8 +38,60 @@ Feature: Decision log — .gtd/DECISIONS.md as durable prior-decision context
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
     And stdout contains "Prior decisions"
-    And stdout contains "Calculator display precision"
-    And stdout contains "Decimal display defaults to 2 places"
+    And stdout contains "Which display precision should the calculator default to?"
+    And stdout contains "2 decimal places"
+
+  Scenario: Decisions from multiple squash commits accumulate in chronological order
+    Given a test project
+    And a commit with message:
+      """
+      feat: add calculator
+
+      ## Decisions
+
+      ### Which display precision should the calculator default to?
+      Answer: 2 decimal places
+
+      Gtd-Decisions: true
+      """
+    And a commit with message:
+      """
+      feat: add scientific mode
+
+      ## Decisions
+
+      ### Which display precision should the calculator default to?
+      Answer: 6 decimal places (scientific mode needs more precision than
+      the basic calculator)
+
+      Gtd-Decisions: true
+      """
+    And a file "notes.md" with:
+      """
+      Add a memory-recall feature.
+      """
+    And I run gtd step
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "2 decimal places"
+    And stdout contains "6 decimal places"
+
+  Scenario: A commit mentioning "## Decisions" in prose without the trailer is inert
+    Given a test project
+    And a commit with message:
+      """
+      docs: describe the ## Decisions section format
+
+      This commit just documents the convention, it doesn't record any.
+      """
+    And a file "notes.md" with:
+      """
+      Build a calculator.
+      """
+    And I run gtd step
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout does not contain "Prior decisions"
 
   Scenario: decisionLog: false suppresses the prior-decisions context
     Given a test project
@@ -39,14 +99,17 @@ Feature: Decision log — .gtd/DECISIONS.md as durable prior-decision context
       """
       decisionLog: false
       """
-    And a file ".gtd/DECISIONS.md" with:
+    And a commit with message:
       """
-      # Architecture & Product Decisions
+      feat: add calculator
 
-      ### Calculator display precision
-      Decimal display defaults to 2 places.
+      ## Decisions
+
+      ### Which display precision should the calculator default to?
+      Answer: 2 decimal places
+
+      Gtd-Decisions: true
       """
-    And the working tree is committed as "chore: seed decisions"
     And a file "notes.md" with:
       """
       Build a calculator that can add and subtract.
@@ -55,50 +118,4 @@ Feature: Decision log — .gtd/DECISIONS.md as durable prior-decision context
     When I run gtd next with "--json"
     Then it succeeds
     And stdout does not contain "Prior decisions"
-    And stdout does not contain "Calculator display precision"
-
-  Scenario: A deleted .gtd/DECISIONS.md is restored from git history rather than silently dropped
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      squash: true
-      learning: false
-      """
-    And a file ".gtd/DECISIONS.md" with:
-      """
-      # Architecture & Product Decisions
-
-      ### Operation chaining
-      Operations are not chainable — one operation per call, by design.
-      """
-    And the working tree is committed as "chore: seed decisions"
-    And a commit "chore: pre-cycle work" that adds "src/existing.ts" with:
-      """
-      export const existing = 1
-      """
-    And a commit "chore: human cleanup" that deletes ".gtd/DECISIONS.md"
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
-      """
-      # Plan
-
-      Build a calculator.
-      """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
-    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
-      """
-      # Review
-
-      - [ ] ./src/calc.ts#1
-      """
-    And a commit "gtd: awaiting review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
-    And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
-      """
-      chore: replace this template with a conventional-commits message
-      """
-    And the file ".gtd/DECISIONS.md" does not exist
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "Prior decisions"
-    And stdout contains "Operation chaining"
+    And stdout does not contain "2 decimal places"
