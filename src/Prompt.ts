@@ -3,6 +3,7 @@ import headerMd from "./prompts/header.md"
 import diffMd from "./prompts/partials/diff.md"
 import feedbackMd from "./prompts/partials/feedback.md"
 import packageMd from "./prompts/partials/package.md"
+import decisionLogMd from "./prompts/partials/decision-log.md"
 import agentTurnMd from "./prompts/partials/agent-turn.md"
 import grillingAgentMd from "./prompts/grilling-agent.md"
 import grillingAnswersMd from "./prompts/grilling-answers.md"
@@ -122,6 +123,7 @@ eta.loadTemplate("@header", headerMd)
 eta.loadTemplate("@diff", diffMd)
 eta.loadTemplate("@feedback", feedbackMd)
 eta.loadTemplate("@package", packageMd)
+eta.loadTemplate("@decision-log", decisionLogMd)
 
 // Register the single agent-turn tail partial.
 eta.loadTemplate("@agent-turn", agentTurnMd)

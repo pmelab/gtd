@@ -416,6 +416,35 @@ for (const [tierName, makeTier] of tiers) {
     })
 
     // -----------------------------------------------------------------------
+    describe("contentAt", () => {
+      it("returns Option.some with the file content at the given ref", async () => {
+        t.commit("feat: add review", { "REVIEW.md": "# Review" })
+        const hash = t.resolveRef("HEAD")
+        t.commit("feat: change review", { "REVIEW.md": "# Review v2" })
+
+        const result = await t.run(
+          Effect.flatMap(GitService, (g) => g.contentAt(hash, "REVIEW.md")),
+        )
+        expect(result._tag).toBe("Some")
+        expect(Option.getOrNull(result)).toBe("# Review")
+      })
+
+      it("returns Option.none when the path doesn't exist at the given ref", async () => {
+        const result = await t.run(
+          Effect.flatMap(GitService, (g) => g.contentAt("HEAD", "REVIEW.md")),
+        )
+        expect(result._tag).toBe("None")
+      })
+
+      it("returns Option.none when the ref doesn't resolve", async () => {
+        const result = await t.run(
+          Effect.flatMap(GitService, (g) => g.contentAt("not-a-real-ref", "readme.txt")),
+        )
+        expect(result._tag).toBe("None")
+      })
+    })
+
+    // -----------------------------------------------------------------------
     describe("commitHistory", () => {
       it("returns [] for an empty repo", async () => {
         if (tierName === "Live") {

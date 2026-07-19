@@ -43,6 +43,11 @@ export interface GitReaderOperations {
    */
   readonly lastDeletionOf: (path: string) => Effect.Effect<Option.Option<string>, Error>
   /**
+   * `git show <ref>:<path>` — `Option.some(content)`, or `Option.none()` if the
+   * path doesn't exist at `ref` (or `ref` itself doesn't resolve).
+   */
+  readonly contentAt: (ref: string, path: string) => Effect.Effect<Option.Option<string>, Error>
+  /**
    * First-parent history from `base..HEAD` (or all commits if no base), oldest→newest.
    * Each entry carries the full commit message, `removedErrors: true` iff that
    * commit's name-status diff contains a deletion (`D`) of `.gtd/ERRORS.md`
@@ -478,6 +483,12 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
             .filter((l) => l.length > 0)[0]
           return hash !== undefined ? Option.some(hash) : Option.none<string>()
         }),
+        Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+      ),
+
+    contentAt: (ref: string, path: string) =>
+      exec("git", "show", `${ref}:${path}`).pipe(
+        Effect.map((s) => Option.some(s)),
         Effect.catchAll(() => Effect.succeed(Option.none<string>())),
       ),
 

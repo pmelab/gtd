@@ -300,3 +300,53 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     When I run gtd next
     Then it succeeds
     And stdout contains ".gtd/SQUASH_MSG.md"
+
+  Scenario: Squashing's decision-log update rides into the squash commit alongside the message
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      squash: true
+      learning: false
+      """
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      # Plan
+
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which display precision should the calculator default to?
+      Answer: 2 decimal places
+      """
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review
+
+      - [ ] ./src/calc.ts#1
+      """
+    And a commit "gtd: awaiting review"
+    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd: done"
+    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+      """
+      chore: replace this template with a conventional-commits message
+      """
+    And ".gtd/SQUASH_MSG.md" is modified to:
+      """
+      feat: add calculator with configurable precision
+      """
+    And a file ".gtd/DECISIONS.md" with:
+      """
+      # Architecture & Product Decisions
+
+      ### Which display precision should the calculator default to?
+      Answer: 2 decimal places
+      """
+    When I run gtd step-agent
+    Then it succeeds
+    And the last commit subject is "feat: add calculator with configurable precision"
+    And the file ".gtd/DECISIONS.md" exists
+    And the file ".gtd/DECISIONS.md" contains "Which display precision should the calculator default to?"
+    And the file ".gtd/DECISIONS.md" contains "2 decimal places"

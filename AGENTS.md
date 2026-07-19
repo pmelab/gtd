@@ -63,6 +63,19 @@ Same pattern for the `invoker` actor (`"human" | "agent" | "none"`,
 because it's a pure-decision input consumed by the resolver's turn guards
 (`applyTurnTaking`), not something every side effect needs to see.
 
+Same pattern again for `decisionLog` (the full text of `.gtd/DECISIONS.md`,
+`src/Events.ts`): it's a per-prompt input consumed only by the
+grilling/architecting/squashing templates, not a cross-cutting IO mode, so it
+travels as a `ResolvePayload`/`ResolveContext` string field. Unlike every other
+steering file, `.gtd/DECISIONS.md` is never deleted by gtd — if it's missing,
+`gatherEvents` restores its last content from git history
+(`GitService.lastDeletionOf`
+
+- `contentAt`) rather than treating absence as "no decisions ever recorded". A
+  future engineer applying the "steering files get cleaned up" assumption
+  elsewhere (e.g. the "Removing a Workflow Step" checklist above) must not apply
+  it to this file.
+
 ### Review Checkout Window (Program-Edge Concern)
 
 The review checkout window (`src/ReviewWindow.ts` — HEAD/index rewound to the

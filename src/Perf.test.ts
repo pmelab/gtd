@@ -71,6 +71,7 @@ describe("performance smoke", { timeout: 180_000 }, () => {
             agenticReview: true,
             squash: true,
             learning: false,
+            decisionLog: true,
             fixAttemptCap: 3,
             reviewThreshold: 3,
           }),

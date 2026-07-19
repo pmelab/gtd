@@ -39,6 +39,13 @@ or `REVIEW.md` at the repository root is the project's own file — gtd never
 reads, consumes, or deletes it. (Corollary: don't gitignore `.gtd/` — the
 workflow commits its state through it.)
 
+One file in `.gtd/` is different: **`.gtd/DECISIONS.md`**, the running
+architecture/product decision log, is never deleted by gtd — every other
+steering file above is written and cleaned up within its own cycle, but
+decisions accumulate across the project's whole life. Squashing merges each
+cycle's resolved open questions into it; grilling/architecting read it back as
+"Prior decisions" context. See `decisionLog` under Configuration.
+
 ## Quick start: the two-beat loop
 
 gtd splits what used to be one mutating command into three:
@@ -750,19 +757,20 @@ With `squash: true` (the default), `gtd: done` (or, once learning has run,
 to `gtd: squash template`, writing and committing a `.gtd/SQUASH_MSG.md`
 template. `gtd next` then emits the squashing prompt: the agent overwrites
 `.gtd/SQUASH_MSG.md` with a real conventional-commits message (drawing on
-grilling- and architecting-round decisions from history) and finishes its turn.
-`gtd step-agent` then performs the squash itself: `git reset --soft <base>` +
-`git commit`, collapsing every intermediate `gtd: *` commit of the cycle into
-one — including any review-feedback detours, and the learning phase's own
-commits if learning ran: the squash base is the cycle's ORIGINAL start (the
-first grilling or, via the escape hatch, architecting turn since the previous
-`gtd: done` boundary, or the `gtd: reviewing <hash>` anchor for an ad-hoc review
-cycle), not the most recent re-grilling round — the collapse folds the whole
-cycle into one, using the overwritten message's content verbatim (turn position,
-not message content, triggers the squash). Doc edits made during
-`learning-apply` survive in the squashed tree, not as their own commit. With
-`squash: false`, `gtd: done` (or `gtd: learning applied`) is the resting
-boundary and no template is ever written.
+grilling- and architecting-round decisions from history), merges this cycle's
+decisions into `.gtd/DECISIONS.md`, and finishes its turn. `gtd step-agent` then
+performs the squash itself: `git reset --soft <base>` + `git commit`, collapsing
+every intermediate `gtd: *` commit of the cycle into one — including any
+review-feedback detours, and the learning phase's own commits if learning ran:
+the squash base is the cycle's ORIGINAL start (the first grilling or, via the
+escape hatch, architecting turn since the previous `gtd: done` boundary, or the
+`gtd: reviewing <hash>` anchor for an ad-hoc review cycle), not the most recent
+re-grilling round — the collapse folds the whole cycle into one, using the
+overwritten message's content verbatim (turn position, not message content,
+triggers the squash). Doc edits made during `learning-apply` survive in the
+squashed tree, not as their own commit. With `squash: false`, `gtd: done` (or
+`gtd: learning applied`) is the resting boundary and no template is ever
+written.
 
 ### Health check
 
@@ -849,6 +857,13 @@ built-in defaults apply. Supported filenames (searched in this order):
   `.gtd/LEARNINGS.md`, have a human review them, then integrate them into the
   project's own docs before the squash decision runs. Set `false` to skip the
   phase entirely — independent of `squash`.
+- **`decisionLog`** (boolean, default `true`) — maintain `.gtd/DECISIONS.md`, a
+  running architecture/product decision log that squashing merges into and
+  grilling/architecting inline as prior-decision context. Unlike every other
+  `.gtd/` steering file, gtd never deletes it — it accumulates across the
+  project's whole life; a human deletion is recovered from git history at the
+  next squash. Set `false` to stop gtd from reading or updating it (an existing
+  file is left untouched, not deleted).
 - **`models`** — model selection for the subagent-spawning states:
   - `planning` — high-reasoning tier (default `claude-opus-4-8`), used by
     `decompose` (the `grilled`/`planning` states), `grilling`, `architecting`,
@@ -913,6 +928,7 @@ reviewThreshold: 3
 agenticReview: true
 squash: true
 learning: true
+decisionLog: true
 models:
   planning: claude-opus-4-8
   execution: claude-sonnet-4-8

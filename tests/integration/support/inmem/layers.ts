@@ -179,6 +179,11 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
     return Effect.succeed(hash !== null ? Option.some(hash) : Option.none<string>())
   },
 
+  contentAt: (ref: string, path: string) => {
+    const content = repo.fileAtRef(ref, path)
+    return Effect.succeed(content !== null ? Option.some(content) : Option.none<string>())
+  },
+
   commitHistory: (base?: string) => Effect.succeed(repo.commitHistory(base)),
 
   diffHead: (exclude: ReadonlyArray<string> = []) =>
@@ -465,6 +470,7 @@ const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
   const agenticReview = boolField(raw, "agenticReview", true)
   const squash = boolField(raw, "squash", true)
   const learning = boolField(raw, "learning", true)
+  const decisionLog = boolField(raw, "decisionLog", true)
   const fixAttemptCap = numberField(raw, "fixAttemptCap", 3)
   const reviewThreshold = numberField(raw, "reviewThreshold", 3)
 
@@ -493,6 +499,7 @@ const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
     agenticReview,
     squash,
     learning,
+    decisionLog,
     fixAttemptCap,
     reviewThreshold,
   }

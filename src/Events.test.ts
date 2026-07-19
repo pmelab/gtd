@@ -69,6 +69,7 @@ const fakeConfig = (o: Partial<ConfigOperations> = {}): ConfigOperations => ({
   // Isolated from squash-specific tests below by default — learning has its
   // own describe block that opts back in via the `o` override.
   learning: false,
+  decisionLog: true,
   fixAttemptCap: 3,
   reviewThreshold: 3,
   ...o,
@@ -111,6 +112,7 @@ const runPerform = (
           agenticReview: true,
           squash: true,
           learning: false,
+          decisionLog: true,
           fixAttemptCap: 3,
           reviewThreshold: 3,
         }),

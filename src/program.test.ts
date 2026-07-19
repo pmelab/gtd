@@ -32,6 +32,7 @@ const failingGitLayer = Layer.succeed(GitService, {
   isAncestor: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   lastDeletionOf: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
+  contentAt: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitHistory: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   diffHead: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   diffRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
@@ -64,6 +65,7 @@ const stubConfigLayer = Layer.succeed(ConfigService, {
   agenticReview: false,
   squash: false,
   learning: false,
+  decisionLog: false,
   fixAttemptCap: 0,
   reviewThreshold: 0,
 })

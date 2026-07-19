@@ -961,6 +961,66 @@ agent); when it awaits the human, stop and hand off.
 "
 `;
 
+exports[`buildPrompt snapshots > grilling agent with decisionLog plain 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+\`.gtd/TODO.md\` holds the plan under development. Develop it into a concrete,
+product-level plan **in this one turn** — use subagents / internal iteration
+to go as deep as needed; there is no further agent-only round after this one.
+
+**Scope: product and user-facing decisions only.** Do not decide
+implementation details in this file — file/module structure, data models,
+library or tech-stack choices, and other architecture questions belong to the
+next phase (\`.gtd/ARCHITECTURE.md\`) and must not be treated as open questions
+here.
+
+### Prior decisions
+
+Settled in earlier cycles (\`.gtd/DECISIONS.md\`) — don't re-ask one of these unless the codebase now genuinely contradicts it; if you do override one, make that explicit rather than silently disagreeing.
+
+\`\`\`
+# Architecture & Product Decisions
+
+### Calculator display precision
+Decimal display defaults to 2 places.
+\`\`\`
+
+### Develop the plan
+
+Spawn a **planning-model subagent** using model \`MODEL-grilling\` to develop the plan.
+The subagent works entirely by editing \`.gtd/TODO.md\`:
+
+1. **Explore the codebase before asking anything** — read the relevant files,
+   tests, and docs so every question below is one the codebase genuinely
+   cannot answer.
+2. **Replace the captured input / seed template with a real product plan** —
+   what to build and why, and the user-facing behavior it should have,
+   grounded in the codebase. Leave *how* to build it for the next phase.
+3. **Iterate internally** (spawn further subagents, reconsider, cross-check)
+   until the plan is as complete as it can get without human input. Do not
+   leave this to a future round — there isn't one before the human is asked.
+4. For every remaining open question, add it under a \`## Open Questions\`
+   section near the top of the file, one \`### <question>\` sub-heading per
+   question, whose first body line is \`Suggested default: <answer>\` — your
+   best-guess answer, stated plainly, that the human can accept as-is. This
+   structure is enforced: a \`###\` question with no \`Suggested default:\` line
+   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   \`## Open Questions\` section entirely once there are none.
+5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
+   next.
+
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
+"
+`;
+
 exports[`buildPrompt snapshots > grilling agent with turnDiff plain 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
@@ -1547,6 +1607,95 @@ agent); when it awaits the human, stop and hand off.
 "
 `;
 
+exports[`buildPrompt snapshots > squashing with decisionLog plain 1`] = `
+"You are an autonomous coding agent orchestrating work on the user's repo.
+
+The \`.gtd/\` directory is the workflow's own state (plans, task specs, review
+records). Never create, edit, delete, or reference files under \`.gtd/\` — and
+never instruct a subagent to — except the specific \`.gtd/\` file this prompt
+explicitly tells you to work on. A \`TODO.md\`, \`REVIEW.md\`, or similar file
+*outside* \`.gtd/\` is ordinary project code, not workflow state.
+
+The process is **approved and done**. \`.gtd/SQUASH_MSG.md\` has already been
+committed with a template — your job is to overwrite it with the real
+conventional-commits squash message and finish your turn.
+
+### Step 1 — Extract decisions from grilling rounds
+
+Scan the git history of recent \`gtd: ...\` / \`gtd(agent): ...\` /
+\`gtd(human): ...\` commits. Look for changes to \`.gtd/TODO.md\` and
+\`.gtd/ARCHITECTURE.md\` — specifically the \`## Captured input\` sections and any
+edits to plan/architecture text. Extract **key decisions, trade-offs, and
+design choices** made during grilling and architecting rounds — specifically
+the \`### <question>\` entries under \`## Open Questions\` that got resolved
+(\`Answer:\`, or an accepted \`Suggested default:\`) this cycle.
+
+### Step 1a — Update \`.gtd/DECISIONS.md\`
+The current content is shown below.
+
+### Prior decisions
+
+Settled in earlier cycles (\`.gtd/DECISIONS.md\`) — don't re-ask one of these unless the codebase now genuinely contradicts it; if you do override one, make that explicit rather than silently disagreeing.
+
+\`\`\`
+# Architecture & Product Decisions
+
+### Calculator display precision
+Decimal display defaults to 2 places.
+\`\`\`
+
+For each decision extracted in Step 1: if it relates to an existing entry
+shown above and contradicts or refines it, **replace that entry in place** —
+the newer decision wins, don't keep both and don't append a
+contradiction/history trail. If it's genuinely new, append it as its own
+\`### <topic>\` entry. This is a judgment call, not a mechanical key match — the
+same topic is rarely worded identically across cycles.
+
+Write the **complete** resulting document back to \`.gtd/DECISIONS.md\` (create
+it with just a \`# Architecture & Product Decisions\` heading plus this cycle's
+entries if it didn't exist). Leave it **uncommitted** — \`gtd step-agent\`'s
+squash sweeps up every working-tree change, including this file, into the one
+squash commit below. If this cycle recorded no decisions, leave the file
+untouched (don't create an empty one).
+
+### Step 2 — Draft the commit message
+
+Draft ONE conventional-commits message:
+
+\`\`\`
+type(scope): subject
+
+body (explain the why — motivation, trade-offs, key decisions from grilling)
+\`\`\`
+
+- **type**: \`feat\` / \`fix\` / \`refactor\` / \`chore\` / \`docs\` / \`test\`
+- **subject**: imperative mood, ≤ 72 characters, lowercase after the colon
+- **body**: a brief motivation/trade-off summary. Don't restate the detailed
+  decisions already recorded in \`.gtd/DECISIONS.md\` (Step 1a) — that's their
+  durable home now.
+
+### Step 3 — Overwrite .gtd/SQUASH_MSG.md
+
+Replace the **entire content** of \`.gtd/SQUASH_MSG.md\` (plain text, no markdown
+wrapper, no leftover template scaffolding) with the message from Step 2, then
+leave it uncommitted and finish your turn — \`gtd step-agent\` performs the
+squash using this file's content.
+
+Squash base: abc1234
+
+### Full-process diff (\`git diff abc1234 HEAD\`)
+
+\`\`\`diff
+diff --git a/x b/x
++hello
+\`\`\`
+
+Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+its output — repeat this cycle as long as the output is addressed to you (the
+agent); when it awaits the human, stop and hand off.
+"
+`;
+
 exports[`buildPrompt snapshots > squashing with squashDiff and squashBase json 1`] = `
 "You are an autonomous coding agent orchestrating work on the user's repo.
 
@@ -1566,8 +1715,26 @@ Scan the git history of recent \`gtd: ...\` / \`gtd(agent): ...\` /
 \`gtd(human): ...\` commits. Look for changes to \`.gtd/TODO.md\` and
 \`.gtd/ARCHITECTURE.md\` — specifically the \`## Captured input\` sections and any
 edits to plan/architecture text. Extract **key decisions, trade-offs, and
-design choices** made during grilling and architecting rounds. These will
-appear in the commit body so the history is self-documenting.
+design choices** made during grilling and architecting rounds — specifically
+the \`### <question>\` entries under \`## Open Questions\` that got resolved
+(\`Answer:\`, or an accepted \`Suggested default:\`) this cycle.
+
+### Step 1a — Update \`.gtd/DECISIONS.md\`
+\`.gtd/DECISIONS.md\` doesn't exist yet (or has no recorded decisions).
+
+For each decision extracted in Step 1: if it relates to an existing entry
+shown above and contradicts or refines it, **replace that entry in place** —
+the newer decision wins, don't keep both and don't append a
+contradiction/history trail. If it's genuinely new, append it as its own
+\`### <topic>\` entry. This is a judgment call, not a mechanical key match — the
+same topic is rarely worded identically across cycles.
+
+Write the **complete** resulting document back to \`.gtd/DECISIONS.md\` (create
+it with just a \`# Architecture & Product Decisions\` heading plus this cycle's
+entries if it didn't exist). Leave it **uncommitted** — \`gtd step-agent\`'s
+squash sweeps up every working-tree change, including this file, into the one
+squash commit below. If this cycle recorded no decisions, leave the file
+untouched (don't create an empty one).
 
 ### Step 2 — Draft the commit message
 
@@ -1581,8 +1748,9 @@ body (explain the why — motivation, trade-offs, key decisions from grilling)
 
 - **type**: \`feat\` / \`fix\` / \`refactor\` / \`chore\` / \`docs\` / \`test\`
 - **subject**: imperative mood, ≤ 72 characters, lowercase after the colon
-- **body**: include the important decisions / trade-offs from grilling
-  sessions. Omit if there were no meaningful decisions to capture.
+- **body**: a brief motivation/trade-off summary. Don't restate the detailed
+  decisions already recorded in \`.gtd/DECISIONS.md\` (Step 1a) — that's their
+  durable home now.
 
 ### Step 3 — Overwrite .gtd/SQUASH_MSG.md
 
@@ -1621,8 +1789,26 @@ Scan the git history of recent \`gtd: ...\` / \`gtd(agent): ...\` /
 \`gtd(human): ...\` commits. Look for changes to \`.gtd/TODO.md\` and
 \`.gtd/ARCHITECTURE.md\` — specifically the \`## Captured input\` sections and any
 edits to plan/architecture text. Extract **key decisions, trade-offs, and
-design choices** made during grilling and architecting rounds. These will
-appear in the commit body so the history is self-documenting.
+design choices** made during grilling and architecting rounds — specifically
+the \`### <question>\` entries under \`## Open Questions\` that got resolved
+(\`Answer:\`, or an accepted \`Suggested default:\`) this cycle.
+
+### Step 1a — Update \`.gtd/DECISIONS.md\`
+\`.gtd/DECISIONS.md\` doesn't exist yet (or has no recorded decisions).
+
+For each decision extracted in Step 1: if it relates to an existing entry
+shown above and contradicts or refines it, **replace that entry in place** —
+the newer decision wins, don't keep both and don't append a
+contradiction/history trail. If it's genuinely new, append it as its own
+\`### <topic>\` entry. This is a judgment call, not a mechanical key match — the
+same topic is rarely worded identically across cycles.
+
+Write the **complete** resulting document back to \`.gtd/DECISIONS.md\` (create
+it with just a \`# Architecture & Product Decisions\` heading plus this cycle's
+entries if it didn't exist). Leave it **uncommitted** — \`gtd step-agent\`'s
+squash sweeps up every working-tree change, including this file, into the one
+squash commit below. If this cycle recorded no decisions, leave the file
+untouched (don't create an empty one).
 
 ### Step 2 — Draft the commit message
 
@@ -1636,8 +1822,9 @@ body (explain the why — motivation, trade-offs, key decisions from grilling)
 
 - **type**: \`feat\` / \`fix\` / \`refactor\` / \`chore\` / \`docs\` / \`test\`
 - **subject**: imperative mood, ≤ 72 characters, lowercase after the colon
-- **body**: include the important decisions / trade-offs from grilling
-  sessions. Omit if there were no meaningful decisions to capture.
+- **body**: a brief motivation/trade-off summary. Don't restate the detailed
+  decisions already recorded in \`.gtd/DECISIONS.md\` (Step 1a) — that's their
+  durable home now.
 
 ### Step 3 — Overwrite .gtd/SQUASH_MSG.md
 

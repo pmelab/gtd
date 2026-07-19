@@ -10,6 +10,7 @@ const ctx = (overrides: Partial<ResolveContext> = {}): ResolveContext => ({
   reviewFixCount: 0,
   packages: [],
   feedbackContent: "",
+  decisionLog: "",
   ...overrides,
 })
 
@@ -99,6 +100,22 @@ describe("buildPrompt snapshots", () => {
         result("grilling", {
           actor: "agent",
           context: { turnDiff: "diff --git a/TODO.md b/TODO.md\n+- answer: use option A\n" },
+        }),
+        resolveModel,
+        "plain",
+      ),
+    ).toMatchSnapshot()
+  })
+
+  it("grilling agent with decisionLog plain", () => {
+    expect(
+      buildPrompt(
+        result("grilling", {
+          actor: "agent",
+          context: {
+            decisionLog:
+              "# Architecture & Product Decisions\n\n### Calculator display precision\nDecimal display defaults to 2 places.\n",
+          },
         }),
         resolveModel,
         "plain",
@@ -313,6 +330,23 @@ describe("buildPrompt snapshots", () => {
         }),
         resolveModel,
         "json",
+      ),
+    ).toMatchSnapshot()
+  })
+
+  it("squashing with decisionLog plain", () => {
+    expect(
+      buildPrompt(
+        result("squashing", {
+          context: {
+            squashDiff: "diff --git a/x b/x\n+hello\n",
+            squashBase: "abc1234",
+            decisionLog:
+              "# Architecture & Product Decisions\n\n### Calculator display precision\nDecimal display defaults to 2 places.\n",
+          },
+        }),
+        resolveModel,
+        "plain",
       ),
     ).toMatchSnapshot()
   })

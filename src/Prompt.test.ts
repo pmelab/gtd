@@ -7,6 +7,7 @@ const ctx = (overrides: Partial<ResolveContext> = {}): ResolveContext => ({
   reviewFixCount: 0,
   packages: [],
   feedbackContent: "",
+  decisionLog: "",
   ...overrides,
 })
 

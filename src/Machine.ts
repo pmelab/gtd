@@ -206,6 +206,15 @@ export interface ResolvePayload {
    */
   readonly learningMsgIsTemplate: boolean
   /**
+   * Full text of `.gtd/DECISIONS.md` ("" when absent/never recorded/config
+   * disabled), the running architecture/product decision log — see
+   * `src/Events.ts`'s `decisionLog` computation for the git-history restore
+   * fallback when a human has deleted the file. Pure per-prompt input (like
+   * `squashDiff`), consumed as prior-decision context by
+   * grilling/architecting and as the merge base by squashing.
+   */
+  readonly decisionLog: string
+  /**
    * Structural-validation errors for whichever of `TODO.md`/`ARCHITECTURE.md`
    * is present (the two never coexist, so one field covers both phases), from
    * `parseOpenQuestions` (`src/OpenQuestions.ts`). Empty/absent when the
@@ -303,6 +312,8 @@ export interface ResolveContext {
   readonly feedbackContent: string
   /** `headTurnDiff` passthrough, for prompts that inline the turn diff (e.g. re-grilling from review feedback). */
   readonly turnDiff?: string
+  /** Full `.gtd/DECISIONS.md` text (passthrough); "" when absent. Inlined into grilling/architecting/squashing prompts. */
+  readonly decisionLog: string
 }
 
 /** The resolved decision: the state, the awaited actor, an optional edge action, and context. */
@@ -461,6 +472,7 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   learningEnabled: false,
   learningMsgPresent: false,
   learningMsgIsTemplate: false,
+  decisionLog: "",
 }
 
 /** Build the prompt context from the payload passthrough + the folded counters. */
@@ -474,6 +486,7 @@ const buildContext = (p: ResolvePayload, counters: Counters): ResolveContext => 
   ...(p.squashDiff !== undefined ? { squashDiff: p.squashDiff } : {}),
   feedbackContent: p.feedbackContent !== "" ? p.feedbackContent : p.healthContent,
   ...(p.headTurnDiff !== "" ? { turnDiff: p.headTurnDiff } : {}),
+  decisionLog: p.decisionLog,
 })
 
 /**

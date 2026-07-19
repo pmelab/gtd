@@ -9,6 +9,9 @@ implementation details in this file — file/module structure, data models,
 library or tech-stack choices, and other architecture questions belong to the
 next phase (`.gtd/ARCHITECTURE.md`) and must not be treated as open questions
 here.
+<% if (it.context.decisionLog && it.context.decisionLog.trim()) { %>
+<%~ include("@decision-log", { decisionLog: it.context.decisionLog, fenceFor: it.fenceFor }) %>
+<% } %>
 
 ### Develop the plan
 

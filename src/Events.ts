@@ -46,6 +46,12 @@ const ERRORS_FILE = `${GTD_DIR}/ERRORS.md`
 const HEALTH_FILE = `${GTD_DIR}/HEALTH.md`
 const SQUASH_MSG_FILE = `${GTD_DIR}/SQUASH_MSG.md`
 const LEARNINGS_FILE = `${GTD_DIR}/LEARNINGS.md`
+// Unlike every other steering file above, DECISIONS.md is never deleted by
+// gtd — it accumulates across the project's whole life (see the `decisionLog`
+// computation below and squashing's decision-merge step). A future engineer
+// extending the "steering files get cleaned up" assumption elsewhere must not
+// apply it here.
+const DECISIONS_FILE = `${GTD_DIR}/DECISIONS.md`
 // Pre-namespace history wrote FEEDBACK.md at the repo root. Recognized for
 // COMMIT-event classification only (isFeedback), never for diffs or
 // working-tree probes — a root FEEDBACK.md in the tree today is project code.
@@ -61,6 +67,7 @@ export const STEERING_FILES = {
   health: HEALTH_FILE,
   squashMsg: SQUASH_MSG_FILE,
   learnings: LEARNINGS_FILE,
+  decisions: DECISIONS_FILE,
 } as const
 const emptyFailureSentinel = (command: string, exitCode: number): string =>
   `Test command \`${command}\` failed with exit code ${exitCode} and produced no output.`
@@ -513,6 +520,28 @@ export const gatherEvents = (
       ? parseReviewDoc(yield* fs.readFileString(resolve(REVIEW_FILE))).errors
       : []
 
+    // `.gtd/DECISIONS.md` — the running architecture/product decision log.
+    // Read directly when present. If it's missing, either it was never
+    // written or a human deleted it; self-heal by recovering the last known
+    // content from git history (the commit right before whichever commit
+    // deleted it) rather than silently starting over. This restore is
+    // read-only — the file is only physically re-written to disk the next
+    // time squashing merges into it. Consumed as prior-decision context by
+    // grilling/architecting and as the merge base by squashing.
+    let decisionLog = ""
+    if (config.decisionLog && hasCommits) {
+      const decisionsExists = yield* fs.exists(resolve(DECISIONS_FILE))
+      if (decisionsExists) {
+        decisionLog = yield* fs.readFileString(resolve(DECISIONS_FILE))
+      } else {
+        const deletedAt = yield* git.lastDeletionOf(DECISIONS_FILE)
+        if (Option.isSome(deletedAt)) {
+          const restored = yield* git.contentAt(`${deletedAt.value}~1`, DECISIONS_FILE)
+          decisionLog = Option.getOrElse(restored, () => "")
+        }
+      }
+    }
+
     // The working tree deletes a committed ERRORS.md (human resume → fresh
     // budget). A status probe, distinct from the committed `removedErrors` flag.
     const pendingErrorsDeletion = entries.some(
@@ -857,6 +886,7 @@ export const gatherEvents = (
       learningEnabled: config.learning,
       learningMsgPresent,
       learningMsgIsTemplate,
+      decisionLog,
     }
 
     const resolveEvent: GtdEvent = { type: "RESOLVE", payload }

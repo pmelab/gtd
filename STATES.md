@@ -123,6 +123,14 @@ message listing every structural error) instead of capturing the turn — the
 agent fixes the file and reruns `gtd step-agent`. This is the third of the
 narrow, machine-verified exceptions to "file content never steers" above.
 
+**`.gtd/DECISIONS.md`** is a sibling convention, not a fourth validated file:
+free-form prose, one `### <topic>` entry per architecture/product decision,
+consumed by an LLM on both ends (squashing writes it, grilling/architecting read
+it) rather than machine-parsed, so it has no enforced grammar and never blocks a
+turn. Unlike every file above, it is **never deleted by gtd** — it accumulates
+across the project's whole life instead of being cleaned up per-cycle. See §4's
+`squashing` and `grilling`/`architecting` sections below.
+
 ## 2. The commit-subject grammar
 
 `src/Subjects.ts` defines the sole channel the machine reads from history: the
@@ -444,7 +452,8 @@ agent-develops rest (`@grilling-agent` template).
   goes under a `## Open Questions` section (§1, "Open questions and review
   structure") with a suggested default; leave .gtd/TODO.md uncommitted. Inlines
   the latest human turn's diff (workflow files excluded) as "feedback, not
-  finished work" when present.
+  finished work" when present, and — ahead of that — `.gtd/DECISIONS.md`'s
+  current content (§1) as settled "Prior decisions" context, when non-empty.
 - `@grilling-answers` (human awaited) — a pure human gate: edit `.gtd/TODO.md`
   in place to answer/annotate, or run `gtd step` with no edits to accept all
   suggested defaults.
@@ -490,7 +499,8 @@ Mechanically an exact mirror of `grilling`, one file and one phase later.
   review structure") with a suggested default; leave .gtd/ARCHITECTURE.md
   uncommitted. Must not re-open product/user-facing decisions already settled by
   grilling. Inlines the latest human turn's diff as "feedback, not finished
-  work" when present.
+  work" when present, and — like `@grilling-agent` — `.gtd/DECISIONS.md`'s
+  current content (§1) as "Prior decisions" context, when non-empty.
 - `@architecting-answers` (human awaited) — a pure human gate: edit
   `.gtd/ARCHITECTURE.md` in place to answer/annotate, or run `gtd step` with no
   edits to accept all suggested defaults.
@@ -936,13 +946,19 @@ into one conventional-commits message. Two entry points share this state:
    grilling and architecting rounds' `.gtd/TODO.md` and `.gtd/ARCHITECTURE.md`
    history, draft one conventional-commits message, and **overwrite**
    `.gtd/SQUASH_MSG.md` with it (leaving it uncommitted). No sentinel text
-   appears anywhere in this prompt.
+   appears anywhere in this prompt. The same prompt also shows
+   `.gtd/DECISIONS.md`'s current content (restored from git history if a human
+   deleted it — see §1) and instructs the agent to merge this cycle's decisions
+   into it (newer decision replaces an existing entry it contradicts) and write
+   the complete result back, left uncommitted alongside `.gtd/SQUASH_MSG.md`.
 3. `gtd(agent): squashing`, once `.gtd/SQUASH_MSG.md` is present, mid-chains to
    `squashCommit`: read `.gtd/SQUASH_MSG.md`'s content, remove the file,
    `git reset --soft <squashBase>`, then commit-all under that content as the
    message. The whole `<squashBase>..HEAD` range — every `gtd: *` and
    `gtd(actor): *` commit of the cycle — collapses into one commit; commits
-   before the squash base are untouched.
+   before the squash base are untouched. `commit-all` also sweeps up the working
+   tree's `.gtd/DECISIONS.md` edit from step 2, so the decision-log update lands
+   in the same squash commit — no separate action needed.
 
 **Trigger is turn position, not content**: the squash fires because HEAD is at
 the right point in the chain, never because of what `.gtd/SQUASH_MSG.md` says —
