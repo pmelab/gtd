@@ -31,8 +31,8 @@ on plain text.
 
 ### The agent beat
 
-After every human turn, run this until it halts (mirrors the README reference
-driver; the JSON `prompt` carries no tail, so the driver — not the agent —
+After every human turn, run this until it halts (mirrors the reference driver in
+docs/loop.md; the JSON `prompt` carries no tail, so the driver — not the agent —
 closes each turn with `step-agent`):
 
 ```bash
@@ -222,7 +222,7 @@ same toggle harness, fresh scratch repo per layer.
 
 The subject is the OUTPUT FORMAT, not prompt quality — for this layer only, the
 tester plays both actors by hand and asserts on plain (non-`--json`) output
-against the README contract:
+against the documented contract (docs/cli.md):
 
 - [ ] `step`/`step-agent`: one `committed: <subject>` line per authored commit
       (oldest→newest), then a final `state: <state>` line; nothing else.

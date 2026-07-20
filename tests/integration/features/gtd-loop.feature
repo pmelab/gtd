@@ -2,7 +2,7 @@
 Feature: gtd-loop — the packaged reference loop driver
 
   `bin/gtd-loop` is the installable implementation of the two-beat protocol
-  documented in README.md's "The reference loop driver". These scenarios spawn
+  documented in docs/loop.md's "The reference loop driver". These scenarios spawn
   it as a real subprocess (never the real `claude` CLI — a stub agent script
   stands in, wired through `GTD_LOOP_AGENT_CMD`) to prove its control flow:
   chaining agent turns, halting at a human gate, picking up an uncommitted

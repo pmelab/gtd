@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Drives the two-beat protocol (README.md "The reference loop driver") to a
+# Drives the two-beat protocol (docs/loop.md "The reference loop driver") to a
 # human gate. Both mutators are attempted every iteration, refusal-tolerant:
 # whichever actor is actually awaited claims the turn (captures the human's
 # uncommitted edit after a halt, or the agent's own edit from the previous

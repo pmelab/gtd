@@ -27,7 +27,7 @@ cleanup), trace **every** reference before deleting:
 - `src/State.ts` (`edgeActionHandlers` — a total map over `EdgeAction["kind"]`,
   so it won't fail to compile on a removed/added variant the way an
   exhaustive-switch-free table can silently drift)
-- STATES.md / README.md
+- STATES.md / README.md / docs/ (especially docs/workflow.md and docs/cli.md)
 - All feature files
 
 Any `gtd: *` subject outside the closed v2 grammar (`src/Subjects.ts`) is an
