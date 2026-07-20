@@ -1,11 +1,11 @@
 <%~ include("@header") %>
 
-The idle health check failed — the repository's test suite is red outside any
-work cycle. Spawn a **fix subagent** using model `<%= it.model %>` to repair
-it:
+The repository's health gate is red outside any work cycle — either the idle
+health check failed, or a human hand-wrote `.gtd/HEALTH.md` describing errors
+to fix. Spawn a **fix subagent** using model `<%= it.model %>` to repair it:
 
-1. **Work through the failure output below** — make the failing test command
-   pass again.
+1. **Work through the report below** — fix the described errors and make the
+   test command pass.
 2. **Make the fix in place** — keep the change focused; do not refactor
    unrelated code.
 3. **If the failure does not reproduce** (or nothing needs changing), change

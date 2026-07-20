@@ -33,8 +33,8 @@ A transition is a pure function of four inputs, nothing else:
 3. **the class of HEAD's commit subject** — turn commit, routing commit, or
    boundary commit (§2)
 4. **which steering files are present** (`.gtd/TODO.md`, `.gtd/ARCHITECTURE.md`,
-   `.gtd/NN-…/` work packages, `.gtd/REVIEW.md`, `.gtd/FEEDBACK.md`,
-   `.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/SQUASH_MSG.md`,
+   `.gtd/PLAN.md`, `.gtd/NN-…/` work packages, `.gtd/REVIEW.md`,
+   `.gtd/FEEDBACK.md`, `.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/SQUASH_MSG.md`,
    `.gtd/LEARNINGS.md`)
 
 All steering files live under `.gtd/` — the directory is the workflow's
@@ -161,9 +161,11 @@ grilling | architecting | grilled | building | fixing | agentic-review | review
 `(actor, gate)` pair is reachable: turns are strictly separated (§3), so a gate
 is only ever authored by its awaited actor — there is no `gtd(human): building`
 at all, and `gtd(human)` appears only at the human gates (`grilling`'s and
-`architecting`'s entry and answer turns, `review`, `escalate`, and — mirroring
-`review` — `learning`, whose human turn (at the `await-learning-review` rest)
-shares the agent draft turn's gate name rather than getting its own).
+`architecting`'s entry and answer turns, `grilled`'s and `health-fixing`'s entry
+turns (the `.gtd/PLAN.md` and hand-written `.gtd/HEALTH.md` entry points — see
+§5.5 rung 1), `review`, `escalate`, and — mirroring `review` — `learning`, whose
+human turn (at the `await-learning-review` rest) shares the agent draft turn's
+gate name rather than getting its own).
 
 ### 2.2 Routing phases (`RoutingPhase`) and their awaited actor
 
@@ -201,24 +203,26 @@ ordinary review-scope rules (§4, Review).
 **Turn-commit classification** (the other half of `classifyHead`, keyed on
 `(actor, gate)`):
 
-| Turn commit                  | Class                                                     | Lands at                                                                                                                                                                                           |
-| ---------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gtd(agent): grilling`       | empty diff → rest; non-empty → rest                       | `grilling`, agent (empty, re-emit) or `grilling`, human (non-empty, answer gate)                                                                                                                   |
-| `gtd(human): grilling`       | empty diff → mid-chain; non-empty → rest                  | empty → `commitRouting "gtd: architecting", seedArchitectureFromTodo: true` → `architecting`/agent; non-empty → rest `grilling`, agent                                                             |
-| `gtd(agent): architecting`   | empty diff → rest; non-empty → rest                       | `architecting`, agent (empty, re-emit) or `architecting`, human (non-empty, answer gate)                                                                                                           |
-| `gtd(human): architecting`   | empty diff → mid-chain; non-empty → rest                  | empty → `commitRouting "gtd: grilled"` → `grilled`/agent; non-empty → rest `architecting`, agent                                                                                                   |
-| `gtd(agent): grilled`        | mid-chain                                                 | `commitRouting "gtd: planning"` (removes .gtd/ARCHITECTURE.md)                                                                                                                                     |
-| `gtd(agent): building`       | mid-chain                                                 | `runTest`                                                                                                                                                                                          |
-| `gtd(agent): fixing`         | empty diff → rest; non-empty → mid-chain                  | empty → rest `fixing`, agent (re-emit); non-empty → `runTest`                                                                                                                                      |
-| `gtd(agent): agentic-review` | rest                                                      | `agentic-review`, agent (only reached when .gtd/FEEDBACK.md was never written at all — the .gtd/FEEDBACK.md-present cases are handled by the steering-file precedence check that runs before this) |
-| `gtd(agent): review`         | mid-chain                                                 | `commitRouting "gtd: awaiting review"`                                                                                                                                                             |
-| `gtd(human): review`         | mid-chain                                                 | substantive → `commitRouting "gtd: review feedback"` (removes .gtd/REVIEW.md); non-substantive (clean or checkbox-only) → `commitRouting "gtd: done"` (removes .gtd/REVIEW.md)                     |
-| `gtd(agent): squashing`      | squash base present → mid-chain; else rest                | mid-chain → `squashCommit`; rest → `squashing`, agent                                                                                                                                              |
-| `gtd(agent): health-fixing`  | mid-chain                                                 | `commitRouting "gtd: health-fix"` (removes .gtd/HEALTH.md)                                                                                                                                         |
-| `gtd(human): escalate`       | mid-chain                                                 | `runTest` (re-test after the human's fix)                                                                                                                                                          |
-| `gtd(agent): learning`       | squash base present + non-template → mid-chain; else rest | mid-chain → `commitRouting "gtd: learning drafted"`; rest → `learning`, agent (re-emit until the agent overwrites the template)                                                                    |
-| `gtd(human): learning`       | mid-chain (unconditional — no reject path)                | `commitRouting "gtd: learning approved"`                                                                                                                                                           |
-| `gtd(agent): learning-apply` | mid-chain                                                 | `commitRouting "gtd: learning applied"` (removes .gtd/LEARNINGS.md)                                                                                                                                |
+| Turn commit                  | Class                                                     | Lands at                                                                                                                                                                                                                                                       |
+| ---------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gtd(agent): grilling`       | empty diff → rest; non-empty → rest                       | `grilling`, agent (empty, re-emit) or `grilling`, human (non-empty, answer gate)                                                                                                                                                                               |
+| `gtd(human): grilling`       | empty diff → mid-chain; non-empty → rest                  | empty → `commitRouting "gtd: architecting", seedArchitectureFromTodo: true` → `architecting`/agent; non-empty → rest `grilling`, agent                                                                                                                         |
+| `gtd(agent): architecting`   | empty diff → rest; non-empty → rest                       | `architecting`, agent (empty, re-emit) or `architecting`, human (non-empty, answer gate)                                                                                                                                                                       |
+| `gtd(human): architecting`   | empty diff → mid-chain; non-empty → rest                  | empty → `commitRouting "gtd: grilled"` → `grilled`/agent; non-empty → rest `architecting`, agent                                                                                                                                                               |
+| `gtd(human): grilled`        | `.gtd/PLAN.md` present → mid-chain; else — (ladder)       | mid-chain → `commitRouting "gtd: grilled", seedArchitectureFromPlan: true` (writes .gtd/ARCHITECTURE.md from .gtd/PLAN.md, removes .gtd/PLAN.md); without .gtd/PLAN.md it falls to the ladder (a half-seeded crash recovers via the .gtd/ARCHITECTURE.md rung) |
+| `gtd(agent): grilled`        | mid-chain                                                 | `commitRouting "gtd: planning"` (removes .gtd/ARCHITECTURE.md)                                                                                                                                                                                                 |
+| `gtd(agent): building`       | mid-chain                                                 | `runTest`                                                                                                                                                                                                                                                      |
+| `gtd(agent): fixing`         | empty diff → rest; non-empty → mid-chain                  | empty → rest `fixing`, agent (re-emit); non-empty → `runTest`                                                                                                                                                                                                  |
+| `gtd(agent): agentic-review` | rest                                                      | `agentic-review`, agent (only reached when .gtd/FEEDBACK.md was never written at all — the .gtd/FEEDBACK.md-present cases are handled by the steering-file precedence check that runs before this)                                                             |
+| `gtd(agent): review`         | mid-chain                                                 | `commitRouting "gtd: awaiting review"`                                                                                                                                                                                                                         |
+| `gtd(human): review`         | mid-chain                                                 | substantive → `commitRouting "gtd: review feedback"` (removes .gtd/REVIEW.md); non-substantive (clean or checkbox-only) → `commitRouting "gtd: done"` (removes .gtd/REVIEW.md)                                                                                 |
+| `gtd(agent): squashing`      | squash base present → mid-chain; else rest                | mid-chain → `squashCommit`; rest → `squashing`, agent                                                                                                                                                                                                          |
+| `gtd(agent): health-fixing`  | mid-chain                                                 | `commitRouting "gtd: health-fix"` (removes .gtd/HEALTH.md)                                                                                                                                                                                                     |
+| `gtd(human): health-fixing`  | — (precedence)                                            | the hand-written-HEALTH.md entry turn: no `classifyHead` row — the steering-file precedence rung (§5.2) rests it at `health-fixing`, agent. A clean `gtd step-agent` at this HEAD is inert (the entry description must survive until an agent has read it)     |
+| `gtd(human): escalate`       | mid-chain                                                 | `runTest` (re-test after the human's fix)                                                                                                                                                                                                                      |
+| `gtd(agent): learning`       | squash base present + non-template → mid-chain; else rest | mid-chain → `commitRouting "gtd: learning drafted"`; rest → `learning`, agent (re-emit until the agent overwrites the template)                                                                                                                                |
+| `gtd(human): learning`       | mid-chain (unconditional — no reject path)                | `commitRouting "gtd: learning approved"`                                                                                                                                                                                                                       |
+| `gtd(agent): learning-apply` | mid-chain                                                 | `commitRouting "gtd: learning applied"` (removes .gtd/LEARNINGS.md)                                                                                                                                                                                            |
 
 **The health-fix re-test carve-out.** `gtd: health-fix` classifies as a plain
 rest (`idle`, human) for `gtd next` / `gtd status` — a clean tree there
@@ -461,20 +465,35 @@ agent-develops rest (`@grilling-agent` template).
   suggested defaults.
 
 **Entry:** a dirty boundary tree with `invoker: "human"` (no steering files, no
-committed .gtd/TODO.md, no committed .gtd/ARCHITECTURE.md) captures
-`gtd(human): grilling` — the v2 entry turn (`isDirtyBoundaryEntry` in
+committed .gtd/TODO.md, .gtd/ARCHITECTURE.md, .gtd/PLAN.md, or .gtd/HEALTH.md)
+captures `gtd(human): grilling` — the v2 entry turn (`isDirtyBoundaryEntry` in
 `applyTurnTaking`). `gtd: done` counts as a boundary HEAD for this purpose too,
 even though it parses as `"routing"` — a settled cycle is exactly where the next
 feature's dirty tree lands. `gtd: review feedback` also rests here (agent
 awaited) — the re-grilling entry from review feedback (§4, Review-feedback
 re-grill below).
 
-**Escape hatch:** if the dirty boundary tree already contains
-`.gtd/ARCHITECTURE.md` (an already-technical sketch the human wrote directly),
-the entry turn is captured as `gtd(human): architecting` instead, skipping
-product grilling entirely for this cycle (see `architecting`'s Entry below).
-This is file-_presence_-based routing — the same mechanism every steering-file
-rung in the ladder already uses — not content-based steering.
+**Entry points:** which gate the entry turn is captured under depends on which
+steering file the dirty tree already contains — file-_presence_-based routing,
+the same mechanism every steering-file rung in the ladder already uses, never
+content-based steering. The four files are pairwise illegal combinations (§5.1),
+so the pick is always unambiguous:
+
+- **no steering file / `.gtd/TODO.md`** → `gtd(human): grilling` — product
+  grilling, the default (a hand-written `.gtd/TODO.md` is the draft product plan
+  the agent iterates on).
+- **`.gtd/ARCHITECTURE.md`** → `gtd(human): architecting` — an already-technical
+  sketch skips product grilling entirely for this cycle (see `architecting`'s
+  Entry below).
+- **`.gtd/PLAN.md`** → `gtd(human): grilled` — a FINAL architecture skips both
+  grilling phases: the turn mid-chains to
+  `commitRouting "gtd: grilled", seedArchitectureFromPlan: true` (writes
+  `.gtd/ARCHITECTURE.md` from the `.gtd/PLAN.md` content and deletes
+  `.gtd/PLAN.md`, in one commit) and rests at the decompose prompt (see
+  `grilled`'s Entry below).
+- **`.gtd/HEALTH.md`** (hand-written) → `gtd(human): health-fixing` — an error
+  description enters the health-fixing detour directly (see `health-fixing`'s
+  Entry below).
 
 **Exit:** an empty human turn at the answer gate (`gtd(human): grilling` with an
 empty diff) mid-chains to
@@ -509,9 +528,9 @@ Mechanically an exact mirror of `grilling`, one file and one phase later.
 
 **Entry:** the routing commit `gtd: architecting` is a rest landing here (agent)
 — reached either from grilling's converged exit (`.gtd/ARCHITECTURE.md` seeded
-from `.gtd/TODO.md`) or directly from the escape-hatch dirty-boundary entry
-(`.gtd/ARCHITECTURE.md` authored by the human from scratch, no `.gtd/TODO.md`
-ever existing).
+from `.gtd/TODO.md`) or directly from the `.gtd/ARCHITECTURE.md` entry point
+(§4, `grilling`'s Entry points: the file authored by the human from scratch, no
+`.gtd/TODO.md` ever existing).
 
 **Exit:** an empty human turn at the answer gate (`gtd(human): architecting`
 with an empty diff) mid-chains to `commitRouting "gtd: grilled"` → **grilled**.
@@ -531,7 +550,19 @@ packages are vertical slices, task files are self-contained. The subagent must
 not commit — this runs inside a larger orchestration that depends on uncommitted
 state.
 
-**Entry:** the routing commit `gtd: grilled` is a rest landing here (agent).
+**Entry:** the routing commit `gtd: grilled` is a rest landing here (agent) —
+reached from architecting's converged exit, or directly from the `.gtd/PLAN.md`
+entry point: a dirty boundary tree containing `.gtd/PLAN.md` (a final,
+decompose-as-is architecture) captures `gtd(human): grilled`, which mid-chains
+to `commitRouting "gtd: grilled", seedArchitectureFromPlan: true` — writing
+`.gtd/ARCHITECTURE.md` from the `.gtd/PLAN.md` content (with a seed banner) and
+deleting `.gtd/PLAN.md` in that one commit, so the decompose prompt and
+everything downstream are untouched by which entry the cycle used. The seed hop
+is guarded on `.gtd/PLAN.md` actually being present (mirroring the packages
+guard on `gtd(agent): grilled`): a hand-crafted `gtd(human): grilled` HEAD
+without it falls through the ladder, and a crash half-way through the seed
+(ARCHITECTURE.md written, PLAN.md deleted, commit failed) recovers via the
+`architectureExists` rung as a normal architecting round.
 
 **Exit:** `gtd(agent): grilled` mid-chains to `commitRouting "gtd: planning"`
 (also removing `.gtd/ARCHITECTURE.md`) → **planning**.
@@ -931,11 +962,17 @@ on.
 into one conventional-commits message. Two entry points share this state:
 
 - **Feature-cycle squash**: `gtd: done` → squash base = parent of the first
-  grilling turn commit of the cycle (or the `gtd: reviewing <hash>` anchor,
-  whichever is nearest HEAD within the cycle).
-- **Health-fix squash**: a health-fix cycle went green with ≥1 `gtd: health-fix`
-  commit present and squash enabled — squash base = parent of the first
-  `gtd: health-check` of that run.
+  grilling, architecting, or grilled entry turn commit of the cycle — whichever
+  entry point (§4, `grilling`'s Entry points) the cycle used — (or the
+  `gtd: reviewing <hash>` anchor, whichever is nearest HEAD within the cycle).
+- **Health-fix squash**: a health-fix cycle went green with squash enabled —
+  squash base = parent of the run's earliest start marker: the first
+  `gtd: health-check` of the run, or the `gtd(human): health-fixing` entry turn
+  for a hand-written-HEALTH.md run (which may go green with zero
+  `gtd: health-check` commits ever landing). The anchor resets on
+  `gtd: tests green` (a processed run never re-triggers the chain at later idle
+  rests), except the run's own green marker while HEAD is still inside the
+  post-green learning/squash chain.
 
 **Awaited actor:** agent.
 
@@ -999,7 +1036,16 @@ gate below the fix-attempt cap. (No `.gtd/`, no `.gtd/REVIEW.md`, no
 `.gtd/HEALTH.md`'s content as the "Feedback to address," fix the code, leave
 uncommitted.
 
-**Entry:** `gtd: health-check` rest with `.gtd/ERRORS.md` absent.
+**Entry:** `gtd: health-check` rest with `.gtd/ERRORS.md` absent — or the
+hand-written-HEALTH.md entry point: a dirty boundary tree containing
+`.gtd/HEALTH.md` (a human-authored error description) captures
+`gtd(human): health-fixing`, after which the steering-file precedence rung
+(§5.2) rests here exactly as for the machine-written detour. The description is
+a means to make `testCommand` green: a red re-test overwrites it with the actual
+failure output, and a green one closes the run. One guard protects the entry:
+while HEAD is still the human's entry turn, a clean `gtd step-agent` (the loop
+protocol's opening beat) is **inert** rather than a meaningful environmental-fix
+turn — otherwise it would consume the description before any agent read it.
 
 **Actions on entry (mid-chain from `gtd(agent): health-fixing`):**
 `commitRouting "gtd: health-fix"`, removing `.gtd/HEALTH.md` — same removal
@@ -1034,22 +1080,37 @@ wins; anything matching nothing is `corruption` — a hard error, never a guess.
 
 ### 5.1 Illegal-combination guard (`assertLegal`, before anything else)
 
-Checked in three passes — .gtd/HEALTH.md-specific rules first (so a
+Checked in four passes — .gtd/HEALTH.md-specific rules first (so a
 .gtd/HEALTH.md + .gtd/FEEDBACK.md, say, gets the two-file diagnosis rather than
 the more generic single-file one), then .gtd/LEARNINGS.md-specific rules, then
-the rest:
+.gtd/PLAN.md-specific rules, then the rest:
 
 ```
 .gtd/HEALTH.md + .gtd
 .gtd/HEALTH.md + .gtd/REVIEW.md
 .gtd/HEALTH.md + .gtd/FEEDBACK.md
 .gtd/HEALTH.md + .gtd/ERRORS.md
+.gtd/HEALTH.md + .gtd/TODO.md         (entry files must be unambiguous;
+.gtd/HEALTH.md + .gtd/ARCHITECTURE.md  scribbling a next-feature draft while a
+.gtd/HEALTH.md + .gtd/PLAN.md          health detour is live is a refused guess,
+                          not a tolerated ride-along — note assertLegal also
+                          runs for `gtd status`/`gtd next`, so those error too)
 .gtd/LEARNINGS.md + .gtd
 .gtd/LEARNINGS.md + .gtd/REVIEW.md
 .gtd/LEARNINGS.md + .gtd/FEEDBACK.md
 .gtd/LEARNINGS.md + .gtd/ERRORS.md
 .gtd/LEARNINGS.md + .gtd/HEALTH.md
 .gtd/LEARNINGS.md + .gtd/SQUASH_MSG.md
+.gtd/PLAN.md + .gtd/TODO.md
+.gtd/PLAN.md + .gtd/ARCHITECTURE.md
+.gtd/PLAN.md + .gtd
+.gtd/PLAN.md + .gtd/REVIEW.md
+.gtd/PLAN.md + .gtd/FEEDBACK.md
+.gtd/PLAN.md + .gtd/ERRORS.md
+.gtd/PLAN.md + .gtd/SQUASH_MSG.md     (the last two are defensive, like the
+.gtd/PLAN.md + .gtd/LEARNINGS.md       LEARNINGS.md rules: they keep a stray
+                          PLAN.md from riding into a squash/learning capture
+                          and stranding committed at a boundary HEAD)
 .gtd/REVIEW.md + .gtd
 .gtd/REVIEW.md + committed .gtd/TODO.md
 uncommitted .gtd/REVIEW.md + .gtd/TODO.md
@@ -1109,39 +1170,51 @@ In order:
 4. `.gtd/ARCHITECTURE.md` present (any other HEAD) → **architecting** continues
    (mirrors rung 3 — the two files never coexist, per the illegal-combination
    guard, so ordering between rungs 3 and 4 is inert).
-5. `.gtd/` exists with a pending package **and** the nearest workflow commit
+5. `.gtd/PLAN.md` present (any other HEAD) → rest **grilled**, **human**. Unlike
+   rungs 3/4 (agent-developed files mid-process), PLAN.md is only ever
+   human-authored entry input: the ordinary case is the pre-entry dirty boundary
+   (rung 1 of §5.5 short-circuits this baseline), and the recovery case is a
+   committed PLAN.md at a boundary HEAD, where the human's `gtd step` resumes
+   the entry (captures `gtd(human): grilled`, which seeds and routes) instead of
+   corrupting.
+6. `.gtd/` exists with a pending package **and** the nearest workflow commit
    (skipping boundary commits stacked on top) is still `gtd(agent): building` →
    **building** (operational-recovery carve-out: a boundary commit, e.g. a
    config fix, landed on top of the checkpoint after a mid-chain failure, but
    the checkpoint is still the active one). Narrow by design — an unrecognized
    boundary HEAD with no such checkpoint in its history still hard-errors.
-6. No steering files at all, no recognized workflow HEAD → idle/health
+7. No steering files at all, no recognized workflow HEAD → idle/health
    (`resolveIdleOrHealth`): reviewable diff → **review**; else → **idle**,
    human.
-7. Anything else → `corrupt()` — hard error.
+8. Anything else → `corrupt()` — hard error.
 
 ### 5.5 Turn-taking layer (`applyTurnTaking`, always applied last)
 
 Independent of the ladder above, layered on every resolved baseline:
 
 1. **Dirty-boundary entry** (`invoker === "human"`, dirty tree, no committed
-   .gtd/TODO.md, no committed .gtd/ARCHITECTURE.md, no other steering files,
-   boundary/`gtd: done` HEAD) → captures `gtd(human): grilling`, short-
-   circuiting everything else — UNLESS the dirty tree already contains
-   `.gtd/ARCHITECTURE.md` (the escape hatch), in which case it captures
-   `gtd(human): architecting` instead, skipping product grilling for this cycle.
+   .gtd/TODO.md, .gtd/ARCHITECTURE.md, .gtd/PLAN.md, or .gtd/HEALTH.md, no
+   packages/REVIEW.md/FEEDBACK.md/ERRORS.md, boundary/`gtd: done` HEAD) →
+   captures the entry turn, short-circuiting everything else. Which gate depends
+   on which steering file the dirty tree contains (§4, `grilling`'s Entry
+   points; pairwise illegal per §5.1, so the pick order is inert):
+   `.gtd/HEALTH.md` → `gtd(human): health-fixing`; `.gtd/PLAN.md` →
+   `gtd(human): grilled`; `.gtd/ARCHITECTURE.md` → `gtd(human): architecting`;
+   otherwise → `gtd(human): grilling`.
 2. **Mid-chain baseline** → `invoker === "none"` reports `pending: true`; any
    other invoker performs the edge action.
 3. **Rest baseline, `invoker === "none"`** → report state/actor, no mutation.
 4. **`gtd: health-fix` (rest = idle) or `gtd: health-check` at the exhausted
    cap** → force a `runHealthCheck` re-test regardless of invoker (the
    carve-outs from §2).
-5. **Out-of-turn**: `invoker === "agent"`, awaited === human → `refusal`.
-6. **Out-of-turn**: `invoker === "human"`, awaited === agent → dirty tree
-   captures `gtd(human): <gate>`; clean tree no-ops.
-7. **Idle carve-out**: `baseline.state === "idle"`, `invoker === "human"` →
+5. **Out-of-turn**: the invoker is not the awaited actor → `refusal`, in BOTH
+   directions, on clean and dirty trees alike (§3) — the wrong mutator always
+   errors instead of no-op-ing or adopting the dirty tree as a turn of its own;
+   pending edits stay in the tree and ride along as input to the awaited actor's
+   next captured turn.
+6. **Idle carve-out**: `baseline.state === "idle"`, `invoker === "human"` →
    force `runHealthCheck`, never an empty commit or plain no-op.
-8. **In-turn, fixpoint check**: HEAD already carries this exact
+7. **In-turn, fixpoint check**: HEAD already carries this exact
    `gtd(<invoker>): <gate>` turn AND the tree is clean → report rest, no
    mutation (idempotent re-run). Otherwise → capture a fresh turn commit under
    `gateForState(baseline.state)` (every state defaults to its own name as the
@@ -1263,7 +1336,7 @@ gtd: grilled                    # human's next clean step converges
 Mechanically identical to the grilling round above, one file and one phase
 later.
 
-### Escape hatch: already-technical input
+### Entry point: already-technical input
 
 ```
 <boundary/init>
@@ -1273,6 +1346,39 @@ gtd(human): architecting      # dirty-boundary entry, but the human authored
 gtd(agent): architecting      # agent develops the architecture from that raw input
 gtd(human): architecting      # human accepts (empty turn)
 gtd: grilled                    # routing: converged — .gtd/TODO.md never existed
+```
+
+### Entry point: a final plan, straight to decomposition
+
+```
+<boundary/init>
+gtd(human): grilled           # dirty-boundary entry — the human authored
+                                 # .gtd/PLAN.md, a FINAL architecture
+gtd: grilled                    # routing: .gtd/ARCHITECTURE.md seeded from
+                                 # .gtd/PLAN.md (removed) — same invocation
+gtd(agent): grilled           # decompose turn (packages written)
+gtd: planning                   # routing: .gtd/ARCHITECTURE.md removed
+...                             # building/testing/review proceed as usual —
+                                 # no grilling or architecting round ever ran
+```
+
+### Entry point: a hand-written error report, straight to error fixing
+
+```
+<boundary/init>
+gtd(human): health-fixing     # dirty-boundary entry — the human authored
+                                 # .gtd/HEALTH.md describing the errors
+<gtd next → health-fixing prompt with the hand-written description>
+<a clean opening gtd step-agent here is INERT — the description survives>
+gtd(agent): health-fixing     # fixer's turn (the actual fix)
+gtd: health-fix                 # routing: .gtd/HEALTH.md removed; re-tests in
+                                 # the same chain
+# green, squash on  → gtd: tests green → gtd: squash template → ... → one
+#                     squash commit collapsing from the entry turn (the run
+#                     may have ZERO gtd: health-check commits)
+# green, squash off → stop, plain idle rest
+# red               → gtd: health-check (machine-written HEALTH.md now carries
+#                     the test output) — the normal detour loop from here
 ```
 
 ### Escalation and recovery

@@ -22,6 +22,7 @@ const commit = (
     isWorkflowCommit?: boolean
     removedErrors?: boolean
     isHealthCheck?: boolean
+    isTestsGreen?: boolean
   } = {},
 ): GtdEvent => ({
   type: "COMMIT",
@@ -33,6 +34,7 @@ const commit = (
   isWorkflowCommit: flags.isWorkflowCommit ?? true,
   removedErrors: flags.removedErrors ?? false,
   isHealthCheck: flags.isHealthCheck ?? false,
+  isTestsGreen: flags.isTestsGreen ?? false,
 })
 
 const basePayload = (overrides: Partial<ResolvePayload> = {}): ResolvePayload => ({
@@ -132,6 +134,15 @@ describe("foldCounters — healthFixCount", () => {
     const events = [commit({ isHealthCheck: true }), commit({ isPackageStart: true })]
     expect(foldCounters(events).healthFixCount).toBe(0)
   })
+
+  it("resets on isTestsGreen (a green re-test ends the health run)", () => {
+    const events = [
+      commit({ isHealthCheck: true }),
+      commit({ isHealthCheck: true }),
+      commit({ isTestsGreen: true }),
+    ]
+    expect(foldCounters(events).healthFixCount).toBe(0)
+  })
 })
 
 // ── awaitedActor ──────────────────────────────────────────────────────────
@@ -213,6 +224,43 @@ describe("assertLegal / GtdStateError", () => {
       GtdStateError,
     )
   })
+
+  it("throws illegal-combination for PLAN.md + TODO.md and PLAN.md + ARCHITECTURE.md", () => {
+    expect(() => resolve([R({ planExists: true, todoExists: true })])).toThrow(
+      "illegal combination: .gtd/PLAN.md + .gtd/TODO.md",
+    )
+    expect(() => resolve([R({ planExists: true, architectureExists: true })])).toThrow(
+      "illegal combination: .gtd/PLAN.md + .gtd/ARCHITECTURE.md",
+    )
+  })
+
+  it("throws illegal-combination for PLAN.md + packages / REVIEW.md / FEEDBACK.md / ERRORS.md", () => {
+    expect(() => resolve([R({ planExists: true, packagesPresent: true })])).toThrow(GtdStateError)
+    expect(() => resolve([R({ planExists: true, reviewPresent: true })])).toThrow(GtdStateError)
+    expect(() =>
+      resolve([R({ planExists: true, feedbackPresent: true, packagesPresent: true })]),
+    ).toThrow("illegal combination: .gtd/PLAN.md + packages")
+    expect(() => resolve([R({ planExists: true, errorsPresent: true })])).toThrow(GtdStateError)
+  })
+
+  it("throws illegal-combination for PLAN.md + SQUASH_MSG.md / LEARNINGS.md (defensive)", () => {
+    expect(() => resolve([R({ planExists: true, squashMsgPresent: true })])).toThrow(GtdStateError)
+    expect(() => resolve([R({ planExists: true, learningMsgPresent: true })])).toThrow(
+      GtdStateError,
+    )
+  })
+
+  it("throws illegal-combination for HEALTH.md + TODO.md / ARCHITECTURE.md / PLAN.md", () => {
+    expect(() => resolve([R({ healthPresent: true, todoExists: true })])).toThrow(
+      "illegal combination: .gtd/HEALTH.md + .gtd/TODO.md",
+    )
+    expect(() => resolve([R({ healthPresent: true, architectureExists: true })])).toThrow(
+      GtdStateError,
+    )
+    expect(() => resolve([R({ healthPresent: true, planExists: true })])).toThrow(
+      "illegal combination: .gtd/HEALTH.md + .gtd/PLAN.md",
+    )
+  })
 })
 
 // ── Boundary entry: dirty tree + human invoker → grilling capture ─────────
@@ -247,6 +295,148 @@ describe("dirty boundary entry", () => {
   it("next (invoker none) reports the state without mutating", () => {
     const result = resolve([R({ invoker: "none", workingTreeClean: false })])
     expect(result.edgeAction).toBeUndefined()
+  })
+
+  it("PLAN.md entry: a dirty tree that already contains PLAN.md captures gtd(human): grilled", () => {
+    const result = resolve([R({ invoker: "human", workingTreeClean: false, planExists: true })])
+    expect(result.state).toBe("grilled")
+    expect(result.actor).toBe("human")
+    expect(result.edgeAction).toEqual({ kind: "captureTurn", actor: "human", gate: "grilled" })
+  })
+
+  it("HEALTH.md entry: a dirty tree with a hand-written HEALTH.md captures gtd(human): health-fixing", () => {
+    const result = resolve([
+      R({
+        invoker: "human",
+        workingTreeClean: false,
+        healthPresent: true,
+        healthContent: "the build script crashes on Node 22",
+      }),
+    ])
+    expect(result.state).toBe("health-fixing")
+    expect(result.actor).toBe("human")
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "human",
+      gate: "health-fixing",
+    })
+  })
+
+  it("a committed PLAN.md at a boundary HEAD resumes the entry on a clean human step", () => {
+    const result = resolve([
+      R({
+        invoker: "human",
+        workingTreeClean: true,
+        planExists: true,
+        planCommitted: true,
+      }),
+    ])
+    expect(result.state).toBe("grilled")
+    expect(result.edgeAction).toEqual({ kind: "captureTurn", actor: "human", gate: "grilled" })
+  })
+
+  it("a committed PLAN.md at a boundary HEAD refuses an agent step (awaits human)", () => {
+    const result = resolve([
+      R({ invoker: "agent", workingTreeClean: true, planExists: true, planCommitted: true }),
+    ])
+    expect(result.refusal).toContain("awaits a human turn")
+    expect(result.edgeAction).toBeUndefined()
+  })
+})
+
+// ── PLAN.md entry: the seed hop ────────────────────────────────────────────
+
+describe("gtd(human): grilled seeds ARCHITECTURE.md from PLAN.md", () => {
+  it("with PLAN.md present → mid-chains to gtd: grilled with seedArchitectureFromPlan", () => {
+    const result = resolve([
+      R({
+        invoker: "human",
+        lastCommitSubject: "gtd(human): grilled",
+        planExists: true,
+        planCommitted: true,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("grilled")
+    expect(result.edgeAction).toEqual({
+      kind: "commitRouting",
+      subject: "gtd: grilled",
+      seedArchitectureFromPlan: true,
+    })
+  })
+
+  it("invoker none reports the seed hop as pending", () => {
+    const result = resolve([
+      R({
+        invoker: "none",
+        lastCommitSubject: "gtd(human): grilled",
+        planExists: true,
+        planCommitted: true,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.pending).toBe(true)
+    expect(result.edgeAction).toBeUndefined()
+  })
+
+  it("without PLAN.md (hand-crafted or half-seeded history) → never seeds; falls through the ladder", () => {
+    // No steering files at all → idle, fabricating nothing.
+    const bare = resolve([
+      R({ invoker: "none", lastCommitSubject: "gtd(human): grilled", workingTreeClean: true }),
+    ])
+    expect(bare.state).toBe("idle")
+    expect(bare.edgeAction).toBeUndefined()
+    // Half-seeded crash (ARCHITECTURE.md written, PLAN.md deleted, commit
+    // failed) → recovers through a normal architecting round, preserving the
+    // seeded content.
+    const halfSeeded = resolve([
+      R({
+        invoker: "none",
+        lastCommitSubject: "gtd(human): grilled",
+        architectureExists: true,
+        workingTreeClean: false,
+      }),
+    ])
+    expect(halfSeeded.state).toBe("architecting")
+  })
+})
+
+// ── HEALTH.md entry: empty-agent-turn guard ────────────────────────────────
+
+describe("empty agent turn at the HEALTH.md entry rest", () => {
+  it("is inert while HEAD is the human entry turn (the hand-written HEALTH.md survives)", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd(human): health-fixing",
+        healthPresent: true,
+        healthCommitted: true,
+        healthContent: "the build script crashes on Node 22",
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("health-fixing")
+    expect(result.edgeAction).toBeUndefined()
+    expect(result.refusal).toBeUndefined()
+  })
+
+  it("stays meaningful on the machine-written detour (HEAD = gtd: health-check)", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd: health-check",
+        healthPresent: true,
+        healthCommitted: true,
+        healthContent: "test output",
+        workingTreeClean: true,
+      }),
+    ])
+    expect(result.state).toBe("health-fixing")
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "agent",
+      gate: "health-fixing",
+    })
   })
 })
 
@@ -747,6 +937,46 @@ describe("predictTurn", () => {
     expect(prediction.state).toBe("architecting")
   })
 
+  it("PLAN.md entry: predicts the human grilled capture when PLAN.md is in the dirty tree", () => {
+    const prediction = predictTurn([R({ workingTreeClean: false, planExists: true })])
+    expect(prediction.actor).toBe("human")
+    expect(prediction.subject).toBe("gtd(human): grilled")
+    expect(prediction.state).toBe("grilled")
+  })
+
+  it("HEALTH.md entry: predicts the human health-fixing capture when a hand-written HEALTH.md is in the dirty tree", () => {
+    const prediction = predictTurn([R({ workingTreeClean: false, healthPresent: true })])
+    expect(prediction.actor).toBe("human")
+    expect(prediction.subject).toBe("gtd(human): health-fixing")
+    expect(prediction.state).toBe("health-fixing")
+  })
+
+  it("predicts null at the HEALTH.md entry rest (clean tree, HEAD is the human entry turn)", () => {
+    const prediction = predictTurn([
+      R({
+        lastCommitSubject: "gtd(human): health-fixing",
+        healthPresent: true,
+        healthCommitted: true,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(prediction.state).toBe("health-fixing")
+    expect(prediction.subject).toBeNull()
+  })
+
+  it("predicts the seed routing commit at the PLAN.md entry turn HEAD", () => {
+    const prediction = predictTurn([
+      R({
+        lastCommitSubject: "gtd(human): grilled",
+        planExists: true,
+        planCommitted: true,
+        workingTreeClean: true,
+      }),
+    ])
+    expect(prediction.subject).toBe("gtd: grilled")
+    expect(prediction.state).toBe("grilled")
+  })
+
   it("predicts null at a settled rest (idle, health check is not a commit-predicting action)", () => {
     const prediction = predictTurn([
       R({ workingTreeClean: true, lastCommitSubject: "gtd: health-fix" }),
@@ -818,6 +1048,57 @@ describe("health lifecycle", () => {
     ])
     expect(result.state).toBe("escalate")
     expect(result.actor).toBe("human")
+  })
+
+  it("gtd: health-fix re-test chains after green on healthFixBase alone (green-first-try entry run has zero health-check commits)", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd: health-fix",
+        workingTreeClean: true,
+        squashEnabled: true,
+        healthFixBase: "abc123",
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "runHealthCheck",
+      errorCount: 0,
+      capReached: false,
+      chainAfterGreen: true,
+    })
+  })
+
+  it("gtd: health-fix re-test does not chain when no healthFixBase is anchored", () => {
+    const result = resolve([
+      R({
+        invoker: "agent",
+        lastCommitSubject: "gtd: health-fix",
+        workingTreeClean: true,
+        squashEnabled: true,
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "runHealthCheck",
+      errorCount: 0,
+      capReached: false,
+      chainAfterGreen: false,
+    })
+  })
+
+  it("idle human step does not chain after green once the run's anchor is gone (no healthFixBase)", () => {
+    const events = [
+      commit({ isHealthCheck: true }),
+      commit({ isTestsGreen: true }),
+      R({ invoker: "human", workingTreeClean: true, squashEnabled: true }),
+    ]
+    const result = resolve(events)
+    expect(result.state).toBe("idle")
+    expect(result.edgeAction).toEqual({
+      kind: "runHealthCheck",
+      errorCount: 0,
+      capReached: false,
+      chainAfterGreen: false,
+    })
   })
 })
 

@@ -31,6 +31,28 @@ describe("reviewWindowBase", () => {
     expect(base).toBe("h2")
   })
 
+  it("picks the architecting entry turn for an escape-hatch cycle (no grilling turn at all)", () => {
+    const base = reviewWindowBase([
+      entry("h1", "chore: boundary"),
+      entry("h2", "gtd(human): architecting"),
+      entry("h3", "gtd(agent): grilled"),
+      entry("h4", "gtd(agent): building"),
+      entry("h5", "gtd: awaiting review"), // HEAD — excluded
+    ])
+    expect(base).toBe("h2")
+  })
+
+  it("picks the grilled entry turn for a PLAN.md cycle (no grilling/architecting turn at all)", () => {
+    const base = reviewWindowBase([
+      entry("h1", "chore: boundary"),
+      entry("h2", "gtd(human): grilled"),
+      entry("h3", "gtd(agent): grilled"),
+      entry("h4", "gtd(agent): building"),
+      entry("h5", "gtd: awaiting review"), // HEAD — excluded
+    ])
+    expect(base).toBe("h2")
+  })
+
   it("prefers the previous awaiting-review over the first grilling turn", () => {
     const base = reviewWindowBase([
       entry("h1", "gtd(human): grilling"),

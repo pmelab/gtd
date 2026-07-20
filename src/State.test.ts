@@ -91,6 +91,16 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
     ).toBe('commit routing as "gtd: architecting" (seeding .gtd/ARCHITECTURE.md from .gtd/TODO.md)')
   })
 
+  it("commitRouting notes the seedArchitectureFromPlan hand-off", () => {
+    expect(
+      describeEdgeAction({
+        kind: "commitRouting",
+        subject: "gtd: grilled",
+        seedArchitectureFromPlan: true,
+      }),
+    ).toBe('commit routing as "gtd: grilled" (seeding .gtd/ARCHITECTURE.md from .gtd/PLAN.md)')
+  })
+
   it("commitRouting lists removeLearning", () => {
     expect(
       describeEdgeAction({

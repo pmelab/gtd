@@ -71,6 +71,8 @@ export interface CommitEvent {
   readonly removedErrors: boolean
   /** Routing `gtd: health-check`. */
   readonly isHealthCheck: boolean
+  /** Routing `gtd: tests green` — ends a health-fix run for counter purposes. */
+  readonly isTestsGreen: boolean
 }
 
 /** The terminal working-tree snapshot the ladder branches on. */
@@ -126,6 +128,10 @@ export interface ResolvePayload {
   readonly architectureExists: boolean
   /** The present `ARCHITECTURE.md` is tracked at HEAD. */
   readonly architectureCommitted: boolean
+  /** `PLAN.md` exists (committed or pending) — a final, decompose-as-is architecture. */
+  readonly planExists: boolean
+  /** The present `PLAN.md` is tracked at HEAD. */
+  readonly planCommitted: boolean
   /** Numbered work packages exist under `.gtd/` (committed or pending). NOT "the directory exists" — steering files share `.gtd/`, so bare dir presence means nothing. */
   readonly packagesPresent: boolean
   /** `REVIEW.md` is present (committed and/or pending). */
@@ -247,6 +253,11 @@ export interface ResolvePayload {
  *                          short scaffold banner) as `ARCHITECTURE.md`, and
  *                          deletes `TODO.md` — the grilling→architecting
  *                          hand-off, all in this one commit.
+ *                          `seedArchitectureFromPlan` mirrors it for the
+ *                          PLAN.md entry: reads the present `PLAN.md`, writes
+ *                          its content (with a banner) as `ARCHITECTURE.md`,
+ *                          and deletes `PLAN.md` — the direct-to-decompose
+ *                          hand-off.
  *   - `runTest`          — run the configured test command; on red write
  *                          FEEDBACK (below cap) or ERRORS (`capReached`),
  *                          commit `gtd: errors`; on green commit
@@ -272,6 +283,7 @@ export type EdgeAction =
       readonly kind: "commitRouting"
       readonly subject: string
       readonly seedArchitectureFromTodo?: boolean
+      readonly seedArchitectureFromPlan?: boolean
       readonly removeArchitecture?: boolean
       readonly removeReview?: boolean
       readonly removeFeedback?: boolean
@@ -358,8 +370,11 @@ export class GtdStateError extends Error {
  *   `removedErrors`} and increments on `isErrors`.
  * - `reviewFixCount` resets to 0 on `isPackageStart` and increments on
  *   `isFeedback`.
- * - `healthFixCount` resets to 0 on `isPackageStart` and `removedErrors`, and
- *   increments on `isHealthCheck`.
+ * - `healthFixCount` resets to 0 on `isPackageStart`, `removedErrors`, and
+ *   `isTestsGreen` (a green re-test ends the health run — without this reset,
+ *   a run that ends without a history-collapsing squash would leave the count
+ *   lingering and re-trigger the learning/squash chain at later idle rests),
+ *   and increments on `isHealthCheck`.
  */
 /**
  * One counter's reset/increment rule, read off a `CommitEvent`: `resetsOn`
@@ -383,7 +398,7 @@ const counterRules: Record<keyof Counters, CounterRule> = {
     incrementsOn: (e) => e.isFeedback,
   },
   healthFixCount: {
-    resetsOn: (e) => e.isPackageStart || e.removedErrors,
+    resetsOn: (e) => e.isPackageStart || e.removedErrors || e.isTestsGreen,
     incrementsOn: (e) => e.isHealthCheck,
   },
 }
@@ -440,6 +455,8 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   todoCommitted: false,
   architectureExists: false,
   architectureCommitted: false,
+  planExists: false,
+  planCommitted: false,
   packagesPresent: false,
   reviewPresent: false,
   feedbackPresent: false,
@@ -518,6 +535,53 @@ const healthFileConflictRules: readonly IllegalCombinationRule[] = [
   {
     isViolated: (p) => p.healthPresent && p.errorsPresent,
     message: ".gtd/HEALTH.md + .gtd/ERRORS.md",
+  },
+  // HEALTH.md now doubles as an entry file (a hand-written error description
+  // enters the fix loop directly), so it must be unambiguous against the
+  // other entry files. This also outlaws scribbling a next-feature TODO.md/
+  // ARCHITECTURE.md draft while a health detour is live — previously a
+  // tolerated ride-along that silently misattributed the draft into the
+  // health-fixer's turn; now a refused guess.
+  {
+    isViolated: (p) => p.healthPresent && p.todoExists,
+    message: ".gtd/HEALTH.md + .gtd/TODO.md",
+  },
+  {
+    isViolated: (p) => p.healthPresent && p.architectureExists,
+    message: ".gtd/HEALTH.md + .gtd/ARCHITECTURE.md",
+  },
+  {
+    isViolated: (p) => p.healthPresent && p.planExists,
+    message: ".gtd/HEALTH.md + .gtd/PLAN.md",
+  },
+]
+
+// PLAN.md is a pure entry file: it exists only between the human writing it
+// and the entry turn's seed hop consuming it, so it may never coexist with
+// any other steering state. The SQUASH_MSG.md/LEARNINGS.md rules are
+// defensive (like `learningFileConflictRules`): without them a stray PLAN.md
+// would ride into a squash/learning capture, strand committed at a boundary
+// HEAD, and silently block every future dirty-boundary entry.
+const planFileConflictRules: readonly IllegalCombinationRule[] = [
+  { isViolated: (p) => p.planExists && p.todoExists, message: ".gtd/PLAN.md + .gtd/TODO.md" },
+  {
+    isViolated: (p) => p.planExists && p.architectureExists,
+    message: ".gtd/PLAN.md + .gtd/ARCHITECTURE.md",
+  },
+  { isViolated: (p) => p.planExists && p.packagesPresent, message: ".gtd/PLAN.md + packages" },
+  { isViolated: (p) => p.planExists && p.reviewPresent, message: ".gtd/PLAN.md + .gtd/REVIEW.md" },
+  {
+    isViolated: (p) => p.planExists && p.feedbackPresent,
+    message: ".gtd/PLAN.md + .gtd/FEEDBACK.md",
+  },
+  { isViolated: (p) => p.planExists && p.errorsPresent, message: ".gtd/PLAN.md + .gtd/ERRORS.md" },
+  {
+    isViolated: (p) => p.planExists && p.squashMsgPresent,
+    message: ".gtd/PLAN.md + .gtd/SQUASH_MSG.md",
+  },
+  {
+    isViolated: (p) => p.planExists && p.learningMsgPresent,
+    message: ".gtd/PLAN.md + .gtd/LEARNINGS.md",
   },
 ]
 
@@ -626,6 +690,7 @@ const assertLegal = (p: ResolvePayload): void => {
   for (const rule of [
     ...healthFileConflictRules,
     ...learningFileConflictRules,
+    ...planFileConflictRules,
     ...reviewAndFeedbackRules,
   ]) {
     if (rule.isViolated(p)) {
@@ -681,6 +746,7 @@ const nextAfterReviewOrLearning = (
 interface ClassifyFlags {
   readonly headTurnIsEmpty: boolean
   readonly hasPackages: boolean
+  readonly planExists: boolean
   readonly agenticReviewForceApproved: boolean
   readonly squashEnabled: boolean
   readonly hasSquashBase: boolean
@@ -794,6 +860,31 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
             action: { kind: "commitRouting", subject: "gtd: grilled" },
           }
         : { kind: "rest", state: "architecting", actor: "agent" }
+    }
+
+    if (actor === "human" && gate === "grilled") {
+      // The PLAN.md entry turn: the human handed the machine a final
+      // architecture (`.gtd/PLAN.md`) — seed `.gtd/ARCHITECTURE.md` from it
+      // and route straight to the decompose rest. Guarded on the plan file
+      // actually being present (mirrors the `hasPackages` guard on the agent's
+      // decompose turn below): a hand-crafted history without PLAN.md, or a
+      // crash half-way through the seed (ARCHITECTURE.md written, PLAN.md
+      // deleted, commit failed), must not overwrite an already-seeded
+      // ARCHITECTURE.md with a banner-only body — fall through to the ladder
+      // instead, whose `architectureExists` rung recovers the half-seeded
+      // crash through a normal architecting round.
+      return flags.planExists
+        ? {
+            kind: "mid-chain",
+            state: "grilled",
+            actor: "agent",
+            action: {
+              kind: "commitRouting",
+              subject: "gtd: grilled",
+              seedArchitectureFromPlan: true,
+            },
+          }
+        : null
     }
 
     if (actor === "agent" && gate === "grilled") {
@@ -1034,7 +1125,11 @@ const gateForState = (state: GtdState): TurnGate =>
  * (CLAUDE.md/AGENTS.md/docs), so it's unconditionally inert on a clean tree,
  * same as `building`/`fixing`. `health-fixing` is deliberately absent: its
  * empty turn is meaningful (environmental fix; the machine removes
- * HEALTH.md and re-tests).
+ * HEALTH.md and re-tests) — EXCEPT while HEAD is the human's hand-written
+ * HEALTH.md entry turn (`gtd(human): health-fixing`), where the loop
+ * protocol's opening clean-tree `gtd step-agent` would otherwise consume the
+ * human's error description before any agent read it (see
+ * `isInertEmptyAgentRest`).
  */
 const INERT_EMPTY_AGENT_GATES: ReadonlySet<GtdState> = new Set([
   "grilling",
@@ -1048,6 +1143,16 @@ const INERT_EMPTY_AGENT_GATES: ReadonlySet<GtdState> = new Set([
 ])
 
 /**
+ * HEAD is the human's HEALTH.md entry turn (`gtd(human): health-fixing`) —
+ * the hand-written error description was just captured and no agent has
+ * acted on it yet.
+ */
+const isHumanHealthEntryHead = (head: string): boolean => {
+  const parsed = parseSubject(head)
+  return parsed.kind === "turn" && parsed.actor === "human" && parsed.gate === "health-fixing"
+}
+
+/**
  * True when a `step-agent` invocation at this rest has nothing to capture —
  * see `INERT_EMPTY_AGENT_GATES`. Shared by `applyTurnTaking` (author nothing)
  * and `predictTurn` (predict null) so the two can never disagree.
@@ -1056,7 +1161,8 @@ const isInertEmptyAgentRest = (state: GtdState, p: ResolvePayload): boolean =>
   p.workingTreeClean &&
   (INERT_EMPTY_AGENT_GATES.has(state) ||
     (state === "squashing" && p.squashMsgIsTemplate) ||
-    (state === "learning" && p.learningMsgIsTemplate))
+    (state === "learning" && p.learningMsgIsTemplate) ||
+    (state === "health-fixing" && isHumanHealthEntryHead(p.lastCommitSubject)))
 
 /**
  * The baseline decision: classify HEAD, falling through to the payload-driven
@@ -1167,6 +1273,7 @@ const resolveBaseline = (
   const flags: ClassifyFlags = {
     headTurnIsEmpty: p.headTurnIsEmpty,
     hasPackages: p.packagesPresent,
+    planExists: p.planExists,
     agenticReviewForceApproved: forceApprove,
     squashEnabled: p.squashEnabled,
     hasSquashBase: p.squashBase !== undefined,
@@ -1258,6 +1365,18 @@ const resolveBaseline = (
     return { kind: "rest", state: "architecting", actor: "agent" }
   }
 
+  // PLAN.md present, boundary/other HEAD. Unlike TODO.md/ARCHITECTURE.md
+  // (agent-developed mid-process), PLAN.md is only ever human-authored entry
+  // input, so the awaited actor is the HUMAN: the ordinary case is the
+  // pre-entry dirty boundary (the entry turn in `applyTurnTaking`
+  // short-circuits this baseline), and the recovery case is a committed
+  // PLAN.md at a boundary HEAD, where the human's `gtd step` resumes the
+  // entry (captures `gtd(human): grilled`, which seeds and routes) instead of
+  // corrupting. An agent invocation here is refused as out-of-turn.
+  if (p.planExists) {
+    return { kind: "rest", state: "grilled", actor: "human" }
+  }
+
   // `.gtd/` exists with a pending package, and the nearest workflow commit
   // (skipping any boundary commits on top of it) is still the
   // `gtd(agent): building` checkpoint — an operational recovery commit (e.g. a
@@ -1294,7 +1413,8 @@ const resolveBaseline = (
     !p.errorsPresent &&
     !p.healthPresent &&
     !p.todoExists &&
-    !p.architectureExists
+    !p.architectureExists &&
+    !p.planExists
   ) {
     return resolveIdleOrHealth(p)
   }
@@ -1338,26 +1458,40 @@ const applyTurnTaking = (
   // feature's dirty tree lands), even though it parses as a `"routing"`
   // subject in the general taxonomy.
   //
-  // Escape hatch: which gate the entry turn is captured under depends on
-  // whether the human's dirty tree already contains `.gtd/ARCHITECTURE.md`
-  // — an already-technical sketch skips product grilling entirely and enters
-  // directly at `architecting` (file *presence*, never content, decides
-  // this — the same mechanism every other steering-file rung in this
-  // ladder already uses).
+  // Entry points: which gate the entry turn is captured under depends on
+  // which steering file the human's dirty tree already contains (file
+  // *presence*, never content, decides this — the same mechanism every other
+  // steering-file rung in this ladder already uses):
+  //   - `.gtd/HEALTH.md`       → `health-fixing` (a hand-written error
+  //                              description enters the fix loop directly)
+  //   - `.gtd/PLAN.md`         → `grilled` (a final architecture goes
+  //                              straight to decomposition)
+  //   - `.gtd/ARCHITECTURE.md` → `architecting` (an already-technical sketch
+  //                              skips product grilling)
+  //   - anything else          → `grilling` (product grilling, the default)
+  // The four are pairwise illegal combinations (`assertLegal`), so the pick
+  // order below is inert.
   const isDirtyBoundaryEntry =
     invoker === "human" &&
     !p.workingTreeClean &&
     !p.todoCommitted &&
     !p.architectureCommitted &&
+    !p.planCommitted &&
     !p.packagesPresent &&
     !p.reviewPresent &&
     !p.feedbackPresent &&
     !p.errorsPresent &&
-    !p.healthPresent &&
+    !p.healthCommitted &&
     (parseSubject(head).kind === "boundary" || head === "gtd: done")
 
   if (isDirtyBoundaryEntry) {
-    const entryGate: TurnGate = p.architectureExists ? "architecting" : "grilling"
+    const entryGate: TurnGate = p.healthPresent
+      ? "health-fixing"
+      : p.planExists
+        ? "grilled"
+        : p.architectureExists
+          ? "architecting"
+          : "grilling"
     return {
       state: entryGate as GtdState,
       actor: "human",
@@ -1409,10 +1543,13 @@ const applyTurnTaking = (
     (head === "gtd: health-fix" && baseline.state === "idle") ||
     (healthCheckCapReached && baseline.state === "health-fixing")
   ) {
+    // `healthFixBase !== undefined` alone: the edge only anchors a base for a
+    // live, unprocessed health run (the anchor scan resets on `gtd: tests
+    // green`), and a hand-written-HEALTH.md entry run whose first fix goes
+    // green has a base but ZERO `gtd: health-check` commits — so a count
+    // conjunct would wrongly skip its squash/learning chain.
     const chainAfterGreenAtHealthFix =
-      (p.squashEnabled || p.learningEnabled) &&
-      counters.healthFixCount > 0 &&
-      p.healthFixBase !== undefined
+      (p.squashEnabled || p.learningEnabled) && p.healthFixBase !== undefined
     return {
       state: "idle",
       actor: "agent",
@@ -1453,10 +1590,9 @@ const applyTurnTaking = (
   // Idle carve-out: a human step at idle always re-runs the health check —
   // never an empty turn commit, and never a plain fixpoint no-op.
   if (baseline.state === "idle" && invoker === "human") {
-    const chainAfterGreen =
-      (p.squashEnabled || p.learningEnabled) &&
-      counters.healthFixCount > 0 &&
-      p.healthFixBase !== undefined
+    // Same reasoning as `chainAfterGreenAtHealthFix` above: base presence is
+    // the whole signal.
+    const chainAfterGreen = (p.squashEnabled || p.learningEnabled) && p.healthFixBase !== undefined
     return {
       state: "idle",
       actor: "human",
@@ -1635,14 +1771,21 @@ export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
     !payload.workingTreeClean &&
     !payload.todoCommitted &&
     !payload.architectureCommitted &&
+    !payload.planCommitted &&
     !payload.packagesPresent &&
     !payload.reviewPresent &&
     !payload.feedbackPresent &&
     !payload.errorsPresent &&
-    !payload.healthPresent &&
+    !payload.healthCommitted &&
     (parseSubject(head).kind === "boundary" || head === "gtd: done")
   if (isDirtyBoundaryEntry) {
-    const entryGate: TurnGate = payload.architectureExists ? "architecting" : "grilling"
+    const entryGate: TurnGate = payload.healthPresent
+      ? "health-fixing"
+      : payload.planExists
+        ? "grilled"
+        : payload.architectureExists
+          ? "architecting"
+          : "grilling"
     return {
       actor: "human",
       subject: `gtd(human): ${entryGate}`,

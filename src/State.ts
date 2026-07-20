@@ -28,6 +28,9 @@ const edgeActionHandlers: EdgeActionHandlers = {
     if (a.seedArchitectureFromTodo) {
       msg += " (seeding .gtd/ARCHITECTURE.md from .gtd/TODO.md)"
     }
+    if (a.seedArchitectureFromPlan) {
+      msg += " (seeding .gtd/ARCHITECTURE.md from .gtd/PLAN.md)"
+    }
     const removed: string[] = []
     if (a.removeArchitecture) removed.push(".gtd/ARCHITECTURE.md")
     if (a.removeReview) removed.push(".gtd/REVIEW.md")
