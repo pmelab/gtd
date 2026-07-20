@@ -39,6 +39,11 @@ or `REVIEW.md` at the repository root is the project's own file — gtd never
 reads, consumes, or deletes it. (Corollary: don't gitignore `.gtd/` — the
 workflow commits its state through it.)
 
+A squash commit's message can carry a `## Decisions` section — one entry per
+architecture/product question resolved that cycle. Grilling/architecting read
+every past squash commit's `## Decisions` section back as "Prior decisions"
+context, oldest to newest. See `decisionLog` under Configuration.
+
 ## Quick start: the two-beat loop
 
 gtd splits what used to be one mutating command into three:
@@ -750,19 +755,20 @@ With `squash: true` (the default), `gtd: done` (or, once learning has run,
 to `gtd: squash template`, writing and committing a `.gtd/SQUASH_MSG.md`
 template. `gtd next` then emits the squashing prompt: the agent overwrites
 `.gtd/SQUASH_MSG.md` with a real conventional-commits message (drawing on
-grilling- and architecting-round decisions from history) and finishes its turn.
-`gtd step-agent` then performs the squash itself: `git reset --soft <base>` +
-`git commit`, collapsing every intermediate `gtd: *` commit of the cycle into
-one — including any review-feedback detours, and the learning phase's own
-commits if learning ran: the squash base is the cycle's ORIGINAL start (the
-first grilling or, via the escape hatch, architecting turn since the previous
-`gtd: done` boundary, or the `gtd: reviewing <hash>` anchor for an ad-hoc review
-cycle), not the most recent re-grilling round — the collapse folds the whole
-cycle into one, using the overwritten message's content verbatim (turn position,
-not message content, triggers the squash). Doc edits made during
-`learning-apply` survive in the squashed tree, not as their own commit. With
-`squash: false`, `gtd: done` (or `gtd: learning applied`) is the resting
-boundary and no template is ever written.
+grilling- and architecting-round decisions from history, and, when this cycle
+resolved any open questions, a `## Decisions` section recording them) and
+finishes its turn. `gtd step-agent` then performs the squash itself:
+`git reset --soft <base>` + `git commit`, collapsing every intermediate `gtd: *`
+commit of the cycle into one — including any review-feedback detours, and the
+learning phase's own commits if learning ran: the squash base is the cycle's
+ORIGINAL start (the first grilling or, via the escape hatch, architecting turn
+since the previous `gtd: done` boundary, or the `gtd: reviewing <hash>` anchor
+for an ad-hoc review cycle), not the most recent re-grilling round — the
+collapse folds the whole cycle into one, using the overwritten message's content
+verbatim (turn position, not message content, triggers the squash). Doc edits
+made during `learning-apply` survive in the squashed tree, not as their own
+commit. With `squash: false`, `gtd: done` (or `gtd: learning applied`) is the
+resting boundary and no template is ever written.
 
 ### Health check
 
@@ -849,6 +855,10 @@ built-in defaults apply. Supported filenames (searched in this order):
   `.gtd/LEARNINGS.md`, have a human review them, then integrate them into the
   project's own docs before the squash decision runs. Set `false` to skip the
   phase entirely — independent of `squash`.
+- **`decisionLog`** (boolean, default `true`) — squashing records this cycle's
+  resolved open questions as a `## Decisions` section in the squash commit
+  message; grilling/architecting inline every past squash commit's section,
+  oldest to newest, as prior-decision context. Set `false` to skip both.
 - **`models`** — model selection for the subagent-spawning states:
   - `planning` — high-reasoning tier (default `claude-opus-4-8`), used by
     `decompose` (the `grilled`/`planning` states), `grilling`, `architecting`,
@@ -913,6 +923,7 @@ reviewThreshold: 3
 agenticReview: true
 squash: true
 learning: true
+decisionLog: true
 models:
   planning: claude-opus-4-8
   execution: claude-sonnet-4-8

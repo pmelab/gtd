@@ -300,3 +300,63 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     When I run gtd next
     Then it succeeds
     And stdout contains ".gtd/SQUASH_MSG.md"
+
+  Scenario: A squash message's ## Decisions section + trailer survive into the commit and are read back later
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      squash: true
+      learning: false
+      """
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      # Plan
+
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which display precision should the calculator default to?
+      Answer: 2 decimal places
+      """
+    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review
+
+      - [ ] ./src/calc.ts#1
+      """
+    And a commit "gtd: awaiting review"
+    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd: done"
+    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+      """
+      chore: replace this template with a conventional-commits message
+      """
+    And ".gtd/SQUASH_MSG.md" is modified to:
+      """
+      feat: add calculator with configurable precision
+
+      ## Decisions
+
+      ### Which display precision should the calculator default to?
+      Answer: 2 decimal places
+
+      Gtd-Decisions: true
+      """
+    When I run gtd step-agent
+    Then it succeeds
+    And the last commit subject is "feat: add calculator with configurable precision"
+    And the git log contains "## Decisions"
+    And the git log contains "Which display precision should the calculator default to?"
+    And the git log contains "Gtd-Decisions: true"
+    And a file "notes.md" with:
+      """
+      Add a memory-recall feature.
+      """
+    When I run gtd step
+    And I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "Prior decisions"
+    And stdout contains "Which display precision should the calculator default to?"
+    And stdout contains "2 decimal places"

@@ -69,6 +69,7 @@ const fakeConfig = (o: Partial<ConfigOperations> = {}): ConfigOperations => ({
   // Isolated from squash-specific tests below by default — learning has its
   // own describe block that opts back in via the `o` override.
   learning: false,
+  decisionLog: true,
   fixAttemptCap: 3,
   reviewThreshold: 3,
   ...o,
@@ -111,6 +112,7 @@ const runPerform = (
           agenticReview: true,
           squash: true,
           learning: false,
+          decisionLog: true,
           fixAttemptCap: 3,
           reviewThreshold: 3,
         }),
@@ -577,6 +579,71 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
     const p = resolveOf(await runGather())
     expect(p.squashMsgPresent).toBe(true)
     expect("squashMsgContent" in p).toBe(false)
+  })
+})
+
+// ── gatherEvents: decisionLog ────────────────────────────────────────────────
+
+describe("gatherEvents — decisionLog", { timeout: 30_000 }, () => {
+  beforeEach(() => initRepo(true))
+  afterEach(cleanup)
+
+  it("is empty when no commit carries the Gtd-Decisions trailer", async () => {
+    commitFile("feat: add calculator", "src/calc.ts", "export const add = 1\n")
+    expect(resolveOf(await runGather()).decisionLog).toBe("")
+  })
+
+  it("extracts the ## Decisions section, trailer line stripped", async () => {
+    commitFile(
+      "feat: add calculator\n\n" +
+        "## Decisions\n\n" +
+        "### Which display precision should the calculator default to?\n" +
+        "Answer: 2 decimal places\n\n" +
+        "Gtd-Decisions: true\n",
+      "src/calc.ts",
+      "export const add = 1\n",
+    )
+    const decisionLog = resolveOf(await runGather()).decisionLog
+    expect(decisionLog).toContain("Which display precision should the calculator default to?")
+    expect(decisionLog).toContain("Answer: 2 decimal places")
+    expect(decisionLog).not.toContain("Gtd-Decisions")
+  })
+
+  it("concatenates multiple decision-bearing commits oldest to newest, no dedup", async () => {
+    commitFile(
+      "feat: add calculator\n\n## Decisions\n\n### Precision?\nAnswer: 2 places\n\nGtd-Decisions: true\n",
+      "src/calc.ts",
+      "export const add = 1\n",
+    )
+    commitFile(
+      "feat: add scientific mode\n\n## Decisions\n\n### Precision?\nAnswer: 6 places\n\nGtd-Decisions: true\n",
+      "src/sci.ts",
+      "export const sqrt = 1\n",
+    )
+    const decisionLog = resolveOf(await runGather()).decisionLog
+    const firstIdx = decisionLog.indexOf("2 places")
+    const secondIdx = decisionLog.indexOf("6 places")
+    expect(firstIdx).toBeGreaterThanOrEqual(0)
+    expect(secondIdx).toBeGreaterThan(firstIdx)
+  })
+
+  it("a commit mentioning ## Decisions in prose without the trailer is inert", async () => {
+    commitFile(
+      "docs: describe the ## Decisions format\n\nThis just documents the convention.\n",
+      "docs/notes.md",
+      "notes\n",
+    )
+    expect(resolveOf(await runGather()).decisionLog).toBe("")
+  })
+
+  it("decisionLog: false suppresses it even when decision-bearing commits exist", async () => {
+    commitFile(
+      "feat: add calculator\n\n## Decisions\n\n### Precision?\nAnswer: 2 places\n\nGtd-Decisions: true\n",
+      "src/calc.ts",
+      "export const add = 1\n",
+    )
+    const p = resolveOf(await runGather("none", { decisionLog: false }))
+    expect(p.decisionLog).toBe("")
   })
 })
 

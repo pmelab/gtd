@@ -16,6 +16,8 @@
       "Bash(npx vitest run *)",
       "Bash(npx fallow health *)",
       "Bash(npx fallow --summary *)",
+      "Bash(npx oxlint .)",
+      "Bash(npx oxfmt --check .)",
       "mcp__github__actions_list"
     ],
     "deny": ["Bash(npm run test:mutation)", "Bash(npx stryker run)", "Bash(stryker run)"]

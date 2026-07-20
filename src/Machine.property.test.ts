@@ -163,6 +163,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       learningEnabled: raw.learningEnabled,
       learningMsgPresent: false,
       learningMsgIsTemplate: false,
+      decisionLog: "",
     }
   })
 

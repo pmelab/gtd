@@ -13,6 +13,9 @@ error-handling/concurrency strategy — the *how*, building on the *what*
 already settled in this file's product content. Do not re-open or re-litigate
 product/user-facing decisions from the prior phase; treat them as settled
 context.
+<% if (it.context.decisionLog && it.context.decisionLog.trim()) { %>
+<%~ include("@decision-log", { decisionLog: it.context.decisionLog, fenceFor: it.fenceFor }) %>
+<% } %>
 
 ### Develop the architecture
 

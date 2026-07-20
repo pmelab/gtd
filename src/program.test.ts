@@ -64,6 +64,7 @@ const stubConfigLayer = Layer.succeed(ConfigService, {
   agenticReview: false,
   squash: false,
   learning: false,
+  decisionLog: false,
   fixAttemptCap: 0,
   reviewThreshold: 0,
 })
