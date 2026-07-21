@@ -18,15 +18,34 @@
 >   FEEDBACK.md emptiness and REVIEW.md checkbox-only, both consumed at capture.
 >   The effects-as-diffs invariant holds structurally (every `perform()` arm
 >   ends in a commit or a stop).
-> - **Phase C — REMAINING.** Counter trailers (`Gtd-Counters` computed from the
->   previous label), write-time check outcomes (`gtd: escalated` at cap; green
->   splitting into `agentic-review`/`close-package` at the act), the
->   errors/health interrupt deletion, and `foldCounters` removal. This is the
->   second wire-format break and the context-dependent e2e pass — do it in a
->   dedicated session.
-> - **Phase D — REMAINING.** The δ conformance property test only becomes
->   meaningful once Phase C removes the counter/config reads from resolution;
->   land it together with C.
+> - **Phase C1 — LANDED.** `gtd: escalated`: a red check at the cap writes
+>   ERRORS.md and labels the escalation at write time (runTest AND
+>   runHealthCheck). `gtd: test-failed`/`gtd: health-check` classify
+>   unconditionally, the ERRORS interrupt dissolved (fallback recovery rung
+>   kept), `ClassifyFlags.errorsPresent` and the at-cap health carve-out are
+>   deleted.
+> - **Phase C2 — REMAINING (mapped).** Green outcome at write time: `runTest`
+>   gains `onGreen: "tests-green" | "agentic-review" | "close-package"`,
+>   computed in the fill-in from `packagesPresent` + `forceApprove` (dispatch
+>   already has both; apply the fill to the fallback-recovery `runTest` too).
+>   Force path performs the close INLINE (one `gtd: close-package` commit —
+>   sequences shrink by the green marker). New machine label
+>   `gtd: agentic-review` (routing rule: rest agentic-review/agent);
+>   `tests-green` becomes health-path-only, its routing rule settle-only. NOTE:
+>   `isTestsGreenCheckpoint` in `src/program.ts` (the step-agent loop's
+>   stop-at-checkpoint guard) keys on `headThisHop === "gtd: tests-green"` — it
+>   must key on the new agentic-review label. E2e: 32 `gtd: tests-green`
+>   literals across 14 feature files — package-context ones become
+>   `gtd: agentic-review`, health-context ones stay, force-path sequence rows
+>   are removed.
+> - **Phase C3 — REMAINING.** Counter trailers
+>   (`Gtd-Counters: t=n/cap r=n/cap h=n/cap` computed from the previous label's
+>   trailer), then `foldCounters` and the `CommitEvent` flags are deleted; caps
+>   and force-approve read the trailer at dispatch. Do after C2 (force-approve's
+>   dispatch move is a prerequisite).
+> - **Phase D — REMAINING.** The δ conformance property test lands once C3
+>   removes the history fold from resolution: permute everything except the
+>   nearest label (+trailers) and the pending diff; assert identical output.
 
 > Companion to `configurable-state-machine.md` Appendix C. Decisions taken:
 > **full purity** (all five moves, including counters and config at write time),
