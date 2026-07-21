@@ -94,6 +94,8 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
     todoCommittedRaw: fc.boolean(),
     architectureExists: fc.boolean(),
     architectureCommittedRaw: fc.boolean(),
+    planExists: fc.boolean(),
+    planCommittedRaw: fc.boolean(),
     packagesPresent: fc.boolean(),
     reviewPresent: fc.boolean(),
     reviewTrackedRaw: fc.boolean(),
@@ -131,6 +133,8 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       todoCommitted: raw.todoExists && raw.todoCommittedRaw,
       architectureExists: raw.architectureExists,
       architectureCommitted: raw.architectureExists && raw.architectureCommittedRaw,
+      planExists: raw.planExists,
+      planCommitted: raw.planExists && raw.planCommittedRaw,
       packagesPresent: raw.packagesPresent,
       reviewPresent: raw.reviewPresent,
       feedbackPresent: raw.feedbackPresent,
@@ -174,6 +178,7 @@ const arbCommit: fc.Arbitrary<GtdEvent> = fc
     isPackageStart: fc.boolean(),
     removedErrors: fc.boolean(),
     isHealthCheck: fc.boolean(),
+    isTestsGreen: fc.boolean(),
   })
   .map((f) => ({ type: "COMMIT" as const, isWorkflowCommit: true, ...f }))
 
@@ -200,7 +205,18 @@ const isIllegal = (p: ResolvePayload): boolean =>
   (p.healthPresent && p.packagesPresent) ||
   (p.healthPresent && p.reviewPresent) ||
   (p.healthPresent && p.feedbackPresent) ||
-  (p.healthPresent && p.errorsPresent)
+  (p.healthPresent && p.errorsPresent) ||
+  (p.healthPresent && p.todoExists) ||
+  (p.healthPresent && p.architectureExists) ||
+  (p.healthPresent && p.planExists) ||
+  (p.planExists && p.todoExists) ||
+  (p.planExists && p.architectureExists) ||
+  (p.planExists && p.packagesPresent) ||
+  (p.planExists && p.reviewPresent) ||
+  (p.planExists && p.feedbackPresent) ||
+  (p.planExists && p.errorsPresent) ||
+  (p.planExists && p.squashMsgPresent) ||
+  (p.planExists && p.learningMsgPresent)
 
 /**
  * Scopes property (a) to payloads where HEAD is an agent turn commit with an

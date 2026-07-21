@@ -71,7 +71,15 @@ export const reviewWindowBase = (
     if (parsed.kind === "routing" && parsed.phase === "awaiting-review") {
       lastAwaitingReview = c.hash
     }
-    if (parsed.kind === "turn" && parsed.gate === "grilling" && firstGrilling === undefined) {
+    // All three entry-capable gates count as the cycle start (mirrors
+    // `isGrillingTurn` in src/Events.ts): `architecting` covers the
+    // ARCHITECTURE.md escape-hatch entry and `grilled` the PLAN.md entry —
+    // without them the window silently never opens for those cycles.
+    if (
+      parsed.kind === "turn" &&
+      (parsed.gate === "grilling" || parsed.gate === "architecting" || parsed.gate === "grilled") &&
+      firstGrilling === undefined
+    ) {
       firstGrilling = c.hash
     }
   }

@@ -40,6 +40,7 @@ import type {
 const GTD_DIR = ".gtd"
 const TODO_FILE = `${GTD_DIR}/TODO.md`
 const ARCHITECTURE_FILE = `${GTD_DIR}/ARCHITECTURE.md`
+const PLAN_FILE = `${GTD_DIR}/PLAN.md`
 const REVIEW_FILE = `${GTD_DIR}/REVIEW.md`
 const FEEDBACK_FILE = `${GTD_DIR}/FEEDBACK.md`
 const ERRORS_FILE = `${GTD_DIR}/ERRORS.md`
@@ -55,6 +56,7 @@ const LEGACY_FEEDBACK_FILE = "FEEDBACK.md"
 export const STEERING_FILES = {
   todo: TODO_FILE,
   architecture: ARCHITECTURE_FILE,
+  plan: PLAN_FILE,
   review: REVIEW_FILE,
   feedback: FEEDBACK_FILE,
   errors: ERRORS_FILE,
@@ -394,22 +396,27 @@ export const gatherEvents = (
       const parsed = parseSubject(subject)
       const isTurn = parsed.kind === "turn"
       const isRouting = parsed.kind === "routing"
+      // One discriminant read each; "" never matches a real phase/gate, so
+      // every flag below collapses to a single comparison instead of an
+      // `isRouting && …` / `isTurn && …` conjunct.
+      const routingPhase = parsed.kind === "routing" ? parsed.phase : ""
+      const turnGate = parsed.kind === "turn" ? parsed.gate : ""
       return {
         type: "COMMIT",
-        ...(isTurn ? { turnActor: parsed.actor, turnGate: parsed.gate } : {}),
-        isErrors: isRouting && parsed.phase === "errors",
+        ...(parsed.kind === "turn" ? { turnActor: parsed.actor, turnGate: parsed.gate } : {}),
+        isErrors: routingPhase === "errors",
         // A `gtd(agent): agentic-review` turn whose diff touched
         // `.gtd/FEEDBACK.md` — a findings round. Over-counts the approval
         // round too (an empty FEEDBACK.md write still touches the path), but
         // `gtd: package done` resets the reviewFixCount fold immediately
         // after, so the extra count is harmless (documented in the task
         // contract).
-        isFeedback: isTurn && parsed.gate === "agentic-review" && touchedFeedback(commit.touched),
-        isPackageStart:
-          isRouting && (parsed.phase === "planning" || parsed.phase === "package-done"),
+        isFeedback: turnGate === "agentic-review" && touchedFeedback(commit.touched),
+        isPackageStart: routingPhase === "planning" || routingPhase === "package-done",
         isWorkflowCommit: isTurn || isRouting,
         removedErrors: commit.removedErrors,
-        isHealthCheck: isRouting && parsed.phase === "health-check",
+        isHealthCheck: routingPhase === "health-check",
+        isTestsGreen: routingPhase === "tests-green",
       }
     })
 
@@ -499,6 +506,7 @@ export const gatherEvents = (
     // Steering-file presence (committed and/or pending).
     const todoExists = yield* fs.exists(resolve(TODO_FILE))
     const architectureExists = yield* fs.exists(resolve(ARCHITECTURE_FILE))
+    const planExists = yield* fs.exists(resolve(PLAN_FILE))
     const reviewPresent = yield* fs.exists(resolve(REVIEW_FILE))
     const feedbackPresent = yield* fs.exists(resolve(FEEDBACK_FILE))
     const errorsPresent = yield* fs.exists(resolve(ERRORS_FILE))
@@ -526,6 +534,8 @@ export const gatherEvents = (
     const todoCommitted = todoExists && !isUncommitted(TODO_FILE)
     // ARCHITECTURE.md tracked at HEAD.
     const architectureCommitted = architectureExists && !isUncommitted(ARCHITECTURE_FILE)
+    // PLAN.md tracked at HEAD.
+    const planCommitted = planExists && !isUncommitted(PLAN_FILE)
 
     // Structural validation of whichever grilling-phase file is present (the
     // two never coexist) and of REVIEW.md, consulted ONLY by the machine when
@@ -643,13 +653,20 @@ export const gatherEvents = (
         }
       }
 
-      // Find first grilling-or-architecting turn commit in the current cycle
-      // (task start) — the escape hatch lets a cycle start directly at
-      // `architecting` (no grilling turn at all), so both gates count.
+      // Find the first entry-capable turn commit in the current cycle (task
+      // start) — the entry points let a cycle start directly at
+      // `architecting` (technical grilling, no grilling turn at all) or at
+      // `grilled` (a final `.gtd/PLAN.md`, straight to decomposition), so all
+      // three gates count. Safe for normal cycles: their `gtd(agent): grilled`
+      // decompose turn is always preceded by a grilling/architecting turn in
+      // the same cycle, and first-match wins.
       const isGrillingTurn = (message: string): boolean => {
         const parsed = parseSubject(subjectOf(message))
         return (
-          parsed.kind === "turn" && (parsed.gate === "grilling" || parsed.gate === "architecting")
+          parsed.kind === "turn" &&
+          (parsed.gate === "grilling" ||
+            parsed.gate === "architecting" ||
+            parsed.gate === "grilled")
         )
       }
       const firstGrilling = currentCycle.find((c) => isGrillingTurn(c.message))
@@ -735,10 +752,17 @@ export const gatherEvents = (
         // pre-feedback half of the cycle (its grilling/building/review
         // commits) permanently in history — the squash must collapse the
         // entire cycle back to where it actually began.
+        // All three entry-capable gates count as a cycle start (mirrors the
+        // review-base `isGrillingTurn` above): `grilled` covers the PLAN.md
+        // entry turn — harmless for normal cycles, whose decompose turn is
+        // always preceded by a grilling/architecting turn (first match wins).
         const isGrillingTurnSubject = (subject: string): boolean => {
           const parsed = parseSubject(subject)
           return (
-            parsed.kind === "turn" && (parsed.gate === "grilling" || parsed.gate === "architecting")
+            parsed.kind === "turn" &&
+            (parsed.gate === "grilling" ||
+              parsed.gate === "architecting" ||
+              parsed.gate === "grilled")
           )
         }
         const isReviewingAnchor = (subject: string): boolean => {
@@ -805,42 +829,55 @@ export const gatherEvents = (
     // --- Health squash base (squash/learning after green health-fix run) --------
     // Only computed when squash and/or learning is enabled. Mirrors
     // foldCounters: scans all of history forward, resetting on
-    // isPackageStart/removedErrors events, tracking the FIRST
-    // `gtd: health-check` of the current health run. healthFixBase is the
-    // parent of that first health-check commit.
+    // isPackageStart/removedErrors/isTestsGreen events, and anchoring on the
+    // EARLIEST of the current run's two possible start markers — the first
+    // `gtd: health-check` routing commit (the idle-path detour) or the first
+    // `gtd(human): health-fixing` turn commit (a hand-written HEALTH.md
+    // entry, which may reach green with zero health-check commits ever
+    // landing). healthFixBase is the parent of that anchor commit.
+    //
+    // `gtd: tests green` ends a health run for anchoring purposes (without
+    // this reset, a run whose green re-test chained into learning but never
+    // squash-collapsed would leave its anchor in history forever, and every
+    // later idle `gtd step` would re-trigger the learning/squash chain) —
+    // EXCEPT the newest one while HEAD is still inside the post-green
+    // learning/squash processing chain, which is that run's own green marker:
+    // the chain's remaining hops (learning draft, squash) still need the
+    // base. `learning-applied` counts as in-chain only while squash is
+    // enabled — with squash off it is the chain's final rest, after which the
+    // run is fully processed.
     let healthFixBase: string | undefined
     if (config.squash || config.learning) {
-      let firstHealthCheckHash: string | undefined
-      let healthCheckCount = 0
-      for (const commit of commitEvents) {
-        if (commit.isPackageStart || commit.removedErrors) {
-          // Reset: new package or budget reset
-          firstHealthCheckHash = undefined
-          healthCheckCount = 0
-        }
-        if (commit.isHealthCheck) {
-          healthCheckCount++
-        }
+      const inHealthProcessingChain =
+        (headParsedForSquash.kind === "routing" &&
+          (headParsedForSquash.phase === "tests-green" ||
+            headParsedForSquash.phase === "learning-template" ||
+            headParsedForSquash.phase === "learning-drafted" ||
+            headParsedForSquash.phase === "learning-approved" ||
+            headParsedForSquash.phase === "squash-template" ||
+            (headParsedForSquash.phase === "learning-applied" && config.squash))) ||
+        (headParsedForSquash.kind === "turn" &&
+          SQUASH_OR_LEARNING_TURN_GATES.has(headParsedForSquash.gate))
+      let lastTestsGreenIdx = -1
+      for (let i = 0; i < commitEvents.length; i++) {
+        if (commitEvents[i]!.isTestsGreen) lastTestsGreenIdx = i
       }
-      // Re-derive the hash: commitEvents don't carry hashes, so re-scan
-      // `history` in lockstep for the first health-check hash after the same
-      // reset boundaries.
-      if (healthCheckCount > 0) {
-        let resetAt = -1
-        for (let i = 0; i < history.length; i++) {
-          const c = commitEvents[i]!
-          if (c.isPackageStart || c.removedErrors) resetAt = i
+      const ignoredTestsGreenIdx = inHealthProcessingChain ? lastTestsGreenIdx : -1
+      const isHealthEntryTurn = (c: CommitEvent): boolean =>
+        c.turnActor === "human" && c.turnGate === "health-fixing"
+      let anchorIdx = -1
+      for (let i = 0; i < commitEvents.length; i++) {
+        const c = commitEvents[i]!
+        if (c.isPackageStart || c.removedErrors || (c.isTestsGreen && i !== ignoredTestsGreenIdx)) {
+          anchorIdx = -1
+          continue
         }
-        for (let i = resetAt + 1; i < history.length; i++) {
-          if (commitEvents[i]!.isHealthCheck) {
-            firstHealthCheckHash = history[i]!.hash
-            break
-          }
-        }
+        if (anchorIdx === -1 && (c.isHealthCheck || isHealthEntryTurn(c))) anchorIdx = i
       }
-      if (healthCheckCount > 0 && firstHealthCheckHash !== undefined) {
+      if (anchorIdx !== -1) {
+        const anchorHash = history[anchorIdx]!.hash
         const healthBase = yield* git
-          .resolveRef(`${firstHealthCheckHash}~1`)
+          .resolveRef(`${anchorHash}~1`)
           .pipe(Effect.catchAll(() => Effect.succeed(EMPTY_TREE)))
         healthFixBase = healthBase
         // On the health path, squashBase/squashDiff carry the health-fix cycle
@@ -865,6 +902,8 @@ export const gatherEvents = (
       todoCommitted,
       architectureExists,
       architectureCommitted,
+      planExists,
+      planCommitted,
       packagesPresent: packages.length > 0,
       reviewPresent,
       feedbackPresent,
@@ -1018,6 +1057,15 @@ const ARCHITECTURE_SEED_BANNER =
   "<!-- gtd: seeded from the converged product plan (.gtd/TODO.md); decide the technical/architectural questions below. -->\n\n"
 
 /**
+ * Banner prepended to `.gtd/ARCHITECTURE.md` when it is seeded from a
+ * hand-written `.gtd/PLAN.md` (the direct-to-decompose entry) — same
+ * orientation role as `ARCHITECTURE_SEED_BANNER`, one phase later: the plan
+ * is final, the next turn decomposes it.
+ */
+const ARCHITECTURE_PLAN_SEED_BANNER =
+  "<!-- gtd: seeded from the final plan (.gtd/PLAN.md); decompose into ordered work packages. -->\n\n"
+
+/**
  * A short skeleton written by `writeLearningTemplate`, instructing the
  * learning agent to replace it with the real distilled learnings.
  */
@@ -1063,16 +1111,15 @@ export const perform = (
       .pipe(Effect.catchAll(() => Effect.void))
 
     switch (action.kind) {
-      // Capture a human/agent turn: format the pending TODO.md/ARCHITECTURE.md
-      // (best-effort), then commit-all under `gtd(<actor>): <gate>` (--allow-empty).
+      // Capture a human/agent turn: format the pending TODO.md/
+      // ARCHITECTURE.md/PLAN.md (best-effort), then commit-all under
+      // `gtd(<actor>): <gate>` (--allow-empty).
       case "captureTurn": {
-        const todoExists = yield* fs.exists(resolve(TODO_FILE))
-        if (todoExists) {
-          yield* formatFile(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
-        }
-        const architectureExists = yield* fs.exists(resolve(ARCHITECTURE_FILE))
-        if (architectureExists) {
-          yield* formatFile(resolve(ARCHITECTURE_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        for (const file of [TODO_FILE, ARCHITECTURE_FILE, PLAN_FILE]) {
+          const exists = yield* fs.exists(resolve(file))
+          if (exists) {
+            yield* formatFile(resolve(file)).pipe(Effect.catchAll(() => Effect.void))
+          }
         }
         yield* git.commitAllWithPrefix(turnSubject(action.actor, action.gate))
         return { stop: false }
@@ -1083,6 +1130,9 @@ export const perform = (
       // `seedArchitectureFromTodo` instead reads TODO.md, writes it (with a
       // scaffold banner) as ARCHITECTURE.md, and deletes TODO.md — the
       // grilling→architecting hand-off, in this same commit.
+      // `seedArchitectureFromPlan` mirrors it for the PLAN.md entry: the
+      // final plan becomes ARCHITECTURE.md (the decompose prompt's input) in
+      // the same commit that routes to the decompose rest.
       case "commitRouting": {
         if (action.seedArchitectureFromTodo === true) {
           const todoContent = yield* fs
@@ -1094,6 +1144,17 @@ export const perform = (
             ARCHITECTURE_SEED_BANNER + todoContent,
           )
           yield* fs.remove(resolve(TODO_FILE)).pipe(Effect.catchAll(() => Effect.void))
+        }
+        if (action.seedArchitectureFromPlan === true) {
+          const planContent = yield* fs
+            .readFileString(resolve(PLAN_FILE))
+            .pipe(Effect.catchAll(() => Effect.succeed("")))
+          yield* ensureGtdDir
+          yield* fs.writeFileString(
+            resolve(ARCHITECTURE_FILE),
+            ARCHITECTURE_PLAN_SEED_BANNER + planContent,
+          )
+          yield* fs.remove(resolve(PLAN_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
         if (action.removeArchitecture === true) {
           yield* fs.remove(resolve(ARCHITECTURE_FILE)).pipe(Effect.catchAll(() => Effect.void))

@@ -349,6 +349,18 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
     expect(commits[1]).toMatchObject({ isHealthCheck: false })
     expect(commits[2]).toMatchObject({ isHealthCheck: false })
   })
+
+  it("sets isTestsGreen for gtd: tests green only", async () => {
+    commitFile("gtd: tests green", "x.ts", "//x\n")
+    commitFile("gtd: health-fix", "y.ts", "//y\n")
+    commitFile("feat: regular", "z.ts", "//z\n")
+
+    const commits = commitsOf(await runGather())
+    expect(commits).toHaveLength(3)
+    expect(commits[0]).toMatchObject({ isTestsGreen: true })
+    expect(commits[1]).toMatchObject({ isTestsGreen: false })
+    expect(commits[2]).toMatchObject({ isTestsGreen: false })
+  })
 })
 
 // ── gatherEvents: RESOLVE payload ────────────────────────────────────────────
@@ -569,6 +581,32 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
 
   it("HEALTH.md is excluded from codeDirty (steering file)", async () => {
     writeRepoFile(join(repoDir, ".gtd/HEALTH.md"), "# Health\nfail\n")
+    const p = resolveOf(await runGather())
+    expect(p.codeDirty).toBe(false)
+  })
+
+  it("PLAN.md absent → planExists false, planCommitted false", async () => {
+    const p = resolveOf(await runGather())
+    expect(p.planExists).toBe(false)
+    expect(p.planCommitted).toBe(false)
+  })
+
+  it("present uncommitted PLAN.md → planExists true, planCommitted false", async () => {
+    writeRepoFile(join(repoDir, ".gtd/PLAN.md"), "# Plan\nfinal architecture\n")
+    const p = resolveOf(await runGather())
+    expect(p.planExists).toBe(true)
+    expect(p.planCommitted).toBe(false)
+  })
+
+  it("present committed PLAN.md → planExists true, planCommitted true", async () => {
+    commitFile("gtd(human): grilled", ".gtd/PLAN.md", "# Plan\nfinal architecture\n")
+    const p = resolveOf(await runGather())
+    expect(p.planExists).toBe(true)
+    expect(p.planCommitted).toBe(true)
+  })
+
+  it("PLAN.md is excluded from codeDirty (steering file)", async () => {
+    writeRepoFile(join(repoDir, ".gtd/PLAN.md"), "# Plan\nfinal architecture\n")
     const p = resolveOf(await runGather())
     expect(p.codeDirty).toBe(false)
   })
@@ -1032,6 +1070,20 @@ describe(
       expect(p.squashDiff).not.toContain("first.ts")
     })
 
+    it("PLAN.md-entry cycle → squashBase = parent of the gtd(human): grilled entry turn", async () => {
+      initRepo(true)
+      const entryParent = git("rev-parse", "HEAD")
+      commitFile(turnSubject("human", "grilled"), ".gtd/PLAN.md", "# Plan\n")
+      git("rm", "-q", ".gtd/PLAN.md")
+      git("commit", "-q", "-m", "gtd: grilled")
+      commitFile("feat: work", "work.ts", "export const work = 1\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: done")
+
+      const p = resolveOf(await runGather("none", { squash: true }))
+      expect(p.squashBase).toBe(entryParent)
+      expect(p.squashDiff).toContain("work.ts")
+    })
+
     it("squashMsgPresent flag only — no squashMsgContent field on the payload", async () => {
       initRepo(true)
       commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
@@ -1074,6 +1126,73 @@ describe(
     })
   },
 )
+
+// ── gatherEvents: health-fix base anchoring ──────────────────────────────────
+
+describe("gatherEvents — healthFixBase anchoring", { timeout: 30_000 }, () => {
+  afterEach(cleanup)
+
+  it("anchors on the first gtd: health-check of the run (idle-path detour)", async () => {
+    initRepo(false)
+    const base = git("rev-parse", "HEAD")
+    commitFile("gtd: health-check", ".gtd/HEALTH.md", "red\n")
+    commitFile("gtd(agent): health-fixing", "fix.ts", "export const f = 1\n")
+    git("rm", "-q", ".gtd/HEALTH.md")
+    git("commit", "-q", "-m", "gtd: health-fix")
+    const p = resolveOf(await runGather("none", { squash: true }))
+    expect(p.healthFixBase).toBe(base)
+  })
+
+  it("anchors on the human's hand-written HEALTH.md entry turn (zero health-check commits)", async () => {
+    initRepo(false)
+    const base = git("rev-parse", "HEAD")
+    commitFile(turnSubject("human", "health-fixing"), ".gtd/HEALTH.md", "fix the build\n")
+    commitFile("gtd(agent): health-fixing", "fix.ts", "export const f = 1\n")
+    git("rm", "-q", ".gtd/HEALTH.md")
+    git("commit", "-q", "-m", "gtd: health-fix")
+    const p = resolveOf(await runGather("none", { squash: true }))
+    expect(p.healthFixBase).toBe(base)
+  })
+
+  it("picks the EARLIEST anchor when the entry turn is followed by health-check rounds", async () => {
+    initRepo(false)
+    const base = git("rev-parse", "HEAD")
+    commitFile(turnSubject("human", "health-fixing"), ".gtd/HEALTH.md", "fix the build\n")
+    commitFile("gtd(agent): health-fixing", "fix.ts", "export const f = 1\n")
+    git("rm", "-q", ".gtd/HEALTH.md")
+    git("commit", "-q", "-m", "gtd: health-fix")
+    commitFile("gtd: health-check", ".gtd/HEALTH.md", "still red\n")
+    const p = resolveOf(await runGather("none", { squash: true }))
+    expect(p.healthFixBase).toBe(base)
+  })
+
+  it("a processed run (gtd: tests green in history, HEAD past the chain) clears the anchor", async () => {
+    initRepo(false)
+    commitFile("gtd: health-check", ".gtd/HEALTH.md", "red\n")
+    commitFile("gtd(agent): health-fixing", "fix.ts", "export const f = 1\n")
+    git("rm", "-q", ".gtd/HEALTH.md")
+    git("commit", "-q", "-m", "gtd: health-fix")
+    git("commit", "--allow-empty", "-q", "-m", "gtd: tests green")
+    commitFile("gtd: learning applied", "AGENTS.md", "# lessons\n")
+    const p = resolveOf(await runGather("none", { squash: false, learning: true }))
+    expect(p.healthFixBase).toBeUndefined()
+  })
+
+  it("keeps the anchor while HEAD is the run's own gtd: tests green (the chain still needs it)", async () => {
+    initRepo(false)
+    const base = git("rev-parse", "HEAD")
+    commitFile("gtd: health-check", ".gtd/HEALTH.md", "red\n")
+    commitFile("gtd(agent): health-fixing", "fix.ts", "export const f = 1\n")
+    git("rm", "-q", ".gtd/HEALTH.md")
+    git("commit", "-q", "-m", "gtd: health-fix")
+    git("commit", "--allow-empty", "-q", "-m", "gtd: tests green")
+    const p = resolveOf(await runGather("none", { squash: true }))
+    expect(p.healthFixBase).toBe(base)
+    // The health path carries the run's diff as the squash range.
+    expect(p.squashBase).toBe(base)
+    expect(p.squashDiff).toContain("fix.ts")
+  })
+})
 
 // ── gatherEvents: COMMIT-stream base folds ───────────────────────────────────
 
@@ -1191,6 +1310,31 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     const nameStatus = git("show", "--name-status", "--format=", "HEAD")
     expect(nameStatus).toContain("D\t.gtd/TODO.md")
     expect(nameStatus).toContain(".gtd/ARCHITECTURE.md")
+  })
+
+  it("commitRouting seedArchitectureFromPlan: seeds ARCHITECTURE.md from PLAN.md's content and removes PLAN.md", async () => {
+    commitFile("gtd(human): grilled", ".gtd/PLAN.md", "# Plan\n\nsplit the parser module\n")
+    await runPerform({
+      kind: "commitRouting",
+      subject: "gtd: grilled",
+      seedArchitectureFromPlan: true,
+    })
+    expect(existsSync(join(repoDir, ".gtd/PLAN.md"))).toBe(false)
+    const architecture = readFileSync(join(repoDir, ".gtd/ARCHITECTURE.md"), "utf8")
+    expect(architecture).toContain("split the parser module")
+    expect(architecture).toContain("seeded from the final plan")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: grilled")
+    const nameStatus = git("show", "--name-status", "--format=", "HEAD")
+    expect(nameStatus).toContain("D\t.gtd/PLAN.md")
+    expect(nameStatus).toContain(".gtd/ARCHITECTURE.md")
+  })
+
+  it("captureTurn: formats a pending PLAN.md before committing", async () => {
+    writeRepoFile(join(repoDir, ".gtd/PLAN.md"), "#    Plan\nunformatted   \n")
+    await runPerform({ kind: "captureTurn", actor: "human", gate: "grilled" })
+    const formatted = readFileSync(join(repoDir, ".gtd/PLAN.md"), "utf8")
+    expect(formatted).not.toBe("#    Plan\nunformatted   \n")
+    expect(git("status", "--porcelain").trim()).toBe("")
   })
 
   it("commitRouting removeReview: deletes REVIEW.md and lands its removal in the commit", async () => {

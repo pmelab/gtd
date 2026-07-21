@@ -27,9 +27,11 @@ the machine performs itself between turns) looks like `gtd: tests green`.
 `src/Subjects.ts` is the closed grammar both the machine and the edge read.
 
 All workflow state lives under **`.gtd/`**: the product plan (`.gtd/TODO.md`),
-the technical architecture it converges into (`.gtd/ARCHITECTURE.md`), work
-packages (`.gtd/01-…/`), review records (`.gtd/REVIEW.md`, `.gtd/FEEDBACK.md`),
-and loop bookkeeping (`.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/LEARNINGS.md`,
+the technical architecture it converges into (`.gtd/ARCHITECTURE.md`), a
+hand-written final architecture (`.gtd/PLAN.md`, an entry file — see
+[Entry points](#entry-points-which-file-starts-the-cycle-where)), work packages
+(`.gtd/01-…/`), review records (`.gtd/REVIEW.md`, `.gtd/FEEDBACK.md`), and loop
+bookkeeping (`.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/LEARNINGS.md`,
 `.gtd/SQUASH_MSG.md`). One rule follows for every agent in the loop: **never
 touch `.gtd/`** except the single file a prompt explicitly grants. A `TODO.md`
 or `REVIEW.md` at the repository root is the project's own file — gtd never
@@ -65,7 +67,7 @@ The closed set of gates:
 | ---------------- | ------------------------------------------------------------------ |
 | `grilling`       | human (answers) / agent (product-plan iteration)                   |
 | `architecting`   | human (answers) / agent (architecture iteration)                   |
-| `grilled`        | agent (converged, ready to decompose)                              |
+| `grilled`        | agent (converged, ready to decompose) / human (PLAN.md entry turn) |
 | `building`       | agent (package work, or human feedback while agent is out of turn) |
 | `fixing`         | agent (test-fix or review-fix round)                               |
 | `agentic-review` | agent (writes .gtd/FEEDBACK.md verdict)                            |
@@ -73,7 +75,7 @@ The closed set of gates:
 | `squashing`      | agent (overwrites .gtd/SQUASH_MSG.md)                              |
 | `learning`       | agent (overwrites .gtd/LEARNINGS.md) / human (accepts or edits)    |
 | `learning-apply` | agent (integrates .gtd/LEARNINGS.md into CLAUDE.md/AGENTS.md/docs) |
-| `health-fixing`  | agent (idle health-check repair)                                   |
+| `health-fixing`  | agent (idle health-check repair) / human (HEALTH.md entry turn)    |
 | `escalate`       | human (deletes .gtd/ERRORS.md to resume)                           |
 
 ### Routing commits — `gtd: <phase>`
@@ -120,11 +122,29 @@ structure, data model, tech-stack choices — and the human answers or accepts
 defaults at the `architecting` gate. Accepting converges to `gtd: grilled` and
 `gtd next` emits the decompose prompt (which now reads `.gtd/ARCHITECTURE.md`).
 
-**Escape hatch for already-technical input:** if the human's initial dirty tree
-already contains `.gtd/ARCHITECTURE.md` (their own technical sketch), `gtd step`
-captures the entry turn as `gtd(human): architecting` directly, skipping product
-grilling for that cycle entirely — no CLI flag needed, it's driven purely by
-which steering file is present.
+## Entry points: which file starts the cycle where
+
+The entry turn's gate is driven purely by which steering file the human's
+initial dirty tree contains (file _presence_, never content — no CLI flag
+needed). Four entry points:
+
+| File in the dirty tree      | Entry point                                                                                                                                                                                                                                                                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| none (plain notes/sketches) | **Product grilling** — `gtd(human): grilling`; the agent develops `.gtd/TODO.md` from your notes                                                                                                                                                                                                                              |
+| `.gtd/TODO.md`              | **Product grilling** — same gate; your draft IS the product plan the agent iterates on                                                                                                                                                                                                                                        |
+| `.gtd/ARCHITECTURE.md`      | **Technical grilling** — `gtd(human): architecting`; product grilling is skipped, the agent iterates your technical sketch (great for refactorings or test improvements with no product-facing changes)                                                                                                                       |
+| `.gtd/PLAN.md`              | **Decomposition** — `gtd(human): grilled`; the plan is FINAL: a mid-chain hop seeds `.gtd/ARCHITECTURE.md` from it (deleting `.gtd/PLAN.md`) and rests at the decompose prompt — no grilling round ever runs                                                                                                                  |
+| `.gtd/HEALTH.md`            | **Error fixing** — `gtd(human): health-fixing`; your hand-written error description rests at the health-fixing prompt, and the normal health detour takes over (fix → re-test with `testCommand` → cap/escalate → squash/learning tail). The description is a means to make `testCommand` green — a red re-test overwrites it |
+
+The entry files are pairwise **illegal combinations** (see
+[STATES.md](../STATES.md) §5.1), so the pick is always unambiguous — a tree
+containing both `.gtd/PLAN.md` and `.gtd/TODO.md` hard-errors instead of
+guessing.
+
+One guard worth knowing for the HEALTH.md entry: the loop protocol opens every
+iteration with a clean-tree `gtd step-agent`, and at this one rest that opening
+beat is **inert** while HEAD is still the human's entry turn — so the
+hand-written description is never consumed before an agent has read it.
 
 ## Structured grilling/architecting and review files
 
@@ -218,9 +238,12 @@ routes to `gtd: awaiting review` when `.gtd/REVIEW.md` exists, and a squashing
 (or learning) turn only proceeds once its template has been overwritten. The one
 deliberate exception is `health-fixing`, whose empty turn is meaningful (the
 failure may have been environmental — the machine removes `.gtd/HEALTH.md` and
-re-tests). Human gates are unaffected: an empty **human** turn stays a signal
-(accept-defaults at grilling/architecting, clean approval at review,
-accept-the-draft-as-is at the learning review gate).
+re-tests) — except while HEAD is still the human's hand-written HEALTH.md entry
+turn (`gtd(human): health-fixing`), where the empty opening beat is inert so the
+description survives until an agent has actually read it. Human gates are
+unaffected: an empty **human** turn stays a signal (accept-defaults at
+grilling/architecting, clean approval at review, accept-the-draft-as-is at the
+learning review gate).
 
 ## Human review gate
 
@@ -299,14 +322,15 @@ finishes its turn. `gtd step-agent` then performs the squash itself:
 `git reset --soft <base>` + `git commit`, collapsing every intermediate `gtd: *`
 commit of the cycle into one — including any review-feedback detours, and the
 learning phase's own commits if learning ran: the squash base is the cycle's
-ORIGINAL start (the first grilling or, via the escape hatch, architecting turn
-since the previous `gtd: done` boundary, or the `gtd: reviewing <hash>` anchor
-for an ad-hoc review cycle), not the most recent re-grilling round — the
-collapse folds the whole cycle into one, using the overwritten message's content
-verbatim (turn position, not message content, triggers the squash). Doc edits
-made during `learning-apply` survive in the squashed tree, not as their own
-commit. With `squash: false`, `gtd: done` (or `gtd: learning applied`) is the
-resting boundary and no template is ever written.
+ORIGINAL start (the first grilling, architecting, or grilled entry turn since
+the previous `gtd: done` boundary — whichever entry point the cycle used — or
+the `gtd: reviewing <hash>` anchor for an ad-hoc review cycle), not the most
+recent re-grilling round — the collapse folds the whole cycle into one, using
+the overwritten message's content verbatim (turn position, not message content,
+triggers the squash). Doc edits made during `learning-apply` survive in the
+squashed tree, not as their own commit. With `squash: false`, `gtd: done` (or
+`gtd: learning applied`) is the resting boundary and no template is ever
+written.
 
 ## Health check
 
@@ -318,6 +342,10 @@ turn (`gtd(agent): health-fixing`) removes `.gtd/HEALTH.md` and re-tests in the
 same chain — a green re-test continues to learning (if enabled), then squash (if
 enabled), or idle; red repeats the health-fix loop; red at the cap writes
 `.gtd/ERRORS.md` and escalates.
+
+The same detour is also a direct entry point: hand-write `.gtd/HEALTH.md`
+describing the errors and run `gtd step` (see
+[Entry points](#entry-points-which-file-starts-the-cycle-where)).
 
 ## Escalate / budget reset
 

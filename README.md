@@ -69,6 +69,13 @@ architecture, decomposes it into work packages, builds them one at a time, runs
 your tests after every package, has the agent review its own diff, walks you
 through a final review, and squashes the whole cycle into one clean commit.
 
+You don't have to start at the beginning: the steering file you hand the entry
+turn picks the phase — plain notes start product grilling,
+`.gtd/ARCHITECTURE.md` starts technical grilling, a final `.gtd/PLAN.md` goes
+straight to decomposition, and a hand-written `.gtd/HEALTH.md` goes straight
+into the error-fixing loop. See
+[Entry points](docs/workflow.md#entry-points-which-file-starts-the-cycle-where).
+
 `gtd-loop`, installed alongside `gtd`, is a ready-to-run driver for the whole
 protocol — point it at a repo and it runs the loop until it's your turn. See
 [Driving the loop](docs/loop.md).

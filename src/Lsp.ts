@@ -296,6 +296,9 @@ export const startLspServer = (): Effect.Effect<
     connection.onDocumentSymbol((params: DocumentSymbolParams) => {
       const document = documents.get(params.textDocument.uri)
       if (!document) return []
+      // PLAN.md is deliberately absent: it has no enforced structure (a
+      // human-authored final architecture, consumed whole by the entry seed),
+      // so there are no symbols to surface.
       switch (documentName(document.uri)) {
         case "TODO.md":
         case "ARCHITECTURE.md":
