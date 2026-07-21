@@ -24,25 +24,28 @@
 >   unconditionally, the ERRORS interrupt dissolved (fallback recovery rung
 >   kept), `ClassifyFlags.errorsPresent` and the at-cap health carve-out are
 >   deleted.
-> - **Phase C2 — REMAINING (mapped).** Green outcome at write time: `runTest`
->   gains `onGreen: "tests-green" | "agentic-review" | "close-package"`,
->   computed in the fill-in from `packagesPresent` + `forceApprove` (dispatch
->   already has both; apply the fill to the fallback-recovery `runTest` too).
->   Force path performs the close INLINE (one `gtd: close-package` commit —
->   sequences shrink by the green marker). New machine label
->   `gtd: agentic-review` (routing rule: rest agentic-review/agent);
->   `tests-green` becomes health-path-only, its routing rule settle-only. NOTE:
->   `isTestsGreenCheckpoint` in `src/program.ts` (the step-agent loop's
->   stop-at-checkpoint guard) keys on `headThisHop === "gtd: tests-green"` — it
->   must key on the new agentic-review label. E2e: 32 `gtd: tests-green`
->   literals across 14 feature files — package-context ones become
->   `gtd: agentic-review`, health-context ones stay, force-path sequence rows
->   are removed.
-> - **Phase C3 — REMAINING.** Counter trailers
->   (`Gtd-Counters: t=n/cap r=n/cap h=n/cap` computed from the previous label's
->   trailer), then `foldCounters` and the `CommitEvent` flags are deleted; caps
->   and force-approve read the trailer at dispatch. Do after C2 (force-approve's
->   dispatch move is a prerequisite).
+> - **Phase C2 — LANDED.** `runTest.onGreen` decided at dispatch: packages +
+>   threshold → INLINE close (one `gtd: close-package` commit, no marker);
+>   packages → new machine label `gtd: agentic-review` (rest for the verdict);
+>   no packages → `gtd: tests-green`, now health-path-only with a settle-only
+>   routing rule. The step-agent checkpoint guard keys on the agentic-review
+>   label; the recovery-ladder `runTest` gets the same fill.
+> - **Phase C3 — REMAINING (mapped).** Counter trailers: every machine-written
+>   commit (turns AND labels) carries the counter vector in a
+>   `Gtd-Counters: t=n r=n h=n` body trailer, computed by the WRITER from the
+>   nearest previous label's trailer plus the definition's reset/increment rules
+>   applied to the commit being written (turns mostly carry-forward;
+>   `agentic-findings`/`-approved` increment r; the escalate turn's
+>   ERRORS-deletion resets t and h; `building`/`close-package` reset t and r).
+>   `gatherEvents` then reads ONE trailer (nearest workflow commit) instead of
+>   folding; `foldCounters` and all `CommitEvent` counter flags are deleted;
+>   caps and force-approve read the vector at dispatch (dispatch already has
+>   it). **Discovered prerequisite:** hand-authored e2e histories carry no
+>   trailers — the integration step-definitions need a trailer-bearing commit
+>   step (e.g. `And a commit "gtd: test-failed" with counters "t=2"`), and the
+>   cap/threshold scenarios must set their vectors explicitly. Decide the
+>   no-trailer default (zero vector) and note it as the upgrade rule for old
+>   histories.
 > - **Phase D — REMAINING.** The δ conformance property test lands once C3
 >   removes the history fold from resolution: permute everything except the
 >   nearest label (+trailers) and the pending diff; assert identical output.
