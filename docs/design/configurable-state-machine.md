@@ -1295,3 +1295,140 @@ existing passes are the accident, not the spec. Phase 1 (table extraction,
 golden equivalence tests) is unchanged; phase 2's interpreter should implement
 the chain model directly, with the current 21-state behavior expressed in it as
 the shipped default and the equivalence suite pinning the semantics.
+
+## Appendix C: the purity test — `next = δ(label, diff)` and nothing else
+
+> Third-round exploration: what if the next state were **only** a function of
+> the last commit label and the current diff? What has to change, and where does
+> it fall down? (Reference point: the guard-input taxonomy — HEAD subject,
+> HEAD's own diff, folded history, config, content probes, invoker — of which
+> only tree/diff facts are δ-compatible today.)
+
+### C.1 The target
+
+```
+δ(label(nearest labeled commit), pending diff) → next label   // then commit it
+```
+
+One reading choice up front: "last commit label" means the nearest **labeled**
+commit, skipping unlabeled (boundary) commits — the same walk `lastWorkflowTurn`
+does today. This single concession keeps rider commits (config fixes,
+operational recovery) survivable; without it, any manual commit mid-cycle
+destroys the state.
+
+### C.2 What has to change — five moves
+
+**Move 1: split states until the label carries every read-time branch.** Today
+`gtd(human): grilling` means accept-defaults OR another round, decided by
+inspecting the turn's own diff at the NEXT resolution (a "past diff" —
+inadmissible). Under δ, the decision must be made at capture time, when the
+empty diff IS the current diff, and encoded in the label:
+`gtd(human): grilling-answered` vs `gtd(human): grilling-accepted`. Same for the
+human review turn (`review-approved` / `review-feedback` at capture, from the
+checkbox-only/deletion diff shape). The ~21 states become ~30, each label
+unambiguous.
+
+**Move 2: config decisions move to write time.** `agenticReview` off, or the
+review-fix threshold reached, currently changes what `gtd: tests-green` _means_
+at read time. Under δ, config can't feed the transition — so the check action
+(which runs with config in hand) writes the decided label directly: green →
+`gtd: agentic-review` or `gtd: close-package`, chosen when acting. Semantic
+shift: flipping a kill-switch no longer affects an in-flight rest (the label
+already committed the decision); config is read at decision points, not on every
+resolution. Arguably more predictable — but a behavior change.
+
+**Move 3: counters move into the labels.** `test-failed` below vs at cap is a
+fold over history — inadmissible. Under δ the label carries the counter:
+`gtd: test-failed 2/3`. The writer computes it from the PREVIOUS label's counter
+(+1), so the value is derivable from `(label, diff)` alone and
+crash-recomputable. Cost: budgets become wire format (changing `fixAttemptCap`
+semantics is a grammar change), and any counter that spans several states
+(reviewFixCount survives fixing → building → tests-green) must be carried
+through every intermediate label — a state vector in every subject line.
+
+**Move 4: content probes become diff matchers — and mostly improve.** The three
+probes are largely diff-expressible already: FEEDBACK.md-empty is "adds the file
+with zero content lines"; checkbox-only is literally a diff shape;
+template-unmodified becomes "the pending diff does not touch SQUASH_MSG.md"
+(inert) vs "touches it" (proceed) — arguably _cleaner_ than content comparison.
+Narrow loss: a rider-committed real squash message can no longer be consumed by
+an empty turn (today the content check allows it); under δ an untouched file is
+indistinguishable from an untouched template.
+
+**Move 5: the external world enters only through diffs.** A test run's outcome
+is neither label nor diff — but its EFFECT is: the check writes
+FEEDBACK.md/ERRORS.md/nothing, and that machine-authored write re-enters δ as
+the next transition's diff (plus the outcome label from move 2). This
+generalizes to an invariant the engine must enforce: **every effect must
+materialize as a label or a file change, or it is invisible to the machine.**
+
+With those five moves, the interrupt and fallback ladders genuinely dissolve:
+they exist today because labels under-determine state (a fresh FEEDBACK.md is
+newer than HEAD; ERRORS.md outlives its commit's subject). When every write
+lands with its decided label, file presence never disagrees with the label.
+Entry points survive as δ's rules from the `start` pseudo-label (no labeled
+commit found): `(start, adds .gtd/HEALTH.md) → health-entry`, etc.
+
+### C.3 A traced scenario
+
+```
+label (nearest)         pending diff at invocation        δ → committed label
+─────────────────────── ───────────────────────────────── ─────────────────────────────
+(start)                 adds notes.md, .gtd/TODO.md        gtd(human): grilling-entry
+grilling-entry          touches .gtd/TODO.md               gtd(agent): grilling-draft
+grilling-draft          (empty — accept defaults)          gtd(human): grilling-accepted
+grilling-accepted       machine seed: +ARCH.md −TODO.md    gtd: architecting
+…                       …                                  …
+building (pkg 01)       code changes                       gtd(agent): building
+building turn           check writes FEEDBACK.md           gtd: test-failed 1/3
+test-failed 1/3         code changes (the fix)             gtd(agent): fixing
+fixing turn             check writes nothing (green)       gtd: agentic-review   ← config+count decided HERE
+agentic-review          adds empty FEEDBACK.md             gtd: close-package    ← emptiness read from the DIFF
+close-package           machine rm: pkg dir, FEEDBACK.md   gtd: review           ← reviewable decided at write time
+```
+
+Every row is `(label, diff) → label`. The history reads as a complete replay
+log: anyone (or any tool) can re-derive every state with no counters, no config,
+no file inspection.
+
+### C.4 Where it falls down
+
+1. **Turn attribution.** The human's answer and the agent's iteration can be
+   byte-identical diffs. δ survives ONLY because state-splitting makes every
+   state await exactly one actor — so the actor adds no information to the
+   transition. But the invoker is still required as **authentication** (refuse
+   the wrong actor); δ can be pure while the CLI cannot. And no diff carries
+   authorship: two actors editing before a capture are indistinguishable,
+   exactly as today (pending edits ride along).
+2. **Action parameters and prompts stay impure.** The squash needs the cycle
+   base SHA; the review gate needs `diff(reviewBase..HEAD)`; grilling inlines
+   the decision log. The _transition_ is δ-pure, but `perform()` and
+   `buildPrompt()` must read history — the machine is pure, the product around
+   it is not. This is a scoping line, not a flaw, but it must be drawn
+   explicitly.
+3. **Counter-bearing labels are a real wire-format tax.** `gtd: test-failed 2/3`
+   is tolerable; carrying reviewFixCount through five unrelated labels is not
+   pretty, and every budget-semantics tweak becomes a breaking-history change.
+   This is the single strongest argument that the current design (counters
+   folded at read time) is the better trade.
+4. **Write-time config freezes in-flight decisions.** The kill-switch flip that
+   today force-approves a package resting at agentic-review would do nothing
+   until the next decision point. Defensible, but different.
+5. **`start` must absorb everything unlabeled.** Post-squash HEADs, fresh repos,
+   and pre-gtd history all resolve to `start` — fine. But a _mid-cycle_ history
+   whose labels are gone (rebase, squash-by-hand) silently restarts instead of
+   erroring; today's corruption checks catch some of this. Strict δ trades
+   "refuse to guess" for "quietly re-enter."
+
+### C.5 Verdict
+
+δ-purity is ~90% achievable and the exercise is clarifying: moves 1, 4, and 5
+(state splitting, probes-as-diff-matchers, effects-as-diffs) would improve the
+current design and are adoptable incrementally without the rest. Moves 2–3
+(config and counters into write-time labels) are where purity starts charging
+rent — wire-format coupling and frozen decisions — and the current
+read-time-fold design is the deliberate impurity that keeps budgets and
+kill-switches out of the commit grammar. The irreducible residue is turn
+authentication (the invoker) and history-reading actions/prompts, which no
+labeling scheme can absorb because neither authorship nor anchors exist in any
+single diff.
