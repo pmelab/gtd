@@ -1009,3 +1009,289 @@ cases; `validateAgentTurn` reproduces the two structural-validation refusals in
 `stepAction` reproduces the idle health-check carve-out. Every hardcoded
 per-state fact in the engine has exactly one home in the declaration — which is
 the test the schema was designed against.
+
+## Appendix B: the diff-driven chain model (a radical simplification)
+
+> A second-round exploration: can the four rule families of §3.6 collapse into
+> ONE mechanism? Proposal under test: _each state is defined by its previous
+> state(s) plus diff-matching rules; matching always commits the new state; a
+> clean tree means we ARE at the derived state, where exactly one state command
+> runs (its output selecting what happens next) — otherwise the state just emits
+> its prompt._
+
+### B.1 The model
+
+Three ideas, and everything else falls out:
+
+1. **State = commit label.** Every workflow commit is labeled with the state it
+   entered: `gtd(human): grilling`, `gtd(agent): fixing`, `gtd: tests-green`
+   (machine-authored). The current state is simply the label of the nearest
+   labeled commit (boundary commits — anything unlabeled — are skipped, as
+   `lastWorkflowTurn` already does).
+
+2. **Transition = diff classification.** A state declares which predecessor
+   states it can follow (`from`) and what shape of pending changes selects it
+   (`when`: touched/added/deleted paths, plus the closed probe set). When the
+   tree is dirty, the engine finds the matching state for _(previous state,
+   invoker, diff)_ and **commits the changes under that label**. No separate
+   "capture" vs "routing" concepts — the machine's own file writes re-enter the
+   same classifier as everyone else's.
+
+3. **A state either acts or waits.** On a clean tree at state S: if S declares a
+   `command`, run it — its outcome (exit code, or a built-in primitive's effect)
+   either writes files (which re-enter rule 2 as the machine actor) or stops. If
+   S declares no command, emit S's `prompt`. Command XOR prompt.
+
+The driver loop becomes:
+
+```
+loop:
+  prev ← nearest labeled commit (skip boundary commits)
+  if tree is dirty:
+    rule ← first rule in states[*] with prev ∈ from, actor = invoker, when ⊨ diff
+    none matched → refuse (wrong actor's turn, or unrecognized changes)
+    git commit -am "gtd(<actor>): <rule.state>"        # ← the ONLY mutation
+  else if invoker is stepping and some rule has when: empty:
+    git commit --allow-empty under that rule's state    # empty turn as signal
+  else:
+    S ← states[prev.label]
+    S.command? → run it; primitive writes/deletes files → loop (as machine actor)
+               → or terminal outcome → stop
+    S.prompt?  → emit prompt; stop
+```
+
+Every iteration either commits (progress) or stops (prompt / refusal / done), so
+termination is the chain-depth bound for free.
+
+### B.2 What this dissolves
+
+Checking the model against every mechanism in the current engine:
+
+| Current mechanism                                   | Fate in the diff-driven model                                                                                                                                                                                                        |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Turn commits vs routing commits (two namespaces)    | **Unified.** One label grammar; the machine is just a third actor whose writes classify like anyone's                                                                                                                                |
+| `classifyHead` table (§3.6b)                        | **Dissolved.** HEAD's label IS the state — no re-derivation of "what did this subject mean"                                                                                                                                          |
+| Steering-file precedence ladder (§3.6a)             | **Mostly dissolved.** It exists today because subjects under-determine state (a fresh FEEDBACK.md is newer than HEAD). Here every write is committed-with-label at once, so the file/HEAD divergence it compensates for cannot arise |
+| Boundary fallback ladder (§3.6c)                    | **Dissolved into `from`.** `todo.exists → grilling` etc. were re-anchoring rules; with labels authoritative, only "skip boundary commits" remains                                                                                    |
+| Entry points (dirty tree at boundary → which gate)  | **Just rules from `start`.** `from: [start], when: { adds: plan } → decompose-entry` — entry stops being special                                                                                                                     |
+| `INERT_EMPTY_AGENT_GATES` + `isInertEmptyAgentRest` | **Inert-by-default.** A clean tree matches nothing unless a state explicitly declares `when: empty` — the entire bug class ("does this gate consume state on an empty turn?") becomes opt-in instead of curated                      |
+| Empty human turn = signal (accept/approve/resume)   | An explicit `when: { empty: true }, actor: human` rule per gate that wants it                                                                                                                                                        |
+| Counter flags derived from subjects + diffs         | **Simplified.** Counters fold directly over state labels in history (`count("test-failed") since last "package-start"-class label`) — no diff inspection needed, the label already encodes it                                        |
+| Crash recovery (write landed, commit didn't)        | **Free.** The orphaned write is a dirty tree that reclassifies identically on the next invocation — the write path and the recovery path are the same code                                                                           |
+| `applyTurnTaking` refusals                          | Kept, but shrunk: "no rule for this (state, invoker, diff)" is the refusal                                                                                                                                                           |
+| `predictTurn` / `gtd status`                        | Trivial: report which rule the current diff would match                                                                                                                                                                              |
+
+### B.3 What must be layered back (the honest list)
+
+The one-sentence model needs eight amendments to reproduce current behavior —
+all small, none breaking the single-mechanism shape:
+
+1. **Actor on rules.** Diff shape can't distinguish the human's TODO.md answers
+   from the agent's TODO.md iteration; the invoker can. Rules match _(from,
+   actor, diff)_, not _(from, diff)_.
+2. **`from` is a list.** Fixing follows building-red AND escalate-resume;
+   grilling follows start AND review-feedback. Strict single-predecessor is too
+   narrow; lists preserve the shape.
+3. **Ordered rules per (from, actor).** At awaiting-review, human:
+   checkbox-only/deletes-review/empty → approve must be tried before
+   anything-else → feedback. First match wins, declaration order.
+4. **The closed probe set rides on matchers.** `adds: feedback` splits into
+   `{ adds: feedback, probe: empty }` vs non-empty;
+   `{ touches: review, probe: checkbox-only }`;
+   `{ touches: squashMsg, probe: template-modified }`. Same three probes as §3.2
+   — content still never steers beyond them.
+5. **Commands are the closed primitive set, with guarded outcomes.** A state
+   command is a shell command (exit-code branch) or a built-in
+   (`write-template`, `seed`, `close-package`, `squash`, `stop`). Outcomes may
+   carry guards over counters/params
+   (`red below cap → write output to feedback; red at cap → write to errors`) —
+   this is where `fixAttemptCap`, `reviewThreshold`, `learning`/`squash` toggles
+   live.
+6. **Machine-labeled marker commits.** Some outcomes change no files (tests
+   green) but must be observable in history for the fold — `--allow-empty`
+   machine commits (`gtd: tests-green`). Today's routing commits survive only in
+   this reduced role.
+7. **Guarded prompt/command split.** `tests-green` is a prompt state
+   (agentic-review) _unless_ force-approve holds, where it acts (close-package).
+   Either allow `command: { when: <guard>, … }` falling back to the prompt, or
+   accept an extra marker commit. The former is one wrinkle; the latter is
+   noisier history (squash collapses it anyway).
+8. **Refusal semantics.** Dirty tree matching no rule = hard refusal (today's
+   out-of-turn error + illegal-combination error, unified). The
+   corrupt-repo-refuses-to-guess contract survives as "no rule matched."
+
+### B.4 The default machine, sketched in this model
+
+A representative slice (entry → grilling → build/test loop → review), showing
+that the 21 states redraw naturally as ~a-couple-dozen labeled states:
+
+```yaml
+states:
+  # ── entry (from `start` = boundary HEAD; replaces the entry table) ──────
+  grilling-entry:
+    from: [start, done]
+    actor: human
+    when: { any: true } # lowest-priority catch-all: any sketch/notes
+    prompt: grilling-agent.md
+  architecting-entry:
+    from: [start, done]
+    actor: human
+    when: { adds: architecture }
+    prompt: architecting-agent.md
+  plan-entry:
+    from: [start, done]
+    actor: human
+    when: { adds: plan }
+    command: { seed: { from: plan, to: architecture } } # writes → re-classify
+  health-entry:
+    from: [start, done]
+    actor: human
+    when: { adds: health }
+    prompt: health-fixing.md
+
+  # ── grilling (alternating turns, one label) ─────────────────────────────
+  grilling-draft:
+    from: [grilling-entry, grilling-answer, review-feedback]
+    actor: agent
+    when: { touches: todo }
+    validate: open-questions
+    prompt: grilling-answers.md # awaiting the human
+  grilling-answer:
+    from: [grilling-draft]
+    actor: human
+    when: { touches: any }
+    prompt: grilling-agent.md # back to the agent
+  grilling-accept:
+    from: [grilling-draft]
+    actor: human
+    when: { empty: true } # accept-defaults signal
+    command: { seed: { from: todo, to: architecture } }
+  architecture-seeded:
+    from: [plan-entry, grilling-accept]
+    actor: gtd # the machine's own seed write, classified like any diff
+    when: { adds: architecture, deletes: [todo, plan] }
+    prompt: architecting-agent.md # (decompose.md when from plan-entry)
+
+  # ── build / test loop ───────────────────────────────────────────────────
+  building:
+    from: [planning, package-done]
+    actor: agent
+    when: { touches: code } # code = everything outside .gtd/
+    command:
+      run: test
+      removeFirst: [feedback]
+      green: { markerState: tests-green }
+      red:
+        write: { output-to: feedback }
+        atCap:
+          {
+            counter: testFix,
+            param: fixAttemptCap,
+            write: { output-to: errors },
+          }
+  test-failed:
+    from: [building, fixing, escalate-resume]
+    actor: gtd
+    when: { adds: feedback }
+    prompt: fixing.md
+  test-failed-cap:
+    from: [building, fixing, escalate-resume]
+    actor: gtd
+    when: { adds: errors }
+    prompt: escalate.md
+  fixing:
+    from: [test-failed, review-findings]
+    actor: agent
+    when: { touches: any }
+    command: { run: test, removeFirst: [feedback], green: …, red: … }
+  escalate-resume:
+    from: [test-failed-cap]
+    actor: human
+    when: { deletes: errors } # deletion resets the budget
+    command: { run: test, … }
+  tests-green:
+    from: [building, fixing]
+    actor: gtd
+    when: { marker: true } # --allow-empty machine commit
+    command: # guarded split (amendment 7)
+      when: { any: [{ not: { param: agenticReview } }, { counterAtLeast: … }] }
+      then: close-package
+    prompt: agentic-review.md # otherwise: rest for the reviewer
+
+  # ── agentic review verdict: two rules on one file, split by probe ──────
+  review-approve:
+    from: [tests-green]
+    actor: agent
+    when: { adds: feedback, probe: empty }
+    command: close-package
+  review-findings:
+    from: [tests-green]
+    actor: agent
+    when: { adds: feedback }
+    prompt: fixing.md
+
+  # ── human review gate ───────────────────────────────────────────────────
+  review-written:
+    from: [package-done] # via a remaining-packages guard on package-done
+    actor: agent
+    when: { adds: review }
+    validate: review-doc
+    prompt: await-review.md
+    checkoutWindow: true
+  review-approved:
+    from: [review-written]
+    actor: human
+    when:
+      any:
+        [
+          { empty: true },
+          { touches: review, probe: checkbox-only },
+          { deletes: review },
+        ]
+    command: { remove: [review], markerState: done }
+  review-feedback:
+    from: [review-written]
+    actor: human
+    when: { touches: any } # ordered after review-approved
+    command: { remove: [review], markerState: … }
+    prompt: grilling-agent.md # re-grill with the human's diff
+```
+
+Readability bonus: `git log --oneline` becomes a legible state trace — every
+commit names the state it entered, with no second grammar to decode.
+
+### B.5 Assessment
+
+**This is a better core model than §3.6.** It replaces four rule families, two
+commit namespaces, and three hand-curated guard sets with one classifier, and
+its default failure mode is the safe one (unmatched = inert or refused, never
+state-consuming). The earlier building blocks don't disappear — actors,
+artifacts, probes, counters, params, prompts, the primitive toolbox, and the
+compiler all survive unchanged — but §3.5's state schema and §3.6's four rule
+families merge into a single `states` block whose entries are _(from, actor,
+when) → command | prompt_. Roughly: eleven building blocks become seven.
+
+What it trades away, named plainly:
+
+- **File presence stops being a second source of truth.** Today a committed
+  ERRORS.md forces escalate no matter what HEAD says — belt and suspenders. Here
+  the label is the single truth; a repo whose labels are wrong (manual history
+  surgery) degrades differently (boundary-skip to an older label) rather than
+  being caught by a file check. The compiler can keep conflict declarations as
+  _lint_ (refuse a commit that would create HEALTH.md alongside packages)
+  without them steering resolution.
+- **More states.** Alternating-actor gates split into explicit per-actor states
+  (`grilling-draft` / `grilling-answer`), and marker states appear. The graph is
+  longer but each node is smaller and self-describing — a good trade for a
+  _configurable_ machine, where node count is cheap and implicit semantics are
+  expensive.
+- **A subtler `from`-set discipline.** Mislabeling a predecessor list produces a
+  dead rule; totality/reachability checking (§3.11) stops being nice-to-have and
+  becomes the product.
+
+Migration consequence: this model is what the **compiler should target** —
+§3.6's families were designed to mirror the existing engine's passes, but the
+existing passes are the accident, not the spec. Phase 1 (table extraction,
+golden equivalence tests) is unchanged; phase 2's interpreter should implement
+the chain model directly, with the current 21-state behavior expressed in it as
+the shipped default and the equivalence suite pinning the semantics.
