@@ -25,16 +25,17 @@ const commit = (
     isTestsGreen?: boolean
   } = {},
 ): GtdEvent => ({
+  // Defaults first, caller overrides spread on top — call sites pass literal
+  // objects holding only the keys they mean to set, never explicit undefined.
   type: "COMMIT",
-  ...(flags.turnActor !== undefined ? { turnActor: flags.turnActor } : {}),
-  ...(flags.turnGate !== undefined ? { turnGate: flags.turnGate } : {}),
-  isErrors: flags.isErrors ?? false,
-  isFeedback: flags.isFeedback ?? false,
-  isPackageStart: flags.isPackageStart ?? false,
-  isWorkflowCommit: flags.isWorkflowCommit ?? true,
-  removedErrors: flags.removedErrors ?? false,
-  isHealthCheck: flags.isHealthCheck ?? false,
-  isTestsGreen: flags.isTestsGreen ?? false,
+  isErrors: false,
+  isFeedback: false,
+  isPackageStart: false,
+  isWorkflowCommit: true,
+  removedErrors: false,
+  isHealthCheck: false,
+  isTestsGreen: false,
+  ...flags,
 })
 
 const basePayload = (overrides: Partial<ResolvePayload> = {}): ResolvePayload => ({

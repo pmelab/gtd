@@ -396,23 +396,27 @@ export const gatherEvents = (
       const parsed = parseSubject(subject)
       const isTurn = parsed.kind === "turn"
       const isRouting = parsed.kind === "routing"
+      // One discriminant read each; "" never matches a real phase/gate, so
+      // every flag below collapses to a single comparison instead of an
+      // `isRouting && …` / `isTurn && …` conjunct.
+      const routingPhase = parsed.kind === "routing" ? parsed.phase : ""
+      const turnGate = parsed.kind === "turn" ? parsed.gate : ""
       return {
         type: "COMMIT",
-        ...(isTurn ? { turnActor: parsed.actor, turnGate: parsed.gate } : {}),
-        isErrors: isRouting && parsed.phase === "errors",
+        ...(parsed.kind === "turn" ? { turnActor: parsed.actor, turnGate: parsed.gate } : {}),
+        isErrors: routingPhase === "errors",
         // A `gtd(agent): agentic-review` turn whose diff touched
         // `.gtd/FEEDBACK.md` — a findings round. Over-counts the approval
         // round too (an empty FEEDBACK.md write still touches the path), but
         // `gtd: package done` resets the reviewFixCount fold immediately
         // after, so the extra count is harmless (documented in the task
         // contract).
-        isFeedback: isTurn && parsed.gate === "agentic-review" && touchedFeedback(commit.touched),
-        isPackageStart:
-          isRouting && (parsed.phase === "planning" || parsed.phase === "package-done"),
+        isFeedback: turnGate === "agentic-review" && touchedFeedback(commit.touched),
+        isPackageStart: routingPhase === "planning" || routingPhase === "package-done",
         isWorkflowCommit: isTurn || isRouting,
         removedErrors: commit.removedErrors,
-        isHealthCheck: isRouting && parsed.phase === "health-check",
-        isTestsGreen: isRouting && parsed.phase === "tests-green",
+        isHealthCheck: routingPhase === "health-check",
+        isTestsGreen: routingPhase === "tests-green",
       }
     })
 
