@@ -156,7 +156,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       agenticReviewEnabled: raw.agenticReviewEnabled,
       squashEnabled: raw.squashEnabled,
       squashMsgPresent: false,
-      squashMsgIsTemplate: false,
+      squashMsgDirty: false,
       fixAttemptCap: raw.fixAttemptCap,
       reviewThreshold: raw.reviewThreshold,
       healthPresent: raw.healthPresent,
@@ -165,7 +165,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       ...(raw.hasSquashBase ? { squashBase: "def456", squashDiff: "diff" } : {}),
       learningEnabled: raw.learningEnabled,
       learningMsgPresent: false,
-      learningMsgIsTemplate: false,
+      learningMsgDirty: false,
       decisionLog: "",
     }
   })

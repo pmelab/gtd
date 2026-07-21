@@ -769,14 +769,18 @@ describe("learning chain", () => {
     expect(result.edgeAction).toBeUndefined()
   })
 
-  it("unmodified LEARNINGS.md template never mid-chains — rests until the agent drafts real content", () => {
+  it("a step that never touched LEARNINGS.md captures nothing at the learning rest", () => {
+    // The template protection moved to capture: only a pending LEARNINGS.md
+    // edit matches the learning capture rule, so the unmodified template can
+    // never be captured as a draft turn.
     const result = resolve([
       R({
         invoker: "agent",
-        lastCommitSubject: "gtd(agent): learning",
+        lastCommitSubject: "gtd: learning",
         squashBase: "abc123",
-        learningMsgIsTemplate: true,
-        workingTreeClean: true,
+        learningMsgPresent: true,
+        workingTreeClean: false,
+        codeDirty: true,
       }),
     ])
     expect(result.state).toBe("learning")
@@ -784,13 +788,12 @@ describe("learning chain", () => {
     expect(result.edgeAction).toBeUndefined()
   })
 
-  it("gtd(agent): learning with real content → commitRouting gtd: await-learning-review", () => {
+  it("gtd(agent): learning (capture-guaranteed real draft) → commitRouting gtd: await-learning-review", () => {
     const result = resolve([
       R({
         invoker: "agent",
         lastCommitSubject: "gtd(agent): learning",
         squashBase: "abc123",
-        learningMsgIsTemplate: false,
         workingTreeClean: true,
       }),
     ])

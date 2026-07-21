@@ -185,12 +185,14 @@ export interface ResolvePayload {
   readonly squashEnabled: boolean
   readonly squashMsgPresent: boolean
   /**
-   * `SQUASH_MSG.md` still holds the unmodified template written by
-   * `writeSquashTemplate` (or is absent). Guards the squash: the file's
-   * content becomes the squash commit's message verbatim, so the machine
-   * must never squash while this is true.
+   * The working tree has pending changes to `SQUASH_MSG.md` — the agent's
+   * real message overwrite. The squashing capture rule keys on this (a
+   * diff fact, per the δ-discipline): a landed squashing turn therefore
+   * always carries a real message, so the machine never squashes the
+   * unmodified template (the file's content becomes the squash commit's
+   * message verbatim).
    */
-  readonly squashMsgIsTemplate: boolean
+  readonly squashMsgDirty: boolean
   /** `HEALTH.md` exists (committed or pending). */
   readonly healthPresent: boolean
   /** Full text of the present `HEALTH.md` ("" when absent). */
@@ -204,12 +206,12 @@ export interface ResolvePayload {
   /** `.gtd/LEARNINGS.md` is present (committed or pending). */
   readonly learningMsgPresent: boolean
   /**
-   * `LEARNINGS.md` still holds the unmodified template written by
-   * `writeLearningTemplate` (or is absent). Mirrors `squashMsgIsTemplate`:
-   * guards the agent's draft turn so the machine never mid-chains on an
-   * unmodified placeholder.
+   * The working tree has pending changes to `LEARNINGS.md` — the agent's
+   * real draft. Mirrors `squashMsgDirty`: the learning capture rule keys on
+   * this diff fact, so the machine never mid-chains on an unmodified
+   * placeholder.
    */
-  readonly learningMsgIsTemplate: boolean
+  readonly learningMsgDirty: boolean
   /**
    * Every past squash commit's `## Decisions` section, concatenated oldest to
    * newest with no deduplication ("" when none/config disabled) — see
@@ -318,10 +320,8 @@ export interface ClassifyFlags {
   readonly squashEnabled: boolean
   readonly hasSquashBase: boolean
   readonly learningEnabled: boolean
-  readonly learningMsgIsTemplate: boolean
   readonly errorsPresent: boolean
   readonly reviewPresent: boolean
-  readonly squashMsgIsTemplate: boolean
 }
 
 /**
@@ -687,12 +687,10 @@ const states: Record<GtdState, StateDef> = {
     awaits: "agent",
     prompts: { agent: "@learning" },
     model: "clean",
-    captureRules: [
-      { label: "learning" },
-      // Edge case: real learnings committed by a rider — an empty step may
-      // proceed; only the unmodified template keeps the step inert.
-      { empty: true, actor: "agent", when: (p) => !p.learningMsgIsTemplate, label: "learning" },
-    ],
+    // The move IS the draft: only a pending LEARNINGS.md edit captures (a
+    // diff fact), so a landed learning turn always carries a real draft and
+    // its classification never re-inspects content.
+    captureRules: [{ when: (p) => p.learningMsgDirty, label: "learning" }],
   },
   "await-learning-review": {
     kind: "prompt",
@@ -715,12 +713,10 @@ const states: Record<GtdState, StateDef> = {
     awaits: "agent",
     prompts: { agent: "@squashing" },
     model: "clean",
-    captureRules: [
-      { label: "squashing" },
-      // Mirrors learning: a rider-committed real message may squash on an
-      // empty step; the unmodified template never does.
-      { empty: true, actor: "agent", when: (p) => !p.squashMsgIsTemplate, label: "squashing" },
-    ],
+    // The move IS the message: only a pending SQUASH_MSG.md overwrite
+    // captures, so a landed squashing turn always squashes a real message —
+    // the unmodified template can never be captured, let alone squashed.
+    captureRules: [{ when: (p) => p.squashMsgDirty, label: "squashing" }],
   },
   idle: {
     kind: "prompt",
@@ -929,11 +925,12 @@ const turnRules: readonly TurnRule[] = [
     actor: "agent",
     gate: "squashing",
     branches: [
-      // Never squash while `.gtd/SQUASH_MSG.md` still holds the unmodified
-      // template — the squash commit's message is the file's content
-      // verbatim. The interpreter fills in the real `squashBase`.
+      // The capture rule guarantees a landed squashing turn carries a real
+      // message (only a pending SQUASH_MSG.md overwrite captures), so the
+      // squash proceeds unconditionally once a base exists. The interpreter
+      // fills in the real `squashBase`.
       {
-        when: (f) => f.hasSquashBase && !f.squashMsgIsTemplate,
+        when: (f) => f.hasSquashBase,
         to: chain("squashing", "agent", { kind: "squashCommit", squashBase: "" }),
       },
       { to: rest("squashing", "agent") },
@@ -943,10 +940,9 @@ const turnRules: readonly TurnRule[] = [
     actor: "agent",
     gate: "learning",
     branches: [
-      // Mirrors squashing: never mid-chain while `.gtd/LEARNINGS.md` still
-      // holds the unmodified template.
+      // Mirrors squashing: the capture rule guarantees a real draft.
       {
-        when: (f) => f.hasSquashBase && !f.learningMsgIsTemplate,
+        when: (f) => f.hasSquashBase,
         to: chain("learning", "agent", {
           kind: "commitRouting",
           subject: "gtd: await-learning-review",

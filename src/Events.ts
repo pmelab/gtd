@@ -782,21 +782,18 @@ export const gatherEvents = (
       }
     }
 
-    // --- SQUASH_MSG.md presence (squash template written+overwritten) --------
+    // --- SQUASH_MSG.md presence + pending overwrite (a diff fact) ------------
     const squashMsgPresent = yield* fs.exists(resolve(SQUASH_MSG_FILE))
-    // Unmodified template → the machine must not squash yet (the file's
-    // content becomes the squash commit message verbatim).
-    const squashMsgIsTemplate =
-      squashMsgPresent &&
-      (yield* fs.readFileString(resolve(SQUASH_MSG_FILE))).trim() === SQUASH_TEMPLATE.trim()
+    // The squashing capture rule keys on the PENDING overwrite: only a real
+    // message edit captures, so the unmodified template can never be
+    // captured, let alone squashed (its content becomes the squash commit
+    // message verbatim).
+    const squashMsgDirty = entries.some((e) => e.path === SQUASH_MSG_FILE)
 
-    // --- LEARNINGS.md presence (learning template written+overwritten) -------
+    // --- LEARNINGS.md presence + pending draft (a diff fact) -----------------
     const learningMsgPresent = yield* fs.exists(resolve(LEARNINGS_FILE))
-    // Unmodified template → the machine must not mid-chain the agent's draft
-    // turn yet (mirrors squashMsgIsTemplate).
-    const learningMsgIsTemplate =
-      learningMsgPresent &&
-      (yield* fs.readFileString(resolve(LEARNINGS_FILE))).trim() === LEARNING_TEMPLATE.trim()
+    // Mirrors squashMsgDirty for the learning draft turn.
+    const learningMsgDirty = entries.some((e) => e.path === LEARNINGS_FILE)
 
     // --- HEALTH.md presence (health-check output written by runHealthCheck) -----
     const healthPresent = yield* fs.exists(resolve(HEALTH_FILE))
@@ -910,14 +907,14 @@ export const gatherEvents = (
       ...(squashBase !== undefined ? { squashBase } : {}),
       ...(squashDiff !== undefined ? { squashDiff } : {}),
       squashMsgPresent,
-      squashMsgIsTemplate,
+      squashMsgDirty,
       healthPresent,
       healthContent,
       healthCommitted,
       ...(healthFixBase !== undefined ? { healthFixBase } : {}),
       learningEnabled: config.learning,
       learningMsgPresent,
-      learningMsgIsTemplate,
+      learningMsgDirty,
       decisionLog,
     }
 

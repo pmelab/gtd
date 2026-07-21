@@ -212,13 +212,13 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   reviewThreshold: 3,
   squashEnabled: false,
   squashMsgPresent: false,
-  squashMsgIsTemplate: false,
+  squashMsgDirty: false,
   healthPresent: false,
   healthContent: "",
   healthCommitted: false,
   learningEnabled: false,
   learningMsgPresent: false,
-  learningMsgIsTemplate: false,
+  learningMsgDirty: false,
   decisionLog: "",
 }
 
@@ -518,7 +518,6 @@ const resolveBaseline = (
     squashEnabled: p.squashEnabled,
     hasSquashBase: p.squashBase !== undefined,
     learningEnabled: p.learningEnabled,
-    learningMsgIsTemplate: p.learningMsgIsTemplate,
     // A pending (uncommitted) deletion of ERRORS.md still counts as "ERRORS.md
     // was committed at this HEAD" for classification purposes: `fs.exists`
     // (which `p.errorsPresent` reads) already sees the file as gone once the
@@ -528,7 +527,6 @@ const resolveBaseline = (
     // fixing.
     errorsPresent: p.errorsPresent || p.pendingErrorsDeletion,
     reviewPresent: p.reviewPresent,
-    squashMsgIsTemplate: p.squashMsgIsTemplate,
   }
 
   const classified = classifyHead(head, flags)
