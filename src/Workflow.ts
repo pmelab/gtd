@@ -7,9 +7,10 @@
  * `Machine.ts`'s pure interpreter runs on:
  *
  *  - `states`        — one `StateDef` per `GtdState`: prompt-bearing rest vs
- *                      edge-only label, the awaited actor, the turn gate the
- *                      state captures under, prompt/model bindings, and the
- *                      empty-agent-turn policy.
+ *                      edge-only label, the awaited actor, prompt/model
+ *                      bindings, and the state's `captureRules` — which label
+ *                      a step commits, decided at capture time from the
+ *                      pending tree (the δ(label, diff) discipline).
  *  - `turnRules` /
  *    `routingRules`  — the HEAD-classification table (the wire-format rows
  *                      previously unrolled in `classifyHead`).
@@ -112,18 +113,8 @@ export interface GtdPackageFact {
 export interface ResolvePayload {
   /** Who is invoking: "human" (`gtd step`), "agent" (`gtd step-agent`), or "none" (`gtd next`/`gtd status`, a pure query). */
   readonly invoker: Actor | "none"
-  /** Diff of HEAD when HEAD is a turn commit (workflow files excluded), else "". */
+  /** Diff of HEAD when HEAD is a turn commit (workflow files excluded), else "" — prompt passthrough only, never a steering input (δ-discipline: branch decisions read the PENDING diff at capture, encoded in the label). */
   readonly headTurnDiff: string
-  /** HEAD is a turn commit with an empty diff. */
-  readonly headTurnIsEmpty: boolean
-  /**
-   * Set only when HEAD is a `gtd(human): review` turn commit: whether THAT
-   * turn commit's own diff is substantive (anything beyond a pure REVIEW.md
-   * checkbox flip). Derived from the turn commit's diff, not live working-tree
-   * dirtiness — by the time this mid-chain HEAD is classified, the turn commit
-   * has already landed and the tree is clean again.
-   */
-  readonly headTurnReviewSubstantive?: boolean
   /** Base hash from the newest `gtd: review <hash>` in the current cycle. */
   readonly reviewAnchor?: string
   /** `TODO.md` exists (committed or pending). */
@@ -162,6 +153,8 @@ export interface ResolvePayload {
   readonly reviewDirty: boolean
   /** Pending REVIEW.md change is a pure checkbox-state flip and nothing else is dirty. */
   readonly reviewCheckboxOnly: boolean
+  /** The working tree deletes the committed `REVIEW.md` and nothing else is dirty — the outright-deletion approval shape at the await-review gate. */
+  readonly reviewDeletedOnly: boolean
   /** The working tree deletes a committed `ERRORS.md` (human resume → fresh budget). */
   readonly pendingErrorsDeletion: boolean
   /** `FEEDBACK.md` has a pending (uncommitted) deletion — a delete-dispute. */
@@ -319,7 +312,6 @@ export interface Counters {
 
 /** The small set of config/content-dependent facts a subject-only classification still needs. */
 export interface ClassifyFlags {
-  readonly headTurnIsEmpty: boolean
   readonly hasPackages: boolean
   readonly planExists: boolean
   readonly agenticReviewForceApproved: boolean
@@ -327,7 +319,6 @@ export interface ClassifyFlags {
   readonly hasSquashBase: boolean
   readonly learningEnabled: boolean
   readonly learningMsgIsTemplate: boolean
-  readonly reviewSubstantive: boolean
   readonly errorsPresent: boolean
   readonly reviewPresent: boolean
   readonly squashMsgIsTemplate: boolean
@@ -380,18 +371,10 @@ export interface BaselineFacts {
   readonly payload: ResolvePayload
   readonly counters: Counters
   readonly head: string
-  /** HEAD is the fixer's own turn commit (`gtd(agent): fixing`) consuming FEEDBACK.md. */
-  readonly headIsFixerTurn: boolean
   /** HEAD is the health-fixer's own turn commit (`gtd(agent): health-fixing`) consuming HEALTH.md. */
   readonly headIsHealthFixerTurn: boolean
-  /** Already inside the fix loop (fixer turn at HEAD, or `gtd: test-failed`). */
-  readonly alreadyInFixLoop: boolean
   /** Agentic review is off, or the review-fix threshold is reached. */
   readonly forceApprove: boolean
-  /** FEEDBACK.md present, or a pending delete-dispute of it. */
-  readonly feedbackEffective: boolean
-  /** FEEDBACK.md whitespace-empty, or a pending delete-dispute of it. */
-  readonly feedbackEmptyEffective: boolean
   /** A review base + non-empty diff + commits since the last `gtd: done`. */
   readonly reviewable: boolean
   /** Nearest workflow turn (skipping boundary commits), for recovery rungs. */
@@ -456,6 +439,32 @@ export interface AgentTurnValidation {
 }
 
 /**
+ * One capture rule of a rest state: when the awaited actor steps, the first
+ * matching rule decides the LABEL the turn is committed under — the
+ * δ(label, diff) discipline: every branch a label's meaning used to carry in
+ * its own diff (empty = accept-defaults, checkbox-only = approval, empty
+ * FEEDBACK.md = agentic approval) is decided HERE, at capture time, from the
+ * pending tree, and encoded in the label. **No rule matching = a no-op
+ * invocation** (zero commits; `gtd next` re-emits the same prompt) — inert
+ * empty steps are the DEFAULT, and empty-turn signals are opt-in `empty`
+ * rules.
+ */
+export interface CaptureRule {
+  /**
+   * `true` — matches a CLEAN tree (an empty-turn signal: accept-defaults,
+   * clean approval, environmental health fix). Omitted/false — matches a
+   * dirty tree (a real move).
+   */
+  readonly empty?: boolean
+  /** Restrict the rule to one invoking actor (the alternating gates' empty rules are human-only). */
+  readonly actor?: Actor
+  /** Guard over the pending tree/payload; omitted = always matches. */
+  readonly when?: (p: ResolvePayload) => boolean
+  /** The `<gate>` label the captured commit carries (`gtd(<actor>): <label>`). */
+  readonly label: TurnGate
+}
+
+/**
  * Per-state declaration. `kind: "prompt"` states are real rests (`gtd next`
  * renders `prompts`, `awaits` names the accepted invoker); `kind: "label"`
  * states only ever appear as the state label on mid-chain hops (edge-only,
@@ -471,14 +480,11 @@ export interface StateDef {
    */
   readonly awaits: Actor | "dynamic"
   /**
-   * The `<gate>` a turn captured at this state's rest carries
-   * (`gtd(<actor>): <gate>`). States that are not their own gate share
-   * another state's: `await-review` captures under `review`,
-   * `await-learning-review` under `learning`, and the non-gate lifecycle
-   * states fall back to `review` (the historical default — such captures
-   * cannot occur in normal flow).
+   * Ordered capture rules: what a step of the awaited actor commits, and
+   * under which label (first match wins; none = no-op). Label states carry
+   * none — they never rest.
    */
-  readonly gate: TurnGate
+  readonly captureRules?: readonly CaptureRule[]
   /**
    * Prompt template name per awaitable actor (the `@`-names registered in
    * `src/Prompt.ts`). Dynamic states bind both actors; when a result's actor
@@ -492,17 +498,6 @@ export interface StateDef {
    * Human-gated states spawn no subagent and carry none.
    */
   readonly model?: ModelState
-  /**
-   * What a clean-tree `gtd step-agent` means at this rest. `"inert"` — a
-   * do-nothing invocation: every real move here is a file artifact, so an
-   * empty capture would at best author a junk commit and at worst consume
-   * workflow state. `{ inertWhen }` — conditionally inert (squashing/learning
-   * while their template is unmodified; health-fixing while HEAD is still the
-   * human's hand-written HEALTH.md entry turn). Absent — the empty turn is a
-   * meaningful signal and is captured (health-fixing's environmental fix).
-   * Human gates are never consulted: an empty HUMAN turn is always a signal.
-   */
-  readonly emptyAgentTurn?: "inert" | { readonly inertWhen: (p: ResolvePayload) => boolean }
 }
 
 /** The whole machine shape. `Machine.ts` interprets exactly one of these. */
@@ -566,133 +561,192 @@ const isHumanHealthEntryHead = (head: string): boolean =>
 // ─── Default definition: states ──────────────────────────────────────────────
 
 /**
- * The 21 state declarations. Agent-awaited rests whose move is a file
- * artifact (a developed plan, packages, built code, a fix, FEEDBACK.md,
- * REVIEW.md) are `emptyAgentTurn: "inert"`: a real turn always dirties the
- * tree, so a clean-tree capture there must author nothing — the loop
- * protocol opens every iteration with `gtd step-agent` BEFORE the agent
- * acts. `squashing`/`learning` are inert only while their template is
- * unmodified; `health-fixing`'s empty turn is meaningful (environmental fix)
- * EXCEPT while HEAD is the human's hand-written entry turn.
+ * The 21 state declarations. Each rest state's `captureRules` decide, at
+ * capture time from the pending tree, which label a step commits — the
+ * δ(label, diff) discipline. Inert empty steps are the default (no `empty`
+ * rule = a clean-tree step is a no-op; the loop protocol opens every
+ * iteration with `gtd step agent` BEFORE the agent acts); empty-turn signals
+ * are opt-in `empty` rules (accept-defaults at the grilling/architecting
+ * answer gates, clean approval at review, accept-the-draft at the learning
+ * review, the environmental health fix). Branch labels — `grilling-accepted`
+ * vs a plain answer, `review-approved` vs `review-feedback`,
+ * `agentic-approved` vs `agentic-findings` — are decided here so their
+ * classification never has to re-inspect the turn's own diff.
  */
 const states: Record<GtdState, StateDef> = {
   grilling: {
     kind: "prompt",
     awaits: "dynamic",
-    gate: "grilling",
     prompts: { agent: "@grilling-agent", human: "@grilling-answers" },
     model: "grilling",
-    emptyAgentTurn: "inert",
+    captureRules: [
+      { label: "grilling" },
+      // Empty HUMAN turn = accept the suggested defaults.
+      { empty: true, actor: "human", label: "grilling-accepted" },
+    ],
   },
   architecting: {
     kind: "prompt",
     awaits: "dynamic",
-    gate: "architecting",
     prompts: { agent: "@architecting-agent", human: "@architecting-answers" },
     model: "architecting",
-    emptyAgentTurn: "inert",
+    captureRules: [
+      { label: "architecting" },
+      { empty: true, actor: "human", label: "architecting-accepted" },
+    ],
   },
   grilled: {
     kind: "prompt",
     awaits: "agent",
-    gate: "grilled",
     prompts: { agent: "@decompose" },
     model: "decompose",
-    emptyAgentTurn: "inert",
+    captureRules: [
+      { label: "grilled" },
+      // Recovery: a committed PLAN.md at a boundary HEAD rests here awaiting
+      // the HUMAN (the fallback ladder's plan rung) — their clean step
+      // resumes the entry, whose classification seeds and routes.
+      { empty: true, actor: "human", when: (p) => p.planExists, label: "grilled" },
+    ],
   },
-  planning: { kind: "label", awaits: "agent", gate: "review" },
+  planning: {
+    kind: "label",
+    awaits: "agent",
+    // Historical oddity preserved: a capture at the planning rest (pending
+    // `.gtd/` package edits under a boundary-ish HEAD) lands under the
+    // legacy default gate.
+    captureRules: [{ label: "review" }],
+  },
   building: {
     kind: "prompt",
     awaits: "agent",
-    gate: "building",
     prompts: { agent: "@building" },
     model: "building",
-    emptyAgentTurn: "inert",
+    captureRules: [{ label: "building" }],
   },
-  testing: { kind: "label", awaits: "agent", gate: "review" },
+  testing: { kind: "label", awaits: "agent" },
   fixing: {
     kind: "prompt",
     awaits: "agent",
-    gate: "fixing",
     prompts: { agent: "@fixing" },
     model: "fixing",
-    emptyAgentTurn: "inert",
+    // A dirty tree here includes the delete-dispute (a pending FEEDBACK.md
+    // deletion/emptying) — it is the fixer's move, captured like any fix.
+    captureRules: [{ label: "fixing" }],
   },
   escalate: {
     kind: "prompt",
     awaits: "human",
-    gate: "escalate",
     prompts: { human: "@escalate" },
+    captureRules: [
+      { label: "escalate" },
+      // An empty human step still lands the escalate turn (its own chain
+      // re-tests; without an ERRORS.md deletion the budget stays spent).
+      { empty: true, actor: "human", label: "escalate" },
+    ],
   },
   "agentic-review": {
     kind: "prompt",
     awaits: "agent",
-    gate: "agentic-review",
     prompts: { agent: "@agentic-review" },
     model: "agentic-review",
-    emptyAgentTurn: "inert",
+    captureRules: [
+      // The verdict is the LABEL now: an empty FEEDBACK.md write is the
+      // approval; a non-empty one is a findings round. A dirty tree that
+      // never wrote FEEDBACK.md at all is a no-verdict turn (inert
+      // re-emit after capture — never an implicit approval).
+      { when: (p) => p.feedbackPresent && p.feedbackEmpty, label: "agentic-approved" },
+      { when: (p) => p.feedbackPresent, label: "agentic-findings" },
+      { label: "agentic-review" },
+    ],
   },
-  "close-package": { kind: "label", awaits: "agent", gate: "review" },
+  "close-package": { kind: "label", awaits: "agent" },
   review: {
     kind: "prompt",
     awaits: "agent",
-    gate: "review",
     prompts: { agent: "@review" },
     model: "clean",
-    emptyAgentTurn: "inert",
+    captureRules: [{ label: "review" }],
   },
   "await-review": {
     kind: "prompt",
     awaits: "human",
-    gate: "review",
     prompts: { human: "@await-review" },
+    captureRules: [
+      // Approval shapes, decided from the PENDING tree: a pure checkbox
+      // flip, or deleting .gtd/REVIEW.md outright (and nothing else).
+      { when: (p) => p.reviewCheckboxOnly, label: "review-approved" },
+      { when: (p) => p.reviewDeletedOnly, label: "review-approved" },
+      { label: "review-feedback" },
+      // A clean step = touch nothing = approve.
+      { empty: true, actor: "human", label: "review-approved" },
+    ],
   },
-  done: { kind: "label", awaits: "agent", gate: "review" },
+  done: { kind: "label", awaits: "agent" },
   learning: {
     kind: "prompt",
     awaits: "agent",
-    gate: "learning",
     prompts: { agent: "@learning" },
     model: "clean",
-    emptyAgentTurn: { inertWhen: (p) => p.learningMsgIsTemplate },
+    captureRules: [
+      { label: "learning" },
+      // Edge case: real learnings committed by a rider — an empty step may
+      // proceed; only the unmodified template keeps the step inert.
+      { empty: true, actor: "agent", when: (p) => !p.learningMsgIsTemplate, label: "learning" },
+    ],
   },
   "await-learning-review": {
     kind: "prompt",
     awaits: "human",
-    gate: "learning",
     prompts: { human: "@await-learning-review" },
+    // No reject path: empty (accept the draft as-is) or edited, the human's
+    // step always proceeds forward under the shared learning gate.
+    captureRules: [{ label: "learning" }, { empty: true, actor: "human", label: "learning" }],
   },
   "learning-apply": {
     kind: "prompt",
     awaits: "agent",
-    gate: "learning-apply",
     prompts: { agent: "@learning-apply" },
     model: "clean",
-    emptyAgentTurn: "inert",
+    captureRules: [{ label: "learning-apply" }],
   },
-  "learning-applied": { kind: "label", awaits: "agent", gate: "review" },
+  "learning-applied": { kind: "label", awaits: "agent" },
   squashing: {
     kind: "prompt",
     awaits: "agent",
-    gate: "squashing",
     prompts: { agent: "@squashing" },
     model: "clean",
-    emptyAgentTurn: { inertWhen: (p) => p.squashMsgIsTemplate },
+    captureRules: [
+      { label: "squashing" },
+      // Mirrors learning: a rider-committed real message may squash on an
+      // empty step; the unmodified template never does.
+      { empty: true, actor: "agent", when: (p) => !p.squashMsgIsTemplate, label: "squashing" },
+    ],
   },
   idle: {
     kind: "prompt",
     awaits: "human",
-    gate: "review",
     prompts: { human: "@idle" },
+    // No capture rules: a human step at idle is the health-check carve-out
+    // (engine), never a turn commit.
   },
-  "health-check": { kind: "label", awaits: "agent", gate: "review" },
+  "health-check": { kind: "label", awaits: "agent" },
   "health-fixing": {
     kind: "prompt",
     awaits: "agent",
-    gate: "health-fixing",
     prompts: { agent: "@health-fixing" },
     model: "fixing",
-    emptyAgentTurn: { inertWhen: (p) => isHumanHealthEntryHead(p.lastCommitSubject) },
+    captureRules: [
+      { label: "health-fixing" },
+      // An empty agent step is the environmental-fix signal — EXCEPT while
+      // HEAD is still the human's hand-written HEALTH.md entry turn, whose
+      // description must survive until an agent has actually read it.
+      {
+        empty: true,
+        actor: "agent",
+        when: (p) => !isHumanHealthEntryHead(p.lastCommitSubject),
+        label: "health-fixing",
+      },
+    ],
   },
 }
 
@@ -705,48 +759,49 @@ const states: Record<GtdState, StateDef> = {
  */
 const turnRules: readonly TurnRule[] = [
   {
+    // Capture rules guarantee a draft turn is never empty, so the landed
+    // label is unambiguous: the human answer gate is next.
     actor: "agent",
     gate: "grilling",
-    branches: [
-      // Empty → inert re-emit of the same prompt. Non-empty → human answer gate.
-      { when: (f) => f.headTurnIsEmpty, to: rest("grilling", "agent") },
-      { to: rest("grilling", "human") },
-    ],
+    branches: [{ to: rest("grilling", "human") }],
   },
   {
+    // A non-empty human answer (the empty accept-defaults case captures as
+    // `grilling-accepted` instead) — back to the agent for another round.
     actor: "human",
     gate: "grilling",
+    branches: [{ to: rest("grilling", "agent") }],
+  },
+  {
+    // Accept-defaults, decided at capture: seed ARCHITECTURE.md from the
+    // converged TODO.md and route onward.
+    actor: "human",
+    gate: "grilling-accepted",
     branches: [
-      // Empty human turn = accept the suggested defaults: seed
-      // ARCHITECTURE.md from the converged TODO.md and route onward.
       {
-        when: (f) => f.headTurnIsEmpty,
         to: chain("grilling", "agent", {
           kind: "commitRouting",
           subject: "gtd: architecting",
           seedArchitectureFromTodo: true,
         }),
       },
-      { to: rest("grilling", "agent") },
     ],
   },
   {
     actor: "agent",
     gate: "architecting",
-    branches: [
-      { when: (f) => f.headTurnIsEmpty, to: rest("architecting", "agent") },
-      { to: rest("architecting", "human") },
-    ],
+    branches: [{ to: rest("architecting", "human") }],
   },
   {
     actor: "human",
     gate: "architecting",
+    branches: [{ to: rest("architecting", "agent") }],
+  },
+  {
+    actor: "human",
+    gate: "architecting-accepted",
     branches: [
-      {
-        when: (f) => f.headTurnIsEmpty,
-        to: chain("architecting", "agent", { kind: "commitRouting", subject: "gtd: grilled" }),
-      },
-      { to: rest("architecting", "agent") },
+      { to: chain("architecting", "agent", { kind: "commitRouting", subject: "gtd: grilled" }) },
     ],
   },
   {
@@ -799,25 +854,34 @@ const turnRules: readonly TurnRule[] = [
     ],
   },
   {
+    // Capture rules forbid an empty fixing turn, so a landed one always
+    // strips FEEDBACK.md and re-tests in the same invocation.
     actor: "agent",
     gate: "fixing",
     branches: [
-      // Empty diff → the fixer produced no change at all → inert. Non-empty
-      // → strip FEEDBACK.md and re-test in this same invocation.
-      { when: (f) => f.headTurnIsEmpty, to: rest("fixing", "agent") },
       { to: chain("fixing", "agent", { kind: "runTest", errorCount: 0, capReached: false }) },
     ],
   },
   {
+    // A no-verdict turn: the reviewer dirtied something but never wrote
+    // FEEDBACK.md at all (the verdict labels below carry the real outcomes).
+    // Inert re-emit — never an implicit approval.
     actor: "agent",
     gate: "agentic-review",
-    branches: [
-      // The FEEDBACK.md-present cases are handled by the steering-file
-      // interrupt ladder, which runs before classification — reaching here
-      // means FEEDBACK.md was never written at all. That is a plain empty
-      // agent turn: inert, never an implicit approval.
-      { to: rest("agentic-review", "agent") },
-    ],
+    branches: [{ to: rest("agentic-review", "agent") }],
+  },
+  {
+    // The approval verdict (an empty FEEDBACK.md write, decided at capture):
+    // the same invocation closes the package.
+    actor: "agent",
+    gate: "agentic-approved",
+    branches: [{ to: chain("close-package", "agent", { kind: "closePackage" }) }],
+  },
+  {
+    // A findings round: rest for the fixer.
+    actor: "agent",
+    gate: "agentic-findings",
+    branches: [{ to: rest("fixing", "agent") }],
   },
   {
     actor: "agent",
@@ -833,21 +897,29 @@ const turnRules: readonly TurnRule[] = [
     ],
   },
   {
+    // Approval (clean step, checkbox-only flips, or an outright REVIEW.md
+    // deletion — decided at capture): settle the cycle.
     actor: "human",
-    gate: "review",
+    gate: "review-approved",
     branches: [
-      {
-        when: (f) => f.reviewSubstantive,
-        to: chain("review", "human", {
-          kind: "commitRouting",
-          subject: "gtd: grilling",
-          removeReview: true,
-        }),
-      },
       {
         to: chain("review", "human", {
           kind: "commitRouting",
           subject: "gtd: done",
+          removeReview: true,
+        }),
+      },
+    ],
+  },
+  {
+    // Substantive feedback: re-grill the agent with the human's diff.
+    actor: "human",
+    gate: "review-feedback",
+    branches: [
+      {
+        to: chain("review", "human", {
+          kind: "commitRouting",
+          subject: "gtd: grilling",
           removeReview: true,
         }),
       },
@@ -990,9 +1062,12 @@ const routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>> = {
 /**
  * Steering-file precedence, checked BEFORE HEAD classification: these fire
  * regardless of what HEAD says, because the file presence is itself more
- * current than the last commit (e.g. a fresh red test run's FEEDBACK.md).
- * The fixer-turn/health-fixer-turn exceptions keep the precedence from
- * pre-empting the very turn that consumes the file.
+ * current than the last commit. Only the two check-outcome files remain here
+ * (they are written by the checks, not by labeled turns — a Phase C concern);
+ * the FEEDBACK.md rung dissolved when the agentic verdict moved into the
+ * capture-time labels (`agentic-approved` / `agentic-findings`). The
+ * health-fixer-turn exception keeps the precedence from pre-empting the very
+ * turn that consumes the file.
  */
 const interrupts: readonly LadderRule[] = [
   {
@@ -1002,36 +1077,6 @@ const interrupts: readonly LadderRule[] = [
   {
     when: (f) => f.payload.healthPresent && !f.headIsHealthFixerTurn,
     branches: [{ to: rest("health-fixing", "agent") }],
-  },
-  {
-    // A pending deletion of FEEDBACK.md is the fixer's delete-dispute —
-    // semantically identical to emptying the file (`feedbackEffective` /
-    // `feedbackEmptyEffective` fold both in). Once the review-fix threshold
-    // is reached (or agenticReview is off), a lingering FEEDBACK.md at the
-    // `gtd: tests-green` rest must not block the force-approve close — but
-    // ONLY at that tests-green HEAD; at any other HEAD the rung must still
-    // run so the final allowed findings round still gets fixed.
-    when: (f) =>
-      f.feedbackEffective &&
-      !f.headIsFixerTurn &&
-      !(f.forceApprove && f.head === "gtd: tests-green"),
-    branches: [
-      // FEEDBACK.md written live by the Agentic Review agent (HEAD is still
-      // `gtd: tests-green`) is initially uncommitted — that write must be
-      // captured as the agent's `gtd(agent): agentic-review` turn FIRST,
-      // rather than mid-chaining straight to close/fixing with no record of
-      // the reviewer's own turn.
-      { when: (f) => f.head === "gtd: tests-green", to: rest("agentic-review", "agent") },
-      // An empty FEEDBACK.md is "approve, close the package" ONLY as a fresh
-      // Agentic Review verdict. Inside the fix loop it is the FIXER
-      // disputing/emptying an already-on-the-record finding — that must
-      // still rest at fixing.
-      {
-        when: (f) => f.feedbackEmptyEffective && !f.alreadyInFixLoop,
-        to: chain("close-package", "agent", { kind: "closePackage" }),
-      },
-      { to: rest("fixing", "agent") },
-    ],
   },
 ]
 
@@ -1106,6 +1151,22 @@ const fallback: readonly LadderRule[] = [
       f.lastTurn.gate === "building",
     branches: [
       { to: chain("building", "agent", { kind: "runTest", errorCount: 0, capReached: false }) },
+    ],
+  },
+  {
+    // A committed FEEDBACK.md under an unrecognized (boundary) HEAD — e.g. a
+    // rider commit atop a findings round. The verdict labels normally carry
+    // this state; these rungs are pure crash/rider recovery, preserving the
+    // old precedence outcomes: an (effectively) empty verdict closes, real
+    // findings rest for the fixer. A pending deletion counts as emptied (the
+    // delete-dispute shape).
+    when: (f) => f.payload.feedbackPresent || f.payload.pendingFeedbackDeletion,
+    branches: [
+      {
+        when: (f) => f.payload.feedbackEmpty || f.payload.pendingFeedbackDeletion,
+        to: chain("close-package", "agent", { kind: "closePackage" }),
+      },
+      { to: rest("fixing", "agent") },
     ],
   },
   {

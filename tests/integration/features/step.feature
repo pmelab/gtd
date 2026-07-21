@@ -73,7 +73,7 @@ Feature: gtd step human — the human mutator
       chore: initial commit
       gtd(human): grilling
       gtd(agent): grilling
-      gtd(human): grilling
+      gtd(human): grilling-accepted
       gtd: architecting
       """
     And the file ".gtd/TODO.md" does not exist

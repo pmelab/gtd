@@ -37,7 +37,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     When I run gtd step human
     Then it succeeds
     And the git log contains "gtd: done"
@@ -66,7 +66,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
     And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
@@ -108,7 +108,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
     And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
@@ -150,7 +150,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: done"
@@ -181,7 +181,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
     And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
@@ -222,7 +222,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: grilling"
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
@@ -239,7 +239,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       - [ ] ./src/calc2.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
     And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
@@ -281,7 +281,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
     And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
@@ -327,7 +327,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
     And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """

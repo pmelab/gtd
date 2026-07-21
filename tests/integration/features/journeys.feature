@@ -147,10 +147,10 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       chore: add .gtdrc
       gtd(human): grilling
       gtd(agent): grilling
-      gtd(human): grilling
+      gtd(human): grilling-accepted
       gtd: architecting
       gtd(agent): architecting
-      gtd(human): architecting
+      gtd(human): architecting-accepted
       gtd: grilled
       gtd(agent): grilled
       gtd: building
@@ -159,7 +159,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       gtd: close-package
       gtd(agent): review
       gtd: await-review
-      gtd(human): review
+      gtd(human): review-approved
       gtd: done
       """
     # A final gtd step human at rest, with a green health check, adds zero commits.

@@ -61,22 +61,30 @@ drive the fix loops, see [STATES.md](../STATES.md) — this section is a summary
 ### Turn commits — `gtd(<actor>): <gate>`
 
 Authored by `gtd step human`/`gtd step agent` as the first commit of a fresh
-chain. The closed set of gates:
+chain. The label a step commits is decided **at capture time from the pending
+tree** (each state's `captureRules` in `src/Workflow.ts`) — branch outcomes are
+encoded in the label, never re-derived from a landed turn's own diff:
 
-| Gate             | Authored by                                                        |
-| ---------------- | ------------------------------------------------------------------ |
-| `grilling`       | human (answers) / agent (product-plan iteration)                   |
-| `architecting`   | human (answers) / agent (architecture iteration)                   |
-| `grilled`        | agent (converged, ready to decompose) / human (PLAN.md entry turn) |
-| `building`       | agent (package work, or human feedback while agent is out of turn) |
-| `fixing`         | agent (test-fix or review-fix round)                               |
-| `agentic-review` | agent (writes .gtd/FEEDBACK.md verdict)                            |
-| `review`         | agent (writes .gtd/REVIEW.md) / human (approves or gives feedback) |
-| `squashing`      | agent (overwrites .gtd/SQUASH_MSG.md)                              |
-| `learning`       | agent (overwrites .gtd/LEARNINGS.md) / human (accepts or edits)    |
-| `learning-apply` | agent (integrates .gtd/LEARNINGS.md into CLAUDE.md/AGENTS.md/docs) |
-| `health-fixing`  | agent (idle health-check repair) / human (HEALTH.md entry turn)    |
-| `escalate`       | human (deletes .gtd/ERRORS.md to resume)                           |
+| Gate                    | Authored by                                                        |
+| ----------------------- | ------------------------------------------------------------------ |
+| `grilling`              | human (answers) / agent (product-plan iteration)                   |
+| `grilling-accepted`     | human (an EMPTY step at the answer gate — accept the defaults)     |
+| `architecting`          | human (answers) / agent (architecture iteration)                   |
+| `architecting-accepted` | human (empty step — accept the technical defaults)                 |
+| `grilled`               | agent (converged, ready to decompose) / human (PLAN.md entry turn) |
+| `building`              | agent (package work, or human feedback while agent is out of turn) |
+| `fixing`                | agent (test-fix or review-fix round)                               |
+| `agentic-review`        | agent (a no-verdict turn: dirtied things, wrote no FEEDBACK.md)    |
+| `agentic-approved`      | agent (the approval verdict: an empty .gtd/FEEDBACK.md write)      |
+| `agentic-findings`      | agent (a findings round: a non-empty .gtd/FEEDBACK.md write)       |
+| `review`                | agent (writes .gtd/REVIEW.md)                                      |
+| `review-approved`       | human (clean step / checkbox-only flips / deletes .gtd/REVIEW.md)  |
+| `review-feedback`       | human (any substantive edit — re-grills the agent with the diff)   |
+| `squashing`             | agent (overwrites .gtd/SQUASH_MSG.md)                              |
+| `learning`              | agent (overwrites .gtd/LEARNINGS.md) / human (accepts or edits)    |
+| `learning-apply`        | agent (integrates .gtd/LEARNINGS.md into CLAUDE.md/AGENTS.md/docs) |
+| `health-fixing`         | agent (idle health-check repair) / human (HEALTH.md entry turn)    |
+| `escalate`              | human (deletes .gtd/ERRORS.md to resume)                           |
 
 ### Machine commits — `gtd: <state>`
 
@@ -112,7 +120,7 @@ and leaves `.gtd/TODO.md` uncommitted for `gtd(agent): grilling`.
 There are no markers to answer — the human either:
 
 - **Accepts the suggested defaults**: runs a clean `gtd step human` at the
-  answer gate. An empty `gtd(human): grilling` turn plus routing
+  answer gate. A `gtd(human): grilling-accepted` turn plus routing
   `gtd: architecting` lands automatically — `.gtd/ARCHITECTURE.md` is seeded
   from the converged `.gtd/TODO.md` content and `.gtd/TODO.md` is deleted, in
   that one commit.

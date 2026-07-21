@@ -21,10 +21,10 @@ cleanup), trace **every** reference before deleting:
 - `src/Subjects.ts` closed sets (`TurnGate`, `RoutingPhase`, `ROUTING_SUBJECT`)
 - `src/Workflow.ts` (`defaultWorkflow` — the machine's whole declarative shape:
   the `actors` declarations (name + interactive/autonomous kind), the `GtdState`
-  type, the state's `StateDef` (awaited actor, gate, prompt/model bindings,
-  empty-agent-turn policy), its `turnRules` / `routingRules` rows,
-  interrupt/fallback ladder rungs, counter rules, `conflicts`, `entry` rules,
-  and `agentTurnValidation`)
+  type, the state's `StateDef` (awaited actor, prompt/model bindings, and its
+  `captureRules` — which label a step commits, decided from the pending tree),
+  its `turnRules` / `routingRules` rows, interrupt/fallback ladder rungs,
+  counter rules, `conflicts`, `entry` rules, and `agentTurnValidation`)
 - `src/Machine.ts` (the interpreter — usually untouched by a step change, but
   check the turn-taking carve-outs in `applyTurnTaking` for hardcoded
   subjects/states, e.g. the idle/health-fix same-chain re-tests)
@@ -126,12 +126,17 @@ thin.
 
 ## Turn Capture
 
-- An empty AGENT turn is inert at every gate whose move is a file artifact
-  (`grilling`, `architecting`, `grilled`, `building`, `fixing`,
-  `agentic-review`, `review`, and `squashing` while `SQUASH_MSG.md` is still the
-  template) — the loop protocol opens each iteration with `gtd step agent`
-  BEFORE the agent acts, so a clean-tree capture there must author nothing. When
-  adding a gate, decide explicitly whether its empty turn is a signal (human
-  accept-defaults, health-fixing's environmental fix) or a no-op, and guard BOTH
-  layers: `applyTurnTaking` (don't capture) and `classifyHead` (don't consume
-  state for historical/crash-recovered empty turns)
+- Turn capture is rule-driven (`captureRules` per state in `src/Workflow.ts`): a
+  step of the awaited actor commits the first matching rule's LABEL, decided
+  from the PENDING tree — branch outcomes (`grilling-accepted`,
+  `review-approved`/`review-feedback`, `agentic-approved`/`agentic-findings`)
+  are encoded in the label at capture, never re-derived from a landed turn's own
+  diff (the δ(label, diff) discipline)
+- **No matching rule = a no-op invocation** (zero commits) — inert empty steps
+  are the DEFAULT; the loop protocol opens each iteration with `gtd step agent`
+  BEFORE the agent acts, so a clean-tree step must author nothing. Empty-turn
+  signals (human accept-defaults, clean approval, the environmental health fix)
+  are opt-in `empty: true` rules, and an empty rule never re-fires while HEAD
+  already carries the same turn (the fixpoint, as a label fact). When adding a
+  gate, decide explicitly whether its empty turn is a signal (add an `empty`
+  rule) or a no-op (add none)

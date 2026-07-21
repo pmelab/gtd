@@ -44,7 +44,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     When I run gtd step human
     Then it succeeds
     And the git log contains "gtd: done"
@@ -77,7 +77,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
     And a commit "gtd: learning" that adds ".gtd/LEARNINGS.md" with:
       """
@@ -113,7 +113,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
     And a commit "gtd: learning" that adds ".gtd/LEARNINGS.md" with:
       """
@@ -155,7 +155,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
     And a commit "gtd: learning" that adds ".gtd/LEARNINGS.md" with:
       """
@@ -247,7 +247,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
     And a commit "gtd: learning" that adds ".gtd/LEARNINGS.md" with:
       """
@@ -291,7 +291,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
     And a commit "gtd: learning" that adds ".gtd/LEARNINGS.md" with:
       """
@@ -334,7 +334,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
+    And a commit "gtd(human): review-approved" that deletes ".gtd/REVIEW.md"
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: squashing"

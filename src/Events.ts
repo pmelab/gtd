@@ -86,8 +86,12 @@ const WORKFLOW_FILE_EXCLUDES: ReadonlyArray<string> = [GTD_DIR]
 // steering file.
 const GATE_OWN_STEERING_FILE: Partial<Record<string, string>> = {
   grilling: TODO_FILE,
+  "grilling-accepted": TODO_FILE,
   architecting: ARCHITECTURE_FILE,
+  "architecting-accepted": ARCHITECTURE_FILE,
   review: REVIEW_FILE,
+  "review-approved": REVIEW_FILE,
+  "review-feedback": REVIEW_FILE,
 }
 
 // Routing phases and turn gates spanning the squash/learning chain
@@ -412,7 +416,11 @@ export const gatherEvents = (
         // `gtd: close-package` resets the reviewFixCount fold immediately
         // after, so the extra count is harmless (documented in the task
         // contract).
-        isFeedback: turnGate === "agentic-review" && touchedFeedback(commit.touched),
+        isFeedback:
+          (turnGate === "agentic-review" ||
+            turnGate === "agentic-approved" ||
+            turnGate === "agentic-findings") &&
+          touchedFeedback(commit.touched),
         isPackageStart: routingPhase === "building" || routingPhase === "close-package",
         isWorkflowCommit: isTurn || isRouting,
         removedErrors: commit.removedErrors,
@@ -430,51 +438,18 @@ export const gatherEvents = (
     const workingTreeClean = entries.length === 0
     const lastCommitSubject = hasCommits ? yield* git.lastCommitSubject() : ""
 
-    // --- headTurnDiff / headTurnIsEmpty --------------------------------------
-    // Only computed when HEAD parses as a turn commit. One `commitDiff` call:
-    // the raw diff decides emptiness, the workflow-excluded diff is what gets
-    // inlined into prompts.
+    // --- headTurnDiff ---------------------------------------------------------
+    // Only computed when HEAD parses as a turn commit — pure PROMPT
+    // passthrough (the re-grilling prompt inlines the answering turn's diff).
+    // Never a steering input: branch decisions read the PENDING diff at
+    // capture time and are encoded in the label (δ-discipline), so the
+    // machine never re-inspects a landed turn's own diff.
     const headParsed = hasCommits ? parseSubject(lastCommitSubject) : { kind: "boundary" as const }
     let headTurnDiff = ""
-    let headTurnIsEmpty = false
-    // Whether a `gtd(human): review` turn commit's OWN diff is substantive
-    // (anything beyond a pure REVIEW.md checkbox flip). Computed from the turn
-    // commit's diff rather than live working-tree dirtiness: by the time the
-    // mid-chain classification for that turn runs, the turn commit has already
-    // landed and the tree is clean again, so `reviewDirty`/`reviewCheckboxOnly`
-    // (which read live dirtiness) no longer reflect what the turn captured.
-    let headTurnReviewSubstantive: boolean | undefined
     if (hasCommits && headParsed.kind === "turn") {
-      const rawDiff = yield* git
-        .commitDiff(headHash)
-        .pipe(Effect.catchAll(() => Effect.succeed("")))
-      headTurnIsEmpty = rawDiff.trim().length === 0
       headTurnDiff = yield* git
         .commitDiff(headHash, turnDiffExcludes(headParsed.gate))
         .pipe(Effect.catchAll(() => Effect.succeed("")))
-
-      if (isInteractiveActor(headParsed.actor) && headParsed.gate === "review") {
-        // Split the unrestricted per-commit diff into its per-file sections
-        // (each starts with `diff --git a/<path> b/<path>`) and ask: is there
-        // any changed file OTHER than REVIEW.md, or is REVIEW.md's own hunk
-        // more than a checkbox flip?
-        const fileSections = rawDiff
-          .split(/(?=^diff --git )/m)
-          .filter((section) => section.trim().length > 0)
-        const reviewSection = fileSections.find(
-          (section) =>
-            section.startsWith(`diff --git a/${REVIEW_FILE} b/${REVIEW_FILE}`) ||
-            section.startsWith(`diff --git a/${REVIEW_FILE} `),
-        )
-        const nonReviewSections = fileSections.filter((section) => section !== reviewSection)
-        // A REVIEW.md deletion is the approval path (the human deleted the
-        // whole file to accept), never "feedback" — decisively non-substantive
-        // regardless of its content, distinct from an edit to its content.
-        const reviewDeleted = reviewSection?.includes("\ndeleted file mode") ?? false
-        const reviewHunkSubstantive =
-          reviewSection !== undefined && !reviewDeleted && !isCheckboxOnlyDiff(reviewSection)
-        headTurnReviewSubstantive = nonReviewSections.length > 0 || reviewHunkSubstantive
-      }
     }
 
     // `gtd: review-feedback` is the ROUTING commit the mid-chain `gtd(human):
@@ -577,6 +552,11 @@ export const gatherEvents = (
       isCheckboxOnlyDiff(
         yield* git.diffPath(REVIEW_FILE).pipe(Effect.catchAll(() => Effect.succeed(""))),
       )
+    // The outright-deletion approval shape at the await-review gate: the tree
+    // deletes the committed REVIEW.md and nothing else is dirty. (Deleting a
+    // surfaced CODE file alongside it is feedback, not approval.)
+    const reviewDeletedOnly =
+      onlyReviewDirty && entries.some((e) => e.path === REVIEW_FILE && e.status.includes("D"))
 
     // --- Review base + re-trigger gate ----------------------------------------
     // Scope — what a review covers — is a three-rule logic:
@@ -893,8 +873,6 @@ export const gatherEvents = (
     const payload: ResolvePayload = {
       invoker,
       headTurnDiff,
-      headTurnIsEmpty,
-      ...(headTurnReviewSubstantive !== undefined ? { headTurnReviewSubstantive } : {}),
       todoExists,
       todoCommitted,
       architectureExists,
@@ -913,6 +891,7 @@ export const gatherEvents = (
       reviewCommitted,
       reviewDirty,
       reviewCheckboxOnly,
+      reviewDeletedOnly,
       ...(grillingDocErrors.length > 0 ? { grillingDocErrors } : {}),
       ...(reviewDocErrors.length > 0 ? { reviewDocErrors } : {}),
       pendingErrorsDeletion,

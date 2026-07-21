@@ -32,7 +32,7 @@ Feature: Close package — one gtd: close-package per package, via the CLI
     And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step agent
     Then it succeeds
-    And the git log contains "gtd(agent): agentic-review"
+    And the git log contains "gtd(agent): agentic-approved"
     And the file ".gtd/01-foo/01-task.md" does not exist
     And the file ".gtd/02-bar/01-task.md" exists
     And the last commit subject is "gtd: close-package"

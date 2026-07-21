@@ -2,6 +2,15 @@
 
 ## The label grammar (newest breaking change)
 
+Six turn labels are decided **at capture time** and carry the branch outcome
+that used to live in the turn's own diff: `grilling-accepted` /
+`architecting-accepted` (an empty step at the answer gates), `review-approved` /
+`review-feedback` (the human review verdict), and `agentic-approved` /
+`agentic-findings` (the agentic-review verdict). Old histories carrying the
+undifferentiated forms (`gtd(human): review` as an approval, an empty
+`gtd(human): grilling` as an accept) resume differently or not at all — as with
+every grammar change, upgrade at a settled boundary.
+
 Machine commits now use **state labels**: every machine-authored subject names
 the state it enters (`gtd: building`, `gtd: await-review`, `gtd: close-package`,
 plus the two check-outcome markers `gtd: tests-green` / `gtd: test-failed`), so

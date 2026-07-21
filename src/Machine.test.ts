@@ -443,13 +443,12 @@ describe("empty agent turn at the HEALTH.md entry rest", () => {
 
 // ── Empty-turn semantics ────────────────────────────────────────────────────
 
-describe("empty human grilling turn chains to gtd: architecting", () => {
-  it("clean tree under gtd(human): grilling → routes to gtd: architecting, seeding ARCHITECTURE.md", () => {
+describe("accept-defaults grilling turn chains to gtd: architecting", () => {
+  it("gtd(human): grilling-accepted → routes to gtd: architecting, seeding ARCHITECTURE.md", () => {
     const result = resolve([
       R({
         invoker: "agent",
-        lastCommitSubject: "gtd(human): grilling",
-        headTurnIsEmpty: true,
+        lastCommitSubject: "gtd(human): grilling-accepted",
         todoExists: true,
         todoCommitted: true,
         workingTreeClean: true,
@@ -463,13 +462,12 @@ describe("empty human grilling turn chains to gtd: architecting", () => {
   })
 })
 
-describe("empty human architecting turn chains to gtd: grilled", () => {
-  it("clean tree under gtd(human): architecting → routes to gtd: grilled", () => {
+describe("accept-defaults architecting turn chains to gtd: grilled", () => {
+  it("gtd(human): architecting-accepted → routes to gtd: grilled", () => {
     const result = resolve([
       R({
         invoker: "agent",
-        lastCommitSubject: "gtd(human): architecting",
-        headTurnIsEmpty: true,
+        lastCommitSubject: "gtd(human): architecting-accepted",
         architectureExists: true,
         architectureCommitted: true,
         workingTreeClean: true,
@@ -480,12 +478,11 @@ describe("empty human architecting turn chains to gtd: grilled", () => {
 })
 
 describe("architecting turn-taking", () => {
-  it("empty agent turn at architecting is inert (rest, re-emit)", () => {
+  it("a clean-tree agent step at the architecting rest captures nothing (inert)", () => {
     const result = resolve([
       R({
-        invoker: "none",
-        lastCommitSubject: "gtd(agent): architecting",
-        headTurnIsEmpty: true,
+        invoker: "agent",
+        lastCommitSubject: "gtd: architecting",
         architectureExists: true,
         architectureCommitted: true,
         workingTreeClean: true,
@@ -493,14 +490,14 @@ describe("architecting turn-taking", () => {
     ])
     expect(result.state).toBe("architecting")
     expect(result.actor).toBe("agent")
+    expect(result.edgeAction).toBeUndefined()
   })
 
-  it("non-empty agent turn at architecting rests at the human answer gate", () => {
+  it("an agent architecting draft turn rests at the human answer gate", () => {
     const result = resolve([
       R({
         invoker: "none",
         lastCommitSubject: "gtd(agent): architecting",
-        headTurnIsEmpty: false,
         architectureExists: true,
         architectureCommitted: false,
         workingTreeClean: true,
@@ -510,12 +507,11 @@ describe("architecting turn-taking", () => {
     expect(result.actor).toBe("human")
   })
 
-  it("non-empty human turn at architecting rests back at the agent", () => {
+  it("a human architecting answer turn rests back at the agent", () => {
     const result = resolve([
       R({
         invoker: "none",
         lastCommitSubject: "gtd(human): architecting",
-        headTurnIsEmpty: false,
         architectureExists: true,
         architectureCommitted: false,
         workingTreeClean: true,
@@ -539,13 +535,12 @@ describe("architecting turn-taking", () => {
   })
 })
 
-describe("empty agent turn is inert", () => {
-  it("re-emits the same agent grilling prompt rather than transitioning", () => {
+describe("clean-tree agent step at the grilling rest is inert", () => {
+  it("captures nothing and re-emits the same prompt (no capture rule matches)", () => {
     const result = resolve([
       R({
-        invoker: "none",
-        lastCommitSubject: "gtd(agent): grilling",
-        headTurnIsEmpty: true,
+        invoker: "agent",
+        lastCommitSubject: "gtd: grilling",
         todoExists: true,
         todoCommitted: true,
         workingTreeClean: true,
@@ -553,6 +548,7 @@ describe("empty agent turn is inert", () => {
     ])
     expect(result.state).toBe("grilling")
     expect(result.actor).toBe("agent")
+    expect(result.edgeAction).toBeUndefined()
   })
 })
 
@@ -822,7 +818,6 @@ describe("learning chain", () => {
       R({
         invoker: "human",
         lastCommitSubject: "gtd(human): learning",
-        headTurnIsEmpty: true,
         workingTreeClean: true,
       }),
     ])
@@ -925,8 +920,7 @@ describe("predictTurn", () => {
   it("predicts a routing commit at a mid-chain HEAD", () => {
     const prediction = predictTurn([
       R({
-        lastCommitSubject: "gtd(human): grilling",
-        headTurnIsEmpty: true,
+        lastCommitSubject: "gtd(human): grilling-accepted",
         todoExists: true,
         todoCommitted: true,
         workingTreeClean: true,
@@ -1190,14 +1184,13 @@ describe("review lifecycle", () => {
     expect(result.actor).toBe("human")
   })
 
-  it("empty gtd(human): review turn (approval) → commits gtd: done", () => {
+  it("gtd(human): review-approved (decided at capture) → commits gtd: done", () => {
     const result = resolve([
       R({
         invoker: "human",
         reviewPresent: true,
         reviewCommitted: true,
-        lastCommitSubject: "gtd(human): review",
-        headTurnIsEmpty: true,
+        lastCommitSubject: "gtd(human): review-approved",
         workingTreeClean: true,
       }),
     ])
@@ -1208,36 +1201,49 @@ describe("review lifecycle", () => {
     })
   })
 
-  it("checkbox-only gtd(human): review turn → commits gtd: done (approval)", () => {
+  it("a checkbox-only pending edit at await-review captures as review-approved", () => {
     const result = resolve([
       R({
         invoker: "human",
         reviewPresent: true,
-        reviewCommitted: true,
         reviewDirty: true,
         reviewCheckboxOnly: true,
-        lastCommitSubject: "gtd(human): review",
-        headTurnIsEmpty: false,
-        workingTreeClean: true,
+        lastCommitSubject: "gtd: await-review",
+        workingTreeClean: false,
       }),
     ])
     expect(result.edgeAction).toEqual({
-      kind: "commitRouting",
-      subject: "gtd: done",
-      removeReview: true,
+      kind: "captureTurn",
+      actor: "human",
+      gate: "review-approved",
     })
   })
 
-  it("substantive gtd(human): review turn → commits gtd: grilling", () => {
+  it("a substantive pending edit at await-review captures as review-feedback", () => {
+    const result = resolve([
+      R({
+        invoker: "human",
+        reviewPresent: true,
+        reviewDirty: true,
+        reviewCheckboxOnly: false,
+        lastCommitSubject: "gtd: await-review",
+        workingTreeClean: false,
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "human",
+      gate: "review-feedback",
+    })
+  })
+
+  it("gtd(human): review-feedback (decided at capture) → commits gtd: grilling", () => {
     const result = resolve([
       R({
         invoker: "human",
         reviewPresent: true,
         reviewCommitted: true,
-        reviewDirty: true,
-        reviewCheckboxOnly: false,
-        lastCommitSubject: "gtd(human): review",
-        headTurnIsEmpty: false,
+        lastCommitSubject: "gtd(human): review-feedback",
         workingTreeClean: true,
       }),
     ])

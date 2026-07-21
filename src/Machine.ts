@@ -182,7 +182,6 @@ const lastWorkflowTurn = (
 export const DEFAULT_PAYLOAD: ResolvePayload = {
   invoker: "none",
   headTurnDiff: "",
-  headTurnIsEmpty: false,
   todoExists: false,
   todoCommitted: false,
   architectureExists: false,
@@ -201,6 +200,7 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   reviewCommitted: false,
   reviewDirty: false,
   reviewCheckboxOnly: false,
+  reviewDeletedOnly: false,
   pendingErrorsDeletion: false,
   pendingFeedbackDeletion: false,
   lastCommitSubject: "",
@@ -359,19 +359,31 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
 }
 
 /** Map a state to the turn gate an invocation at that state's rest would author. */
-const gateForState = (state: GtdState): TurnGate => defaultWorkflow.states[state].gate
-
 /**
- * True when an autonomous actor's step at this rest has nothing to capture —
- * the definition's per-state `emptyAgentTurn` policy evaluated against the
- * payload. Shared by `applyTurnTaking` (author nothing) and `predictTurn`
- * (predict null) so the two can never disagree.
+ * The definition's capture-rule match for a step of `invoker` at `state`'s
+ * rest: the first rule whose emptiness mode fits the tree, whose actor
+ * restriction (if any) fits the invoker, and whose guard passes. `undefined`
+ * = nothing to capture (a do-nothing invocation). Shared by `applyTurnTaking`
+ * (author nothing) and `predictTurn` (predict null) so the two can never
+ * disagree.
  */
-const isInertEmptyAgentRest = (state: GtdState, p: ResolvePayload): boolean => {
-  if (!p.workingTreeClean) return false
-  const policy = defaultWorkflow.states[state].emptyAgentTurn
-  if (policy === undefined) return false
-  return policy === "inert" ? true : policy.inertWhen(p)
+const matchCaptureRule = (state: GtdState, invoker: Actor, p: ResolvePayload) => {
+  // An empty-turn signal is meaningful exactly once: when HEAD already
+  // carries the very turn an empty rule would author (same actor, same
+  // label) and the tree is still clean, there is nothing new to say — the
+  // fixpoint, expressed as a label fact (δ-pure). A DIRTY tree at the same
+  // head is a genuinely new capture and is unaffected.
+  const parsedHead = parseSubject(p.lastCommitSubject)
+  const headIsOwnTurn = (label: TurnGate): boolean =>
+    parsedHead.kind === "turn" && parsedHead.actor === invoker && parsedHead.gate === label
+  return (defaultWorkflow.states[state].captureRules ?? []).find(
+    (rule) =>
+      (rule.empty === true
+        ? p.workingTreeClean && !headIsOwnTurn(rule.label)
+        : !p.workingTreeClean) &&
+      (rule.actor === undefined || rule.actor === invoker) &&
+      (rule.when === undefined || rule.when(p)),
+  )
 }
 
 /**
@@ -389,10 +401,6 @@ const buildBaselineFacts = (
   const parsedHead = parseSubject(head)
   // The consuming turn's actor is whoever the consuming state awaits —
   // definition data, not a hard-coded actor name.
-  const headIsFixerTurn =
-    parsedHead.kind === "turn" &&
-    parsedHead.actor === defaultWorkflow.states.fixing.awaits &&
-    parsedHead.gate === "fixing"
   const headIsHealthFixerTurn =
     parsedHead.kind === "turn" &&
     parsedHead.actor === defaultWorkflow.states["health-fixing"].awaits &&
@@ -401,16 +409,8 @@ const buildBaselineFacts = (
     payload: p,
     counters,
     head,
-    headIsFixerTurn,
     headIsHealthFixerTurn,
-    // Already inside the fix loop (the Testing loop wrote FEEDBACK.md as
-    // `gtd: test-failed`, or the fixer's own turn is HEAD) — an uncommitted
-    // FEEDBACK.md edit here is the fixer disputing/emptying an
-    // already-on-the-record finding, not a fresh reviewer write.
-    alreadyInFixLoop: headIsFixerTurn || head === "gtd: test-failed",
     forceApprove: !p.agenticReviewEnabled || counters.reviewFixCount >= p.reviewThreshold,
-    feedbackEffective: p.feedbackPresent || p.pendingFeedbackDeletion,
-    feedbackEmptyEffective: p.feedbackEmpty || p.pendingFeedbackDeletion,
     reviewable:
       p.hasCommitsAfterLastDone &&
       p.reviewBase !== undefined &&
@@ -511,17 +511,7 @@ const resolveBaseline = (
   const interrupted = runLadder(defaultWorkflow.interrupts, facts)
   if (interrupted !== null) return interrupted
 
-  // Prefer the turn commit's own diff (set only when HEAD is the
-  // `gtd(human): review` turn commit being classified right now) over live
-  // working-tree dirtiness, which is already clean by the time this mid-chain
-  // HEAD is reached.
-  const reviewSubstantive =
-    p.headTurnReviewSubstantive !== undefined
-      ? p.headTurnReviewSubstantive
-      : p.reviewDirty && !p.reviewCheckboxOnly
-
   const flags: ClassifyFlags = {
-    headTurnIsEmpty: p.headTurnIsEmpty,
     hasPackages: p.packagesPresent,
     planExists: p.planExists,
     agenticReviewForceApproved: facts.forceApprove,
@@ -529,7 +519,6 @@ const resolveBaseline = (
     hasSquashBase: p.squashBase !== undefined,
     learningEnabled: p.learningEnabled,
     learningMsgIsTemplate: p.learningMsgIsTemplate,
-    reviewSubstantive,
     // A pending (uncommitted) deletion of ERRORS.md still counts as "ERRORS.md
     // was committed at this HEAD" for classification purposes: `fs.exists`
     // (which `p.errorsPresent` reads) already sees the file as gone once the
@@ -712,39 +701,21 @@ const applyTurnTaking = (
     }
   }
 
-  // Invoker matches the awaited actor: capture a fresh turn commit, unless
-  // HEAD already carries that exact turn AND the tree is clean (fixpoint —
-  // idempotent re-run). A DIRTY tree at the same gate is a genuinely NEW
-  // capture (e.g. a fixer whose first attempt landed an empty turn — nothing
-  // to fix yet — now has real edits once `gate.sh`/the code is actually
-  // fixed in a later invocation): the fixpoint short-circuit must not treat
-  // that as "nothing to do" just because HEAD happens to share the gate.
-  const gate = gateForState(baseline.state)
-  const parsedHead = parseSubject(head)
-  const alreadyAtThisTurn =
-    parsedHead.kind === "turn" &&
-    parsedHead.actor === invoker &&
-    parsedHead.gate === gate &&
-    p.workingTreeClean
-
-  if (alreadyAtThisTurn) {
-    return { state: baseline.state, actor: awaited, pending: false, context }
-  }
-
-  // A clean tree at an AGENT-awaited rest is a do-nothing invocation for
-  // every state whose `emptyAgentTurn` policy says so (see the definition's
-  // `states` table): every such gate's move is a file artifact, so a real
-  // turn always dirties the tree. Capturing an empty turn instead would at
-  // best author a junk commit that parks back at the same rest — and at
-  // worst consume workflow state (a grilled turn deletes `.gtd/TODO.md`, a
-  // squashing turn squashes the cycle under the placeholder template). The
-  // loop protocol makes this a live hazard, not an edge case: both the loop
-  // skill and the reference driver open every iteration with
-  // `gtd step agent`, which lands here with a clean tree before the agent
-  // has acted. Stay inert; `gtd next` re-emits the same prompt. Interactive
-  // gates are untouched: an empty INTERACTIVE turn is a signal
-  // (accept-defaults at grilling, clean approval at review).
-  if (isAutonomousActor(invoker) && isInertEmptyAgentRest(baseline.state, p)) {
+  // Invoker matches the awaited actor: the state's capture rules decide,
+  // from the PENDING tree, which label this step commits — the δ(label,
+  // diff) discipline: every branch a label's meaning used to carry in its
+  // own diff (empty = accept-defaults, checkbox-only = approval, empty
+  // FEEDBACK.md = agentic approval) is decided here and encoded in the
+  // label. No matching rule = a do-nothing invocation (zero commits;
+  // `gtd next` re-emits the same prompt): inert empty steps are the DEFAULT
+  // — the loop protocol opens every iteration with `gtd step agent` before
+  // the agent has acted, and an empty capture would at best author a junk
+  // commit and at worst consume workflow state. Empty-turn signals are
+  // opt-in `empty` rules. A DIRTY tree at a rest whose HEAD already carries
+  // the same turn is a genuinely NEW capture (e.g. a fixer whose first
+  // attempt landed nothing now has real edits).
+  const match = matchCaptureRule(baseline.state, invoker, p)
+  if (match === undefined) {
     return { state: baseline.state, actor: awaited, pending: false, context }
   }
 
@@ -756,7 +727,7 @@ const applyTurnTaking = (
   // (their answer at the grilling gate, their feedback/approval at the
   // review gate) — those are never structurally validated.
   if (isAutonomousActor(invoker)) {
-    const validation = defaultWorkflow.agentTurnValidation[gate]
+    const validation = defaultWorkflow.agentTurnValidation[match.label]
     if (validation !== undefined) {
       const errors = p[validation.errorsField]
       if ((errors?.length ?? 0) > 0) {
@@ -775,7 +746,7 @@ const applyTurnTaking = (
     state: baseline.state,
     actor: awaited,
     pending: false,
-    edgeAction: { kind: "captureTurn", actor: invoker, gate },
+    edgeAction: { kind: "captureTurn", actor: invoker, gate: match.label },
     context,
   }
 }
@@ -886,22 +857,25 @@ export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
     return { actor: defaultWorkflow.states.idle.awaits, subject: null, state: "idle" }
   }
 
-  const gate = gateForState(baseline.state)
-  const parsedHead = parseSubject(head)
-  const alreadyAtThisTurn =
-    parsedHead.kind === "turn" && parsedHead.actor === baseline.actor && parsedHead.gate === gate
-  if (alreadyAtThisTurn) {
+  // Mirror applyTurnTaking's capture matching: no rule = nothing to commit
+  // (predict null rather than a subject the mutator would refuse to author),
+  // and a HEAD already carrying the predicted turn predicts null too
+  // (idempotent re-run).
+  const match = matchCaptureRule(baseline.state, baseline.actor, payload)
+  if (match === undefined) {
     return { actor: baseline.actor, subject: null, state: baseline.state }
   }
-  // Mirror applyTurnTaking's inert-empty-agent-turn guard: a clean tree at an
-  // agent-awaited rest captures nothing, so predict null rather than a turn
-  // subject the mutator would refuse to author.
-  if (isAutonomousActor(baseline.actor) && isInertEmptyAgentRest(baseline.state, payload)) {
+  const parsedHead = parseSubject(head)
+  if (
+    parsedHead.kind === "turn" &&
+    parsedHead.actor === baseline.actor &&
+    parsedHead.gate === match.label
+  ) {
     return { actor: baseline.actor, subject: null, state: baseline.state }
   }
   return {
     actor: baseline.actor,
-    subject: `gtd(${baseline.actor}): ${gate}`,
+    subject: `gtd(${baseline.actor}): ${match.label}`,
     state: baseline.state,
   }
 }

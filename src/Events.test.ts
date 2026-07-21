@@ -685,30 +685,27 @@ describe("gatherEvents — decisionLog", { timeout: 30_000 }, () => {
   })
 })
 
-// ── gatherEvents: headTurnDiff / headTurnIsEmpty ─────────────────────────────
+// ── gatherEvents: headTurnDiff ───────────────────────────────────────────────
 
-describe("gatherEvents — headTurnDiff / headTurnIsEmpty", { timeout: 30_000 }, () => {
+describe("gatherEvents — headTurnDiff", { timeout: 30_000 }, () => {
   beforeEach(() => initRepo(false))
   afterEach(cleanup)
 
-  it("HEAD not a turn commit → headTurnDiff empty, headTurnIsEmpty false", async () => {
+  it("HEAD not a turn commit → headTurnDiff empty", async () => {
     commitFile("feat: plain", "a.ts", "//a\n")
     const p = resolveOf(await runGather())
     expect(p.headTurnDiff).toBe("")
-    expect(p.headTurnIsEmpty).toBe(false)
   })
 
-  it("HEAD is an empty turn commit → headTurnIsEmpty true, headTurnDiff empty", async () => {
+  it("HEAD is an empty turn commit → headTurnDiff empty", async () => {
     git("commit", "--allow-empty", "-q", "-m", turnSubject("human", "grilling"))
     const p = resolveOf(await runGather())
-    expect(p.headTurnIsEmpty).toBe(true)
     expect(p.headTurnDiff).toBe("")
   })
 
-  it("HEAD is a non-empty turn commit → headTurnIsEmpty false, headTurnDiff carries the change", async () => {
+  it("HEAD is a non-empty turn commit → headTurnDiff carries the change", async () => {
     commitFile(turnSubject("human", "grilling"), "notes.ts", "export const notes = 1\n")
     const p = resolveOf(await runGather())
-    expect(p.headTurnIsEmpty).toBe(false)
     expect(p.headTurnDiff).toContain("notes.ts")
   })
 

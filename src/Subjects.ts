@@ -57,12 +57,18 @@ export type Actor = string
 /** The closed set of gate labels a turn commit can carry. */
 export type TurnGate =
   | "grilling"
+  | "grilling-accepted"
   | "architecting"
+  | "architecting-accepted"
   | "grilled"
   | "building"
   | "fixing"
   | "agentic-review"
+  | "agentic-approved"
+  | "agentic-findings"
   | "review"
+  | "review-approved"
+  | "review-feedback"
   | "squashing"
   | "health-fixing"
   | "escalate"
@@ -138,12 +144,18 @@ const TURN_RE = /^gtd\(([a-z][a-z0-9-]*)\): (.+)$/
 
 const TURN_GATES: ReadonlySet<string> = new Set<TurnGate>([
   "grilling",
+  "grilling-accepted",
   "architecting",
+  "architecting-accepted",
   "grilled",
   "building",
   "fixing",
   "agentic-review",
+  "agentic-approved",
+  "agentic-findings",
   "review",
+  "review-approved",
+  "review-feedback",
   "squashing",
   "health-fixing",
   "escalate",

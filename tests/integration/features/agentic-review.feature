@@ -39,7 +39,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       chore: initial commit
       gtd: building
       gtd: tests-green
-      gtd(agent): agentic-review
+      gtd(agent): agentic-approved
       gtd: close-package
       """
     And the file ".gtd/FEEDBACK.md" does not exist
@@ -58,7 +58,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): agentic-review"
+    And the last commit subject is "gtd(agent): agentic-findings"
     When I run gtd next
     Then it succeeds
     And stdout contains "Finding: helper does not handle the empty-string case."
@@ -149,7 +149,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
     And a commit "gtd(agent): fixing" that deletes ".gtd/FEEDBACK.md"
     And a commit "gtd: tests-green"
-    And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd(agent): agentic-findings" that adds ".gtd/FEEDBACK.md" with:
       """
       Finding: round two.
       """
@@ -176,7 +176,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
     And a commit "gtd(agent): fixing" that deletes ".gtd/FEEDBACK.md"
     And a commit "gtd: tests-green"
-    And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd(agent): agentic-approved" that adds ".gtd/FEEDBACK.md" with:
       """
       """
     When I run gtd step agent

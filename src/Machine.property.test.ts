@@ -85,7 +85,6 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
     invoker: arbInvoker,
     head: fc.constantFrom(...HEADS),
     clean: fc.boolean(),
-    headTurnIsEmpty: fc.boolean(),
     codeDirtyRaw: fc.boolean(),
     gtdModifiedRaw: fc.boolean(),
     pendingErrorsDeletionRaw: fc.boolean(),
@@ -127,8 +126,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
     const isTurnHead = (TURN_SUBJECTS as readonly string[]).includes(raw.head)
     return {
       invoker: raw.invoker,
-      headTurnDiff: isTurnHead && !raw.headTurnIsEmpty ? "diff --git a/x b/x\n+x\n" : "",
-      headTurnIsEmpty: isTurnHead ? raw.headTurnIsEmpty : false,
+      headTurnDiff: isTurnHead ? "diff --git a/x b/x\n+x\n" : "",
       todoExists: raw.todoExists,
       todoCommitted: raw.todoExists && raw.todoCommittedRaw,
       architectureExists: raw.architectureExists,
@@ -147,6 +145,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       reviewCommitted,
       reviewDirty,
       reviewCheckboxOnly,
+      reviewDeletedOnly: false,
       pendingErrorsDeletion,
       pendingFeedbackDeletion: false,
       lastCommitSubject: raw.head,
@@ -219,22 +218,17 @@ const isIllegal = (p: ResolvePayload): boolean =>
   (p.planExists && p.learningMsgPresent)
 
 /**
- * Scopes property (a) to payloads where HEAD is an agent turn commit with an
- * empty diff AND, specifically, `gtd(agent): grilling` or `gtd(agent):
- * architecting` (agentic-review's empty-FEEDBACK case is a legitimate
- * mid-chain close-package, which IS a captured change — so this invariant is
- * scoped to grilling/architecting's inert-empty-agent-turn rule
- * specifically), the working tree is clean (a dirty tree at this HEAD is
- * fresh content for the agent to capture, not a repeat of the same empty
- * turn — out of scope for this invariant), and no higher-precedence steering
- * file shadows that HEAD entirely (ERRORS/HEALTH/FEEDBACK/.gtd/REVIEW) —
- * those are legal inputs but not what this invariant is about.
+ * (a)'s scope: a landed agent DRAFT turn at HEAD with a clean tree and no
+ * higher-precedence steering file shadowing it. Capture rules forbid ever
+ * COMMITTING an empty draft, so `headTurnIsEmpty` no longer exists — the
+ * draft head unconditionally awaits the HUMAN answer gate, the agent's
+ * re-invocation is refused out-of-turn (never a capture), and the human's
+ * clean step is the accept-defaults capture.
  */
-const INERT_EMPTY_GATES = ["gtd(agent): grilling", "gtd(agent): architecting"] as const
+const DRAFT_HEADS = ["gtd(agent): grilling", "gtd(agent): architecting"] as const
 
-const isInScopeForInertEmptyGrillingTurnInvariant = (payload: ResolvePayload): boolean => {
-  if (!payload.headTurnIsEmpty) return false
-  if (!(INERT_EMPTY_GATES as readonly string[]).includes(payload.lastCommitSubject)) return false
+const isInScopeForDraftTurnInvariant = (payload: ResolvePayload): boolean => {
+  if (!(DRAFT_HEADS as readonly string[]).includes(payload.lastCommitSubject)) return false
   if (!payload.workingTreeClean) return false
   return !(
     payload.errorsPresent ||
@@ -341,7 +335,7 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
   it("(a) an empty agent turn at a gate never changes the awaited actor/prompt state (inert)", () => {
     fc.assert(
       fc.property(arbPayload, (payload) => {
-        if (!isInScopeForInertEmptyGrillingTurnInvariant(payload)) return
+        if (!isInScopeForDraftTurnInvariant(payload)) return
 
         const asHuman: ResolvePayload = { ...payload, invoker: "human" }
         const asAgent: ResolvePayload = { ...payload, invoker: "agent" }
@@ -359,9 +353,16 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
         expect(none.state).toBe(expectedState)
         expect(human.state).toBe(expectedState)
         expect(agent.state).toBe(expectedState)
-        // The agent re-invoking on its own empty turn never emits a captureTurn
-        // (there is no change to capture) — it just re-reports the same prompt.
+        // A landed draft awaits the HUMAN: the agent re-invoking is refused
+        // out-of-turn and never captures; the human's clean step is the
+        // accept-defaults capture, decided at capture time.
         expect(agent.edgeAction?.kind).not.toBe("captureTurn")
+        expect(agent.refusal).toBeDefined()
+        expect(human.edgeAction).toEqual({
+          kind: "captureTurn",
+          actor: "human",
+          gate: expectedState === "grilling" ? "grilling-accepted" : "architecting-accepted",
+        })
       }),
       { numRuns: 500 },
     )
@@ -389,7 +390,6 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
           const secondPayload: ResolvePayload = {
             ...payload,
             lastCommitSubject: `gtd(${action.actor}): ${action.gate}`,
-            headTurnIsEmpty: true,
             workingTreeClean: true,
             codeDirty: false,
           }
