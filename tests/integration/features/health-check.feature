@@ -7,9 +7,9 @@ Feature: Health check — the idle test loop
   commits it as `gtd: health-check`, resting for the health-fixing prompt for
   the agent. The fixer's turn is `gtd(agent): health-fix`, which removes
   HEALTH.md and re-tests in the same chain: with squash on, a green re-test
-  continues straight to `gtd: tests green` then `gtd: squash template`; with
+  continues straight to `gtd: tests-green` then `gtd: squashing`; with
   squash off, it settles at a plain idle rest. Red at the cap writes ERRORS.md
-  instead and escalates to the human. A clean tree at `gtd: health-fix` self-
+  instead and escalates to the human. A clean tree at `gtd: testing` self-
   heals — `gtd next` reports idle/human, since the next invocation's health
   check will simply re-run.
 
@@ -82,9 +82,9 @@ Feature: Health check — the idle test loop
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd(agent): health-fix"
-    And the git log contains "gtd: health-fix"
-    And the git log contains "gtd: tests green"
-    And the git log contains "gtd: squash template"
+    And the git log contains "gtd: testing"
+    And the git log contains "gtd: tests-green"
+    And the git log contains "gtd: squashing"
     And the file ".gtd/HEALTH.md" does not exist
     And the file ".gtd/SQUASH_MSG.md" exists
 
@@ -117,10 +117,10 @@ Feature: Health check — the idle test loop
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd(agent): health-fix"
-    And the git log contains "gtd: health-fix"
+    And the git log contains "gtd: testing"
     And the file ".gtd/HEALTH.md" does not exist
     And the file ".gtd/SQUASH_MSG.md" does not exist
-    And the git log does not contain "gtd: squash template"
+    And the git log does not contain "gtd: squashing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"pending\":false"
@@ -178,7 +178,7 @@ Feature: Health check — the idle test loop
     And the file ".gtd/ERRORS.md" does not exist
     And the file ".gtd/HEALTH.md" does not exist
 
-  Scenario: gtd next at a clean gtd: health-fix HEAD self-heals to idle/human
+  Scenario: gtd next at a clean gtd: testing HEAD self-heals to idle/human
     Given a test project
     And a commit "feat: initial feature" that adds "src/lib.ts" with:
       """
@@ -188,7 +188,7 @@ Feature: Health check — the idle test loop
       """
       Earlier failure.
       """
-    And a commit "gtd: health-fix" that deletes ".gtd/HEALTH.md"
+    And a commit "gtd: testing" that deletes ".gtd/HEALTH.md"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""

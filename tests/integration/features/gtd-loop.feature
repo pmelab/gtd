@@ -22,8 +22,8 @@ Feature: gtd-loop — the packaged reference loop driver
 
       Implement a calculator with add only, in src/calc.ts.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
-    And a commit "gtd: planning" that adds ".gtd/01-calc/01-add.md" with:
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that adds ".gtd/01-calc/01-add.md" with:
       """
       Implement add() in src/calc.ts.
       """
@@ -63,10 +63,10 @@ Feature: gtd-loop — the packaged reference loop driver
     And the git ref "refs/gtd/review-head" exists
     And the last commit subject is "gtd(agent): grilling"
     And the git log at "refs/gtd/review-head" contains "gtd(agent): building"
-    And the git log at "refs/gtd/review-head" contains "gtd: tests green"
-    And the git log at "refs/gtd/review-head" contains "gtd: package done"
+    And the git log at "refs/gtd/review-head" contains "gtd: tests-green"
+    And the git log at "refs/gtd/review-head" contains "gtd: close-package"
     And the git log at "refs/gtd/review-head" contains "gtd(agent): review"
-    And the git log at "refs/gtd/review-head" contains "gtd: awaiting review"
+    And the git log at "refs/gtd/review-head" contains "gtd: await-review"
     And the git status contains "src/calc.ts"
 
   Scenario: Rerunning after an uncommitted human edit picks it up and continues
@@ -84,8 +84,8 @@ Feature: gtd-loop — the packaged reference loop driver
 
       Implement a calculator with add only, in src/calc.ts.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
-    And a commit "gtd: planning" that adds ".gtd/01-calc/01-add.md" with:
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that adds ".gtd/01-calc/01-add.md" with:
       """
       Implement add() in src/calc.ts.
       """
@@ -119,7 +119,7 @@ Feature: gtd-loop — the packaged reference loop driver
     When I run gtd-loop
     Then it succeeds
     And the git ref "refs/gtd/review-head" exists
-    And the git log at "refs/gtd/review-head" contains "gtd: awaiting review"
+    And the git log at "refs/gtd/review-head" contains "gtd: await-review"
     # The human approves the review by deleting REVIEW.md, without committing —
     # exactly the "edit, don't commit, just rerun" workflow gtd-loop supports.
     Given the file ".gtd/REVIEW.md" is deleted
@@ -144,8 +144,8 @@ Feature: gtd-loop — the packaged reference loop driver
 
       Implement a calculator with add only, in src/calc.ts.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
-    And a commit "gtd: planning" that adds ".gtd/01-calc/01-add.md" with:
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that adds ".gtd/01-calc/01-add.md" with:
       """
       Implement add() in src/calc.ts.
       """

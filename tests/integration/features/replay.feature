@@ -12,7 +12,7 @@ Feature: Replay — every committed rest resolves deterministically
 
   Scenario: gtd next is pure at a clean building rest — repeated calls and status agree
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
@@ -37,7 +37,7 @@ Feature: Replay — every committed rest resolves deterministically
 
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     Then I record the commit count
     When I run gtd next with "--json"
     Then it succeeds
@@ -53,11 +53,11 @@ Feature: Replay — every committed rest resolves deterministically
 
   Scenario: gtd next is pure at the escalate gate — repeated calls and status agree
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds ".gtd/ERRORS.md" with:
+    And a commit "gtd: test-failed" that adds ".gtd/ERRORS.md" with:
       """
       persistent failure output
       """
@@ -87,15 +87,15 @@ Feature: Replay — every committed rest resolves deterministically
       """
       testCommand: "true"
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: package done"
+    And the last commit subject is "gtd: close-package"
     And the file ".gtd" does not exist
     Then I record the commit count
     When I run gtd step-agent
@@ -115,7 +115,7 @@ Feature: Replay — every committed rest resolves deterministically
 
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     And I run gtd step
     Then I record the commit count
     When I run gtd step
@@ -154,12 +154,12 @@ Feature: Replay — every committed rest resolves deterministically
       # Plan
       - [ ] add helper
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     Then I record the commit count
     When I run gtd next
     Then it succeeds

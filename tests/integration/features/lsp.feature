@@ -95,7 +95,7 @@ Feature: gtd lsp — LSP server for .gtd/ steering files
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd: awaiting review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd: await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 

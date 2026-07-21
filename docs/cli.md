@@ -163,7 +163,7 @@ independent of the automatic review base the workflow otherwise computes.
 2. Resolves `<target>` via merge-base semantics and computes the diff HEAD adds
    over `merge-base(<target>, HEAD)`.
 3. Refuses if that diff is empty after filtering ("nothing to review").
-4. Authors exactly one commit: `gtd: reviewing <full-hash-of-the-base>`.
+4. Authors exactly one commit: `gtd: review <full-hash-of-the-base>`.
 5. Prints a short confirmation pointing at `gtd next` — it does **not** print
    the review prompt itself.
 

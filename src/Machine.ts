@@ -68,7 +68,7 @@ export type GtdEvent = CommitEvent | ResolveEvent
 
 /** The folded prompt context carried on every `Result`. */
 export interface ResolveContext {
-  /** `gtd: errors` commits since the most recent of {package-start, feedback round, ERRORS.md removal}. */
+  /** `gtd: test-failed` commits since the most recent of {package-start, feedback round, ERRORS.md removal}. */
   readonly testFixCount: number
   /** Feedback rounds (`isFeedback`) since the most recent package-start. */
   readonly reviewFixCount: number
@@ -267,8 +267,8 @@ type HeadClass =
     }
 
 /**
- * The learning/squash decision shared by `gtd: done`, `gtd: tests green`
- * (health path, no packages), and `gtd: learning applied` (`settle` rule
+ * The learning/squash decision shared by `gtd: done`, `gtd: tests-green`
+ * (health path, no packages), and `gtd: learning-applied` (`settle` rule
  * outcomes): learning first (when it hasn't already run), then squash, else
  * rest at idle. `state` is the label the mid-chain hop reports (mirrors the
  * just-consumed routing phase's own name, e.g. "done" for the `gtd: done`
@@ -388,10 +388,10 @@ const buildBaselineFacts = (
     headIsFixerTurn,
     headIsHealthFixerTurn,
     // Already inside the fix loop (the Testing loop wrote FEEDBACK.md as
-    // `gtd: errors`, or the fixer's own turn is HEAD) — an uncommitted
+    // `gtd: test-failed`, or the fixer's own turn is HEAD) — an uncommitted
     // FEEDBACK.md edit here is the fixer disputing/emptying an
     // already-on-the-record finding, not a fresh reviewer write.
-    alreadyInFixLoop: headIsFixerTurn || head === "gtd: errors",
+    alreadyInFixLoop: headIsFixerTurn || head === "gtd: test-failed",
     forceApprove: !p.agenticReviewEnabled || counters.reviewFixCount >= p.reviewThreshold,
     feedbackEffective: p.feedbackPresent || p.pendingFeedbackDeletion,
     feedbackEmptyEffective: p.feedbackEmpty || p.pendingFeedbackDeletion,
@@ -517,7 +517,7 @@ const resolveBaseline = (
     // A pending (uncommitted) deletion of ERRORS.md still counts as "ERRORS.md
     // was committed at this HEAD" for classification purposes: `fs.exists`
     // (which `p.errorsPresent` reads) already sees the file as gone once the
-    // working tree deletes it, but the `gtd: errors` commit at HEAD was still
+    // working tree deletes it, but the `gtd: test-failed` commit at HEAD was still
     // the cap-reached escalation round — the human resuming by deleting
     // ERRORS.md must land at the escalate turn (mid-chain re-test), not
     // fixing.
@@ -613,7 +613,7 @@ const applyTurnTaking = (
     return { state: baseline.state, actor: awaited, pending: false, context }
   }
 
-  // `gtd: health-fix` re-tests in the SAME chain regardless of which actor is
+  // `gtd: testing` re-tests in the SAME chain regardless of which actor is
   // driving this invocation (the health-fixer's own `step-agent` call must
   // continue past its own routing commit to re-test, not stop on an
   // idle/human "out-of-turn" refusal) — mirrors `gtd(agent): fixing`'s
@@ -630,7 +630,7 @@ const applyTurnTaking = (
   const healthCheckCapReached =
     head === "gtd: health-check" && counters.healthFixCount >= p.fixAttemptCap
   if (
-    (head === "gtd: health-fix" && baseline.state === "idle") ||
+    (head === "gtd: testing" && baseline.state === "idle") ||
     (healthCheckCapReached && baseline.state === "health-fixing")
   ) {
     // `healthFixBase !== undefined` alone: the edge only anchors a base for a

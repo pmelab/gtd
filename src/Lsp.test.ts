@@ -173,7 +173,7 @@ describe("currentSteeringFile", () => {
       "# Review: abc1234\n\n<!-- base: abc1234 -->\n\n## Chunk\n\n- [ ] ./src/code.ts#1\n",
     )
     repo.commitAllWithPrefix("gtd(agent): review")
-    repo.commitAllWithPrefix("gtd: awaiting review")
+    repo.commitAllWithPrefix("gtd: await-review")
 
     const outcome = await runWith(repo)
     expect(outcome).toEqual({ kind: "file", uri: expect.stringContaining("REVIEW.md") })

@@ -1,10 +1,10 @@
 @inmem
 Feature: Agentic Review — verdict-by-file, with force-approve guards
 
-  A clean rest at `gtd: tests green` hands the agent a review prompt
+  A clean rest at `gtd: tests-green` hands the agent a review prompt
   containing the package task text. The reviewer's verdict is FEEDBACK.md, not
   a marker commit: an empty FEEDBACK.md approves and the same
-  `gtd(agent): agentic-review` turn closes the package (`gtd: package done`,
+  `gtd(agent): agentic-review` turn closes the package (`gtd: close-package`,
   removing FEEDBACK.md and the `.gtd/` package); a non-empty FEEDBACK.md rests
   after the turn, and `gtd next` emits the fixing prompt containing the
   findings. A duplicate clean `gtd step-agent` between review turns cannot
@@ -15,43 +15,43 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
 
   Scenario: gtd next emits the agentic-review prompt with the package task text
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     When I run gtd next
     Then it succeeds
     And stdout contains "Implement the helper."
 
   Scenario: An empty FEEDBACK.md approves and closes the package in the same turn
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step-agent
     Then it succeeds
     And the commit subjects from oldest to newest are:
       """
       chore: initial commit
-      gtd: planning
-      gtd: tests green
+      gtd: building
+      gtd: tests-green
       gtd(agent): agentic-review
-      gtd: package done
+      gtd: close-package
       """
     And the file ".gtd/FEEDBACK.md" does not exist
     And the file ".gtd/01-foo/01-task.md" does not exist
 
   Scenario: Findings in FEEDBACK.md rest for the fixing prompt
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     And a file ".gtd/FEEDBACK.md" with:
       """
       Finding: helper does not handle the empty-string case.
@@ -65,11 +65,11 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
 
   Scenario: A duplicate clean step-agent after the findings turn cannot approve
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     And a file ".gtd/FEEDBACK.md" with:
       """
       Finding: helper does not handle the empty-string case.
@@ -81,7 +81,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
     When I run gtd step-agent
     Then it succeeds
     And the commit count is unchanged
-    And the git log does not contain "gtd: package done"
+    And the git log does not contain "gtd: close-package"
     When I run gtd next
     Then it succeeds
     And stdout contains "Finding: helper does not handle the empty-string case."
@@ -92,14 +92,14 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       agenticReview: false
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     When I run gtd step-agent
     Then it succeeds
-    And the git log contains "gtd: package done"
+    And the git log contains "gtd: close-package"
     And the git log does not contain "gtd(agent): agentic-review"
     And the file ".gtd/01-foo/01-task.md" does not exist
     And the file ".gtd/FEEDBACK.md" does not exist
@@ -113,7 +113,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       testCommand: "true"
       reviewThreshold: 2
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
@@ -125,10 +125,10 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       Finding: round two.
       """
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: package done"
+    And the last commit subject is "gtd: close-package"
     And stdout does not contain "Spawn a **reviewing subagent**"
     And the file ".gtd/01-foo/01-task.md" does not exist
 
@@ -139,7 +139,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       testCommand: "true"
       reviewThreshold: 2
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
@@ -148,7 +148,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       Finding: round one.
       """
     And a commit "gtd(agent): fixing" that deletes ".gtd/FEEDBACK.md"
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
       """
       Finding: round two.
@@ -166,7 +166,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       testCommand: "true"
       reviewThreshold: 2
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
@@ -175,12 +175,12 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       Finding: round one.
       """
     And a commit "gtd(agent): fixing" that deletes ".gtd/FEEDBACK.md"
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
       """
       """
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: package done"
+    And the last commit subject is "gtd: close-package"
     And the file ".gtd/01-foo/01-task.md" does not exist
     And the file ".gtd/FEEDBACK.md" does not exist

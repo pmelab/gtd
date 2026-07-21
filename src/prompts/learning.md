@@ -11,7 +11,7 @@ Scan the git history back to the cycle's start (the full-process diff is
 inlined below, and `git log` over the same range shows every `gtd: ...` /
 `gtd(agent): ...` / `gtd(human): ...` commit). Look specifically for:
 
-- **Test failures and fixes** — each `gtd: errors` round and the fix that
+- **Test failures and fixes** — each `gtd: test-failed` round and the fix that
   followed it. What broke, and what actually made it pass?
 - **Review feedback** — human `.gtd/REVIEW.md` notes and `gtd: review
   feedback` detours. What did the human have to correct that the agent got

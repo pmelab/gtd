@@ -24,7 +24,7 @@ Feature: .gtdrc config system
       """
       testCommand: bash gate.sh
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
@@ -34,7 +34,7 @@ Feature: .gtdrc config system
       """
     When I run gtd step-agent
     Then it succeeds
-    And the git log contains "gtd: errors"
+    And the git log contains "gtd: test-failed"
     And the file ".gtd/FEEDBACK.md" contains "CONFIG_SENTINEL"
     When I run gtd next
     Then it succeeds
@@ -69,7 +69,7 @@ Feature: .gtdrc config system
         planning: my-planner-model
         execution: my-executor-model
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
@@ -114,7 +114,7 @@ Feature: .gtdrc config system
   @inmem
   Scenario: The build prompt uses the built-in execution default with no config
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
@@ -125,7 +125,7 @@ Feature: .gtdrc config system
 
   @inmem
   Scenario: A lowered fixAttemptCap escalates sooner
-    # With the cap at 1, a single prior `gtd: errors` exhausts the budget, so the
+    # With the cap at 1, a single prior `gtd: test-failed` exhausts the budget, so the
     # next red test writes ERRORS.md and escalates instead of FEEDBACK.md.
     Given a test project
     And a default branch "main"
@@ -140,11 +140,11 @@ Feature: .gtdrc config system
       testCommand: bash gate.sh
       fixAttemptCap: 1
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors"
+    And a commit "gtd: test-failed"
     And a file "src/helper.ts" with:
       """
       export const helper = (x: string) => x
@@ -166,7 +166,7 @@ Feature: .gtdrc config system
       testCommand: "true"
       reviewThreshold: 1
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
@@ -174,11 +174,11 @@ Feature: .gtdrc config system
       """
       Finding: round one.
       """
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: package done"
-    And the git log does not contain "gtd(agent): agentic-review\n\ngtd: package done"
+    And the last commit subject is "gtd: close-package"
+    And the git log does not contain "gtd(agent): agentic-review\n\ngtd: close-package"
 
   @live
   Scenario: An unknown config key is rejected
@@ -272,7 +272,7 @@ Feature: .gtdrc config system
       """
       fixAttemptCap: 0
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """

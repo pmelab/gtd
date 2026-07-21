@@ -124,7 +124,7 @@ interface RunStepLoopState {
   readonly justCapturedAgenticReviewTurn: boolean
   /**
    * The gate of the most recent captureTurn this invocation performed, if
-   * any. Distinguishes two ways of reaching `gtd: tests green` mid-chain:
+   * any. Distinguishes two ways of reaching `gtd: tests-green` mid-chain:
    * from a FRESH build (gate "building") — the ordinary, fully-automatable
    * fast path, which may continue straight through a force-approve close in
    * the same invocation — versus from a FIX round (gate "fixing") — which
@@ -135,7 +135,7 @@ interface RunStepLoopState {
 }
 
 /**
- * `gtd: tests green` reached mid-invocation is a stopping point UNLESS this
+ * `gtd: tests-green` reached mid-invocation is a stopping point UNLESS this
  * is the ordinary fully-automatable fast path: a fresh BUILD (gate
  * "building") whose green result got force-approved straight to
  * `closePackage` in the same chain. Two distinct guards:
@@ -144,7 +144,7 @@ interface RunStepLoopState {
  *    force-approved), that's always its own turn: stop regardless of how we
  *    got here.
  *  - If it resolves to a force-approved `closePackage` mid-chain, that may
- *    continue ONLY when we got here via "building"; a `gtd: tests green`
+ *    continue ONLY when we got here via "building"; a `gtd: tests-green`
  *    reached via a FIX round (gate "fixing") always needs its own separate
  *    "did the fix actually work" checkpoint first, even under force-approve.
  * Every other rest/mid-chain this loop reaches mid-invocation (package-done →
@@ -157,7 +157,7 @@ const isTestsGreenCheckpoint = (
   loop: RunStepLoopState,
 ): boolean =>
   loop.performedAny &&
-  headThisHop === "gtd: tests green" &&
+  headThisHop === "gtd: tests-green" &&
   (result.state === "agentic-review" || loop.lastCapturedGate === "fixing")
 
 /**
@@ -172,8 +172,8 @@ const isSecondJudgmentCallAfterAgenticReview = (result: Result, loop: RunStepLoo
 /**
  * An EMPTY fresh turn capture (nothing dirty to record yet) reached past hop
  * 1 — i.e. arrived at via mid-chain bookkeeping earlier in THIS invocation
- * (`gtd(agent): grilled` → `gtd: planning` landing with no package code
- * written yet; or `gtd: package done` → a fresh review turn with no
+ * (`gtd(agent): grilled` → `gtd: building` landing with no package code
+ * written yet; or `gtd: close-package` → a fresh review turn with no
  * REVIEW.md authored yet), not as the very first thing this call saw — is a
  * fixpoint: there is nothing more for this invocation to meaningfully
  * decide, so stop rather than author a placeholder turn commit and drive it
@@ -756,7 +756,7 @@ export function makeProgram(
     // Re-open the window after the invocation finishes — including failed
     // ones (a `step-agent` refusal at the human gate, `next`'s dirty-tree
     // guard): `openReviewWindow` self-guards on HEAD being exactly
-    // `gtd: awaiting review`, so this is a no-op everywhere else and the
+    // `gtd: await-review`, so this is a no-op everywhere else and the
     // reviewer's editor keeps showing the diff until the review resolves.
     yield* dispatchKnownSubcommand(sub, argv, git, config, json, write).pipe(
       Effect.tap(() => openReviewWindow),

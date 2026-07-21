@@ -785,15 +785,15 @@ graph TD
   GR{"Grilling<br/>TODO.md present"}:::grill
   GRA["await answers · STOP"]:::human
   GRD["Grilled<br/>commit gtd: grilled"]:::grill
-  PL["Planning<br/>commit gtd: planning"]:::build
+  PL["Planning<br/>commit gtd: building"]:::build
   BU["Building<br/>pick next package · subagents build"]:::build
   TE{"Testing<br/>commit gtd: building · run tests"}:::build
   FI["Fixing<br/>fixer agent"]:::build
   ES["Escalate · ERRORS.md<br/>STOP"]:::stop
   AR{"Agentic Review<br/>write FEEDBACK (empty=ok)"}:::review
-  CP["Close package<br/>delete pkg dir · commit gtd: package done"]:::review
+  CP["Close package<br/>delete pkg dir · commit gtd: close-package"]:::review
   CL["Clean<br/>create REVIEW.md"]:::review
-  AW["Await Review · STOP<br/>commit gtd: awaiting review"]:::human
+  AW["Await Review · STOP<br/>commit gtd: await-review"]:::human
   ACC["Accept Review<br/>discard edits · seed TODO.md"]:::review
   DO["Done<br/>remove REVIEW · gtd: done"]:::term
   ID["Idle<br/>nothing to do"]:::term
@@ -907,7 +907,7 @@ graph TD
 graph LR
   R{"Agentic Review<br/>write FEEDBACK (empty=ok)"}:::review
   F["Fixing → Testing"]:::build
-  C["Close package<br/>delete pkg · commit gtd: package done"]:::review
+  C["Close package<br/>delete pkg · commit gtd: close-package"]:::review
   N["Building<br/>next package"]:::build
   CL["Clean<br/>create REVIEW.md"]:::review
   R -->|"findings → FEEDBACK.md"| F
@@ -927,12 +927,12 @@ graph LR
 
         <div class="callout" style="margin-top: 18px">
           <b>Two fix loops, one Fixing state.</b> FEEDBACK arriving <b>committed</b> (<code
-            >gtd: errors</code
+            >gtd: test-failed</code
           >, from Testing) is the test loop; arriving <b>uncommitted</b> (from Agentic Review) is
           the review loop, consumed as <code>gtd: feedback</code>. Both counters walk back to the
           package start <em>through</em> any non-gtd commits, so a manual commit can’t defeat
-          escalation. The two counters never combine — test counts <code>gtd: errors</code>, review
-          counts <code>gtd: feedback</code>. The test count resets at each
+          escalation. The two counters never combine — test counts <code>gtd: test-failed</code>,
+          review counts <code>gtd: feedback</code>. The test count resets at each
           <code>gtd: feedback</code> (the start of a review-fix) and each
           <code>ERRORS.md</code> clear, so build-phase and review-phase failures don’t accumulate
           and a human resume grants another N attempts.
@@ -996,7 +996,7 @@ graph LR
                 <td><span class="badge b-build">build</span></td>
                 <td><code>.gtd</code> modified, HEAD grilled/planning</td>
                 <td><span class="pill auto">auto</span></td>
-                <td><code>gtd: planning</code> (may loop)</td>
+                <td><code>gtd: building</code> (may loop)</td>
               </tr>
               <tr>
                 <td><b>Building</b></td>
@@ -1043,7 +1043,7 @@ graph LR
                 <td><span class="pill auto">auto</span></td>
                 <td>
                   rm FEEDBACK; delete pkg dir (+ empty <code>.gtd</code>); commit
-                  <code>gtd: package done</code>
+                  <code>gtd: close-package</code>
                 </td>
               </tr>
               <tr>
@@ -1058,7 +1058,7 @@ graph LR
                 <td><span class="badge b-human">human</span></td>
                 <td><code>REVIEW.md</code> uncommitted</td>
                 <td><span class="pill human">gate</span></td>
-                <td><code>gtd: awaiting review</code>; STOP</td>
+                <td><code>gtd: await-review</code>; STOP</td>
               </tr>
               <tr>
                 <td><b>Accept Review</b></td>
@@ -1130,7 +1130,7 @@ graph LR
                 <td>plan converged → decompose</td>
               </tr>
               <tr>
-                <td><code>gtd: planning</code></td>
+                <td><code>gtd: building</code></td>
                 <td><span class="pill edge">mid-phase</span></td>
                 <td>decomposition into <code>.gtd/</code> packages</td>
               </tr>
@@ -1140,7 +1140,7 @@ graph LR
                 <td>built package code committed (by Testing)</td>
               </tr>
               <tr>
-                <td><code>gtd: errors</code></td>
+                <td><code>gtd: test-failed</code></td>
                 <td><span class="pill edge">mid-phase</span></td>
                 <td>test failure recorded — counts the test loop</td>
               </tr>
@@ -1155,12 +1155,12 @@ graph LR
                 <td>review finding consumed — counts the review loop</td>
               </tr>
               <tr>
-                <td><code>gtd: package done</code></td>
+                <td><code>gtd: close-package</code></td>
                 <td><span class="pill edge">mid-phase</span></td>
                 <td>finished package removed</td>
               </tr>
               <tr>
-                <td><code>gtd: awaiting review</code></td>
+                <td><code>gtd: await-review</code></td>
                 <td><span class="pill human">mid-phase</span></td>
                 <td>REVIEW.md committed — human gate</td>
               </tr>

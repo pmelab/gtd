@@ -32,9 +32,9 @@ Feature: gtd next — pure prediction of the next prompt
     And stderr contains "gtd step"
     And the commit count is unchanged
 
-  Scenario: A clean rest at gtd: planning emits the building prompt for the agent
+  Scenario: A clean rest at gtd: building emits the building prompt for the agent
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """
@@ -52,9 +52,9 @@ Feature: gtd next — pure prediction of the next prompt
     Then it succeeds
     And the commit count is unchanged
 
-  Scenario: A clean human rest at gtd: awaiting review reports actor human
+  Scenario: A clean human rest at gtd: await-review reports actor human
     Given a test project
-    And a commit "gtd: awaiting review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd: await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
@@ -89,7 +89,7 @@ Feature: gtd next — pure prediction of the next prompt
       agenticReview: false
       squash: false
       """
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """
@@ -97,7 +97,7 @@ Feature: gtd next — pure prediction of the next prompt
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd: tests green"
+    And a commit "gtd: tests-green"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"pending\":true"
@@ -109,7 +109,7 @@ Feature: gtd next — pure prediction of the next prompt
 
   Scenario: The plain agent prompt ends with the step-agent tail and the next-iteration instruction
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """
@@ -121,7 +121,7 @@ Feature: gtd next — pure prediction of the next prompt
 
   Scenario: The --json prompt for the same agent rest omits the tail but carries the actor field
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """

@@ -1,34 +1,45 @@
 /**
- * The v2 commit-subject grammar: the sole channel by which the machine steers
+ * The commit-subject grammar: the sole channel by which the machine steers
  * the split `gtd step` / `gtd step-agent` / `gtd next` commands.
  *
- * The v2 machine derives everything it needs from HEAD alone by reading the
+ * The machine derives everything it needs from HEAD alone by reading the
  * **subject line** of the last commit: (a) who authored the last turn (human
  * or agent), (b) whether that commit is the rest of a chain or mid-chain
- * bookkeeping, and (c) which phase of the workflow it belongs to. There are
- * exactly two machine-authored namespaces:
+ * bookkeeping, and (c) which workflow state it belongs to. The grammar is
+ * **one label vocabulary** — every workflow commit names the state it enters
+ * — written under two namespaces:
  *
  * - **Turn commits** — `gtd(human): <gate>` / `gtd(agent): <gate>`, authored
  *   by `gtd step` / `gtd step-agent` as the *first* commit of a chain. The
- *   `<gate>` names the workflow gate the turn responded to (see `TurnGate`
- *   for the closed set).
- * - **Routing commits** — bare `gtd: <phase>`, authored by the machine itself
- *   as bookkeeping between turns (see `RoutingPhase` / `ROUTING_SUBJECT` for
- *   the closed set, plus the parameterized `gtd: reviewing <hash>` anchor).
+ *   `<gate>` names the workflow gate (state) the turn responded to (see
+ *   `TurnGate` for the closed set).
+ * - **Machine commits** — bare `gtd: <state>`, authored by the machine itself
+ *   as bookkeeping between turns. Each label names the state the machine
+ *   entered by writing it (`gtd: building` after consuming the architecture,
+ *   `gtd: await-review` after publishing the review record), so `git log
+ *   --oneline` reads as a state trace. Two labels are **marker states** —
+ *   `gtd: tests-green` and `gtd: test-failed` record a check outcome whose
+ *   next state is decided by guarded rules at resolution. See
+ *   `RoutingPhase` / `ROUTING_SUBJECT` for the closed set, plus the
+ *   parameterized `gtd: review <hash>` anchor.
  *
  * Everything else — any non-`gtd` subject, and any `gtd: *` subject outside
- * the closed routing set above — is a **boundary commit**. This is also how
- * v2 stays backward compatible with v1 history: the old v1 taxonomy subjects
- * (`gtd: new task`, `gtd: grilling`, `gtd: building`, `gtd: fixing`,
- * `gtd: feedback`, `gtd: transport`, and a bare `gtd: reviewing` without a
- * hash) all fall outside the v2 closed sets, so they parse as inert boundary
- * commits rather than errors. `parseSubject` is total: it never throws, and
- * every input subject maps to exactly one of `"turn"`, `"routing"`, or
+ * the closed label set above — is a **boundary commit**. This is also how
+ * the grammar stays backward compatible with older histories: v1 subjects
+ * (`gtd: new task`, `gtd: feedback`, `gtd: transport`, a bare
+ * `gtd: reviewing` without a hash) AND the pre-label v2 routing subjects
+ * (`gtd: planning`, `gtd: tests green`, `gtd: errors`, `gtd: package done`,
+ * `gtd: awaiting review`, `gtd: review feedback`, `gtd: squash template`,
+ * `gtd: reviewing <hash>`, `gtd: health-fix`, `gtd: learning template`, …)
+ * all fall outside the closed set, so they parse as inert boundary commits
+ * rather than errors. `parseSubject` is total: it never throws, and every
+ * input subject maps to exactly one of `"turn"`, `"routing"`, or
  * `"boundary"`.
  *
  * This module is intentionally pure — no git, no filesystem, no Effect — so
  * the grammar is trivially unit-testable and safe to import from both the
- * pure resolver (`Machine.ts`) and the IO edge (`Events.ts`).
+ * workflow definition (`Workflow.ts`), the pure resolver (`Machine.ts`), and
+ * the IO edge (`Events.ts`).
  */
 
 /** Who authored a turn commit. */
@@ -52,53 +63,58 @@ export type TurnGate =
 /** `gtd(${actor}): ${gate}` — the subject `gtd step`/`gtd step-agent` write. */
 export const turnSubject = (actor: Actor, gate: TurnGate): string => `gtd(${actor}): ${gate}`
 
-/** The closed set of routing phases the machine can author as bookkeeping. */
+/**
+ * The closed set of machine-commit labels (state names the machine can
+ * author as bookkeeping). Each names the state the commit enters;
+ * `tests-green` / `test-failed` are the two marker states recording a check
+ * outcome.
+ */
 export type RoutingPhase =
   | "architecting"
   | "grilled"
-  | "planning"
+  | "building"
   | "tests-green"
-  | "errors"
-  | "package-done"
-  | "awaiting-review"
-  | "review-feedback"
+  | "test-failed"
+  | "close-package"
+  | "await-review"
+  | "grilling"
   | "done"
-  | "squash-template"
-  | "reviewing"
+  | "squashing"
+  | "review"
   | "health-check"
-  | "health-fix"
-  | "learning-template"
-  | "learning-drafted"
-  | "learning-approved"
+  | "testing"
+  | "learning"
+  | "await-learning-review"
+  | "learning-apply"
   | "learning-applied"
 
-/** Literal subjects for the non-parameterized routing phases. */
-export const ROUTING_SUBJECT: Record<Exclude<RoutingPhase, "reviewing">, string> = {
+/** Literal subjects for the non-parameterized machine labels. */
+export const ROUTING_SUBJECT: Record<Exclude<RoutingPhase, "review">, string> = {
   architecting: "gtd: architecting",
   grilled: "gtd: grilled",
-  planning: "gtd: planning",
-  "tests-green": "gtd: tests green",
-  errors: "gtd: errors",
-  "package-done": "gtd: package done",
-  "awaiting-review": "gtd: awaiting review",
-  "review-feedback": "gtd: review feedback",
+  building: "gtd: building",
+  "tests-green": "gtd: tests-green",
+  "test-failed": "gtd: test-failed",
+  "close-package": "gtd: close-package",
+  "await-review": "gtd: await-review",
+  grilling: "gtd: grilling",
   done: "gtd: done",
-  "squash-template": "gtd: squash template",
+  squashing: "gtd: squashing",
   "health-check": "gtd: health-check",
-  "health-fix": "gtd: health-fix",
-  "learning-template": "gtd: learning template",
-  "learning-drafted": "gtd: learning drafted",
-  "learning-approved": "gtd: learning approved",
-  "learning-applied": "gtd: learning applied",
+  testing: "gtd: testing",
+  learning: "gtd: learning",
+  "await-learning-review": "gtd: await-learning-review",
+  "learning-apply": "gtd: learning-apply",
+  "learning-applied": "gtd: learning-applied",
 }
 
-/** `gtd: reviewing ${baseHash}` — the ad-hoc review anchor. */
-export const reviewingSubject = (baseHash: string): string => `gtd: reviewing ${baseHash}`
+/** `gtd: review ${baseHash}` — the ad-hoc review anchor. */
+export const reviewingSubject = (baseHash: string): string => `gtd: review ${baseHash}`
 
 /**
- * The result of classifying a commit subject. `"boundary"` covers both
- * ordinary non-`gtd` subjects and (per the v2 compat rule) any legacy v1
- * `gtd: *` subject outside the closed routing set.
+ * The result of classifying a commit subject. `"boundary"` covers ordinary
+ * non-`gtd` subjects and (per the compat rule) any legacy `gtd: *` subject —
+ * v1 or pre-label v2 — outside the closed label set.
  */
 export type ParsedSubject =
   | { readonly kind: "turn"; readonly actor: Actor; readonly gate: TurnGate }
@@ -126,21 +142,21 @@ const TURN_GATES: ReadonlySet<string> = new Set<TurnGate>([
   "learning-apply",
 ])
 
-const ROUTING_SUBJECT_TO_PHASE: ReadonlyMap<string, Exclude<RoutingPhase, "reviewing">> = new Map(
+const ROUTING_SUBJECT_TO_PHASE: ReadonlyMap<string, Exclude<RoutingPhase, "review">> = new Map(
   Object.entries(ROUTING_SUBJECT).map(([phase, subject]) => [
     subject,
-    phase as Exclude<RoutingPhase, "reviewing">,
+    phase as Exclude<RoutingPhase, "review">,
   ]),
 )
 
-const REVIEWING_RE = /^gtd: reviewing ([0-9a-f]{40})$/
+const REVIEW_ANCHOR_RE = /^gtd: review ([0-9a-f]{40})$/
 
 /**
  * Total classifier from a raw commit subject line to a `ParsedSubject`. Never
  * throws — any input that doesn't match the turn grammar or one of the closed
- * routing subjects (including legacy v1 subjects, per the compat rule
- * documented at the top of this module) falls through to `"boundary"`. Trims
- * the input's surrounding whitespace before matching.
+ * machine labels (including legacy v1 and pre-label v2 subjects, per the
+ * compat rule documented at the top of this module) falls through to
+ * `"boundary"`. Trims the input's surrounding whitespace before matching.
  */
 export const parseSubject = (subject: string): ParsedSubject => {
   const trimmed = subject.trim()
@@ -160,15 +176,15 @@ export const parseSubject = (subject: string): ParsedSubject => {
     return { kind: "routing", phase: routingPhase }
   }
 
-  const reviewingMatch = REVIEWING_RE.exec(trimmed)
-  const hash = reviewingMatch?.[1]
+  const anchorMatch = REVIEW_ANCHOR_RE.exec(trimmed)
+  const hash = anchorMatch?.[1]
   if (hash) {
-    return { kind: "routing", phase: "reviewing", param: hash }
+    return { kind: "routing", phase: "review", param: hash }
   }
 
   return { kind: "boundary" }
 }
 
-/** True for any recognized v2 turn or routing subject (kind !== "boundary"). */
+/** True for any recognized turn or machine-label subject (kind !== "boundary"). */
 export const isWorkflowSubject = (subject: string): boolean =>
   parseSubject(subject).kind !== "boundary"

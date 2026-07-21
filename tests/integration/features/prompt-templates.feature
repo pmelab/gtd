@@ -10,7 +10,7 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
 
   Scenario: The plain agent building prompt ends with the step-agent tail sentence
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-widget/01-widget.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-widget/01-widget.md" with:
       """
       Implement the widget factory.
       """
@@ -30,7 +30,7 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
 
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     When I run gtd next
     Then it succeeds
     And stdout contains ".gtd/REVIEW.md"
@@ -39,7 +39,7 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
 
   Scenario: The --json building prompt omits the agent tail regardless of actor
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-widget/01-widget.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-widget/01-widget.md" with:
       """
       Implement the widget factory.
       """
@@ -67,7 +67,7 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
 
   Scenario: No prompt instructs running bare gtd
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-widget/01-widget.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-widget/01-widget.md" with:
       """
       Implement the widget factory.
       """
@@ -78,11 +78,11 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
 
   Scenario: The fixing prompt mentions disputing findings by emptying or deleting FEEDBACK.md
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd: test-failed" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
@@ -100,7 +100,7 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
       squash: true
       """
     And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+    And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
       <!-- gtd: replace this file's content with the real squash commit message. -->
       type: short summary

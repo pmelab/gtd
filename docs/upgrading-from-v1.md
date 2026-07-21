@@ -1,5 +1,26 @@
 # Upgrading from v1 (BREAKING CHANGE)
 
+## The label grammar (newest breaking change)
+
+Machine commits now use **state labels**: every machine-authored subject names
+the state it enters (`gtd: building`, `gtd: await-review`, `gtd: close-package`,
+plus the two check-outcome markers `gtd: tests-green` / `gtd: test-failed`), so
+`git log --oneline` reads as a state trace. The old routing subjects
+(`gtd: planning`, `gtd: tests green`, `gtd: errors`, `gtd: package done`,
+`gtd: awaiting review`, `gtd: review feedback`, `gtd: squash template`,
+`gtd: reviewing <hash>`, `gtd: health-fix`,
+`gtd: learning template/drafted/approved/applied`) fall outside the closed label
+set and parse as inert **boundary commits** — exactly the mechanism that already
+keeps v1 history inert. A repo at a settled boundary (idle, post-squash)
+upgrades cleanly with no action. **Finish or squash any in-flight cycle first**:
+a mid-cycle HEAD carrying an old routing subject is a boundary commit to the new
+binary, so the cycle cannot be resumed.
+
+One narrowing of the old v1 guarantee: v1's bare `gtd: grilling` and
+`gtd: building` subjects now collide with live labels and parse as workflow
+commits. This only matters for a repo whose HEAD (or nearest workflow commit) is
+still a raw v1 subject — upgrade those from a settled boundary, same as above.
+
 v2 ships as a **major** semantic-release bump (`2.0.0`) so the binary and the
 loop-driving text ([docs/loop.md](loop.md), `skills/loop/SKILL.md`) can never
 skew against each other. There is **no backward compatibility with the v1
@@ -9,10 +30,10 @@ command surface**: the single mutating `gtd` command, marker/sentinel files, the
 `gtd next` / `gtd step` instead.
 
 **Commit-history compatibility is one-way.** Any repo with v1-taxonomy history
-in it (`gtd: new task`, `gtd: grilling`, `gtd: transport`, a bare
-`gtd: reviewing` with no hash, …) upgrades cleanly: those subjects fall outside
-v2's closed turn/routing grammar and parse as inert **boundary commits** — they
-are never mistaken for v2 workflow state and never error.
+in it (`gtd: new task`, `gtd: grilling`, `gtd: transport`, a bare `gtd: review`
+with no hash, …) upgrades cleanly: those subjects fall outside v2's closed
+turn/routing grammar and parse as inert **boundary commits** — they are never
+mistaken for v2 workflow state and never error.
 
 **Finish or clean up any in-flight v1 cycle first.** If a repo has an
 **in-progress** v1 cycle — steering files present (root-level `TODO.md`,

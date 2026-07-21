@@ -111,13 +111,13 @@ the three steps of one iteration by hand instead of the loop.
 
 - [ ] Toggle green. Agent beat → building prompt drives claude to implement
       package 01 and leave it uncommitted; beat commits `gtd: building`, runs
-      tests → `gtd: tests green`, rest `agentic-review`.
+      tests → `gtd: tests-green`, rest `agentic-review`.
 - [ ] Agent beat continues → agentic-review prompt drives claude to write
       `.gtd/FEEDBACK.md`. Outcome is live-agent-dependent:
   - **Findings** (non-empty): rest `fixing`; verify the fixing prompt inlines
     the feedback; next beat fixes and re-tests → re-review.
   - **Approval** (empty): same invocation closes the package —
-    `gtd: package done`, `.gtd/01-…/` and `.gtd/FEEDBACK.md` gone, rest
+    `gtd: close-package`, `.gtd/01-…/` and `.gtd/FEEDBACK.md` gone, rest
     `building` for package 02. If approval came immediately, findings-round
     coverage falls to Phase 6.
 
@@ -127,8 +127,8 @@ Run beats by hand here: claude will try to "fix" the failure and may discover
 the `.test-mode` toggle — re-assert red between the claude run and the next
 `step-agent`.
 
-- [ ] Package 02: **toggle red**, beat → `gtd: building` → `gtd: errors`, rest
-      `fixing` (exit 0 — red below cap is a normal step, not a failure).
+- [ ] Package 02: **toggle red**, beat → `gtd: building` → `gtd: test-failed`,
+      rest `fixing` (exit 0 — red below cap is a normal step, not a failure).
 - [ ] Stay red for `fixAttemptCap` (2) rounds of the fixing prompt →
       `.gtd/ERRORS.md` written, rest `escalate`, `gtd next --json` →
       `actor:"human"`.
@@ -146,7 +146,7 @@ the `.test-mode` toggle — re-assert red between the claude run and the next
       `.gtd/FEEDBACK.md` content flows into each fixing prompt. On the round
       that would exceed the threshold, verify Agentic Review **force-approves**:
       no `.gtd/FEEDBACK.md` written, package closes straight to
-      `gtd: package done`. All packages now closed.
+      `gtd: close-package`. All packages now closed.
 
 ## Phase 7 — mid-chain checkpoint (`pending: true`) via failure contract
 
@@ -161,10 +161,10 @@ the `.test-mode` toggle — re-assert red between the claude run and the next
 ## Phase 8 — human review gate: feedback, checkbox approval, clean approval
 
 - [ ] All packages closed → agent beat: claude writes `.gtd/REVIEW.md` from the
-      review prompt, routing `gtd: awaiting review`, rest `await-review`,
+      review prompt, routing `gtd: await-review`, rest `await-review`,
       `actor:"human"`; beat halts.
 - [ ] **Feedback**: substantive edit to `.gtd/REVIEW.md` prose (a real finding
-      about the built code), `gtd step --json` → `gtd: review feedback`,
+      about the built code), `gtd step --json` → `gtd: grilling`,
       `.gtd/REVIEW.md` removed, `gtd next` re-emits a grilling prompt to the
       agent inlining the finding. Agent beat drives that mini-cycle back to
       `await-review` — verify the finding actually reached the agent's plan.
@@ -175,7 +175,7 @@ the `.test-mode` toggle — re-assert red between the claude run and the next
 
 ## Phase 9 — squash
 
-- [ ] With `squash: true`: `gtd: done` chains to `gtd: squash template`,
+- [ ] With `squash: true`: `gtd: done` chains to `gtd: squashing`,
       `.gtd/SQUASH_MSG.md` committed; agent beat → squashing prompt drives
       claude to overwrite `.gtd/SQUASH_MSG.md` with a real conventional message
       (verify it draws on grilling-round decisions); the beat's `step-agent`
@@ -197,8 +197,8 @@ the `.test-mode` toggle — re-assert red between the claude run and the next
 ## Phase 11 — ad-hoc `gtd review <target>`
 
 - [ ] Branch off main, add a plain commit. `gtd review main` → exactly one
-      commit `gtd: reviewing <full-hash>`; agent beat → review-record prompt
-      scoped to that anchor, claude writes `.gtd/REVIEW.md`; drive through
+      commit `gtd: review <full-hash>`; agent beat → review-record prompt scoped
+      to that anchor, claude writes `.gtd/REVIEW.md`; drive through
       `await-review` → approval.
 - [ ] Error cases (all exit 1): dirty tree, missing target, extra args,
       unresolvable ref, empty diff after filtering.
@@ -206,7 +206,7 @@ the `.test-mode` toggle — re-assert red between the claude run and the next
 ## Phase 12 — config kill-switches (short second cycle)
 
 - [ ] `agenticReview: false`: run a one-package cycle → green tests skip the
-      review gate entirely (`gtd: tests green` → force-approve → package done).
+      review gate entirely (`gtd: tests-green` → force-approve → package done).
 - [ ] `squash: false`: `gtd: done` is the resting boundary; no
       `.gtd/SQUASH_MSG.md` ever written; granular history preserved.
 - [ ] Invalid config: unknown key / bad type → exit 1, `Invalid gtd config: …`

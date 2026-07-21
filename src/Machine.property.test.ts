@@ -50,20 +50,20 @@ const TURN_SUBJECTS = [
 const ROUTING_SUBJECTS = [
   "gtd: architecting",
   "gtd: grilled",
-  "gtd: planning",
-  "gtd: tests green",
-  "gtd: errors",
-  "gtd: package done",
-  "gtd: awaiting review",
-  "gtd: review feedback",
+  "gtd: building",
+  "gtd: tests-green",
+  "gtd: test-failed",
+  "gtd: close-package",
+  "gtd: await-review",
+  "gtd: grilling",
   "gtd: done",
-  "gtd: squash template",
+  "gtd: squashing",
   "gtd: health-check",
-  "gtd: health-fix",
-  "gtd: learning template",
-  "gtd: learning drafted",
-  "gtd: learning approved",
-  "gtd: learning applied",
+  "gtd: testing",
+  "gtd: learning",
+  "gtd: await-learning-review",
+  "gtd: learning-apply",
+  "gtd: learning-applied",
 ] as const
 
 const BOUNDARY_SUBJECTS = [
@@ -72,7 +72,7 @@ const BOUNDARY_SUBJECTS = [
   "gtd: new task",
   "gtd: grilling",
   "gtd: transport",
-  "gtd: reviewing",
+  "gtd: review",
 ] as const
 
 const HEADS = [...TURN_SUBJECTS, ...ROUTING_SUBJECTS, ...BOUNDARY_SUBJECTS] as const
@@ -201,7 +201,7 @@ const isIllegal = (p: ResolvePayload): boolean =>
   (p.errorsPresent &&
     !p.packagesPresent &&
     p.lastCommitSubject !== "gtd: health-check" &&
-    p.lastCommitSubject !== "gtd: health-fix") ||
+    p.lastCommitSubject !== "gtd: testing") ||
   (p.healthPresent && p.packagesPresent) ||
   (p.healthPresent && p.reviewPresent) ||
   (p.healthPresent && p.feedbackPresent) ||
@@ -424,11 +424,14 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
             codeDirty: !clean,
             ...(hasReviewBase ? { reviewBase: "abc123", refDiff: "diff --git a/x b/x\n+x\n" } : {}),
           }
+          // v1 leftovers plus a pre-label v2 routing subject — all outside
+          // the label grammar. (v1's `gtd: grilling`/`gtd: building` now
+          // collide with live labels and are deliberately absent here.)
           const legacySubjects = [
             "gtd: new task",
-            "gtd: grilling",
+            "gtd: tests green",
             "gtd: transport",
-            "gtd: reviewing",
+            "gtd: review",
           ]
           const nonGtd = resolve([
             { type: "RESOLVE", payload: { ...base, lastCommitSubject: "feat: shipped" } },

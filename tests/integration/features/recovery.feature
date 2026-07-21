@@ -13,7 +13,7 @@ Feature: Recovery — checkpoint contract on a mid-chain operational failure
       """
       testCommand: this-command-does-not-exist-xyz
       """
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """
@@ -33,4 +33,4 @@ Feature: Recovery — checkpoint contract on a mid-chain operational failure
       """
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: tests green"
+    And the last commit subject is "gtd: tests-green"

@@ -61,7 +61,7 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd(agent): grilled"
-    And the last commit subject is "gtd: planning"
+    And the last commit subject is "gtd: building"
     And the file ".gtd/ARCHITECTURE.md" does not exist
     And the file ".gtd/01-parser/01-extract-parser.md" exists
 
@@ -94,8 +94,8 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
       """
     When I run gtd step-agent
     Then it succeeds
-    And the git log contains "gtd: tests green"
-    And the last commit subject is "gtd: package done"
+    And the git log contains "gtd: tests-green"
+    And the last commit subject is "gtd: close-package"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"review\""
@@ -156,9 +156,9 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
     Then it succeeds
     And the git log contains "gtd(human): health-fixing"
     And the git log contains "gtd(agent): health-fixing"
-    And the git log contains "gtd: health-fix"
-    And the git log contains "gtd: tests green"
-    And the git log contains "gtd: squash template"
+    And the git log contains "gtd: testing"
+    And the git log contains "gtd: tests-green"
+    And the git log contains "gtd: squashing"
     And the file ".gtd/HEALTH.md" does not exist
     And the file ".gtd/SQUASH_MSG.md" exists
 
@@ -185,7 +185,7 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd(agent): health-fixing"
-    And the git log contains "gtd: health-fix"
+    And the git log contains "gtd: testing"
     And the last commit subject is "gtd: health-check"
     And the file ".gtd/HEALTH.md" exists
     And the file ".gtd/HEALTH.md" contains "SENTINEL_STILL_RED"

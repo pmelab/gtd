@@ -1,6 +1,6 @@
 /**
  * The review checkout window: while the workflow rests at the human review
- * gate (`gtd: awaiting review`), HEAD and the index are temporarily rewound to
+ * gate (`gtd: await-review`), HEAD and the index are temporarily rewound to
  * the review base with the working tree untouched, so the entire
  * `reviewBase..HEAD` diff surfaces as ordinary uncommitted changes in any
  * editor's standard git integration (SCM panel, gutters, per-file diffs,
@@ -9,7 +9,7 @@
  * Lifecycle — driven exclusively from the program edge (`src/program.ts`):
  *
  * - `openReviewWindow` runs AFTER a gtd invocation finishes and self-guards on
- *   HEAD being exactly `gtd: awaiting review`: it saves HEAD to
+ *   HEAD being exactly `gtd: await-review`: it saves HEAD to
  *   `refs/gtd/review-head` (plus the base to `refs/gtd/review-base`), then
  *   `git reset --mixed <base>`. The same call re-arms the window after
  *   read-only commands (`gtd next` / `gtd status`) and refused invocations.
@@ -33,17 +33,17 @@ import { parseSubject, ROUTING_SUBJECT } from "./Subjects.js"
 export const REVIEW_HEAD_REF = "refs/gtd/review-head"
 export const REVIEW_BASE_REF = "refs/gtd/review-base"
 
-const AWAITING_REVIEW_SUBJECT = ROUTING_SUBJECT["awaiting-review"]
+const AWAITING_REVIEW_SUBJECT = ROUTING_SUBJECT["await-review"]
 
 const subjectOf = (message: string): string => message.split("\n")[0] ?? ""
 
 /**
  * Pick the window's base commit from full first-parent history
  * (oldest→newest, HEAD last). Mirrors the review-scope rules of
- * `gatherEvents` (`src/Events.ts`) — newest `gtd: reviewing <hash>` anchor →
- * last `gtd: awaiting review` → first grilling turn, all within the current
+ * `gatherEvents` (`src/Events.ts`) — newest `gtd: review <hash>` anchor →
+ * last `gtd: await-review` → first grilling turn, all within the current
  * cycle (after the last `gtd: done`) — but EXCLUDES HEAD itself: at open
- * time HEAD is the `gtd: awaiting review` that triggered the window, and
+ * time HEAD is the `gtd: await-review` that triggered the window, and
  * rule 2's "last awaiting review" must mean the PREVIOUS round's, exactly
  * the base the agent's review record was written against. Returns undefined
  * when no rule applies (no window to open).
@@ -65,10 +65,10 @@ export const reviewWindowBase = (
   let firstGrilling: string | undefined
   for (const c of currentCycle) {
     const parsed = parseSubject(subjectOf(c.message))
-    if (parsed.kind === "routing" && parsed.phase === "reviewing" && parsed.param !== undefined) {
+    if (parsed.kind === "routing" && parsed.phase === "review" && parsed.param !== undefined) {
       anchor = parsed.param
     }
-    if (parsed.kind === "routing" && parsed.phase === "awaiting-review") {
+    if (parsed.kind === "routing" && parsed.phase === "await-review") {
       lastAwaitingReview = c.hash
     }
     // All three entry-capable gates count as the cycle start (mirrors
@@ -127,7 +127,7 @@ export const closeReviewWindow: Effect.Effect<{ closed: boolean }, Error, GitSer
 
 /**
  * Open (or re-arm) the review checkout window. Self-guarded: a no-op unless
- * HEAD's subject is exactly `gtd: awaiting review` and a review base can be
+ * HEAD's subject is exactly `gtd: await-review` and a review base can be
  * derived from history, so the caller invokes it unconditionally after every
  * dispatched subcommand.
  *

@@ -4,7 +4,7 @@ Feature: gtd review <target> subcommand — anchor-then-exit
   `gtd review <target>` is a pure mutator: it refuses on a dirty tree, resolves
   the target via merge-base semantics, refuses when the filtered diff against
   that base is empty ("nothing to review"), and otherwise authors exactly one
-  anchor commit `gtd: reviewing <base-hash>`. It never emits a prompt itself —
+  anchor commit `gtd: review <base-hash>`. It never emits a prompt itself —
   stdout only points at `gtd next` — and exits 0. A follow-up `gtd next` is
   what emits the review-record prompt (actor agent), scoped to that anchor.
 
@@ -22,7 +22,7 @@ Feature: gtd review <target> subcommand — anchor-then-exit
       """
     When I run gtd with args "review main"
     Then it succeeds
-    And the git log contains "gtd: reviewing "
+    And the git log contains "gtd: review "
     And stdout contains "gtd next"
     And stdout does not contain "\"prompt\""
     And stdout does not contain "## Task"
@@ -80,7 +80,7 @@ Feature: gtd review <target> subcommand — anchor-then-exit
     Then it fails
     And stderr contains "nothing to review"
     And the commit count is unchanged
-    And the git log does not contain "gtd: reviewing "
+    And the git log does not contain "gtd: review "
 
   Scenario: An unresolvable ref fails and names the bad ref
     Given a test project

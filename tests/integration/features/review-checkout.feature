@@ -1,7 +1,7 @@
 @inmem
 Feature: Review checkout window — the pending review diff surfaces in the editor
 
-  While the workflow rests at the human review gate (`gtd: awaiting review`),
+  While the workflow rests at the human review gate (`gtd: await-review`),
   gtd rewinds HEAD and the index to the review base with the working tree
   untouched, so the whole reviewable diff shows up as ordinary uncommitted
   changes in any editor's standard git integration. The real head is preserved
@@ -26,7 +26,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
 
       Implement a calculator.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd(agent): building" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -35,14 +35,14 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
       """
       export const untouched = () => true
       """
-    And a commit "gtd: package done"
+    And a commit "gtd: close-package"
     And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1 — new add function
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
 
   Scenario: Resting at the gate opens the window — HEAD at the base, the diff dirty
     When I run gtd next
@@ -52,7 +52,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     # HEAD rests at the review base: the cycle's first grilling turn.
     And the last commit subject is "gtd(human): grilling"
     # The real head is intact behind the ref.
-    And the git log at "refs/gtd/review-head" contains "gtd: awaiting review"
+    And the git log at "refs/gtd/review-head" contains "gtd: await-review"
     # The whole package diff is visible as uncommitted changes…
     And the git status contains "src/calc.ts"
     And the git status contains "src/other.ts"
@@ -79,7 +79,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     When I run gtd step
     Then it succeeds
     And the git log contains "gtd(human): review"
-    And the last commit subject is "gtd: review feedback"
+    And the last commit subject is "gtd: grilling"
     And the git ref "refs/gtd/review-head" does not exist
     # The re-grill prompt inlines exactly the reviewer's edit — the untouched
     # package file is absent, proving the feedback commit carries only the
@@ -94,7 +94,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the file "src/calc.ts" is deleted
     When I run gtd step
     Then it succeeds
-    And the last commit subject is "gtd: review feedback"
+    And the last commit subject is "gtd: grilling"
     When I run gtd next
     Then it succeeds
     And stdout contains "src/calc.ts"
@@ -153,7 +153,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     When I run gtd step
     Then it succeeds
     And the git log does not contain "wip: reviewer tweak"
-    And the last commit subject is "gtd: review feedback"
+    And the last commit subject is "gtd: grilling"
     When I run gtd next
     Then it succeeds
     And stdout contains "tweak made in a manual commit"
@@ -173,7 +173,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     Then it succeeds
     And the git ref "refs/gtd/review-head" exists
     And the last commit subject is "gtd(human): grilling"
-    And the git log at "refs/gtd/review-head" contains "gtd: awaiting review"
+    And the git log at "refs/gtd/review-head" contains "gtd: await-review"
     And the git status contains "src/calc.ts"
     When I run gtd step
     Then it succeeds

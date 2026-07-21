@@ -66,16 +66,16 @@ The decompose subagent creates the `.gtd/` package tree:
 ```
 
 - A resolves: .gtd/ modified → **Planning** (auto-advance)
-- A commits package files: `gtd: planning`
+- A commits package files: `gtd: building`
 - A emits: continue-or-advance prompt; .gtd/ complete, re-runs `gtd`
 
-- A resolves: .gtd/ clean + HEAD `gtd: planning` → **Building**
+- A resolves: .gtd/ clean + HEAD `gtd: building` → **Building**
 
 ---
 
 ## Building — package 01
 
-- A resolves: .gtd/ clean + HEAD `gtd: planning` → **Building** (auto-advance)
+- A resolves: .gtd/ clean + HEAD `gtd: building` → **Building** (auto-advance)
 - A inlines `01-auth-service/` task files into the prompt
 - A spawns one subagent for `01-types.md` and one for `02-login-handler.md` in
   parallel; subagents write code
@@ -87,7 +87,7 @@ The decompose subagent creates the `.gtd/` package tree:
 - A resolves: code changes → **Testing** (edge-only)
 - A commits code: `gtd: building`
 - A runs `npm run test` → **FAIL** (testFixCount = 1, below cap of 3)
-- A writes `FEEDBACK.md` with test output, commits: `gtd: errors`
+- A writes `FEEDBACK.md` with test output, commits: `gtd: test-failed`
 - A auto-advances → Fixing
 
 ### Fix round 1
@@ -108,7 +108,7 @@ The decompose subagent creates the `.gtd/` package tree:
 - A resolves: .gtd/ clean + HEAD `gtd: building` → **Agentic Review**
   (auto-advance)
 - A reviewFixCount = 0 (below threshold 3) + agenticReview: true → run review
-- A planning-model subagent diffs the package (since `gtd: planning`), finds
+- A planning-model subagent diffs the package (since `gtd: building`), finds
   issues, writes non-empty `FEEDBACK.md`, re-runs `gtd`
 
 - A resolves: FEEDBACK.md non-empty, uncommitted → **Fixing** (auto-advance)
@@ -126,14 +126,14 @@ The decompose subagent creates the `.gtd/` package tree:
 
 - A resolves: FEEDBACK.md present + empty → **Close package** (edge-only)
 - A removes FEEDBACK.md, removes `.gtd/01-auth-service/`
-- A commits: `gtd: package done`
+- A commits: `gtd: close-package`
 - A auto-advances → Building (`.gtd/02-api-routes/` remains)
 
 ---
 
 ## Building — package 02
 
-- A resolves: .gtd/ clean + HEAD `gtd: package done` → **Building**
+- A resolves: .gtd/ clean + HEAD `gtd: close-package` → **Building**
   (auto-advance)
 - A inlines `02-api-routes/` tasks, spawns subagent for `01-endpoints.md`
 
@@ -145,14 +145,14 @@ The decompose subagent creates the `.gtd/` package tree:
 - A review subagent finds the package clean, writes empty `FEEDBACK.md`
 - A resolves: FEEDBACK.md empty → **Close package** (edge-only)
 - A removes FEEDBACK.md + `.gtd/02-api-routes/` + now-empty `.gtd/`
-- A commits: `gtd: package done`
+- A commits: `gtd: close-package`
 - A auto-advances → Clean (no steering files, reviewable diff since merge-base)
 
 ---
 
 ## Clean
 
-- A resolves: no steering files, clean tree, HEAD `gtd: package done`,
+- A resolves: no steering files, clean tree, HEAD `gtd: close-package`,
   reviewable diff → **Clean**
 - A planning-model subagent generates `REVIEW.md` covering the full feature diff
   since the merge-base with the default branch
@@ -163,7 +163,7 @@ The decompose subagent creates the `.gtd/` package tree:
 ## Await Review
 
 - A resolves: REVIEW.md uncommitted → **Await Review**
-- A commits: `gtd: awaiting review`
+- A commits: `gtd: await-review`
 - A emits: STOP — "Review the changes in REVIEW.md; run gtd when done"
 
 ---

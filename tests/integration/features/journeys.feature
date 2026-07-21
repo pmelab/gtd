@@ -83,7 +83,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       """
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: planning"
+    And the last commit subject is "gtd: building"
     And the file ".gtd/ARCHITECTURE.md" does not exist
     When I run gtd next
     Then it succeeds
@@ -97,9 +97,9 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
-    And the git log contains "gtd: tests green"
+    And the git log contains "gtd: tests-green"
     # agenticReview is off, so tests green force-approves straight to package done.
-    And the last commit subject is "gtd: package done"
+    And the last commit subject is "gtd: close-package"
     And the file ".gtd" does not exist
     When I run gtd next
     Then it succeeds
@@ -126,7 +126,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     And the git ref "refs/gtd/review-head" exists
     And the last commit subject is "gtd(human): grilling"
     And the git log at "refs/gtd/review-head" contains "gtd(agent): review"
-    And the git log at "refs/gtd/review-head" contains "gtd: awaiting review"
+    And the git log at "refs/gtd/review-head" contains "gtd: await-review"
     And the git status contains "src/calc.ts"
     When I run gtd next
     Then it succeeds
@@ -153,12 +153,12 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       gtd(human): architecting
       gtd: grilled
       gtd(agent): grilled
-      gtd: planning
+      gtd: building
       gtd(agent): building
-      gtd: tests green
-      gtd: package done
+      gtd: tests-green
+      gtd: close-package
       gtd(agent): review
-      gtd: awaiting review
+      gtd: await-review
       gtd(human): review
       gtd: done
       """
@@ -213,14 +213,14 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       """
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: planning"
+    And the last commit subject is "gtd: building"
     When a file "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: package done"
+    And the last commit subject is "gtd: close-package"
     When a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -237,14 +237,14 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     # base, the real head is preserved under refs/gtd/review-head.
     And the git ref "refs/gtd/review-head" exists
     And the last commit subject is "gtd(human): grilling"
-    And the git log at "refs/gtd/review-head" contains "gtd: awaiting review"
+    And the git log at "refs/gtd/review-head" contains "gtd: await-review"
     Given the file ".gtd/REVIEW.md" is deleted
     # Squash on: gtd: done is not a rest — the chain continues straight to the
     # squash template in the same human-turn invocation.
     When I run gtd step
     Then it succeeds
     And the git log contains "gtd: done"
-    And the last commit subject is "gtd: squash template"
+    And the last commit subject is "gtd: squashing"
     And the file ".gtd/SQUASH_MSG.md" exists
     When I run gtd next
     Then it succeeds
@@ -267,15 +267,15 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     And the git log does not contain "gtd(agent): architecting"
     And the git log does not contain "gtd(human): architecting"
     And the git log does not contain "gtd: grilled"
-    And the git log does not contain "gtd: planning"
+    And the git log does not contain "gtd: building"
     And the git log does not contain "gtd(agent): building"
-    And the git log does not contain "gtd: tests green"
-    And the git log does not contain "gtd: package done"
+    And the git log does not contain "gtd: tests-green"
+    And the git log does not contain "gtd: close-package"
     And the git log does not contain "gtd(agent): review"
-    And the git log does not contain "gtd: awaiting review"
+    And the git log does not contain "gtd: await-review"
     And the git log does not contain "gtd(human): review"
     And the git log does not contain "gtd: done"
-    And the git log does not contain "gtd: squash template"
+    And the git log does not contain "gtd: squashing"
     And the file "src/calc.ts" exists
 
   Scenario: Red-then-fixed — a failing build turn detours through fixing before landing green
@@ -297,8 +297,8 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
       Implement a helper.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
-    And a commit "gtd: planning" that adds ".gtd/01-helper/01-task.md" with:
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that adds ".gtd/01-helper/01-task.md" with:
       """
       Implement the helper.
       """
@@ -310,7 +310,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
-    And the git log contains "gtd: errors"
+    And the git log contains "gtd: test-failed"
     And the file ".gtd/FEEDBACK.md" contains "SENTINEL_JOURNEY_FAILURE"
     When I run gtd next
     Then it succeeds
@@ -325,7 +325,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
-    And the last commit subject is "gtd: tests green"
+    And the last commit subject is "gtd: tests-green"
     And the file ".gtd/FEEDBACK.md" does not exist
     # The fix-round green is a checkpoint: gtd next reports an agent-driven
     # pending mid-chain, and the actor field alone tells the loop driver to
@@ -337,7 +337,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     # Onwards: force-approve closes the package.
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: package done"
+    And the last commit subject is "gtd: close-package"
 
   Scenario: A grilling round with one human answer, then onward to a green build
     Given a test project
@@ -435,7 +435,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       """
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: planning"
+    And the last commit subject is "gtd: building"
     When a file "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -445,4 +445,4 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
-    And the last commit subject is "gtd: package done"
+    And the last commit subject is "gtd: close-package"

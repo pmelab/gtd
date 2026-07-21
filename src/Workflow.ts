@@ -73,11 +73,11 @@ export interface CommitEvent {
   readonly turnActor?: Actor
   /** The `<gate>` of a turn commit. */
   readonly turnGate?: string
-  /** Routing `gtd: errors`. */
+  /** Routing `gtd: test-failed`. */
   readonly isErrors: boolean
   /** Agentic-review turn whose diff touched FEEDBACK.md (a findings round). */
   readonly isFeedback: boolean
-  /** Routing `gtd: planning` | `gtd: package done`. */
+  /** Routing `gtd: building` | `gtd: close-package`. */
   readonly isPackageStart: boolean
   /** Recognized v2 turn or routing subject (kind !== "boundary"). */
   readonly isWorkflowCommit: boolean
@@ -85,7 +85,7 @@ export interface CommitEvent {
   readonly removedErrors: boolean
   /** Routing `gtd: health-check`. */
   readonly isHealthCheck: boolean
-  /** Routing `gtd: tests green` — ends a health-fix run for counter purposes. */
+  /** Routing `gtd: tests-green` — ends a health-fix run for counter purposes. */
   readonly isTestsGreen: boolean
 }
 
@@ -119,7 +119,7 @@ export interface ResolvePayload {
    * has already landed and the tree is clean again.
    */
   readonly headTurnReviewSubstantive?: boolean
-  /** Base hash from the newest `gtd: reviewing <hash>` in the current cycle. */
+  /** Base hash from the newest `gtd: review <hash>` in the current cycle. */
   readonly reviewAnchor?: string
   /** `TODO.md` exists (committed or pending). */
   readonly todoExists: boolean
@@ -261,20 +261,20 @@ export interface ResolvePayload {
  *                          hand-off.
  *   - `runTest`          — run the configured test command; on red write
  *                          FEEDBACK (below cap) or ERRORS (`capReached`),
- *                          commit `gtd: errors`; on green commit
- *                          `gtd: tests green`.
+ *                          commit `gtd: test-failed`; on green commit
+ *                          `gtd: tests-green`.
  *   - `closePackage`     — rm the (maybe-empty / maybe-absent) FEEDBACK.md, rm
  *                          the first package dir (+ empty `.gtd/`), commit
- *                          `gtd: package done`.
- *   - `writeSquashTemplate` — write + commit SQUASH_MSG.md `gtd: squash template`.
+ *                          `gtd: close-package`.
+ *   - `writeSquashTemplate` — write + commit SQUASH_MSG.md `gtd: squashing`.
  *   - `squashCommit`     — soft-reset to `squashBase`, then `gtd(agent): squashing`
  *                          reads SQUASH_MSG.md at perform time for the message.
- *   - `writeLearningTemplate` — write + commit LEARNINGS.md `gtd: learning template`.
+ *   - `writeLearningTemplate` — write + commit LEARNINGS.md `gtd: learning`.
  *   - `runHealthCheck`   — run the configured test command; on red write
  *                          HEALTH.md (below cap) or ERRORS.md (`capReached`),
  *                          commit `gtd: health-check`; on green with prior
  *                          fixes and `chainAfterGreen` (squash and/or learning
- *                          enabled), commit `gtd: tests green` to chain into
+ *                          enabled), commit `gtd: tests-green` to chain into
  *                          the learning/squash template; otherwise stop idle
  *                          with zero commits.
  */
@@ -337,8 +337,8 @@ export interface ClassifyFlags {
  *   - `defer`  — not decidable from the subject/flags alone; fall through to
  *                the interpreter's fallback ladder (classifyHead's `null`).
  *   - `settle` — the shared learning-then-squash-then-idle decision reached
- *                from `gtd: done`, the health path's `gtd: tests green`, and
- *                `gtd: learning applied` (`nextAfterReviewOrLearning`).
+ *                from `gtd: done`, the health path's `gtd: tests-green`, and
+ *                `gtd: learning-applied` (`nextAfterReviewOrLearning`).
  */
 export type RuleOutcome =
   | { readonly kind: "rest"; readonly state: GtdState; readonly actor: Actor }
@@ -379,7 +379,7 @@ export interface BaselineFacts {
   readonly headIsFixerTurn: boolean
   /** HEAD is the health-fixer's own turn commit (`gtd(agent): health-fixing`) consuming HEALTH.md. */
   readonly headIsHealthFixerTurn: boolean
-  /** Already inside the fix loop (fixer turn at HEAD, or `gtd: errors`). */
+  /** Already inside the fix loop (fixer turn at HEAD, or `gtd: test-failed`). */
   readonly alreadyInFixLoop: boolean
   /** Agentic review is off, or the review-fix threshold is reached. */
   readonly forceApprove: boolean
@@ -752,7 +752,7 @@ const turnRules: readonly TurnRule[] = [
     gate: "grilled",
     branches: [
       // The decompose turn must actually have produced packages before the
-      // machine consumes the architecture: routing to `gtd: planning`
+      // machine consumes the architecture: routing to `gtd: building`
       // removes `.gtd/ARCHITECTURE.md`, and doing that for a turn WITHOUT
       // packages would destroy the architecture and drop the cycle into a
       // package-less building state that silently skips every review gate.
@@ -760,7 +760,7 @@ const turnRules: readonly TurnRule[] = [
         when: (f) => f.hasPackages,
         to: chain("grilled", "agent", {
           kind: "commitRouting",
-          subject: "gtd: planning",
+          subject: "gtd: building",
           removeArchitecture: true,
         }),
       },
@@ -803,7 +803,7 @@ const turnRules: readonly TurnRule[] = [
       // before the machine routes to the human gate.
       {
         when: (f) => f.reviewPresent,
-        to: chain("review", "agent", { kind: "commitRouting", subject: "gtd: awaiting review" }),
+        to: chain("review", "agent", { kind: "commitRouting", subject: "gtd: await-review" }),
       },
       { to: rest("review", "agent") },
     ],
@@ -816,7 +816,7 @@ const turnRules: readonly TurnRule[] = [
         when: (f) => f.reviewSubstantive,
         to: chain("review", "human", {
           kind: "commitRouting",
-          subject: "gtd: review feedback",
+          subject: "gtd: grilling",
           removeReview: true,
         }),
       },
@@ -853,7 +853,7 @@ const turnRules: readonly TurnRule[] = [
         when: (f) => f.hasSquashBase && !f.learningMsgIsTemplate,
         to: chain("learning", "agent", {
           kind: "commitRouting",
-          subject: "gtd: learning drafted",
+          subject: "gtd: await-learning-review",
         }),
       },
       { to: rest("learning", "agent") },
@@ -868,7 +868,7 @@ const turnRules: readonly TurnRule[] = [
       {
         to: chain("learning", "human", {
           kind: "commitRouting",
-          subject: "gtd: learning approved",
+          subject: "gtd: learning-apply",
         }),
       },
     ],
@@ -880,7 +880,7 @@ const turnRules: readonly TurnRule[] = [
       {
         to: chain("learning-apply", "agent", {
           kind: "commitRouting",
-          subject: "gtd: learning applied",
+          subject: "gtd: learning-applied",
           removeLearning: true,
         }),
       },
@@ -893,7 +893,7 @@ const turnRules: readonly TurnRule[] = [
       {
         to: chain("health-fixing", "agent", {
           kind: "commitRouting",
-          subject: "gtd: health-fix",
+          subject: "gtd: testing",
           removeHealth: true,
         }),
       },
@@ -917,7 +917,9 @@ const turnRules: readonly TurnRule[] = [
 const routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>> = {
   architecting: [{ to: rest("architecting", "agent") }],
   grilled: [{ to: rest("grilled", "agent") }],
-  planning: [{ to: rest("building", "agent") }],
+  building: [{ to: rest("building", "agent") }],
+  // Marker state: a green check outcome; the next state is decided here by
+  // guarded rules (close/review the package, or the health path's settle).
   "tests-green": [
     {
       when: (f) => f.hasPackages && f.agenticReviewForceApproved,
@@ -927,32 +929,36 @@ const routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>> = {
     // No packages: the health path's green re-test — learning/squash/idle.
     { to: settle("testing", false) },
   ],
-  errors: [
+  // Marker state: a red check outcome; which file the check wrote (FEEDBACK
+  // below cap, ERRORS at cap) decides fixing vs escalate.
+  "test-failed": [
     { when: (f) => f.errorsPresent, to: rest("escalate", "human") },
     { to: rest("fixing", "agent") },
   ],
   // Depends on remaining packages / reviewable diff — fallback ladder.
-  "package-done": [{ to: defer }],
-  "awaiting-review": [{ to: rest("await-review", "human") }],
-  "review-feedback": [{ to: rest("grilling", "agent") }],
+  "close-package": [{ to: defer }],
+  "await-review": [{ to: rest("await-review", "human") }],
+  // The human's review feedback re-enters grilling with their diff.
+  grilling: [{ to: rest("grilling", "agent") }],
   done: [{ to: settle("done", false) }],
-  "squash-template": [{ to: rest("squashing", "agent") }],
-  reviewing: [{ to: rest("review", "agent") }],
-  "learning-template": [{ to: rest("learning", "agent") }],
-  "learning-drafted": [{ to: rest("await-learning-review", "human") }],
-  "learning-approved": [{ to: rest("learning-apply", "agent") }],
+  squashing: [{ to: rest("squashing", "agent") }],
+  review: [{ to: rest("review", "agent") }],
+  learning: [{ to: rest("learning", "agent") }],
+  "await-learning-review": [{ to: rest("await-learning-review", "human") }],
+  "learning-apply": [{ to: rest("learning-apply", "agent") }],
   "learning-applied": [{ to: settle("learning-applied", true) }],
   "health-check": [
     { when: (f) => f.errorsPresent, to: rest("escalate", "human") },
     { to: rest("health-fixing", "agent") },
   ],
-  // A plain REST for classification purposes (`gtd next`/pure queries report
-  // idle/human here, since a clean tree "self-heals" — the very next
-  // invocation's health check simply re-runs). But an actual mutating
-  // invocation landing HERE mid-chain must re-test in that same chain rather
-  // than stopping — handled as a carve-out in the turn-taking engine, not
-  // here.
-  "health-fix": [{ to: rest("idle", "human") }],
+  // `gtd: testing` — a re-test is owed (the health-fixer's turn consumed
+  // HEALTH.md). A plain REST for classification purposes (`gtd next`/pure
+  // queries report idle/human here, since a clean tree "self-heals" — the
+  // very next invocation's health check simply re-runs). But an actual
+  // mutating invocation landing HERE mid-chain must re-test in that same
+  // chain rather than stopping — handled as a carve-out in the turn-taking
+  // engine, not here.
+  testing: [{ to: rest("idle", "human") }],
 }
 
 // ─── Default definition: interrupt ladder ────────────────────────────────────
@@ -978,20 +984,20 @@ const interrupts: readonly LadderRule[] = [
     // semantically identical to emptying the file (`feedbackEffective` /
     // `feedbackEmptyEffective` fold both in). Once the review-fix threshold
     // is reached (or agenticReview is off), a lingering FEEDBACK.md at the
-    // `gtd: tests green` rest must not block the force-approve close — but
+    // `gtd: tests-green` rest must not block the force-approve close — but
     // ONLY at that tests-green HEAD; at any other HEAD the rung must still
     // run so the final allowed findings round still gets fixed.
     when: (f) =>
       f.feedbackEffective &&
       !f.headIsFixerTurn &&
-      !(f.forceApprove && f.head === "gtd: tests green"),
+      !(f.forceApprove && f.head === "gtd: tests-green"),
     branches: [
       // FEEDBACK.md written live by the Agentic Review agent (HEAD is still
-      // `gtd: tests green`) is initially uncommitted — that write must be
+      // `gtd: tests-green`) is initially uncommitted — that write must be
       // captured as the agent's `gtd(agent): agentic-review` turn FIRST,
       // rather than mid-chaining straight to close/fixing with no record of
       // the reviewer's own turn.
-      { when: (f) => f.head === "gtd: tests green", to: rest("agentic-review", "agent") },
+      { when: (f) => f.head === "gtd: tests-green", to: rest("agentic-review", "agent") },
       // An empty FEEDBACK.md is "approve, close the package" ONLY as a fresh
       // Agentic Review verdict. Inside the fix loop it is the FIXER
       // disputing/emptying an already-on-the-record finding — that must
@@ -1031,7 +1037,7 @@ const fallback: readonly LadderRule[] = [
     branches: [{ to: rest("planning", "agent") }],
   },
   {
-    when: (f) => f.head === "gtd: package done",
+    when: (f) => f.head === "gtd: close-package",
     branches: [
       { when: (f) => f.payload.packages.length > 0, to: rest("building", "agent") },
       { when: (f) => f.reviewable, to: rest("review", "agent") },
@@ -1197,7 +1203,7 @@ const planFileConflictRules: readonly IllegalCombinationRule[] = [
 // precedence-driven — none of these can fire on a legal history (packages,
 // REVIEW.md, FEEDBACK.md, ERRORS.md, and TODO.md are all gone by `gtd: done`;
 // HEALTH.md is removed before tests-green; SQUASH_MSG.md is only written
-// after `gtd: learning applied` removes LEARNINGS.md). Defensive only: refuse
+// after `gtd: learning-applied` removes LEARNINGS.md). Defensive only: refuse
 // to guess on a corrupted repo rather than silently mis-resolve.
 const learningFileConflictRules: readonly IllegalCombinationRule[] = [
   {
@@ -1228,7 +1234,7 @@ const learningFileConflictRules: readonly IllegalCombinationRule[] = [
 
 /** ERRORS.md briefly outlives the packages during the health-check cap escalation. */
 const isHealthCapEscalation = (p: ResolvePayload): boolean =>
-  p.lastCommitSubject === "gtd: health-check" || p.lastCommitSubject === "gtd: health-fix"
+  p.lastCommitSubject === "gtd: health-check" || p.lastCommitSubject === "gtd: testing"
 
 const reviewAndFeedbackRules: readonly IllegalCombinationRule[] = [
   {

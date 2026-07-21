@@ -54,20 +54,20 @@ describe("turn subject round-trip", () => {
   })
 })
 
-describe("routing subjects", () => {
+describe("machine-label subjects", () => {
   it("parses every ROUTING_SUBJECT literal to its phase", () => {
     for (const [phase, subject] of Object.entries(ROUTING_SUBJECT) as ReadonlyArray<
-      [Exclude<RoutingPhase, "reviewing">, string]
+      [Exclude<RoutingPhase, "review">, string]
     >) {
       expect(parseSubject(subject)).toEqual({ kind: "routing", phase })
     }
   })
 
-  it("round-trips reviewingSubject with the hash as param", () => {
+  it("round-trips the review anchor with the hash as param", () => {
     const hash = "a".repeat(40)
     expect(parseSubject(reviewingSubject(hash))).toEqual({
       kind: "routing",
-      phase: "reviewing",
+      phase: "review",
       param: hash,
     })
   })
@@ -79,14 +79,17 @@ describe("boundary commits", () => {
     expect(parseSubject("")).toEqual({ kind: "boundary" })
   })
 
+  // v1 taxonomy subjects that do NOT collide with the label grammar stay
+  // inert. (`gtd: grilling` / `gtd: building` DO collide — see the label
+  // round-trip above and docs/upgrading-from-v1.md: a mid-cycle v1 HEAD
+  // carrying one of those now parses as a live label, so upgrade at a
+  // settled boundary.)
   const legacyV1Subjects = [
     "gtd: new task",
-    "gtd: grilling",
-    "gtd: building",
     "gtd: fixing",
     "gtd: feedback",
     "gtd: transport",
-    "gtd: reviewing",
+    "gtd: review",
   ]
 
   it.each(legacyV1Subjects)(
@@ -96,12 +99,38 @@ describe("boundary commits", () => {
     },
   )
 
-  it("treats gtd: reviewing with a malformed (short) hash as boundary", () => {
-    expect(parseSubject("gtd: reviewing abc123")).toEqual({ kind: "boundary" })
+  // The pre-label v2 routing subjects fall outside the label grammar the same
+  // way v1 subjects fell outside v2's — old histories parse as inert
+  // boundary commits rather than errors.
+  const legacyV2RoutingSubjects = [
+    "gtd: planning",
+    "gtd: tests green",
+    "gtd: errors",
+    "gtd: package done",
+    "gtd: awaiting review",
+    "gtd: review feedback",
+    "gtd: squash template",
+    `gtd: reviewing ${"a".repeat(40)}`,
+    "gtd: health-fix",
+    "gtd: learning template",
+    "gtd: learning drafted",
+    "gtd: learning approved",
+    "gtd: learning applied",
+  ]
+
+  it.each(legacyV2RoutingSubjects)(
+    "treats pre-label v2 subject %s as boundary (inert, not error)",
+    (subject) => {
+      expect(parseSubject(subject)).toEqual({ kind: "boundary" })
+    },
+  )
+
+  it("treats gtd: review with a malformed (short) hash as boundary", () => {
+    expect(parseSubject("gtd: review abc123")).toEqual({ kind: "boundary" })
   })
 
   it("tolerates leading/trailing whitespace", () => {
-    expect(parseSubject("  gtd: planning  ")).toEqual({ kind: "routing", phase: "planning" })
+    expect(parseSubject("  gtd: building  ")).toEqual({ kind: "routing", phase: "building" })
     expect(parseSubject(`  ${turnSubject("agent", "building")}  `)).toEqual({
       kind: "turn",
       actor: "agent",
@@ -111,15 +140,15 @@ describe("boundary commits", () => {
 })
 
 describe("isWorkflowSubject", () => {
-  it("is true for turn and routing subjects", () => {
+  it("is true for turn and machine-label subjects", () => {
     expect(isWorkflowSubject(turnSubject("human", "grilling"))).toBe(true)
-    expect(isWorkflowSubject(ROUTING_SUBJECT.planning)).toBe(true)
+    expect(isWorkflowSubject(ROUTING_SUBJECT.building)).toBe(true)
     expect(isWorkflowSubject(reviewingSubject("a".repeat(40)))).toBe(true)
   })
 
   it("is false for boundary subjects", () => {
     expect(isWorkflowSubject("gtd: new task")).toBe(false)
     expect(isWorkflowSubject("feat: whatever")).toBe(false)
-    expect(isWorkflowSubject("gtd: reviewing")).toBe(false)
+    expect(isWorkflowSubject("gtd: review")).toBe(false)
   })
 })

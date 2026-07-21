@@ -31,7 +31,7 @@ Feature: JSON output mode
 
   Scenario: gtd next --json emits state, actor, pending, and prompt
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """
@@ -46,7 +46,7 @@ Feature: JSON output mode
 
   Scenario: gtd status --json emits state, actor, predictedCommit, and predictedState
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """

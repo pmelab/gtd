@@ -16,10 +16,10 @@ built-in defaults apply. Supported filenames (searched in this order):
 - **`testCommand`** (string, default `npm run test`) — the command the edge runs
   after a build turn, and on the idle health-check path.
 - **`fixAttemptCap`** (non-negative integer, default `3`) — the test-fix budget:
-  how many `gtd: errors` attempts are allowed per sub-loop before the failure is
-  escalated to `.gtd/ERRORS.md` (Escalate). `0` disables the cap (escalates
-  immediately on the first red run). Also reused as the health-fix budget — no
-  separate config key.
+  how many `gtd: test-failed` attempts are allowed per sub-loop before the
+  failure is escalated to `.gtd/ERRORS.md` (Escalate). `0` disables the cap
+  (escalates immediately on the first red run). Also reused as the health-fix
+  budget — no separate config key.
 - **`reviewThreshold`** (integer ≥ 1, default `3`) — the review-fix budget: how
   many agentic-review findings rounds are allowed per package before Agentic
   Review force-approves.
@@ -27,7 +27,7 @@ built-in defaults apply. Supported filenames (searched in this order):
   per-package Agentic Review gate. Set `false` to force-approve every package
   and proceed directly to human review.
 - **`squash`** (boolean, default `true`) — after `gtd: done` (or, once learning
-  has run, `gtd: learning applied`), collapse the cycle's `gtd: *` commits into
+  has run, `gtd: learning-applied`), collapse the cycle's `gtd: *` commits into
   a single conventional-commits commit. Set `false` to keep the granular
   history.
 - **`learning`** (boolean, default `true`) — after `gtd: done` (or the

@@ -4,7 +4,7 @@ Feature: Illegal steering-file combinations hard-error
   Some steering-file combinations never arise in normal flow. Rather than
   guess, gtd hard-errors before the precedence ladder, exiting non-zero with
   the offending combination on stderr. A committed SQUASH_MSG.md under a
-  `gtd: squash template` HEAD is not one of these — it is the legal squashing
+  `gtd: squashing` HEAD is not one of these — it is the legal squashing
   rest, so status succeeds there.
 
   Scenario: REVIEW.md and a .gtd directory together hard-error
@@ -141,9 +141,9 @@ Feature: Illegal steering-file combinations hard-error
     And stderr contains ".gtd/HEALTH.md"
     And stderr contains ".gtd/ERRORS.md"
 
-  Scenario: A committed SQUASH_MSG.md under gtd: squash template is legal
+  Scenario: A committed SQUASH_MSG.md under gtd: squashing is legal
     Given a test project
-    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+    And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
       feat: add helper
       """

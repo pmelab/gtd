@@ -244,7 +244,7 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
   afterEach(cleanup)
 
   it("emits COMMIT[] (oldest→newest) followed by exactly one trailing RESOLVE", async () => {
-    commitFile("gtd: planning", "a.ts", "//a\n")
+    commitFile("gtd: building", "a.ts", "//a\n")
     const events = await runGather()
     expect(events[events.length - 1]!.type).toBe("RESOLVE")
     expect(events.slice(0, -1).every((e) => e.type === "COMMIT")).toBe(true)
@@ -264,10 +264,10 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
   })
 
   it("sets isErrors / isPackageStart / isWorkflowCommit per routing subject", async () => {
-    commitFile("gtd: planning", "a.ts", "//a\n")
+    commitFile("gtd: building", "a.ts", "//a\n")
     commitFile(turnSubject("agent", "building"), "b.ts", "//b\n")
-    commitFile("gtd: errors", "c.ts", "//c\n")
-    commitFile("gtd: package done", "e.ts", "//e\n")
+    commitFile("gtd: test-failed", "c.ts", "//c\n")
+    commitFile("gtd: close-package", "e.ts", "//e\n")
     commitFile("feat: real work", "f.ts", "//f\n")
 
     const commits = commitsOf(await runGather())
@@ -287,11 +287,11 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
     })
   })
 
-  it("v1 subjects (gtd: new task, bare gtd: reviewing, gtd: feedback) parse as inert boundary commits", async () => {
+  it("v1 subjects (gtd: new task, bare gtd: review, gtd: feedback) parse as inert boundary commits", async () => {
     commitFile("gtd: new task", "a.ts", "//a\n")
-    commitFile("gtd: reviewing", "b.ts", "//b\n")
+    commitFile("gtd: review", "b.ts", "//b\n")
     commitFile("gtd: feedback", "c.ts", "//c\n")
-    commitFile("gtd: grilling", "d.ts", "//d\n") // v1 bare grilling — not a v2 turn
+    commitFile("gtd: tests green", "d.ts", "//d\n") // pre-label v2 routing — not a label
 
     const commits = commitsOf(await runGather())
     expect(commits).toHaveLength(4)
@@ -304,7 +304,7 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
   it("isFeedback: true only for a gtd(agent): agentic-review turn whose diff touched FEEDBACK.md", async () => {
     commitFile(turnSubject("agent", "agentic-review"), ".gtd/FEEDBACK.md", "finding: rename foo\n")
     commitFile(turnSubject("agent", "building"), "b.ts", "//b\n") // agentic-review gate but no FEEDBACK touch below
-    commitFile("gtd: package done", "c.ts", "//c\n")
+    commitFile("gtd: close-package", "c.ts", "//c\n")
 
     const commits = commitsOf(await runGather())
     expect(commits[0]).toMatchObject({ isFeedback: true })
@@ -326,7 +326,7 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
   })
 
   it("sets removedErrors only on the commit whose diff deletes ERRORS.md", async () => {
-    commitFile("gtd: errors", ".gtd/ERRORS.md", "boom\n") // adds ERRORS.md
+    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "boom\n") // adds ERRORS.md
     git("rm", ".gtd/ERRORS.md")
     git("commit", "-q", "-m", turnSubject("human", "escalate")) // deletes ERRORS.md (human resume)
     commitFile("feat: after", "x.ts", "//x\n")
@@ -340,7 +340,7 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
 
   it("sets isHealthCheck for gtd: health-check only", async () => {
     commitFile("gtd: health-check", ".gtd/HEALTH.md", "# Health\nfail\n")
-    commitFile("gtd: health-fix", "x.ts", "//fix\n")
+    commitFile("gtd: testing", "x.ts", "//fix\n")
     commitFile("feat: regular", "y.ts", "//y\n")
 
     const commits = commitsOf(await runGather())
@@ -350,9 +350,9 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
     expect(commits[2]).toMatchObject({ isHealthCheck: false })
   })
 
-  it("sets isTestsGreen for gtd: tests green only", async () => {
-    commitFile("gtd: tests green", "x.ts", "//x\n")
-    commitFile("gtd: health-fix", "y.ts", "//y\n")
+  it("sets isTestsGreen for gtd: tests-green only", async () => {
+    commitFile("gtd: tests-green", "x.ts", "//x\n")
+    commitFile("gtd: testing", "y.ts", "//y\n")
     commitFile("feat: regular", "z.ts", "//z\n")
 
     const commits = commitsOf(await runGather())
@@ -423,7 +423,7 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
   })
 
   it("content-bearing committed FEEDBACK → feedbackEmpty false, feedbackCommitted true", async () => {
-    commitFile("gtd: errors", ".gtd/FEEDBACK.md", "# Feedback\n\nfix this\n")
+    commitFile("gtd: test-failed", ".gtd/FEEDBACK.md", "# Feedback\n\nfix this\n")
     const p = resolveOf(await runGather())
     expect(p.feedbackPresent).toBe(true)
     expect(p.feedbackEmpty).toBe(false)
@@ -446,14 +446,14 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
   })
 
   it("committed REVIEW + clean tree → reviewCommitted (Done)", async () => {
-    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n")
+    commitFile("gtd: await-review", ".gtd/REVIEW.md", "# Review\n")
     const p = resolveOf(await runGather())
     expect(p.reviewCommitted).toBe(true)
     expect(p.reviewDirty).toBe(false)
   })
 
   it("committed REVIEW + edited REVIEW → reviewDirty (human review turn)", async () => {
-    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n")
+    commitFile("gtd: await-review", ".gtd/REVIEW.md", "# Review\n")
     writeRepoFile(join(repoDir, ".gtd/REVIEW.md"), "# Review\n\nhuman feedback\n")
     const p = resolveOf(await runGather())
     expect(p.reviewCommitted).toBe(false)
@@ -461,14 +461,14 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
   })
 
   it("committed REVIEW + other pending file → reviewDirty", async () => {
-    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n")
+    commitFile("gtd: await-review", ".gtd/REVIEW.md", "# Review\n")
     writeRepoFile(join(repoDir, "code.ts"), "human edit\n")
     expect(resolveOf(await runGather()).reviewDirty).toBe(true)
   })
 
   it("committed REVIEW + checkbox-only edit → reviewCheckboxOnly true, reviewDirty true", async () => {
     commitFile(
-      "gtd: awaiting review",
+      "gtd: await-review",
       ".gtd/REVIEW.md",
       "# Review\n\n- [ ] item one\n- [ ] item two\n",
     )
@@ -479,7 +479,7 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
   })
 
   it("committed REVIEW + textual annotation → reviewCheckboxOnly false, reviewDirty true", async () => {
-    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n\n- [ ] item one\n")
+    commitFile("gtd: await-review", ".gtd/REVIEW.md", "# Review\n\n- [ ] item one\n")
     writeFileSync(
       join(repoDir, ".gtd/REVIEW.md"),
       "# Review\n\n- [x] item one\n\nhuman comment here\n",
@@ -520,7 +520,7 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
   })
 
   it("pendingErrorsDeletion reflects a working-tree ERRORS.md deletion", async () => {
-    commitFile("gtd: errors", ".gtd/ERRORS.md", "boom\n")
+    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "boom\n")
     rmSync(join(repoDir, ".gtd/ERRORS.md")) // human removes the committed ERRORS.md
     const p = resolveOf(await runGather())
     expect(p.errorsPresent).toBe(false)
@@ -531,9 +531,9 @@ describe("gatherEvents — RESOLVE payload", { timeout: 30_000 }, () => {
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
     writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\nbody\n")
     git("add", "-A")
-    git("commit", "-q", "-m", "gtd: planning")
+    git("commit", "-q", "-m", "gtd: building")
     const p = resolveOf(await runGather())
-    expect(p.lastCommitSubject).toBe("gtd: planning")
+    expect(p.lastCommitSubject).toBe("gtd: building")
     expect(p.workingTreeClean).toBe(true)
     expect(p.packages).toHaveLength(1)
     expect(p.packages[0]!.name).toBe("01-foo")
@@ -761,16 +761,16 @@ describe("gatherEvents — headTurnDiff / headTurnIsEmpty", { timeout: 30_000 },
 describe("gatherEvents — reviewAnchor", { timeout: 30_000 }, () => {
   afterEach(cleanup)
 
-  it("newest gtd: reviewing <hash> after the last gtd: done sets reviewAnchor", async () => {
+  it("newest gtd: review <hash> after the last gtd: done sets reviewAnchor", async () => {
     initRepo(false)
     commitFile("feat: work", "work.ts", "export const w = 1\n")
     const anchorHash = git("rev-parse", "HEAD~1") ?? git("rev-parse", "HEAD")
-    git("commit", "--allow-empty", "-q", "-m", `gtd: reviewing ${anchorHash}`)
+    git("commit", "--allow-empty", "-q", "-m", `gtd: review ${anchorHash}`)
     const p = resolveOf(await runGather())
     expect(p.reviewAnchor).toBe(anchorHash)
   })
 
-  it("no gtd: reviewing commit → reviewAnchor unset", async () => {
+  it("no gtd: review commit → reviewAnchor unset", async () => {
     initRepo(false)
     commitFile("feat: work", "work.ts", "export const w = 1\n")
     const p = resolveOf(await runGather())
@@ -781,10 +781,10 @@ describe("gatherEvents — reviewAnchor", { timeout: 30_000 }, () => {
     initRepo(false)
     commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
     git("rm", "-q", ".gtd/TODO.md")
-    git("commit", "-q", "-m", "gtd: planning")
+    git("commit", "-q", "-m", "gtd: building")
     commitFile("feat: normal work", "normal.ts", "export const n = 1\n")
     const anchorTarget = git("rev-parse", "HEAD~2")
-    git("commit", "--allow-empty", "-q", "-m", `gtd: reviewing ${anchorTarget}`)
+    git("commit", "--allow-empty", "-q", "-m", `gtd: review ${anchorTarget}`)
     commitFile("feat: after anchor", "after.ts", "export const a = 1\n")
 
     const p = resolveOf(await runGather())
@@ -808,7 +808,7 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
     commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
     const grillingHash = git("rev-parse", "HEAD")
     git("rm", "-q", ".gtd/TODO.md")
-    git("commit", "-q", "-m", "gtd: planning")
+    git("commit", "-q", "-m", "gtd: building")
     commitFile("feat: add widget", "widget.ts", "export const widget = 1\n")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBe(grillingHash)
@@ -821,7 +821,7 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
     commitFile(turnSubject("agent", "grilling"), ".gtd/TODO.md", "# Plan\n")
     const grillingHash = git("rev-parse", "HEAD")
     git("rm", "-q", ".gtd/TODO.md")
-    git("commit", "-q", "-m", "gtd: planning")
+    git("commit", "-q", "-m", "gtd: building")
     commitFile("feat: add widget", "widget.ts", "export const widget = 1\n")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBe(grillingHash)
@@ -832,22 +832,22 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
     commitFile(turnSubject("human", "architecting"), ".gtd/ARCHITECTURE.md", "# Architecture\n")
     const architectingHash = git("rev-parse", "HEAD")
     git("rm", "-q", ".gtd/ARCHITECTURE.md")
-    git("commit", "-q", "-m", "gtd: planning")
+    git("commit", "-q", "-m", "gtd: building")
     commitFile("feat: add widget", "widget.ts", "export const widget = 1\n")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBe(architectingHash)
   })
 
-  // Rule 2: within-process, incremental — `gtd: awaiting review` already
-  // present; base = last `gtd: awaiting review` hash; refDiff spans only
+  // Rule 2: within-process, incremental — `gtd: await-review` already
+  // present; base = last `gtd: await-review` hash; refDiff spans only
   // post-review changes, minus the workflow files.
-  it("within-process incremental review → base is the last gtd: awaiting review commit; refDiff spans only post-review changes", async () => {
+  it("within-process incremental review → base is the last gtd: await-review commit; refDiff spans only post-review changes", async () => {
     initRepo(false)
     commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
     git("rm", "-q", ".gtd/TODO.md")
-    git("commit", "-q", "-m", "gtd: planning")
+    git("commit", "-q", "-m", "gtd: building")
     commitFile("feat: first batch", "first.ts", "export const first = 1\n")
-    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n")
+    commitFile("gtd: await-review", ".gtd/REVIEW.md", "# Review\n")
     const lastAwaiting = git("rev-parse", "HEAD")
     git("rm", "-q", ".gtd/REVIEW.md")
     git("commit", "-q", "-m", turnSubject("agent", "grilling"))
@@ -865,7 +865,7 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
     commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
     const grilling = git("rev-parse", "HEAD")
     git("rm", "-q", ".gtd/TODO.md")
-    git("commit", "-q", "-m", "gtd: planning")
+    git("commit", "-q", "-m", "gtd: building")
     commitFile("feat: work", "work.ts", "export const work = 1\n")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBe(grilling)
@@ -876,7 +876,7 @@ describe("gatherEvents — review base (reviewBase / refDiff)", { timeout: 30_00
     initRepo(false)
     commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
     git("rm", "-q", ".gtd/TODO.md")
-    git("commit", "-q", "-m", "gtd: planning")
+    git("commit", "-q", "-m", "gtd: building")
     const p = resolveOf(await runGather())
     expect(p.reviewBase).toBeUndefined()
     expect(p.refDiff).toBeUndefined()
@@ -968,7 +968,7 @@ describe(
       const grillingHash = git("rev-parse", "HEAD")
       const grillingParent = git("rev-parse", "HEAD~1")
       git("rm", "-q", ".gtd/TODO.md")
-      git("commit", "-q", "-m", "gtd: planning")
+      git("commit", "-q", "-m", "gtd: building")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
 
@@ -985,7 +985,7 @@ describe(
       commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
       const grillingParent = git("rev-parse", "HEAD~1")
       git("rm", "-q", ".gtd/TODO.md")
-      git("commit", "-q", "-m", "gtd: planning")
+      git("commit", "-q", "-m", "gtd: building")
       commitFile("feat: first work", "first.ts", "export const first = 1\n")
       commitFile("chore: interleaved", "chore.ts", "// chore\n")
       commitFile("feat: second work", "second.ts", "export const second = 2\n")
@@ -1002,13 +1002,13 @@ describe(
       initRepo(true)
       commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan 1\n")
       git("rm", "-q", ".gtd/TODO.md")
-      git("commit", "-q", "-m", "gtd: planning")
+      git("commit", "-q", "-m", "gtd: building")
       commitFile("feat: first feature", "first.ts", "export const first = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
       commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan 2\n")
       const secondGrillingParent = git("rev-parse", "HEAD~1")
       git("rm", "-q", ".gtd/TODO.md")
-      git("commit", "-q", "-m", "gtd: planning")
+      git("commit", "-q", "-m", "gtd: building")
       commitFile("feat: second feature", "second.ts", "export const second = 2\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
 
@@ -1022,7 +1022,7 @@ describe(
       initRepo(true)
       commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
       git("rm", "-q", ".gtd/TODO.md")
-      git("commit", "-q", "-m", "gtd: planning")
+      git("commit", "-q", "-m", "gtd: building")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
 
@@ -1036,7 +1036,7 @@ describe(
       initRepo(true)
       commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
       git("rm", "-q", ".gtd/TODO.md")
-      git("commit", "-q", "-m", "gtd: planning")
+      git("commit", "-q", "-m", "gtd: building")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
 
       const p = resolveOf(await runGather("none", { squash: true }))
@@ -1053,14 +1053,14 @@ describe(
       expect(p.squashDiff).toBeUndefined()
     })
 
-    it("gtd: reviewing <hash> anchor nearest HEAD wins over an older grilling turn", async () => {
+    it("gtd: review <hash> anchor nearest HEAD wins over an older grilling turn", async () => {
       initRepo(false)
       commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
       git("rm", "-q", ".gtd/TODO.md")
-      git("commit", "-q", "-m", "gtd: planning")
+      git("commit", "-q", "-m", "gtd: building")
       commitFile("feat: first batch", "first.ts", "export const first = 1\n")
       const anchorTarget = git("rev-parse", "HEAD")
-      git("commit", "--allow-empty", "-q", "-m", `gtd: reviewing ${anchorTarget}`)
+      git("commit", "--allow-empty", "-q", "-m", `gtd: review ${anchorTarget}`)
       commitFile("feat: after anchor", "after.ts", "export const a = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
 
@@ -1088,7 +1088,7 @@ describe(
       initRepo(true)
       commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
       git("rm", "-q", ".gtd/TODO.md")
-      git("commit", "-q", "-m", "gtd: planning")
+      git("commit", "-q", "-m", "gtd: building")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
       writeRepoFile(
@@ -1104,7 +1104,7 @@ describe(
       initRepo(true)
       commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
       git("rm", "-q", ".gtd/TODO.md")
-      git("commit", "-q", "-m", "gtd: planning")
+      git("commit", "-q", "-m", "gtd: building")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
 
@@ -1116,7 +1116,7 @@ describe(
       initRepo(true)
       commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
       git("rm", "-q", ".gtd/TODO.md")
-      git("commit", "-q", "-m", "gtd: planning")
+      git("commit", "-q", "-m", "gtd: building")
       commitFile("feat: work", "work.ts", "export const work = 1\n")
       git("commit", "--allow-empty", "-q", "-m", "gtd: done")
       writeRepoFile(join(repoDir, ".gtd/SQUASH_MSG.md"), "feat: add work\n")
@@ -1138,7 +1138,7 @@ describe("gatherEvents — healthFixBase anchoring", { timeout: 30_000 }, () => 
     commitFile("gtd: health-check", ".gtd/HEALTH.md", "red\n")
     commitFile("gtd(agent): health-fixing", "fix.ts", "export const f = 1\n")
     git("rm", "-q", ".gtd/HEALTH.md")
-    git("commit", "-q", "-m", "gtd: health-fix")
+    git("commit", "-q", "-m", "gtd: testing")
     const p = resolveOf(await runGather("none", { squash: true }))
     expect(p.healthFixBase).toBe(base)
   })
@@ -1149,7 +1149,7 @@ describe("gatherEvents — healthFixBase anchoring", { timeout: 30_000 }, () => 
     commitFile(turnSubject("human", "health-fixing"), ".gtd/HEALTH.md", "fix the build\n")
     commitFile("gtd(agent): health-fixing", "fix.ts", "export const f = 1\n")
     git("rm", "-q", ".gtd/HEALTH.md")
-    git("commit", "-q", "-m", "gtd: health-fix")
+    git("commit", "-q", "-m", "gtd: testing")
     const p = resolveOf(await runGather("none", { squash: true }))
     expect(p.healthFixBase).toBe(base)
   })
@@ -1160,32 +1160,32 @@ describe("gatherEvents — healthFixBase anchoring", { timeout: 30_000 }, () => 
     commitFile(turnSubject("human", "health-fixing"), ".gtd/HEALTH.md", "fix the build\n")
     commitFile("gtd(agent): health-fixing", "fix.ts", "export const f = 1\n")
     git("rm", "-q", ".gtd/HEALTH.md")
-    git("commit", "-q", "-m", "gtd: health-fix")
+    git("commit", "-q", "-m", "gtd: testing")
     commitFile("gtd: health-check", ".gtd/HEALTH.md", "still red\n")
     const p = resolveOf(await runGather("none", { squash: true }))
     expect(p.healthFixBase).toBe(base)
   })
 
-  it("a processed run (gtd: tests green in history, HEAD past the chain) clears the anchor", async () => {
+  it("a processed run (gtd: tests-green in history, HEAD past the chain) clears the anchor", async () => {
     initRepo(false)
     commitFile("gtd: health-check", ".gtd/HEALTH.md", "red\n")
     commitFile("gtd(agent): health-fixing", "fix.ts", "export const f = 1\n")
     git("rm", "-q", ".gtd/HEALTH.md")
-    git("commit", "-q", "-m", "gtd: health-fix")
-    git("commit", "--allow-empty", "-q", "-m", "gtd: tests green")
-    commitFile("gtd: learning applied", "AGENTS.md", "# lessons\n")
+    git("commit", "-q", "-m", "gtd: testing")
+    git("commit", "--allow-empty", "-q", "-m", "gtd: tests-green")
+    commitFile("gtd: learning-applied", "AGENTS.md", "# lessons\n")
     const p = resolveOf(await runGather("none", { squash: false, learning: true }))
     expect(p.healthFixBase).toBeUndefined()
   })
 
-  it("keeps the anchor while HEAD is the run's own gtd: tests green (the chain still needs it)", async () => {
+  it("keeps the anchor while HEAD is the run's own gtd: tests-green (the chain still needs it)", async () => {
     initRepo(false)
     const base = git("rev-parse", "HEAD")
     commitFile("gtd: health-check", ".gtd/HEALTH.md", "red\n")
     commitFile("gtd(agent): health-fixing", "fix.ts", "export const f = 1\n")
     git("rm", "-q", ".gtd/HEALTH.md")
-    git("commit", "-q", "-m", "gtd: health-fix")
-    git("commit", "--allow-empty", "-q", "-m", "gtd: tests green")
+    git("commit", "-q", "-m", "gtd: testing")
+    git("commit", "--allow-empty", "-q", "-m", "gtd: tests-green")
     const p = resolveOf(await runGather("none", { squash: true }))
     expect(p.healthFixBase).toBe(base)
     // The health path carries the run's diff as the squash range.
@@ -1199,22 +1199,22 @@ describe("gatherEvents — healthFixBase anchoring", { timeout: 30_000 }, () => 
 describe("gatherEvents — COMMIT-stream base folds (issue-7)", { timeout: 30_000 }, () => {
   afterEach(cleanup)
 
-  it("trunk regression: gtd: errors commits after gtd: planning fold into testFixCount == 2, not 0", async () => {
+  it("trunk regression: gtd: test-failed commits after gtd: building fold into testFixCount == 2, not 0", async () => {
     initRepo(false)
-    commitFile("gtd: planning", ".gtd/TODO.md", "# Plan\n")
-    commitFile("gtd: errors", ".gtd/ERRORS.md", "error 1\n")
-    commitFile("gtd: errors", ".gtd/ERRORS.md", "error 2\n")
+    commitFile("gtd: building", ".gtd/TODO.md", "# Plan\n")
+    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "error 1\n")
+    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "error 2\n")
     const events = await runGather()
     expect(foldCounters(events).testFixCount).toBe(2)
   })
 
-  it("feature-branch control: only post-branch-point gtd: errors commits are included", async () => {
+  it("feature-branch control: only post-branch-point gtd: test-failed commits are included", async () => {
     initRepo(false)
-    commitFile("gtd: errors", ".gtd/ERRORS.md", "pre-branch error\n")
+    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "pre-branch error\n")
     git("checkout", "-q", "-b", "feature")
-    commitFile("gtd: planning", ".gtd/TODO.md", "# Plan\n")
-    commitFile("gtd: errors", ".gtd/ERRORS.md", "error 1\n")
-    commitFile("gtd: errors", ".gtd/ERRORS.md", "error 2\n")
+    commitFile("gtd: building", ".gtd/TODO.md", "# Plan\n")
+    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "error 1\n")
+    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "error 2\n")
     const events = await runGather()
     expect(foldCounters(events).testFixCount).toBe(2)
   })
@@ -1290,9 +1290,9 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     commitFile("gtd: grilled", ".gtd/ARCHITECTURE.md", "# Architecture\n")
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
     writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
-    await runPerform({ kind: "commitRouting", subject: "gtd: planning", removeArchitecture: true })
+    await runPerform({ kind: "commitRouting", subject: "gtd: building", removeArchitecture: true })
     expect(existsSync(join(repoDir, ".gtd/ARCHITECTURE.md"))).toBe(false)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: planning")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: building")
     expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\t.gtd/ARCHITECTURE.md")
   })
 
@@ -1338,7 +1338,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
   })
 
   it("commitRouting removeReview: deletes REVIEW.md and lands its removal in the commit", async () => {
-    commitFile("gtd: awaiting review", ".gtd/REVIEW.md", "# Review\n")
+    commitFile("gtd: await-review", ".gtd/REVIEW.md", "# Review\n")
     await runPerform({ kind: "commitRouting", subject: "gtd: done", removeReview: true })
     expect(existsSync(join(repoDir, ".gtd/REVIEW.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: done")
@@ -1346,8 +1346,8 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
   })
 
   it("commitRouting removeFeedback: deletes FEEDBACK.md and lands its removal in the commit", async () => {
-    commitFile("gtd: errors", ".gtd/FEEDBACK.md", "AssertionError: boom\n")
-    await runPerform({ kind: "commitRouting", subject: "gtd: tests green", removeFeedback: true })
+    commitFile("gtd: test-failed", ".gtd/FEEDBACK.md", "AssertionError: boom\n")
+    await runPerform({ kind: "commitRouting", subject: "gtd: tests-green", removeFeedback: true })
     expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(false)
     expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\t.gtd/FEEDBACK.md")
   })
@@ -1355,13 +1355,13 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
   it("commitRouting removeHealth: deletes HEALTH.md and lands its removal in the commit", async () => {
     commitFile("gtd: health-check", ".gtd/HEALTH.md", "# Health\ntest output\n")
     writeRepoFile(join(repoDir, "impl.ts"), "export const fixed = 1\n")
-    await runPerform({ kind: "commitRouting", subject: "gtd: health-fix", removeHealth: true })
+    await runPerform({ kind: "commitRouting", subject: "gtd: testing", removeHealth: true })
     expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: health-fix")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: testing")
     expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\t.gtd/HEALTH.md")
   })
 
-  it("runTest green: removes any pending FEEDBACK.md, commits gtd: tests green", async () => {
+  it("runTest green: removes any pending FEEDBACK.md, commits gtd: tests-green", async () => {
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
     writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
     writeRepoFile(join(repoDir, "impl.ts"), "export const i = 1\n")
@@ -1372,13 +1372,13 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
       { kind: "runTest", errorCount: 0, capReached: false },
       { exitCode: 0, output: "pass" },
     )
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: tests green")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: tests-green")
     expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(false)
     expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(false)
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
-  it("runTest red under cap: writes FEEDBACK.md and commits gtd: errors", async () => {
+  it("runTest red under cap: writes FEEDBACK.md and commits gtd: test-failed", async () => {
     await runPerform(
       { kind: "runTest", errorCount: 1, capReached: false },
       { exitCode: 1, output: "FAIL: boom\n" },
@@ -1386,10 +1386,10 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(true)
     expect(readFileSync(join(repoDir, ".gtd/FEEDBACK.md"), "utf8")).toContain("FAIL: boom")
     expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(false)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: errors")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: test-failed")
   })
 
-  it("runTest red at cap: writes ERRORS.md (not FEEDBACK.md) and commits gtd: errors", async () => {
+  it("runTest red at cap: writes ERRORS.md (not FEEDBACK.md) and commits gtd: test-failed", async () => {
     await runPerform(
       { kind: "runTest", errorCount: 3, capReached: true },
       { exitCode: 1, output: "FAIL: persistent\n" },
@@ -1397,7 +1397,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(true)
     expect(readFileSync(join(repoDir, ".gtd/ERRORS.md"), "utf8")).toContain("FAIL: persistent")
     expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(false)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: errors")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: test-failed")
   })
 
   it("runTest red under cap, empty output: FEEDBACK.md exists, non-empty, contains sentinel", async () => {
@@ -1411,11 +1411,11 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(feedback).toContain("failed with exit code 1 and produced no output")
   })
 
-  it("closePackage (empty FEEDBACK): removes FEEDBACK + last package + empty .gtd, commits gtd: package done", async () => {
+  it("closePackage (empty FEEDBACK): removes FEEDBACK + last package + empty .gtd, commits gtd: close-package", async () => {
     mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
     writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
     git("add", "-A")
-    git("commit", "-q", "-m", "gtd: tests green")
+    git("commit", "-q", "-m", "gtd: tests-green")
     writeRepoFile(join(repoDir, ".gtd/FEEDBACK.md"), "") // empty, untracked
 
     await runPerform({ kind: "closePackage" })
@@ -1423,7 +1423,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(false)
     expect(existsSync(join(repoDir, ".gtd", "01-foo"))).toBe(false)
     expect(existsSync(join(repoDir, ".gtd"))).toBe(false)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: package done")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: close-package")
   })
 
   it("closePackage (force-approve, no FEEDBACK): removes first package, keeps the rest", async () => {
@@ -1432,28 +1432,28 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# A\n")
     writeRepoFile(join(repoDir, ".gtd", "02-bar", "01-task.md"), "# B\n")
     git("add", "-A")
-    git("commit", "-q", "-m", "gtd: tests green")
+    git("commit", "-q", "-m", "gtd: tests-green")
 
     await runPerform({ kind: "closePackage" }) // no FEEDBACK.md present — tolerated
 
     expect(existsSync(join(repoDir, ".gtd", "01-foo"))).toBe(false)
     expect(existsSync(join(repoDir, ".gtd", "02-bar"))).toBe(true)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: package done")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: close-package")
   })
 
-  it("writeSquashTemplate: writes a conventional-commits template and commits gtd: squash template", async () => {
+  it("writeSquashTemplate: writes a conventional-commits template and commits gtd: squashing", async () => {
     await runPerform({ kind: "writeSquashTemplate" })
     expect(existsSync(join(repoDir, ".gtd/SQUASH_MSG.md"))).toBe(true)
     const content = readFileSync(join(repoDir, ".gtd/SQUASH_MSG.md"), "utf8")
     expect(content).toContain("replace this file's content")
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: squash template")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: squashing")
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
   it("squashCommit: reads SQUASH_MSG.md, removes it, soft-resets to squashBase, commits with the file's content as message", async () => {
     commitFile(turnSubject("human", "grilling"), ".gtd/TODO.md", "# Plan\n")
     git("rm", "-q", ".gtd/TODO.md")
-    git("commit", "-q", "-m", "gtd: planning")
+    git("commit", "-q", "-m", "gtd: building")
     commitFile("feat: work", "work.ts", "export const work = 1\n")
     git("commit", "--allow-empty", "-q", "-m", "gtd: done")
     const grillingHash = git(
@@ -1496,14 +1496,14 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
   })
 
-  it("runHealthCheck green, chainAfterGreen → commits gtd: tests green, stop: false", async () => {
+  it("runHealthCheck green, chainAfterGreen → commits gtd: tests-green, stop: false", async () => {
     const countBefore = Number(git("rev-list", "--count", "HEAD"))
     const result = await runPerform(
       { kind: "runHealthCheck", errorCount: 1, capReached: false, chainAfterGreen: true },
       { exitCode: 0, output: "all good" },
     )
     expect(result.stop).toBe(false)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: tests green")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: tests-green")
     expect(Number(git("rev-list", "--count", "HEAD"))).toBe(countBefore + 1)
     expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
     expect(existsSync(join(repoDir, ".gtd/SQUASH_MSG.md"))).toBe(false)

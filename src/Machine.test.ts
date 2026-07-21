@@ -567,7 +567,7 @@ describe("idle human step never captures an empty turn", () => {
 
   it("repeated human step at idle still runs the health check (no captureTurn)", () => {
     const result = resolve([
-      R({ invoker: "human", workingTreeClean: true, lastCommitSubject: "gtd: health-fix" }),
+      R({ invoker: "human", workingTreeClean: true, lastCommitSubject: "gtd: testing" }),
     ])
     expect(result.state).toBe("idle")
     expect(result.edgeAction?.kind).toBe("runHealthCheck")
@@ -582,7 +582,7 @@ describe("out-of-turn: step-agent while human awaited", () => {
       R({
         invoker: "agent",
         reviewPresent: true,
-        lastCommitSubject: "gtd: awaiting review",
+        lastCommitSubject: "gtd: await-review",
         workingTreeClean: true,
       }),
     ])
@@ -604,7 +604,7 @@ describe("out-of-turn: human step while agent awaited", () => {
         packagesPresent: true,
         workingTreeClean: false,
         codeDirty: true,
-        lastCommitSubject: "gtd: planning",
+        lastCommitSubject: "gtd: building",
       }),
     ])
     expect(result.state).toBe("building")
@@ -618,7 +618,7 @@ describe("out-of-turn: human step while agent awaited", () => {
         invoker: "human",
         packagesPresent: true,
         workingTreeClean: true,
-        lastCommitSubject: "gtd: planning",
+        lastCommitSubject: "gtd: building",
       }),
     ])
     expect(result.state).toBe("building")
@@ -659,7 +659,7 @@ describe("out-of-turn: human step while agent awaited", () => {
   })
 })
 
-describe("gtd(agent): grilled mid-chains to gtd: planning", () => {
+describe("gtd(agent): grilled mid-chains to gtd: building", () => {
   it("with packages present, routes to planning and removes ARCHITECTURE.md", () => {
     const result = resolve([
       R({
@@ -673,7 +673,7 @@ describe("gtd(agent): grilled mid-chains to gtd: planning", () => {
     ])
     expect(result.edgeAction).toEqual({
       kind: "commitRouting",
-      subject: "gtd: planning",
+      subject: "gtd: building",
       removeArchitecture: true,
     })
   })
@@ -711,9 +711,9 @@ describe("squash chain", () => {
     expect(result.edgeAction).toEqual({ kind: "writeSquashTemplate" })
   })
 
-  it("gtd: squash template → rest squashing prompt for agent", () => {
+  it("gtd: squashing → rest squashing prompt for agent", () => {
     const result = resolve([
-      R({ invoker: "none", lastCommitSubject: "gtd: squash template", workingTreeClean: true }),
+      R({ invoker: "none", lastCommitSubject: "gtd: squashing", workingTreeClean: true }),
     ])
     expect(result.state).toBe("squashing")
     expect(result.actor).toBe("agent")
@@ -764,9 +764,9 @@ describe("squash chain", () => {
 // ── Learning chain ────────────────────────────────────────────────────────
 
 describe("learning chain", () => {
-  it("gtd: learning template → rest learning prompt for agent", () => {
+  it("gtd: learning → rest learning prompt for agent", () => {
     const result = resolve([
-      R({ invoker: "none", lastCommitSubject: "gtd: learning template", workingTreeClean: true }),
+      R({ invoker: "none", lastCommitSubject: "gtd: learning", workingTreeClean: true }),
     ])
     expect(result.state).toBe("learning")
     expect(result.actor).toBe("agent")
@@ -788,7 +788,7 @@ describe("learning chain", () => {
     expect(result.edgeAction).toBeUndefined()
   })
 
-  it("gtd(agent): learning with real content → commitRouting gtd: learning drafted", () => {
+  it("gtd(agent): learning with real content → commitRouting gtd: await-learning-review", () => {
     const result = resolve([
       R({
         invoker: "agent",
@@ -800,20 +800,24 @@ describe("learning chain", () => {
     ])
     expect(result.edgeAction).toEqual({
       kind: "commitRouting",
-      subject: "gtd: learning drafted",
+      subject: "gtd: await-learning-review",
     })
   })
 
-  it("gtd: learning drafted → rest await-learning-review prompt for human", () => {
+  it("gtd: await-learning-review → rest await-learning-review prompt for human", () => {
     const result = resolve([
-      R({ invoker: "none", lastCommitSubject: "gtd: learning drafted", workingTreeClean: true }),
+      R({
+        invoker: "none",
+        lastCommitSubject: "gtd: await-learning-review",
+        workingTreeClean: true,
+      }),
     ])
     expect(result.state).toBe("await-learning-review")
     expect(result.actor).toBe("human")
     expect(result.edgeAction).toBeUndefined()
   })
 
-  it("gtd(human): learning (even empty — accept as-is) → commitRouting gtd: learning approved", () => {
+  it("gtd(human): learning (even empty — accept as-is) → commitRouting gtd: learning-apply", () => {
     const result = resolve([
       R({
         invoker: "human",
@@ -824,13 +828,13 @@ describe("learning chain", () => {
     ])
     expect(result.edgeAction).toEqual({
       kind: "commitRouting",
-      subject: "gtd: learning approved",
+      subject: "gtd: learning-apply",
     })
   })
 
-  it("gtd: learning approved → rest learning-apply prompt for agent", () => {
+  it("gtd: learning-apply → rest learning-apply prompt for agent", () => {
     const result = resolve([
-      R({ invoker: "none", lastCommitSubject: "gtd: learning approved", workingTreeClean: true }),
+      R({ invoker: "none", lastCommitSubject: "gtd: learning-apply", workingTreeClean: true }),
     ])
     expect(result.state).toBe("learning-apply")
     expect(result.actor).toBe("agent")
@@ -841,7 +845,7 @@ describe("learning chain", () => {
     const result = resolve([
       R({
         invoker: "agent",
-        lastCommitSubject: "gtd: learning approved",
+        lastCommitSubject: "gtd: learning-apply",
         workingTreeClean: true,
       }),
     ])
@@ -850,7 +854,7 @@ describe("learning chain", () => {
     expect(result.edgeAction).toBeUndefined()
   })
 
-  it("gtd(agent): learning-apply → commitRouting gtd: learning applied, removeLearning", () => {
+  it("gtd(agent): learning-apply → commitRouting gtd: learning-applied, removeLearning", () => {
     const result = resolve([
       R({
         invoker: "agent",
@@ -860,16 +864,16 @@ describe("learning chain", () => {
     ])
     expect(result.edgeAction).toEqual({
       kind: "commitRouting",
-      subject: "gtd: learning applied",
+      subject: "gtd: learning-applied",
       removeLearning: true,
     })
   })
 
-  it("gtd: learning applied + squash enabled + squashBase → writeSquashTemplate", () => {
+  it("gtd: learning-applied + squash enabled + squashBase → writeSquashTemplate", () => {
     const result = resolve([
       R({
         invoker: "agent",
-        lastCommitSubject: "gtd: learning applied",
+        lastCommitSubject: "gtd: learning-applied",
         squashEnabled: true,
         squashBase: "abc123",
         workingTreeClean: true,
@@ -878,11 +882,11 @@ describe("learning chain", () => {
     expect(result.edgeAction).toEqual({ kind: "writeSquashTemplate" })
   })
 
-  it("gtd: learning applied + squash disabled → rest idle for human", () => {
+  it("gtd: learning-applied + squash disabled → rest idle for human", () => {
     const result = resolve([
       R({
         invoker: "none",
-        lastCommitSubject: "gtd: learning applied",
+        lastCommitSubject: "gtd: learning-applied",
         squashEnabled: false,
         workingTreeClean: true,
       }),
@@ -896,7 +900,7 @@ describe("learning chain", () => {
     const result = resolve([
       R({
         invoker: "human",
-        lastCommitSubject: "gtd: learning drafted",
+        lastCommitSubject: "gtd: await-learning-review",
         workingTreeClean: false,
         codeDirty: true,
       }),
@@ -980,7 +984,7 @@ describe("predictTurn", () => {
 
   it("predicts null at a settled rest (idle, health check is not a commit-predicting action)", () => {
     const prediction = predictTurn([
-      R({ workingTreeClean: true, lastCommitSubject: "gtd: health-fix" }),
+      R({ workingTreeClean: true, lastCommitSubject: "gtd: testing" }),
     ])
     expect(prediction.state).toBe("idle")
   })
@@ -1012,7 +1016,7 @@ describe("health lifecycle", () => {
     })
   })
 
-  it("gtd(agent): health-fixing mid-chain → commits gtd: health-fix, removes HEALTH.md", () => {
+  it("gtd(agent): health-fixing mid-chain → commits gtd: testing, removes HEALTH.md", () => {
     const result = resolve([
       R({
         invoker: "none",
@@ -1033,7 +1037,7 @@ describe("health lifecycle", () => {
     ])
     expect(result.edgeAction).toEqual({
       kind: "commitRouting",
-      subject: "gtd: health-fix",
+      subject: "gtd: testing",
       removeHealth: true,
     })
   })
@@ -1051,11 +1055,11 @@ describe("health lifecycle", () => {
     expect(result.actor).toBe("human")
   })
 
-  it("gtd: health-fix re-test chains after green on healthFixBase alone (green-first-try entry run has zero health-check commits)", () => {
+  it("gtd: testing re-test chains after green on healthFixBase alone (green-first-try entry run has zero health-check commits)", () => {
     const result = resolve([
       R({
         invoker: "agent",
-        lastCommitSubject: "gtd: health-fix",
+        lastCommitSubject: "gtd: testing",
         workingTreeClean: true,
         squashEnabled: true,
         healthFixBase: "abc123",
@@ -1069,11 +1073,11 @@ describe("health lifecycle", () => {
     })
   })
 
-  it("gtd: health-fix re-test does not chain when no healthFixBase is anchored", () => {
+  it("gtd: testing re-test does not chain when no healthFixBase is anchored", () => {
     const result = resolve([
       R({
         invoker: "agent",
-        lastCommitSubject: "gtd: health-fix",
+        lastCommitSubject: "gtd: testing",
         workingTreeClean: true,
         squashEnabled: true,
       }),
@@ -1137,7 +1141,7 @@ describe("tests green force-approve", () => {
       R({
         packagesPresent: true,
         workingTreeClean: true,
-        lastCommitSubject: "gtd: tests green",
+        lastCommitSubject: "gtd: tests-green",
         agenticReviewEnabled: false,
       }),
     ])
@@ -1149,7 +1153,7 @@ describe("tests green force-approve", () => {
       R({
         packagesPresent: true,
         workingTreeClean: true,
-        lastCommitSubject: "gtd: tests green",
+        lastCommitSubject: "gtd: tests-green",
         agenticReviewEnabled: true,
       }),
     ])
@@ -1160,7 +1164,7 @@ describe("tests green force-approve", () => {
 // ── Review lifecycle ───────────────────────────────────────────────────────
 
 describe("review lifecycle", () => {
-  it("gtd(agent): review mid-chain → commits gtd: awaiting review", () => {
+  it("gtd(agent): review mid-chain → commits gtd: await-review", () => {
     const result = resolve([
       R({
         invoker: "agent",
@@ -1169,16 +1173,16 @@ describe("review lifecycle", () => {
         workingTreeClean: true,
       }),
     ])
-    expect(result.edgeAction).toEqual({ kind: "commitRouting", subject: "gtd: awaiting review" })
+    expect(result.edgeAction).toEqual({ kind: "commitRouting", subject: "gtd: await-review" })
   })
 
-  it("gtd: awaiting review is a rest → await-review (human)", () => {
+  it("gtd: await-review is a rest → await-review (human)", () => {
     const result = resolve([
       R({
         invoker: "none",
         reviewPresent: true,
         reviewCommitted: true,
-        lastCommitSubject: "gtd: awaiting review",
+        lastCommitSubject: "gtd: await-review",
         workingTreeClean: true,
       }),
     ])
@@ -1224,7 +1228,7 @@ describe("review lifecycle", () => {
     })
   })
 
-  it("substantive gtd(human): review turn → commits gtd: review feedback", () => {
+  it("substantive gtd(human): review turn → commits gtd: grilling", () => {
     const result = resolve([
       R({
         invoker: "human",
@@ -1239,14 +1243,14 @@ describe("review lifecycle", () => {
     ])
     expect(result.edgeAction).toEqual({
       kind: "commitRouting",
-      subject: "gtd: review feedback",
+      subject: "gtd: grilling",
       removeReview: true,
     })
   })
 
-  it("gtd: review feedback is a rest → grilling (agent)", () => {
+  it("gtd: grilling is a rest → grilling (agent)", () => {
     const result = resolve([
-      R({ invoker: "none", lastCommitSubject: "gtd: review feedback", workingTreeClean: true }),
+      R({ invoker: "none", lastCommitSubject: "gtd: grilling", workingTreeClean: true }),
     ])
     expect(result.state).toBe("grilling")
     expect(result.actor).toBe("agent")

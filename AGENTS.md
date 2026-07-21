@@ -90,7 +90,7 @@ makes LLM prompt caching effective without an in-repo cache of our own.
 ### Review Checkout Window (Program-Edge Concern)
 
 The review checkout window (`src/ReviewWindow.ts` — HEAD/index rewound to the
-review base while `gtd: awaiting review` rests, so editors surface the diff) is
+review base while `gtd: await-review` rests, so editors surface the diff) is
 wired ONLY in `src/program.ts`: closed before `ConfigInit.ensure` and every
 `gatherEvents`, re-armed after dispatch (success AND failure paths). The
 machine, `gatherEvents`, and `perform` must never know it exists — no

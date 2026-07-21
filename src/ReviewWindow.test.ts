@@ -26,7 +26,7 @@ describe("reviewWindowBase", () => {
       entry("h2", "gtd(human): grilling"),
       entry("h3", "gtd(agent): grilled"),
       entry("h4", "gtd(agent): building"),
-      entry("h5", "gtd: awaiting review"), // HEAD — excluded
+      entry("h5", "gtd: await-review"), // HEAD — excluded
     ])
     expect(base).toBe("h2")
   })
@@ -37,7 +37,7 @@ describe("reviewWindowBase", () => {
       entry("h2", "gtd(human): architecting"),
       entry("h3", "gtd(agent): grilled"),
       entry("h4", "gtd(agent): building"),
-      entry("h5", "gtd: awaiting review"), // HEAD — excluded
+      entry("h5", "gtd: await-review"), // HEAD — excluded
     ])
     expect(base).toBe("h2")
   })
@@ -48,7 +48,7 @@ describe("reviewWindowBase", () => {
       entry("h2", "gtd(human): grilled"),
       entry("h3", "gtd(agent): grilled"),
       entry("h4", "gtd(agent): building"),
-      entry("h5", "gtd: awaiting review"), // HEAD — excluded
+      entry("h5", "gtd: await-review"), // HEAD — excluded
     ])
     expect(base).toBe("h2")
   })
@@ -56,21 +56,21 @@ describe("reviewWindowBase", () => {
   it("prefers the previous awaiting-review over the first grilling turn", () => {
     const base = reviewWindowBase([
       entry("h1", "gtd(human): grilling"),
-      entry("h2", "gtd: awaiting review"),
-      entry("h3", "gtd: review feedback"),
+      entry("h2", "gtd: await-review"),
+      entry("h3", "gtd: grilling"),
       entry("h4", "gtd(agent): grilling"),
-      entry("h5", "gtd: awaiting review"), // HEAD — excluded
+      entry("h5", "gtd: await-review"), // HEAD — excluded
     ])
     expect(base).toBe("h2")
   })
 
-  it("prefers a gtd: reviewing anchor over both other rules", () => {
+  it("prefers a gtd: review anchor over both other rules", () => {
     const base = reviewWindowBase([
       entry("h1", "gtd(human): grilling"),
-      entry("h2", "gtd: awaiting review"),
-      entry("h3", `gtd: reviewing ${ANCHOR_HASH}`),
+      entry("h2", "gtd: await-review"),
+      entry("h3", `gtd: review ${ANCHOR_HASH}`),
       entry("h4", "gtd(agent): review"),
-      entry("h5", "gtd: awaiting review"), // HEAD — excluded
+      entry("h5", "gtd: await-review"), // HEAD — excluded
     ])
     expect(base).toBe(ANCHOR_HASH)
   })
@@ -78,10 +78,10 @@ describe("reviewWindowBase", () => {
   it("resets the cycle at the last gtd: done", () => {
     const base = reviewWindowBase([
       entry("h1", "gtd(human): grilling"),
-      entry("h2", "gtd: awaiting review"),
+      entry("h2", "gtd: await-review"),
       entry("h3", "gtd: done"),
       entry("h4", "gtd(human): grilling"),
-      entry("h5", "gtd: awaiting review"), // HEAD — excluded
+      entry("h5", "gtd: await-review"), // HEAD — excluded
     ])
     expect(base).toBe("h4")
   })
@@ -89,7 +89,7 @@ describe("reviewWindowBase", () => {
   it("returns undefined outside a process (no anchor, no grilling, no prior round)", () => {
     const base = reviewWindowBase([
       entry("h1", "chore: boundary"),
-      entry("h2", "gtd: awaiting review"), // HEAD — excluded
+      entry("h2", "gtd: await-review"), // HEAD — excluded
     ])
     expect(base).toBeUndefined()
   })
@@ -105,7 +105,7 @@ const runWith = <A>(repo: InMemRepo, eff: Effect.Effect<A, Error, GitService>): 
 const runWithEither = <A>(repo: InMemRepo, eff: Effect.Effect<A, Error, GitService>) =>
   Effect.runPromise(eff.pipe(Effect.provide(makeGitServiceLayer(repo)), Effect.either))
 
-/** A minimal cycle ending at `gtd: awaiting review` (HEAD). */
+/** A minimal cycle ending at `gtd: await-review` (HEAD). */
 const makeReviewRepo = (): InMemRepo => {
   const repo = new InMemRepo()
   repo.writeFile("readme.txt", "hello")
@@ -117,12 +117,12 @@ const makeReviewRepo = (): InMemRepo => {
   repo.deleteFile(".gtd/TODO.md")
   repo.writeFile(".gtd/REVIEW.md", "# Review\n- [ ] chunk")
   repo.commitAllWithPrefix("gtd(agent): review")
-  repo.commitAllWithPrefix("gtd: awaiting review")
+  repo.commitAllWithPrefix("gtd: await-review")
   return repo
 }
 
 describe("openReviewWindow", () => {
-  it("is a no-op when HEAD is not gtd: awaiting review", async () => {
+  it("is a no-op when HEAD is not gtd: await-review", async () => {
     const repo = new InMemRepo()
     repo.writeFile("readme.txt", "hello")
     repo.commitAllWithPrefix("init: first commit")

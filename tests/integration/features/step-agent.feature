@@ -89,7 +89,7 @@ Feature: gtd step-agent — the agent mutator
     Then it succeeds
     And the commit count is unchanged
     And the file ".gtd/ARCHITECTURE.md" exists
-    And the git log does not contain "gtd: planning"
+    And the git log does not contain "gtd: building"
     When I run gtd next
     Then it succeeds
     And stdout contains "Decompose it into an ordered set of"
@@ -109,11 +109,11 @@ Feature: gtd step-agent — the agent mutator
     Then it succeeds
     And the commit count is unchanged
     And the file ".gtd/ARCHITECTURE.md" exists
-    And the git log does not contain "gtd: planning"
+    And the git log does not contain "gtd: building"
 
   Scenario: A do-nothing agent invocation at the planning rest never skips the build
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """
@@ -121,7 +121,7 @@ Feature: gtd step-agent — the agent mutator
     When I run gtd step-agent
     Then it succeeds
     And the commit count is unchanged
-    And the git log does not contain "gtd: tests green"
+    And the git log does not contain "gtd: tests-green"
     When I run gtd next
     Then it succeeds
     And stdout contains "Build the package described below"

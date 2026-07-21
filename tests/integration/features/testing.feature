@@ -2,10 +2,10 @@
 Feature: Testing — the bounded build/test/fix loop
 
   The build turn is `gtd step-agent`: while a package is pending it runs the
-  configured `testCommand`. A green gate lands `gtd: tests green` and rests
+  configured `testCommand`. A green gate lands `gtd: tests-green` and rests
   there — `gtd next` then emits the agentic-review prompt. A red gate below the
   fix-attempt cap writes a non-empty FEEDBACK.md and commits it as
-  `gtd: errors` in the same chain, resting at the fixing prompt for the agent;
+  `gtd: test-failed` in the same chain, resting at the fixing prompt for the agent;
   `gtd step-agent` refuses at that rest since it is the agent that must fix,
   but the tree is always clean by the time either command returns 0 (the
   always-clean invariant — a red run is never left uncommitted). A red gate at
@@ -25,7 +25,7 @@ Feature: Testing — the bounded build/test/fix loop
       """
       testCommand: bash gate.sh
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
@@ -40,9 +40,9 @@ Feature: Testing — the bounded build/test/fix loop
       chore: initial commit
       chore: test gate
       chore: add .gtdrc
-      gtd: planning
+      gtd: building
       gtd(agent): building
-      gtd: tests green
+      gtd: tests-green
       """
     And stdout contains "state:"
     And stdout does not contain "Spawn a **reviewing subagent**"
@@ -61,7 +61,7 @@ Feature: Testing — the bounded build/test/fix loop
       """
       testCommand: bash gate.sh
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
@@ -71,7 +71,7 @@ Feature: Testing — the bounded build/test/fix loop
       """
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: errors"
+    And the last commit subject is "gtd: test-failed"
     And the file ".gtd/FEEDBACK.md" exists
     And the file ".gtd/FEEDBACK.md" contains "SENTINEL_FAILURE"
     When I run gtd next
@@ -83,7 +83,7 @@ Feature: Testing — the bounded build/test/fix loop
     Then I record the commit count
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: errors"
+    And the last commit subject is "gtd: test-failed"
     And the commit count is unchanged
     When I run gtd next
     Then it succeeds
@@ -102,20 +102,20 @@ Feature: Testing — the bounded build/test/fix loop
       """
       testCommand: bash gate.sh
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors"
-    And a commit "gtd: errors"
-    And a commit "gtd: errors"
+    And a commit "gtd: test-failed"
+    And a commit "gtd: test-failed"
+    And a commit "gtd: test-failed"
     And a file "src/helper.ts" with:
       """
       export const helper = (x: string) => x
       """
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: errors"
+    And the last commit subject is "gtd: test-failed"
     And the file ".gtd/ERRORS.md" exists
     And the file ".gtd/FEEDBACK.md" does not exist
     When I run gtd next with "--json"
@@ -138,11 +138,11 @@ Feature: Testing — the bounded build/test/fix loop
       """
       testCommand: bash gate.sh
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds ".gtd/ERRORS.md" with:
+    And a commit "gtd: test-failed" that adds ".gtd/ERRORS.md" with:
       """
       Earlier escalation output.
       """
@@ -154,7 +154,7 @@ Feature: Testing — the bounded build/test/fix loop
     When I run gtd step
     Then it succeeds
     And the git log contains "gtd(human): escalate"
-    And the last commit subject is "gtd: tests green"
+    And the last commit subject is "gtd: tests-green"
     And the file ".gtd/ERRORS.md" does not exist
 
   Scenario: Removing a committed ERRORS.md and re-testing red writes a fresh FEEDBACK.md, not ERRORS.md again
@@ -170,11 +170,11 @@ Feature: Testing — the bounded build/test/fix loop
       """
       testCommand: bash gate.sh
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds ".gtd/ERRORS.md" with:
+    And a commit "gtd: test-failed" that adds ".gtd/ERRORS.md" with:
       """
       Earlier escalation output.
       """
@@ -187,7 +187,7 @@ Feature: Testing — the bounded build/test/fix loop
     When I run gtd step
     Then it succeeds
     And the git log contains "gtd(human): escalate"
-    And the last commit subject is "gtd: errors"
+    And the last commit subject is "gtd: test-failed"
     And the file ".gtd/FEEDBACK.md" exists
     And the file ".gtd/ERRORS.md" does not exist
 
@@ -204,13 +204,13 @@ Feature: Testing — the bounded build/test/fix loop
       """
       testCommand: bash gate.sh
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors"
-    And a commit "gtd: errors"
-    And a commit "gtd: errors"
+    And a commit "gtd: test-failed"
+    And a commit "gtd: test-failed"
+    And a commit "gtd: test-failed"
     And a file "src/helper.ts" with:
       """
       export const helper = (x: string) => x

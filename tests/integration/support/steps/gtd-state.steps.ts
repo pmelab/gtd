@@ -14,7 +14,7 @@ const git = (dir: string, ...args: string[]) =>
   execFileSync("git", args, { cwd: dir, stdio: "pipe" })
 
 // An empty marker commit carrying just a subject — the unit the counter folds
-// read (`gtd: errors`, `gtd: feedback`, `gtd: planning`, `gtd: building`,
+// read (`gtd: test-failed`, `gtd: feedback`, `gtd: building`, `gtd: building`,
 // `gtd: fixing`, …). `--allow-empty` keeps the tree untouched so prior pending
 // changes survive as pending.
 Given("a commit {string}", (world: GtdWorld, message: string) => {

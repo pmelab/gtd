@@ -40,7 +40,7 @@ describe("describeStatus", () => {
 describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
   const cases: ReadonlyArray<EdgeAction> = [
     { kind: "captureTurn", actor: "human", gate: "building" },
-    { kind: "commitRouting", subject: "gtd: tests green" },
+    { kind: "commitRouting", subject: "gtd: tests-green" },
     { kind: "runTest", errorCount: 0, capReached: false },
     { kind: "closePackage" },
     { kind: "writeSquashTemplate" },
@@ -72,12 +72,12 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
     expect(
       describeEdgeAction({
         kind: "commitRouting",
-        subject: "gtd: package done",
+        subject: "gtd: close-package",
         removeArchitecture: true,
         removeFeedback: true,
       }),
     ).toBe(
-      'commit routing as "gtd: package done" (removing .gtd/ARCHITECTURE.md, .gtd/FEEDBACK.md)',
+      'commit routing as "gtd: close-package" (removing .gtd/ARCHITECTURE.md, .gtd/FEEDBACK.md)',
     )
   })
 
@@ -105,10 +105,10 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
     expect(
       describeEdgeAction({
         kind: "commitRouting",
-        subject: "gtd: learning applied",
+        subject: "gtd: learning-applied",
         removeLearning: true,
       }),
-    ).toBe('commit routing as "gtd: learning applied" (removing .gtd/LEARNINGS.md)')
+    ).toBe('commit routing as "gtd: learning-applied" (removing .gtd/LEARNINGS.md)')
   })
 
   it("runTest reports the 1-indexed attempt number", () => {

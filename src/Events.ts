@@ -95,10 +95,10 @@ const GATE_OWN_STEERING_FILE: Partial<Record<string, string>> = {
 // the whole chain, including the learning phase now spliced in front of the
 // squash template write.
 const SQUASH_OR_LEARNING_ROUTING_PHASES: ReadonlySet<string> = new Set([
-  "squash-template",
-  "learning-template",
-  "learning-drafted",
-  "learning-approved",
+  "squashing",
+  "learning",
+  "await-learning-review",
+  "learning-apply",
   "learning-applied",
 ])
 const SQUASH_OR_LEARNING_TURN_GATES: ReadonlySet<string> = new Set([
@@ -404,15 +404,15 @@ export const gatherEvents = (
       return {
         type: "COMMIT",
         ...(parsed.kind === "turn" ? { turnActor: parsed.actor, turnGate: parsed.gate } : {}),
-        isErrors: routingPhase === "errors",
+        isErrors: routingPhase === "test-failed",
         // A `gtd(agent): agentic-review` turn whose diff touched
         // `.gtd/FEEDBACK.md` — a findings round. Over-counts the approval
         // round too (an empty FEEDBACK.md write still touches the path), but
-        // `gtd: package done` resets the reviewFixCount fold immediately
+        // `gtd: close-package` resets the reviewFixCount fold immediately
         // after, so the extra count is harmless (documented in the task
         // contract).
         isFeedback: turnGate === "agentic-review" && touchedFeedback(commit.touched),
-        isPackageStart: routingPhase === "planning" || routingPhase === "package-done",
+        isPackageStart: routingPhase === "building" || routingPhase === "close-package",
         isWorkflowCommit: isTurn || isRouting,
         removedErrors: commit.removedErrors,
         isHealthCheck: routingPhase === "health-check",
@@ -485,7 +485,7 @@ export const gatherEvents = (
     // REVIEW.md itself is deliberately NOT excluded here (unlike
     // WORKFLOW_FILE_EXCLUDES elsewhere): a substantive review-feedback turn
     // may be pure prose edited into REVIEW.md, which IS the finding to inline.
-    if (hasCommits && headParsed.kind === "routing" && headParsed.phase === "review-feedback") {
+    if (hasCommits && headParsed.kind === "routing" && headParsed.phase === "grilling") {
       const parentHash = yield* git
         .resolveRef(`${headHash}~1`)
         .pipe(Effect.catchAll(() => Effect.succeed("")))
@@ -518,7 +518,7 @@ export const gatherEvents = (
       return entry !== undefined && isUncommittedStatus(entry.status)
     }
 
-    // FEEDBACK.md: committed (Testing wrote it as `gtd: errors`) vs uncommitted
+    // FEEDBACK.md: committed (Testing wrote it as `gtd: test-failed`) vs uncommitted
     // (Agentic Review wrote it), and whitespace-only = empty = approval.
     const feedbackCommitted = feedbackPresent && !isUncommitted(FEEDBACK_FILE)
     const feedbackContent = feedbackPresent ? yield* fs.readFileString(resolve(FEEDBACK_FILE)) : ""
@@ -582,15 +582,15 @@ export const gatherEvents = (
     //
     // Rule 1: Within a process (has a grilling TURN commit — `gtd(human):
     //         grilling` or `gtd(agent): grilling` — after last `gtd: done`), no
-    //         `gtd: awaiting review` yet → cover the whole task: base = first
+    //         `gtd: await-review` yet → cover the whole task: base = first
     //         grilling turn commit of the current cycle.
-    // Rule 2: Within a process, `gtd: awaiting review` present → cover only
-    //         changes since the last review: base = last `gtd: awaiting review`
+    // Rule 2: Within a process, `gtd: await-review` present → cover only
+    //         changes since the last review: base = last `gtd: await-review`
     //         of the current task cycle (takes precedence over rule 1).
     // Rule 3: Outside a process (any branch) → skip review: leave
     //         reviewBase/refDiff unset so the machine settles Idle.
     //
-    // When `reviewAnchor` (a `gtd: reviewing <hash>` commit newer than the last
+    // When `reviewAnchor` (a `gtd: review <hash>` commit newer than the last
     // `gtd: done`) is present, it supplies reviewBase directly and takes
     // precedence over rules 1/2 — the anchor was placed explicitly by
     // `gtd review <target>`.
@@ -641,14 +641,10 @@ export const gatherEvents = (
       const currentCycle = lastDoneIdx === -1 ? allHistory : allHistory.slice(lastDoneIdx + 1)
       hasCommitsAfterLastDone = lastDoneIdx === -1 || currentCycle.length > 0
 
-      // Find the newest `gtd: reviewing <hash>` anchor in the current cycle.
+      // Find the newest `gtd: review <hash>` anchor in the current cycle.
       for (const c of currentCycle) {
         const parsed = parseSubject(subjectOf(c.message))
-        if (
-          parsed.kind === "routing" &&
-          parsed.phase === "reviewing" &&
-          parsed.param !== undefined
-        ) {
+        if (parsed.kind === "routing" && parsed.phase === "review" && parsed.param !== undefined) {
           reviewAnchor = parsed.param
         }
       }
@@ -670,12 +666,12 @@ export const gatherEvents = (
         )
       }
       const firstGrilling = currentCycle.find((c) => isGrillingTurn(c.message))
-      // Find last `gtd: awaiting review` in the current cycle.
+      // Find last `gtd: await-review` in the current cycle.
       const lastAwaitingReview = (() => {
         let found: (typeof currentCycle)[number] | undefined
         for (const c of currentCycle) {
           const parsed = parseSubject(subjectOf(c.message))
-          if (parsed.kind === "routing" && parsed.phase === "awaiting-review") found = c
+          if (parsed.kind === "routing" && parsed.phase === "await-review") found = c
         }
         return found
       })()
@@ -707,7 +703,7 @@ export const gatherEvents = (
 
     // --- Squash base + diff (squashing after gtd: done) ----------------------
     // Computed whenever HEAD is `gtd: done` or anywhere in the squash/learning
-    // chain `gtd: done` → [learning phase] → `gtd: squash template` →
+    // chain `gtd: done` → [learning phase] → `gtd: squashing` →
     // `gtd(agent): squashing` (squash and/or learning enabled): every
     // mid-chain hop across that whole range needs `squashBase` stable and
     // available — in particular the learning-draft agent turn (`gtd(agent):
@@ -743,7 +739,7 @@ export const gatherEvents = (
 
       if (lastDoneIdxForSquash !== -1) {
         const squashCycle = squashHistory.slice(prevDoneIdx + 1, lastDoneIdxForSquash + 1)
-        // Cycle start = the LAST `gtd: reviewing <hash>` anchor when one
+        // Cycle start = the LAST `gtd: review <hash>` anchor when one
         // exists (an ad-hoc review cycle; anything before the anchor —
         // e.g. an abandoned grilling run — is not part of this cycle), else
         // the FIRST grilling turn commit since the previous `gtd: done`
@@ -767,7 +763,7 @@ export const gatherEvents = (
         }
         const isReviewingAnchor = (subject: string): boolean => {
           const parsed = parseSubject(subject)
-          return parsed.kind === "routing" && parsed.phase === "reviewing"
+          return parsed.kind === "routing" && parsed.phase === "review"
         }
         let startIdx = -1
         for (let i = squashCycle.length - 1; i >= 0; i--) {
@@ -836,7 +832,7 @@ export const gatherEvents = (
     // entry, which may reach green with zero health-check commits ever
     // landing). healthFixBase is the parent of that anchor commit.
     //
-    // `gtd: tests green` ends a health run for anchoring purposes (without
+    // `gtd: tests-green` ends a health run for anchoring purposes (without
     // this reset, a run whose green re-test chained into learning but never
     // squash-collapsed would leave its anchor in history forever, and every
     // later idle `gtd step` would re-trigger the learning/squash chain) —
@@ -851,10 +847,10 @@ export const gatherEvents = (
       const inHealthProcessingChain =
         (headParsedForSquash.kind === "routing" &&
           (headParsedForSquash.phase === "tests-green" ||
-            headParsedForSquash.phase === "learning-template" ||
-            headParsedForSquash.phase === "learning-drafted" ||
-            headParsedForSquash.phase === "learning-approved" ||
-            headParsedForSquash.phase === "squash-template" ||
+            headParsedForSquash.phase === "learning" ||
+            headParsedForSquash.phase === "await-learning-review" ||
+            headParsedForSquash.phase === "learning-apply" ||
+            headParsedForSquash.phase === "squashing" ||
             (headParsedForSquash.phase === "learning-applied" && config.squash))) ||
         (headParsedForSquash.kind === "turn" &&
           SQUASH_OR_LEARNING_TURN_GATES.has(headParsedForSquash.gate))
@@ -1179,15 +1175,15 @@ export const perform = (
       // mid-chain `gtd(agent): fixing` HEAD consumes its own FEEDBACK.md this
       // way (whether the fixer left it, deleted it, or emptied it, the file
       // must be gone before re-testing). Green → commit routing
-      // `gtd: tests green`. Red → write a fresh FEEDBACK.md (below cap) or
+      // `gtd: tests-green`. Red → write a fresh FEEDBACK.md (below cap) or
       // ERRORS.md (at cap) with the failure output, commit routing
-      // `gtd: errors`.
+      // `gtd: test-failed`.
       case "runTest": {
         yield* fs.remove(resolve(FEEDBACK_FILE)).pipe(Effect.catchAll(() => Effect.void))
         const runner = yield* TestRunner
         const result = yield* runner.run()
         if (result.exitCode === 0) {
-          yield* git.commitAllWithPrefix("gtd: tests green")
+          yield* git.commitAllWithPrefix("gtd: tests-green")
           return { stop: false }
         }
         const target = action.capReached ? ERRORS_FILE : FEEDBACK_FILE
@@ -1197,13 +1193,13 @@ export const perform = (
           : emptyFailureSentinel(config.testCommand, result.exitCode)
         yield* ensureGtdDir
         yield* fs.writeFileString(resolve(target), body)
-        yield* git.commitAllWithPrefix("gtd: errors")
+        yield* git.commitAllWithPrefix("gtd: test-failed")
         return { stop: false }
       }
 
       // Close package: remove the (maybe-empty / maybe-absent) FEEDBACK.md, rm
       // the first (finished) package dir (+ the now-empty `.gtd/`), commit
-      // `gtd: package done`. Tolerates an absent FEEDBACK.md (force-approve).
+      // `gtd: close-package`. Tolerates an absent FEEDBACK.md (force-approve).
       case "closePackage": {
         yield* fs.remove(resolve(FEEDBACK_FILE)).pipe(Effect.catchAll(() => Effect.void))
         const packages = yield* getPackages(fs, root)
@@ -1211,25 +1207,25 @@ export const perform = (
         if (first !== undefined) {
           yield* git.removePackageDir(`${GTD_DIR}/${first.name}`)
         }
-        yield* git.commitAllWithPrefix("gtd: package done")
+        yield* git.commitAllWithPrefix("gtd: close-package")
         return { stop: false }
       }
 
       // Write the SQUASH_MSG.md template (conventional-commits skeleton) and
-      // commit routing `gtd: squash template`.
+      // commit routing `gtd: squashing`.
       case "writeSquashTemplate": {
         yield* ensureGtdDir
         yield* fs.writeFileString(resolve(SQUASH_MSG_FILE), SQUASH_TEMPLATE)
-        yield* git.commitAllWithPrefix("gtd: squash template")
+        yield* git.commitAllWithPrefix("gtd: squashing")
         return { stop: false }
       }
 
       // Write the LEARNINGS.md template (a durable-lessons skeleton) and
-      // commit routing `gtd: learning template`.
+      // commit routing `gtd: learning`.
       case "writeLearningTemplate": {
         yield* ensureGtdDir
         yield* fs.writeFileString(resolve(LEARNINGS_FILE), LEARNING_TEMPLATE)
-        yield* git.commitAllWithPrefix("gtd: learning template")
+        yield* git.commitAllWithPrefix("gtd: learning")
         return { stop: false }
       }
 
@@ -1249,7 +1245,7 @@ export const perform = (
       // Health check: run tests on an idle/clean tree.
       // Green, no learning/squash-after chain queued → stop immediately, no
       //   commit/write.
-      // Green, `chainAfterGreen` → commit routing `gtd: tests green` (the
+      // Green, `chainAfterGreen` → commit routing `gtd: tests-green` (the
       //   observable green marker) and continue — the resolver chains
       //   `writeLearningTemplate` or `writeSquashTemplate` at that HEAD next.
       // Red below cap → write HEALTH.md, commit routing `gtd: health-check` (the
@@ -1260,7 +1256,7 @@ export const perform = (
         const result = yield* runner.run()
         if (result.exitCode === 0) {
           if (action.chainAfterGreen) {
-            yield* git.commitAllWithPrefix("gtd: tests green")
+            yield* git.commitAllWithPrefix("gtd: tests-green")
             return { stop: false }
           }
           return { stop: true }

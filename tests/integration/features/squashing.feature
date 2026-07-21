@@ -3,7 +3,7 @@
 Feature: Squashing — collapse a cycle into one conventional-commits message
 
   With squash on, the approval boundary `gtd: done` is not a rest: the same
-  chain continues straight to `gtd: squash template`, writing and committing a
+  chain continues straight to `gtd: squashing`, writing and committing a
   SQUASH_MSG.md template. `gtd next` then emits the squashing prompt for the
   agent, instructing it to overwrite SQUASH_MSG.md — no sentinel text anywhere
   in that prompt. Once the agent overwrites the template with a real message
@@ -29,20 +29,20 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     When I run gtd step
     Then it succeeds
     And the git log contains "gtd: done"
-    And the git log contains "gtd: squash template"
-    And the last commit subject is "gtd: squash template"
+    And the git log contains "gtd: squashing"
+    And the last commit subject is "gtd: squashing"
     And the file ".gtd/SQUASH_MSG.md" exists
 
   Scenario: gtd next at the squash template rest emits the squashing prompt with no sentinel text
@@ -58,17 +58,17 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+    And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
       chore: replace this template with a conventional-commits message
       """
@@ -95,22 +95,22 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd: building" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd: package done"
+    And a commit "gtd: close-package"
     And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+    And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
       chore: replace this template with a conventional-commits message
       """
@@ -124,7 +124,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     Then it succeeds
     And the last commit subject is "feat: add helper"
     And the file ".gtd/SQUASH_MSG.md" does not exist
-    And the git log does not contain "gtd: squash template"
+    And the git log does not contain "gtd: squashing"
     And the git log does not contain "gtd: done"
     And the git log contains "chore: pre-cycle work"
     And the file "src/calc.ts" exists
@@ -142,19 +142,19 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     When I run gtd step
     Then it succeeds
     And the last commit subject is "gtd: done"
-    And the git log does not contain "gtd: squash template"
+    And the git log does not contain "gtd: squashing"
     And the file ".gtd/SQUASH_MSG.md" does not exist
     When I run gtd next with "--json"
     Then it succeeds
@@ -173,27 +173,27 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+    And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
       chore: replace this template with a conventional-commits message
       """
     And ".gtd/SQUASH_MSG.md" is modified to:
       """
-      absolutely not a conventional commit and mentions gtd: errors on purpose
+      absolutely not a conventional commit and mentions gtd: test-failed on purpose
       """
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "absolutely not a conventional commit and mentions gtd: errors on purpose"
+    And the last commit subject is "absolutely not a conventional commit and mentions gtd: test-failed on purpose"
     And the file ".gtd/SQUASH_MSG.md" does not exist
 
   Scenario: A cycle with a review-feedback detour squashes back to the original cycle start
@@ -211,37 +211,37 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd(agent): building" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd: package done"
+    And a commit "gtd: close-package"
     And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
-    And a commit "gtd: review feedback"
+    And a commit "gtd: grilling"
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       Address the review feedback.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd(agent): building" that adds "src/calc2.ts" with:
       """
       export const sub = (a: number, b: number) => a - b
       """
-    And a commit "gtd: package done"
+    And a commit "gtd: close-package"
     And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       - [ ] ./src/calc2.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+    And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
       chore: replace this template
       """
@@ -252,7 +252,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     When I run gtd step-agent
     Then it succeeds
     And the last commit subject is "feat: add calculator"
-    And the git log does not contain "gtd: review feedback"
+    And the git log does not contain "gtd: grilling"
     And the git log does not contain "gtd(human): grilling"
     And the git log contains "chore: pre-cycle work"
     When I run gtd status
@@ -270,20 +270,20 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd(agent): building" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd: package done"
+    And a commit "gtd: close-package"
     And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+    And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
       <!-- gtd: replace this file's content with the real squash commit message. -->
       <!-- Use conventional-commits style, e.g. `feat: add thing` or `fix: correct thing`. -->
@@ -296,7 +296,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     When I run gtd step-agent
     Then it succeeds
     And the commit count is unchanged
-    And the last commit subject is "gtd: squash template"
+    And the last commit subject is "gtd: squashing"
     When I run gtd next
     Then it succeeds
     And stdout contains ".gtd/SQUASH_MSG.md"
@@ -319,17 +319,17 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       ### Which display precision should the calculator default to?
       Answer: 2 decimal places
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd(agent): review" that adds ".gtd/REVIEW.md" with:
       """
       # Review
 
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
     And a commit "gtd: done"
-    And a commit "gtd: squash template" that adds ".gtd/SQUASH_MSG.md" with:
+    And a commit "gtd: squashing" that adds ".gtd/SQUASH_MSG.md" with:
       """
       chore: replace this template with a conventional-commits message
       """

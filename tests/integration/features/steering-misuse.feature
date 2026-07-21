@@ -7,7 +7,7 @@ Feature: Manual steering-file misuse, v1-history inertness, and odd .gtd content
   mid-chain row, so gtd hard-errors with "no precedence rule matched" rather
   than guessing. Steering-file presence checks that used to hard-error a
   hand-deleted REVIEW.md/FEEDBACK.md in v1 no longer do in v2: the routing
-  subject alone (`gtd: awaiting review`, `gtd: errors`) is enough to resolve a
+  subject alone (`gtd: await-review`, `gtd: test-failed`) is enough to resolve a
   rest, regardless of whether the file the phase is named after is still
   present — so those two v1 corruption scenarios now resolve cleanly instead
   (documented below as a deliberate v1→v2 behavior change). v1-taxonomy
@@ -21,7 +21,7 @@ Feature: Manual steering-file misuse, v1-history inertness, and odd .gtd content
 
   Scenario: An unrecognized clean .gtd HEAD matches no rule and hard-errors
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
@@ -30,7 +30,7 @@ Feature: Manual steering-file misuse, v1-history inertness, and odd .gtd content
     Then it fails
     And stderr contains "no precedence rule matched"
 
-  Scenario: v1 behavior change — a hand-committed REVIEW.md deletion at gtd: awaiting review no longer corrupts
+  Scenario: v1 behavior change — a hand-committed REVIEW.md deletion at gtd: await-review no longer corrupts
     Given a test project
     And a commit "feat: work" that adds "src/work.ts" with:
       """
@@ -40,23 +40,23 @@ Feature: Manual steering-file misuse, v1-history inertness, and odd .gtd content
       """
       # Review
       """
-    And a commit "gtd: awaiting review"
-    And a commit "gtd: awaiting review" that deletes "REVIEW.md"
+    And a commit "gtd: await-review"
+    And a commit "gtd: await-review" that deletes "REVIEW.md"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""
 
-  Scenario: v1 behavior change — a hand-committed FEEDBACK.md deletion at gtd: errors no longer corrupts
+  Scenario: v1 behavior change — a hand-committed FEEDBACK.md deletion at gtd: test-failed no longer corrupts
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds "FEEDBACK.md" with:
+    And a commit "gtd: test-failed" that adds "FEEDBACK.md" with:
       """
       test failure output
       """
-    And a commit "gtd: errors" that deletes "FEEDBACK.md"
+    And a commit "gtd: test-failed" that deletes "FEEDBACK.md"
     When I run gtd next
     Then it succeeds
     And stdout contains "Spawn a **fix subagent**"
@@ -79,13 +79,13 @@ Feature: Manual steering-file misuse, v1-history inertness, and odd .gtd content
     And stdout contains "Awaits: human"
     And stdout contains "State: idle"
 
-  Scenario: A bare gtd: reviewing marker with no hash is inert v1-shaped history, not a review anchor
+  Scenario: A bare gtd: review marker with no hash is inert v1-shaped history, not a review anchor
     Given a test project
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd: reviewing"
+    And a commit "gtd: review"
     When I run gtd status
     Then it succeeds
     And stdout contains "State: idle"
@@ -110,11 +110,11 @@ Feature: Manual steering-file misuse, v1-history inertness, and odd .gtd content
 
   Scenario: Non-package junk inside .gtd is ignored by the build loop
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/notes.txt" with:
+    And a commit "gtd: building" that adds ".gtd/notes.txt" with:
       """
       scratch notes, not a package
       """
-    And a commit "gtd: planning" that adds ".gtd/01-real/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-real/01-task.md" with:
       """
       Implement the real package.
       """
@@ -131,7 +131,7 @@ Feature: Manual steering-file misuse, v1-history inertness, and odd .gtd content
       """
       testCommand: npm run test
       """
-    And a commit "gtd: planning"
+    And a commit "gtd: building"
     And a directory ".gtd"
     When I run gtd next
     Then it succeeds

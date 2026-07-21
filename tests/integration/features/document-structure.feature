@@ -126,12 +126,12 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd: building" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd: package done"
+    And a commit "gtd: close-package"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review
@@ -155,12 +155,12 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd: building" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd: package done"
+    And a commit "gtd: close-package"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -183,12 +183,12 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
 
       Build a calculator.
       """
-    And a commit "gtd: planning" that deletes ".gtd/TODO.md"
+    And a commit "gtd: building" that deletes ".gtd/TODO.md"
     And a commit "gtd: building" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd: package done"
+    And a commit "gtd: close-package"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -206,4 +206,4 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
       """
     When I run gtd step
     Then it succeeds
-    And the last commit subject is "gtd: review feedback"
+    And the last commit subject is "gtd: grilling"

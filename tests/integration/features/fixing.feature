@@ -1,10 +1,10 @@
 @inmem
 Feature: Fixing — consume FEEDBACK.md written by a red build turn
 
-  A committed, non-empty FEEDBACK.md under a `gtd: errors` HEAD rests at the
+  A committed, non-empty FEEDBACK.md under a `gtd: test-failed` HEAD rests at the
   fixing prompt for the agent — `gtd next` inlines the FEEDBACK.md text
   verbatim. The fixer's turn commit is `gtd(agent): fixing`; the chain removes
-  FEEDBACK.md and re-tests in the same invocation, landing `gtd: tests green`
+  FEEDBACK.md and re-tests in the same invocation, landing `gtd: tests-green`
   on a green re-test. A fixer that disputes the finding by deleting or emptying
   FEEDBACK.md in the working tree is captured the same way: `gtd step-agent`
   records the turn, re-tests, and proceeds once FEEDBACK.md is gone. A fixer
@@ -14,11 +14,11 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
 
   Scenario: gtd next emits the fixing prompt containing the FEEDBACK.md text
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd: test-failed" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
@@ -37,11 +37,11 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       """
       testCommand: bash gate.sh
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd: test-failed" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
@@ -52,9 +52,9 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
-    And the git log contains "gtd: tests green"
+    And the git log contains "gtd: tests-green"
     And the file ".gtd/FEEDBACK.md" does not exist
-    And the last commit subject is "gtd: tests green"
+    And the last commit subject is "gtd: tests-green"
 
   Scenario: A disputing fixer deletes FEEDBACK.md and the chain re-tests green
     Given a test project
@@ -67,11 +67,11 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       """
       testCommand: bash gate.sh
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd: test-failed" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
@@ -79,7 +79,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step-agent
     Then it succeeds
     And the file ".gtd/FEEDBACK.md" does not exist
-    And the git log contains "gtd: tests green"
+    And the git log contains "gtd: tests-green"
 
   Scenario: A disputing fixer empties FEEDBACK.md and the chain re-tests green
     Given a test project
@@ -92,11 +92,11 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       """
       testCommand: bash gate.sh
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd: test-failed" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
@@ -104,22 +104,22 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step-agent
     Then it succeeds
     And the file ".gtd/FEEDBACK.md" does not exist
-    And the git log contains "gtd: tests green"
+    And the git log contains "gtd: tests-green"
 
   Scenario: A do-nothing fixer invocation is inert — no commit, no re-test, next re-emits the fixing prompt
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd: test-failed" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
     Then I record the commit count
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: errors"
+    And the last commit subject is "gtd: test-failed"
     And the commit count is unchanged
     When I run gtd next
     Then it succeeds
@@ -134,11 +134,11 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       """
       testCommand: "true"
       """
-    And a commit "gtd: planning" that adds ".gtd/01-foo/01-task.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: errors" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd: test-failed" that adds ".gtd/FEEDBACK.md" with:
       """
       AssertionError: expected helper('a') to equal 'a'
       """
@@ -146,5 +146,5 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step-agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
-    And the last commit subject is "gtd: tests green"
+    And the last commit subject is "gtd: tests-green"
     And the file ".gtd/FEEDBACK.md" does not exist

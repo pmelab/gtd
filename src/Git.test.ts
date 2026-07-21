@@ -451,13 +451,13 @@ for (const [tierName, makeTier] of tiers) {
       })
 
       it("sets removedErrors=true only for the commit that deleted ERRORS.md", async () => {
-        t.commit("gtd: errors", { "ERRORS.md": "some errors" })
+        t.commit("gtd: test-failed", { "ERRORS.md": "some errors" })
         t.commitDeletion("ERRORS.md", "gtd: building")
         t.commit("feat: after", { "after.txt": "after" })
 
         const result = await t.run(Effect.flatMap(GitService, (g) => g.commitHistory()))
         // result[0] = init: first commit
-        // result[1] = gtd: errors      (adds ERRORS.md, not a deletion)
+        // result[1] = gtd: test-failed      (adds ERRORS.md, not a deletion)
         // result[2] = gtd: building    (deletes ERRORS.md → removedErrors=true)
         // result[3] = feat: after
         expect(result[0]?.removedErrors).toBe(false)

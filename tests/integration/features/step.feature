@@ -107,12 +107,12 @@ Feature: gtd step — the human mutator
     # removes ARCHITECTURE.md in one chain.
     When I run gtd step-agent
     Then it succeeds
-    And the last commit subject is "gtd: planning"
+    And the last commit subject is "gtd: building"
     And the file ".gtd/ARCHITECTURE.md" does not exist
 
   Scenario: Out-of-turn human step while the agent is awaited is refused on a clean tree
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """
@@ -124,7 +124,7 @@ Feature: gtd step — the human mutator
 
   Scenario: Out-of-turn human step while the agent is awaited is refused on a dirty tree
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """

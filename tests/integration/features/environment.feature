@@ -173,7 +173,7 @@ Feature: Hostile environments and unusual invocations
 
       - [ ] ./src/calc.ts#1
       """
-    And a commit "gtd: awaiting review"
+    And a commit "gtd: await-review"
     And ".gtd/REVIEW.md" is modified with CRLF line endings to:
       """
       # Review

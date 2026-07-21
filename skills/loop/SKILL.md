@@ -33,11 +33,11 @@ Repeat this two-beat cycle until it halts:
    - Any other non-zero exit is a real operational failure (e.g. a missing or
      misconfigured `testCommand` binary, an illegal steering-file combination,
      or otherwise corrupted repo state) — not a red test run, which exits 0 and
-     commits its findings (`gtd: errors` / `gtd: health-check`), and not a dirty
-     tree, which `step-agent` captures as a turn rather than rejecting. Read the
-     error, fix the underlying problem if you can, then re-run `gtd step-agent`
-     — it is idempotent, so re-running after a crash or interruption is always
-     safe.
+     commits its findings (`gtd: test-failed` / `gtd: health-check`), and not a
+     dirty tree, which `step-agent` captures as a turn rather than rejecting.
+     Read the error, fix the underlying problem if you can, then re-run
+     `gtd step-agent` — it is idempotent, so re-running after a crash or
+     interruption is always safe.
 2. Run `gtd next --json`. This is pure — it never mutates anything — and reports
    what happens next:
    - If it exits non-zero, halt and surface the error to the user verbatim (e.g.

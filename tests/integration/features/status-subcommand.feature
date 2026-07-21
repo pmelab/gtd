@@ -24,9 +24,9 @@ Feature: gtd status subcommand
     And stdout contains "Predicted commit: gtd(human): grilling"
     And stdout contains "Predicted state:"
 
-  Scenario: A clean rest at gtd: planning predicts no commit — a do-nothing agent invocation is inert
+  Scenario: A clean rest at gtd: building predicts no commit — a do-nothing agent invocation is inert
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """
@@ -39,7 +39,7 @@ Feature: gtd status subcommand
 
   Scenario: --json emits the four StatusSummary keys
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """
@@ -52,7 +52,7 @@ Feature: gtd status subcommand
 
   Scenario: status authors nothing even on a dirty tree
     Given a test project
-    And a commit "gtd: planning" that adds ".gtd/01-add/01-add.md" with:
+    And a commit "gtd: building" that adds ".gtd/01-add/01-add.md" with:
       """
       Implement the add function.
       """
