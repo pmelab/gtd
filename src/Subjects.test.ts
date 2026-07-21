@@ -142,7 +142,7 @@ describe("boundary commits", () => {
 describe("isWorkflowSubject", () => {
   it("is true for turn and machine-label subjects", () => {
     expect(isWorkflowSubject(turnSubject("human", "grilling"))).toBe(true)
-    expect(isWorkflowSubject(ROUTING_SUBJECT.building)).toBe(true)
+    expect(isWorkflowSubject("gtd: building")).toBe(true)
     expect(isWorkflowSubject(reviewingSubject("a".repeat(40)))).toBe(true)
   })
 

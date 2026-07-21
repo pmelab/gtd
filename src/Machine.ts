@@ -43,6 +43,7 @@ import type {
   RuleOutcome,
 } from "./Workflow.js"
 import {
+  activeWorkflow,
   defaultAutonomousActor,
   defaultInteractiveActor,
   defaultWorkflow,
@@ -50,6 +51,7 @@ import {
   isAutonomousActor,
   isInteractiveActor,
   stampLabelCounters,
+  stateDefOf,
   zeroCounters,
 } from "./Workflow.js"
 
@@ -223,7 +225,7 @@ const buildContext = (p: ResolvePayload, counters: Counters): ResolveContext => 
  * Enforced before the ladder, in the definition's declared order.
  */
 const assertLegal = (p: ResolvePayload): void => {
-  for (const rule of defaultWorkflow.conflicts) {
+  for (const rule of activeWorkflow().conflicts) {
     if (rule.isViolated(p)) {
       throw new GtdStateError("illegal-combination", `illegal combination: ${rule.message}`)
     }
@@ -277,7 +279,7 @@ const nextAfterReviewOrLearning = (
   }
   return flags.squashEnabled && flags.hasSquashBase
     ? { kind: "mid-chain", state, actor: machineDriver, action: { kind: "writeSquashTemplate" } }
-    : { kind: "rest", state: "idle", actor: defaultWorkflow.states.idle.awaits }
+    : { kind: "rest", state: "idle", actor: stateDefOf("idle").awaits }
 }
 
 /** First branch whose guard passes (an omitted guard always passes), or null. */
@@ -321,7 +323,7 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
   const parsed = parseSubject(subject)
 
   if (parsed.kind === "turn") {
-    const rule = defaultWorkflow.turnRules.find(
+    const rule = activeWorkflow().turnRules.find(
       (r) => r.actor === parsed.actor && r.gate === parsed.gate,
     )
     if (rule === undefined) return null
@@ -330,7 +332,7 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
   }
 
   if (parsed.kind === "routing") {
-    const branches = defaultWorkflow.routingRules[parsed.phase]
+    const branches = activeWorkflow().routingRules[parsed.phase]
     if (branches === undefined) return null
     const outcome = firstMatch(branches, flags)
     return outcome === null ? null : outcomeToHeadClass(outcome, flags)
@@ -357,7 +359,7 @@ const matchCaptureRule = (state: GtdState, invoker: Actor, p: ResolvePayload) =>
   const parsedHead = parseSubject(p.lastCommitSubject)
   const headIsOwnTurn = (label: TurnGate): boolean =>
     parsedHead.kind === "turn" && parsedHead.actor === invoker && parsedHead.gate === label
-  return (defaultWorkflow.states[state].captureRules ?? []).find(
+  return (stateDefOf(state).captureRules ?? []).find(
     (rule) =>
       (rule.empty === true
         ? p.workingTreeClean && !headIsOwnTurn(rule.label)
@@ -381,10 +383,13 @@ const buildBaselineFacts = (
 ): BaselineFacts => {
   const parsedHead = parseSubject(head)
   // The consuming turn's actor is whoever the consuming state awaits —
-  // definition data, not a hard-coded actor name.
+  // definition data, not a hard-coded actor name. Optional lookup: a
+  // config-built machine without a health path simply never sets this fact.
+  const healthFixerAwaits = activeWorkflow().states["health-fixing"]?.awaits
   const headIsHealthFixerTurn =
+    healthFixerAwaits !== undefined &&
     parsedHead.kind === "turn" &&
-    parsedHead.actor === defaultWorkflow.states["health-fixing"].awaits &&
+    parsedHead.actor === healthFixerAwaits &&
     parsedHead.gate === "health-fixing"
   return {
     payload: p,
@@ -461,7 +466,7 @@ const resolveBaseline = (
 ): HeadClass => {
   const facts = buildBaselineFacts(p, counters, head, lastTurn)
 
-  const interrupted = runLadder(defaultWorkflow.interrupts, facts)
+  const interrupted = runLadder(activeWorkflow().interrupts, facts)
   if (interrupted !== null) return interrupted
 
   const flags: ClassifyFlags = {
@@ -477,7 +482,7 @@ const resolveBaseline = (
   const classified = classifyHead(head, flags)
   if (classified !== null) return fillInActionBudgets(classified, p)
 
-  const fellBack = runLadder(defaultWorkflow.fallback, facts)
+  const fellBack = runLadder(activeWorkflow().fallback, facts)
   if (fellBack !== null) return fellBack
 
   return corrupt()
@@ -630,7 +635,7 @@ const applyTurnTaking = (
   // (their answer at the grilling gate, their feedback/approval at the
   // review gate) — those are never structurally validated.
   if (isAutonomousActor(invoker)) {
-    const validation = defaultWorkflow.agentTurnValidation[match.label]
+    const validation = activeWorkflow().agentTurnValidation[match.label]
     if (validation !== undefined) {
       const errors = p[validation.errorsField]
       if ((errors?.length ?? 0) > 0) {
@@ -665,7 +670,7 @@ const applyTurnTaking = (
 
 /** The definition's entry-gate pick: first matching rule (an omitted guard is the default rung). */
 const pickEntryGate = (p: ResolvePayload): TurnGate => {
-  const matched = defaultWorkflow.entry.find((rule) => rule.when === undefined || rule.when(p))
+  const matched = activeWorkflow().entry.find((rule) => rule.when === undefined || rule.when(p))
   return matched?.gate ?? "grilling"
 }
 
@@ -767,7 +772,7 @@ export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
   }
 
   if (baseline.state === "idle") {
-    return { actor: defaultWorkflow.states.idle.awaits, subject: null, state: "idle" }
+    return { actor: stateDefOf("idle").awaits, subject: null, state: "idle" }
   }
 
   // Mirror applyTurnTaking's capture matching: no rule = nothing to commit
@@ -795,6 +800,6 @@ export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
 
 /** Awaited actor for a given state — the actor `resolve` reports at that state's rest (dynamic gates default to the definition's autonomous actor). */
 export const awaitedActor = (state: GtdState): Actor => {
-  const awaits = defaultWorkflow.states[state].awaits
+  const awaits = stateDefOf(state).awaits
   return awaits === "dynamic" ? defaultAutonomousActor() : awaits
 }

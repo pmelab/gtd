@@ -44,8 +44,16 @@ import type { ModelState } from "./Config.js"
 
 // ─── Contract types (re-exported by Machine.ts) ─────────────────────────────
 
-/** The 21 resolved states (frozen contract). `Result.state` is one of these. */
-export type GtdState =
+/**
+ * A resolved state name. States are DEFINITION DATA: the active workflow
+ * (the built-in default, or one built from the `.gtdrc` `workflow:` key)
+ * declares them, so the type is open — `DefaultGtdState` below pins the
+ * default machine's 21 names.
+ */
+export type GtdState = string
+
+/** The default workflow's 21 states (the built-in machine's closed set). */
+type DefaultGtdState =
   | "grilling"
   | "architecting"
   | "grilled"
@@ -562,7 +570,7 @@ export interface ActorDef {
 export interface WorkflowDefinition {
   /** The declared actors; `gtd step <actor>` validates against this set. */
   readonly actors: readonly ActorDef[]
-  readonly states: Record<GtdState, StateDef>
+  readonly states: Record<string, StateDef>
   readonly turnRules: readonly TurnRule[]
   readonly routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>>
   readonly interrupts: readonly LadderRule[]
@@ -622,7 +630,7 @@ export const forceApprove = (p: ResolvePayload): boolean =>
  * `agentic-approved` vs `agentic-findings` — are decided here so their
  * classification never has to re-inspect the turn's own diff.
  */
-const states: Record<GtdState, StateDef> = {
+const states: Record<DefaultGtdState, StateDef> = {
   grilling: {
     kind: "prompt",
     awaits: "dynamic",
@@ -1604,13 +1612,46 @@ export const defaultWorkflow: WorkflowDefinition = {
   agentTurnValidation,
 }
 
+// ─── The active definition (registry) ────────────────────────────────────────
+
+/**
+ * The definition every interpreter/grammar read goes through. Defaults to the
+ * built-in machine; the config edge swaps it (`setActiveWorkflow`) after
+ * compiling the `.gtdrc` `workflow:` key (`src/WorkflowConfig.ts`) — BEFORE
+ * any resolve runs, since layer construction precedes `gatherEvents`. The
+ * machine itself stays pure: this is configuration read at the module edge,
+ * not IO inside `resolve`.
+ */
+let active: WorkflowDefinition = undefined as unknown as WorkflowDefinition
+
+/** The definition in effect (the built-in default until config swaps it). */
+export const activeWorkflow = (): WorkflowDefinition => active ?? defaultWorkflow
+
+/** Install a (compiled) definition as the active one. Pass `defaultWorkflow` to reset. */
+export const setActiveWorkflow = (def: WorkflowDefinition): void => {
+  active = def
+}
+
+/**
+ * Total state-definition accessor over the active definition. Throws for a
+ * state name the definition doesn't declare — a definition/interpreter bug
+ * (or an invalid config that slipped past validation), never a user state.
+ */
+export const stateDefOf = (state: GtdState): StateDef => {
+  const def = activeWorkflow().states[state]
+  if (def === undefined) {
+    throw new Error(`workflow definition declares no state "${state}"`)
+  }
+  return def
+}
+
 // ─── Actor helpers (over the active definition) ──────────────────────────────
 
 const actorByName = (name: string): ActorDef | undefined =>
-  defaultWorkflow.actors.find((a) => a.name === name)
+  activeWorkflow().actors.find((a) => a.name === name)
 
 /** The declared actor names, for CLI validation and error messages. */
-export const definedActorNames = (): readonly string[] => defaultWorkflow.actors.map((a) => a.name)
+export const definedActorNames = (): readonly string[] => activeWorkflow().actors.map((a) => a.name)
 
 /** True when `name` is a declared actor of the active definition. */
 export const isDefinedActor = (name: string): boolean => actorByName(name) !== undefined
@@ -1633,11 +1674,11 @@ export const actorKindOf = (name: string): ActorDef["kind"] | undefined => actor
  * predicted for, and the fallback awaited actor at human-gated recoveries.
  */
 export const defaultInteractiveActor = (): Actor =>
-  defaultWorkflow.actors.find((a) => a.kind === "interactive")?.name ?? "human"
+  activeWorkflow().actors.find((a) => a.kind === "interactive")?.name ?? "human"
 
 /**
  * The definition's first autonomous actor — the actor `awaits: "dynamic"`
  * states default to, and the driver of machine-owned chains.
  */
 export const defaultAutonomousActor = (): Actor =>
-  defaultWorkflow.actors.find((a) => a.kind === "autonomous")?.name ?? "agent"
+  activeWorkflow().actors.find((a) => a.kind === "autonomous")?.name ?? "agent"

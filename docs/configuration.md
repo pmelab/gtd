@@ -111,3 +111,77 @@ models:
     decompose: claude-opus-4-8
     building: claude-sonnet-4-8
 ```
+
+## The `workflow:` key — the whole machine from config
+
+The full state-machine configuration can be built up in the config file: the
+`workflow:` key carries actors, states (prompts inline or `@`-references to
+built-in templates), capture rules, turn and routing rules, interrupt/fallback
+ladders, illegal-combination conflicts, entry gates, and agent-turn validation —
+every field of the definition the interpreter runs. It is compiled and validated
+at config load (`src/WorkflowConfig.ts`); an invalid reference fails the
+invocation with a `workflow config:` error before anything touches the
+repository. The commit grammar itself derives from the active definition, so
+custom actors, gates, and states steer exactly like built-in ones — and subjects
+outside the active vocabulary remain inert boundary commits.
+
+- `extends: default` (the default) merges over the built-in machine: a state
+  replaces its namesake wholesale, a turn rule replaces its `(actor, gate)` row,
+  a routing rule replaces its phase's row, ladders/conflicts/entry replace
+  wholesale when present.
+- `extends: none` builds a machine from scratch (everything must be declared).
+
+Guards are written in a closed declarative vocabulary — `{fact: <name>}`,
+`{not: …}`, `{all: […]}`, `{any: […]}`,
+`{counterAtLeast: {counter: testFix|reviewFix|healthFix, limit: <n> | fixAttemptCap | reviewThreshold}}`,
+`{headIs: "<subject>"}`, `{lastTurnIs: {actor, gate}}`, `{forceApprove: true}`,
+`{reviewable: true}`, `{packagesRemaining: true}`, `{noSteeringFiles: true}`,
+`{healthFixBaseAnchored: true}`, `{squashOrLearningEnabled: true}` — and counter
+stamps as `{set: {…}, add: {…}}` over the `Gtd-Counters` trailer vector.
+Turn/routing-rule branches see the narrow classification flags; ladder rungs see
+everything.
+
+A from-scratch example (a two-state note machine):
+
+```yaml
+workflow:
+  extends: none
+  actors:
+    - { name: human, kind: interactive }
+  entry:
+    - { gate: note }
+  states:
+    idle:
+      kind: prompt
+      awaits: human
+      prompts: { human: "Nothing to note." }
+    noting:
+      kind: prompt
+      awaits: human
+      prompts: { human: "Write your note, then run gtd step human." }
+      captureRules:
+        - { label: note }
+  turnRules:
+    - actor: human
+      gate: note
+      branches:
+        - to: { rest: { state: noting, actor: human } }
+  fallback:
+    - when: { noSteeringFiles: true }
+      branches:
+        - to: { rest: { state: idle, actor: human } }
+```
+
+An extends-default example (override one prompt inline, keep everything else):
+
+```yaml
+workflow:
+  states:
+    fixing:
+      kind: prompt
+      awaits: agent
+      prompts:
+        agent: "CUSTOM FIX PROTOCOL: <%~ it.context.feedbackContent %>"
+      captureRules:
+        - { label: fixing, consumeFeedback: true }
+```

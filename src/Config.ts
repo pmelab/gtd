@@ -4,6 +4,7 @@ import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Command, CommandExecutor, FileSystem } from "@effect/platform"
+import { activateWorkflowConfig } from "./WorkflowConfig.js"
 import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
 
@@ -81,6 +82,11 @@ export const ConfigSchema = Schema.Struct({
   decisionLog: Schema.optional(Schema.Boolean),
   fixAttemptCap: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(0))),
   reviewThreshold: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(1))),
+  // The whole machine shape, buildable from config: validated structurally by
+  // the workflow compiler (`src/WorkflowConfig.ts`), not by effect/schema —
+  // the shape is deep and recursive, and the compiler's errors carry rule
+  // coordinates a flat schema error cannot.
+  workflow: Schema.optional(Schema.Unknown),
 })
 
 type DecodedConfig = Schema.Schema.Type<typeof ConfigSchema>
@@ -256,6 +262,11 @@ const anyConfigPresent = (root: string): Effect.Effect<boolean, Error> =>
   })
 
 const toOperations = (decoded: DecodedConfig): ConfigOperations => {
+  // Install the configured workflow (or reset to the built-in default) as
+  // the active definition BEFORE any resolve can run — ConfigService
+  // construction precedes every gatherEvents. A bad workflow config fails
+  // loading here, exactly like any other invalid config key.
+  activateWorkflowConfig(decoded.workflow)
   const resolveModel = (state: ModelState): string => {
     const stateOverride = decoded.models?.states?.[state]
     if (stateOverride !== undefined) return stateOverride

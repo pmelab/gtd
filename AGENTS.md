@@ -44,6 +44,23 @@ sets, never routed. This is also how v2 stays backward compatible with v1
 history: old v1 subjects fall outside the closed sets and parse as boundary
 commits rather than errors.
 
+### The Configurable Machine (`workflow:` in .gtdrc)
+
+The active definition is a REGISTRY (`activeWorkflow()` / `setActiveWorkflow` in
+`src/Workflow.ts`), installed during ConfigService construction by
+`activateWorkflowConfig` (`src/WorkflowConfig.ts`) — the `.gtdrc` `workflow:`
+key compiles into a full `WorkflowDefinition` (guards/stamps in a closed
+declarative vocabulary), merging over the default or building from scratch
+(`extends: none`). The commit grammar's closed sets (actors, gates, phases)
+DERIVE from the active definition (`src/Subjects.ts`), so custom vocabulary
+parses and everything else stays a boundary; bare `gtd: review` is explicitly
+excluded (v1 compat). Interpreter code must read the definition via
+`activeWorkflow()` / `stateDefOf(state)` — never `defaultWorkflow` directly —
+and must treat default-only state names as OPTIONAL lookups (a config-built
+machine may not declare them). The in-memory test config service mirrors the
+activation; unit tests that install a custom definition must reset with
+`setActiveWorkflow(defaultWorkflow)` in `afterEach`.
+
 ### The Scripted Check Actor (No In-Process Execution)
 
 Checks are the `check` actor's turns — the machine NEVER executes external

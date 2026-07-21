@@ -25,7 +25,7 @@ import idleMd from "./prompts/idle.md"
 import runTestMd from "./prompts/run-test.md"
 import runHealthCheckMd from "./prompts/run-health-check.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
-import { defaultWorkflow, isAutonomousActor } from "./Workflow.js"
+import { isAutonomousActor, stateDefOf } from "./Workflow.js"
 import type { GtdState, Result } from "./Machine.js"
 
 /**
@@ -38,8 +38,7 @@ import type { GtdState, Result } from "./Machine.js"
  * `ModelState` resolves `{{MODEL}}`, both come from the definition's
  * per-state `prompts`/`model` bindings.
  */
-export const isPromptState = (state: GtdState): boolean =>
-  defaultWorkflow.states[state].kind === "prompt"
+export const isPromptState = (state: GtdState): boolean => stateDefOf(state).kind === "prompt"
 
 /**
  * Built-in model resolver, reusing the single source of truth in `Config.ts`
@@ -124,7 +123,7 @@ export const buildPrompt = (
   if (!isPromptState(state)) {
     throw new Error(`State "${state}" is performed by the edge and must never reach buildPrompt`)
   }
-  const stateDef = defaultWorkflow.states[state]
+  const stateDef = stateDefOf(state)
 
   // Resolve the model string for states that spawn a subagent.
   const model = stateDef.model !== undefined ? resolveModel(stateDef.model) : ""
@@ -144,13 +143,13 @@ export const buildPrompt = (
     throw new Error(`State "${state}" declares no prompt template`)
   }
 
-  const raw = eta.renderString(`<%~ include(it.tmpl, it) %>`, {
-    tmpl: templateName,
-    context,
-    model,
-    tail,
-    fenceFor,
-  })
+  // An `@name` binding references a registered template; any other string IS
+  // the template source (a config-built workflow's inline prompt), rendered
+  // directly with the same view model.
+  const view = { context, model, tail, fenceFor }
+  const raw = templateName.startsWith("@")
+    ? eta.renderString(`<%~ include(it.tmpl, it) %>`, { tmpl: templateName, ...view })
+    : eta.renderString(templateName, view)
 
   return raw.replace(/\n{3,}/g, "\n\n").trimEnd() + "\n"
 }

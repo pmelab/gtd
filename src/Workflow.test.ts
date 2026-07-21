@@ -73,7 +73,7 @@ describe("defaultWorkflow — definition consistency", () => {
       }
     }
     for (const [phase, branches] of Object.entries(defaultWorkflow.routingRules)) {
-      for (const branch of branches) checkOutcome(branch.to, `routing rule "${phase}"`)
+      for (const branch of branches ?? []) checkOutcome(branch.to, `routing rule "${phase}"`)
     }
     for (const ladder of [defaultWorkflow.interrupts, defaultWorkflow.fallback]) {
       for (const rule of ladder) {
@@ -85,6 +85,7 @@ describe("defaultWorkflow — definition consistency", () => {
   it("capture-rule stamps and label stamps keep vectors non-negative from zero", () => {
     // A stamp that could go negative would corrupt every downstream trailer.
     for (const stamp of Object.values(labelCounterStamps)) {
+      if (stamp === undefined) continue
       const next = stamp(zeroCounters)
       expect(next.testFixCount).toBeGreaterThanOrEqual(0)
       expect(next.reviewFixCount).toBeGreaterThanOrEqual(0)

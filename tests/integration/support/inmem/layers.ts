@@ -24,6 +24,7 @@ import {
 } from "../../../../src/Config.js"
 import { InMemRepo } from "./Repo.js"
 import { Cwd } from "../../../../src/Cwd.js"
+import { activateWorkflowConfig } from "../../../../src/WorkflowConfig.js"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -415,6 +416,9 @@ const numberField = (raw: Record<string, unknown>, key: string, fallback: number
   typeof raw[key] === "number" ? (raw[key] as number) : fallback
 
 const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
+  // Mirror the real ConfigService: install (or reset) the active workflow
+  // definition as part of config-ops construction, before any resolve.
+  activateWorkflowConfig(raw["workflow"])
   const testCommand = stringField(raw, "testCommand", "npm run test")
   const agenticReview = boolField(raw, "agenticReview", true)
   const squash = boolField(raw, "squash", true)
