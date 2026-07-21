@@ -788,3 +788,224 @@ the default config."
 
 Each step is independently shippable, and steps 1–2 carry zero user-visible risk
 while retiring most of the implementation risk.
+
+## Appendix A: the configuration surface, state by state
+
+### A.1 Where the configuration lives
+
+The workflow definition is a separate, **committed** file — the machine's
+reading of history depends on it, so it must travel with the repo:
+
+```
+gtd.workflow.yaml        # the workflow definition (states, edges, artifacts…)
+.gtdrc.json              # scalar knobs, unchanged: testCommand, params, models
+prompts/…                # user template overrides (optional)
+```
+
+`.gtdrc` keeps what it has today (per-user/per-machine layering via the cwd→home
+walk makes sense for models and commands); the workflow file has no layering —
+one repo, one machine. Absent `gtd.workflow.yaml`, the shipped default
+definition applies, which is byte-for-byte the current v2 behavior.
+
+Top-level keys of the workflow file:
+
+| Key           | Contents                                                         |
+| ------------- | ---------------------------------------------------------------- |
+| `actors`      | the turn-taking universe (fixed: `human`, `agent`)               |
+| `commands`    | named shell commands `run-check` edges may reference             |
+| `params`      | typed scalar parameters guards may reference (defaults + bounds) |
+| `artifacts`   | steering-file declarations (§3.2)                                |
+| `commitFlags` | named commit predicates (§3.3)                                   |
+| `counters`    | fold rules over commit flags (§3.3)                              |
+| `guards`      | named, reusable guard expressions (§3.4)                         |
+| `states`      | the state declarations (this appendix)                           |
+| `interrupts`  | ordered steering-file precedence rules (§3.6a)                   |
+| `onTurn`      | HEAD-classification rules for turn commits (§3.6b)               |
+| `onRouting`   | HEAD-classification rules for routing commits (§3.6b)            |
+| `fallback`    | ordered boundary-HEAD ladder (§3.6c)                             |
+| `entry`       | dirty-boundary entry-gate selection (§3.6)                       |
+
+Note what is **not** under `states`: transitions. Edges live in the four rule
+families, because resolution is history-replay — a state declaration describes
+what a rest _is_ (who's awaited, what prompt renders, what an empty turn means),
+while the rule families describe how HEAD + facts _select_ one.
+
+### A.2 State property reference
+
+```yaml
+states:
+  <name>:
+    kind: prompt | label
+    awaits: human | agent | dynamic
+    gate: <turn-gate label>
+    prompts: { agent: <path>, human: <path> }
+    model: <model-state name>
+    emptyAgentTurn: inert | signal | { inertWhen: <guard> } | { signal: true, inertWhen: <guard> }
+    validateAgentTurn: <validator name>
+    checkoutWindow: <bool>
+    checkpoint: <bool>
+    stepAction: { human: <action>, agent: <action> }
+```
+
+| Property            | Applies to             | Meaning / allowed values                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`              | all                    | `prompt` — a real rest: `gtd next` renders a prompt, an actor is awaited. `label` — a name that only appears as the `state:` on chain (mid-chain) rules, for `gtd status`/`--json` display; never rests, never prompts. Replaces today's `PROMPT_STATES` complement (testing, planning, close-package, done, health-check, learning-applied).                                                                                                                                                                                                                                                   |
+| `awaits`            | `kind: prompt`         | Which actor's `step` is accepted at this rest. `dynamic` — the awaited actor is decided per-rest by the matching rule (`rest: { state, awaits }`), for the states that alternate (grilling/architecting: agent iterates, human answers). Any other invoker is refused. Source of today's `awaitedActor`.                                                                                                                                                                                                                                                                                        |
+| `gate`              | `kind: prompt`         | The `<gate>` label the captured turn commit carries (`gtd(<actor>): <gate>`). Defaults to the state name. Overrides exist for states that _share_ a gate with another state — `await-review` captures under `review`, `await-learning-review` under `learning`. Replaces `STATE_IS_OWN_GATE` + `GATE_OVERRIDES`. Compiler checks the generated grammar for collisions.                                                                                                                                                                                                                          |
+| `prompts`           | `kind: prompt`         | Template path per awaitable actor. A state with `awaits: dynamic` must bind both; others exactly one. Templates get the documented view-model (`context`, `model`, `fenceFor`, shared partials). Replaces `STATE_TEMPLATE` + the grilling/architecting actor split in `buildPrompt`.                                                                                                                                                                                                                                                                                                            |
+| `model`             | agent-prompting states | Which model-resolution name `{{MODEL}}` resolves against (today's `ModelState`: `grilling`, `architecting`, `decompose`, `building`, `fixing`, `agentic-review`, `clean` — themselves config: each names a tier, overridable per state in `.gtdrc` exactly as now). Human-awaited states carry none. Replaces `MODEL_STATE`.                                                                                                                                                                                                                                                                    |
+| `emptyAgentTurn`    | agent-awaited rests    | What a clean-tree `gtd step-agent` means here. `inert` — no-op, zero commits, `gtd next` re-emits (the `INERT_EMPTY_AGENT_GATES` set). `signal` — the empty turn is captured and means something (health-fixing's environmental fix). `inertWhen: <guard>` — conditional (squashing/learning while the template is unmodified; health-fixing while HEAD is the human's entry turn). The compiler wires this into BOTH layers (capture guard and historical-HEAD classification), which today must be kept in sync by hand. **Mandatory** for every agent-awaited rest — the author must decide. |
+| `validateAgentTurn` | agent-awaited rests    | Named structural validator run before capturing the agent's turn; malformed → refusal with the error list, zero commits (today: `open-questions` on grilling/architecting, `review-doc` on review). Never applied to human turns.                                                                                                                                                                                                                                                                                                                                                               |
+| `checkoutWindow`    | human-awaited rests    | Hold the review checkout window open while this rest is pending (HEAD/index rewound to the review base so editors surface the diff). Program-edge wiring only; the resolver never sees it. Today: hardcoded to `await-review`.                                                                                                                                                                                                                                                                                                                                                                  |
+| `checkpoint`        | agent-awaited rests    | This state's turn commit is an operational-recovery resume point: a boundary commit landing on top of it (config fix after a mid-chain crash) re-resolves to this state's continuation instead of hard-erroring. Today: hardcoded to `building`.                                                                                                                                                                                                                                                                                                                                                |
+| `stepAction`        | `kind: prompt`         | Escape hatch for the rests where an actor's `step` performs an action _instead of_ capturing a turn. Today's only case: `idle.stepAction.human = run-check` (a human step at idle re-runs the health check, never authoring an empty turn). Kept deliberately rare — most behavior belongs in `onTurn` rules.                                                                                                                                                                                                                                                                                   |
+
+What is deliberately **not** a state property: the awaited-human-empty-turn
+meaning (an empty human turn is always captured — whether it means "accept
+defaults", "approve", or "resume" is decided by the `onTurn` branch that
+classifies the captured commit); transitions; and anything that would let a
+state execute arbitrary code.
+
+### A.3 The default machine, all 21 states
+
+```yaml
+states:
+  # ── grilling: product plan ─────────────────────────────────────────────
+  grilling:
+    kind: prompt
+    awaits: dynamic # agent iterates .gtd/TODO.md; human answers open questions
+    prompts:
+      agent: prompts/grilling-agent.md
+      human: prompts/grilling-answers.md
+    model: grilling # planning tier
+    emptyAgentTurn: inert
+    validateAgentTurn: open-questions
+
+  # ── architecting: technical plan ───────────────────────────────────────
+  architecting:
+    kind: prompt
+    awaits: dynamic
+    prompts:
+      agent: prompts/architecting-agent.md
+      human: prompts/architecting-answers.md
+    model: architecting
+    emptyAgentTurn: inert
+    validateAgentTurn: open-questions
+
+  # ── grilled: decompose into packages ───────────────────────────────────
+  grilled:
+    kind: prompt
+    awaits: agent # the human's grilled turn exists only as the PLAN.md entry (entry rules)
+    prompts: { agent: prompts/decompose.md }
+    model: decompose
+    emptyAgentTurn: inert # no packages written → re-emit; never consume ARCHITECTURE.md
+
+  # ── build lifecycle ────────────────────────────────────────────────────
+  planning: { kind: label } # transient: packages present + .gtd/ modified (promptless today)
+  building:
+    kind: prompt
+    awaits: agent
+    prompts: { agent: prompts/building.md }
+    model: building # execution tier
+    emptyAgentTurn: inert
+    checkpoint: true # boundary commit atop the building turn resumes the test chain
+  testing: { kind: label } # the run-check hop
+  fixing:
+    kind: prompt
+    awaits: agent
+    prompts: { agent: prompts/fixing.md }
+    model: fixing
+    emptyAgentTurn: inert
+  escalate:
+    kind: prompt
+    awaits: human # deleting .gtd/ERRORS.md is the move; onTurn rule chains a fresh run-check
+    prompts: { human: prompts/escalate.md }
+
+  # ── per-package review ─────────────────────────────────────────────────
+  agentic-review:
+    kind: prompt
+    awaits: agent # writes .gtd/FEEDBACK.md; empty file = approval (artifact probe)
+    prompts: { agent: prompts/agentic-review.md }
+    model: agentic-review
+    emptyAgentTurn: inert # no FEEDBACK.md written at all is NOT an approval
+  close-package: { kind: label }
+
+  # ── cycle-end human review ─────────────────────────────────────────────
+  review:
+    kind: prompt
+    awaits: agent # writes .gtd/REVIEW.md
+    prompts: { agent: prompts/review.md }
+    model: clean
+    emptyAgentTurn: inert
+    validateAgentTurn: review-doc
+  await-review:
+    kind: prompt
+    awaits: human
+    gate: review # human turn is captured under the shared "review" gate
+    prompts: { human: prompts/await-review.md }
+    checkoutWindow: true
+  done: { kind: label }
+
+  # ── learning ───────────────────────────────────────────────────────────
+  learning:
+    kind: prompt
+    awaits: agent
+    prompts: { agent: prompts/learning.md }
+    model: clean
+    emptyAgentTurn: { inertWhen: learnings.isTemplate }
+  await-learning-review:
+    kind: prompt
+    awaits: human # empty turn = accept draft; there is no reject path (onTurn rule)
+    gate: learning
+    prompts: { human: prompts/await-learning-review.md }
+  learning-apply:
+    kind: prompt
+    awaits: agent
+    prompts: { agent: prompts/learning-apply.md }
+    model: clean
+    emptyAgentTurn: inert # a doc-edit move: clean tree = nothing to apply yet
+  learning-applied: { kind: label }
+
+  # ── squash ─────────────────────────────────────────────────────────────
+  squashing:
+    kind: prompt
+    awaits: agent
+    prompts: { agent: prompts/squashing.md }
+    model: clean
+    emptyAgentTurn: { inertWhen: squashMsg.isTemplate } # never squash the placeholder
+
+  # ── idle / health ──────────────────────────────────────────────────────
+  idle:
+    kind: prompt
+    awaits: human
+    prompts: { human: prompts/idle.md }
+    stepAction: # human step at idle re-runs the health check, never an empty turn
+      human:
+        run-check:
+          command: test
+          green: { stop: true, chainWhen: { fact: healthFixBasePresent } }
+          red:
+            write: health
+            cap: { counter: healthFix, param: fixAttemptCap, write: errors }
+            route: health-check
+  health-check: { kind: label }
+  health-fixing:
+    kind: prompt
+    awaits: agent # also the HEALTH.md entry gate for a human (entry rules)
+    prompts: { agent: prompts/health-fixing.md }
+    model: fixing
+    emptyAgentTurn: # empty agent turn = environmental fix (remove HEALTH.md, re-test)…
+      signal: true
+      inertWhen: { head.isTurn: [human, health-fixing] } # …unless the human's entry turn is still unread
+```
+
+Reading the table against today's code: `kind` reproduces
+`PROMPT_STATES`/`isPromptState`; `awaits` reproduces `awaitedActor` plus the
+dynamic grilling/architecting split; `gate` reproduces `gateForState`;
+`prompts` + `model` reproduce `STATE_TEMPLATE` + `MODEL_STATE`; `emptyAgentTurn`
+reproduces `INERT_EMPTY_AGENT_GATES` + `isInertEmptyAgentRest`'s conditional
+cases; `validateAgentTurn` reproduces the two structural-validation refusals in
+`applyTurnTaking`; `checkpoint` reproduces the operational-recovery rung;
+`stepAction` reproduces the idle health-check carve-out. Every hardcoded
+per-state fact in the engine has exactly one home in the declaration — which is
+the test the schema was designed against.
