@@ -63,7 +63,6 @@ Feature: gtd-loop — the packaged reference loop driver
     And the git ref "refs/gtd/review-head" exists
     And the last commit subject is "gtd(agent): grilling"
     And the git log at "refs/gtd/review-head" contains "gtd(agent): building"
-    And the git log at "refs/gtd/review-head" contains "gtd: tests-green"
     And the git log at "refs/gtd/review-head" contains "gtd: close-package"
     And the git log at "refs/gtd/review-head" contains "gtd(agent): review"
     And the git log at "refs/gtd/review-head" contains "gtd: await-review"

@@ -1132,26 +1132,40 @@ describe("feedback lifecycle", () => {
   })
 })
 
-describe("tests green force-approve", () => {
-  it("agenticReviewEnabled false → close-package directly", () => {
+describe("green outcome decided at dispatch (write-time labeling)", () => {
+  it("agenticReviewEnabled false → the building turn's runTest carries onGreen close-package", () => {
     const result = resolve([
       R({
+        invoker: "agent",
         packagesPresent: true,
         workingTreeClean: true,
-        lastCommitSubject: "gtd: tests-green",
+        lastCommitSubject: "gtd(agent): building",
         agenticReviewEnabled: false,
       }),
     ])
-    expect(result.state).toBe("close-package")
+    expect(result.edgeAction).toMatchObject({ kind: "runTest", onGreen: "close-package" })
   })
 
-  it("agenticReviewEnabled true → agentic-review prompt", () => {
+  it("agenticReviewEnabled true → the building turn's runTest carries onGreen agentic-review", () => {
     const result = resolve([
       R({
+        invoker: "agent",
         packagesPresent: true,
         workingTreeClean: true,
-        lastCommitSubject: "gtd: tests-green",
+        lastCommitSubject: "gtd(agent): building",
         agenticReviewEnabled: true,
+      }),
+    ])
+    expect(result.edgeAction).toMatchObject({ kind: "runTest", onGreen: "agentic-review" })
+  })
+
+  it("gtd: agentic-review (the check's green outcome label) rests for the reviewer", () => {
+    const result = resolve([
+      R({
+        invoker: "none",
+        packagesPresent: true,
+        workingTreeClean: true,
+        lastCommitSubject: "gtd: agentic-review",
       }),
     ])
     expect(result.state).toBe("agentic-review")

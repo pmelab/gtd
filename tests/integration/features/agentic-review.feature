@@ -19,7 +19,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       Implement the helper.
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd: agentic-review"
     When I run gtd next
     Then it succeeds
     And stdout contains "Implement the helper."
@@ -30,7 +30,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       Implement the helper.
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd: agentic-review"
     And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step agent
     Then it succeeds
@@ -38,7 +38,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       chore: initial commit
       gtd: building
-      gtd: tests-green
+      gtd: agentic-review
       gtd(agent): agentic-approved
       gtd: close-package
       """
@@ -51,7 +51,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       Implement the helper.
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd: agentic-review"
     And a file ".gtd/FEEDBACK.md" with:
       """
       Finding: helper does not handle the empty-string case.
@@ -69,7 +69,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       Implement the helper.
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd: agentic-review"
     And a file ".gtd/FEEDBACK.md" with:
       """
       Finding: helper does not handle the empty-string case.
@@ -91,12 +91,16 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
     And a gtd config file at ".gtdrc" with:
       """
       agenticReview: false
+      testCommand: "true"
       """
     And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd(agent): building" that adds "src/helper.ts" with:
+      """
+      export const helper = () => 42
+      """
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd: close-package"
@@ -125,7 +129,10 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       Finding: round two.
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd(agent): fixing" that adds "src/fix.ts" with:
+      """
+      export const fix = 1
+      """
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"
@@ -148,7 +155,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       Finding: round one.
       """
     And a commit "gtd(agent): fixing" that deletes ".gtd/FEEDBACK.md"
-    And a commit "gtd: tests-green"
+    And a commit "gtd: agentic-review"
     And a commit "gtd(agent): agentic-findings" that adds ".gtd/FEEDBACK.md" with:
       """
       Finding: round two.
@@ -175,7 +182,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       Finding: round one.
       """
     And a commit "gtd(agent): fixing" that deletes ".gtd/FEEDBACK.md"
-    And a commit "gtd: tests-green"
+    And a commit "gtd: agentic-review"
     And a commit "gtd(agent): agentic-approved" that adds ".gtd/FEEDBACK.md" with:
       """
       """

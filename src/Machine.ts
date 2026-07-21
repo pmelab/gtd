@@ -474,6 +474,7 @@ const fillInActionBudgets = (
         kind: "runTest",
         errorCount: counters.testFixCount,
         capReached: counters.testFixCount >= p.fixAttemptCap,
+        onGreen: classified.action.onGreen,
       },
     }
   }
@@ -521,11 +522,25 @@ const resolveBaseline = (
     reviewPresent: p.reviewPresent,
   }
 
+  const withGreenOutcome = (result: HeadClass): HeadClass => {
+    if (result.kind !== "mid-chain" || result.action.kind !== "runTest") return result
+    // The green outcome is decided HERE, at dispatch (write-time labeling):
+    // packages + threshold reached (or agentic review off) → inline close;
+    // packages → rest for the reviewer's verdict; no packages → the health
+    // path's green marker (settle follows).
+    const onGreen = p.packagesPresent
+      ? facts.forceApprove
+        ? ("close-package" as const)
+        : ("agentic-review" as const)
+      : ("tests-green" as const)
+    return { ...result, action: { ...result.action, onGreen } }
+  }
+
   const classified = classifyHead(head, flags)
-  if (classified !== null) return fillInActionBudgets(classified, p, counters)
+  if (classified !== null) return withGreenOutcome(fillInActionBudgets(classified, p, counters))
 
   const fellBack = runLadder(defaultWorkflow.fallback, facts)
-  if (fellBack !== null) return fellBack
+  if (fellBack !== null) return withGreenOutcome(fellBack)
 
   return corrupt()
 }

@@ -1151,16 +1151,26 @@ export const perform = (
       // Testing: run tests. FEEDBACK.md is removed unconditionally first — a
       // mid-chain `gtd(agent): fixing` HEAD consumes its own FEEDBACK.md this
       // way (whether the fixer left it, deleted it, or emptied it, the file
-      // must be gone before re-testing). Green → commit routing
-      // `gtd: tests-green`. Red → write a fresh FEEDBACK.md (below cap) or
-      // ERRORS.md (at cap) with the failure output, commit routing
-      // `gtd: test-failed`.
+      // must be gone before re-testing). GREEN commits the outcome decided at
+      // dispatch (`action.onGreen`): the reviewer rest, an inline
+      // force-approve close, or the health path's green marker. RED writes a
+      // fresh FEEDBACK.md (below cap, `gtd: test-failed`) or ERRORS.md (at
+      // cap, `gtd: escalated`) with the failure output.
       case "runTest": {
         yield* fs.remove(resolve(FEEDBACK_FILE)).pipe(Effect.catchAll(() => Effect.void))
         const runner = yield* TestRunner
         const result = yield* runner.run()
         if (result.exitCode === 0) {
-          yield* git.commitAllWithPrefix("gtd: tests-green")
+          if (action.onGreen === "close-package") {
+            const packages = yield* getPackages(fs, root)
+            const first = packages[0]
+            if (first !== undefined) {
+              yield* git.removePackageDir(`${GTD_DIR}/${first.name}`)
+            }
+            yield* git.commitAllWithPrefix("gtd: close-package")
+            return { stop: false }
+          }
+          yield* git.commitAllWithPrefix(`gtd: ${action.onGreen}`)
           return { stop: false }
         }
         const target = action.capReached ? ERRORS_FILE : FEEDBACK_FILE

@@ -91,7 +91,7 @@ Feature: Replay — every committed rest resolves deterministically
       """
       Implement the helper.
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd: agentic-review"
     And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step agent
     Then it succeeds
@@ -159,7 +159,7 @@ Feature: Replay — every committed rest resolves deterministically
       """
       Implement the helper.
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd: agentic-review"
     Then I record the commit count
     When I run gtd next
     Then it succeeds

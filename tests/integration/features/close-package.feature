@@ -28,7 +28,7 @@ Feature: Close package — one gtd: close-package per package, via the CLI
       """
       Implement the second helper.
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd: agentic-review"
     And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step agent
     Then it succeeds
@@ -43,7 +43,7 @@ Feature: Close package — one gtd: close-package per package, via the CLI
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
-    And the last commit subject is "gtd: tests-green"
+    And the last commit subject is "gtd: agentic-review"
     And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step agent
     Then it succeeds
@@ -67,7 +67,7 @@ Feature: Close package — one gtd: close-package per package, via the CLI
       """
       export const helper = () => 42
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd: agentic-review"
     And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step agent
     Then it succeeds
@@ -95,12 +95,16 @@ Feature: Close package — one gtd: close-package per package, via the CLI
     And a gtd config file at ".gtdrc" with:
       """
       agenticReview: false
+      testCommand: "true"
       """
     And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
       """
       Implement the helper.
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd(agent): building" that adds "src/helper.ts" with:
+      """
+      export const helper = () => 42
+      """
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"

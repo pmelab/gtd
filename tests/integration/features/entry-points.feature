@@ -94,7 +94,9 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
       """
     When I run gtd step agent
     Then it succeeds
-    And the git log contains "gtd: tests-green"
+    # agenticReview is off: the green check force-approves and performs the
+    # close INLINE — no marker commit is ever written.
+    And the git log does not contain "gtd: tests-green"
     And the last commit subject is "gtd: close-package"
     When I run gtd next with "--json"
     Then it succeeds

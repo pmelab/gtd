@@ -1366,7 +1366,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     git("commit", "-q", "-m", turnSubject("agent", "fixing"))
     writeRepoFile(join(repoDir, ".gtd/FEEDBACK.md"), "stale finding\n")
     await runPerform(
-      { kind: "runTest", errorCount: 0, capReached: false },
+      { kind: "runTest", errorCount: 0, capReached: false, onGreen: "tests-green" },
       { exitCode: 0, output: "pass" },
     )
     expect(git("log", "-1", "--format=%s")).toBe("gtd: tests-green")
@@ -1377,7 +1377,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
 
   it("runTest red under cap: writes FEEDBACK.md and commits gtd: test-failed", async () => {
     await runPerform(
-      { kind: "runTest", errorCount: 1, capReached: false },
+      { kind: "runTest", errorCount: 1, capReached: false, onGreen: "tests-green" },
       { exitCode: 1, output: "FAIL: boom\n" },
     )
     expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(true)
@@ -1388,7 +1388,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
 
   it("runTest red at cap: writes ERRORS.md (not FEEDBACK.md) and commits gtd: escalated", async () => {
     await runPerform(
-      { kind: "runTest", errorCount: 3, capReached: true },
+      { kind: "runTest", errorCount: 3, capReached: true, onGreen: "tests-green" },
       { exitCode: 1, output: "FAIL: persistent\n" },
     )
     expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(true)
@@ -1399,7 +1399,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
 
   it("runTest red under cap, empty output: FEEDBACK.md exists, non-empty, contains sentinel", async () => {
     await runPerform(
-      { kind: "runTest", errorCount: 1, capReached: false },
+      { kind: "runTest", errorCount: 1, capReached: false, onGreen: "tests-green" },
       { exitCode: 1, output: "" },
     )
     expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(true)

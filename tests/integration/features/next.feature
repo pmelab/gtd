@@ -97,7 +97,6 @@ Feature: gtd next — pure prediction of the next prompt
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd: tests-green"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"pending\":true"

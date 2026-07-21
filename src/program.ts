@@ -158,7 +158,8 @@ const isTestsGreenCheckpoint = (
   loop: RunStepLoopState,
 ): boolean =>
   loop.performedAny &&
-  headThisHop === "gtd: tests-green" &&
+  (headThisHop === "gtd: agentic-review" ||
+    (headThisHop === "gtd: tests-green" && loop.lastCapturedGate === "fixing")) &&
   (result.state === "agentic-review" || loop.lastCapturedGate === "fixing")
 
 /**

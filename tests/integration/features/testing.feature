@@ -42,7 +42,7 @@ Feature: Testing — the bounded build/test/fix loop
       chore: add .gtdrc
       gtd: building
       gtd(agent): building
-      gtd: tests-green
+      gtd: agentic-review
       """
     And stdout contains "state:"
     And stdout does not contain "Spawn a **reviewing subagent**"
@@ -154,7 +154,7 @@ Feature: Testing — the bounded build/test/fix loop
     When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): escalate"
-    And the last commit subject is "gtd: tests-green"
+    And the last commit subject is "gtd: agentic-review"
     And the file ".gtd/ERRORS.md" does not exist
 
   Scenario: Removing a committed ERRORS.md and re-testing red writes a fresh FEEDBACK.md, not ERRORS.md again

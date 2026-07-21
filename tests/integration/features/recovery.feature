@@ -33,4 +33,4 @@ Feature: Recovery — checkpoint contract on a mid-chain operational failure
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd: tests-green"
+    And the last commit subject is "gtd: agentic-review"

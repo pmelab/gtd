@@ -52,9 +52,9 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
-    And the git log contains "gtd: tests-green"
+    And the git log contains "gtd: agentic-review"
     And the file ".gtd/FEEDBACK.md" does not exist
-    And the last commit subject is "gtd: tests-green"
+    And the last commit subject is "gtd: agentic-review"
 
   Scenario: A disputing fixer deletes FEEDBACK.md and the chain re-tests green
     Given a test project
@@ -79,7 +79,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step agent
     Then it succeeds
     And the file ".gtd/FEEDBACK.md" does not exist
-    And the git log contains "gtd: tests-green"
+    And the git log contains "gtd: agentic-review"
 
   Scenario: A disputing fixer empties FEEDBACK.md and the chain re-tests green
     Given a test project
@@ -104,7 +104,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step agent
     Then it succeeds
     And the file ".gtd/FEEDBACK.md" does not exist
-    And the git log contains "gtd: tests-green"
+    And the git log contains "gtd: agentic-review"
 
   Scenario: A do-nothing fixer invocation is inert — no commit, no re-test, next re-emits the fixing prompt
     Given a test project
@@ -146,5 +146,5 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
-    And the last commit subject is "gtd: tests-green"
+    And the last commit subject is "gtd: agentic-review"
     And the file ".gtd/FEEDBACK.md" does not exist

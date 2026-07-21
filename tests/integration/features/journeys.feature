@@ -97,8 +97,8 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
-    And the git log contains "gtd: tests-green"
-    # agenticReview is off, so tests green force-approves straight to package done.
+    # agenticReview is off: the green check force-approves and closes INLINE —
+    # one gtd: close-package commit, no marker.
     And the last commit subject is "gtd: close-package"
     And the file ".gtd" does not exist
     When I run gtd next
@@ -155,7 +155,6 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       gtd(agent): grilled
       gtd: building
       gtd(agent): building
-      gtd: tests-green
       gtd: close-package
       gtd(agent): review
       gtd: await-review
@@ -325,19 +324,10 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
-    And the last commit subject is "gtd: tests-green"
-    And the file ".gtd/FEEDBACK.md" does not exist
-    # The fix-round green is a checkpoint: gtd next reports an agent-driven
-    # pending mid-chain, and the actor field alone tells the loop driver to
-    # proceed with step-agent (no prompt to act on).
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"pending\":true"
-    And stdout contains "\"actor\":\"agent\""
-    # Onwards: force-approve closes the package.
-    When I run gtd step agent
-    Then it succeeds
+    # The fix-round green force-approves and closes INLINE — one commit, no
+    # marker, no extra checkpoint hop.
     And the last commit subject is "gtd: close-package"
+    And the file ".gtd/FEEDBACK.md" does not exist
 
   Scenario: A grilling round with one human answer, then onward to a green build
     Given a test project

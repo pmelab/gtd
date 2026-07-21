@@ -41,7 +41,7 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
   const cases: ReadonlyArray<EdgeAction> = [
     { kind: "captureTurn", actor: "human", gate: "building" },
     { kind: "commitRouting", subject: "gtd: tests-green" },
-    { kind: "runTest", errorCount: 0, capReached: false },
+    { kind: "runTest", errorCount: 0, capReached: false, onGreen: "tests-green" },
     { kind: "closePackage" },
     { kind: "writeSquashTemplate" },
     { kind: "squashCommit", squashBase: "abc1234" },
@@ -112,15 +112,25 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
   })
 
   it("runTest reports the 1-indexed attempt number", () => {
-    expect(describeEdgeAction({ kind: "runTest", errorCount: 2, capReached: false })).toBe(
-      "run the test suite (attempt 3)",
-    )
+    expect(
+      describeEdgeAction({
+        kind: "runTest",
+        errorCount: 2,
+        capReached: false,
+        onGreen: "tests-green",
+      }),
+    ).toBe("run the test suite (attempt 3)")
   })
 
   it("runTest notes when the cap is reached", () => {
-    expect(describeEdgeAction({ kind: "runTest", errorCount: 5, capReached: true })).toBe(
-      "run the test suite (attempt 6, cap reached)",
-    )
+    expect(
+      describeEdgeAction({
+        kind: "runTest",
+        errorCount: 5,
+        capReached: true,
+        onGreen: "tests-green",
+      }),
+    ).toBe("run the test suite (attempt 6, cap reached)")
   })
 
   it("squashCommit names the squash base", () => {

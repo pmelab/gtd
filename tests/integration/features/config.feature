@@ -174,7 +174,10 @@ Feature: .gtdrc config system
       """
       Finding: round one.
       """
-    And a commit "gtd: tests-green"
+    And a commit "gtd(agent): fixing" that adds "src/fix.ts" with:
+      """
+      export const fix = 1
+      """
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"

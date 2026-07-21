@@ -291,7 +291,20 @@ export type EdgeAction =
       readonly removeHealth?: boolean
       readonly removeLearning?: boolean
     }
-  | { readonly kind: "runTest"; readonly errorCount: number; readonly capReached: boolean }
+  | {
+      readonly kind: "runTest"
+      readonly errorCount: number
+      readonly capReached: boolean
+      /**
+       * The green outcome, decided at DISPATCH time (write-time labeling):
+       * `"agentic-review"` — packages remain, threshold not reached — rest
+       * for the reviewer's verdict; `"close-package"` — force-approve
+       * (agentic review off, or the review-fix threshold reached) — perform
+       * the close inline; `"tests-green"` — the health path's green marker
+       * (no packages), whose settle decision follows.
+       */
+      readonly onGreen: "tests-green" | "agentic-review" | "close-package"
+    }
   | { readonly kind: "closePackage" }
   | { readonly kind: "writeSquashTemplate" }
   | { readonly kind: "squashCommit"; readonly squashBase: string }
@@ -845,7 +858,14 @@ const turnRules: readonly TurnRule[] = [
     actor: "agent",
     gate: "building",
     branches: [
-      { to: chain("building", "agent", { kind: "runTest", errorCount: 0, capReached: false }) },
+      {
+        to: chain("building", "agent", {
+          kind: "runTest",
+          errorCount: 0,
+          capReached: false,
+          onGreen: "tests-green",
+        }),
+      },
     ],
   },
   {
@@ -854,7 +874,14 @@ const turnRules: readonly TurnRule[] = [
     actor: "agent",
     gate: "fixing",
     branches: [
-      { to: chain("fixing", "agent", { kind: "runTest", errorCount: 0, capReached: false }) },
+      {
+        to: chain("fixing", "agent", {
+          kind: "runTest",
+          errorCount: 0,
+          capReached: false,
+          onGreen: "tests-green",
+        }),
+      },
     ],
   },
   {
@@ -994,7 +1021,14 @@ const turnRules: readonly TurnRule[] = [
     actor: "human",
     gate: "escalate",
     branches: [
-      { to: chain("escalate", "human", { kind: "runTest", errorCount: 0, capReached: false }) },
+      {
+        to: chain("escalate", "human", {
+          kind: "runTest",
+          errorCount: 0,
+          capReached: false,
+          onGreen: "tests-green",
+        }),
+      },
     ],
   },
 ]
@@ -1009,17 +1043,14 @@ const routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>> = {
   architecting: [{ to: rest("architecting", "agent") }],
   grilled: [{ to: rest("grilled", "agent") }],
   building: [{ to: rest("building", "agent") }],
-  // Marker state: a green check outcome; the next state is decided here by
-  // guarded rules (close/review the package, or the health path's settle).
-  "tests-green": [
-    {
-      when: (f) => f.hasPackages && f.agenticReviewForceApproved,
-      to: chain("close-package", "agent", { kind: "closePackage" }),
-    },
-    { when: (f) => f.hasPackages, to: rest("agentic-review", "agent") },
-    // No packages: the health path's green re-test — learning/squash/idle.
-    { to: settle("testing", false) },
-  ],
+  // The health path's green marker (the check writes it only when no
+  // packages remain in play) — the settle decision follows. Package-path
+  // green outcomes are decided at write time: `gtd: agentic-review` or an
+  // inline close.
+  "tests-green": [{ to: settle("testing", false) }],
+  // The check went green with packages remaining and the threshold not
+  // reached: rest for the reviewer's verdict.
+  "agentic-review": [{ to: rest("agentic-review", "agent") }],
   // Marker state: a red check outcome BELOW the cap (the check decides at
   // write time — at the cap it writes `gtd: escalated` instead).
   "test-failed": [{ to: rest("fixing", "agent") }],
@@ -1137,7 +1168,14 @@ const fallback: readonly LadderRule[] = [
       f.lastTurn?.actor === "agent" &&
       f.lastTurn.gate === "building",
     branches: [
-      { to: chain("building", "agent", { kind: "runTest", errorCount: 0, capReached: false }) },
+      {
+        to: chain("building", "agent", {
+          kind: "runTest",
+          errorCount: 0,
+          capReached: false,
+          onGreen: "tests-green",
+        }),
+      },
     ],
   },
   {
