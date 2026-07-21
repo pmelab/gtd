@@ -16,6 +16,7 @@
       "Bash(npx vitest run *)",
       "Bash(npx fallow health *)",
       "Bash(npx fallow --summary *)",
+      "Bash(npx fallow --quiet *)",
       "Bash(npx oxlint .)",
       "Bash(npx oxfmt --check .)",
       "mcp__github__actions_list"
