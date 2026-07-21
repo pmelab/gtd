@@ -7,6 +7,7 @@ import { Cwd } from "./Cwd.js"
 import { formatFile } from "./Format.js"
 import { TestRunner } from "./TestRunner.js"
 import { parseSubject, turnSubject, type Actor } from "./Subjects.js"
+import { isInteractiveActor } from "./Workflow.js"
 import { parseOpenQuestions } from "./OpenQuestions.js"
 import { parseReviewDoc } from "./ReviewDoc.js"
 import type {
@@ -452,7 +453,7 @@ export const gatherEvents = (
         .commitDiff(headHash, turnDiffExcludes(headParsed.gate))
         .pipe(Effect.catchAll(() => Effect.succeed("")))
 
-      if (headParsed.actor === "human" && headParsed.gate === "review") {
+      if (isInteractiveActor(headParsed.actor) && headParsed.gate === "review") {
         // Split the unrestricted per-commit diff into its per-file sections
         // (each starts with `diff --git a/<path> b/<path>`) and ask: is there
         // any changed file OTHER than REVIEW.md, or is REVIEW.md's own hunk
@@ -860,7 +861,7 @@ export const gatherEvents = (
       }
       const ignoredTestsGreenIdx = inHealthProcessingChain ? lastTestsGreenIdx : -1
       const isHealthEntryTurn = (c: CommitEvent): boolean =>
-        c.turnActor === "human" && c.turnGate === "health-fixing"
+        isInteractiveActor(c.turnActor ?? "") && c.turnGate === "health-fixing"
       let anchorIdx = -1
       for (let i = 0; i < commitEvents.length; i++) {
         const c = commitEvents[i]!

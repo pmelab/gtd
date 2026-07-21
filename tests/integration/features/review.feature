@@ -3,7 +3,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
 
   The gate fixture is built from two commits: `gtd(agent): review` (adds
   REVIEW.md) followed by the routing `gtd: await-review` that commits it.
-  `gtd next` at that gate emits a human-actor prompt. A clean `gtd step`
+  `gtd next` at that gate emits a human-actor prompt. A clean `gtd step human`
   approves: an empty `gtd(human): review` turn plus routing `gtd: done`, and
   REVIEW.md is gone from the tree. Flipping only `- [ ]` to `- [x]` in
   REVIEW.md is also treated as a clean approval (the machine-computed checkbox
@@ -47,7 +47,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       - [ ] ./src/calc.ts#1 — new add function
       """
     And a commit "gtd: await-review"
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): review"
     And the last commit subject is "gtd: done"
@@ -78,7 +78,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       - [x] ./src/calc.ts#1 — new add function
       - [x] ./src/calc.ts#1 — export statement
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: done"
     And the file ".gtd/REVIEW.md" does not exist
@@ -108,7 +108,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
 
       Please also add a subtract function.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): review"
     And the last commit subject is "gtd: grilling"
@@ -138,7 +138,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       export const add = (a: number, b: number) => a + b
       // reviewer: please also add subtract
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: grilling"
     And the file ".gtd/REVIEW.md" does not exist
@@ -171,9 +171,9 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
       - [ ] ./src/calc.ts#1 — new add function
       """
     And a commit "gtd: await-review"
-    And I run gtd step
+    And I run gtd step human
     And I record the commit count
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the commit count is unchanged
 
@@ -190,7 +190,7 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
     And a commit "gtd: close-package"
     And a commit "gtd(agent): review"
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the git log does not contain "gtd: await-review"

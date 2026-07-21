@@ -53,16 +53,16 @@ schema stub on first run (see [Configuration](docs/configuration.md#auto-init)).
 
 Three commands drive everything:
 
-- **`gtd step`** — advance the workflow as the **human** actor.
-- **`gtd step-agent`** — advance the workflow as the **agent** actor.
+- **`gtd step human`** — advance the workflow as the **human** actor.
+- **`gtd step agent`** — advance the workflow as the **agent** actor.
 - **`gtd next`** — print the prompt for whichever actor is currently awaited,
   without mutating anything.
 
-The loop is two beats, repeated: run `gtd step-agent`, then `gtd next --json`.
+The loop is two beats, repeated: run `gtd step agent`, then `gtd next --json`.
 If the `actor` field says `"agent"`, feed the prompt to your agent and repeat;
 if it says `"human"`, stop — it's your move. You act by editing files (answering
 questions, reviewing the diff in your editor, fixing code) and running
-`gtd step`.
+`gtd step human`.
 
 Along the way, gtd grills your idea into a product plan, then a technical
 architecture, decomposes it into work packages, builds them one at a time, runs

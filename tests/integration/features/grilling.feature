@@ -2,12 +2,12 @@
 Feature: Grilling — human sketch, agent plan, human answers, clean-step convergence
 
   Grilling starts the moment a human turn lands at a boundary HEAD with a dirty
-  tree: `gtd step` captures everything pending into one `gtd(human): grilling`
+  tree: `gtd step human` captures everything pending into one `gtd(human): grilling`
   turn commit — no TODO.md is seeded by the machine and nothing is reverted, so
   the captured files stay in history and the tree is clean afterwards. `gtd next`
   then hands the agent that turn's diff. The agent writes/edits TODO.md and
-  `gtd step-agent`s a `gtd(agent): grilling` turn, which gates on a human to
-  answer inline in TODO.md (or accept defaults). A clean `gtd step` at that gate
+  `gtd step agent`s a `gtd(agent): grilling` turn, which gates on a human to
+  answer inline in TODO.md (or accept defaults). A clean `gtd step human` at that gate
   is the sole convergence signal — no marker text is ever parsed — landing an
   empty `gtd(human): grilling` plus routing `gtd: architecting`, which seeds
   `.gtd/ARCHITECTURE.md` from the converged TODO.md content, removes TODO.md,
@@ -20,7 +20,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       """
       Build a calculator that can add and subtract.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     And the file "notes.md" exists
@@ -35,7 +35,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       """
       Build a calculator that can add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
@@ -43,7 +43,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
     And stdout contains "Build a calculator that can add and subtract."
     When I run gtd next
     Then it succeeds
-    And stdout contains "Finish your turn by running `gtd step-agent`."
+    And stdout contains "Finish your turn by running `gtd step agent`."
 
   Scenario: The agent's plan turn gates on a human to answer inline
     Given a test project
@@ -51,7 +51,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       """
       Build a calculator that can add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     And a file ".gtd/TODO.md" with:
       """
       # Plan
@@ -62,7 +62,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
 
       Suggested default: add and subtract.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): grilling"
     When I run gtd next with "--json"
@@ -80,7 +80,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       """
       Build a calculator that can add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     And a file ".gtd/TODO.md" with:
       """
       # Plan
@@ -91,7 +91,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
 
       Suggested default: add and subtract.
       """
-    And I run gtd step-agent
+    And I run gtd step agent
     And ".gtd/TODO.md" is modified to:
       """
       # Plan
@@ -106,7 +106,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       """
       Build a calculator that can add, subtract, and multiply.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     When I run gtd next with "--json"
@@ -120,7 +120,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       """
       Build a calculator that can add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     And a file ".gtd/TODO.md" with:
       """
       # Plan
@@ -131,8 +131,8 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
 
       Suggested default: add and subtract.
       """
-    And I run gtd step-agent
-    When I run gtd step
+    And I run gtd step agent
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): grilling"
     And the last commit subject is "gtd: architecting"
@@ -150,7 +150,7 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       """
       Build a calculator with add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     And a file ".gtd/TODO.md" with:
       """
       # Plan
@@ -159,8 +159,8 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
 
       <!-- user answers here -->
       """
-    And I run gtd step-agent
-    When I run gtd step
+    And I run gtd step agent
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: architecting"
     When I run gtd next with "--json"
@@ -174,15 +174,15 @@ Feature: Grilling — human sketch, agent plan, human answers, clean-step conver
       """
       Build a calculator with add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     And I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the last commit subject is "gtd(human): grilling"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged

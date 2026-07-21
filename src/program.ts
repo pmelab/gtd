@@ -17,7 +17,8 @@ import { predictTurn, resolve, type EdgeAction, type GtdEvent, type Result } fro
 import { buildPrompt } from "./Prompt.js"
 import { startLspServer } from "./Lsp.js"
 import { closeReviewWindow, openReviewWindow } from "./ReviewWindow.js"
-import { reviewingSubject } from "./Subjects.js"
+import { reviewingSubject, type Actor } from "./Subjects.js"
+import { definedActorNames, isAutonomousActor, isDefinedActor } from "./Workflow.js"
 import { describeEdgeAction, describeStatus } from "./State.js"
 import { TestRunner } from "./TestRunner.js"
 
@@ -27,8 +28,8 @@ const GTD_VERSION: string = (_require("../package.json") as { version: string })
 const HELP_TEXT = `Usage: gtd [command] [options]
 
 Commands:
-  step             Advance the workflow as the human actor (to fixpoint)
-  step-agent       Advance the workflow as the agent actor (to fixpoint)
+  step <actor>     Advance the workflow as the named actor (to fixpoint);
+                   the default workflow declares "human" and "agent"
   next             Print the prompt for whichever actor is awaited (no mutation)
   status           Predict the next commit and state from the working tree (no mutation)
   review <target>  Anchor an ad-hoc human review against a git ref or branch
@@ -164,7 +165,7 @@ const isTestsGreenCheckpoint = (
  * A second fresh turn capture right after the agentic-review turn (findings
  * recorded → the resolver wants a NEW `gtd(agent): fixing` capture) is a
  * second judgment call in one invocation — stop and let a fresh
- * `gtd step-agent` do the actual fixing.
+ * `gtd step agent` do the actual fixing.
  */
 const isSecondJudgmentCallAfterAgenticReview = (result: Result, loop: RunStepLoopState): boolean =>
   loop.justCapturedAgenticReviewTurn && result.edgeAction?.kind === "captureTurn"
@@ -239,7 +240,7 @@ type RunStepHopOutcome =
  * `edgeAction`, so the loop simply stops at that state instead of erroring.
  */
 const runStepHop = (
-  invoker: "human" | "agent",
+  invoker: Actor,
   loop: RunStepLoopState,
   actions: string[],
 ): Effect.Effect<RunStepHopOutcome, Error, ProgramRequirements> =>
@@ -274,19 +275,17 @@ const runStepHop = (
   })
 
 /**
- * Drives the fixpoint loop for `gtd step` / `gtd step-agent`: gather → resolve
+ * Drives the fixpoint loop for `gtd step <actor>`: gather → resolve
  * → (perform the returned `edgeAction`) → repeat until `resolve` returns no
  * `edgeAction` (fixpoint) or the resolver reports a `refusal` (out-of-turn
- * step-agent invocation). See `runStepHop` for the per-hop logic and
+ * out-of-turn invocation). See `runStepHop` for the per-hop logic and
  * `RunStepLoopState`'s field docs for what carries across hops.
  *
  * Returns the ordered list of authored commit subjects (oldest→newest) and the
  * human-readable descriptions of every edge action performed, plus the final
  * resolved state.
  */
-const runStep = (
-  invoker: "human" | "agent",
-): Effect.Effect<RunStepResult, Error, ProgramRequirements> =>
+const runStep = (invoker: Actor): Effect.Effect<RunStepResult, Error, ProgramRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
     const preHead = yield* git
@@ -357,14 +356,31 @@ const runFormatCommand = (
     yield* Format.formatFile(args[0]!)
   })
 
-/** `gtd step` / `gtd step-agent`: drive the fixpoint loop and report what it did. */
+/** `gtd step <actor>`: drive the fixpoint loop as the named actor and report what it did. */
 const runStepCommand = (
-  sub: "step" | "step-agent",
+  argv: readonly string[],
   json: boolean,
   write: (chunk: string) => void,
 ): Effect.Effect<void, Error, ProgramRequirements> =>
   Effect.gen(function* () {
-    const invoker = sub === "step" ? ("human" as const) : ("agent" as const)
+    const args = commandArgs(argv)
+    const declared = definedActorNames().join(", ")
+    if (args.length === 0) {
+      return yield* Effect.fail(
+        new Error(`gtd step: missing actor argument — declared actors: ${declared}`),
+      )
+    }
+    if (args.length > 1) {
+      return yield* Effect.fail(
+        new Error(`gtd step: too many arguments — expected one actor, got: ${args.join(", ")}`),
+      )
+    }
+    const invoker = args[0]!
+    if (!isDefinedActor(invoker)) {
+      return yield* Effect.fail(
+        new Error(`gtd step: unknown actor '${invoker}' — declared actors: ${declared}`),
+      )
+    }
     const { state, actions, commits } = yield* runStep(invoker)
     if (json) {
       write(JSON.stringify({ state, actions, commits }) + "\n")
@@ -388,7 +404,7 @@ const runNextCommand = (
     if (status.trim().length > 0) {
       return yield* Effect.fail(
         new Error(
-          "gtd next: working tree is dirty — run `gtd status` to inspect it, then advance with `gtd step` or `gtd step-agent` (whichever actor is awaited)",
+          "gtd next: working tree is dirty — run `gtd status` to inspect it, then advance with `gtd step <actor>` (whichever actor is awaited)",
         ),
       )
     }
@@ -399,10 +415,10 @@ const runNextCommand = (
     })
     if (result.pending) {
       // Mid-chain bookkeeping is invoker-agnostic (`applyTurnTaking` hands the
-      // edge action to either actor's step), so `actor` names whose chain it
-      // is — a loop driver keys on it: "agent" means proceed (another
-      // `step-agent` round), "human" means halt. The plain message points at
-      // the natural resuming command for that actor.
+      // edge action to any actor's step), so `actor` names whose chain it is
+      // — a loop driver keys on it: an autonomous actor means proceed
+      // (another `gtd step <actor>` round), an interactive one means halt.
+      // The plain message points at the natural resuming command.
       if (json) {
         write(
           JSON.stringify({
@@ -414,9 +430,9 @@ const runNextCommand = (
         )
       } else {
         write(
-          result.actor === "agent"
-            ? "mid-chain checkpoint — run `gtd step-agent` to continue, then run `gtd next` again\n"
-            : "mid-chain checkpoint — run `gtd step` to continue\n",
+          isAutonomousActor(result.actor)
+            ? `mid-chain checkpoint — run \`gtd step ${result.actor}\` to continue, then run \`gtd next\` again\n`
+            : `mid-chain checkpoint — run \`gtd step ${result.actor}\` to continue\n`,
         )
       }
       return
@@ -512,7 +528,7 @@ const runReviewCommand = (
  * `.gtd/ARCHITECTURE.md` is present — the open-questions list, for a future
  * UI. No dirty-tree check, no mutation: reports whatever is on disk right
  * now, well-formed or not (`errors` surfaces the same structural problems
- * that would refuse `gtd step-agent`'s next agent turn).
+ * that would refuse the agent's next `gtd step agent` turn).
  */
 const runQuestionsCommand = (
   argv: readonly string[],
@@ -564,7 +580,7 @@ const formatChangesetsResultPlain = (result: ReviewDocResult): string =>
  * `gtd changesets`: pure reader over `.gtd/REVIEW.md`, if present — the
  * changeset/file list, for a future UI. No dirty-tree check, no mutation:
  * reports whatever is on disk right now, well-formed or not (`errors`
- * surfaces the same structural problems that would refuse `gtd step-agent`'s
+ * surfaces the same structural problems that would refuse `gtd step agent`'s
  * next agent turn).
  */
 const runChangesetsCommand = (
@@ -584,15 +600,7 @@ const runChangesetsCommand = (
     }
   })
 
-const KNOWN_SUBCOMMANDS = [
-  "step",
-  "step-agent",
-  "next",
-  "status",
-  "review",
-  "questions",
-  "changesets",
-] as const
+const KNOWN_SUBCOMMANDS = ["step", "next", "status", "review", "questions", "changesets"] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
 /**
@@ -628,6 +636,11 @@ const requireKnownSubcommand = (
   if (sub === undefined) {
     if (!json) write(HELP_TEXT)
     return Effect.fail(new Error("gtd: missing command — see usage above (`gtd --help`)"))
+  }
+  if (sub === "step-agent") {
+    return Effect.fail(
+      new Error("gtd step-agent was replaced by `gtd step <actor>` — run `gtd step agent`"),
+    )
   }
   if (!(KNOWN_SUBCOMMANDS as readonly string[]).includes(sub)) {
     return Effect.fail(new Error(`unknown command '${sub}'`))
@@ -671,8 +684,7 @@ const dispatchKnownSubcommand = (
 ): Effect.Effect<void, Error, ProgramRequirements> => {
   switch (sub) {
     case "step":
-    case "step-agent":
-      return runStepCommand(sub, json, write)
+      return runStepCommand(argv, json, write)
     case "next":
       return runNextCommand(git, config, json, write)
     case "status":

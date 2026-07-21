@@ -1,12 +1,12 @@
 @inmem
-Feature: gtd step — the human mutator
+Feature: gtd step human — the human mutator
 
-  `gtd step` advances the machine to fixpoint: it authors the turn commit for
+  `gtd step human` advances the machine to fixpoint: it authors the turn commit for
   the awaited human gate (plus any routing chain), then stops. It is
   idempotent — re-running at a fixpoint authors zero commits. Turns are
-  strictly actor-separated: while an agent turn is awaited, `gtd step` refuses
+  strictly actor-separated: while an agent turn is awaited, `gtd step human` refuses
   (exit non-zero, zero commits) on clean and dirty trees alike — the mirror of
-  `gtd step-agent`'s refusal while a human turn is awaited. At idle it runs
+  `gtd step agent`'s refusal while a human turn is awaited. At idle it runs
   the health check: green exits 0 with zero commits, red writes and commits
   HEALTH.md as `gtd: health-check`.
 
@@ -20,12 +20,12 @@ Feature: gtd step — the human mutator
       """
       export const sub = (a: number, b: number) => a - b
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     And stdout contains "state: grilling"
 
-  Scenario: A second gtd step right after the entry turn is refused out-of-turn with zero new commits
+  Scenario: A second gtd step human right after the entry turn is refused out-of-turn with zero new commits
     Given a test project
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
@@ -35,13 +35,13 @@ Feature: gtd step — the human mutator
       """
       export const sub = (a: number, b: number) => a - b
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     Then I record the commit count
     # The entry turn handed the machine to the agent (grilling awaits the
     # agent's questions). Strict turn separation: the human's step now errors
     # instead of no-op-ing — and still authors nothing.
-    When I run gtd step
+    When I run gtd step human
     Then it fails
     And stderr contains "awaits an agent turn"
     And the commit count is unchanged
@@ -66,7 +66,7 @@ Feature: gtd step — the human mutator
 
       no open questions — run gtd to plan
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the commit subjects from oldest to newest are:
       """
@@ -98,14 +98,14 @@ Feature: gtd step — the human mutator
     # no route and would regress to grilling) — it is refused outright; the
     # human amends by leaving notes in .gtd package files AFTER the agent's
     # planning commit lands.
-    When I run gtd step
+    When I run gtd step human
     Then it fails
-    And stderr contains "run `gtd step-agent`"
+    And stderr contains "run `gtd step agent`"
     And the commit count is unchanged
     And the file ".gtd/ARCHITECTURE.md" exists
     # The agent step is the only legal move: it commits the decomposition and
     # removes ARCHITECTURE.md in one chain.
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: building"
     And the file ".gtd/ARCHITECTURE.md" does not exist
@@ -117,7 +117,7 @@ Feature: gtd step — the human mutator
       Implement the add function.
       """
     Then I record the commit count
-    When I run gtd step
+    When I run gtd step human
     Then it fails
     And stderr contains "awaits an agent turn"
     And the commit count is unchanged
@@ -136,7 +136,7 @@ Feature: gtd step — the human mutator
     # Turns are strictly separated: the human's pending notes are NOT adopted
     # as a human turn — they stay in the working tree and ride along as input
     # to the agent's next captured turn.
-    When I run gtd step
+    When I run gtd step human
     Then it fails
     And stderr contains "awaits an agent turn"
     And the commit count is unchanged
@@ -153,6 +153,6 @@ Feature: gtd step — the human mutator
       export const add = (a: number, b: number) => a + b
       """
     Then I record the commit count
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the commit count is unchanged

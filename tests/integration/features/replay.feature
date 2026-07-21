@@ -4,7 +4,7 @@ Feature: Replay — every committed rest resolves deterministically
   All machine state lives in commits: `gtd next` and `gtd status` are pure and
   read only the working tree + first-parent history, so re-running either at
   the same commit yields the same fragment with zero side effects. Re-running
-  `gtd step` / `gtd step-agent` at a fixpoint (the rest the machine already
+  `gtd step human` / `gtd step agent` at a fixpoint (the rest the machine already
   settled at) is idempotent — it authors zero new commits. A history built
   without ever touching the working tree in between (as a clone or checkout
   would present it) resolves to the same `gtd next` output as the live process
@@ -75,8 +75,8 @@ Feature: Replay — every committed rest resolves deterministically
     And the file ".gtd/ERRORS.md" exists
     And the commit count is unchanged
 
-  Scenario: A second gtd step-agent once the agent-side pipeline settles at idle is a no-op
-    # A single gtd step-agent invocation advances the agent's side of the
+  Scenario: A second gtd step agent once the agent-side pipeline settles at idle is a no-op
+    # A single gtd step agent invocation advances the agent's side of the
     # pipeline all the way to fixpoint for the LAST package: an approving
     # empty FEEDBACK.md turn closes the package and, with no packages
     # remaining and no reviewable diff yet authored, settles at idle. A second
@@ -93,17 +93,17 @@ Feature: Replay — every committed rest resolves deterministically
       """
     And a commit "gtd: tests-green"
     And an empty file ".gtd/FEEDBACK.md"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"
     And the file ".gtd" does not exist
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it fails
     And stderr contains "awaits a human turn"
     And the commit count is unchanged
 
-  Scenario: A second gtd step at the human review rest is a no-op once approved
+  Scenario: A second gtd step human at the human review rest is a no-op once approved
     Given a test project
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
@@ -116,9 +116,9 @@ Feature: Replay — every committed rest resolves deterministically
       - [ ] ./src/calc.ts#1
       """
     And a commit "gtd: await-review"
-    And I run gtd step
+    And I run gtd step human
     Then I record the commit count
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the commit count is unchanged
     And the last commit subject is "gtd: done"

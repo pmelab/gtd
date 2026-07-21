@@ -61,7 +61,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
 
   Scenario: An empty step approves — the window closes and leaves no trace
     Given I run gtd next
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): review"
     And the last commit subject is "gtd: done"
@@ -76,7 +76,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
       export const add = (a: number, b: number) => a + b
       // reviewer: please rename to sum
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): review"
     And the last commit subject is "gtd: grilling"
@@ -92,7 +92,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
   Scenario: Deleting a surfaced file (editor "discard") is reversion feedback
     Given I run gtd next
     And the file "src/calc.ts" is deleted
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: grilling"
     When I run gtd next
@@ -125,9 +125,9 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the last commit subject is "gtd(human): grilling"
     And the file "src/calc.ts" contains "half-finished review note"
 
-  Scenario: gtd step-agent at the human gate refuses and re-arms the window
+  Scenario: gtd step agent at the human gate refuses and re-arms the window
     Given I run gtd next
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it fails
     And stderr contains "await-review awaits a human turn"
     And the git ref "refs/gtd/review-head" exists
@@ -150,7 +150,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
       export const add = (a: number, b: number) => a + b
       // tweak made in a manual commit
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log does not contain "wip: reviewer tweak"
     And the last commit subject is "gtd: grilling"
@@ -175,7 +175,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the last commit subject is "gtd(human): grilling"
     And the git log at "refs/gtd/review-head" contains "gtd: await-review"
     And the git status contains "src/calc.ts"
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): review"
     And the last commit subject is "gtd: done"

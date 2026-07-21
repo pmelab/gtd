@@ -5,7 +5,7 @@ Feature: gtd questions subcommand
   `.gtd/TODO.md` / `.gtd/ARCHITECTURE.md` is present. It parses the
   `## Open Questions` structure (see `document-structure.feature`) and reports
   the question list, plus any structural errors — the same diagnosis that
-  would make `gtd step-agent` refuse the agent's next turn capture. It never
+  would make `gtd step agent` refuse the agent's next turn capture. It never
   mutates and always exits 0, on a clean or a dirty tree, with or without a
   well-formed file.
 

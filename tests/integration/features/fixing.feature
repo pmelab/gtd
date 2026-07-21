@@ -6,7 +6,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
   verbatim. The fixer's turn commit is `gtd(agent): fixing`; the chain removes
   FEEDBACK.md and re-tests in the same invocation, landing `gtd: tests-green`
   on a green re-test. A fixer that disputes the finding by deleting or emptying
-  FEEDBACK.md in the working tree is captured the same way: `gtd step-agent`
+  FEEDBACK.md in the working tree is captured the same way: `gtd step agent`
   records the turn, re-tests, and proceeds once FEEDBACK.md is gone. A fixer
   that produces no change at all still records one empty `gtd(agent): fixing`
   turn — inert but real — and `gtd next` re-emits the same fixing prompt; a
@@ -49,7 +49,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       """
       export const helper = (x: string) => x
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
     And the git log contains "gtd: tests-green"
@@ -76,7 +76,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       AssertionError: expected helper('a') to equal 'a'
       """
     And a deleted committed file ".gtd/FEEDBACK.md"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the file ".gtd/FEEDBACK.md" does not exist
     And the git log contains "gtd: tests-green"
@@ -101,7 +101,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       AssertionError: expected helper('a') to equal 'a'
       """
     And an empty file ".gtd/FEEDBACK.md"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the file ".gtd/FEEDBACK.md" does not exist
     And the git log contains "gtd: tests-green"
@@ -117,14 +117,14 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       AssertionError: expected helper('a') to equal 'a'
       """
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: test-failed"
     And the commit count is unchanged
     When I run gtd next
     Then it succeeds
     And stdout contains "AssertionError: expected helper('a') to equal 'a'"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
 
@@ -143,7 +143,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
       AssertionError: expected helper('a') to equal 'a'
       """
     And a deleted committed file ".gtd/FEEDBACK.md"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
     And the last commit subject is "gtd: tests-green"

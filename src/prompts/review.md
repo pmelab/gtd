@@ -43,7 +43,7 @@ Spawn a **planning-model subagent** using model `<%= it.model %>` to author a
      review; there is no separate Resolved section.
    - This structure is enforced: the `# Review: <hash>` header, the
      `<!-- base: ... -->` comment, and at least one file pointer per chunk
-     are all required — a missing one blocks your turn (`gtd step-agent`
+     are all required — a missing one blocks your turn (`gtd step agent`
      refuses until it's fixed).
 
 4. Leave `.gtd/REVIEW.md` **uncommitted** and finish your turn — the human reviews

@@ -33,8 +33,13 @@
  */
 
 import type { Actor, RoutingPhase, TurnGate } from "./Subjects.js"
-import { parseSubject } from "./Subjects.js"
 import type { ModelState } from "./Config.js"
+
+// NOTE: this module must stay free of RUNTIME imports from `./Subjects.js`
+// (type-only imports are fine): the grammar derives its closed actor
+// vocabulary from `defaultWorkflow.actors` below, so `Subjects.ts` imports
+// THIS module at runtime — a runtime import in the other direction would be
+// a cycle.
 
 // ─── Contract types (re-exported by Machine.ts) ─────────────────────────────
 
@@ -501,7 +506,26 @@ export interface StateDef {
 }
 
 /** The whole machine shape. `Machine.ts` interprets exactly one of these. */
+/**
+ * One declared actor. Actors are definition data, not engine constants: the
+ * default workflow ships `human` (interactive) and `agent` (autonomous), and
+ * a workflow may declare any number of either kind. The `kind` is what the
+ * turn-taking engine keys its safety behaviors on — never the name:
+ *   - **interactive** — a person at a terminal. Their dirty boundary tree is
+ *     the entry turn, their step at idle re-runs the health check, and their
+ *     empty turn is always a meaningful signal (accept-defaults, approval).
+ *   - **autonomous** — a driven agent. Its clean-tree step at an inert gate
+ *     is a no-op (the loop protocol's opening beat), and its authored drafts
+ *     are structurally validated before capture.
+ */
+export interface ActorDef {
+  readonly name: Actor
+  readonly kind: "interactive" | "autonomous"
+}
+
 export interface WorkflowDefinition {
+  /** The declared actors; `gtd step <actor>` validates against this set. */
+  readonly actors: readonly ActorDef[]
   readonly states: Record<GtdState, StateDef>
   readonly turnRules: readonly TurnRule[]
   readonly routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>>
@@ -532,12 +556,12 @@ const settle = (state: GtdState, learningAlreadyRan: boolean): RuleOutcome => ({
 /**
  * HEAD is the human's HEALTH.md entry turn (`gtd(human): health-fixing`) —
  * the hand-written error description was just captured and no agent has
- * acted on it yet.
+ * acted on it yet. Compared as a subject literal (this file's own actor and
+ * gate names) rather than via `parseSubject`, which would be a runtime
+ * import cycle — see the module-level note.
  */
-const isHumanHealthEntryHead = (head: string): boolean => {
-  const parsed = parseSubject(head)
-  return parsed.kind === "turn" && parsed.actor === "human" && parsed.gate === "health-fixing"
-}
+const isHumanHealthEntryHead = (head: string): boolean =>
+  head.trim() === "gtd(human): health-fixing"
 
 // ─── Default definition: states ──────────────────────────────────────────────
 
@@ -1332,7 +1356,14 @@ const agentTurnValidation: Partial<Record<TurnGate, AgentTurnValidation>> = {
 // ─── The default workflow ────────────────────────────────────────────────────
 
 /** The gtd v2 machine, expressed as data. `Machine.ts` interprets this. */
+/** The default turn-taking pair. Workflows may declare more of either kind. */
+const actors: readonly ActorDef[] = [
+  { name: "human", kind: "interactive" },
+  { name: "agent", kind: "autonomous" },
+]
+
 export const defaultWorkflow: WorkflowDefinition = {
+  actors,
   states,
   turnRules,
   routingRules,
@@ -1343,3 +1374,35 @@ export const defaultWorkflow: WorkflowDefinition = {
   entry,
   agentTurnValidation,
 }
+
+// ─── Actor helpers (over the active definition) ──────────────────────────────
+
+const actorByName = (name: string): ActorDef | undefined =>
+  defaultWorkflow.actors.find((a) => a.name === name)
+
+/** The declared actor names, for CLI validation and error messages. */
+export const definedActorNames = (): readonly string[] => defaultWorkflow.actors.map((a) => a.name)
+
+/** True when `name` is a declared actor of the active definition. */
+export const isDefinedActor = (name: string): boolean => actorByName(name) !== undefined
+
+/** True for a declared interactive actor (false for unknown names and "none"). */
+export const isInteractiveActor = (name: string): boolean =>
+  actorByName(name)?.kind === "interactive"
+
+/** True for a declared autonomous actor (false for unknown names and "none"). */
+export const isAutonomousActor = (name: string): boolean => actorByName(name)?.kind === "autonomous"
+
+/**
+ * The definition's first interactive actor — the actor entry turns are
+ * predicted for, and the fallback awaited actor at human-gated recoveries.
+ */
+export const defaultInteractiveActor = (): Actor =>
+  defaultWorkflow.actors.find((a) => a.kind === "interactive")?.name ?? "human"
+
+/**
+ * The definition's first autonomous actor — the actor `awaits: "dynamic"`
+ * states default to, and the driver of machine-owned chains.
+ */
+export const defaultAutonomousActor = (): Actor =>
+  defaultWorkflow.actors.find((a) => a.kind === "autonomous")?.name ?? "agent"

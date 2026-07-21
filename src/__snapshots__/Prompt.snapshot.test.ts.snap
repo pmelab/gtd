@@ -51,7 +51,7 @@ diff --git a/src/foo.ts b/src/foo.ts
 +export const foo = 1
 \`\`\`
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -147,7 +147,7 @@ First task
 see \`\`\`block\`\`\` and - [ ] item
 \`\`\`\`
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -196,9 +196,9 @@ architecture. The subagent works entirely by editing \`.gtd/ARCHITECTURE.md\`:
    question, whose first body line is \`Suggested default: <answer>\` — your
    best-guess answer, stated plainly, that the human can accept as-is. This
    structure is enforced: a \`###\` question with no \`Suggested default:\` line
-   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   blocks your turn — \`gtd step agent\` refuses until it's fixed. Omit the
    \`## Open Questions\` section entirely once there are none.
-5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step\`)
+5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step human\`)
    reads it next.
 "
 `;
@@ -246,12 +246,12 @@ architecture. The subagent works entirely by editing \`.gtd/ARCHITECTURE.md\`:
    question, whose first body line is \`Suggested default: <answer>\` — your
    best-guess answer, stated plainly, that the human can accept as-is. This
    structure is enforced: a \`###\` question with no \`Suggested default:\` line
-   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   blocks your turn — \`gtd step agent\` refuses until it's fixed. Omit the
    \`## Open Questions\` section entirely once there are none.
-5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step\`)
+5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step human\`)
    reads it next.
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -300,9 +300,9 @@ architecture. The subagent works entirely by editing \`.gtd/ARCHITECTURE.md\`:
    question, whose first body line is \`Suggested default: <answer>\` — your
    best-guess answer, stated plainly, that the human can accept as-is. This
    structure is enforced: a \`###\` question with no \`Suggested default:\` line
-   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   blocks your turn — \`gtd step agent\` refuses until it's fixed. Omit the
    \`## Open Questions\` section entirely once there are none.
-5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step\`)
+5. Leave \`.gtd/ARCHITECTURE.md\` **uncommitted** — the human's turn (\`gtd step human\`)
    reads it next.
 
 ### Latest human input (answers / sketch / review feedback)
@@ -321,7 +321,7 @@ Read the diff above as **feedback, not finished work**:
 - Plan-text changes are global feedback on the architecture (or the reviewed
   work) as a whole.
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -346,8 +346,8 @@ Tell the user:
 
 - To answer a question, edit its \`### <question>\` entry under \`## Open
   Questions\` in place — replace the \`Suggested default: ...\` line with
-  \`Answer: ...\` (or annotate it further), then run \`gtd step\`.
-- To accept **all** suggested defaults as-is, run \`gtd step\` with **no
+  \`Answer: ...\` (or annotate it further), then run \`gtd step human\`.
+- To accept **all** suggested defaults as-is, run \`gtd step human\` with **no
   edits** — this converges the architecture and moves on to decomposition.
 "
 `;
@@ -371,8 +371,8 @@ Tell the user:
 
 - To answer a question, edit its \`### <question>\` entry under \`## Open
   Questions\` in place — replace the \`Suggested default: ...\` line with
-  \`Answer: ...\` (or annotate it further), then run \`gtd step\`.
-- To accept **all** suggested defaults as-is, run \`gtd step\` with **no
+  \`Answer: ...\` (or annotate it further), then run \`gtd step human\`.
+- To accept **all** suggested defaults as-is, run \`gtd step human\` with **no
   edits** — this converges the architecture and moves on to decomposition.
 "
 `;
@@ -393,7 +393,7 @@ Tell the user:
 
 - Read \`.gtd/LEARNINGS.md\`.
 - Delete anything not worth keeping, or edit/add anything the draft missed.
-- Run \`gtd step\` — with or without edits, either way proceeds: the agent
+- Run \`gtd step human\` — with or without edits, either way proceeds: the agent
   integrates whatever remains into the project's own memory
   (CLAUDE.md/AGENTS.md/docs) next.
 
@@ -418,7 +418,7 @@ Tell the user:
 
 - Read \`.gtd/LEARNINGS.md\`.
 - Delete anything not worth keeping, or edit/add anything the draft missed.
-- Run \`gtd step\` — with or without edits, either way proceeds: the agent
+- Run \`gtd step human\` — with or without edits, either way proceeds: the agent
   integrates whatever remains into the project's own memory
   (CLAUDE.md/AGENTS.md/docs) next.
 
@@ -442,10 +442,10 @@ gate; there is nothing for the agent to do.
 Tell the user:
 
 - Read \`.gtd/REVIEW.md\` (and the underlying work it points at).
-- To **approve**: run \`gtd step\` with no edits, or only tick checkboxes in
+- To **approve**: run \`gtd step human\` with no edits, or only tick checkboxes in
   \`.gtd/REVIEW.md\` — either way ends the review with an approval.
 - To **request changes**: write substantive edits or annotations into
-  \`.gtd/REVIEW.md\` (or the code) describing what's wrong, then run \`gtd step\` —
+  \`.gtd/REVIEW.md\` (or the code) describing what's wrong, then run \`gtd step human\` —
   this sends the feedback back for another round.
 "
 `;
@@ -465,10 +465,10 @@ gate; there is nothing for the agent to do.
 Tell the user:
 
 - Read \`.gtd/REVIEW.md\` (and the underlying work it points at).
-- To **approve**: run \`gtd step\` with no edits, or only tick checkboxes in
+- To **approve**: run \`gtd step human\` with no edits, or only tick checkboxes in
   \`.gtd/REVIEW.md\` — either way ends the review with an approval.
 - To **request changes**: write substantive edits or annotations into
-  \`.gtd/REVIEW.md\` (or the code) describing what's wrong, then run \`gtd step\` —
+  \`.gtd/REVIEW.md\` (or the code) describing what's wrong, then run \`gtd step human\` —
   this sends the feedback back for another round.
 "
 `;
@@ -563,7 +563,7 @@ First task
 see \`\`\`block\`\`\` and - [ ] item
 \`\`\`\`
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -585,7 +585,7 @@ Next steps for the human developer:
 
 1. Investigate and fix errors reported in \`.gtd/ERRORS.md\`
 2. Delete \`.gtd/ERRORS.md\`
-3. Run \`gtd step\` when you are ready to continue
+3. Run \`gtd step human\` when you are ready to continue
 "
 `;
 
@@ -605,7 +605,7 @@ Next steps for the human developer:
 
 1. Investigate and fix errors reported in \`.gtd/ERRORS.md\`
 2. Delete \`.gtd/ERRORS.md\`
-3. Run \`gtd step\` when you are ready to continue
+3. Run \`gtd step human\` when you are ready to continue
 "
 `;
 
@@ -638,7 +638,7 @@ below:
 see \`\`\`snippet\`\`\` here
 \`\`\`\`
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -692,7 +692,7 @@ below:
 4. **Leave every change uncommitted and finish your turn** — do **not** commit
    or stage.
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -727,7 +727,7 @@ below:
 FAIL: expected 1 to equal 2
 \`\`\`
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -861,7 +861,7 @@ task files:
 **DO NOT** commit any changes. This process runs within a larger orchestration
 that depends on uncommitted changes.
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -905,9 +905,9 @@ The subagent works entirely by editing \`.gtd/TODO.md\`:
    question, whose first body line is \`Suggested default: <answer>\` — your
    best-guess answer, stated plainly, that the human can accept as-is. This
    structure is enforced: a \`###\` question with no \`Suggested default:\` line
-   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   blocks your turn — \`gtd step agent\` refuses until it's fixed. Omit the
    \`## Open Questions\` section entirely once there are none.
-5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
+5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step human\`) reads it
    next.
 "
 `;
@@ -950,12 +950,12 @@ The subagent works entirely by editing \`.gtd/TODO.md\`:
    question, whose first body line is \`Suggested default: <answer>\` — your
    best-guess answer, stated plainly, that the human can accept as-is. This
    structure is enforced: a \`###\` question with no \`Suggested default:\` line
-   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   blocks your turn — \`gtd step agent\` refuses until it's fixed. Omit the
    \`## Open Questions\` section entirely once there are none.
-5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
+5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step human\`) reads it
    next.
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -1010,12 +1010,12 @@ The subagent works entirely by editing \`.gtd/TODO.md\`:
    question, whose first body line is \`Suggested default: <answer>\` — your
    best-guess answer, stated plainly, that the human can accept as-is. This
    structure is enforced: a \`###\` question with no \`Suggested default:\` line
-   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   blocks your turn — \`gtd step agent\` refuses until it's fixed. Omit the
    \`## Open Questions\` section entirely once there are none.
-5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
+5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step human\`) reads it
    next.
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -1059,9 +1059,9 @@ The subagent works entirely by editing \`.gtd/TODO.md\`:
    question, whose first body line is \`Suggested default: <answer>\` — your
    best-guess answer, stated plainly, that the human can accept as-is. This
    structure is enforced: a \`###\` question with no \`Suggested default:\` line
-   blocks your turn — \`gtd step-agent\` refuses until it's fixed. Omit the
+   blocks your turn — \`gtd step agent\` refuses until it's fixed. Omit the
    \`## Open Questions\` section entirely once there are none.
-5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step\`) reads it
+5. Leave \`.gtd/TODO.md\` **uncommitted** — the human's turn (\`gtd step human\`) reads it
    next.
 
 ### Latest human input (answers / sketch / review feedback)
@@ -1079,7 +1079,7 @@ Read the diff above as **feedback, not finished work**:
 - Plan-text changes are global feedback on the plan (or the reviewed work) as
   a whole.
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -1104,8 +1104,8 @@ Tell the user:
 
 - To answer a question, edit its \`### <question>\` entry under \`## Open
   Questions\` in place — replace the \`Suggested default: ...\` line with
-  \`Answer: ...\` (or annotate it further), then run \`gtd step\`.
-- To accept **all** suggested defaults as-is, run \`gtd step\` with **no
+  \`Answer: ...\` (or annotate it further), then run \`gtd step human\`.
+- To accept **all** suggested defaults as-is, run \`gtd step human\` with **no
   edits** — this converges the plan and moves on to technical architecting.
 "
 `;
@@ -1129,8 +1129,8 @@ Tell the user:
 
 - To answer a question, edit its \`### <question>\` entry under \`## Open
   Questions\` in place — replace the \`Suggested default: ...\` line with
-  \`Answer: ...\` (or annotate it further), then run \`gtd step\`.
-- To accept **all** suggested defaults as-is, run \`gtd step\` with **no
+  \`Answer: ...\` (or annotate it further), then run \`gtd step human\`.
+- To accept **all** suggested defaults as-is, run \`gtd step human\` with **no
   edits** — this converges the plan and moves on to technical architecting.
 "
 `;
@@ -1140,7 +1140,7 @@ exports[`buildPrompt snapshots > idle json 1`] = `
 green. Nothing to do.
 
 Start a new cycle by sketching an idea in the working tree (edit code or add a
-short note, e.g. \`IDEA.md\`) and running \`gtd step\` to capture it.
+short note, e.g. \`IDEA.md\`) and running \`gtd step human\` to capture it.
 "
 `;
 
@@ -1149,7 +1149,7 @@ exports[`buildPrompt snapshots > idle plain 1`] = `
 green. Nothing to do.
 
 Start a new cycle by sketching an idea in the working tree (edit code or add a
-short note, e.g. \`IDEA.md\`) and running \`gtd step\` to capture it.
+short note, e.g. \`IDEA.md\`) and running \`gtd step human\` to capture it.
 "
 `;
 
@@ -1269,7 +1269,7 @@ diff --git a/x b/x
 +hello
 \`\`\`
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -1335,7 +1335,7 @@ to integrate those learnings into the project's own memory, not to touch
    your turn is captured.
 5. **Leave every change uncommitted and finish your turn.**
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -1393,7 +1393,7 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      review; there is no separate Resolved section.
    - This structure is enforced: the \`# Review: <hash>\` header, the
      \`<!-- base: ... -->\` comment, and at least one file pointer per chunk
-     are all required — a missing one blocks your turn (\`gtd step-agent\`
+     are all required — a missing one blocks your turn (\`gtd step agent\`
      refuses until it's fixed).
 
 4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
@@ -1453,13 +1453,13 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      review; there is no separate Resolved section.
    - This structure is enforced: the \`# Review: <hash>\` header, the
      \`<!-- base: ... -->\` comment, and at least one file pointer per chunk
-     are all required — a missing one blocks your turn (\`gtd step-agent\`
+     are all required — a missing one blocks your turn (\`gtd step agent\`
      refuses until it's fixed).
 
 4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
    it next.
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -1517,7 +1517,7 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      review; there is no separate Resolved section.
    - This structure is enforced: the \`# Review: <hash>\` header, the
      \`<!-- base: ... -->\` comment, and at least one file pointer per chunk
-     are all required — a missing one blocks your turn (\`gtd step-agent\`
+     are all required — a missing one blocks your turn (\`gtd step agent\`
      refuses until it's fixed).
 
 4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
@@ -1586,7 +1586,7 @@ Spawn a **planning-model subagent** using model \`MODEL-clean\` to author a
      review; there is no separate Resolved section.
    - This structure is enforced: the \`# Review: <hash>\` header, the
      \`<!-- base: ... -->\` comment, and at least one file pointer per chunk
-     are all required — a missing one blocks your turn (\`gtd step-agent\`
+     are all required — a missing one blocks your turn (\`gtd step agent\`
      refuses until it's fixed).
 
 4. Leave \`.gtd/REVIEW.md\` **uncommitted** and finish your turn — the human reviews
@@ -1601,7 +1601,7 @@ diff --git a/x b/x
 +hello
 \`\`\`
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "
@@ -1664,7 +1664,7 @@ Gtd-Decisions: true
 
 Replace the **entire content** of \`.gtd/SQUASH_MSG.md\` (plain text, no markdown
 wrapper, no leftover template scaffolding) with the message from Step 2, then
-leave it uncommitted and finish your turn — \`gtd step-agent\` performs the
+leave it uncommitted and finish your turn — \`gtd step agent\` performs the
 squash using this file's content.
 
 Squash base: abc1234
@@ -1735,7 +1735,7 @@ Gtd-Decisions: true
 
 Replace the **entire content** of \`.gtd/SQUASH_MSG.md\` (plain text, no markdown
 wrapper, no leftover template scaffolding) with the message from Step 2, then
-leave it uncommitted and finish your turn — \`gtd step-agent\` performs the
+leave it uncommitted and finish your turn — \`gtd step agent\` performs the
 squash using this file's content.
 
 Squash base: abc1234
@@ -1747,7 +1747,7 @@ diff --git a/x b/x
 +hello
 \`\`\`
 
-Finish your turn by running \`gtd step-agent\`. Then run \`gtd next\` and follow
+Finish your turn by running \`gtd step agent\`. Then run \`gtd next\` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off.
 "

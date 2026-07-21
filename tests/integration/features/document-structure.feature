@@ -6,7 +6,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
   line) and `.gtd/REVIEW.md` (a `# Review: <hash>` header, a
   `<!-- base: ... -->` comment, and `##` chunks each with at least one file
   pointer) follow an enforced structure. A malformed file blocks the AGENT's
-  own turn capture — `gtd step-agent` refuses with zero commits and a
+  own turn capture — `gtd step agent` refuses with zero commits and a
   diagnostic on stderr — but never blocks a HUMAN's own turn at the same gate,
   since file content otherwise never steers the machine.
 
@@ -16,7 +16,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
       """
       Build a calculator that can add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     And a file ".gtd/TODO.md" with:
       """
       # Plan
@@ -30,7 +30,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
       Not sure yet.
       """
     And I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it fails
     And the commit count is unchanged
     And stderr contains ".gtd/TODO.md does not match the required structure"
@@ -42,7 +42,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
       """
       Build a calculator that can add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     And a file ".gtd/TODO.md" with:
       """
       # Plan
@@ -55,7 +55,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
 
       Suggested default: add and subtract.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): grilling"
 
@@ -65,7 +65,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
       """
       Build a calculator that can add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     And a file ".gtd/TODO.md" with:
       """
       # Plan
@@ -78,7 +78,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
 
       Suggested default: add and subtract.
       """
-    And I run gtd step-agent
+    And I run gtd step agent
     And ".gtd/TODO.md" is modified to:
       """
       # Plan
@@ -86,7 +86,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
       Build a calculator. Just do addition, subtraction, and multiplication —
       no need for a formal question/answer section.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
 
@@ -98,7 +98,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
 
       Refactor the calculator module to use a strategy pattern.
       """
-    And I run gtd step
+    And I run gtd step human
     And ".gtd/ARCHITECTURE.md" is modified to:
       """
       # Architecture
@@ -112,7 +112,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
       Strategy pattern seems reasonable but not confirmed.
       """
     And I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it fails
     And the commit count is unchanged
     And stderr contains ".gtd/ARCHITECTURE.md does not match the required structure"
@@ -141,7 +141,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
       - [ ] ./src/calc.ts#1
       """
     And I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it fails
     And the commit count is unchanged
     And stderr contains ".gtd/REVIEW.md does not match the required structure"
@@ -171,7 +171,7 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
 
       - [ ] ./src/calc.ts#1
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
 
@@ -199,11 +199,11 @@ Feature: Structural validation of the agent's grilling/architecting/review draft
 
       - [ ] ./src/calc.ts#1
       """
-    And I run gtd step-agent
+    And I run gtd step agent
     And ".gtd/REVIEW.md" is modified to:
       """
       Please also add a subtract function.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: grilling"

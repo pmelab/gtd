@@ -8,11 +8,11 @@ Feature: Learning phase — distill and persist project memory before the squash
   template. `gtd next` then emits the learning prompt for the agent,
   instructing it to distill durable lessons from the cycle's test failures,
   review feedback, and health-check rounds. Once the agent overwrites the
-  template with real content and runs `gtd step-agent`, the draft is captured
+  template with real content and runs `gtd step agent`, the draft is captured
   (`gtd(agent): learning`) and routed to `gtd: await-learning-review`, resting at
   `await-learning-review` for a human. The human either accepts the draft
   as-is (an empty turn) or edits it — either way there is no reject path, so
-  the very next `gtd step` always proceeds to `gtd: learning-apply`,
+  the very next `gtd step human` always proceeds to `gtd: learning-apply`,
   resting at `learning-apply` for the agent. The agent integrates the
   approved learnings into the project's own docs; its turn
   (`gtd(agent): learning-apply`) is routed to `gtd: learning-applied`, which
@@ -45,7 +45,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       """
     And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd: done"
     And the git log contains "gtd: learning"
@@ -93,7 +93,7 @@ Feature: Learning phase — distill and persist project memory before the squash
     And stdout contains "distilled learnings"
     And stdout contains "src/calc.ts"
 
-  Scenario: The agent overwrites LEARNINGS.md and gtd step-agent captures the draft, resting for human review
+  Scenario: The agent overwrites LEARNINGS.md and gtd step agent captures the draft, resting for human review
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -130,7 +130,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       - Tests were failing because the helper mutated its input; prefer pure
         functions in this codebase.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): learning"
     And the last commit subject is "gtd: await-learning-review"
@@ -167,7 +167,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       - ...
       """
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the last commit subject is "gtd: learning"
@@ -188,7 +188,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       - Keep fixtures small and composable.
       """
     And a commit "gtd: await-learning-review"
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): learning"
     And the last commit subject is "gtd: learning-apply"
@@ -214,7 +214,7 @@ Feature: Learning phase — distill and persist project memory before the squash
 
       - Keep fixtures small and composable.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): learning"
     And the last commit subject is "gtd: learning-apply"
@@ -263,7 +263,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       """
       Prefer pure functions for arithmetic helpers.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): learning-apply"
     And the git log contains "gtd: learning-applied"
@@ -307,7 +307,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       """
       Nothing durable this cycle.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: learning-applied"
     And the file ".gtd/LEARNINGS.md" does not exist
@@ -335,7 +335,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       """
     And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: squashing"
     And the git log does not contain "gtd: learning"
@@ -367,7 +367,7 @@ Feature: Learning phase — distill and persist project memory before the squash
       echo ALL_GREEN
       exit 0
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): health-fix"
     And the git log contains "gtd: testing"

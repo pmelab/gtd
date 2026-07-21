@@ -37,9 +37,9 @@ architecture. The subagent works entirely by editing `.gtd/ARCHITECTURE.md`:
    question, whose first body line is `Suggested default: <answer>` — your
    best-guess answer, stated plainly, that the human can accept as-is. This
    structure is enforced: a `###` question with no `Suggested default:` line
-   blocks your turn — `gtd step-agent` refuses until it's fixed. Omit the
+   blocks your turn — `gtd step agent` refuses until it's fixed. Omit the
    `## Open Questions` section entirely once there are none.
-5. Leave `.gtd/ARCHITECTURE.md` **uncommitted** — the human's turn (`gtd step`)
+5. Leave `.gtd/ARCHITECTURE.md` **uncommitted** — the human's turn (`gtd step human`)
    reads it next.
 <% if (it.context.turnDiff && it.context.turnDiff.trim()) { %>
 <%~ include("@diff", { heading: "Latest human input (answers / sketch / review feedback)", diff: it.context.turnDiff, fenceFor: it.fenceFor }) %>

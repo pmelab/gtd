@@ -2,15 +2,16 @@
 
 gtd splits what used to be one mutating command into three:
 
-- **`gtd step`** — advance the workflow as the **human** actor, to fixpoint.
-- **`gtd step-agent`** — advance the workflow as the **agent** actor, to
+- **`gtd step human`** — advance the workflow as the **human** actor, to
+  fixpoint.
+- **`gtd step agent`** — advance the workflow as the **agent** actor, to
   fixpoint.
 - **`gtd next`** — print the prompt for whichever actor is currently awaited,
   without mutating anything.
 
 An agent loop is a two-beat protocol repeated forever:
 
-1. Run `gtd step-agent` to advance any agent-owned bookkeeping to a fixpoint.
+1. Run `gtd step agent` to advance any agent-owned bookkeeping to a fixpoint.
 2. Run `gtd next --json` and read the `actor` field. If it is `"human"`,
    **halt** — the human owns the next move, and the agent's job is done for this
    turn. If it is `"agent"`, feed `prompt` (when non-null) to the agent, let it
@@ -19,11 +20,11 @@ An agent loop is a two-beat protocol repeated forever:
 
 A human acts by editing files (answering questions in `.gtd/TODO.md` or
 `.gtd/ARCHITECTURE.md`, annotating `.gtd/REVIEW.md`, fixing code) and then
-running `gtd step` to capture the edit as their turn and hand control back to
-the agent side of the loop.
+running `gtd step human` to capture the edit as their turn and hand control back
+to the agent side of the loop.
 
 ```bash
-gtd step-agent            # advance the machine's own bookkeeping
+gtd step agent            # advance the machine's own bookkeeping
 gtd next --json            # ask who's up and what they should do
 ```
 
@@ -46,7 +47,7 @@ set -euo pipefail
 
 while true; do
   # 1. Advance the machine's own agent-owned bookkeeping to a fixpoint.
-  gtd step-agent --json >/dev/null || true
+  gtd step agent --json >/dev/null || true
 
   # 2. Ask who's up next. `actor` is the single "proceed" signal.
   next="$(gtd next --json)"
@@ -60,33 +61,33 @@ while true; do
 
   if [[ "$prompt" == "null" ]]; then
     # Agent-driven pending checkpoint: nothing to act on — loop back to
-    # step 1, whose `gtd step-agent` resumes the mid-chain bookkeeping.
+    # step 1, whose `gtd step agent` resumes the mid-chain bookkeeping.
     continue
   fi
 
   # Agent's turn: feed the prompt to the agent, then let it finish with
-  # `gtd step-agent` itself (the prompt's tail instructs it to).
+  # `gtd step agent` itself (the prompt's tail instructs it to).
   claude -p "$prompt" --dangerously-skip-permissions
 done
 ```
 
-The agent is expected to run `gtd step-agent` itself once it finishes acting on
+The agent is expected to run `gtd step agent` itself once it finishes acting on
 the prompt (the plain-mode tail says exactly this) — the driver's own
-`step-agent` calls exist to advance any bookkeeping the agent doesn't own
+`gtd step agent` calls exist to advance any bookkeeping the agent doesn't own
 (routing commits, test runs) between agent turns.
 
 The loop halts on `actor: "human"` alone: a human rest (`pending: false`, the
 prompt body addresses the human) or a human-driven pending checkpoint
-(`pending: true`, resumed by the human's own `gtd step`). Everything the agent
-side can drive — agent rests and agent-driven checkpoints — reports
+(`pending: true`, resumed by the human's own `gtd step human`). Everything the
+agent side can drive — agent rests and agent-driven checkpoints — reports
 `actor: "agent"`, so multiple agent turns and commits (e.g. successive test/fix
 cycles, a force-approved package close) chain without human involvement until an
 actual human gate is hit.
 
 `bin/gtd-loop`, installed as the `gtd-loop` binary, is the packaged
 implementation of this exact script — kept in sync with it the same way
-`skills/loop/SKILL.md` is. It additionally attempts `gtd step` (not just
-`gtd step-agent`) every iteration, so a plain rerun after you've edited a file
+`skills/loop/SKILL.md` is. It additionally attempts `gtd step human` (not just
+`gtd step agent`) every iteration, so a plain rerun after you've edited a file
 at a human gate (no commit needed) picks up your edit and keeps going, and it
 halts with a diagnostic if the same state and prompt repeat with no progress
 (see `skills/loop/SKILL.md`'s "Stall detection").

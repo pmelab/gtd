@@ -1,7 +1,7 @@
 @inmem
-Feature: gtd step-agent — the agent mutator
+Feature: gtd step agent — the agent mutator
 
-  `gtd step-agent` runs the same engine as `gtd step` but only performs the
+  `gtd step agent` runs the same engine as `gtd step human` but only performs the
   agent's turn. While the machine awaits a human, it refuses: exit non-zero,
   zero commits, and stderr names the human turn it is waiting on. An empty
   agent turn is inert — it is recorded once (so `gtd next` re-emits the same
@@ -20,7 +20,7 @@ Feature: gtd step-agent — the agent mutator
       <!-- user answers here -->
       """
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it fails
     And stderr contains "awaits a human turn"
     And the commit count is unchanged
@@ -36,14 +36,14 @@ Feature: gtd step-agent — the agent mutator
       no open questions — run gtd to plan
       """
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the last commit subject is "gtd(human): grilling"
     When I run gtd next
     Then it succeeds
-    And stdout contains "Finish your turn by running `gtd step-agent`."
-    When I run gtd step-agent
+    And stdout contains "Finish your turn by running `gtd step agent`."
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
 
@@ -61,16 +61,16 @@ Feature: gtd step-agent — the agent mutator
 
       Build a calculator with add and subtract.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): grilling"
     Then I record the commit count
     # The agent's capture was non-empty (real answers, not an accepting empty
     # turn), so per the grilling contract this lands on the human-answer
     # gate: the AGENT's own turn commit is non-empty, so the next turn is
-    # awaited from the human, not the agent. A further gtd step-agent here
+    # awaited from the human, not the agent. A further gtd step agent here
     # must be refused as out-of-turn, not treated as an idempotent no-op.
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it fails
     And stderr contains "awaits a human turn"
     And the commit count is unchanged
@@ -85,7 +85,7 @@ Feature: gtd step-agent — the agent mutator
       """
     And a commit "gtd: grilled"
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the file ".gtd/ARCHITECTURE.md" exists
@@ -105,7 +105,7 @@ Feature: gtd step-agent — the agent mutator
     And a commit "gtd: grilled"
     And a commit "gtd(agent): grilled"
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the file ".gtd/ARCHITECTURE.md" exists
@@ -118,7 +118,7 @@ Feature: gtd step-agent — the agent mutator
       Implement the add function.
       """
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the git log does not contain "gtd: tests-green"

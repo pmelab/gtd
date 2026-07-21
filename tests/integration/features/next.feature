@@ -9,13 +9,13 @@ Feature: gtd next — pure prediction of the next prompt
 
   `--json` output's `actor` field is the single loop-driver signal: `"agent"`
   means proceed with another round — act on `prompt` when present, then run
-  `gtd step-agent`; at an agent-driven mid-chain checkpoint (`prompt` null)
-  just run `gtd step-agent` to resume the chain. `"human"` means halt: the
+  `gtd step agent`; at an agent-driven mid-chain checkpoint (`prompt` null)
+  just run `gtd step agent` to resume the chain. `"human"` means halt: the
   human owns the next move (a human rest, whose prompt body spells out the
   human's action, or a human-driven mid-chain checkpoint resumed by
-  `gtd step`).
+  `gtd step human`).
 
-  Scenario: A dirty tree fails and points at gtd status and gtd step
+  Scenario: A dirty tree fails and points at gtd status and gtd step <actor>
     Given a test project
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
@@ -29,7 +29,7 @@ Feature: gtd next — pure prediction of the next prompt
     When I run gtd next
     Then it fails
     And stderr contains "gtd status"
-    And stderr contains "gtd step"
+    And stderr contains "gtd step <actor>"
     And the commit count is unchanged
 
   Scenario: A clean rest at gtd: building emits the building prompt for the agent
@@ -80,7 +80,7 @@ Feature: gtd next — pure prediction of the next prompt
     And stdout contains "\"prompt\":null"
     When I run gtd next
     Then it succeeds
-    And stdout contains "run `gtd step` to continue"
+    And stdout contains "run `gtd step human` to continue"
 
   Scenario: An agent-driven mid-chain checkpoint reports pending with actor agent
     Given a test project
@@ -105,7 +105,7 @@ Feature: gtd next — pure prediction of the next prompt
     And stdout contains "\"prompt\":null"
     When I run gtd next
     Then it succeeds
-    And stdout contains "run `gtd step-agent` to continue, then run `gtd next` again"
+    And stdout contains "run `gtd step agent` to continue, then run `gtd next` again"
 
   Scenario: The plain agent prompt ends with the step-agent tail and the next-iteration instruction
     Given a test project
@@ -115,7 +115,7 @@ Feature: gtd next — pure prediction of the next prompt
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "Finish your turn by running `gtd step-agent`."
+    And stdout contains "Finish your turn by running `gtd step agent`."
     And stdout contains "Then run `gtd next` and follow"
     And stdout contains "when it awaits the human, stop and hand off."
 
@@ -127,6 +127,6 @@ Feature: gtd next — pure prediction of the next prompt
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout does not contain "Finish your turn by running `gtd step-agent`."
+    And stdout does not contain "Finish your turn by running `gtd step agent`."
     And stdout does not contain "Then run `gtd next` and follow"
     And stdout contains "\"actor\":\"agent\""

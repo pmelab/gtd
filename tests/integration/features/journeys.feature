@@ -2,17 +2,17 @@
 Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
   Per-state scenarios pin each state in isolation; these journeys chain many
-  `gtd step` / `gtd step-agent` / `gtd next` invocations through complete
+  `gtd step human` / `gtd step agent` / `gtd next` invocations through complete
   lifecycles, simulating the agent between turns (developing the plan,
   decomposing packages, writing code, recording review verdicts) and asserting
   the exact commit-subject sequence at the end. They guard the seams between
   states that isolated scenarios cannot see.
 
-  The loop protocol emulated here is the step-first two-beat: `gtd step-agent`
+  The loop protocol emulated here is the step-first two-beat: `gtd step agent`
   then `gtd next`; while `actor` is "agent" the agent beat repeats (acting on
-  the prompt when one is present, or straight back to `gtd step-agent` at a
+  the prompt when one is present, or straight back to `gtd step agent` at a
   pending checkpoint); when it is "human" the human owns the next move and a
-  human beat (`gtd step`, with edits beforehand) runs instead.
+  human beat (`gtd step human`, with edits beforehand) runs instead.
 
   Scenario: Happy path — squash off, agenticReview off, entry to gtd: done and a stable rest
     Given a test project
@@ -28,7 +28,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       export const rawIdea = () => 42
       """
     # Entry: dirty boundary tree, human turn.
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     And the file "src/input.ts" exists
@@ -36,7 +36,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd next
     Then it succeeds
     And stdout contains "src/input.ts"
-    And stdout contains "Finish your turn by running `gtd step-agent`."
+    And stdout contains "Finish your turn by running `gtd step agent`."
     # The agent develops the plan to convergence and accepts defaults.
     When a file ".gtd/TODO.md" with:
       """
@@ -44,12 +44,12 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
       Implement a calculator with add only, in src/calc.ts.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): grilling"
     # A clean human step accepts (empty turn) and converges to gtd: architecting,
     # seeding ARCHITECTURE.md from the converged plan and removing TODO.md.
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: architecting"
     And stdout contains "state: architecting"
@@ -65,11 +65,11 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
       Implement add() as a plain function export in src/calc.ts.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): architecting"
     # A clean human step accepts (empty turn) and converges to gtd: grilled.
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: grilled"
     And stdout contains "state: grilled"
@@ -81,7 +81,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       """
       Implement add() in src/calc.ts.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: building"
     And the file ".gtd/ARCHITECTURE.md" does not exist
@@ -94,7 +94,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       """
       export const add = (a: number, b: number) => a + b
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
     And the git log contains "gtd: tests-green"
@@ -116,7 +116,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
       - [ ] ./src/calc.ts#1
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     # The review checkout window is now open: HEAD and index rest at the review
     # base (the cycle's first grilling turn) while the worktree still holds the
@@ -135,7 +135,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     And the git ref "refs/gtd/review-head" exists
     # The human approves by deleting REVIEW.md (a plain worktree deletion).
     Given the file ".gtd/REVIEW.md" is deleted
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): review"
     And the last commit subject is "gtd: done"
@@ -162,9 +162,9 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       gtd(human): review
       gtd: done
       """
-    # A final gtd step at rest, with a green health check, adds zero commits.
+    # A final gtd step human at rest, with a green health check, adds zero commits.
     Given I record the commit count
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the commit count is unchanged
     And stdout contains "state: idle"
@@ -182,7 +182,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       """
       export const rawIdea = () => 42
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     When a file ".gtd/TODO.md" with:
@@ -191,9 +191,9 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
       Implement a calculator with add only, in src/calc.ts.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: architecting"
     When a file ".gtd/ARCHITECTURE.md" with:
@@ -202,23 +202,23 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
       Implement add() as a plain function export in src/calc.ts.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: grilled"
     When a file ".gtd/01-calc/01-add.md" with:
       """
       Implement add() in src/calc.ts.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: building"
     When a file "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"
     When a file ".gtd/REVIEW.md" with:
@@ -231,7 +231,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
       - [ ] ./src/calc.ts#1
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     # The review checkout window opens at the human gate: HEAD rests at the
     # base, the real head is preserved under refs/gtd/review-head.
@@ -241,7 +241,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     Given the file ".gtd/REVIEW.md" is deleted
     # Squash on: gtd: done is not a rest — the chain continues straight to the
     # squash template in the same human-turn invocation.
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd: done"
     And the last commit subject is "gtd: squashing"
@@ -255,7 +255,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       """
       feat: add calculator with add support
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "feat: add calculator with add support"
     And the file ".gtd/SQUASH_MSG.md" does not exist
@@ -307,7 +307,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       """
       export const helper = () => undefined
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
     And the git log contains "gtd: test-failed"
@@ -322,7 +322,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       echo ALL_GREEN
       exit 0
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
     And the last commit subject is "gtd: tests-green"
@@ -335,7 +335,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     And stdout contains "\"pending\":true"
     And stdout contains "\"actor\":\"agent\""
     # Onwards: force-approve closes the package.
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"
 
@@ -353,7 +353,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       """
       Build a calculator with add and subtract.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     When I run gtd next
@@ -370,7 +370,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
       Suggested default: add and subtract.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): grilling"
     When I run gtd next with "--json"
@@ -391,7 +391,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
       Answer: add, subtract, and multiply.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     And the file ".gtd/TODO.md" contains "Answer: add, subtract, and multiply."
@@ -408,11 +408,11 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
       Build a calculator with add, subtract, and multiply.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): grilling"
     # A clean human step (accept) converges to architecting.
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: architecting"
     # The architecting agent converges immediately, with no open questions.
@@ -422,18 +422,18 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
 
       Implement add, subtract, and multiply as plain function exports in src/calc.ts.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): architecting"
     # A clean human step (accept) converges to grilled.
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: grilled"
     When a file ".gtd/01-calc/01-task.md" with:
       """
       Implement add, subtract, and multiply in src/calc.ts.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: building"
     When a file "src/calc.ts" with:
@@ -442,7 +442,7 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       export const subtract = (a: number, b: number) => a - b
       export const multiply = (a: number, b: number) => a * b
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
     And the last commit subject is "gtd: close-package"

@@ -32,7 +32,7 @@ Feature: .gtdrc config system
       """
       export const helper = (x: string) => x
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd: test-failed"
     And the file ".gtd/FEEDBACK.md" contains "CONFIG_SENTINEL"
@@ -149,7 +149,7 @@ Feature: .gtdrc config system
       """
       export const helper = (x: string) => x
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the file ".gtd/ERRORS.md" exists
     When I run gtd next
@@ -175,7 +175,7 @@ Feature: .gtdrc config system
       Finding: round one.
       """
     And a commit "gtd: tests-green"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"
     And the git log does not contain "gtd(agent): agentic-review\n\ngtd: close-package"

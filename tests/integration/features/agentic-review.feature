@@ -7,7 +7,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
   `gtd(agent): agentic-review` turn closes the package (`gtd: close-package`,
   removing FEEDBACK.md and the `.gtd/` package); a non-empty FEEDBACK.md rests
   after the turn, and `gtd next` emits the fixing prompt containing the
-  findings. A duplicate clean `gtd step-agent` between review turns cannot
+  findings. A duplicate clean `gtd step agent` between review turns cannot
   approve on its own — it can only record one inert empty fixer turn. The
   review is force-approved without ever writing FEEDBACK.md when the
   kill-switch `agenticReview: false` is set, or when the review-fix threshold
@@ -32,7 +32,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
     And a commit "gtd: tests-green"
     And an empty file ".gtd/FEEDBACK.md"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit subjects from oldest to newest are:
       """
@@ -56,7 +56,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       Finding: helper does not handle the empty-string case.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): agentic-review"
     When I run gtd next
@@ -74,11 +74,11 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       Finding: helper does not handle the empty-string case.
       """
-    And I run gtd step-agent
+    And I run gtd step agent
     Then I record the commit count
     # The findings are on the record; a clean re-run has nothing to capture —
     # it is inert (no empty fixer turn commit) and never an implicit approval.
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the git log does not contain "gtd: close-package"
@@ -97,7 +97,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       Implement the helper.
       """
     And a commit "gtd: tests-green"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd: close-package"
     And the git log does not contain "gtd(agent): agentic-review"
@@ -126,7 +126,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       Finding: round two.
       """
     And a commit "gtd: tests-green"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"
     And stdout does not contain "Spawn a **reviewing subagent**"
@@ -179,7 +179,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
     And a commit "gtd(agent): agentic-review" that adds ".gtd/FEEDBACK.md" with:
       """
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"
     And the file ".gtd/01-foo/01-task.md" does not exist

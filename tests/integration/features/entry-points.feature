@@ -1,7 +1,7 @@
 @inmem
 Feature: Entry points — which steering file the dirty tree contains picks the phase a cycle starts at
 
-  A human's `gtd step` on a dirty tree at a boundary HEAD is the v2 entry
+  A human's `gtd step human` on a dirty tree at a boundary HEAD is the v2 entry
   turn. WHICH gate it is captured under is driven purely by steering-file
   presence (never content), so a cycle can start at any phase:
 
@@ -29,7 +29,7 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
 
       Split the calculator into parser and evaluator modules.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: grilled"
     And the git log contains "gtd(human): grilled"
@@ -51,14 +51,14 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
 
       Split the calculator into parser and evaluator modules.
       """
-    And I run gtd step
+    And I run gtd step human
     And a file ".gtd/01-parser/01-extract-parser.md" with:
       """
       # Extract the parser
 
       - [ ] parser.ts exists
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): grilled"
     And the last commit subject is "gtd: building"
@@ -80,19 +80,19 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
 
       Split the calculator into parser and evaluator modules.
       """
-    And I run gtd step
+    And I run gtd step human
     And a file ".gtd/01-parser/01-extract-parser.md" with:
       """
       # Extract the parser
 
       - [ ] parser.ts exists
       """
-    And I run gtd step-agent
+    And I run gtd step agent
     And a file "parser.ts" with:
       """
       export const parse = (s: string) => s
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd: tests-green"
     And the last commit subject is "gtd: close-package"
@@ -107,7 +107,7 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
       """
       The build breaks on Node 22 with ERR_REQUIRE_ESM in scripts/build.mjs.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): health-fixing"
     And the file ".gtd/HEALTH.md" exists
@@ -124,9 +124,9 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
       """
       The build breaks on Node 22 with ERR_REQUIRE_ESM in scripts/build.mjs.
       """
-    And I run gtd step
+    And I run gtd step human
     And I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the file ".gtd/HEALTH.md" exists
@@ -147,12 +147,12 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
       """
       scripts/build.mjs crashes on startup.
       """
-    And I run gtd step
+    And I run gtd step human
     And a file "scripts/build.mjs" with:
       """
       export const fixed = true
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(human): health-fixing"
     And the git log contains "gtd(agent): health-fixing"
@@ -177,12 +177,12 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
       """
       Something is broken in gate.sh.
       """
-    And I run gtd step
+    And I run gtd step human
     And a file "attempt.ts" with:
       """
       export const attempt = 1
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): health-fixing"
     And the git log contains "gtd: testing"
@@ -222,7 +222,7 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
       """
       # Todo
       """
-    When I run gtd step
+    When I run gtd step human
     Then it fails
     And stderr contains "illegal combination: .gtd/PLAN.md + .gtd/TODO.md"
 
@@ -236,7 +236,7 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
       """
       # Architecture
       """
-    When I run gtd step
+    When I run gtd step human
     Then it fails
     And stderr contains "illegal combination: .gtd/PLAN.md + .gtd/ARCHITECTURE.md"
 
@@ -250,6 +250,6 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
       """
       # Todo
       """
-    When I run gtd step
+    When I run gtd step human
     Then it fails
     And stderr contains "illegal combination: .gtd/HEALTH.md + .gtd/TODO.md"

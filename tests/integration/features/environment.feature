@@ -4,7 +4,7 @@ Feature: Hostile environments and unusual invocations
   gtd derives everything from the repository it is invoked in. These scenarios
   pin the behavior at the environment's edges: wrong cwd, missing repo, empty
   repo, unusual HEADs, user hooks, platform line endings, signing, and
-  submodules — driven through `gtd step` / `gtd status` as the assertion needs.
+  submodules — driven through `gtd step human` / `gtd status` as the assertion needs.
 
   # Steering files and diff pathspecs are resolved against the process cwd, so
   # anywhere but the repo root would silently mis-derive state — gtd refuses
@@ -38,7 +38,7 @@ Feature: Hostile environments and unusual invocations
       """
       export const idea = () => 42
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     And the file "src/idea.ts" exists
@@ -57,7 +57,7 @@ Feature: Hostile environments and unusual invocations
       export const work = () => 1
       """
     And the repository is in detached HEAD state
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And stdout contains "state: idle"
     When I run gtd next with "--json"
@@ -81,7 +81,7 @@ Feature: Hostile environments and unusual invocations
       export const side = () => 1
       """
     Then I record the commit count
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And stdout contains "state: idle"
     And the commit count is unchanged
@@ -101,7 +101,7 @@ Feature: Hostile environments and unusual invocations
       """
       export const idea = 1
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
 
@@ -124,13 +124,13 @@ Feature: Hostile environments and unusual invocations
 
       This is a very long line that exceeds eighty characters and will be wrapped by the hook on commit.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     Then I record the commit count
     # The hook's reformatting left no stray dirt behind: the follow-up step is
     # a clean out-of-turn refusal (the agent is awaited now), not a re-capture.
-    When I run gtd step
+    When I run gtd step human
     Then it fails
     And stderr contains "awaits an agent turn"
     And the commit count is unchanged
@@ -147,10 +147,10 @@ Feature: Hostile environments and unusual invocations
       """
       export const idea = () => 1
       """
-    When I run gtd step
+    When I run gtd step human
     Then it fails
     Given the pre-commit hook is removed
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
 
@@ -180,7 +180,7 @@ Feature: Hostile environments and unusual invocations
 
       - [x] ./src/calc.ts#1
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: done"
     And the file ".gtd/REVIEW.md" does not exist
@@ -197,14 +197,14 @@ Feature: Hostile environments and unusual invocations
       """
       export const idea = () => 1
       """
-    When I run gtd step
+    When I run gtd step human
     Then it fails
 
   Scenario: A submodule pointer change is routed as a code change without crashing
     Given a test project
     And a committed submodule at "vendor/dep"
     And the submodule at "vendor/dep" has a new commit
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     And the file ".gtd/TODO.md" does not exist
@@ -228,7 +228,7 @@ Feature: Hostile environments and unusual invocations
       """
       exit 1
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: health-check"
     Given "impl.sh" is modified to:

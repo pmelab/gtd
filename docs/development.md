@@ -27,7 +27,7 @@ Each prompt-bearing state has a self-contained Eta template in
 `src/prompts/*.md` that owns its full prompt — header, context, and body. Shared
 fragments live as partials in `src/prompts/partials/`: `header`, the context
 renderers (`diff`, `feedback`, `package`), and the single `agent-turn` tail
-partial (the pinned "Finish your turn by running `gtd step-agent`. Then run
+partial (the pinned "Finish your turn by running `gtd step agent`. Then run
 `gtd next` …" loop-closing instructions).
 
 At module load, `src/Prompt.ts` registers every template on a single `new Eta()`

@@ -7,7 +7,7 @@ Tell the user:
 
 - Read `.gtd/LEARNINGS.md`.
 - Delete anything not worth keeping, or edit/add anything the draft missed.
-- Run `gtd step` — with or without edits, either way proceeds: the agent
+- Run `gtd step human` — with or without edits, either way proceeds: the agent
   integrates whatever remains into the project's own memory
   (CLAUDE.md/AGENTS.md/docs) next.
 

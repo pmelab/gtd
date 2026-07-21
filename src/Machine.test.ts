@@ -639,7 +639,7 @@ describe("out-of-turn: human step while agent awaited", () => {
       }),
     ])
     expect(result.state).toBe("grilled")
-    expect(result.refusal).toContain("run `gtd step-agent`")
+    expect(result.refusal).toContain("run `gtd step agent`")
     expect(result.edgeAction).toBeUndefined()
   })
 
@@ -654,7 +654,7 @@ describe("out-of-turn: human step while agent awaited", () => {
       }),
     ])
     expect(result.state).toBe("grilled")
-    expect(result.refusal).toContain("run `gtd step-agent`")
+    expect(result.refusal).toContain("run `gtd step agent`")
     expect(result.edgeAction).toBeUndefined()
   })
 })

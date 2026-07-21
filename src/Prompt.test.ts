@@ -277,7 +277,7 @@ describe("buildPrompt", () => {
         result("health-fixing"),
       ]
       const tail =
-        "Finish your turn by running `gtd step-agent`. Then run `gtd next` and follow\n" +
+        "Finish your turn by running `gtd step agent`. Then run `gtd next` and follow\n" +
         "its output — repeat this cycle as long as the output is addressed to you (the\n" +
         "agent); when it awaits the human, stop and hand off."
       for (const res of cases) {
@@ -298,14 +298,14 @@ describe("buildPrompt", () => {
       for (const res of cases) {
         const out = buildPrompt(res)
         expect(out).not.toContain("Finish your turn by running")
-        expect(out).not.toContain("gtd step-agent")
+        expect(out).not.toContain("gtd step agent")
       }
     })
 
     it("--json output has no tail regardless of actor", () => {
       const agentOut = buildPrompt(result("grilled"), undefined, "json")
       expect(agentOut).not.toContain("Finish your turn by running")
-      expect(agentOut).not.toContain("gtd step-agent")
+      expect(agentOut).not.toContain("gtd step agent")
 
       const humanOut = buildPrompt(result("await-review", { actor: "human" }), undefined, "json")
       expect(humanOut).not.toContain("Finish your turn by running")
@@ -512,7 +512,7 @@ describe("buildPrompt", () => {
   describe("json output mode", () => {
     it("json output never carries the agent-turn tail", () => {
       const out = buildPrompt(withPackage("building"), undefined, "json")
-      expect(out).not.toContain("gtd step-agent")
+      expect(out).not.toContain("gtd step agent")
     })
 
     for (const [label, res] of [
@@ -540,8 +540,8 @@ describe("buildPrompt", () => {
           .replace(/gtd\(human\):/g, "")
           .replace(/gtd:/g, "")
           .replace(/\.gtd/g, "")
-          .replace(/gtd step-agent/g, "")
-          .replace(/gtd step/g, "")
+          .replace(/gtd step agent/g, "")
+          .replace(/gtd step human/g, "")
           .replace(/gtd next/g, "")
         expect(stripped).not.toMatch(/\bgtd\b/)
       })

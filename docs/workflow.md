@@ -60,8 +60,8 @@ drive the fix loops, see [STATES.md](../STATES.md) — this section is a summary
 
 ### Turn commits — `gtd(<actor>): <gate>`
 
-Authored by `gtd step`/`gtd step-agent` as the first commit of a fresh chain.
-The closed set of gates:
+Authored by `gtd step human`/`gtd step agent` as the first commit of a fresh
+chain. The closed set of gates:
 
 | Gate             | Authored by                                                        |
 | ---------------- | ------------------------------------------------------------------ |
@@ -99,7 +99,7 @@ upgrade.
 ## Grilling: two phases, product then architecture
 
 A dirty tree at a boundary HEAD (a fresh idea, sketched in a file or just left
-as pending code) is captured in **one** human turn: `gtd step` commits
+as pending code) is captured in **one** human turn: `gtd step human` commits
 everything pending as `gtd(human): grilling` — nothing is reverted or seeded,
 the captured files stay in history. `gtd next` hands the agent that turn's diff;
 the agent develops `.gtd/TODO.md` into a concrete **product-level** plan **in
@@ -111,11 +111,12 @@ and leaves `.gtd/TODO.md` uncommitted for `gtd(agent): grilling`.
 
 There are no markers to answer — the human either:
 
-- **Accepts the suggested defaults**: runs a clean `gtd step` at the answer
-  gate. An empty `gtd(human): grilling` turn plus routing `gtd: architecting`
-  lands automatically — `.gtd/ARCHITECTURE.md` is seeded from the converged
-  `.gtd/TODO.md` content and `.gtd/TODO.md` is deleted, in that one commit.
-- **Edits `.gtd/TODO.md`** with real answers, then runs `gtd step`, which
+- **Accepts the suggested defaults**: runs a clean `gtd step human` at the
+  answer gate. An empty `gtd(human): grilling` turn plus routing
+  `gtd: architecting` lands automatically — `.gtd/ARCHITECTURE.md` is seeded
+  from the converged `.gtd/TODO.md` content and `.gtd/TODO.md` is deleted, in
+  that one commit.
+- **Edits `.gtd/TODO.md`** with real answers, then runs `gtd step human`, which
   captures the edit as a fresh `gtd(human): grilling` turn and hands it back to
   the agent for another round.
 
@@ -145,7 +146,7 @@ containing both `.gtd/PLAN.md` and `.gtd/TODO.md` hard-errors instead of
 guessing.
 
 One guard worth knowing for the HEALTH.md entry: the loop protocol opens every
-iteration with a clean-tree `gtd step-agent`, and at this one rest that opening
+iteration with a clean-tree `gtd step agent`, and at this one rest that opening
 beat is **inert** while HEAD is still the human's entry turn — so the
 hand-written description is never consumed before an agent has read it.
 
@@ -183,9 +184,9 @@ format `@review` already instructs the agent to write (see
 Validation applies ONLY to the **agent's own authored draft** at the gate that
 writes the file — never to a human's free-form edits (their answer at the
 grilling/architecting gate, their feedback/approval at the review gate). When
-the active file is malformed, `gtd step-agent` refuses (zero commits, a stderr
+the active file is malformed, `gtd step agent` refuses (zero commits, a stderr
 message listing every structural problem) instead of capturing the turn; the
-agent fixes the file and reruns `gtd step-agent`. `gtd questions --json` /
+agent fixes the file and reruns `gtd step agent`. `gtd questions --json` /
 `gtd changesets --json` surface the same `errors` without blocking anything, so
 an agent (or a UI) can self-check before committing to a turn.
 
@@ -223,14 +224,14 @@ the threshold — including the approval write itself; an approval that crosses
 the threshold simply closes the package as usual.) Setting
 `agenticReview: false` force-approves every package immediately.
 
-A **do-nothing agent invocation** — `gtd step-agent` on a clean tree at ANY
+A **do-nothing agent invocation** — `gtd step agent` on a clean tree at ANY
 agent-awaited rest whose move is a file artifact (`grilling`, `architecting`,
 `grilled`, `building`, `fixing`, `agentic-review`, `review`, `squashing` while
 `.gtd/SQUASH_MSG.md` still holds the unmodified template, `learning` while
 `.gtd/LEARNINGS.md` still holds the unmodified template, and `learning-apply`
 unconditionally) — is inert: zero commits, no state consumed; `gtd next`
 re-emits the same prompt. This is load-bearing for the loop protocol, whose
-every iteration opens with `gtd step-agent` before the agent has acted: without
+every iteration opens with `gtd step agent` before the agent has acted: without
 the guard that opening beat would author junk empty turns — and worse, consume
 workflow state (an empty decompose turn would delete `.gtd/ARCHITECTURE.md` with
 no packages written; an empty squashing turn would squash the cycle under the
@@ -253,8 +254,8 @@ learning review gate).
 Once `.gtd/` is fully closed, the machine writes `.gtd/REVIEW.md` and rests at
 **await-review**, awaiting the human. Approval is any of:
 
-- A **clean** `gtd step` (nothing edited) — an empty `gtd(human): review` turn
-  plus routing `gtd: done`.
+- A **clean** `gtd step human` (nothing edited) — an empty `gtd(human): review`
+  turn plus routing `gtd: done`.
 - Flipping only `- [ ]` → `- [x]` checkboxes in `.gtd/REVIEW.md` — checkbox-only
   edits are also treated as clean approval.
 - Deleting `.gtd/REVIEW.md` outright.
@@ -299,10 +300,10 @@ writing and committing a `.gtd/LEARNINGS.md` template, running _before_ the
 squash decision so it still sees the pre-squash history. `gtd next` then emits
 the learning prompt: the agent walks the cycle's test failures, review feedback,
 and health-check rounds, keeps only durable/generalizable lessons, and
-overwrites `.gtd/LEARNINGS.md` with them. Once `gtd step-agent` captures that
+overwrites `.gtd/LEARNINGS.md` with them. Once `gtd step agent` captures that
 draft (`gtd(agent): learning`), it rests at **await-learning-review** for a
 human — who either accepts the draft as-is (an empty turn) or edits it; there is
-no reject path, so the very next `gtd step` always proceeds
+no reject path, so the very next `gtd step human` always proceeds
 (`gtd(human): learning` → `gtd: learning-apply`), resting at **learning-apply**
 for the agent. The agent integrates the approved learnings into the project's
 own docs (`CLAUDE.md`/`AGENTS.md`/wherever fits, its judgment); its turn
@@ -321,7 +322,7 @@ to `gtd: squashing`, writing and committing a `.gtd/SQUASH_MSG.md` template.
 `.gtd/SQUASH_MSG.md` with a real conventional-commits message (drawing on
 grilling- and architecting-round decisions from history, and, when this cycle
 resolved any open questions, a `## Decisions` section recording them) and
-finishes its turn. `gtd step-agent` then performs the squash itself:
+finishes its turn. `gtd step agent` then performs the squash itself:
 `git reset --soft <base>` + `git commit`, collapsing every intermediate `gtd: *`
 commit of the cycle into one — including any review-feedback detours, and the
 learning phase's own commits if learning ran: the squash base is the cycle's
@@ -337,26 +338,26 @@ written.
 
 ## Health check
 
-Outside any process (idle, nothing to review, no steering files), `gtd step`
-runs `testCommand` as a health check rather than settling immediately. Green
-settles idle with zero commits. Red below `fixAttemptCap` writes
-`.gtd/HEALTH.md` and rests at **Health Fixing** for the agent; the fixer's own
-turn (`gtd(agent): health-fixing`) removes `.gtd/HEALTH.md` and re-tests in the
-same chain — a green re-test continues to learning (if enabled), then squash (if
-enabled), or idle; red repeats the health-fix loop; red at the cap writes
-`.gtd/ERRORS.md` and escalates.
+Outside any process (idle, nothing to review, no steering files),
+`gtd step human` runs `testCommand` as a health check rather than settling
+immediately. Green settles idle with zero commits. Red below `fixAttemptCap`
+writes `.gtd/HEALTH.md` and rests at **Health Fixing** for the agent; the
+fixer's own turn (`gtd(agent): health-fixing`) removes `.gtd/HEALTH.md` and
+re-tests in the same chain — a green re-test continues to learning (if enabled),
+then squash (if enabled), or idle; red repeats the health-fix loop; red at the
+cap writes `.gtd/ERRORS.md` and escalates.
 
 The same detour is also a direct entry point: hand-write `.gtd/HEALTH.md`
-describing the errors and run `gtd step` (see
+describing the errors and run `gtd step human` (see
 [Entry points](#entry-points-which-file-starts-the-cycle-where)).
 
 ## Escalate / budget reset
 
 `.gtd/ERRORS.md` present is always a human gate, regardless of which loop wrote
-it (test-fix or health-fix). Deleting `.gtd/ERRORS.md` and running `gtd step`
-records the deletion as the human's `gtd(human): escalate` turn, which
-**immediately re-tests in the same invocation** — this resets the relevant
-fix-attempt budget to zero.
+it (test-fix or health-fix). Deleting `.gtd/ERRORS.md` and running
+`gtd step human` records the deletion as the human's `gtd(human): escalate`
+turn, which **immediately re-tests in the same invocation** — this resets the
+relevant fix-attempt budget to zero.
 
 ## States & subjects: overview table
 
@@ -427,5 +428,5 @@ cycle:
 1. Spawn parallel execution-model workers for all tasks in the selected package.
 2. Leave all changes **uncommitted**. Do not commit, do not delete the package
    directory, do not run tests.
-3. Finish the turn with `gtd step-agent` — the next hop's edge action commits
+3. Finish the turn with `gtd step agent` — the next hop's edge action commits
    the work (`gtd(agent): building`) and runs `testCommand` to verify it.

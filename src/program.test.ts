@@ -118,7 +118,7 @@ describe("--help short-circuit", () => {
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(output).toContain("Usage")
     expect(output).toContain("step")
-    expect(output).toContain("step-agent")
+    expect(output).toContain("step <actor>")
     expect(output).toContain("next")
     expect(output).toContain("status")
     expect(output).toContain("review")

@@ -26,8 +26,8 @@ loop-driving text ([docs/loop.md](loop.md), `skills/loop/SKILL.md`) can never
 skew against each other. There is **no backward compatibility with the v1
 command surface**: the single mutating `gtd` command, marker/sentinel files, the
 `autoAdvance` JSON field, and the `gtd: transport` handoff commit are all gone.
-`gtd` bare now errors rather than driving a loop; use `gtd step-agent` /
-`gtd next` / `gtd step` instead.
+`gtd` bare now errors rather than driving a loop; use `gtd step agent` /
+`gtd next` / `gtd step human` instead.
 
 **Commit-history compatibility is one-way.** Any repo with v1-taxonomy history
 in it (`gtd: new task`, `gtd: grilling`, `gtd: transport`, a bare `gtd: review`

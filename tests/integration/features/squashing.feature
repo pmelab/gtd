@@ -7,7 +7,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
   SQUASH_MSG.md template. `gtd next` then emits the squashing prompt for the
   agent, instructing it to overwrite SQUASH_MSG.md — no sentinel text anywhere
   in that prompt. Once the agent overwrites the template with a real message
-  and runs `gtd step-agent`, the squash executes via `git reset --soft`: the
+  and runs `gtd step agent`, the squash executes via `git reset --soft`: the
   final HEAD subject is the message's first line, SQUASH_MSG.md is gone from
   the tree and from history, the `gtd: *` commits of the cycle are gone too,
   and the commits that predate the cycle survive untouched. The squash fires
@@ -38,7 +38,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
     And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd: done"
     And the git log contains "gtd: squashing"
@@ -78,7 +78,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     And stdout does not contain "SENTINEL"
     And stdout does not contain "marker"
 
-  Scenario: The agent overwrites SQUASH_MSG.md and gtd step-agent performs the squash
+  Scenario: The agent overwrites SQUASH_MSG.md and gtd step agent performs the squash
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -120,7 +120,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
 
       why-body
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "feat: add helper"
     And the file ".gtd/SQUASH_MSG.md" does not exist
@@ -151,7 +151,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
     And a commit "gtd: await-review"
     And a commit "gtd(human): review" that deletes ".gtd/REVIEW.md"
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: done"
     And the git log does not contain "gtd: squashing"
@@ -191,7 +191,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
       absolutely not a conventional commit and mentions gtd: test-failed on purpose
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "absolutely not a conventional commit and mentions gtd: test-failed on purpose"
     And the file ".gtd/SQUASH_MSG.md" does not exist
@@ -249,7 +249,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
       feat: add calculator
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "feat: add calculator"
     And the git log does not contain "gtd: grilling"
@@ -293,7 +293,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       Longer description of the change, if needed.
       """
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the last commit subject is "gtd: squashing"
@@ -344,7 +344,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
 
       Gtd-Decisions: true
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "feat: add calculator with configurable precision"
     And the git log contains "## Decisions"
@@ -354,7 +354,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
       """
       Add a memory-recall feature.
       """
-    When I run gtd step
+    When I run gtd step human
     And I run gtd next with "--json"
     Then it succeeds
     And stdout contains "Prior decisions"

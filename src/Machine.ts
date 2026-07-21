@@ -11,8 +11,8 @@
  * edge code (`Events.ts`), the CLI (`program.ts`), and tests.
  *
  * v2 replaces v1's single mutating `gtd` command with a turn-taking model:
- * `gtd step` (human mutator), `gtd step-agent` (agent mutator), and `gtd next`
- * (pure prompt emitter, `invoker: "none"`) all compile against `resolve`. The
+ * `gtd step <actor>` (mutator for any declared actor) and `gtd next` (pure
+ * prompt emitter, `invoker: "none"`) both compile against `resolve`. The
  * commit-subject grammar (`./Subjects.ts`) is the sole channel the machine
  * reads: who authored the last turn, whether it is the rest of a chain or
  * mid-chain bookkeeping, and which workflow phase it belongs to. File
@@ -42,7 +42,13 @@ import type {
   ResolvePayload,
   RuleOutcome,
 } from "./Workflow.js"
-import { defaultWorkflow } from "./Workflow.js"
+import {
+  defaultAutonomousActor,
+  defaultInteractiveActor,
+  defaultWorkflow,
+  isAutonomousActor,
+  isInteractiveActor,
+} from "./Workflow.js"
 
 export type {
   CommitEvent,
@@ -279,12 +285,18 @@ const nextAfterReviewOrLearning = (
   state: GtdState,
   learningAlreadyRan: boolean,
 ): HeadClass => {
+  const machineDriver = defaultAutonomousActor()
   if (!learningAlreadyRan && flags.learningEnabled && flags.hasSquashBase) {
-    return { kind: "mid-chain", state, actor: "agent", action: { kind: "writeLearningTemplate" } }
+    return {
+      kind: "mid-chain",
+      state,
+      actor: machineDriver,
+      action: { kind: "writeLearningTemplate" },
+    }
   }
   return flags.squashEnabled && flags.hasSquashBase
-    ? { kind: "mid-chain", state, actor: "agent", action: { kind: "writeSquashTemplate" } }
-    : { kind: "rest", state: "idle", actor: "human" }
+    ? { kind: "mid-chain", state, actor: machineDriver, action: { kind: "writeSquashTemplate" } }
+    : { kind: "rest", state: "idle", actor: defaultWorkflow.states.idle.awaits }
 }
 
 /** First branch whose guard passes (an omitted guard always passes), or null. */
@@ -350,7 +362,7 @@ const classifyHead = (subject: string, flags: ClassifyFlags): HeadClass | null =
 const gateForState = (state: GtdState): TurnGate => defaultWorkflow.states[state].gate
 
 /**
- * True when a `step-agent` invocation at this rest has nothing to capture —
+ * True when an autonomous actor's step at this rest has nothing to capture —
  * the definition's per-state `emptyAgentTurn` policy evaluated against the
  * payload. Shared by `applyTurnTaking` (author nothing) and `predictTurn`
  * (predict null) so the two can never disagree.
@@ -375,11 +387,15 @@ const buildBaselineFacts = (
   lastTurn?: { readonly actor: Actor; readonly gate: string },
 ): BaselineFacts => {
   const parsedHead = parseSubject(head)
+  // The consuming turn's actor is whoever the consuming state awaits —
+  // definition data, not a hard-coded actor name.
   const headIsFixerTurn =
-    parsedHead.kind === "turn" && parsedHead.actor === "agent" && parsedHead.gate === "fixing"
+    parsedHead.kind === "turn" &&
+    parsedHead.actor === defaultWorkflow.states.fixing.awaits &&
+    parsedHead.gate === "fixing"
   const headIsHealthFixerTurn =
     parsedHead.kind === "turn" &&
-    parsedHead.actor === "agent" &&
+    parsedHead.actor === defaultWorkflow.states["health-fixing"].awaits &&
     parsedHead.gate === "health-fixing"
   return {
     payload: p,
@@ -568,7 +584,7 @@ const applyTurnTaking = (
   // content — the definition's `entry` rules; the entry files are pairwise
   // illegal combinations, so the pick order is inert).
   const isDirtyBoundaryEntry =
-    invoker === "human" &&
+    isInteractiveActor(invoker) &&
     !p.workingTreeClean &&
     !p.todoCommitted &&
     !p.architectureCommitted &&
@@ -584,9 +600,9 @@ const applyTurnTaking = (
     const entryGate = pickEntryGate(p)
     return {
       state: entryGate as GtdState,
-      actor: "human",
+      actor: invoker,
       pending: false,
-      edgeAction: { kind: "captureTurn", actor: "human", gate: entryGate },
+      edgeAction: { kind: "captureTurn", actor: invoker, gate: entryGate },
       context,
     }
   }
@@ -614,7 +630,7 @@ const applyTurnTaking = (
   }
 
   // `gtd: testing` re-tests in the SAME chain regardless of which actor is
-  // driving this invocation (the health-fixer's own `step-agent` call must
+  // driving this invocation (the health-fixer's own step call must
   // continue past its own routing commit to re-test, not stop on an
   // idle/human "out-of-turn" refusal) — mirrors `gtd(agent): fixing`'s
   // runTest re-test. `gtd next` (invoker "none") is unaffected (handled by
@@ -642,7 +658,7 @@ const applyTurnTaking = (
       (p.squashEnabled || p.learningEnabled) && p.healthFixBase !== undefined
     return {
       state: "idle",
-      actor: "agent",
+      actor: defaultAutonomousActor(),
       pending: false,
       edgeAction: {
         kind: "runHealthCheck",
@@ -665,27 +681,26 @@ const applyTurnTaking = (
   // package files, extra TODO.md detail) stay pending and ride along as
   // input to the agent's next captured turn.
   if (invoker !== awaited) {
+    const article = /^[aeiou]/.test(awaited) ? "an" : "a"
     return {
       state: baseline.state,
       actor: awaited,
       pending: false,
-      refusal:
-        awaited === "human"
-          ? `${baseline.state} awaits a human turn — run \`gtd step\``
-          : `${baseline.state} awaits an agent turn — run \`gtd step-agent\``,
+      refusal: `${baseline.state} awaits ${article} ${awaited} turn — run \`gtd step ${awaited}\``,
       context,
     }
   }
 
-  // Idle carve-out: a human step at idle always re-runs the health check —
-  // never an empty turn commit, and never a plain fixpoint no-op.
-  if (baseline.state === "idle" && invoker === "human") {
+  // Idle carve-out: an interactive actor's step at idle always re-runs the
+  // health check — never an empty turn commit, and never a plain fixpoint
+  // no-op.
+  if (baseline.state === "idle" && isInteractiveActor(invoker)) {
     // Same reasoning as `chainAfterGreenAtHealthFix` above: base presence is
     // the whole signal.
     const chainAfterGreen = (p.squashEnabled || p.learningEnabled) && p.healthFixBase !== undefined
     return {
       state: "idle",
-      actor: "human",
+      actor: invoker,
       pending: false,
       edgeAction: {
         kind: "runHealthCheck",
@@ -725,22 +740,22 @@ const applyTurnTaking = (
   // squashing turn squashes the cycle under the placeholder template). The
   // loop protocol makes this a live hazard, not an edge case: both the loop
   // skill and the reference driver open every iteration with
-  // `gtd step-agent`, which lands here with a clean tree before the agent
-  // has acted. Stay inert; `gtd next` re-emits the same prompt. Human gates
-  // are untouched: an empty HUMAN turn is a signal (accept-defaults at
-  // grilling, clean approval at review).
-  if (invoker === "agent" && isInertEmptyAgentRest(baseline.state, p)) {
+  // `gtd step agent`, which lands here with a clean tree before the agent
+  // has acted. Stay inert; `gtd next` re-emits the same prompt. Interactive
+  // gates are untouched: an empty INTERACTIVE turn is a signal
+  // (accept-defaults at grilling, clean approval at review).
+  if (isAutonomousActor(invoker) && isInertEmptyAgentRest(baseline.state, p)) {
     return { state: baseline.state, actor: awaited, pending: false, context }
   }
 
-  // A malformed grilling/architecting/review draft blocks the AGENT's own
-  // turn capture — a third narrow content-inspection exception, alongside
-  // FEEDBACK.md emptiness and REVIEW.md checkbox-only diffs (STATES.md §1).
-  // `invoker === "agent"` is what keeps this from ever firing on a HUMAN's
-  // turn capture at these same gate names (their answer at the grilling
-  // gate, their feedback/approval at the review gate) — those are never
-  // structurally validated.
-  if (invoker === "agent") {
+  // A malformed grilling/architecting/review draft blocks the AUTONOMOUS
+  // actor's own turn capture — a third narrow content-inspection exception,
+  // alongside FEEDBACK.md emptiness and REVIEW.md checkbox-only diffs
+  // (STATES.md §1). The autonomous-kind guard is what keeps this from ever
+  // firing on an INTERACTIVE actor's turn capture at these same gate names
+  // (their answer at the grilling gate, their feedback/approval at the
+  // review gate) — those are never structurally validated.
+  if (isAutonomousActor(invoker)) {
     const validation = defaultWorkflow.agentTurnValidation[gate]
     if (validation !== undefined) {
       const errors = p[validation.errorsField]
@@ -749,7 +764,7 @@ const applyTurnTaking = (
           state: baseline.state,
           actor: awaited,
           pending: false,
-          refusal: `${validation.file} does not match the required structure:\n- ${errors!.join("\n- ")}\n\nFix the file and re-run \`gtd step-agent\`.`,
+          refusal: `${validation.file} does not match the required structure:\n- ${errors!.join("\n- ")}\n\nFix the file and re-run \`gtd step ${invoker}\`.`,
           context,
         }
       }
@@ -799,7 +814,7 @@ export const resolve = (events: readonly GtdEvent[]): Result => {
   return applyTurnTaking(p, counters, head, baseline)
 }
 
-/** Prediction of the first commit `step`/`step-agent` would author, for `gtd status`. */
+/** Prediction of the first commit `gtd step <actor>` would author, for `gtd status`. */
 export interface TurnPrediction {
   readonly actor: Actor
   readonly subject: string | null
@@ -807,7 +822,7 @@ export interface TurnPrediction {
 }
 
 /**
- * Fold the same events `resolve` would, and report what `step`/`step-agent`
+ * Fold the same events `resolve` would, and report what `gtd step <actor>`
  * would commit first for the awaited actor (turn subject, or null when
  * nothing would be committed) and the predicted resulting state. Backs
  * `gtd status` — a pure query, so it forces `invoker: "none"` on the last
@@ -858,16 +873,17 @@ export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
     !payload.healthCommitted &&
     (parseSubject(head).kind === "boundary" || head === "gtd: done")
   if (isDirtyBoundaryEntry) {
+    const entryActor = defaultInteractiveActor()
     const entryGate = pickEntryGate(payload)
     return {
-      actor: "human",
-      subject: `gtd(human): ${entryGate}`,
+      actor: entryActor,
+      subject: `gtd(${entryActor}): ${entryGate}`,
       state: entryGate as GtdState,
     }
   }
 
   if (baseline.state === "idle") {
-    return { actor: "human", subject: null, state: "idle" }
+    return { actor: defaultWorkflow.states.idle.awaits, subject: null, state: "idle" }
   }
 
   const gate = gateForState(baseline.state)
@@ -880,7 +896,7 @@ export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
   // Mirror applyTurnTaking's inert-empty-agent-turn guard: a clean tree at an
   // agent-awaited rest captures nothing, so predict null rather than a turn
   // subject the mutator would refuse to author.
-  if (baseline.actor === "agent" && isInertEmptyAgentRest(baseline.state, payload)) {
+  if (isAutonomousActor(baseline.actor) && isInertEmptyAgentRest(baseline.state, payload)) {
     return { actor: baseline.actor, subject: null, state: baseline.state }
   }
   return {
@@ -890,6 +906,8 @@ export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
   }
 }
 
-/** Awaited actor for a given state — the actor `resolve` reports at that state's rest (dynamic gates default to the agent). */
-export const awaitedActor = (state: GtdState): Actor =>
-  defaultWorkflow.states[state].awaits === "human" ? "human" : "agent"
+/** Awaited actor for a given state — the actor `resolve` reports at that state's rest (dynamic gates default to the definition's autonomous actor). */
+export const awaitedActor = (state: GtdState): Actor => {
+  const awaits = defaultWorkflow.states[state].awaits
+  return awaits === "dynamic" ? defaultAutonomousActor() : awaits
+}

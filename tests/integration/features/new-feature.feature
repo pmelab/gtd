@@ -2,11 +2,11 @@
 Feature: New Feature entry — dirty boundary tree becomes the first grilling turn
 
   A boundary HEAD (non-gtd, or `gtd: done`) with a pending change is the entry
-  point into grilling: `gtd step` captures everything pending — sketches,
+  point into grilling: `gtd step human` captures everything pending — sketches,
   prose, code — into exactly one turn commit, `gtd(human): grilling`. There is
   no machine-authored seed and no revert; the captured files stay in the
   tree's history and the working tree is clean afterwards. Out of scope: a
-  clean boundary tree is not an entry point at all, so `gtd step` is a no-op.
+  clean boundary tree is not an entry point at all, so `gtd step human` is a no-op.
 
   Scenario: A dirty boundary tree becomes the first human grilling turn
     Given a test project
@@ -18,7 +18,7 @@ Feature: New Feature entry — dirty boundary tree becomes the first grilling tu
       """
       export const multiply = (a: number, b: number) => a * b
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     And the file "src/feature.ts" exists
@@ -32,13 +32,13 @@ Feature: New Feature entry — dirty boundary tree becomes the first grilling tu
       """
       export const extra = () => "extra"
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
     And the file "src/extra.ts" exists
     And the file "src/extra.ts" contains "export const extra"
 
-  Scenario: A clean boundary tree is out of scope — gtd step is a no-op
+  Scenario: A clean boundary tree is out of scope — gtd step human is a no-op
     Given a test project
     And a commit "chore: test gate" that adds "gate.sh" with:
       """
@@ -54,6 +54,6 @@ Feature: New Feature entry — dirty boundary tree becomes the first grilling tu
       export const add = (a: number, b: number) => a + b
       """
     And I record the commit count
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the commit count is unchanged

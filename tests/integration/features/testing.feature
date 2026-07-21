@@ -1,16 +1,16 @@
 @inmem
 Feature: Testing — the bounded build/test/fix loop
 
-  The build turn is `gtd step-agent`: while a package is pending it runs the
+  The build turn is `gtd step agent`: while a package is pending it runs the
   configured `testCommand`. A green gate lands `gtd: tests-green` and rests
   there — `gtd next` then emits the agentic-review prompt. A red gate below the
   fix-attempt cap writes a non-empty FEEDBACK.md and commits it as
   `gtd: test-failed` in the same chain, resting at the fixing prompt for the agent;
-  `gtd step-agent` refuses at that rest since it is the agent that must fix,
+  `gtd step agent` refuses at that rest since it is the agent that must fix,
   but the tree is always clean by the time either command returns 0 (the
   always-clean invariant — a red run is never left uncommitted). A red gate at
   the cap writes ERRORS.md instead and stops at Escalate, a human gate: `gtd
-  next` reports actor human, and `gtd step-agent` refuses. Deleting the
+  next` reports actor human, and `gtd step agent` refuses. Deleting the
   committed ERRORS.md and landing that deletion as the human's escalate turn
   resets the fix-attempt budget and re-tests from zero.
 
@@ -33,7 +33,7 @@ Feature: Testing — the bounded build/test/fix loop
       """
       export const helper = (x: string) => x
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit subjects from oldest to newest are:
       """
@@ -69,7 +69,7 @@ Feature: Testing — the bounded build/test/fix loop
       """
       export const helper = (x: string) => x
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: test-failed"
     And the file ".gtd/FEEDBACK.md" exists
@@ -78,10 +78,10 @@ Feature: Testing — the bounded build/test/fix loop
     Then it succeeds
     And stdout contains "SENTINEL_FAILURE"
     # The fixing gate's awaited actor is the AGENT, not the human — a second
-    # gtd step-agent here is a do-nothing fixer invocation: inert (no commit,
+    # gtd step agent here is a do-nothing fixer invocation: inert (no commit,
     # no re-test), not a refusal.
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: test-failed"
     And the commit count is unchanged
@@ -113,7 +113,7 @@ Feature: Testing — the bounded build/test/fix loop
       """
       export const helper = (x: string) => x
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: test-failed"
     And the file ".gtd/ERRORS.md" exists
@@ -121,7 +121,7 @@ Feature: Testing — the bounded build/test/fix loop
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it fails
     And stderr contains "awaits a human turn"
 
@@ -151,7 +151,7 @@ Feature: Testing — the bounded build/test/fix loop
     # commit removing ERRORS.md immediately re-tests in the SAME invocation.
     # With a green test gate, that re-test lands straight on `gtd: tests
     # green`, resetting the fix-attempt budget from zero.
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): escalate"
     And the last commit subject is "gtd: tests-green"
@@ -183,15 +183,15 @@ Feature: Testing — the bounded build/test/fix loop
     # ERRORS.md immediately re-tests in the SAME invocation. With the budget
     # reset to zero and the gate still red, the re-test is below the cap
     # again, so it writes a FRESH FEEDBACK.md (not another ERRORS.md) and
-    # rests for the fix prompt — all within this one `gtd step` call.
-    When I run gtd step
+    # rests for the fix prompt — all within this one `gtd step human` call.
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd(human): escalate"
     And the last commit subject is "gtd: test-failed"
     And the file ".gtd/FEEDBACK.md" exists
     And the file ".gtd/ERRORS.md" does not exist
 
-  Scenario: gtd step-agent refuses while the human escalate turn is awaited
+  Scenario: gtd step agent refuses while the human escalate turn is awaited
     Given a test project
     And a default branch "main"
     And a branch "feature"
@@ -215,9 +215,9 @@ Feature: Testing — the bounded build/test/fix loop
       """
       export const helper = (x: string) => x
       """
-    And I run gtd step-agent
+    And I run gtd step agent
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it fails
     And stderr contains "awaits a human turn"
     And the commit count is unchanged

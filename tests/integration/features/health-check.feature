@@ -24,7 +24,7 @@ Feature: Health check — the idle test loop
       export const lib = 1
       """
     And I record the commit count
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the commit count is unchanged
 
@@ -43,7 +43,7 @@ Feature: Health check — the idle test loop
       """
       export const lib = 1
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the git log contains "gtd: health-check"
     And the last commit subject is "gtd: health-check"
@@ -79,7 +79,7 @@ Feature: Health check — the idle test loop
       echo ALL_GREEN
       exit 0
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): health-fix"
     And the git log contains "gtd: testing"
@@ -114,7 +114,7 @@ Feature: Health check — the idle test loop
       echo ALL_GREEN
       exit 0
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): health-fix"
     And the git log contains "gtd: testing"
@@ -142,14 +142,14 @@ Feature: Health check — the idle test loop
       export const lib = 1
       """
     And a commit "gtd: health-check"
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the file ".gtd/ERRORS.md" exists
     And the file ".gtd/HEALTH.md" does not exist
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"human\""
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it fails
     And stderr contains "awaits a human turn"
 
@@ -173,7 +173,7 @@ Feature: Health check — the idle test loop
       Earlier health-check escalation output.
       """
     And a deleted committed file ".gtd/ERRORS.md"
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the file ".gtd/ERRORS.md" does not exist
     And the file ".gtd/HEALTH.md" does not exist

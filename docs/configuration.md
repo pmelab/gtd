@@ -81,14 +81,14 @@ can still override settings with its own `.gtdrc`.
 
 ## Auto-init
 
-On every **state command** (`step`, `step-agent`, `next`, `status`, `review`)
-that has passed the repo-root guard, if the cwd→root walk finds **no** config
-anywhere, gtd creates and commits a starter `.gtdrc.json` at the repository root
-containing only a `$schema` link. Auto-init never runs for `--version`/`--help`,
-`format`, bare/unknown commands, or an invocation refused by the repo-root guard
-— those perform no repository mutation of any kind. On a repo with no commits
-yet, or whose HEAD is a plain (non-`gtd:`) commit, the stub is committed as its
-own `chore: add .gtdrc.json`. If HEAD is already a `gtd:`-owned commit
+On every **state command** (`step`, `next`, `status`, `review`) that has passed
+the repo-root guard, if the cwd→root walk finds **no** config anywhere, gtd
+creates and commits a starter `.gtdrc.json` at the repository root containing
+only a `$schema` link. Auto-init never runs for `--version`/`--help`, `format`,
+bare/unknown commands, or an invocation refused by the repo-root guard — those
+perform no repository mutation of any kind. On a repo with no commits yet, or
+whose HEAD is a plain (non-`gtd:`) commit, the stub is committed as its own
+`chore: add .gtdrc.json`. If HEAD is already a `gtd:`-owned commit
 (mid-workflow), the stub is instead **amended into HEAD** — stacking a fresh
 boundary commit there would produce an unrecognized HEAD most workflow states
 can't resolve past.

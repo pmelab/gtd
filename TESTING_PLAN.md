@@ -71,10 +71,10 @@ the three steps of one iteration by hand instead of the loop.
       (green health check predicted as no-op).
 - [ ] `gtd next --json` → `{state:"idle", actor:"human", pending:false}`, prompt
       addresses the human.
-- [ ] `gtd step --json` (green toggle) → health check runs, zero `commits`, exit
-      0, state idle. Re-run → still zero commits (idempotence).
-- [ ] `gtd step-agent --json` at idle → out-of-turn refusal: exit 1, zero
-      commits, error envelope names `gtd step`.
+- [ ] `gtd step human --json` (green toggle) → health check runs, zero
+      `commits`, exit 0, state idle. Re-run → still zero commits (idempotence).
+- [ ] `gtd step agent --json` at idle → out-of-turn refusal: exit 1, zero
+      commits, error envelope names `gtd step human`.
 
 ## Phase 2 — grilling: capture, answer round, accept-defaults round
 
@@ -83,17 +83,19 @@ the three steps of one iteration by hand instead of the loop.
       uncommitted. Open questions give the grilling agent something real to ask.
 - [ ] Dirty tree: `gtd next --json` → refusal envelope (exit 1);
       `gtd status --json` still works → predicts `gtd(human): grilling`.
-- [ ] `gtd step --json` → commits `["gtd(human): grilling"]`, rest at grilling.
-- [ ] `gtd step --json` again now → out-of-turn refusal (agent is awaited).
+- [ ] `gtd step human --json` → commits `["gtd(human): grilling"]`, rest at
+      grilling.
+- [ ] `gtd step human --json` again now → out-of-turn refusal (agent is
+      awaited).
 - [ ] Agent beat → the grilling prompt (verify it inlines the captured diff)
       drives claude to develop `.gtd/TODO.md` with suggested defaults; beat
       closes the turn as `gtd(agent): grilling` and halts at the answer gate.
 - [ ] **Answer round**: edit `.gtd/TODO.md` with a real answer that contradicts
       a suggested default (deterministic feedback lever — also demand a strict
       acceptance criterion, e.g. exact error message for null names; Phase 6
-      relies on it), `gtd step --json` → fresh `gtd(human): grilling`; agent
-      beat iterates the plan.
-- [ ] **Accept-defaults round**: clean tree, `gtd step --json` → commits
+      relies on it), `gtd step human --json` → fresh `gtd(human): grilling`;
+      agent beat iterates the plan.
+- [ ] **Accept-defaults round**: clean tree, `gtd step human --json` → commits
       `["gtd(human): grilling", "gtd: grilled"]` (empty turn + routing), state
       `grilled`.
 
@@ -132,10 +134,10 @@ the `.test-mode` toggle — re-assert red between the claude run and the next
 - [ ] Stay red for `fixAttemptCap` (2) rounds of the fixing prompt →
       `.gtd/ERRORS.md` written, rest `escalate`, `gtd next --json` →
       `actor:"human"`.
-- [ ] `gtd step-agent` at escalate → out-of-turn refusal.
-- [ ] Human reset: delete `.gtd/ERRORS.md`, toggle green, `gtd step --json` →
-      `gtd(human): escalate` + immediate re-test in the same invocation (budget
-      reset), chain continues to `agentic-review`.
+- [ ] `gtd step agent` at escalate → out-of-turn refusal.
+- [ ] Human reset: delete `.gtd/ERRORS.md`, toggle green,
+      `gtd step human --json` → `gtd(human): escalate` + immediate re-test in
+      the same invocation (budget reset), chain continues to `agentic-review`.
 
 ## Phase 6 — findings rounds and force-approve at reviewThreshold
 
@@ -151,7 +153,7 @@ the `.test-mode` toggle — re-assert red between the claude run and the next
 ## Phase 7 — mid-chain checkpoint (`pending: true`) via failure contract
 
 - [ ] Before the review chain: temporarily set `testCommand` to a nonexistent
-      binary anywhere a test run is next; `gtd step-agent` → exit 1
+      binary anywhere a test run is next; `gtd step agent` → exit 1
       (`test command not found`), HEAD left mid-chain (no rollback).
 - [ ] `gtd next --json` → `{pending:true, prompt:null}` + the actor whose chain
       it is; `gtd status --json` still pure/side-effect-free.
@@ -164,12 +166,12 @@ the `.test-mode` toggle — re-assert red between the claude run and the next
       review prompt, routing `gtd: await-review`, rest `await-review`,
       `actor:"human"`; beat halts.
 - [ ] **Feedback**: substantive edit to `.gtd/REVIEW.md` prose (a real finding
-      about the built code), `gtd step --json` → `gtd: grilling`,
+      about the built code), `gtd step human --json` → `gtd: grilling`,
       `.gtd/REVIEW.md` removed, `gtd next` re-emits a grilling prompt to the
       agent inlining the finding. Agent beat drives that mini-cycle back to
       `await-review` — verify the finding actually reached the agent's plan.
-- [ ] **Checkbox approval**: flip only `- [ ]` → `- [x]`, `gtd step --json` →
-      treated as clean approval, routing `gtd: done`.
+- [ ] **Checkbox approval**: flip only `- [ ]` → `- [x]`,
+      `gtd step human --json` → treated as clean approval, routing `gtd: done`.
 - [ ] (If a third pass is cheap, also verify the fully-clean no-edit approval —
       otherwise the empty-turn variant is already covered by Phase 2.)
 
@@ -186,7 +188,7 @@ the `.test-mode` toggle — re-assert red between the claude run and the next
 
 ## Phase 10 — health check / health-fixing (idle path)
 
-- [ ] Toggle red at idle, `gtd step --json` → health check red →
+- [ ] Toggle red at idle, `gtd step human --json` → health check red →
       `.gtd/HEALTH.md`, rest `health-fixing`, `actor:"agent"`.
 - [ ] Toggle green (the "fix"), agent beat → health-fixing prompt drives claude;
       its turn removes `.gtd/HEALTH.md`, re-tests green in the same chain → back
@@ -227,7 +229,7 @@ against the documented contract (docs/cli.md):
 - [ ] `step`/`step-agent`: one `committed: <subject>` line per authored commit
       (oldest→newest), then a final `state: <state>` line; nothing else.
 - [ ] `next` at an **agent** rest: prompt ends with the exact pinned tail
-      ("Finish your turn by running `gtd step-agent`. Then run `gtd next` …").
+      ("Finish your turn by running `gtd step agent`. Then run `gtd next` …").
 - [ ] `next` at a **human** rest: no tail of any kind.
 - [ ] `next` at a mid-chain HEAD: the documented checkpoint line, naming the
       correct mutator for the chain's actor.
@@ -269,8 +271,8 @@ The real contract: an interactive claude session drives the loop itself via
       the tester nudging between them; pending checkpoints resume via
       `step-agent` alone.
 - [ ] Human beats: the tester edits files (answers, checkbox flips, deleting
-      `.gtd/ERRORS.md`) + `gtd step` from outside, then tells the session to
-      continue; the loop picks up correctly.
+      `.gtd/ERRORS.md`) + `gtd step human` from outside, then tells the session
+      to continue; the loop picks up correctly.
 - [ ] Stall detection: if state+prompt repeat with no new commits, the session
       halts and escalates rather than spinning (provoke once via the red toggle
       if the opportunity arises).

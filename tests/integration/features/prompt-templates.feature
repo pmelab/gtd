@@ -20,7 +20,7 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
     And stdout contains "### Package: `01-widget/`"
     And stdout contains "Implement the widget factory."
     And stdout contains "claude-sonnet-4-8"
-    And stdout contains "Finish your turn by running `gtd step-agent`."
+    And stdout contains "Finish your turn by running `gtd step agent`."
 
   Scenario: The plain human review-gate prompt has no agent tail
     Given a test project
@@ -34,8 +34,8 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
     When I run gtd next
     Then it succeeds
     And stdout contains ".gtd/REVIEW.md"
-    And stdout does not contain "Finish your turn by running `gtd step-agent`."
-    And stdout does not contain "gtd step-agent"
+    And stdout does not contain "Finish your turn by running `gtd step agent`."
+    And stdout does not contain "gtd step agent"
 
   Scenario: The --json building prompt omits the agent tail regardless of actor
     Given a test project
@@ -46,7 +46,7 @@ Feature: Prompt templates — bundled Eta path, tail contract, and fixed section
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "Implement the widget factory."
-    And stdout does not contain "Finish your turn by running `gtd step-agent`."
+    And stdout does not contain "Finish your turn by running `gtd step agent`."
 
   Scenario: No prompt ever contains v1 marker or sentinel text
     Given a test project

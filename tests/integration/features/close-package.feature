@@ -12,7 +12,7 @@ Feature: Close package — one gtd: close-package per package, via the CLI
   # `gtd: close-package` is itself a rest (per the design contract: "building
   # prompt if packages remain"), so closing package 01 stops the chain right
   # there even though the second package is fully automatable — a fresh
-  # `gtd step-agent` invocation is required to drive package 02's own
+  # `gtd step agent` invocation is required to drive package 02's own
   # building/testing/agentic-review to its own gtd: close-package.
   Scenario: An empty-FEEDBACK.md review turn closes the first package, then a fresh step-agent closes the fully-automatable second package too
     Given a test project
@@ -30,7 +30,7 @@ Feature: Close package — one gtd: close-package per package, via the CLI
       """
     And a commit "gtd: tests-green"
     And an empty file ".gtd/FEEDBACK.md"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): agentic-review"
     And the file ".gtd/01-foo/01-task.md" does not exist
@@ -40,12 +40,12 @@ Feature: Close package — one gtd: close-package per package, via the CLI
       """
       export const secondHelper = () => 43
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
     And the last commit subject is "gtd: tests-green"
     And an empty file ".gtd/FEEDBACK.md"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the file ".gtd/02-bar/01-task.md" does not exist
     And the file ".gtd" does not exist
@@ -69,7 +69,7 @@ Feature: Close package — one gtd: close-package per package, via the CLI
       """
     And a commit "gtd: tests-green"
     And an empty file ".gtd/FEEDBACK.md"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd: close-package"
     And the file ".gtd" does not exist
@@ -81,7 +81,7 @@ Feature: Close package — one gtd: close-package per package, via the CLI
     # is a do-nothing invocation: inert, zero commits — the machine must NOT
     # route to `gtd: await-review` without a review record for the human.
     Then I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the git log does not contain "gtd: await-review"
@@ -101,7 +101,7 @@ Feature: Close package — one gtd: close-package per package, via the CLI
       Implement the helper.
       """
     And a commit "gtd: tests-green"
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"
     And the file ".gtd/01-foo/01-task.md" does not exist

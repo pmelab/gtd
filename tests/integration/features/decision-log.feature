@@ -33,7 +33,7 @@ Feature: Decision log — architecture decisions recorded in squash commits
       """
       Build a calculator that can add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
@@ -70,7 +70,7 @@ Feature: Decision log — architecture decisions recorded in squash commits
       """
       Add a memory-recall feature.
       """
-    And I run gtd step
+    And I run gtd step human
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "2 decimal places"
@@ -88,7 +88,7 @@ Feature: Decision log — architecture decisions recorded in squash commits
       """
       Build a calculator.
       """
-    And I run gtd step
+    And I run gtd step human
     When I run gtd next with "--json"
     Then it succeeds
     And stdout does not contain "Prior decisions"
@@ -114,7 +114,7 @@ Feature: Decision log — architecture decisions recorded in squash commits
       """
       Build a calculator that can add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     When I run gtd next with "--json"
     Then it succeeds
     And stdout does not contain "Prior decisions"

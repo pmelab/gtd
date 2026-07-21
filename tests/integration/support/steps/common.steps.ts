@@ -151,20 +151,12 @@ When("I run gtd with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd(arg)
 })
 
-When("I run gtd step", async (world: GtdWorld) => {
-  await world.runGtd("step")
+When("I run gtd step {word}", async (world: GtdWorld, actor: string) => {
+  await world.runGtd("step", actor)
 })
 
-When("I run gtd step with {string}", async (world: GtdWorld, arg: string) => {
-  await world.runGtd("step", arg)
-})
-
-When("I run gtd step-agent", async (world: GtdWorld) => {
-  await world.runGtd("step-agent")
-})
-
-When("I run gtd step-agent with {string}", async (world: GtdWorld, arg: string) => {
-  await world.runGtd("step-agent", arg)
+When("I run gtd step {word} with {string}", async (world: GtdWorld, actor: string, arg: string) => {
+  await world.runGtd("step", actor, arg)
 })
 
 When("I run gtd next", async (world: GtdWorld) => {

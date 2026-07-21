@@ -4,14 +4,14 @@ Feature: Architecting — technical grilling on the converged product plan
   Architecting is grilling's second phase, mechanically identical to it: the
   agent develops `.gtd/ARCHITECTURE.md` into a concrete technical plan
   (file/module structure, data model, tech-stack choices) and the human either
-  answers inline or accepts the suggested defaults with a clean `gtd step`.
+  answers inline or accepts the suggested defaults with a clean `gtd step human`.
   Normally `.gtd/ARCHITECTURE.md` is seeded from the converged `.gtd/TODO.md`
   at the end of product grilling (see `grilling.feature`'s convergence
   scenario). But the entry itself is file-presence-driven, not history-driven:
   if a human's very first dirty tree already contains `.gtd/ARCHITECTURE.md`
-  (their own already-technical sketch), `gtd step` captures the entry turn
+  (their own already-technical sketch), `gtd step human` captures the entry turn
   directly as `gtd(human): architecting` — product grilling is skipped
-  entirely, and `.gtd/TODO.md` never exists for that cycle. A clean `gtd step`
+  entirely, and `.gtd/TODO.md` never exists for that cycle. A clean `gtd step human`
   at architecting's answer gate converges to `gtd: grilled` and prompts
   decompose.
 
@@ -23,7 +23,7 @@ Feature: Architecting — technical grilling on the converged product plan
 
       Refactor the calculator module to use a strategy pattern.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): architecting"
     And the file ".gtd/ARCHITECTURE.md" exists
@@ -40,13 +40,13 @@ Feature: Architecting — technical grilling on the converged product plan
 
       Refactor the calculator module to use a strategy pattern.
       """
-    And I run gtd step
+    And I run gtd step human
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
     When I run gtd next
     Then it succeeds
-    And stdout contains "Finish your turn by running `gtd step-agent`."
+    And stdout contains "Finish your turn by running `gtd step agent`."
 
   Scenario: The agent's architecture turn gates on a human to answer inline
     Given a test project
@@ -66,7 +66,7 @@ Feature: Architecting — technical grilling on the converged product plan
 
       Suggested default: TypeScript on Node.js.
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): architecting"
     When I run gtd next with "--json"
@@ -92,7 +92,7 @@ Feature: Architecting — technical grilling on the converged product plan
 
       Suggested default: TypeScript on Node.js.
       """
-    And I run gtd step-agent
+    And I run gtd step agent
     And "code.ts" is modified to:
       """
       export const c = 1
@@ -107,7 +107,7 @@ Feature: Architecting — technical grilling on the converged product plan
 
       Answer: TypeScript on Deno.
       """
-    When I run gtd step
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): architecting"
     When I run gtd next with "--json"
@@ -133,8 +133,8 @@ Feature: Architecting — technical grilling on the converged product plan
 
       Suggested default: TypeScript on Node.js.
       """
-    And I run gtd step-agent
-    When I run gtd step
+    And I run gtd step agent
+    When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd: grilled"
     And the file ".gtd/ARCHITECTURE.md" exists
@@ -151,15 +151,15 @@ Feature: Architecting — technical grilling on the converged product plan
 
       Build a calculator with add and subtract.
       """
-    And I run gtd step
+    And I run gtd step human
     And I record the commit count
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged
     And the last commit subject is "gtd(human): architecting"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"actor\":\"agent\""
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the commit count is unchanged

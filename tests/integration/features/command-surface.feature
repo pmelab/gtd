@@ -23,7 +23,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Given a test project
     When I run gtd with "--help"
     Then it succeeds
-    And stdout contains "step-agent"
+    And stdout contains "step <actor>"
     And stdout contains "next"
 
   Scenario: --version prints the version and exits 0

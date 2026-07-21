@@ -10,10 +10,10 @@ the edge (`src/Events.ts`).
 This document is the design reference for that machine: the turn-taking model,
 the commit-subject grammar, the command surface, the 21 states, the precedence
 ladder, canonical transcripts, and the loop protocol an agent should follow to
-drive it. It documents the shipped v2 engine — `gtd step` / `gtd step-agent` /
-`gtd next` — not the earlier single-mutating-command design. Where this document
-and the code disagree, the code (`src/Machine.ts`, `src/Subjects.ts`,
-`src/Events.ts`) wins.
+drive it. It documents the shipped v2 engine — `gtd step human` /
+`gtd step agent` / `gtd next` — not the earlier single-mutating-command design.
+Where this document and the code disagree, the code (`src/Machine.ts`,
+`src/Subjects.ts`, `src/Events.ts`) wins.
 
 ## 1. The turn-taking model
 
@@ -26,8 +26,8 @@ resolved state, the machine is either:
 
 A transition is a pure function of four inputs, nothing else:
 
-1. **the invoking actor** — `"human"` (`gtd step`), `"agent"`
-   (`gtd step-agent`), or `"none"` (`gtd next` / `gtd status`, which never
+1. **the invoking actor** — `"human"` (`gtd step human`), `"agent"`
+   (`gtd step agent`), or `"none"` (`gtd next` / `gtd status`, which never
    mutate)
 2. **whether the working tree is dirty or clean**
 3. **the class of HEAD's commit subject** — turn commit, routing commit, or
@@ -72,26 +72,28 @@ findings text, .gtd/REVIEW.md's prose, code diffs — is inlined into prompts fo
 agents/humans to read, but never inspected by the resolver to make a routing
 decision.
 
-**One commit per turn** at every await-actor gate: `gtd step` / `gtd step-agent`
-author at most one turn commit (`gtd(<actor>): <gate>`) per invocation for the
-actor's own turn, then continue only through mid-chain routing hops until the
-next rest.
+**One commit per turn** at every await-actor gate: `gtd step human` /
+`gtd step agent` author at most one turn commit (`gtd(<actor>): <gate>`) per
+invocation for the actor's own turn, then continue only through mid-chain
+routing hops until the next rest.
 
-**Empty agent turns are inert.** If the agent runs `gtd step-agent` with nothing
+**Empty agent turns are inert.** If the agent runs `gtd step agent` with nothing
 dirty, the machine still records a turn commit (so the chain has a checkpoint
 and `gtd next` can re-emit the exact same prompt), but it does not advance the
-workflow — a second clean `gtd step-agent` authors nothing further.
+workflow — a second clean `gtd step agent` authors nothing further.
 
-**Empty human turns mean accept/approve.** A clean `gtd step` at a human gate
-(the grilling answer gate, the review gate) is read as "no notes" — accept the
-suggested defaults, or approve the review — and the machine advances accordingly
-(grilling converges to `gtd: grilled`; a clean review converges to `gtd: done`).
+**Empty human turns mean accept/approve.** A clean `gtd step human` at a human
+gate (the grilling answer gate, the review gate) is read as "no notes" — accept
+the suggested defaults, or approve the review — and the machine advances
+accordingly (grilling converges to `gtd: grilled`; a clean review converges to
+`gtd: done`).
 
-**The idle carve-out.** At idle, a human `gtd step` never authors an empty turn
-commit and never plain no-ops: it always re-runs the configured `testCommand` as
-a health check. A green result stops the loop with **zero commits** — idle is a
-true steady state, not a place that accumulates empty-commit noise. A red result
-writes `.gtd/HEALTH.md` and commits it, entering the health-fixing detour (§4).
+**The idle carve-out.** At idle, a human `gtd step human` never authors an empty
+turn commit and never plain no-ops: it always re-runs the configured
+`testCommand` as a health check. A green result stops the loop with **zero
+commits** — idle is a true steady state, not a place that accumulates
+empty-commit noise. A red result writes `.gtd/HEALTH.md` and commits it,
+entering the health-fixing detour (§4).
 
 ### Open questions and review structure
 
@@ -118,9 +120,9 @@ Validation applies ONLY to the **agent's own authored draft** at the gate that
 writes the file (`gtd(agent): grilling`, `gtd(agent): architecting`,
 `gtd(agent): review`) — never to a human's free-form edits (their answer at the
 grilling/architecting gate, their feedback/approval at the review gate). When
-the active file is malformed, `gtd step-agent` refuses (zero commits, a stderr
+the active file is malformed, `gtd step agent` refuses (zero commits, a stderr
 message listing every structural error) instead of capturing the turn — the
-agent fixes the file and reruns `gtd step-agent`. This is the third of the
+agent fixes the file and reruns `gtd step agent`. This is the third of the
 narrow, machine-verified exceptions to "file content never steers" above.
 
 A squash commit's message MAY carry a sibling `## Decisions` section — one
@@ -139,8 +141,8 @@ machine-parsed, so it has no enforced grammar and never blocks a turn. See §4's
 machine-authored namespaces, plus a catch-all:
 
 - **Turn commits** — `gtd(human): <gate>` / `gtd(agent): <gate>` — authored by
-  `gtd step` / `gtd step-agent` as the _first_ commit of a chain, recording who
-  acted and under which gate.
+  `gtd step human` / `gtd step agent` as the _first_ commit of a chain,
+  recording who acted and under which gate.
 - **Routing commits** — `gtd: <state>` — authored by the machine itself as
   bookkeeping between turns. Each label names the state the commit enters
   (`gtd: building`, `gtd: await-review`, …); `tests-green` / `test-failed` are
@@ -221,7 +223,7 @@ ordinary review-scope rules (§4, Review).
 | `gtd(human): review`         | mid-chain                                                 | substantive → `commitRouting "gtd: grilling"` (removes .gtd/REVIEW.md); non-substantive (clean or checkbox-only) → `commitRouting "gtd: done"` (removes .gtd/REVIEW.md)                                                                                        |
 | `gtd(agent): squashing`      | squash base present → mid-chain; else rest                | mid-chain → `squashCommit`; rest → `squashing`, agent                                                                                                                                                                                                          |
 | `gtd(agent): health-fixing`  | mid-chain                                                 | `commitRouting "gtd: testing"` (removes .gtd/HEALTH.md)                                                                                                                                                                                                        |
-| `gtd(human): health-fixing`  | — (precedence)                                            | the hand-written-HEALTH.md entry turn: no `classifyHead` row — the steering-file precedence rung (§5.2) rests it at `health-fixing`, agent. A clean `gtd step-agent` at this HEAD is inert (the entry description must survive until an agent has read it)     |
+| `gtd(human): health-fixing`  | — (precedence)                                            | the hand-written-HEALTH.md entry turn: no `classifyHead` row — the steering-file precedence rung (§5.2) rests it at `health-fixing`, agent. A clean `gtd step agent` at this HEAD is inert (the entry description must survive until an agent has read it)     |
 | `gtd(human): escalate`       | mid-chain                                                 | `runTest` (re-test after the human's fix)                                                                                                                                                                                                                      |
 | `gtd(agent): learning`       | squash base present + non-template → mid-chain; else rest | mid-chain → `commitRouting "gtd: await-learning-review"`; rest → `learning`, agent (re-emit until the agent overwrites the template)                                                                                                                           |
 | `gtd(human): learning`       | mid-chain (unconditional — no reject path)                | `commitRouting "gtd: learning-apply"`                                                                                                                                                                                                                          |
@@ -235,7 +237,7 @@ just captured the health-fixer's own turn) must re-test in that same chain
 rather than stopping; this is handled as a special case in `applyTurnTaking`,
 not in `classifyHead`. Likewise, `gtd: health-check` forces a re-test on **any**
 invoking actor once the fix-attempt budget is already exhausted (`capReached`) —
-there is nothing left to fix, so even a human's `gtd step` must force the
+there is nothing left to fix, so even a human's `gtd step human` must force the
 escalating re-test rather than be refused as an out-of-turn step. These two
 carve-outs sit _above_ the out-of-turn refusals in `applyTurnTaking` on purpose:
 they perform bookkeeping (a re-test), never a turn capture, so they don't breach
@@ -261,7 +263,7 @@ v2 state).
 
 ## 3. Command surface & contracts
 
-### `gtd step` — human mutator
+### `gtd step human` — human mutator
 
 Drives the fixpoint loop as the human actor: `gatherEvents("human")` → `resolve`
 → perform the returned `EdgeAction` → repeat, until `resolve` returns no
@@ -269,27 +271,29 @@ Drives the fixpoint loop as the human actor: `gatherEvents("human")` → `resolv
 mid-invocation checkpoints (below) is hit. Idempotent: re-running at a fixpoint
 authors zero commits.
 
-- **Out-of-turn: refused.** While an agent turn is awaited, `gtd step` refuses
-  (exit non-zero, zero commits, stderr
-  `"<state> awaits an agent turn — run \`gtd
-  step-agent\`"`) on both clean and dirty trees. Turns are strictly separated in both directions: the wrong mutator always errors instead of no-op-ing or adopting the dirty tree as a turn of its own. Human edits made while the agent is awaited (amendment notes in `.gtd/`
+- **Out-of-turn: refused.** While an agent turn is awaited, `gtd step human`
+  refuses (exit non-zero, zero commits, stderr
+  `"<state> awaits an agent turn — run \`gtd step
+  agent\`"`) on both clean and dirty trees. Turns are strictly separated in both directions: the wrong mutator always errors instead of no-op-ing or adopting the dirty tree as a turn of its own. Human edits made while the agent is awaited (amendment notes in `.gtd/`
   package files, extra .gtd/TODO.md detail) stay pending and ride along as input
   to the agent's next captured turn.
 - **Idle**: always re-runs the health check (§1's carve-out) — never an empty
   turn commit, never a plain no-op.
 
-### `gtd step-agent` — agent mutator
+### `gtd step agent` — agent mutator
 
 Same engine, `gatherEvents("agent")`. **Refuses** when the machine awaits a
-human turn (the mirror of `gtd step`'s out-of-turn refusal): exits non-zero,
-authors **zero commits**, and prints `"<state> awaits a human turn — run \`gtd
+human turn (the mirror of `gtd step human`'s out-of-turn refusal): exits
+non-zero, authors **zero commits**, and prints
+`"<state> awaits a human turn — run \`gtd
 step\`"`to stderr. An **empty agent turn is inert**: it is recorded once (so`gtd
-next`re-emits the identical agent prompt), and a further clean`gtd step-agent`
+next`re-emits the identical agent prompt), and a further clean`gtd step agent`
 at that same rest authors nothing more.
 
 ### Fixpoint chaining and mid-invocation checkpoints
 
-Both `step` and `step-agent` share `runStep`, which chains hops until one of:
+Every `gtd step <actor>` invocation shares `runStep`, which chains hops until
+one of:
 
 - `resolve` returns no `edgeAction` (true fixpoint).
 - `resolve` returns a `refusal`. Only a first-hop refusal fails the invocation;
@@ -311,7 +315,7 @@ Both `step` and `step-agent` share `runStep`, which chains hops until one of:
   2. **A second fresh turn capture right after capturing the agentic-review
      turn** — findings recorded, and the very next hop wants a fresh
      `gtd(agent): fixing` capture. That is a second judgment call in one
-     invocation; it waits for a fresh `gtd step-agent`.
+     invocation; it waits for a fresh `gtd step agent`.
   3. **A stale empty turn capture past hop 1** — an edge action that would
      capture an empty turn, reached via mid-chain bookkeeping earlier in _this
      same_ invocation (not as the very first thing it saw). A hop-1 empty
@@ -327,15 +331,16 @@ Both `step` and `step-agent` share `runStep`, which chains hops until one of:
 for whichever actor is awaited:
 
 - **Dirty tree** → refuses (non-zero exit), pointing at `gtd status` and the
-  step command of whichever actor is awaited (`gtd step` / `gtd step-agent`).
+  step command of whichever actor is awaited (`gtd step human` /
+  `gtd step agent`).
 - **Clean tree, at rest** → prints that rest's prompt (or, in `--json` mode,
   `{ state, actor, pending: false, prompt }`).
 - **Clean tree, mid-chain** → reports `{ pending: true, prompt: null }` rather
   than a prompt — there is nothing to hand an agent yet. Mid-chain bookkeeping
   is invoker-agnostic, so either mutator resumes it; the plain-mode message
-  names the natural one for the reported actor (`"run \`gtd step-agent\` to
+  names the natural one for the reported actor (`"run \`gtd step agent\` to
   continue, then run \`gtd next\` again"`for an agent-driven checkpoint,`"run
-  \`gtd step\` to continue"` for a human-driven one).
+  \`gtd step human\` to continue"` for a human-driven one).
 
 ### `gtd status` — pure prediction
 
@@ -380,7 +385,7 @@ command.
 
 ### The always-clean invariant
 
-By the time any mutating command (`step`, `step-agent`) returns exit 0, the
+By the time any mutating command (`gtd step <actor>`) returns exit 0, the
 working tree is clean — a red test run is never left uncommitted: `runTest`
 writes .gtd/FEEDBACK.md/.gtd/ERRORS.md and commits it (`gtd: test-failed`) in
 the same hop, and `runHealthCheck` writes .gtd/HEALTH.md/.gtd/ERRORS.md and
@@ -396,33 +401,33 @@ command) is different from a red test result: it is a tooling error, and it does
 **not** roll back the commit(s) already authored in that invocation. The turn
 commit already landed is a durable checkpoint; the CLI exits non-zero at the
 point of failure, `gtd next` reports the mid-chain pending state in between, and
-re-running the same `step`/`step-agent` once the underlying issue is fixed
+re-running the same `gtd step <actor>` once the underlying issue is fixed
 resumes the chain from that checkpoint — it does not repeat work already
 committed.
 
 ### JSON shapes
 
-`--json` is supported on `step`, `step-agent`, `next`, `status`, `review`,
-`questions`, and `changesets` (not `format`). Representative shapes:
+`--json` is supported on `step`, `next`, `status`, `review`, `questions`, and
+`changesets` (not `format`). Representative shapes:
 
-- `step` / `step-agent`: `{ state, actions, commits }` — `actions` is the
+- `step <actor>`: `{ state, actions, commits }` — `actions` is the
   human-readable list of edge actions performed, `commits` the ordered list of
   commit subjects authored this run.
 - `next`: `{ state, actor, pending, prompt }` — `prompt` is `null` when
   `pending` is true. `actor` is the single "proceed" signal for automated loop
   drivers: `"agent"` means another round — act on `prompt` when present (an
-  agent rest; mirrors the plain-mode tail), then run `gtd step-agent`; at an
+  agent rest; mirrors the plain-mode tail), then run `gtd step agent`; at an
   agent-driven pending checkpoint (`prompt` is `null`, nothing to act on) just
-  run `gtd step-agent`. `"human"` means halt: the human owns the next move (a
+  run `gtd step agent`. `"human"` means halt: the human owns the next move (a
   human rest, whose prompt body already spells out the human's next action, or a
-  human-driven pending checkpoint resumed by `gtd step`).
+  human-driven pending checkpoint resumed by `gtd step human`).
 - `status`: `{ state, actor, predictedCommit, predictedState }` —
   `predictedCommit` is `null` when nothing would be committed (e.g. idle).
 - `review`: `{ state: "review", reviewBase, pending: false, prompt: null }`.
 - `questions`: `{ file, questions, errors }` — `file` is `.gtd/TODO.md` /
   `.gtd/ARCHITECTURE.md` / `null`; `questions` is
   `{ question, status: "suggested" | "answered", text }[]`; `errors` lists any
-  structural violations found (same diagnosis `gtd step-agent` would refuse the
+  structural violations found (same diagnosis `gtd step agent` would refuse the
   agent's turn capture with).
 - `changesets`: `{ file, shortHash, fullHash, changesets, errors }` — `file` is
   `.gtd/REVIEW.md` / `null`; `changesets` is
@@ -465,8 +470,8 @@ agent-develops rest (`@grilling-agent` template).
   `## Decisions` section (§1), concatenated oldest to newest, as settled "Prior
   decisions" context, when non-empty.
 - `@grilling-answers` (human awaited) — a pure human gate: edit `.gtd/TODO.md`
-  in place to answer/annotate, or run `gtd step` with no edits to accept all
-  suggested defaults.
+  in place to answer/annotate, or run `gtd step human` with no edits to accept
+  all suggested defaults.
 
 **Entry:** a dirty boundary tree with `invoker: "human"` (no steering files, no
 committed .gtd/TODO.md, .gtd/ARCHITECTURE.md, .gtd/PLAN.md, or .gtd/HEALTH.md)
@@ -526,8 +531,8 @@ Mechanically an exact mirror of `grilling`, one file and one phase later.
   work" when present, and — like `@grilling-agent` — the concatenated
   `## Decisions` history (§1) as "Prior decisions" context, when non-empty.
 - `@architecting-answers` (human awaited) — a pure human gate: edit
-  `.gtd/ARCHITECTURE.md` in place to answer/annotate, or run `gtd step` with no
-  edits to accept all suggested defaults.
+  `.gtd/ARCHITECTURE.md` in place to answer/annotate, or run `gtd step human`
+  with no edits to accept all suggested defaults.
 
 **Entry:** the routing commit `gtd: architecting` is a rest landing here (agent)
 — reached either from grilling's converged exit (`.gtd/ARCHITECTURE.md` seeded
@@ -570,12 +575,13 @@ without it falls through the ladder, and a crash half-way through the seed
 **Exit:** `gtd(agent): grilled` mid-chains to `commitRouting "gtd: building"`
 (also removing `.gtd/ARCHITECTURE.md`) → **planning**.
 
-**Turn-taking:** `gtd step` (human) is refused here like at every agent-awaited
-rest (§3), and this rest is why the rule matters: the dirty tree is the
-decompose agent's uncommitted output, and adopting it as a `gtd(human): grilled`
-turn would misattribute agent work and regress the ladder to grilling. To amend
-the decomposition, leave notes in `.gtd/` package/task files after the
-`gtd: building` commit lands; an unamended `.gtd/` proceeds to **building**.
+**Turn-taking:** `gtd step human` (human) is refused here like at every
+agent-awaited rest (§3), and this rest is why the rule matters: the dirty tree
+is the decompose agent's uncommitted output, and adopting it as a
+`gtd(human): grilled` turn would misattribute agent work and regress the ladder
+to grilling. To amend the decomposition, leave notes in `.gtd/` package/task
+files after the `gtd: building` commit lands; an unamended `.gtd/` proceeds to
+**building**.
 
 ### `planning`
 
@@ -665,14 +671,14 @@ Highest precedence after nothing else — checked before .gtd/FEEDBACK.md,
 **Awaited actor:** human.
 
 **Prompt:** `@escalate` — tell the human to read `.gtd/ERRORS.md`, fix the
-underlying issue, delete `.gtd/ERRORS.md`, then run `gtd step`.
+underlying issue, delete `.gtd/ERRORS.md`, then run `gtd step human`.
 
 **Entry:** `.gtd/ERRORS.md` present (from either the build/fix loop or the
 health-check loop).
 
-**Exit:** the human deletes `.gtd/ERRORS.md` and runs `gtd step` — this lands as
-the human's own mid-chain turn, `gtd(human): escalate`, which folds straight
-into a fresh `runTest` (re-testing from a reset budget, since removing
+**Exit:** the human deletes `.gtd/ERRORS.md` and runs `gtd step human` — this
+lands as the human's own mid-chain turn, `gtd(human): escalate`, which folds
+straight into a fresh `runTest` (re-testing from a reset budget, since removing
 `.gtd/ERRORS.md` resets the fix-attempt count) → **testing**.
 
 ### `agentic-review`
@@ -699,7 +705,7 @@ non-empty, concrete findings = fix. The reviewer must not edit source or commit.
 
 **Exit:** an empty `.gtd/FEEDBACK.md` written by this turn mid-chains to
 `closePackage` → **close-package**. A non-empty `.gtd/FEEDBACK.md` rests at
-**fixing**. (A duplicate clean `gtd step-agent` invoked between review turns
+**fixing**. (A duplicate clean `gtd step agent` invoked between review turns
 cannot itself approve — the .gtd/FEEDBACK.md-present-and-empty case requires it
 to be a _fresh_ verdict from this very turn; inside an already-in-progress fix
 loop, an empty .gtd/FEEDBACK.md instead reads as the fixer disputing/emptying an
@@ -800,9 +806,10 @@ folded into `review`) — resolve at `gtd: await-review` reports
 
 **Awaited actor:** human.
 
-**Prompt:** `@await-review` — tell the human: approve by running `gtd step` with
-no edits or only checkbox ticks; request changes by writing substantive
-edits/annotations (to .gtd/REVIEW.md or code) then running `gtd step`.
+**Prompt:** `@await-review` — tell the human: approve by running
+`gtd step human` with no edits or only checkbox ticks; request changes by
+writing substantive edits/annotations (to .gtd/REVIEW.md or code) then running
+`gtd step human`.
 
 **Entry:** `gtd: await-review` is a rest landing here (human) — the routing
 commit written by `commitRouting` when `gtd(agent): review`'s drafting turn
@@ -902,16 +909,16 @@ identical squash base/diff.
 
 **Means:** a human gate — the agent's `.gtd/LEARNINGS.md` draft is ready for
 review. There is no reject/redo path here: the human either accepts the draft
-as-is or edits it in place, and either way the very next `gtd step` proceeds
-forward. This is a deliberate simplification from `review`'s dual-branch
-(approve vs. feedback) — refining what gets kept is not the same kind of
-decision as approving finished work.
+as-is or edits it in place, and either way the very next `gtd step human`
+proceeds forward. This is a deliberate simplification from `review`'s
+dual-branch (approve vs. feedback) — refining what gets kept is not the same
+kind of decision as approving finished work.
 
 **Awaited actor:** human.
 
 **Prompt:** `@await-learning-review` — read `.gtd/LEARNINGS.md`, delete anything
-not worth keeping or add anything missed, then run `gtd step` (with or without
-edits).
+not worth keeping or add anything missed, then run `gtd step human` (with or
+without edits).
 
 **Actions:** `gtd(human): learning` unconditionally mid-chains to
 `commitRouting "gtd: learning-apply"` — an empty human turn here is a signal
@@ -1005,8 +1012,8 @@ arbitrary prose (even prose that mentions `gtd: test-failed`) still gets
 squashed in verbatim.
 
 **Exit:** after the squash, HEAD is a single non-`gtd:` boundary commit →
-**idle**. Idempotent: a second `gtd step` after the squash sees a boundary HEAD
-and `.gtd/SQUASH_MSG.md` absent, so it does not re-squash.
+**idle**. Idempotent: a second `gtd step human` after the squash sees a boundary
+HEAD and `.gtd/SQUASH_MSG.md` absent, so it does not re-squash.
 
 ### `idle`
 
@@ -1020,11 +1027,11 @@ rest.
 
 **Prompt:** `@idle` — report that the repository is idle, nothing to do.
 
-**Actions:** none directly, but every `gtd step` at idle re-runs the health
-check (§1's carve-out): green stops the driver loop with **zero commits**; red
-writes `.gtd/HEALTH.md`/`.gtd/ERRORS.md` and commits, entering the health-fixing
-detour. `gtd next`/`gtd status` (invoker `"none"`) do not trigger this — they
-just report idle/human.
+**Actions:** none directly, but every `gtd step human` at idle re-runs the
+health check (§1's carve-out): green stops the driver loop with **zero
+commits**; red writes `.gtd/HEALTH.md`/`.gtd/ERRORS.md` and commits, entering
+the health-fixing detour. `gtd next`/`gtd status` (invoker `"none"`) do not
+trigger this — they just report idle/human.
 
 ### `health-fixing`
 
@@ -1045,7 +1052,7 @@ hand-written-HEALTH.md entry point: a dirty boundary tree containing
 (§5.2) rests here exactly as for the machine-written detour. The description is
 a means to make `testCommand` green: a red re-test overwrites it with the actual
 failure output, and a green one closes the run. One guard protects the entry:
-while HEAD is still the human's entry turn, a clean `gtd step-agent` (the loop
+while HEAD is still the human's entry turn, a clean `gtd step agent` (the loop
 protocol's opening beat) is **inert** rather than a meaningful environmental-fix
 turn — otherwise it would consume the description before any agent read it.
 
@@ -1175,9 +1182,9 @@ In order:
    rungs 3/4 (agent-developed files mid-process), PLAN.md is only ever
    human-authored entry input: the ordinary case is the pre-entry dirty boundary
    (rung 1 of §5.5 short-circuits this baseline), and the recovery case is a
-   committed PLAN.md at a boundary HEAD, where the human's `gtd step` resumes
-   the entry (captures `gtd(human): grilled`, which seeds and routes) instead of
-   corrupting.
+   committed PLAN.md at a boundary HEAD, where the human's `gtd step human`
+   resumes the entry (captures `gtd(human): grilled`, which seeds and routes)
+   instead of corrupting.
 6. `.gtd/` exists with a pending package **and** the nearest workflow commit
    (skipping boundary commits stacked on top) is still `gtd(agent): building` →
    **building** (operational-recovery carve-out: a boundary commit, e.g. a
@@ -1257,8 +1264,8 @@ gtd(human): review          # human approves (deletes .gtd/REVIEW.md)
 gtd: done                    # routing: cycle closed
 ```
 
-A subsequent `gtd step` at rest with a green health check adds **zero** commits
-and reports `state: idle`.
+A subsequent `gtd step human` at rest with a green health check adds **zero**
+commits and reports `state: idle`.
 
 ### Happy path with squash on
 
@@ -1270,7 +1277,7 @@ gtd: squashing          # writeSquashTemplate
 ```
 
 `gtd next` renders the squashing prompt; the agent overwrites
-`.gtd/SQUASH_MSG.md`; `gtd step-agent` performs the squash — the entire
+`.gtd/SQUASH_MSG.md`; `gtd step agent` performs the squash — the entire
 `gtd(human): grilling .. gtd: squashing` range collapses into one commit whose
 subject is the message's first line (e.g.
 `feat: add calculator with add support`). None of the intermediate `gtd: *` /
@@ -1370,7 +1377,7 @@ gtd: building                   # routing: .gtd/ARCHITECTURE.md removed
 gtd(human): health-fixing     # dirty-boundary entry — the human authored
                                  # .gtd/HEALTH.md describing the errors
 <gtd next → health-fixing prompt with the hand-written description>
-<a clean opening gtd step-agent here is INERT — the description survives>
+<a clean opening gtd step agent here is INERT — the description survives>
 gtd(agent): health-fixing     # fixer's turn (the actual fix)
 gtd: testing                 # routing: .gtd/HEALTH.md removed; re-tests in
                                  # the same chain
@@ -1388,7 +1395,7 @@ gtd: testing                 # routing: .gtd/HEALTH.md removed; re-tests in
 gtd: test-failed   (×fixAttemptCap)
 gtd: test-failed                    # at/over cap: .gtd/ERRORS.md written instead of .gtd/FEEDBACK.md
 <escalate prompt: human reads .gtd/ERRORS.md>
-<human deletes .gtd/ERRORS.md, runs gtd step>
+<human deletes .gtd/ERRORS.md, runs gtd step human>
 gtd(human): escalate           # mid-chain: re-tests from a reset budget
 gtd: tests-green                 # (if the human's fix worked)
 ```
@@ -1411,7 +1418,7 @@ cleanly.
 
 ```
 <idle, clean tree>
-<gtd step: health check runs testCommand>
+<gtd step human: health check runs testCommand>
 gtd: health-check                # red below cap: .gtd/HEALTH.md written
 gtd(agent): health-fixing       # fixer's own turn
 gtd: testing                   # .gtd/HEALTH.md removed; re-tests in the same chain
@@ -1427,12 +1434,12 @@ gtd: testing                   # .gtd/HEALTH.md removed; re-tests in the same ch
 The step-first two-beat loop an agent (or the `loop` skill) should run to drive
 `gtd` end to end:
 
-1. Run `gtd step-agent`.
+1. Run `gtd step agent`.
 2. Run `gtd next`.
 3. If `actor` is `"human"` → **halt** (the human owns the next move: a human
    gate — answer .gtd/TODO.md or .gtd/ARCHITECTURE.md questions, review, review
    the distilled learnings, fix an escalation — or a human-driven pending
-   checkpoint resumed by `gtd step`).
+   checkpoint resumed by `gtd step human`).
 4. Otherwise: if a prompt was emitted, feed it to the agent (spawn the
    subagent(s) the prompt describes, let them make their edits, leave them
    uncommitted per the prompt's instructions); at an agent-driven pending
@@ -1440,12 +1447,12 @@ The step-first two-beat loop an agent (or the `loop` skill) should run to drive
 5. Repeat from step 1.
 
 This mirrors the plain-mode prompt tail: every agent-awaited prompt ends with
-"Finish your turn by running `gtd step-agent`. Then run `gtd next` and follow
+"Finish your turn by running `gtd step agent`. Then run `gtd next` and follow
 its output — repeat this cycle as long as the output is addressed to you (the
 agent); when it awaits the human, stop and hand off." (`@agent-turn` partial,
 suppressed in `--json` mode and for human-awaited prompts). The first sentence
 closes the current turn; the second closes the outer loop, so a plain-text agent
 chains multiple iterations (e.g. successive test/fix cycles) until a human gate.
-`gtd step-agent` itself absorbs any number of mid-chain routing hops
+`gtd step agent` itself absorbs any number of mid-chain routing hops
 automatically (§3) — the loop only needs to re-invoke it once per actual agent
 turn, not once per commit.

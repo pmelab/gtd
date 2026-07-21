@@ -20,8 +20,9 @@ cleanup), trace **every** reference before deleting:
 
 - `src/Subjects.ts` closed sets (`TurnGate`, `RoutingPhase`, `ROUTING_SUBJECT`)
 - `src/Workflow.ts` (`defaultWorkflow` — the machine's whole declarative shape:
-  the `GtdState` type, the state's `StateDef` (awaited actor, gate, prompt/model
-  bindings, empty-agent-turn policy), its `turnRules` / `routingRules` rows,
+  the `actors` declarations (name + interactive/autonomous kind), the `GtdState`
+  type, the state's `StateDef` (awaited actor, gate, prompt/model bindings,
+  empty-agent-turn policy), its `turnRules` / `routingRules` rows,
   interrupt/fallback ladder rungs, counter rules, `conflicts`, `entry` rules,
   and `agentTurnValidation`)
 - `src/Machine.ts` (the interpreter — usually untouched by a step change, but
@@ -65,7 +66,7 @@ a `Context`-tag layer.
 `agenticReview` is a per-resolve guard input, not a cross-cutting IO mode, so it
 travels as payload rather than as a Context service.
 
-Same pattern for the `invoker` actor (`"human" | "agent" | "none"`,
+Same pattern for the `invoker` actor (a declared actor name or `"none"`,
 `src/Machine.ts`): it travels as a `ResolvePayload` field, not a Context tag,
 because it's a pure-decision input consumed by the resolver's turn guards
 (`applyTurnTaking`), not something every side effect needs to see.
@@ -128,7 +129,7 @@ thin.
 - An empty AGENT turn is inert at every gate whose move is a file artifact
   (`grilling`, `architecting`, `grilled`, `building`, `fixing`,
   `agentic-review`, `review`, and `squashing` while `SQUASH_MSG.md` is still the
-  template) — the loop protocol opens each iteration with `gtd step-agent`
+  template) — the loop protocol opens each iteration with `gtd step agent`
   BEFORE the agent acts, so a clean-tree capture there must author nothing. When
   adding a gate, decide explicitly whether its empty turn is a signal (human
   accept-defaults, health-fixing's environmental fix) or a no-op, and guard BOTH

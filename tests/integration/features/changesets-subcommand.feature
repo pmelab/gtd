@@ -4,7 +4,7 @@ Feature: gtd changesets subcommand
   `gtd changesets` is a pure, read-only reporter over `.gtd/REVIEW.md`, if
   present. It parses the header/base-comment/chunk structure (see
   `document-structure.feature`) and reports the changeset/file list, plus any
-  structural errors — the same diagnosis that would make `gtd step-agent`
+  structural errors — the same diagnosis that would make `gtd step agent`
   refuse the agent's next review-turn capture. It never mutates and always
   exits 0, on a clean or a dirty tree, with or without a well-formed file.
 

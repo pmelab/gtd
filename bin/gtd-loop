@@ -10,8 +10,8 @@ prev_state=""
 prev_prompt=""
 
 while true; do
-  gtd step --json >/dev/null 2>&1 || true
-  gtd step-agent --json >/dev/null 2>&1 || true
+  gtd step human --json >/dev/null 2>&1 || true
+  gtd step agent --json >/dev/null 2>&1 || true
 
   if ! next_json="$(gtd next --json 2>&1)"; then
     echo "gtd-loop: could not determine the next step:" >&2

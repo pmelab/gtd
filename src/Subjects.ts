@@ -42,8 +42,17 @@
  * the IO edge (`Events.ts`).
  */
 
-/** Who authored a turn commit. */
-export type Actor = "human" | "agent"
+import { isDefinedActor } from "./Workflow.js"
+
+/**
+ * Who authored a turn commit — the name of a declared actor. Actors are
+ * **definition data**, not a hard-coded pair: the default workflow declares
+ * `human` and `agent` (`defaultWorkflow.actors` in `./Workflow.js`), and the
+ * grammar's closed actor vocabulary derives from that declaration. A subject
+ * naming an undeclared actor parses as a boundary commit, keeping the
+ * closed-world rule intact.
+ */
+export type Actor = string
 
 /** The closed set of gate labels a turn commit can carry. */
 export type TurnGate =
@@ -60,7 +69,7 @@ export type TurnGate =
   | "learning"
   | "learning-apply"
 
-/** `gtd(${actor}): ${gate}` — the subject `gtd step`/`gtd step-agent` write. */
+/** `gtd(${actor}): ${gate}` — the subject `gtd step <actor>` writes. */
 export const turnSubject = (actor: Actor, gate: TurnGate): string => `gtd(${actor}): ${gate}`
 
 /**
@@ -125,7 +134,7 @@ export type ParsedSubject =
     }
   | { readonly kind: "boundary" }
 
-const TURN_RE = /^gtd\((human|agent)\): (.+)$/
+const TURN_RE = /^gtd\(([a-z][a-z0-9-]*)\): (.+)$/
 
 const TURN_GATES: ReadonlySet<string> = new Set<TurnGate>([
   "grilling",
@@ -165,8 +174,16 @@ export const parseSubject = (subject: string): ParsedSubject => {
   if (turnMatch) {
     const actor = turnMatch[1]
     const gate = turnMatch[2]
-    if (gate !== undefined && TURN_GATES.has(gate)) {
-      return { kind: "turn", actor: actor as Actor, gate: gate as TurnGate }
+    // Both halves are closed-world: the actor must be declared by the active
+    // definition and the gate must be in the closed gate set — anything else
+    // is an inert boundary commit, never a guess.
+    if (
+      actor !== undefined &&
+      isDefinedActor(actor) &&
+      gate !== undefined &&
+      TURN_GATES.has(gate)
+    ) {
+      return { kind: "turn", actor, gate: gate as TurnGate }
     }
     return { kind: "boundary" }
   }

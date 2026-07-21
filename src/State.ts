@@ -11,7 +11,7 @@ import type { EdgeAction, GtdState, TurnPrediction } from "./Machine.js"
 /** A pure, IO-free summary of the predicted next turn, for `gtd status`. */
 export interface StatusSummary {
   readonly state: GtdState
-  readonly actor: "human" | "agent"
+  readonly actor: string
   readonly predictedCommit: string | null
   readonly predictedState: GtdState
 }

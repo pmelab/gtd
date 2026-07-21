@@ -48,7 +48,7 @@ Gtd-Decisions: true
 
 Replace the **entire content** of `.gtd/SQUASH_MSG.md` (plain text, no markdown
 wrapper, no leftover template scaffolding) with the message from Step 2, then
-leave it uncommitted and finish your turn — `gtd step-agent` performs the
+leave it uncommitted and finish your turn — `gtd step agent` performs the
 squash using this file's content.
 <% if (it.context.squashDiff && it.context.squashDiff.trim()) { %>
 <%= it.context.squashBase !== undefined ? "\nSquash base: " + it.context.squashBase + "\n" : "" %>

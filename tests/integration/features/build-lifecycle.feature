@@ -55,7 +55,7 @@ Feature: Build lifecycle — the .gtd/ package lifecycle from planning to buildi
     And stdout contains "Implement the subtract function."
     And stdout does not contain "Implement the add function."
 
-  Scenario: gtd step-agent at the second package's building rest lands its own package-done
+  Scenario: gtd step agent at the second package's building rest lands its own package-done
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -75,7 +75,7 @@ Feature: Build lifecycle — the .gtd/ package lifecycle from planning to buildi
       """
       export const subtract = (a: number, b: number) => a - b
       """
-    When I run gtd step-agent
+    When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
     And the last commit subject is "gtd: close-package"

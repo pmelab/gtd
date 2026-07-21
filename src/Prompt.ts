@@ -23,7 +23,7 @@ import learningApplyMd from "./prompts/learning-apply.md"
 import escalateMd from "./prompts/escalate.md"
 import idleMd from "./prompts/idle.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
-import { defaultWorkflow } from "./Workflow.js"
+import { defaultWorkflow, isAutonomousActor } from "./Workflow.js"
 import type { GtdState, Result } from "./Machine.js"
 
 /**
@@ -124,9 +124,9 @@ export const buildPrompt = (
   // Resolve the model string for states that spawn a subagent.
   const model = stateDef.model !== undefined ? resolveModel(stateDef.model) : ""
 
-  // Select the tail: agent turns get the pinned tail sentence in plain mode;
-  // human turns and any --json output carry no tail at all.
-  const tail = output === "plain" && result.actor === "agent" ? "@agent-turn" : undefined
+  // Select the tail: autonomous-actor turns get the pinned tail sentence in
+  // plain mode; interactive turns and any --json output carry no tail at all.
+  const tail = output === "plain" && isAutonomousActor(result.actor) ? "@agent-turn" : undefined
 
   // Select the state template from the definition's per-actor bindings. The
   // dynamic gates (grilling/architecting) bind both actors — which prompt

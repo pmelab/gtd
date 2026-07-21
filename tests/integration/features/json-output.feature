@@ -7,12 +7,12 @@ Feature: JSON output mode
   { state, actor, pending, prompt }; status emits
   { state, actor, predictedCommit, predictedState }. next's `actor` is the
   single loop-driver signal: "agent" means proceed with another round (act on
-  the prompt when present, then run `gtd step-agent`), "human" means halt —
+  the prompt when present, then run `gtd step agent`), "human" means halt —
   the human owns the next move. `autoAdvance` and `runStepAgent` no longer
   appear anywhere. Errors emit { state: "error", prompt: "<message>" } and
   exit 1.
 
-  Scenario: gtd step --json emits state, actions, and commits
+  Scenario: gtd step human --json emits state, actions, and commits
     Given a test project
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
@@ -22,7 +22,7 @@ Feature: JSON output mode
       """
       export const sub = (a: number, b: number) => a - b
       """
-    When I run gtd step with "--json"
+    When I run gtd step human with "--json"
     Then it succeeds
     And stdout contains "\"state\""
     And stdout contains "\"actions\""
