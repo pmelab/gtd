@@ -1131,10 +1131,16 @@ const turnRules: readonly TurnRule[] = [
   },
   {
     // The human's escalate turn (ERRORS.md deletion resets the budget on the
-    // turn's own trailer) owes the re-check its turn.
+    // turn's own trailer) owes the re-check its turn — at the PACKAGE check
+    // rest when packages are in play, else at the HEALTH check rest (whose
+    // script records red output as HEALTH.md; a FEEDBACK.md write without
+    // packages would be an illegal combination).
     actor: "human",
     gate: "escalate",
-    branches: [{ to: rest("testing", "check") }],
+    branches: [
+      { when: (f) => f.hasPackages, to: rest("testing", "check") },
+      { to: rest("health-check", "check") },
+    ],
   },
 
   // ── The check actor's verdict turns ────────────────────────────────────

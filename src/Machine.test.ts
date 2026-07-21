@@ -1052,6 +1052,26 @@ describe("health lifecycle", () => {
     expect(result.actor).toBe("human")
   })
 
+  it("the escalate turn rests at the PACKAGE check with packages, at the HEALTH check without", () => {
+    const withPackages = resolve([
+      R({
+        invoker: "none",
+        packagesPresent: true,
+        lastCommitSubject: "gtd(human): escalate",
+        workingTreeClean: true,
+      }),
+    ])
+    expect(withPackages.state).toBe("testing")
+    expect(withPackages.actor).toBe("check")
+    // No packages (a health-path escalation): a red re-check must record
+    // HEALTH.md, never FEEDBACK.md (illegal without packages).
+    const healthPath = resolve([
+      R({ invoker: "none", lastCommitSubject: "gtd(human): escalate", workingTreeClean: true }),
+    ])
+    expect(healthPath.state).toBe("health-check")
+    expect(healthPath.actor).toBe("check")
+  })
+
   it("gtd: testing rests at health-check for the check actor", () => {
     const result = resolve([
       R({ invoker: "none", lastCommitSubject: "gtd: testing", workingTreeClean: true }),
