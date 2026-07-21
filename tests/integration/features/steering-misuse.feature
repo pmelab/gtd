@@ -76,7 +76,7 @@ Feature: Manual steering-file misuse, v1-history inertness, and odd .gtd content
     And a commit "gtd: transport"
     When I run gtd status
     Then it succeeds
-    And stdout contains "Awaits: human"
+    And stdout contains "Awaits: check"
     And stdout contains "State: idle"
 
   Scenario: A bare gtd: review marker with no hash is inert v1-shaped history, not a review anchor

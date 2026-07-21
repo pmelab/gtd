@@ -63,6 +63,11 @@ export type TurnGate =
   | "grilled"
   | "building"
   | "fixing"
+  | "test-failed"
+  | "tests-green"
+  | "escalated"
+  | "close-package"
+  | "health-check"
   | "agentic-review"
   | "agentic-approved"
   | "agentic-findings"
@@ -154,6 +159,11 @@ const TURN_GATES: ReadonlySet<string> = new Set<TurnGate>([
   "grilled",
   "building",
   "fixing",
+  "test-failed",
+  "tests-green",
+  "escalated",
+  "close-package",
+  "health-check",
   "agentic-review",
   "agentic-approved",
   "agentic-findings",

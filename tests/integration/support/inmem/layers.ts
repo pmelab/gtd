@@ -7,10 +7,6 @@ import { FileSystem } from "@effect/platform"
 import { SystemError, type PlatformError } from "@effect/platform/Error"
 import { Effect, Layer, Option } from "effect"
 import { parse as parseYaml } from "yaml"
-import { spawnSync } from "node:child_process"
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs"
-import { join, dirname } from "node:path"
-import { tmpdir } from "node:os"
 import { renderDiff } from "../../../../src/Diff.js"
 import {
   GitService,
@@ -18,7 +14,6 @@ import {
   type GitWriterOperations,
   type GitOperations,
 } from "../../../../src/Git.js"
-import { TestRunner, type TestResult } from "../../../../src/TestRunner.js"
 import {
   ConfigInit,
   ConfigService,
@@ -43,47 +38,6 @@ const tryCatch = <A>(fn: () => A): Effect.Effect<A, Error> =>
 // Git's empty-tree object SHA: used as the diff base for a root commit (no parent).
 // Mirrors InMemRepo's private EMPTY_TREE constant (used there for softResetTo).
 const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-
-/**
- * Write all files from an in-memory worktree into a real temp directory.
- * Used so bash scripts can reference worktree files by path.
- */
-function populateTempDir(tmpDir: string, worktree: Map<string, string>): void {
-  for (const [filePath, content] of worktree) {
-    const full = join(tmpDir, filePath)
-    mkdirSync(dirname(full), { recursive: true })
-    writeFileSync(full, content)
-  }
-}
-
-/**
- * Execute a bash script from the worktree in a temp directory populated
- * with all worktree files, so the script can reference sibling files.
- */
-function runBashScript(
-  scriptPath: string,
-  worktree: Map<string, string>,
-): { exitCode: number; output: string } | null {
-  const scriptContent = worktree.get(scriptPath)
-  if (scriptContent === undefined) return null
-  const tmpDir = mkdtempSync(join(tmpdir(), "gtd-test-"))
-  try {
-    populateTempDir(tmpDir, worktree)
-    const scriptFile = join(tmpDir, scriptPath)
-    writeFileSync(scriptFile, scriptContent, { mode: 0o755 })
-    const result = spawnSync("bash", [scriptFile], {
-      cwd: tmpDir,
-      encoding: "utf-8",
-      timeout: 10_000,
-    })
-    return {
-      exitCode: result.status ?? 1,
-      output: (result.stdout ?? "") + (result.stderr ?? ""),
-    }
-  } finally {
-    rmSync(tmpDir, { recursive: true, force: true })
-  }
-}
 
 /**
  * Drop any changed path that falls under an excluded path (exact match or
@@ -524,7 +478,7 @@ const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> 
 
 export function inMemoryLayers(
   repo: InMemRepo,
-): Layer.Layer<GitService | FileSystem.FileSystem | TestRunner | ConfigService | ConfigInit | Cwd> {
+): Layer.Layer<GitService | FileSystem.FileSystem | ConfigService | ConfigInit | Cwd> {
   // Reader + Writer share the same repo instance
   const readerOps = makeGitReaderOps(repo)
   const writerOps = makeGitWriterOps(repo)
@@ -536,70 +490,7 @@ export function inMemoryLayers(
 
   const configLayer = makeInMemoryConfigService(repo)
 
-  // Default TestRunner — reads testCommand from config and routes through the
-  // recognizing runner (true / false / test -f <path>). Fails loudly on unknown commands.
-  const testRunnerLayer = Layer.effect(
-    TestRunner,
-    Effect.gen(function* () {
-      const config = yield* ConfigService
-      const worktreeHasPath = (path: string): boolean => {
-        const worktree = (repo as unknown as { worktree: Map<string, string> })["worktree"]
-        return worktree.has(path)
-      }
-      // fallow-ignore-next-line complexity
-      const run = (): Effect.Effect<TestResult, Error> => {
-        const cmd = config.testCommand.trim()
-        if (cmd === "true") return Effect.succeed({ exitCode: 0, output: "" })
-        if (cmd === "false") return Effect.succeed({ exitCode: 1, output: "" })
-        const testFMatch = /^test -f (.+)$/.exec(cmd)
-        if (testFMatch !== null) {
-          const path = testFMatch[1]!.trim()
-          return Effect.succeed({
-            exitCode: worktreeHasPath(path) ? 0 : 1,
-            output: "",
-          })
-        }
-        const bashTestFMatch = /^bash -c 'test -f (.+)'$/.exec(cmd)
-        if (bashTestFMatch !== null) {
-          const path = bashTestFMatch[1]!.trim()
-          return Effect.succeed({
-            exitCode: worktreeHasPath(path) ? 0 : 1,
-            output: "",
-          })
-        }
-        // bash <script.sh>
-        const bashScriptMatch = /^bash\s+(\S+)$/.exec(cmd)
-        if (bashScriptMatch !== null) {
-          const scriptPath = bashScriptMatch[1]!.trim()
-          const worktree = (repo as unknown as { worktree: Map<string, string> })["worktree"]
-          const result = runBashScript(scriptPath, worktree)
-          if (result === null) {
-            return Effect.succeed({
-              exitCode: 1,
-              output: `bash: ${scriptPath}: No such file or directory\n`,
-            })
-          }
-          return Effect.succeed(result)
-        }
-        // Default npm run test: simulate a passing test run so scenarios that
-        // don't configure a testCommand settle Idle without needing a real
-        // package.json / test suite in the in-memory environment.
-        if (cmd === "npm run test") return Effect.succeed({ exitCode: 0, output: "" })
-        // Unknown command → simulate ENOENT
-        return Effect.fail(new Error(`test command not found: ${cmd}`))
-      }
-      return { run }
-    }),
-  ).pipe(Layer.provide(configLayer))
-
-  return Layer.mergeAll(
-    gitServiceLayer,
-    fsLayer,
-    testRunnerLayer,
-    configLayer,
-    ConfigInit.Noop,
-    Cwd.layer(""),
-  )
+  return Layer.mergeAll(gitServiceLayer, fsLayer, configLayer, ConfigInit.Noop, Cwd.layer(""))
 }
 
 // Fine-grained layer for unit tests that need only the git service.

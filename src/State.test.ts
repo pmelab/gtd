@@ -41,12 +41,10 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
   const cases: ReadonlyArray<EdgeAction> = [
     { kind: "captureTurn", actor: "human", gate: "building" },
     { kind: "commitRouting", subject: "gtd: tests-green" },
-    { kind: "runTest", errorCount: 0, capReached: false, onGreen: "tests-green" },
     { kind: "closePackage" },
     { kind: "writeSquashTemplate" },
     { kind: "squashCommit", squashBase: "abc1234" },
     { kind: "writeLearningTemplate" },
-    { kind: "runHealthCheck", errorCount: 0, capReached: false, chainAfterGreen: false },
   ]
 
   it("returns a non-empty phrase for every EdgeAction variant", () => {
@@ -111,26 +109,14 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
     ).toBe('commit routing as "gtd: learning-applied" (removing .gtd/LEARNINGS.md)')
   })
 
-  it("runTest reports the 1-indexed attempt number", () => {
+  it("commitRouting notes the check-output promotion to ERRORS.md", () => {
     expect(
       describeEdgeAction({
-        kind: "runTest",
-        errorCount: 2,
-        capReached: false,
-        onGreen: "tests-green",
+        kind: "commitRouting",
+        subject: "gtd: escalated",
+        promoteCheckOutputToErrors: true,
       }),
-    ).toBe("run the test suite (attempt 3)")
-  })
-
-  it("runTest notes when the cap is reached", () => {
-    expect(
-      describeEdgeAction({
-        kind: "runTest",
-        errorCount: 5,
-        capReached: true,
-        onGreen: "tests-green",
-      }),
-    ).toBe("run the test suite (attempt 6, cap reached)")
+    ).toBe('commit routing as "gtd: escalated" (promoting the check output to .gtd/ERRORS.md)')
   })
 
   it("squashCommit names the squash base", () => {
@@ -143,16 +129,5 @@ describe("describeEdgeAction (exhaustive over EdgeAction)", () => {
     expect(describeEdgeAction({ kind: "writeLearningTemplate" })).toBe(
       "write the learnings template",
     )
-  })
-
-  it("runHealthCheck reports attempt, cap, and chain-after-green together", () => {
-    expect(
-      describeEdgeAction({
-        kind: "runHealthCheck",
-        errorCount: 0,
-        capReached: true,
-        chainAfterGreen: true,
-      }),
-    ).toBe("run the health check (attempt 1, cap reached, chain after green)")
   })
 })

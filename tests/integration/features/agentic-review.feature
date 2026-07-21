@@ -101,10 +101,12 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       export const helper = () => 42
       """
-    When I run gtd step agent
+    # The green check captures the force-approved close inline.
+    When I run gtd step check
     Then it succeeds
+    And the git log contains "gtd(check): close-package"
     And the git log contains "gtd: close-package"
-    And the git log does not contain "gtd(agent): agentic-review"
+    And the git log does not contain "gtd(check): agentic-review"
     And the file ".gtd/01-foo/01-task.md" does not exist
     And the file ".gtd/FEEDBACK.md" does not exist
 
@@ -134,7 +136,7 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       export const fix = 1
       """
     And a commit "gtd(agent): fixing" with counters "t=0 r=2 h=0"
-    When I run gtd step agent
+    When I run gtd step check
     Then it succeeds
     And the last commit subject is "gtd: close-package"
     And stdout does not contain "Spawn a **reviewing subagent**"

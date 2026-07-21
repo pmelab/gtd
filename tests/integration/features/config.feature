@@ -10,16 +10,10 @@ Feature: .gtdrc config system
   bundling are exercised for real.
 
   @inmem
-  Scenario: A custom testCommand reaches the runner and beats the default
-    # No package.json `test` script exists, so the sentinel surfacing in the fix
-    # prompt proves the configured testCommand — not the default `npm run test` —
-    # drove the gate.
+  Scenario: A custom testCommand reaches the emitted wrapper script and beats the default
+    # The configured testCommand — not the default `npm run test` — is what
+    # the check actor's emitted wrapper script executes.
     Given a test project
-    And a commit "chore: add gate.sh" that adds "gate.sh" with:
-      """
-      echo CONFIG_SENTINEL
-      exit 1
-      """
     And a gtd config file at ".gtdrc" with:
       """
       testCommand: bash gate.sh
@@ -34,7 +28,18 @@ Feature: .gtdrc config system
       """
     When I run gtd step agent
     Then it succeeds
-    And the git log contains "gtd: test-failed"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "bash gate.sh > .gtd/.check-output 2>&1"
+    And stdout does not contain "npm run test"
+    # A red run recorded by the script rests for the fix prompt.
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      CONFIG_SENTINEL
+      """
+    When I run gtd step check
+    Then it succeeds
+    And the git log contains "gtd(check): test-failed"
     And the file ".gtd/FEEDBACK.md" contains "CONFIG_SENTINEL"
     When I run gtd next
     Then it succeeds
@@ -125,19 +130,14 @@ Feature: .gtdrc config system
 
   @inmem
   Scenario: A lowered fixAttemptCap escalates sooner
-    # With the cap at 1, a single prior `gtd: test-failed` exhausts the budget, so the
-    # next red test writes ERRORS.md and escalates instead of FEEDBACK.md.
+    # With the cap at 1, a single prior `gtd: test-failed` exhausts the budget,
+    # so the next red check captures gtd(check): escalated instead of another
+    # FEEDBACK.md round.
     Given a test project
     And a default branch "main"
     And a branch "feature"
-    And a commit "chore: add gate.sh" that adds "gate.sh" with:
-      """
-      echo CONFIG_SENTINEL
-      exit 1
-      """
     And a gtd config file at ".gtdrc" with:
       """
-      testCommand: bash gate.sh
       fixAttemptCap: 1
       """
     And a commit "gtd: building" that adds ".gtd/01-foo/01-task.md" with:
@@ -150,6 +150,12 @@ Feature: .gtdrc config system
       export const helper = (x: string) => x
       """
     When I run gtd step agent
+    Then it succeeds
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      CONFIG_SENTINEL
+      """
+    When I run gtd step check
     Then it succeeds
     And the file ".gtd/ERRORS.md" exists
     When I run gtd next
@@ -179,10 +185,13 @@ Feature: .gtdrc config system
       export const fix = 1
       """
     And a commit "gtd(agent): fixing" with counters "t=0 r=1 h=0"
-    When I run gtd step agent
+    # The green check captures the force-approved close directly (threshold
+    # already reached at r=1), skipping the reviewer rest.
+    When I run gtd step check
     Then it succeeds
+    And the git log contains "gtd(check): close-package"
     And the last commit subject is "gtd: close-package"
-    And the git log does not contain "gtd(agent): agentic-review\n\ngtd: close-package"
+    And the git log does not contain "gtd(check): agentic-review"
 
   @live
   Scenario: An unknown config key is rejected

@@ -94,8 +94,11 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
       """
     When I run gtd step agent
     Then it succeeds
+    And the last commit subject is "gtd(agent): building"
     # agenticReview is off: the green check force-approves and performs the
     # close INLINE — no marker commit is ever written.
+    When I run gtd step check
+    Then it succeeds
     And the git log does not contain "gtd: tests-green"
     And the last commit subject is "gtd: close-package"
     When I run gtd next with "--json"
@@ -159,9 +162,13 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
     And the git log contains "gtd(human): health-fixing"
     And the git log contains "gtd(agent): health-fixing"
     And the git log contains "gtd: testing"
-    And the git log contains "gtd: tests-green"
-    And the git log contains "gtd: squashing"
     And the file ".gtd/HEALTH.md" does not exist
+    # The green re-check chains the run's processing (base anchored on the
+    # hand-written entry turn — zero gtd(check): health-check commits needed).
+    When I run gtd step check
+    Then it succeeds
+    And the git log contains "gtd(check): tests-green"
+    And the git log contains "gtd: squashing"
     And the file ".gtd/SQUASH_MSG.md" exists
 
   Scenario: A HEALTH.md-entry fix that stays red re-enters the normal health-check loop
@@ -188,7 +195,14 @@ Feature: Entry points — which steering file the dirty tree contains picks the 
     Then it succeeds
     And the git log contains "gtd(agent): health-fixing"
     And the git log contains "gtd: testing"
-    And the last commit subject is "gtd: health-check"
+    # The re-check stays red: the script re-records the failure as HEALTH.md.
+    Given a file ".gtd/HEALTH.md" with:
+      """
+      SENTINEL_STILL_RED
+      """
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): health-check"
     And the file ".gtd/HEALTH.md" exists
     And the file ".gtd/HEALTH.md" contains "SENTINEL_STILL_RED"
 

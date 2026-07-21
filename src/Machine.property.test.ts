@@ -165,6 +165,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
       ...(raw.hasReviewBase ? { reviewBase: "abc123", refDiff: "diff --git a/x b/x\n+x\n" } : {}),
       hasCommitsAfterLastDone: raw.hasCommitsAfterLastDone,
       agenticReviewEnabled: raw.agenticReviewEnabled,
+      testCommand: "npm run test",
       squashEnabled: raw.squashEnabled,
       squashMsgPresent: false,
       squashMsgDirty: false,
@@ -288,7 +289,7 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
     )
   })
 
-  it("returns exactly one known state, with actor human or agent", () => {
+  it("returns exactly one known state, with a declared actor", () => {
     fc.assert(
       fc.property(arbEvents, (events) => {
         let result
@@ -298,7 +299,7 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
           return
         }
         expect(ALL_STATES.has(result.state)).toBe(true)
-        expect(["human", "agent"]).toContain(result.actor)
+        expect(["human", "agent", "check"]).toContain(result.actor)
       }),
       { numRuns: 2000 },
     )

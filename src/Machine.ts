@@ -46,6 +46,7 @@ import {
   defaultAutonomousActor,
   defaultInteractiveActor,
   defaultWorkflow,
+  forceApprove,
   isAutonomousActor,
   isInteractiveActor,
   stampLabelCounters,
@@ -96,6 +97,8 @@ export interface ResolveContext {
   readonly turnDiff?: string
   /** Concatenated `## Decisions` history from past squash commits (passthrough); "" when none. Inlined into grilling/architecting prompts. */
   readonly decisionLog: string
+  /** The configured check command (passthrough); templated into the check actor's wrapper script. */
+  readonly testCommand: string
 }
 
 /** The resolved decision: the state, the awaited actor, an optional edge action, and context. */
@@ -186,6 +189,7 @@ export const DEFAULT_PAYLOAD: ResolvePayload = {
   agenticReviewEnabled: true,
   fixAttemptCap: 3,
   reviewThreshold: 3,
+  testCommand: "npm run test",
   squashEnabled: false,
   squashMsgPresent: false,
   squashMsgDirty: false,
@@ -210,6 +214,7 @@ const buildContext = (p: ResolvePayload, counters: Counters): ResolveContext => 
   feedbackContent: p.feedbackContent !== "" ? p.feedbackContent : p.healthContent,
   ...(p.headTurnDiff !== "" ? { turnDiff: p.headTurnDiff } : {}),
   decisionLog: p.decisionLog,
+  testCommand: p.testCommand,
 })
 
 /**
@@ -386,7 +391,7 @@ const buildBaselineFacts = (
     counters,
     head,
     headIsHealthFixerTurn,
-    forceApprove: !p.agenticReviewEnabled || counters.reviewFixCount >= p.reviewThreshold,
+    forceApprove: forceApprove(p),
     reviewable:
       p.hasCommitsAfterLastDone &&
       p.reviewBase !== undefined &&
@@ -422,47 +427,18 @@ const runLadder = (
 }
 
 /**
- * Fill in the payload/counter-dependent action fields the classification
- * rules carry placeholders for (they have no direct payload access):
- * `squashCommit.squashBase`, and the fix-attempt budget on `runTest` /
- * `runHealthCheck`. Without this, the building/fixing/escalate mid-chain
- * re-test paths never escalate — a red result past the cap would still write
- * a fresh FEEDBACK.md forever instead of ERRORS.md. Applies ONLY to
- * classification outcomes: the fallback ladder's operational-recovery
- * `runTest` deliberately keeps its zero placeholders.
+ * Fill in the payload-dependent action field the classification rules carry a
+ * placeholder for (they have no direct payload access):
+ * `squashCommit.squashBase`. (The check budgets that used to be filled here
+ * ride the `Gtd-Counters` trailer and are consumed by the check states'
+ * capture rules — there is no check action left to fill.)
  */
-const fillInActionBudgets = (
-  classified: HeadClass,
-  p: ResolvePayload,
-  counters: Counters,
-): HeadClass => {
+const fillInActionBudgets = (classified: HeadClass, p: ResolvePayload): HeadClass => {
   if (classified.kind !== "mid-chain") return classified
   if (classified.action.kind === "squashCommit") {
     return {
       ...classified,
       action: { kind: "squashCommit", squashBase: p.squashBase ?? "" },
-    }
-  }
-  if (classified.action.kind === "runTest") {
-    return {
-      ...classified,
-      action: {
-        kind: "runTest",
-        errorCount: counters.testFixCount,
-        capReached: counters.testFixCount >= p.fixAttemptCap,
-        onGreen: classified.action.onGreen,
-      },
-    }
-  }
-  if (classified.action.kind === "runHealthCheck") {
-    return {
-      ...classified,
-      action: {
-        kind: "runHealthCheck",
-        errorCount: counters.healthFixCount,
-        capReached: counters.healthFixCount >= p.fixAttemptCap,
-        chainAfterGreen: classified.action.chainAfterGreen,
-      },
     }
   }
   return classified
@@ -498,25 +474,11 @@ const resolveBaseline = (
     reviewPresent: p.reviewPresent,
   }
 
-  const withGreenOutcome = (result: HeadClass): HeadClass => {
-    if (result.kind !== "mid-chain" || result.action.kind !== "runTest") return result
-    // The green outcome is decided HERE, at dispatch (write-time labeling):
-    // packages + threshold reached (or agentic review off) → inline close;
-    // packages → rest for the reviewer's verdict; no packages → the health
-    // path's green marker (settle follows).
-    const onGreen = p.packagesPresent
-      ? facts.forceApprove
-        ? ("close-package" as const)
-        : ("agentic-review" as const)
-      : ("tests-green" as const)
-    return { ...result, action: { ...result.action, onGreen } }
-  }
-
   const classified = classifyHead(head, flags)
-  if (classified !== null) return withGreenOutcome(fillInActionBudgets(classified, p, counters))
+  if (classified !== null) return fillInActionBudgets(classified, p)
 
   const fellBack = runLadder(defaultWorkflow.fallback, facts)
-  if (fellBack !== null) return withGreenOutcome(fellBack)
+  if (fellBack !== null) return fellBack
 
   return corrupt()
 }
@@ -621,38 +583,6 @@ const applyTurnTaking = (
     return { state: baseline.state, actor: awaited, pending: false, context }
   }
 
-  // `gtd: testing` re-tests in the SAME chain regardless of which actor is
-  // driving this invocation (the health-fixer's own step call must
-  // continue past its own routing commit to re-test, not stop on an
-  // idle/human "out-of-turn" refusal) — mirrors `gtd(agent): fixing`'s
-  // runTest re-test. `gtd next` (invoker "none") is unaffected (handled by
-  // the branch above) and still reports idle/human, matching "a clean tree
-  // self-heals: the next invocation's health check will simply re-run."
-  // (The old at-cap `gtd: health-check` carve-out is gone: the check decides
-  // at write time, so a cap-crossing red lands as `gtd: escalated` directly.)
-  if (head === "gtd: testing" && baseline.state === "idle") {
-    // `healthFixBase !== undefined` alone: the edge only anchors a base for a
-    // live, unprocessed health run (the anchor scan resets on `gtd: tests
-    // green`), and a hand-written-HEALTH.md entry run whose first fix goes
-    // green has a base but ZERO `gtd: health-check` commits — so a count
-    // conjunct would wrongly skip its squash/learning chain.
-    const chainAfterGreenAtHealthFix =
-      (p.squashEnabled || p.learningEnabled) && p.healthFixBase !== undefined
-    return {
-      state: "idle",
-      actor: defaultAutonomousActor(),
-      pending: false,
-      edgeAction: {
-        kind: "runHealthCheck",
-        errorCount: counters.healthFixCount,
-        capReached: counters.healthFixCount >= p.fixAttemptCap,
-        chainAfterGreen: chainAfterGreenAtHealthFix,
-        counters,
-      },
-      context,
-    }
-  }
-
   // Out-of-turn: the invoker is not the awaited actor → refuse, in BOTH
   // directions. Turns are strictly separated: the wrong mutator always errors
   // instead of no-op-ing or adopting the dirty tree as a turn of its own.
@@ -670,28 +600,6 @@ const applyTurnTaking = (
       actor: awaited,
       pending: false,
       refusal: `${baseline.state} awaits ${article} ${awaited} turn — run \`gtd step ${awaited}\``,
-      context,
-    }
-  }
-
-  // Idle carve-out: an interactive actor's step at idle always re-runs the
-  // health check — never an empty turn commit, and never a plain fixpoint
-  // no-op.
-  if (baseline.state === "idle" && isInteractiveActor(invoker)) {
-    // Same reasoning as `chainAfterGreenAtHealthFix` above: base presence is
-    // the whole signal.
-    const chainAfterGreen = (p.squashEnabled || p.learningEnabled) && p.healthFixBase !== undefined
-    return {
-      state: "idle",
-      actor: invoker,
-      pending: false,
-      edgeAction: {
-        kind: "runHealthCheck",
-        errorCount: counters.healthFixCount,
-        capReached: counters.healthFixCount >= p.fixAttemptCap,
-        chainAfterGreen,
-        counters,
-      },
       context,
     }
   }
@@ -745,6 +653,7 @@ const applyTurnTaking = (
       kind: "captureTurn",
       actor: invoker,
       gate: match.label,
+      ...(match.consumeFeedback === true ? { consumeFeedback: true } : {}),
       // The captured turn's trailer vector: the rule's stamp (a write-time
       // branch decision, e.g. a findings round counting a review cycle)
       // applied to the previous vector, or the previous vector carried.

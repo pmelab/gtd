@@ -163,6 +163,13 @@ When("I run gtd next", async (world: GtdWorld) => {
   await world.runGtd("next")
 })
 
+// The built-in check driver: executes the awaited scripted actor's emitted
+// wrapper script for real, then steps that actor. @live tier only (the
+// script runs against the real filesystem).
+When("I run gtd run", async (world: GtdWorld) => {
+  await world.runGtd("run")
+})
+
 When("I run gtd next with {string}", async (world: GtdWorld, arg: string) => {
   await world.runGtd("next", arg)
 })

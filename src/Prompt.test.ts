@@ -8,12 +8,13 @@ const ctx = (overrides: Partial<ResolveContext> = {}): ResolveContext => ({
   packages: [],
   feedbackContent: "",
   decisionLog: "",
+  testCommand: "npm run test",
   ...overrides,
 })
 
 const result = (
   state: GtdState,
-  overrides: { context?: Partial<ResolveContext>; actor?: "human" | "agent" } = {},
+  overrides: { context?: Partial<ResolveContext>; actor?: "human" | "agent" | "check" } = {},
 ): Result => ({
   state,
   actor: overrides.actor ?? "agent",
@@ -51,20 +52,20 @@ const PROMPT_STATES: ReadonlyArray<GtdState> = [
   "learning-apply",
   "escalate",
   "idle",
+  "testing",
+  "health-check",
   "health-fixing",
 ]
 
 const EDGE_ONLY_STATES: ReadonlyArray<GtdState> = [
-  "testing",
   "planning",
   "close-package",
   "done",
-  "health-check",
   "learning-applied",
 ]
 
 describe("isPromptState", () => {
-  it("matches exactly the pinned 15-state set", () => {
+  it("matches exactly the pinned 17-state set", () => {
     for (const state of PROMPT_STATES) expect(isPromptState(state)).toBe(true)
     for (const state of EDGE_ONLY_STATES) expect(isPromptState(state)).toBe(false)
   })
@@ -161,10 +162,20 @@ describe("buildPrompt", () => {
       expect(out).toContain("was not able to fix all errors on its own")
     })
 
-    it("idle renders the idle section", () => {
-      const out = buildPrompt(result("idle", { actor: "human" }))
-      expect(out).toContain("The repository is idle")
-      expect(out).toContain("Nothing to do")
+    it("idle renders the health-check wrapper script for the check actor", () => {
+      const out = buildPrompt(result("idle", { actor: "check" }))
+      expect(out).toContain("#!/usr/bin/env bash")
+      expect(out).toContain("npm run test > .gtd/.check-output 2>&1")
+      expect(out).toContain(".gtd/HEALTH.md")
+    })
+
+    it("testing renders the test wrapper script with the configured command", () => {
+      const out = buildPrompt(
+        result("testing", { actor: "check", context: { testCommand: "bash gate.sh" } }),
+      )
+      expect(out).toContain("bash gate.sh > .gtd/.check-output 2>&1")
+      expect(out).toContain(".gtd/FEEDBACK.md")
+      expect(out).not.toContain("You are an autonomous coding agent")
     })
   })
 
@@ -531,7 +542,6 @@ describe("buildPrompt", () => {
       ["await-learning-review", result("await-learning-review", { actor: "human" })],
       ["learning-apply", result("learning-apply")],
       ["escalate", result("escalate", { actor: "human" })],
-      ["idle", result("idle", { actor: "human" })],
     ] as const) {
       it(`${label} has no bare gtd command`, () => {
         const text = buildPrompt(res, undefined, "json")

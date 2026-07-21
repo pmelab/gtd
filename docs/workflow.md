@@ -17,8 +17,8 @@ merge-base with the default branch (whole-history fallback when there is no
 default branch, when HEAD equals the merge-base, or when there is no merge-base)
 plus the working tree, turns them into a `COMMIT[]` + single terminal `RESOLVE`
 event stream, and folds them through the machine. The fold lands on exactly
-**one** of 21 states, plus which actor (human or agent) is awaited there. A
-single call resolves to a single state.
+**one** of 21 states, plus which actor (human, agent, or check) is awaited
+there. A single call resolves to a single state.
 
 Steering is entirely **machine-authored commit subjects** — there are no marker
 files, sentinels, or auto-advance tails to parse. A turn commit looks like
@@ -51,9 +51,10 @@ context, oldest to newest. See `decisionLog` under
 `agentic-review`, `close-package`, `review`, `await-review`, `done`, `learning`,
 `await-learning-review`, `learning-apply`, `learning-applied`, `squashing`,
 `idle`, `health-check`, `health-fixing`. Each state has a fixed awaited actor
-(see `awaitedActor` in `src/Machine.ts`): `idle`, `escalate`, `await-review`,
-and `await-learning-review` await the **human**; every other state awaits the
-**agent**.
+(see `awaitedActor` in `src/Machine.ts`): `escalate`, `await-review`, and
+`await-learning-review` await the **human**; `testing`, `health-check`, and
+`idle` await the **check** (the scripted actor — its prompt is the emitted
+wrapper script); every other state awaits the **agent**.
 
 For the full precedence ladder, illegal combinations, and the counter trailers
 that drive the fix loops, see [STATES.md](../STATES.md) — this section is a
@@ -204,16 +205,19 @@ an agent (or a UI) can self-check before committing to a turn.
 Once decomposed, `.gtd/` holds ordered work packages. `gtd next` at
 `gtd: building`/`gtd: close-package` selects the lowest-numbered remaining
 package and inlines only its task files. The agent builds it and leaves the work
-**uncommitted**; the next invocation's edge action commits it (the
-`gtd(agent): building` turn commit) and runs `testCommand`.
+**uncommitted**; the next invocation commits it (the `gtd(agent): building`
+turn) and rests at **Testing** for the CHECK actor: the driver executes the
+emitted wrapper script (`gtd run`) and `gtd step check` captures the outcome.
 
-- **Green** → Agentic Review.
-- **Red, below `fixAttemptCap`** (default 3) → write findings, commit
-  `gtd: test-failed`, rest at **Fixing** for the agent.
-- **Red, at/over the cap** → write `.gtd/ERRORS.md` instead, commit
-  `gtd: test-failed`, rest at **Escalate** — a human gate. Deleting
-  `.gtd/ERRORS.md` and landing that deletion as `gtd(human): escalate` resets
-  the budget and re-tests from zero in the same invocation.
+- **Green** → `gtd(check): agentic-review` (or a force-approved inline close).
+- **Red, below `fixAttemptCap`** (default 3) → the script recorded the findings
+  as FEEDBACK.md; captured `gtd(check): test-failed`, rest at **Fixing** for the
+  agent.
+- **Red, at/over the cap** → captured `gtd(check): escalated`; the routing chain
+  promotes the output to `.gtd/ERRORS.md` and rests at **Escalate** — a human
+  gate. Deleting `.gtd/ERRORS.md` and landing that deletion as
+  `gtd(human): escalate` resets the budget and re-tests from zero in the same
+  invocation.
 
 ## Agentic review
 
@@ -348,9 +352,9 @@ written.
 
 ## Health check
 
-Outside any process (idle, nothing to review, no steering files),
-`gtd step human` runs `testCommand` as a health check rather than settling
-immediately. Green settles idle with zero commits. Red below `fixAttemptCap`
+Outside any process (idle, nothing to review, no steering files), idle awaits
+the CHECK actor: `gtd run` executes the emitted health wrapper script and steps
+the check. Green settles idle with zero commits. Red below `fixAttemptCap`
 writes `.gtd/HEALTH.md` and rests at **Health Fixing** for the agent; the
 fixer's own turn (`gtd(agent): health-fixing`) removes `.gtd/HEALTH.md` and
 re-tests in the same chain — a green re-test continues to learning (if enabled),
@@ -438,5 +442,5 @@ cycle:
 1. Spawn parallel execution-model workers for all tasks in the selected package.
 2. Leave all changes **uncommitted**. Do not commit, do not delete the package
    directory, do not run tests.
-3. Finish the turn with `gtd step agent` — the next hop's edge action commits
-   the work (`gtd(agent): building`) and runs `testCommand` to verify it.
+3. Finish the turn with `gtd step agent` — it commits the work
+   (`gtd(agent): building`) and rests for the check, whose script verifies it.

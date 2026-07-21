@@ -174,6 +174,8 @@ export interface ResolvePayload {
   readonly fixAttemptCap: number
   /** Review-fix threshold (config, default 3). */
   readonly reviewThreshold: number
+  /** The configured check command (config `testCommand`) — prompt passthrough for the check actor's wrapper script. */
+  readonly testCommand: string
   /** Parent commit of the first persisting cycle commit (squash base). */
   readonly squashBase?: string
   /** `git diff <squashBase> HEAD`, the whole feature diff. */
@@ -256,10 +258,6 @@ export interface ResolvePayload {
  *                          its content (with a banner) as `ARCHITECTURE.md`,
  *                          and deletes `PLAN.md` — the direct-to-decompose
  *                          hand-off.
- *   - `runTest`          — run the configured test command; on red write
- *                          FEEDBACK (below cap) or ERRORS (`capReached`),
- *                          commit `gtd: test-failed`; on green commit
- *                          `gtd: tests-green`.
  *   - `closePackage`     — rm the (maybe-empty / maybe-absent) FEEDBACK.md, rm
  *                          the first package dir (+ empty `.gtd/`), commit
  *                          `gtd: close-package`.
@@ -267,19 +265,20 @@ export interface ResolvePayload {
  *   - `squashCommit`     — soft-reset to `squashBase`, then `gtd(agent): squashing`
  *                          reads SQUASH_MSG.md at perform time for the message.
  *   - `writeLearningTemplate` — write + commit LEARNINGS.md `gtd: learning`.
- *   - `runHealthCheck`   — run the configured test command; on red write
- *                          HEALTH.md (below cap) or ERRORS.md (`capReached`),
- *                          commit `gtd: health-check`; on green with prior
- *                          fixes and `chainAfterGreen` (squash and/or learning
- *                          enabled), commit `gtd: tests-green` to chain into
- *                          the learning/squash template; otherwise stop idle
- *                          with zero commits.
+ *
+ * There is deliberately NO action that executes an external command: checks
+ * are the `check` actor's turns — `gtd next` emits the wrapper script as that
+ * state's prompt, the OUTER loop executes it, and its effects (a pending
+ * FEEDBACK.md / HEALTH.md, or nothing on green) are captured like any other
+ * actor's turn. The machine performs git/fs bookkeeping only.
  */
 export type EdgeAction =
   | {
       readonly kind: "captureTurn"
       readonly actor: Actor
       readonly gate: TurnGate
+      /** Delete FEEDBACK.md before the commit-all, so its consumption lands in this turn's diff (the fixer's move). */
+      readonly consumeFeedback?: boolean
       /** The stamped vector this turn commit carries (attached at dispatch). */
       readonly counters?: Counters
     }
@@ -293,37 +292,22 @@ export type EdgeAction =
       readonly removeFeedback?: boolean
       readonly removeHealth?: boolean
       readonly removeLearning?: boolean
-      /** The stamped vector this label carries (attached at dispatch). */
-      readonly counters?: Counters
-    }
-  | {
-      readonly kind: "runTest"
-      readonly errorCount: number
-      readonly capReached: boolean
       /**
-       * The green outcome, decided at DISPATCH time (write-time labeling):
-       * `"agentic-review"` — packages remain, threshold not reached — rest
-       * for the reviewer's verdict; `"close-package"` — force-approve
-       * (agentic review off, or the review-fix threshold reached) — perform
-       * the close inline; `"tests-green"` — the health path's green marker
-       * (no packages), whose settle decision follows.
+       * Promote the check's red output to the escalation file: move the
+       * content of whichever of FEEDBACK.md / HEALTH.md is present into
+       * ERRORS.md (removing the source) before committing. Used by the
+       * `gtd(check): escalated` turn's routing chain — the script records
+       * mechanics (the failing output) in the ordinary file; the cap crossing
+       * is decided at capture and this bookkeeping realizes it.
        */
-      readonly onGreen: "tests-green" | "agentic-review" | "close-package"
-      /** The PREVIOUS vector at dispatch; the writer stamps each outcome label from it. */
+      readonly promoteCheckOutputToErrors?: boolean
+      /** The stamped vector this label carries (attached at dispatch). */
       readonly counters?: Counters
     }
   | { readonly kind: "closePackage"; readonly counters?: Counters }
   | { readonly kind: "writeSquashTemplate"; readonly counters?: Counters }
   | { readonly kind: "squashCommit"; readonly squashBase: string }
   | { readonly kind: "writeLearningTemplate"; readonly counters?: Counters }
-  | {
-      readonly kind: "runHealthCheck"
-      readonly errorCount: number
-      readonly capReached: boolean
-      readonly chainAfterGreen: boolean
-      /** The PREVIOUS vector at dispatch; the writer stamps each outcome label from it. */
-      readonly counters?: Counters
-    }
 
 /** The three derived counters folded from the `COMMIT[]` stream. */
 export interface Counters {
@@ -506,6 +490,13 @@ export interface CaptureRule {
    * escalate turn's ERRORS.md deletion resets the test/health budgets.
    */
   readonly stamp?: (prev: Counters, p: ResolvePayload) => Counters
+  /**
+   * Delete FEEDBACK.md as part of the capture, so its consumption lands in
+   * the turn's own diff. The fixer's move: whether the fixer edited code,
+   * emptied the finding, or left it in place, the finding is spent the
+   * moment the fix turn lands — the next check starts from a clean slate.
+   */
+  readonly consumeFeedback?: boolean
 }
 
 /**
@@ -556,10 +547,16 @@ export interface StateDef {
  *   - **autonomous** — a driven agent. Its clean-tree step at an inert gate
  *     is a no-op (the loop protocol's opening beat), and its authored drafts
  *     are structurally validated before capture.
+ *   - **scripted** — a shell. Its prompt is an executable wrapper script the
+ *     driver runs verbatim (`gtd next` emits it; `gtd run` is the built-in
+ *     convenience driver); its turn is mechanical — the script's effects (a
+ *     pending FEEDBACK.md / HEALTH.md, or nothing on green) are the whole
+ *     turn, and its empty turn is typically the green signal (opt-in `empty`
+ *     capture rules, as everywhere else).
  */
 export interface ActorDef {
   readonly name: Actor
-  readonly kind: "interactive" | "autonomous"
+  readonly kind: "interactive" | "autonomous" | "scripted"
 }
 
 export interface WorkflowDefinition {
@@ -600,6 +597,15 @@ const settle = (state: GtdState, learningAlreadyRan: boolean): RuleOutcome => ({
  */
 const isHumanHealthEntryHead = (head: string): boolean =>
   head.trim() === "gtd(human): health-fixing"
+
+/**
+ * Force-approve: agentic review disabled by config, or the review-fix
+ * threshold already reached. Consumed by the check's green capture rules (a
+ * write-time branch, encoded in the captured label) and by the baseline
+ * facts.
+ */
+export const forceApprove = (p: ResolvePayload): boolean =>
+  !p.agenticReviewEnabled || p.counters.reviewFixCount >= p.reviewThreshold
 
 // ─── Default definition: states ──────────────────────────────────────────────
 
@@ -666,7 +672,42 @@ const states: Record<GtdState, StateDef> = {
     model: "building",
     captureRules: [{ label: "building" }],
   },
-  testing: { kind: "label", awaits: "agent" },
+  testing: {
+    kind: "prompt",
+    awaits: "check",
+    prompts: { check: "@run-test" },
+    // The check's turn, labeled from its own effects (mechanics in the
+    // script, semantics here — the δ discipline for a scripted actor):
+    // a pending FEEDBACK.md is a red run, labeled `test-failed` below the
+    // fix-attempt cap or `escalated` at it (the escalated turn's routing
+    // chain promotes the output to ERRORS.md); a clean tree is green, and
+    // the green OUTCOME is the label — reviewer rest, force-approved close,
+    // or the no-packages `tests-green` settle marker.
+    captureRules: [
+      {
+        when: (p) => p.feedbackPresent && p.counters.testFixCount >= p.fixAttemptCap,
+        label: "escalated",
+      },
+      {
+        when: (p) => p.feedbackPresent,
+        label: "test-failed",
+        stamp: (prev) => ({ ...prev, testFixCount: prev.testFixCount + 1 }),
+      },
+      {
+        empty: true,
+        actor: "check",
+        when: (p) => p.packagesPresent && !forceApprove(p),
+        label: "agentic-review",
+      },
+      { empty: true, actor: "check", when: (p) => p.packagesPresent, label: "close-package" },
+      {
+        empty: true,
+        actor: "check",
+        label: "tests-green",
+        stamp: (prev) => ({ ...prev, healthFixCount: 0 }),
+      },
+    ],
+  },
   fixing: {
     kind: "prompt",
     awaits: "agent",
@@ -674,7 +715,7 @@ const states: Record<GtdState, StateDef> = {
     model: "fixing",
     // A dirty tree here includes the delete-dispute (a pending FEEDBACK.md
     // deletion/emptying) — it is the fixer's move, captured like any fix.
-    captureRules: [{ label: "fixing" }],
+    captureRules: [{ label: "fixing", consumeFeedback: true }],
   },
   escalate: {
     kind: "prompt",
@@ -776,12 +817,55 @@ const states: Record<GtdState, StateDef> = {
   },
   idle: {
     kind: "prompt",
-    awaits: "human",
-    prompts: { human: "@idle" },
-    // No capture rules: a human step at idle is the health-check carve-out
-    // (engine), never a turn commit.
+    awaits: "check",
+    prompts: { check: "@run-health-check" },
+    // Idle awaits the check: every loop entry health-checks the boundary.
+    // Green captures nothing (idle stays quiet — the inert scripted step is
+    // the driver's terminal signal); red is the health detour. A human's
+    // dirty tree at idle is still the entry turn (engine, interactive-kind),
+    // and `gtd run` keeps the one-command health check for terminal humans.
+    captureRules: [
+      {
+        when: (p) => p.healthPresent && p.counters.healthFixCount >= p.fixAttemptCap,
+        label: "escalated",
+      },
+      {
+        when: (p) => p.healthPresent,
+        label: "health-check",
+        stamp: (prev) => ({ ...prev, healthFixCount: prev.healthFixCount + 1 }),
+      },
+    ],
   },
-  "health-check": { kind: "label", awaits: "agent" },
+  "health-check": {
+    kind: "prompt",
+    awaits: "check",
+    prompts: { check: "@run-health-check" },
+    // The health path's check rest (HEAD `gtd: testing`, the fixer's turn
+    // consumed HEALTH.md). Red re-writes HEALTH.md — below the cap that is
+    // another fix round (h+1); at the cap it escalates (output promoted to
+    // ERRORS.md by the routing chain). Green with a live health run and
+    // squash/learning enabled chains the run's processing via the
+    // `tests-green` settle marker; green without a chain owed captures
+    // nothing (the rest self-heals — re-running the check is always safe).
+    captureRules: [
+      {
+        when: (p) => p.healthPresent && p.counters.healthFixCount >= p.fixAttemptCap,
+        label: "escalated",
+      },
+      {
+        when: (p) => p.healthPresent,
+        label: "health-check",
+        stamp: (prev) => ({ ...prev, healthFixCount: prev.healthFixCount + 1 }),
+      },
+      {
+        empty: true,
+        actor: "check",
+        when: (p) => (p.squashEnabled || p.learningEnabled) && p.healthFixBase !== undefined,
+        label: "tests-green",
+        stamp: (prev) => ({ ...prev, healthFixCount: 0 }),
+      },
+    ],
+  },
   "health-fixing": {
     kind: "prompt",
     awaits: "agent",
@@ -899,34 +983,18 @@ const turnRules: readonly TurnRule[] = [
     ],
   },
   {
+    // A landed build turn owes the check its turn: rest for the scripted
+    // actor (the driver runs the emitted wrapper script, then steps it).
     actor: "agent",
     gate: "building",
-    branches: [
-      {
-        to: chain("building", "agent", {
-          kind: "runTest",
-          errorCount: 0,
-          capReached: false,
-          onGreen: "tests-green",
-        }),
-      },
-    ],
+    branches: [{ to: rest("testing", "check") }],
   },
   {
-    // Capture rules forbid an empty fixing turn, so a landed one always
-    // strips FEEDBACK.md and re-tests in the same invocation.
+    // Capture rules forbid an empty fixing turn, so a landed one has
+    // consumed FEEDBACK.md and owes the re-check its turn.
     actor: "agent",
     gate: "fixing",
-    branches: [
-      {
-        to: chain("fixing", "agent", {
-          kind: "runTest",
-          errorCount: 0,
-          capReached: false,
-          onGreen: "tests-green",
-        }),
-      },
-    ],
+    branches: [{ to: rest("testing", "check") }],
   },
   {
     // A no-verdict turn: the reviewer dirtied something but never wrote
@@ -1062,18 +1130,60 @@ const turnRules: readonly TurnRule[] = [
     ],
   },
   {
+    // The human's escalate turn (ERRORS.md deletion resets the budget on the
+    // turn's own trailer) owes the re-check its turn.
     actor: "human",
     gate: "escalate",
+    branches: [{ to: rest("testing", "check") }],
+  },
+
+  // ── The check actor's verdict turns ────────────────────────────────────
+  // Labeled at capture from the script's effects (see the testing /
+  // health-check / idle capture rules); classification is a pure function of
+  // the label, exactly like every other actor's turns.
+  {
+    // Red below the cap — the package fixer is next.
+    actor: "check",
+    gate: "test-failed",
+    branches: [{ to: rest("fixing", "agent") }],
+  },
+  {
+    // Red at the cap — promote the output to ERRORS.md and escalate.
+    actor: "check",
+    gate: "escalated",
     branches: [
       {
         to: chain("escalate", "human", {
-          kind: "runTest",
-          errorCount: 0,
-          capReached: false,
-          onGreen: "tests-green",
+          kind: "commitRouting",
+          subject: "gtd: escalated",
+          promoteCheckOutputToErrors: true,
         }),
       },
     ],
+  },
+  {
+    // Green with packages, threshold not reached — the reviewer's verdict is next.
+    actor: "check",
+    gate: "agentic-review",
+    branches: [{ to: rest("agentic-review", "agent") }],
+  },
+  {
+    // Green force-approved (review off / threshold reached) — close inline.
+    actor: "check",
+    gate: "close-package",
+    branches: [{ to: chain("close-package", "agent", { kind: "closePackage" }) }],
+  },
+  {
+    // The health path's green marker — the settle decision follows.
+    actor: "check",
+    gate: "tests-green",
+    branches: [{ to: settle("testing", false) }],
+  },
+  {
+    // Red health run below the cap — the health fixer is next.
+    actor: "check",
+    gate: "health-check",
+    branches: [{ to: rest("health-fixing", "agent") }],
   },
 ]
 
@@ -1113,14 +1223,12 @@ const routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>> = {
   "learning-apply": [{ to: rest("learning-apply", "agent") }],
   "learning-applied": [{ to: settle("learning-applied", true) }],
   "health-check": [{ to: rest("health-fixing", "agent") }],
-  // `gtd: testing` — a re-test is owed (the health-fixer's turn consumed
-  // HEALTH.md). A plain REST for classification purposes (`gtd next`/pure
-  // queries report idle/human here, since a clean tree "self-heals" — the
-  // very next invocation's health check simply re-runs). But an actual
-  // mutating invocation landing HERE mid-chain must re-test in that same
-  // chain rather than stopping — handled as a carve-out in the turn-taking
-  // engine, not here.
-  testing: [{ to: rest("idle", "human") }],
+  // `gtd: testing` — a re-check is owed (the health-fixer's turn consumed
+  // HEALTH.md): rest for the scripted actor at the health-check state. A
+  // clean tree self-heals — re-running the check is always safe, and a green
+  // run with no processing chain owed captures nothing (the driver's
+  // terminal signal).
+  testing: [{ to: rest("health-check", "check") }],
 }
 
 // ─── Default definition: interrupt ladder ────────────────────────────────────
@@ -1137,7 +1245,17 @@ const routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>> = {
  */
 const interrupts: readonly LadderRule[] = [
   {
-    when: (f) => f.payload.healthPresent && !f.headIsHealthFixerTurn,
+    // COMMITTED only: an uncommitted HEALTH.md is a turn in flight — the
+    // check's fresh red output awaiting its own capture, or the human's
+    // hand-written entry (the dirty-boundary entry turn) — and must not be
+    // preempted into the fixer's rest before it lands. The check's own
+    // escalated turn (HEALTH.md committed at the cap) is also exempt: its
+    // classification chain promotes the file to ERRORS.md, which this rung
+    // would otherwise pre-empt into a spent fixer rest forever.
+    when: (f) =>
+      f.payload.healthCommitted &&
+      !f.headIsHealthFixerTurn &&
+      f.head.trim() !== "gtd(check): escalated",
     branches: [{ to: rest("health-fixing", "agent") }],
   },
 ]
@@ -1172,7 +1290,7 @@ const fallback: readonly LadderRule[] = [
     branches: [
       { when: (f) => f.payload.packages.length > 0, to: rest("building", "agent") },
       { when: (f) => f.reviewable, to: rest("review", "agent") },
-      { to: rest("idle", "human") },
+      { to: rest("idle", "check") },
     ],
   },
   {
@@ -1201,26 +1319,24 @@ const fallback: readonly LadderRule[] = [
     // `.gtd/` exists with a pending package, and the nearest workflow commit
     // (skipping any boundary commits on top of it) is still the
     // `gtd(agent): building` checkpoint — an operational recovery commit
-    // landed on top of it after a mid-chain failure. Resume the interrupted
-    // chain as a mid-chain test run, NOT a rest: the build work is already
-    // committed in the checkpoint turn, so the only thing left of the chain
-    // is the test run the failure interrupted. (The budget placeholders stay
-    // zero here — this rung is deliberately outside the classify fill-ins.)
+    // landed on top of it after a mid-chain failure. The build work is
+    // already committed in the checkpoint turn, so what remains is the
+    // check's turn: rest for the scripted actor.
     when: (f) =>
       f.payload.packagesPresent &&
       f.payload.packages.length > 0 &&
       f.lastTurn?.actor === "agent" &&
       f.lastTurn.gate === "building",
-    branches: [
-      {
-        to: chain("building", "agent", {
-          kind: "runTest",
-          errorCount: 0,
-          capReached: false,
-          onGreen: "tests-green",
-        }),
-      },
-    ],
+    branches: [{ to: rest("testing", "check") }],
+  },
+  {
+    // An UNCOMMITTED HEALTH.md under an unrecognized (boundary) HEAD is a
+    // turn in flight at the idle rest: the check's fresh red output awaiting
+    // its own capture, or the human's hand-written entry description (whose
+    // interactive dirty-boundary entry fires in the engine before this
+    // baseline is consulted). Rest at idle for the check.
+    when: (f) => f.payload.healthPresent && !f.payload.healthCommitted,
+    branches: [{ to: rest("idle", "check") }],
   },
   {
     // A committed ERRORS.md under an unrecognized (boundary) HEAD — rider/
@@ -1249,7 +1365,7 @@ const fallback: readonly LadderRule[] = [
     when: (f) => noSteeringFiles(f.payload),
     branches: [
       { when: (f) => f.reviewable, to: rest("review", "agent") },
-      { to: rest("idle", "human") },
+      { to: rest("idle", "check") },
     ],
   },
 ]
@@ -1463,10 +1579,11 @@ const agentTurnValidation: Partial<Record<TurnGate, AgentTurnValidation>> = {
 // ─── The default workflow ────────────────────────────────────────────────────
 
 /** The gtd v2 machine, expressed as data. `Machine.ts` interprets this. */
-/** The default turn-taking pair. Workflows may declare more of either kind. */
+/** The default turn-taking trio. Workflows may declare more of any kind. */
 const actors: readonly ActorDef[] = [
   { name: "human", kind: "interactive" },
   { name: "agent", kind: "autonomous" },
+  { name: "check", kind: "scripted" },
 ]
 
 export const defaultWorkflow: WorkflowDefinition = {
@@ -1498,6 +1615,12 @@ export const isInteractiveActor = (name: string): boolean =>
 
 /** True for a declared autonomous actor (false for unknown names and "none"). */
 export const isAutonomousActor = (name: string): boolean => actorByName(name)?.kind === "autonomous"
+
+/** True for a declared scripted actor (false for unknown names and "none"). */
+export const isScriptedActor = (name: string): boolean => actorByName(name)?.kind === "scripted"
+
+/** The declared kind of `name`, or undefined for unknown names and "none". */
+export const actorKindOf = (name: string): ActorDef["kind"] | undefined => actorByName(name)?.kind
 
 /**
  * The definition's first interactive actor — the actor entry turns are

@@ -17,7 +17,15 @@ Where this document and the code disagree, the code (`src/Machine.ts`,
 
 ## 1. The turn-taking model
 
-`gtd` alternates turns between two actors, **human** and **agent**. At any
+`gtd` alternates turns between three actors — **human** (interactive), **agent**
+(autonomous), and **check** (scripted). The check actor is how commands run:
+`gtd next` emits a wrapper shell script (the configured `testCommand` plus
+output capture) as that state's prompt, the OUTER loop executes it (`gtd run` is
+the built-in driver — the machine itself never executes anything), and
+`gtd step check` captures the outcome from the tree: a pending
+FEEDBACK.md/HEALTH.md is a red run, a clean tree is green, and the outcome label
+is decided at capture (`gtd(check): test-failed` / `escalated` /
+`agentic-review` / `close-package` / `tests-green` / `health-check`). At any
 resolved state, the machine is either:
 
 - **at rest**, awaiting one specific actor's next turn, or
@@ -182,10 +190,19 @@ authored `SQUASH_MSG.md` content verbatim, and they parse as boundaries anyway.
 
 ```
 grilling | grilling-accepted | architecting | architecting-accepted | grilled
-| building | fixing | agentic-review | agentic-approved | agentic-findings
+| building | fixing | test-failed | tests-green | escalated | close-package
+| health-check | agentic-review | agentic-approved | agentic-findings
 | review | review-approved | review-feedback | squashing | health-fixing
 | escalate | learning | learning-apply
 ```
+
+The `gtd(check): *` gates are the scripted actor's outcome labels, decided at
+capture from the script's effects plus the trailer budget: `test-failed`
+(pending FEEDBACK.md below the fix-attempt cap, t+1), `escalated` (at the cap —
+the routing chain promotes the output to ERRORS.md), `health-check` (pending
+HEALTH.md, h+1), and the green outcomes `agentic-review` (packages + review
+pending), `close-package` (force-approved inline close), and `tests-green` (the
+health path's settle marker, h=0).
 
 `turnSubject(actor, gate)` produces `gtd(${actor}): ${gate}`. Six of these are
 **branch labels**, decided at capture time from the pending tree and encoding

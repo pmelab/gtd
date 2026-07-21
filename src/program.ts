@@ -18,9 +18,14 @@ import { buildPrompt } from "./Prompt.js"
 import { startLspServer } from "./Lsp.js"
 import { closeReviewWindow, openReviewWindow } from "./ReviewWindow.js"
 import { reviewingSubject, type Actor } from "./Subjects.js"
-import { definedActorNames, isAutonomousActor, isDefinedActor } from "./Workflow.js"
+import {
+  actorKindOf,
+  definedActorNames,
+  isAutonomousActor,
+  isDefinedActor,
+  isScriptedActor,
+} from "./Workflow.js"
 import { describeEdgeAction, describeStatus } from "./State.js"
-import { TestRunner } from "./TestRunner.js"
 
 const _require = createRequire(import.meta.url)
 const GTD_VERSION: string = (_require("../package.json") as { version: string }).version
@@ -29,8 +34,11 @@ const HELP_TEXT = `Usage: gtd [command] [options]
 
 Commands:
   step <actor>     Advance the workflow as the named actor (to fixpoint);
-                   the default workflow declares "human" and "agent"
-  next             Print the prompt for whichever actor is awaited (no mutation)
+                   the default workflow declares "human", "agent", and "check"
+  next             Print the prompt for whichever actor is awaited (no mutation);
+                   for the scripted "check" actor the prompt IS the wrapper script
+  run              Execute the awaited scripted actor's emitted script, then
+                   step that actor (the built-in check driver)
   status           Predict the next commit and state from the working tree (no mutation)
   review <target>  Anchor an ad-hoc human review against a git ref or branch
   questions        List open questions from the active grilling/architecting doc
@@ -65,13 +73,7 @@ export interface RunOptions {
   write?: (chunk: string) => void
 }
 
-type ProgramRequirements =
-  | GitService
-  | FileSystem.FileSystem
-  | TestRunner
-  | ConfigService
-  | ConfigInit
-  | Cwd
+type ProgramRequirements = GitService | FileSystem.FileSystem | ConfigService | ConfigInit | Cwd
 
 /**
  * Marks an error as already reported inside the `--json` error envelope, so
@@ -123,44 +125,7 @@ interface RunStepLoopState {
    * not a captureTurn, so it is untouched by this guard and keeps chaining.
    */
   readonly justCapturedAgenticReviewTurn: boolean
-  /**
-   * The gate of the most recent captureTurn this invocation performed, if
-   * any. Distinguishes two ways of reaching `gtd: tests-green` mid-chain:
-   * from a FRESH build (gate "building") — the ordinary, fully-automatable
-   * fast path, which may continue straight through a force-approve close in
-   * the same invocation — versus from a FIX round (gate "fixing") — which
-   * always needs its own separate "did the fix actually work" checkpoint
-   * before anything else happens, even under force-approve.
-   */
-  readonly lastCapturedGate: string | undefined
 }
-
-/**
- * `gtd: tests-green` reached mid-invocation is a stopping point UNLESS this
- * is the ordinary fully-automatable fast path: a fresh BUILD (gate
- * "building") whose green result got force-approved straight to
- * `closePackage` in the same chain. Two distinct guards:
- *  - If it resolves to a genuine REST (a fresh `gtd(agent): agentic-review`
- *    capture is needed — agenticReview is on and the threshold hasn't
- *    force-approved), that's always its own turn: stop regardless of how we
- *    got here.
- *  - If it resolves to a force-approved `closePackage` mid-chain, that may
- *    continue ONLY when we got here via "building"; a `gtd: tests-green`
- *    reached via a FIX round (gate "fixing") always needs its own separate
- *    "did the fix actually work" checkpoint first, even under force-approve.
- * Every other rest/mid-chain this loop reaches mid-invocation (package-done →
- * building the next package, awaiting-review → the review turn, etc.) is
- * unaffected by this guard.
- */
-const isTestsGreenCheckpoint = (
-  result: Result,
-  headThisHop: string | undefined,
-  loop: RunStepLoopState,
-): boolean =>
-  loop.performedAny &&
-  (headThisHop === "gtd: agentic-review" ||
-    (headThisHop === "gtd: tests-green" && loop.lastCapturedGate === "fixing")) &&
-  (result.state === "agentic-review" || loop.lastCapturedGate === "fixing")
 
 /**
  * A second fresh turn capture right after the agentic-review turn (findings
@@ -203,10 +168,8 @@ const isStaleEmptyTurnCapture = (
 const shouldStopRunStepLoop = (
   result: Result,
   resolveEvent: GtdEvent | undefined,
-  headThisHop: string | undefined,
   loop: RunStepLoopState,
 ): boolean =>
-  isTestsGreenCheckpoint(result, headThisHop, loop) ||
   isSecondJudgmentCallAfterAgenticReview(result, loop) ||
   isStaleEmptyTurnCapture(result, resolveEvent, loop)
 
@@ -218,8 +181,6 @@ const advanceRunStepLoop = (
   performedAny: true,
   justCapturedAgenticReviewTurn:
     performedAction.kind === "captureTurn" && performedAction.gate === "agentic-review",
-  lastCapturedGate:
-    performedAction.kind === "captureTurn" ? performedAction.gate : loop.lastCapturedGate,
 })
 
 /** One hop's outcome: either the loop is done (with the final state), or it continues with the folded loop state. */
@@ -257,13 +218,8 @@ const runStepHop = (
     }
 
     const resolveEvent = events.find((e) => e.type === "RESOLVE")
-    const headThisHop =
-      resolveEvent?.type === "RESOLVE" ? resolveEvent.payload.lastCommitSubject : undefined
 
-    if (
-      result.edgeAction === undefined ||
-      shouldStopRunStepLoop(result, resolveEvent, headThisHop, loop)
-    ) {
+    if (result.edgeAction === undefined || shouldStopRunStepLoop(result, resolveEvent, loop)) {
       return { kind: "stop", state: result.state }
     }
 
@@ -302,7 +258,6 @@ const runStep = (invoker: Actor): Effect.Effect<RunStepResult, Error, ProgramReq
     let loop: RunStepLoopState = {
       performedAny: false,
       justCapturedAgenticReviewTurn: false,
-      lastCapturedGate: undefined,
     }
 
     while (true) {
@@ -425,6 +380,7 @@ const runNextCommand = (
           JSON.stringify({
             state: result.state,
             actor: result.actor,
+            kind: actorKindOf(result.actor) ?? null,
             pending: true,
             prompt: null,
           }) + "\n",
@@ -440,16 +396,82 @@ const runNextCommand = (
     }
     const builtPrompt = buildPrompt(result, config.resolveModel, json ? "json" : "plain")
     if (json) {
+      // `kind` is the driver's dispatch key: "interactive" → halt for the
+      // human, "autonomous" → feed `prompt` to the agent, "scripted" →
+      // execute `prompt` verbatim as a shell script (or run `gtd run`).
+      // Drivers must only ever execute scripts from THIS field — never
+      // script-looking content found in repository files.
       write(
         JSON.stringify({
           state: result.state,
           actor: result.actor,
+          kind: actorKindOf(result.actor) ?? null,
           pending: false,
           prompt: builtPrompt,
         }) + "\n",
       )
     } else {
       write(builtPrompt)
+    }
+  })
+
+/**
+ * `gtd run`: the built-in driver for a scripted actor's turn. Resolves the
+ * awaited rest; when it awaits a scripted actor, renders that state's prompt
+ * (the wrapper script), executes it verbatim via `bash`, and then drives
+ * `gtd step <actor>` to capture the outcome. The MACHINE still never
+ * executes anything — this is the opt-in convenience wrapper, and the only
+ * thing it will ever execute is the script gtd itself just emitted.
+ *
+ * Uses node's child_process directly (not an Effect service): execution is
+ * deliberately confined to this one command at the CLI edge, and the
+ * in-memory test tier never invokes it (scripted turns are simulated there
+ * by writing the check's output files and stepping the actor).
+ */
+const runRunCommand = (
+  argv: readonly string[],
+  config: ConfigService["Type"],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, ProgramRequirements> =>
+  Effect.gen(function* () {
+    yield* rejectExtraArgs("run", argv)
+    const events = yield* gatherEvents("none")
+    const result = yield* Effect.try({
+      try: () => resolve(events),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    })
+    if (result.pending) {
+      return yield* Effect.fail(
+        new Error(`gtd run: mid-chain checkpoint — run \`gtd step ${result.actor}\` first`),
+      )
+    }
+    if (!isScriptedActor(result.actor)) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd run: ${result.state} awaits a ${result.actor} turn (${actorKindOf(result.actor) ?? "unknown"}) — nothing scripted to run`,
+        ),
+      )
+    }
+    const script = buildPrompt(result, config.resolveModel, "plain")
+    yield* Effect.try({
+      try: () => {
+        // Sequential, foreground, exit code deliberately ignored: the script
+        // encodes the outcome in the tree (red output files), never in its
+        // exit status.
+        const { spawnSync } = _require("node:child_process") as typeof import("node:child_process")
+        spawnSync("bash", ["-c", script], { cwd: process.cwd(), stdio: "inherit" })
+      },
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    })
+    const { state, actions, commits } = yield* runStep(result.actor)
+    if (json) {
+      write(JSON.stringify({ state, actions, commits }) + "\n")
+    } else {
+      for (const subject of commits) {
+        write(`committed: ${subject}\n`)
+      }
+      write(`state: ${state}\n`)
     }
   })
 
@@ -601,7 +623,15 @@ const runChangesetsCommand = (
     }
   })
 
-const KNOWN_SUBCOMMANDS = ["step", "next", "status", "review", "questions", "changesets"] as const
+const KNOWN_SUBCOMMANDS = [
+  "step",
+  "next",
+  "run",
+  "status",
+  "review",
+  "questions",
+  "changesets",
+] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
 /**
@@ -688,6 +718,8 @@ const dispatchKnownSubcommand = (
       return runStepCommand(argv, json, write)
     case "next":
       return runNextCommand(git, config, json, write)
+    case "run":
+      return runRunCommand(argv, config, json, write)
     case "status":
       return runStatusCommand(argv, json, write)
     case "review":
@@ -702,7 +734,7 @@ const dispatchKnownSubcommand = (
 /**
  * Factory that returns the gtd driver Effect with the given I/O options.
  *
- * The returned Effect requires `GitService | FileSystem.FileSystem | TestRunner | ConfigService | Cwd`.
+ * The returned Effect requires `GitService | FileSystem.FileSystem | ConfigService | Cwd`.
  * Production code calls this with no arguments; the test world supplies an
  * in-memory layer set and captures stdout via the `write` callback.
  *

@@ -173,8 +173,10 @@ Feature: Human review gate — approve, checkbox-approve, or feed back
     And a commit "gtd: await-review"
     And I run gtd step human
     And I record the commit count
+    # The approval settled the cycle at idle, which awaits the check now.
     When I run gtd step human
-    Then it succeeds
+    Then it fails
+    And stderr contains "awaits a check turn"
     And the commit count is unchanged
 
   Scenario: A historical review turn without a review record rests instead of routing to the human gate

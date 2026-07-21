@@ -5,7 +5,6 @@ import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { formatFile } from "./Format.js"
-import { TestRunner } from "./TestRunner.js"
 import { parseSubject, turnSubject, type Actor } from "./Subjects.js"
 import { isInteractiveActor, stampLabelCounters, zeroCounters, type Counters } from "./Workflow.js"
 import { parseOpenQuestions } from "./OpenQuestions.js"
@@ -61,8 +60,6 @@ export const STEERING_FILES = {
   squashMsg: SQUASH_MSG_FILE,
   learnings: LEARNINGS_FILE,
 } as const
-const emptyFailureSentinel = (command: string, exitCode: number): string =>
-  `Test command \`${command}\` failed with exit code ${exitCode} and produced no output.`
 
 const DONE_SUBJECT = "gtd: done"
 
@@ -919,6 +916,7 @@ export const gatherEvents = (
       agenticReviewEnabled: config.agenticReview,
       fixAttemptCap: config.fixAttemptCap,
       reviewThreshold: config.reviewThreshold,
+      testCommand: config.testCommand,
       squashEnabled: config.squash,
       ...(squashBase !== undefined ? { squashBase } : {}),
       ...(squashDiff !== undefined ? { squashDiff } : {}),
@@ -1084,7 +1082,7 @@ export const perform = (
 ): Effect.Effect<
   { stop: boolean },
   Error,
-  GitService | FileSystem.FileSystem | TestRunner | ConfigService | Cwd
+  GitService | FileSystem.FileSystem | ConfigService | Cwd
 > =>
   // fallow-ignore-next-line complexity
   Effect.gen(function* () {
@@ -1109,6 +1107,9 @@ export const perform = (
           if (exists) {
             yield* formatFile(resolve(file)).pipe(Effect.catchAll(() => Effect.void))
           }
+        }
+        if (action.consumeFeedback === true) {
+          yield* fs.remove(resolve(FEEDBACK_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
         yield* git.commitAllWithPrefix(
           countersMessage(turnSubject(action.actor, action.gate), action.counters ?? zeroCounters),
@@ -1162,57 +1163,23 @@ export const perform = (
         if (action.removeLearning === true) {
           yield* fs.remove(resolve(LEARNINGS_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
+        if (action.promoteCheckOutputToErrors === true) {
+          // The cap crossing, decided at the check turn's capture: the
+          // script recorded mechanics (the failing output) in the ordinary
+          // file; this bookkeeping moves it to ERRORS.md for the escalation.
+          for (const source of [FEEDBACK_FILE, HEALTH_FILE]) {
+            const exists = yield* fs.exists(resolve(source))
+            if (!exists) continue
+            const body = yield* fs
+              .readFileString(resolve(source))
+              .pipe(Effect.catchAll(() => Effect.succeed("")))
+            yield* ensureGtdDir
+            yield* fs.writeFileString(resolve(ERRORS_FILE), body)
+            yield* fs.remove(resolve(source)).pipe(Effect.catchAll(() => Effect.void))
+          }
+        }
         yield* git.commitAllWithPrefix(
           countersMessage(action.subject, action.counters ?? zeroCounters),
-        )
-        return { stop: false }
-      }
-
-      // Testing: run tests. FEEDBACK.md is removed unconditionally first — a
-      // mid-chain `gtd(agent): fixing` HEAD consumes its own FEEDBACK.md this
-      // way (whether the fixer left it, deleted it, or emptied it, the file
-      // must be gone before re-testing). GREEN commits the outcome decided at
-      // dispatch (`action.onGreen`): the reviewer rest, an inline
-      // force-approve close, or the health path's green marker. RED writes a
-      // fresh FEEDBACK.md (below cap, `gtd: test-failed`) or ERRORS.md (at
-      // cap, `gtd: escalated`) with the failure output.
-      case "runTest": {
-        yield* fs.remove(resolve(FEEDBACK_FILE)).pipe(Effect.catchAll(() => Effect.void))
-        const runner = yield* TestRunner
-        const result = yield* runner.run()
-        // The outcome label is decided HERE, at write time, and so is its
-        // counter vector: `action.counters` carries the PREVIOUS vector and
-        // the chosen label's stamp is applied to it.
-        const prev = action.counters ?? zeroCounters
-        if (result.exitCode === 0) {
-          if (action.onGreen === "close-package") {
-            const packages = yield* getPackages(fs, root)
-            const first = packages[0]
-            if (first !== undefined) {
-              yield* git.removePackageDir(`${GTD_DIR}/${first.name}`)
-            }
-            yield* git.commitAllWithPrefix(
-              countersMessage("gtd: close-package", stampLabelCounters("close-package", prev)),
-            )
-            return { stop: false }
-          }
-          yield* git.commitAllWithPrefix(
-            countersMessage(`gtd: ${action.onGreen}`, stampLabelCounters(action.onGreen, prev)),
-          )
-          return { stop: false }
-        }
-        const target = action.capReached ? ERRORS_FILE : FEEDBACK_FILE
-        const config = yield* ConfigService
-        const body = /\S/.test(result.output)
-          ? result.output
-          : emptyFailureSentinel(config.testCommand, result.exitCode)
-        yield* ensureGtdDir
-        yield* fs.writeFileString(resolve(target), body)
-        // Below the cap the label rests for the fixer (and counts the
-        // attempt); at the cap it escalates to the human (vector carried).
-        const redPhase = action.capReached ? ("escalated" as const) : ("test-failed" as const)
-        yield* git.commitAllWithPrefix(
-          countersMessage(`gtd: ${redPhase}`, stampLabelCounters(redPhase, prev)),
         )
         return { stop: false }
       }
@@ -1268,44 +1235,6 @@ export const perform = (
         yield* fs.remove(resolve(SQUASH_MSG_FILE)).pipe(Effect.catchAll(() => Effect.void))
         yield* git.softResetTo(action.squashBase)
         yield* git.commitAllWithPrefix(message)
-        return { stop: false }
-      }
-
-      // Health check: run tests on an idle/clean tree.
-      // Green, no learning/squash-after chain queued → stop immediately, no
-      //   commit/write.
-      // Green, `chainAfterGreen` → commit routing `gtd: tests-green` (the
-      //   observable green marker) and continue — the resolver chains
-      //   `writeLearningTemplate` or `writeSquashTemplate` at that HEAD next.
-      // Red below cap → write HEALTH.md, commit routing `gtd: health-check` (the
-      //   always-clean invariant: write-and-commit in the same chain).
-      // Red at cap → write ERRORS.md, commit routing `gtd: health-check`.
-      case "runHealthCheck": {
-        const runner = yield* TestRunner
-        const result = yield* runner.run()
-        const prev = action.counters ?? zeroCounters
-        if (result.exitCode === 0) {
-          if (action.chainAfterGreen) {
-            yield* git.commitAllWithPrefix(
-              countersMessage("gtd: tests-green", stampLabelCounters("tests-green", prev)),
-            )
-            return { stop: false }
-          }
-          return { stop: true }
-        }
-        const config = yield* ConfigService
-        const body = /\S/.test(result.output)
-          ? result.output
-          : emptyFailureSentinel(config.testCommand, result.exitCode)
-        const target = action.capReached ? ERRORS_FILE : HEALTH_FILE
-        yield* ensureGtdDir
-        yield* fs.writeFileString(resolve(target), body)
-        // Write-time outcome, mirroring runTest: at the cap the label
-        // escalates directly instead of resting a spent health-fix gate.
-        const healthPhase = action.capReached ? ("escalated" as const) : ("health-check" as const)
-        yield* git.commitAllWithPrefix(
-          countersMessage(`gtd: ${healthPhase}`, stampLabelCounters(healthPhase, prev)),
-        )
         return { stop: false }
       }
     }

@@ -43,7 +43,9 @@ Feature: Close package — one gtd: close-package per package, via the CLI
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
-    And the last commit subject is "gtd: agentic-review"
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): agentic-review"
     And an empty file ".gtd/FEEDBACK.md"
     When I run gtd step agent
     Then it succeeds
@@ -105,9 +107,9 @@ Feature: Close package — one gtd: close-package per package, via the CLI
       """
       export const helper = () => 42
       """
-    When I run gtd step agent
+    When I run gtd step check
     Then it succeeds
     And the last commit subject is "gtd: close-package"
     And the file ".gtd/01-foo/01-task.md" does not exist
     And the file ".gtd/FEEDBACK.md" does not exist
-    And the git log does not contain "gtd(agent): agentic-review"
+    And the git log does not contain "gtd(check): agentic-review"

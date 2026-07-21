@@ -57,12 +57,12 @@ Feature: Hostile environments and unusual invocations
       export const work = () => 1
       """
     And the repository is in detached HEAD state
-    When I run gtd step human
+    When I run gtd run
     Then it succeeds
     And stdout contains "state: idle"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"actor\":\"human\""
+    And stdout contains "\"actor\":\"check\""
     When I run gtd next
     Then it succeeds
     And stdout does not contain "help a human to review the changes"
@@ -81,7 +81,7 @@ Feature: Hostile environments and unusual invocations
       export const side = () => 1
       """
     Then I record the commit count
-    When I run gtd step human
+    When I run gtd run
     Then it succeeds
     And stdout contains "state: idle"
     And the commit count is unchanged
@@ -228,9 +228,9 @@ Feature: Hostile environments and unusual invocations
       """
       exit 1
       """
-    When I run gtd step human
+    When I run gtd run
     Then it succeeds
-    And the last commit subject is "gtd: health-check"
+    And the last commit subject is "gtd(check): health-check"
     Given "impl.sh" is modified to:
       """
       exit 0

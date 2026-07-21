@@ -24,32 +24,29 @@ type EdgeActionHandlers = {
 const edgeActionHandlers: EdgeActionHandlers = {
   captureTurn: (a) => `capture the ${a.actor} turn as "gtd(${a.actor}): ${a.gate}"`,
   commitRouting: (a) => {
-    let msg = `commit routing as "${a.subject}"`
-    if (a.seedArchitectureFromTodo) {
-      msg += " (seeding .gtd/ARCHITECTURE.md from .gtd/TODO.md)"
-    }
-    if (a.seedArchitectureFromPlan) {
-      msg += " (seeding .gtd/ARCHITECTURE.md from .gtd/PLAN.md)"
-    }
-    const removed: string[] = []
-    if (a.removeArchitecture) removed.push(".gtd/ARCHITECTURE.md")
-    if (a.removeReview) removed.push(".gtd/REVIEW.md")
-    if (a.removeFeedback) removed.push(".gtd/FEEDBACK.md")
-    if (a.removeHealth) removed.push(".gtd/HEALTH.md")
-    if (a.removeLearning) removed.push(".gtd/LEARNINGS.md")
-    if (removed.length > 0) msg += ` (removing ${removed.join(", ")})`
-    return msg
+    const notes: ReadonlyArray<readonly [boolean | undefined, string]> = [
+      [a.seedArchitectureFromTodo, "seeding .gtd/ARCHITECTURE.md from .gtd/TODO.md"],
+      [a.seedArchitectureFromPlan, "seeding .gtd/ARCHITECTURE.md from .gtd/PLAN.md"],
+      [a.promoteCheckOutputToErrors, "promoting the check output to .gtd/ERRORS.md"],
+    ]
+    const removals: ReadonlyArray<readonly [boolean | undefined, string]> = [
+      [a.removeArchitecture, ".gtd/ARCHITECTURE.md"],
+      [a.removeReview, ".gtd/REVIEW.md"],
+      [a.removeFeedback, ".gtd/FEEDBACK.md"],
+      [a.removeHealth, ".gtd/HEALTH.md"],
+      [a.removeLearning, ".gtd/LEARNINGS.md"],
+    ]
+    const removed = removals.filter(([on]) => on === true).map(([, path]) => path)
+    const suffixes = [
+      ...notes.filter(([on]) => on === true).map(([, note]) => ` (${note})`),
+      ...(removed.length > 0 ? [` (removing ${removed.join(", ")})`] : []),
+    ]
+    return `commit routing as "${a.subject}"${suffixes.join("")}`
   },
-  runTest: (a) =>
-    `run the test suite (attempt ${a.errorCount + 1}${a.capReached ? ", cap reached" : ""})`,
   closePackage: () => "close the active package",
   writeSquashTemplate: () => "write the squash message template",
   squashCommit: (a) => `squash the cycle onto ${a.squashBase}`,
   writeLearningTemplate: () => "write the learnings template",
-  runHealthCheck: (a) =>
-    `run the health check (attempt ${a.errorCount + 1}${a.capReached ? ", cap reached" : ""}${
-      a.chainAfterGreen ? ", chain after green" : ""
-    })`,
 }
 
 /** Total presenter over the v2 `EdgeAction` union — one phrase per variant. */

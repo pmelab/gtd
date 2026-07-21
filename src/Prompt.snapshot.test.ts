@@ -11,12 +11,13 @@ const ctx = (overrides: Partial<ResolveContext> = {}): ResolveContext => ({
   packages: [],
   feedbackContent: "",
   decisionLog: "",
+  testCommand: "npm run test",
   ...overrides,
 })
 
 const result = (
   state: GtdState,
-  overrides: { context?: Partial<ResolveContext>; actor?: "human" | "agent" } = {},
+  overrides: { context?: Partial<ResolveContext>; actor?: "human" | "agent" | "check" } = {},
 ): Result => ({
   state,
   actor: overrides.actor ?? "agent",
@@ -48,12 +49,18 @@ const withPackage = (
 describe("buildPrompt snapshots", () => {
   // ── human-gated states (no model) ───────────────────────────────────────
 
-  it("idle plain", () => {
-    expect(buildPrompt(result("idle", { actor: "human" }), resolveModel, "plain")).toMatchSnapshot()
+  it("idle plain (the check actor's health wrapper script)", () => {
+    expect(buildPrompt(result("idle", { actor: "check" }), resolveModel, "plain")).toMatchSnapshot()
   })
 
   it("idle json", () => {
-    expect(buildPrompt(result("idle", { actor: "human" }), resolveModel, "json")).toMatchSnapshot()
+    expect(buildPrompt(result("idle", { actor: "check" }), resolveModel, "json")).toMatchSnapshot()
+  })
+
+  it("testing plain (the check actor's test wrapper script)", () => {
+    expect(
+      buildPrompt(result("testing", { actor: "check" }), resolveModel, "plain"),
+    ).toMatchSnapshot()
   })
 
   it("escalate plain", () => {

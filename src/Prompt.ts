@@ -22,6 +22,8 @@ import awaitLearningReviewMd from "./prompts/await-learning-review.md"
 import learningApplyMd from "./prompts/learning-apply.md"
 import escalateMd from "./prompts/escalate.md"
 import idleMd from "./prompts/idle.md"
+import runTestMd from "./prompts/run-test.md"
+import runHealthCheckMd from "./prompts/run-health-check.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
 import { defaultWorkflow, isAutonomousActor } from "./Workflow.js"
 import type { GtdState, Result } from "./Machine.js"
@@ -94,6 +96,9 @@ eta.loadTemplate("@await-learning-review", awaitLearningReviewMd)
 eta.loadTemplate("@learning-apply", learningApplyMd)
 eta.loadTemplate("@escalate", escalateMd)
 eta.loadTemplate("@idle", idleMd)
+// The scripted actor's prompts: executable wrapper scripts, not prose.
+eta.loadTemplate("@run-test", runTestMd)
+eta.loadTemplate("@run-health-check", runHealthCheckMd)
 
 // Null out filesystem resolution — all templates must come from in-memory cache.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

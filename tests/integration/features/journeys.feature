@@ -97,8 +97,10 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
-    # agenticReview is off: the green check force-approves and closes INLINE —
-    # one gtd: close-package commit, no marker.
+    # agenticReview is off: the green check force-approves and closes inline.
+    When I run gtd step check
+    Then it succeeds
+    And the git log contains "gtd(check): close-package"
     And the last commit subject is "gtd: close-package"
     And the file ".gtd" does not exist
     When I run gtd next
@@ -155,15 +157,16 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       gtd(agent): grilled
       gtd: building
       gtd(agent): building
+      gtd(check): close-package
       gtd: close-package
       gtd(agent): review
       gtd: await-review
       gtd(human): review-approved
       gtd: done
       """
-    # A final gtd step human at rest, with a green health check, adds zero commits.
+    # A final green check at rest adds zero commits (idle stays quiet).
     Given I record the commit count
-    When I run gtd step human
+    When I run gtd run
     Then it succeeds
     And the commit count is unchanged
     And stdout contains "state: idle"
@@ -218,6 +221,8 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
       export const add = (a: number, b: number) => a + b
       """
     When I run gtd step agent
+    Then it succeeds
+    When I run gtd run
     Then it succeeds
     And the last commit subject is "gtd: close-package"
     When a file ".gtd/REVIEW.md" with:
@@ -309,7 +314,11 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
-    And the git log contains "gtd: test-failed"
+    # `gtd run` is the built-in check driver: it executes the emitted wrapper
+    # script for real (the red gate writes FEEDBACK.md) and steps the check.
+    When I run gtd run
+    Then it succeeds
+    And the git log contains "gtd(check): test-failed"
     And the file ".gtd/FEEDBACK.md" contains "SENTINEL_JOURNEY_FAILURE"
     When I run gtd next
     Then it succeeds
@@ -324,8 +333,10 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
-    # The fix-round green force-approves and closes INLINE — one commit, no
-    # marker, no extra checkpoint hop.
+    # The fix-round green force-approves and closes inline.
+    When I run gtd run
+    Then it succeeds
+    And the git log contains "gtd(check): close-package"
     And the last commit subject is "gtd: close-package"
     And the file ".gtd/FEEDBACK.md" does not exist
 
@@ -435,4 +446,6 @@ Feature: Full lifecycle journeys — the step-first two-beat loop end to end
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
+    When I run gtd run
+    Then it succeeds
     And the last commit subject is "gtd: close-package"

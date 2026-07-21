@@ -97,14 +97,14 @@ Feature: gtd next — pure prediction of the next prompt
       """
       export const add = (a: number, b: number) => a + b
       """
+    # A landed fixing turn rests at testing for the check actor: the JSON
+    # carries the scripted kind and the wrapper script as the prompt.
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"pending\":true"
-    And stdout contains "\"actor\":\"agent\""
-    And stdout contains "\"prompt\":null"
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "run `gtd step agent` to continue, then run `gtd next` again"
+    And stdout contains "\"state\":\"testing\""
+    And stdout contains "\"actor\":\"check\""
+    And stdout contains "\"kind\":\"scripted\""
+    And stdout contains "\"pending\":false"
 
   Scenario: The plain agent prompt ends with the step-agent tail and the next-iteration instruction
     Given a test project

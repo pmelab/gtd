@@ -127,7 +127,9 @@ Feature: gtd-loop — the packaged reference loop driver
     And the git log contains "gtd(human): review"
     And the git log contains "gtd: done"
     And the git ref "refs/gtd/review-head" does not exist
-    And stdout contains "--- Your turn (idle) ---"
+    # The settled cycle ends with the loop's own green check at idle: the
+    # inert scripted step is the terminal signal.
+    And stdout contains "--- Settled (idle: check passed, nothing to do) ---"
 
   Scenario: Stops instead of spinning when the agent's turn makes no progress
     Given a test project

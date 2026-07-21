@@ -38,22 +38,18 @@ Feature: New Feature entry — dirty boundary tree becomes the first grilling tu
     And the file "src/extra.ts" exists
     And the file "src/extra.ts" contains "export const extra"
 
-  Scenario: A clean boundary tree is out of scope — gtd step human is a no-op
+  Scenario: A clean boundary tree is out of scope — the entry needs a dirty tree
     Given a test project
-    And a commit "chore: test gate" that adds "gate.sh" with:
-      """
-      echo ALL_GREEN
-      exit 0
-      """
-    And a gtd config file at ".gtdrc" with:
-      """
-      testCommand: bash gate.sh
-      """
     And a commit "feat: calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
     And I record the commit count
+    # No dirty tree = no entry turn: idle awaits the check, so a clean human
+    # step is refused with zero commits, and a green check step is inert.
     When I run gtd step human
+    Then it fails
+    And stderr contains "awaits a check turn"
+    When I run gtd step check
     Then it succeeds
     And the commit count is unchanged

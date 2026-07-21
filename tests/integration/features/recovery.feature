@@ -1,13 +1,14 @@
 @inmem
-Feature: Recovery — checkpoint contract on a mid-chain operational failure
+Feature: Recovery — checkpoint contract after an interrupted check
 
-  A mid-chain operational failure (e.g. an unconfigured test command) must not
-  roll back commits already made — the turn commit is a durable checkpoint. The
-  run exits non-zero at that checkpoint; `gtd next` reports pending in between
-  (an agent-driven checkpoint, so it points at `gtd step agent`); fixing the
-  underlying config and re-running the same step resumes the chain.
+  The turn commit is a durable checkpoint: a check that never ran (driver
+  crash, unrunnable command) leaves the build turn landed and the machine
+  resting at the testing state for the check actor. Re-resolving is always
+  safe — the same wrapper script is re-emitted, and even a boundary commit
+  landed on top of the checkpoint (an operational fix) still resolves back
+  to the check's rest via the checkpoint-recovery rung.
 
-  Scenario: A build turn survives an unconfigured test command, then resumes once fixed
+  Scenario: A build turn is a durable checkpoint; the check resumes after an operational fix lands on top
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -22,15 +23,21 @@ Feature: Recovery — checkpoint contract on a mid-chain operational failure
       export const add = (a: number, b: number) => a + b
       """
     When I run gtd step agent
-    Then it fails
-    And the last commit subject is "gtd(agent): building"
-    When I run gtd next
     Then it succeeds
-    And stdout contains "run `gtd step agent` to continue, then run `gtd next` again"
+    And the last commit subject is "gtd(agent): building"
+    # The check never ran (the configured command doesn't exist). An
+    # operational fix lands as a boundary commit on top of the checkpoint...
     Given a gtd config file at ".gtdrc" with:
       """
       testCommand: "true"
       """
-    When I run gtd step agent
+    And the working tree is committed as "chore: fix test command"
+    # ...and the checkpoint-recovery rung still rests at testing for the
+    # check: the same green step closes the loop as if nothing happened.
+    When I run gtd next with "--json"
     Then it succeeds
-    And the last commit subject is "gtd: agentic-review"
+    And stdout contains "\"state\":\"testing\""
+    And stdout contains "\"actor\":\"check\""
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): agentic-review"

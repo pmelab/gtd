@@ -142,17 +142,16 @@ Feature: gtd step human — the human mutator
     And the commit count is unchanged
     And the file ".gtd/01-add/02-notes.md" exists
 
-  Scenario: Idle with a green health check exits 0 with zero commits
+  Scenario: Idle awaits the check — a clean human step is refused, a green check step is a no-op
     Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      testCommand: "true"
-      """
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
     Then I record the commit count
     When I run gtd step human
+    Then it fails
+    And stderr contains "awaits a check turn"
+    When I run gtd step check
     Then it succeeds
     And the commit count is unchanged

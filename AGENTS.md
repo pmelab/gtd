@@ -44,6 +44,22 @@ sets, never routed. This is also how v2 stays backward compatible with v1
 history: old v1 subjects fall outside the closed sets and parse as boundary
 commits rather than errors.
 
+### The Scripted Check Actor (No In-Process Execution)
+
+Checks are the `check` actor's turns — the machine NEVER executes external
+commands. `gtd next` at a check-awaited rest (`testing`, `health-check`, `idle`)
+emits a wrapper script templated from `testCommand` (`src/prompts/run-test.md` /
+`run-health-check.md`); the driver executes it (`gtd run` is the built-in opt-in
+wrapper, the only place gtd touches a subprocess) and `gtd step check` captures
+the outcome. **Mechanics in the script, semantics at capture**: the script only
+records a red run's output (FEEDBACK.md/HEALTH.md); the
+cap/verdict/green-outcome branches are capture rules reading `p.counters` —
+never bake `capReached` into script text (the stale-script race). The fixer's
+capture carries `consumeFeedback` so the finding's deletion lands in the fix
+turn's own diff. In e2e, simulate checks by writing the output file
+(`Given a file ".gtd/FEEDBACK.md" with:`) and running `gtd step check` — @inmem
+never executes scripts; only @live scenarios use `gtd run`.
+
 ### Mode Flags (Effect Dependency Graph)
 
 - Follow the `QuietMode` pattern (Context tag + `static layer`) for any new

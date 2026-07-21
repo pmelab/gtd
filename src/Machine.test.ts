@@ -13,20 +13,6 @@ import { stampLabelCounters, zeroCounters } from "./Workflow.js"
 
 // ── Builders ──────────────────────────────────────────────────────────────
 
-const commit = (
-  flags: {
-    turnActor?: "human" | "agent"
-    turnGate?: string
-    isWorkflowCommit?: boolean
-  } = {},
-): GtdEvent => ({
-  // Defaults first, caller overrides spread on top — call sites pass literal
-  // objects holding only the keys they mean to set, never explicit undefined.
-  type: "COMMIT",
-  isWorkflowCommit: true,
-  ...flags,
-})
-
 const counters = (overrides: Partial<Counters>): Counters => ({ ...zeroCounters, ...overrides })
 
 const basePayload = (overrides: Partial<ResolvePayload> = {}): ResolvePayload => ({
@@ -92,8 +78,8 @@ describe("stampLabelCounters", () => {
 // ── awaitedActor ──────────────────────────────────────────────────────────
 
 describe("awaitedActor", () => {
-  it("is human for idle, escalate, await-review", () => {
-    expect(awaitedActor("idle")).toBe("human")
+  it("is human for escalate and await-review; check for idle", () => {
+    expect(awaitedActor("idle")).toBe("check")
     expect(awaitedActor("escalate")).toBe("human")
     expect(awaitedActor("await-review")).toBe("human")
   })
@@ -236,9 +222,9 @@ describe("dirty boundary entry", () => {
     })
   })
 
-  it("agent step-agent on a dirty boundary tree is refused (awaits human)", () => {
+  it("agent step on a dirty boundary tree is refused (the entry turn is not the agent's)", () => {
     const result = resolve([R({ invoker: "agent", workingTreeClean: false })])
-    expect(result.refusal).toContain("awaits a human turn")
+    expect(result.refusal).toContain("awaits a check turn")
     expect(result.edgeAction).toBeUndefined()
   })
 
@@ -519,21 +505,60 @@ describe("clean-tree agent step at the grilling rest is inert", () => {
   })
 })
 
-describe("idle human step never captures an empty turn", () => {
-  it("runs the health check instead", () => {
+describe("idle awaits the check actor", () => {
+  it("a clean human step at idle is refused (the check's turn, not a capture)", () => {
     const result = resolve([
       R({ invoker: "human", workingTreeClean: true, lastCommitSubject: "chore: x" }),
     ])
     expect(result.state).toBe("idle")
-    expect(result.edgeAction?.kind).toBe("runHealthCheck")
+    expect(result.refusal).toContain("awaits a check turn")
+    expect(result.edgeAction).toBeUndefined()
   })
 
-  it("repeated human step at idle still runs the health check (no captureTurn)", () => {
+  it("a green check step at idle captures nothing (idle stays quiet)", () => {
     const result = resolve([
-      R({ invoker: "human", workingTreeClean: true, lastCommitSubject: "gtd: testing" }),
+      R({ invoker: "check", workingTreeClean: true, lastCommitSubject: "chore: x" }),
     ])
     expect(result.state).toBe("idle")
-    expect(result.edgeAction?.kind).toBe("runHealthCheck")
+    expect(result.edgeAction).toBeUndefined()
+    expect(result.refusal).toBeUndefined()
+  })
+
+  it("a red check step at idle (pending HEALTH.md) captures gtd(check): health-check with h+1", () => {
+    const result = resolve([
+      R({
+        invoker: "check",
+        workingTreeClean: false,
+        healthPresent: true,
+        healthContent: "FAIL: boom",
+        lastCommitSubject: "chore: x",
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "check",
+      gate: "health-check",
+      counters: counters({ healthFixCount: 1 }),
+    })
+  })
+
+  it("a red check step at the cap captures gtd(check): escalated instead", () => {
+    const result = resolve([
+      R({
+        invoker: "check",
+        workingTreeClean: false,
+        healthPresent: true,
+        healthContent: "FAIL: boom",
+        counters: counters({ healthFixCount: 3 }),
+        lastCommitSubject: "chore: x",
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "check",
+      gate: "escalated",
+      counters: counters({ healthFixCount: 3 }),
+    })
   })
 })
 
@@ -851,7 +876,7 @@ describe("learning chain", () => {
     expect(result.edgeAction).toEqual({ kind: "writeSquashTemplate", counters: zeroCounters })
   })
 
-  it("gtd: learning-applied + squash disabled → rest idle for human", () => {
+  it("gtd: learning-applied + squash disabled → rest idle for the check", () => {
     const result = resolve([
       R({
         invoker: "none",
@@ -861,7 +886,7 @@ describe("learning chain", () => {
       }),
     ])
     expect(result.state).toBe("idle")
-    expect(result.actor).toBe("human")
+    expect(result.actor).toBe("check")
     expect(result.edgeAction).toBeUndefined()
   })
 
@@ -951,11 +976,12 @@ describe("predictTurn", () => {
     expect(prediction.state).toBe("grilled")
   })
 
-  it("predicts null at a settled rest (idle, health check is not a commit-predicting action)", () => {
+  it("predicts null at a settled check rest (a green check with no chain owed captures nothing)", () => {
     const prediction = predictTurn([
       R({ workingTreeClean: true, lastCommitSubject: "gtd: testing" }),
     ])
-    expect(prediction.state).toBe("idle")
+    expect(prediction.state).toBe("health-check")
+    expect(prediction.subject).toBeNull()
   })
 
   it("never mutates: querying twice yields the same prediction", () => {
@@ -1026,10 +1052,19 @@ describe("health lifecycle", () => {
     expect(result.actor).toBe("human")
   })
 
-  it("gtd: testing re-test chains after green on healthFixBase alone (green-first-try entry run has zero health-check commits)", () => {
+  it("gtd: testing rests at health-check for the check actor", () => {
+    const result = resolve([
+      R({ invoker: "none", lastCommitSubject: "gtd: testing", workingTreeClean: true }),
+    ])
+    expect(result.state).toBe("health-check")
+    expect(result.actor).toBe("check")
+    expect(result.pending).toBe(false)
+  })
+
+  it("a green check at gtd: testing chains on healthFixBase alone (green-first-try entry run has zero health-check commits)", () => {
     const result = resolve([
       R({
-        invoker: "agent",
+        invoker: "check",
         lastCommitSubject: "gtd: testing",
         workingTreeClean: true,
         squashEnabled: true,
@@ -1037,49 +1072,62 @@ describe("health lifecycle", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "check",
+      gate: "tests-green",
       counters: zeroCounters,
-      kind: "runHealthCheck",
-      errorCount: 0,
-      capReached: false,
-      chainAfterGreen: true,
     })
   })
 
-  it("gtd: testing re-test does not chain when no healthFixBase is anchored", () => {
+  it("a green check at gtd: testing captures nothing when no healthFixBase is anchored", () => {
     const result = resolve([
       R({
-        invoker: "agent",
+        invoker: "check",
         lastCommitSubject: "gtd: testing",
         workingTreeClean: true,
         squashEnabled: true,
       }),
     ])
+    expect(result.edgeAction).toBeUndefined()
+    expect(result.refusal).toBeUndefined()
+    expect(result.state).toBe("health-check")
+  })
+
+  it("a red check at gtd: testing (pending HEALTH.md) captures h+1 below the cap", () => {
+    const result = resolve([
+      R({
+        invoker: "check",
+        lastCommitSubject: "gtd: testing",
+        workingTreeClean: false,
+        healthPresent: true,
+        healthContent: "still red",
+        counters: counters({ healthFixCount: 1 }),
+      }),
+    ])
     expect(result.edgeAction).toEqual({
-      counters: zeroCounters,
-      kind: "runHealthCheck",
-      errorCount: 0,
-      capReached: false,
-      chainAfterGreen: false,
+      kind: "captureTurn",
+      actor: "check",
+      gate: "health-check",
+      counters: counters({ healthFixCount: 2 }),
     })
   })
 
-  it("idle human step does not chain after green once the run's anchor is gone (no healthFixBase)", () => {
-    // The edge withholds `healthFixBase` after a green re-test ended the run
-    // (the anchor scan resets on `gtd: tests-green`) — resolve sees only its
-    // absence.
-    const events = [
-      commit(),
-      commit(),
-      R({ invoker: "human", workingTreeClean: true, squashEnabled: true }),
-    ]
-    const result = resolve(events)
-    expect(result.state).toBe("idle")
+  it("gtd(check): escalated mid-chains to the promoting gtd: escalated routing commit", () => {
+    const result = resolve([
+      R({
+        invoker: "check",
+        lastCommitSubject: "gtd(check): escalated",
+        healthPresent: true,
+        healthCommitted: true,
+        healthContent: "FAIL",
+        workingTreeClean: true,
+      }),
+    ])
     expect(result.edgeAction).toEqual({
+      kind: "commitRouting",
+      subject: "gtd: escalated",
+      promoteCheckOutputToErrors: true,
       counters: zeroCounters,
-      kind: "runHealthCheck",
-      errorCount: 0,
-      capReached: false,
-      chainAfterGreen: false,
     })
   })
 })
@@ -1112,31 +1160,110 @@ describe("feedback lifecycle", () => {
   })
 })
 
-describe("green outcome decided at dispatch (write-time labeling)", () => {
-  it("agenticReviewEnabled false → the building turn's runTest carries onGreen close-package", () => {
+describe("green outcome decided at capture (write-time labeling)", () => {
+  it("a landed building turn rests at testing for the check", () => {
     const result = resolve([
       R({
         invoker: "agent",
+        packagesPresent: true,
+        workingTreeClean: true,
+        lastCommitSubject: "gtd(agent): building",
+      }),
+    ])
+    expect(result.state).toBe("testing")
+    expect(result.actor).toBe("check")
+    expect(result.edgeAction).toBeUndefined()
+  })
+
+  it("agenticReviewEnabled false → a green check captures gtd(check): close-package", () => {
+    const result = resolve([
+      R({
+        invoker: "check",
         packagesPresent: true,
         workingTreeClean: true,
         lastCommitSubject: "gtd(agent): building",
         agenticReviewEnabled: false,
       }),
     ])
-    expect(result.edgeAction).toMatchObject({ kind: "runTest", onGreen: "close-package" })
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "check",
+      gate: "close-package",
+      counters: zeroCounters,
+    })
   })
 
-  it("agenticReviewEnabled true → the building turn's runTest carries onGreen agentic-review", () => {
+  it("agenticReviewEnabled true → a green check captures gtd(check): agentic-review", () => {
     const result = resolve([
       R({
-        invoker: "agent",
+        invoker: "check",
         packagesPresent: true,
         workingTreeClean: true,
         lastCommitSubject: "gtd(agent): building",
         agenticReviewEnabled: true,
       }),
     ])
-    expect(result.edgeAction).toMatchObject({ kind: "runTest", onGreen: "agentic-review" })
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "check",
+      gate: "agentic-review",
+      counters: zeroCounters,
+    })
+  })
+
+  it("a red check (pending FEEDBACK.md) below the cap captures gtd(check): test-failed with t+1", () => {
+    const result = resolve([
+      R({
+        invoker: "check",
+        packagesPresent: true,
+        workingTreeClean: false,
+        feedbackPresent: true,
+        feedbackContent: "FAIL: boom",
+        lastCommitSubject: "gtd(agent): building",
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "check",
+      gate: "test-failed",
+      counters: counters({ testFixCount: 1 }),
+    })
+  })
+
+  it("a red check at the cap captures gtd(check): escalated (vector carried)", () => {
+    const result = resolve([
+      R({
+        invoker: "check",
+        packagesPresent: true,
+        workingTreeClean: false,
+        feedbackPresent: true,
+        feedbackContent: "FAIL: boom",
+        counters: counters({ testFixCount: 3 }),
+        lastCommitSubject: "gtd(agent): building",
+      }),
+    ])
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "check",
+      gate: "escalated",
+      counters: counters({ testFixCount: 3 }),
+    })
+  })
+
+  it("gtd(check): test-failed rests at fixing for the agent", () => {
+    const result = resolve([
+      R({
+        invoker: "none",
+        packagesPresent: true,
+        feedbackPresent: true,
+        feedbackCommitted: true,
+        feedbackContent: "FAIL",
+        workingTreeClean: true,
+        lastCommitSubject: "gtd(check): test-failed",
+      }),
+    ])
+    expect(result.state).toBe("fixing")
+    expect(result.actor).toBe("agent")
   })
 
   it("gtd: agentic-review (the check's green outcome label) rests for the reviewer", () => {

@@ -78,6 +78,9 @@ Feature: Build lifecycle — the .gtd/ package lifecycle from planning to buildi
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): building"
+    # agenticReview is off: the green check force-approves and closes inline.
+    When I run gtd step check
+    Then it succeeds
     And the last commit subject is "gtd: close-package"
     And the file ".gtd" does not exist
 

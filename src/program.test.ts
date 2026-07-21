@@ -14,7 +14,6 @@ import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { GitService } from "./Git.js"
 import { makeProgram } from "./program.js"
-import { TestRunner } from "./TestRunner.js"
 
 // GitService whose every method fails — proves the flag handler never calls git.
 const failingGitLayer = Layer.succeed(GitService, {
@@ -69,15 +68,9 @@ const stubConfigLayer = Layer.succeed(ConfigService, {
   reviewThreshold: 0,
 })
 
-// Minimal stub TestRunner — satisfies the type but never called for flags.
-const stubTestRunnerLayer = Layer.succeed(TestRunner, {
-  run: () => Effect.fail(new Error("TestRunner must not be called for --version/--help")),
-})
-
 const testLayers = failingGitLayer.pipe(
   Layer.provideMerge(NodeContext.layer),
   Layer.provideMerge(stubConfigLayer),
-  Layer.provideMerge(stubTestRunnerLayer),
   Layer.provideMerge(ConfigInit.Noop),
   Layer.provideMerge(Cwd.layer("")),
 )

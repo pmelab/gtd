@@ -5,7 +5,11 @@ set -euo pipefail
 # human gate. Both mutators are attempted every iteration, refusal-tolerant:
 # whichever actor is actually awaited claims the turn (captures the human's
 # uncommitted edit after a halt, or the agent's own edit from the previous
-# iteration), the other refuses harmlessly.
+# iteration), the other refuses harmlessly. Dispatch keys on the awaited
+# actor's KIND: interactive → halt for the human; autonomous → feed the
+# prompt to the agent; scripted → execute the emitted wrapper script verbatim
+# and step the actor (an inert scripted step — nothing captured — is the
+# terminal green signal at idle).
 prev_state=""
 prev_prompt=""
 
@@ -21,17 +25,36 @@ while true; do
   fi
 
   actor="$(jq -r .actor <<<"$next_json")"
+  kind="$(jq -r .kind <<<"$next_json")"
   pending="$(jq -r .pending <<<"$next_json")"
   state="$(jq -r .state <<<"$next_json")"
   prompt="$(jq -r .prompt <<<"$next_json")"
 
-  if [[ "$actor" != "agent" ]]; then
+  if [[ "$kind" == "interactive" ]]; then
     echo "--- Your turn ($state) ---"
     gtd next
     exit 0
   fi
 
   if [[ "$pending" == "true" ]]; then
+    prev_state=""
+    prev_prompt=""
+    continue
+  fi
+
+  if [[ "$kind" == "scripted" ]]; then
+    # The check's turn: run the emitted script verbatim (ONLY ever the script
+    # from `gtd next --json`'s prompt field), then step the actor. Nothing
+    # captured (zero new commits) = green with nothing owed — at idle that is
+    # the loop's terminal state.
+    head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
+    bash -c "$prompt" || true
+    gtd step "$actor" >/dev/null
+    head_after="$(git rev-parse HEAD 2>/dev/null || echo none)"
+    if [[ "$head_before" == "$head_after" ]]; then
+      echo "--- Settled ($state: check passed, nothing to do) ---"
+      exit 0
+    fi
     prev_state=""
     prev_prompt=""
     continue

@@ -11,7 +11,6 @@ import { GitService } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import type { ConfigOperations } from "./Config.js"
 import { Cwd } from "./Cwd.js"
-import { TestRunner } from "./TestRunner.js"
 import type { CommitEvent, EdgeAction, GtdEvent, ResolvePayload } from "./Machine.js"
 import { turnSubject } from "./Subjects.js"
 
@@ -95,15 +94,11 @@ const runGetPackages = () =>
     }).pipe(Effect.provide(NodeContext.layer)),
   )
 
-const runPerform = (
-  action: EdgeAction,
-  testResult: { exitCode: number; output: string } = { exitCode: 0, output: "" },
-): Promise<{ stop: boolean }> =>
+const runPerform = (action: EdgeAction): Promise<{ stop: boolean }> =>
   Effect.runPromise(
     perform(action).pipe(
       Effect.provide(GitService.Live),
       Effect.provide(NodeContext.layer),
-      Effect.provide(Layer.succeed(TestRunner, { run: () => Effect.succeed(testResult) })),
       Effect.provide(
         Layer.succeed(ConfigService, {
           testCommand: "npm run test",
@@ -1319,54 +1314,31 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(git("show", "--name-status", "--format=", "HEAD")).toContain("D\t.gtd/HEALTH.md")
   })
 
-  it("runTest green: removes any pending FEEDBACK.md, commits gtd: tests-green", async () => {
-    mkdirSync(join(repoDir, ".gtd", "01-foo"), { recursive: true })
-    writeRepoFile(join(repoDir, ".gtd", "01-foo", "01-task.md"), "# Task\n")
-    writeRepoFile(join(repoDir, "impl.ts"), "export const i = 1\n")
-    git("add", "-A")
-    git("commit", "-q", "-m", turnSubject("agent", "fixing"))
-    writeRepoFile(join(repoDir, ".gtd/FEEDBACK.md"), "stale finding\n")
-    await runPerform(
-      { kind: "runTest", errorCount: 0, capReached: false, onGreen: "tests-green" },
-      { exitCode: 0, output: "pass" },
-    )
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: tests-green")
-    expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(false)
-    expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(false)
-    expect(git("status", "--porcelain").trim()).toBe("")
-  })
-
-  it("runTest red under cap: writes FEEDBACK.md and commits gtd: test-failed", async () => {
-    await runPerform(
-      { kind: "runTest", errorCount: 1, capReached: false, onGreen: "tests-green" },
-      { exitCode: 1, output: "FAIL: boom\n" },
-    )
-    expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(true)
-    expect(readFileSync(join(repoDir, ".gtd/FEEDBACK.md"), "utf8")).toContain("FAIL: boom")
-    expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(false)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: test-failed")
-  })
-
-  it("runTest red at cap: writes ERRORS.md (not FEEDBACK.md) and commits gtd: escalated", async () => {
-    await runPerform(
-      { kind: "runTest", errorCount: 3, capReached: true, onGreen: "tests-green" },
-      { exitCode: 1, output: "FAIL: persistent\n" },
-    )
+  it("commitRouting promoteCheckOutputToErrors: moves a committed FEEDBACK.md into ERRORS.md", async () => {
+    commitFile("gtd(check): escalated", ".gtd/FEEDBACK.md", "FAIL: persistent\n")
+    await runPerform({
+      kind: "commitRouting",
+      subject: "gtd: escalated",
+      promoteCheckOutputToErrors: true,
+    })
     expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(true)
     expect(readFileSync(join(repoDir, ".gtd/ERRORS.md"), "utf8")).toContain("FAIL: persistent")
     expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(false)
     expect(git("log", "-1", "--format=%s")).toBe("gtd: escalated")
+    expect(git("status", "--porcelain").trim()).toBe("")
   })
 
-  it("runTest red under cap, empty output: FEEDBACK.md exists, non-empty, contains sentinel", async () => {
-    await runPerform(
-      { kind: "runTest", errorCount: 1, capReached: false, onGreen: "tests-green" },
-      { exitCode: 1, output: "" },
-    )
-    expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(true)
-    const feedback = readFileSync(join(repoDir, ".gtd/FEEDBACK.md"), "utf8")
-    expect(/\S/.test(feedback)).toBe(true)
-    expect(feedback).toContain("failed with exit code 1 and produced no output")
+  it("commitRouting promoteCheckOutputToErrors: moves a committed HEALTH.md into ERRORS.md", async () => {
+    commitFile("gtd(check): escalated", ".gtd/HEALTH.md", "FAIL: health boom\n")
+    await runPerform({
+      kind: "commitRouting",
+      subject: "gtd: escalated",
+      promoteCheckOutputToErrors: true,
+    })
+    expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(true)
+    expect(readFileSync(join(repoDir, ".gtd/ERRORS.md"), "utf8")).toContain("FAIL: health boom")
+    expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: escalated")
   })
 
   it("closePackage (empty FEEDBACK): removes FEEDBACK + last package + empty .gtd, commits gtd: close-package", async () => {
@@ -1441,55 +1413,5 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     writeRepoFile(join(repoDir, "src.ts"), "code\n")
     const result = await runPerform({ kind: "commitRouting", subject: "gtd: grilled" })
     expect(result.stop).toBe(false)
-  })
-
-  it("runHealthCheck green, no learning/squash chain queued → no commit, stop: true", async () => {
-    const countBefore = git("rev-list", "--count", "HEAD")
-    const result = await runPerform(
-      { kind: "runHealthCheck", errorCount: 0, capReached: false, chainAfterGreen: false },
-      { exitCode: 0, output: "all good" },
-    )
-    expect(result.stop).toBe(true)
-    expect(git("rev-list", "--count", "HEAD")).toBe(countBefore) // no new commit
-    expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
-  })
-
-  it("runHealthCheck green, chainAfterGreen → commits gtd: tests-green, stop: false", async () => {
-    const countBefore = Number(git("rev-list", "--count", "HEAD"))
-    const result = await runPerform(
-      { kind: "runHealthCheck", errorCount: 1, capReached: false, chainAfterGreen: true },
-      { exitCode: 0, output: "all good" },
-    )
-    expect(result.stop).toBe(false)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: tests-green")
-    expect(Number(git("rev-list", "--count", "HEAD"))).toBe(countBefore + 1)
-    expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
-    expect(existsSync(join(repoDir, ".gtd/SQUASH_MSG.md"))).toBe(false)
-  })
-
-  it("runHealthCheck red below cap → writes HEALTH.md, commits gtd: health-check, stop: false", async () => {
-    const result = await runPerform(
-      { kind: "runHealthCheck", errorCount: 1, capReached: false, chainAfterGreen: false },
-      { exitCode: 1, output: "FAIL: test boom\n" },
-    )
-    expect(result.stop).toBe(false)
-    expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(true)
-    expect(readFileSync(join(repoDir, ".gtd/HEALTH.md"), "utf8")).toContain("FAIL: test boom")
-    expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(false)
-    // v2's always-clean invariant: write-and-commit in the same chain.
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: health-check")
-    expect(git("status", "--porcelain").trim()).toBe("")
-  })
-
-  it("runHealthCheck red at cap → writes ERRORS.md, commits gtd: escalated, stop: false", async () => {
-    const result = await runPerform(
-      { kind: "runHealthCheck", errorCount: 3, capReached: true, chainAfterGreen: false },
-      { exitCode: 1, output: "FAIL: persistent\n" },
-    )
-    expect(result.stop).toBe(false)
-    expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(true)
-    expect(readFileSync(join(repoDir, ".gtd/ERRORS.md"), "utf8")).toContain("FAIL: persistent")
-    expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: escalated")
   })
 })

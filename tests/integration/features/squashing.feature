@@ -158,7 +158,7 @@ Feature: Squashing — collapse a cycle into one conventional-commits message
     And the file ".gtd/SQUASH_MSG.md" does not exist
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"actor\":\"human\""
+    And stdout contains "\"actor\":\"check\""
 
   Scenario: Turn position, not content, triggers the squash — arbitrary prose still squashes
     Given a test project

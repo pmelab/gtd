@@ -315,7 +315,7 @@ Feature: Learning phase — distill and persist project memory before the squash
     And the git log does not contain "gtd: squashing"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"actor\":\"human\""
+    And stdout contains "\"actor\":\"check\""
 
   Scenario: learning off — gtd: done chains straight to the squash template, no LEARNINGS.md ever written
     Given a test project
@@ -341,16 +341,10 @@ Feature: Learning phase — distill and persist project memory before the squash
     And the git log does not contain "gtd: learning"
     And the file ".gtd/LEARNINGS.md" does not exist
 
-  Scenario: The health-fixer's green re-test chains to the learning template before the squash template
+  Scenario: The health-fixer's green re-check chains to the learning template before the squash template
     Given a test project
-    And a commit "chore: test gate" that adds "gate.sh" with:
-      """
-      echo HEALTH_BROKEN
-      exit 1
-      """
     And a gtd config file at ".gtdrc" with:
       """
-      testCommand: bash gate.sh
       learning: true
       squash: true
       """
@@ -362,16 +356,17 @@ Feature: Learning phase — distill and persist project memory before the squash
       """
       SENTINEL_HEALTH_FAILURE
       """
-    And "gate.sh" is modified to:
+    And a file "src/lib.ts" with:
       """
-      echo ALL_GREEN
-      exit 0
+      export const lib = 2
       """
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): health-fix"
     And the git log contains "gtd: testing"
-    And the git log contains "gtd: tests-green"
+    When I run gtd step check
+    Then it succeeds
+    And the git log contains "gtd(check): tests-green"
     And the git log contains "gtd: learning"
     And the last commit subject is "gtd: learning"
     And the file ".gtd/HEALTH.md" does not exist

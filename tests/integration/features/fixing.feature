@@ -1,16 +1,15 @@
 @inmem
 Feature: Fixing — consume FEEDBACK.md written by a red build turn
 
-  A committed, non-empty FEEDBACK.md under a `gtd: test-failed` HEAD rests at the
-  fixing prompt for the agent — `gtd next` inlines the FEEDBACK.md text
-  verbatim. The fixer's turn commit is `gtd(agent): fixing`; the chain removes
-  FEEDBACK.md and re-tests in the same invocation, landing `gtd: tests-green`
-  on a green re-test. A fixer that disputes the finding by deleting or emptying
-  FEEDBACK.md in the working tree is captured the same way: `gtd step agent`
-  records the turn, re-tests, and proceeds once FEEDBACK.md is gone. A fixer
-  that produces no change at all still records one empty `gtd(agent): fixing`
-  turn — inert but real — and `gtd next` re-emits the same fixing prompt; a
-  second clean invocation authors nothing further.
+  A committed, non-empty FEEDBACK.md rests at the fixing prompt for the agent
+  — `gtd next` inlines the FEEDBACK.md text verbatim. The fixer's turn commit
+  is `gtd(agent): fixing`, and the capture CONSUMES the finding: FEEDBACK.md's
+  deletion lands in the turn's own diff, so the next check starts from a
+  clean slate. The turn then rests at testing for the check actor; a green
+  `gtd step check` captures the outcome label (`gtd(check): agentic-review`
+  with packages and review on). Disputing by deleting or emptying FEEDBACK.md
+  is captured the same way. A fixer that produces no change at all is inert —
+  no commit — and `gtd next` re-emits the same fixing prompt.
 
   Scenario: gtd next emits the fixing prompt containing the FEEDBACK.md text
     Given a test project
@@ -52,9 +51,10 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
-    And the git log contains "gtd: agentic-review"
     And the file ".gtd/FEEDBACK.md" does not exist
-    And the last commit subject is "gtd: agentic-review"
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): agentic-review"
 
   Scenario: A disputing fixer deletes FEEDBACK.md and the chain re-tests green
     Given a test project
@@ -79,7 +79,9 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step agent
     Then it succeeds
     And the file ".gtd/FEEDBACK.md" does not exist
-    And the git log contains "gtd: agentic-review"
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): agentic-review"
 
   Scenario: A disputing fixer empties FEEDBACK.md and the chain re-tests green
     Given a test project
@@ -104,7 +106,9 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step agent
     Then it succeeds
     And the file ".gtd/FEEDBACK.md" does not exist
-    And the git log contains "gtd: agentic-review"
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): agentic-review"
 
   Scenario: A do-nothing fixer invocation is inert — no commit, no re-test, next re-emits the fixing prompt
     Given a test project
@@ -146,5 +150,7 @@ Feature: Fixing — consume FEEDBACK.md written by a red build turn
     When I run gtd step agent
     Then it succeeds
     And the git log contains "gtd(agent): fixing"
-    And the last commit subject is "gtd: agentic-review"
     And the file ".gtd/FEEDBACK.md" does not exist
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): agentic-review"

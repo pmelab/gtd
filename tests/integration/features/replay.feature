@@ -100,7 +100,7 @@ Feature: Replay — every committed rest resolves deterministically
     Then I record the commit count
     When I run gtd step agent
     Then it fails
-    And stderr contains "awaits a human turn"
+    And stderr contains "awaits a check turn"
     And the commit count is unchanged
 
   Scenario: A second gtd step human at the human review rest is a no-op once approved
@@ -119,7 +119,8 @@ Feature: Replay — every committed rest resolves deterministically
     And I run gtd step human
     Then I record the commit count
     When I run gtd step human
-    Then it succeeds
+    Then it fails
+    And stderr contains "awaits a check turn"
     And the commit count is unchanged
     And the last commit subject is "gtd: done"
 
@@ -138,10 +139,10 @@ Feature: Replay — every committed rest resolves deterministically
     Then I record the commit count
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"actor\":\"human\""
+    And stdout contains "\"actor\":\"check\""
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"actor\":\"human\""
+    And stdout contains "\"actor\":\"check\""
     And the commit count is unchanged
 
   Scenario: A history built with no intervening working-tree state resolves the same next output as a live run would
