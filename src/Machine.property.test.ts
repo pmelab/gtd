@@ -3,6 +3,7 @@ import fc from "fast-check"
 import {
   DEFAULT_PAYLOAD,
   GtdStateError,
+  predictTurn,
   resolve,
   type Counters,
   type GtdEvent,
@@ -452,6 +453,92 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
         },
       ),
       { numRuns: 500 },
+    )
+  })
+})
+
+// ── δ conformance ───────────────────────────────────────────────────────────
+// The purity claim, stated as a property: `resolve` (and `predictTurn`) output
+// is a function of the NEAREST workflow commit plus the RESOLVE payload (which
+// carries the nearest label as `lastCommitSubject`, its trailer vector as
+// `counters`, and the pending diff facts). Any event-stream mutation that
+// preserves those two — replacing everything older than the nearest workflow
+// commit, injecting boundary commits before or after it — yields identical
+// output, including thrown corruption errors.
+
+const arbTurnCommit: fc.Arbitrary<GtdEvent> = fc
+  .record({
+    actor: fc.constantFrom("human" as const, "agent" as const),
+    gate: fc.constantFrom(
+      "grilling" as const,
+      "building" as const,
+      "fixing" as const,
+      "health-fixing" as const,
+      "escalate" as const,
+      "learning" as const,
+    ),
+  })
+  .map(({ actor, gate }) => ({
+    type: "COMMIT" as const,
+    isWorkflowCommit: true,
+    turnActor: actor,
+    turnGate: gate,
+  }))
+
+const routingCommit: GtdEvent = { type: "COMMIT", isWorkflowCommit: true }
+const boundaryCommit: GtdEvent = { type: "COMMIT", isWorkflowCommit: false }
+
+const arbAnyCommit: fc.Arbitrary<GtdEvent> = fc.oneof(
+  arbTurnCommit,
+  fc.constant(routingCommit),
+  fc.constant(boundaryCommit),
+)
+
+/** Resolve to a comparable outcome: the Result, or the thrown error's message. */
+const outcomeOf = <T>(run: () => T): { ok: T } | { err: string } => {
+  try {
+    return { ok: run() }
+  } catch (e) {
+    return { err: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+describe("δ conformance — resolve is a function of (nearest workflow commit, payload)", () => {
+  it("replacing older history and injecting boundary commits never changes the output", () => {
+    fc.assert(
+      fc.property(
+        fc.array(arbAnyCommit, { maxLength: 10 }),
+        fc.array(arbAnyCommit, { maxLength: 10 }),
+        fc.option(fc.oneof(arbTurnCommit, fc.constant(routingCommit)), { nil: undefined }),
+        fc.integer({ min: 0, max: 4 }),
+        arbPayload,
+        (prefixA, prefixB, nearest, trailingBoundaries, payload) => {
+          // With no nearest workflow commit at all, the prefixes must not
+          // smuggle one in (it would BE the nearest) — keep boundaries only.
+          const scrub = (events: GtdEvent[]): GtdEvent[] =>
+            nearest !== undefined
+              ? events
+              : events.filter((e) => e.type === "COMMIT" && !e.isWorkflowCommit)
+          const trailing = Array.from({ length: trailingBoundaries }, () => boundaryCommit)
+          const resolveEvent: GtdEvent = { type: "RESOLVE", payload }
+          const streamA: GtdEvent[] = [
+            ...scrub(prefixA),
+            ...(nearest !== undefined ? [nearest] : []),
+            ...trailing,
+            resolveEvent,
+          ]
+          const streamB: GtdEvent[] = [
+            ...scrub(prefixB),
+            ...(nearest !== undefined ? [nearest] : []),
+            resolveEvent,
+          ]
+          expect(outcomeOf(() => resolve(streamA))).toEqual(outcomeOf(() => resolve(streamB)))
+          expect(outcomeOf(() => predictTurn(streamA))).toEqual(
+            outcomeOf(() => predictTurn(streamB)),
+          )
+        },
+      ),
+      { numRuns: 1000 },
     )
   })
 })

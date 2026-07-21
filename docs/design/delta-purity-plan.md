@@ -45,9 +45,21 @@
 >   rule). E2e grew `Given a commit "…" with counters "t=… r=… h=…"` and the
 >   cap/threshold scenarios spell their vectors explicitly; two scenarios pin
 >   the trailer wire format on machine-written commits.
-> - **Phase D — REMAINING.** The δ conformance property test lands now that C3
->   removed the history fold from resolution: permute everything except the
->   nearest label (+trailers) and the pending diff; assert identical output.
+> - **Phase D — LANDED.** (1) The δ conformance property test
+>   (`src/Machine.property.test.ts`): with the history fold gone, `resolve` /
+>   `predictTurn` output is a function of the nearest workflow commit plus the
+>   RESOLVE payload — the test replaces older history, injects boundary commits
+>   before and after the nearest workflow commit, and asserts identical output
+>   (including thrown corruption errors). (2) Hardening as
+>   definition-consistency unit tests (`src/Workflow.test.ts`): declared-actor
+>   references in states, prompts, capture rules, turn/routing/ladder outcomes;
+>   stamp non-negativity. (No new compiler machinery — the contract types
+>   already make gates/phases/outcome sets closed at compile time.) (3) Docs:
+>   STATES.md §1 states the δ contract, §2 rewritten as the current transition
+>   tables (branch labels, write-time check outcomes, `gtd: escalated` /
+>   `gtd: agentic-review` rows, the `Gtd-Counters` trailer, the v1
+>   `grilling`/`building` collision note); AGENTS.md and the upgrading doc
+>   describe the trailer scheme and its zero-vector upgrade rule.
 
 > Companion to `configurable-state-machine.md` Appendix C. Decisions taken:
 > **full purity** (all five moves, including counters and config at write time),

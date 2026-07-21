@@ -31,11 +31,22 @@ A transition is a pure function of four inputs, nothing else:
    mutate)
 2. **whether the working tree is dirty or clean**
 3. **the class of HEAD's commit subject** — turn commit, routing commit, or
-   boundary commit (§2)
+   boundary commit (§2) — including the nearest workflow commit's `Gtd-Counters`
+   body trailer, which carries the fix/review/health budget vector
 4. **which steering files are present** (`.gtd/TODO.md`, `.gtd/ARCHITECTURE.md`,
    `.gtd/PLAN.md`, `.gtd/NN-…/` work packages, `.gtd/REVIEW.md`,
    `.gtd/FEEDBACK.md`, `.gtd/ERRORS.md`, `.gtd/HEALTH.md`, `.gtd/SQUASH_MSG.md`,
    `.gtd/LEARNINGS.md`)
+
+This is the **δ(label, diff) discipline**: the next state is a function of the
+nearest workflow commit (its label plus its trailer) and the pending
+working-tree diff. The invoker authenticates a turn but adds no information;
+every branch decision (an empty turn's meaning, a review verdict, a green
+check's outcome, a cap crossing) is decided when a commit is **written** and
+encoded in its label and trailer — never re-derived later from a landed commit's
+own diff. Replaying any history with the same nearest workflow commit and the
+same working tree resolves identically (pinned by the δ conformance property
+test in `src/Machine.property.test.ts`).
 
 All steering files live under `.gtd/` — the directory is the workflow's
 namespace, and everything outside it is project code. A root-level `TODO.md` or
@@ -145,9 +156,12 @@ machine-authored namespaces, plus a catch-all:
   recording who acted and under which gate.
 - **Routing commits** — `gtd: <state>` — authored by the machine itself as
   bookkeeping between turns. Each label names the state the commit enters
-  (`gtd: building`, `gtd: await-review`, …); `tests-green` / `test-failed` are
-  marker states recording a check outcome whose next state guarded rules decide
-  at resolution.
+  (`gtd: building`, `gtd: await-review`, …). Check outcomes are decided **at
+  write time** and named by the label: a green check writes
+  `gtd: agentic-review` (packages, review pending), an inline
+  `gtd: close-package` (force-approved), or `gtd: tests-green` (the health
+  path's green marker); a red check writes `gtd: test-failed` (below the
+  fix-attempt cap) or `gtd: escalated` (at the cap).
 - **Boundary commits** — anything else: an ordinary non-`gtd` commit, or any
   `gtd: *` subject outside the closed routing set below (this is also the v1
   compatibility rule — see §2.3).
@@ -155,79 +169,109 @@ machine-authored namespaces, plus a catch-all:
 `parseSubject` is total and never throws: every subject maps to exactly one of
 `"turn"`, `"routing"`, or `"boundary"`.
 
+Every machine-written commit — turn and routing alike — also carries its counter
+vector as a **`Gtd-Counters: t=<testFix> r=<reviewFix> h=<healthFix>` body
+trailer**, computed by the writer (the previous vector plus the written label's
+stamp — `labelCounterStamps` / `CaptureRule.stamp` in `src/Workflow.ts`).
+Resolution reads exactly one trailer, the nearest workflow commit's, into
+`ResolvePayload.counters`; a workflow commit without one (a pre-trailer history)
+reads as the zero vector. Squash commits carry no trailer — their message is the
+authored `SQUASH_MSG.md` content verbatim, and they parse as boundaries anyway.
+
 ### 2.1 Turn gates (`TurnGate`)
 
 ```
-grilling | architecting | grilled | building | fixing | agentic-review | review
-| squashing | health-fixing | escalate | learning | learning-apply
+grilling | grilling-accepted | architecting | architecting-accepted | grilled
+| building | fixing | agentic-review | agentic-approved | agentic-findings
+| review | review-approved | review-feedback | squashing | health-fixing
+| escalate | learning | learning-apply
 ```
 
-`turnSubject(actor, gate)` produces `gtd(${actor}): ${gate}`. Not every
-`(actor, gate)` pair is reachable: turns are strictly separated (§3), so a gate
-is only ever authored by its awaited actor — there is no `gtd(human): building`
-at all, and `gtd(human)` appears only at the human gates (`grilling`'s and
-`architecting`'s entry and answer turns, `grilled`'s and `health-fixing`'s entry
-turns (the `.gtd/PLAN.md` and hand-written `.gtd/HEALTH.md` entry points — see
-§5.5 rung 1), `review`, `escalate`, and — mirroring `review` — `learning`, whose
-human turn (at the `await-learning-review` rest) shares the agent draft turn's
-gate name rather than getting its own).
+`turnSubject(actor, gate)` produces `gtd(${actor}): ${gate}`. Six of these are
+**branch labels**, decided at capture time from the pending tree and encoding
+the outcome a turn's own diff used to carry (the δ discipline): an empty human
+answer captures as `grilling-accepted` / `architecting-accepted`
+(accept-defaults), the human review verdict captures as `review-approved` (clean
+step, checkbox-only flips, or an outright REVIEW.md deletion) or
+`review-feedback` (substantive edits), and the agentic verdict captures as
+`agentic-approved` (empty FEEDBACK.md write) or `agentic-findings` (non-empty).
+
+Not every `(actor, gate)` pair is reachable: turns are strictly separated (§3),
+so a gate is only ever authored by its awaited actor — there is no
+`gtd(human): building` at all, and `gtd(human)` appears only at the human gates
+(`grilling`'s and `architecting`'s entry, answer, and accept turns, `grilled`'s
+and `health-fixing`'s entry turns (the `.gtd/PLAN.md` and hand-written
+`.gtd/HEALTH.md` entry points — see §5.5 rung 1), the
+`review-approved`/`review-feedback` verdicts, `escalate`, and — mirroring review
+— `learning`, whose human turn (at the `await-learning-review` rest) shares the
+agent draft turn's gate name rather than getting its own).
 
 ### 2.2 Routing phases (`RoutingPhase`) and their awaited actor
 
 Every non-parameterized routing subject is a literal string (`ROUTING_SUBJECT`
-in `src/Subjects.ts`). The table below transcribes the classification
-`classifyHead` in `src/Machine.ts` assigns to each — its rest-or-mid-chain class
-and the actor it lands on (`"—"` = the row is resolved by the payload-dependent
+in `src/Subjects.ts`). The table below transcribes the classification rows the
+definition declares (`routingRules` in `src/Workflow.ts`, interpreted by
+`classifyHead` in `src/Machine.ts`) — each subject's rest-or-mid-chain class and
+the actor it lands on (`"—"` = the row is resolved by the payload-dependent
 ladder, not by subject alone):
 
-| Subject                      | Class at that HEAD | Lands at (state, actor)                                                                                                                                                                                                                                                                               |
-| ---------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gtd: architecting`          | rest               | `architecting`, agent                                                                                                                                                                                                                                                                                 |
-| `gtd: grilled`               | rest               | `grilled`, agent                                                                                                                                                                                                                                                                                      |
-| `gtd: building`              | rest               | `building`, agent                                                                                                                                                                                                                                                                                     |
-| `gtd: tests-green`           | rest or mid-chain  | `.gtd` present: force-approved → mid-chain `closePackage` → `close-package`, agent; not force-approved → rest `agentic-review`, agent. No `.gtd` (health path): learning enabled → mid-chain `writeLearningTemplate`; else squash enabled → mid-chain `writeSquashTemplate`; else rest `idle`, human. |
-| `gtd: test-failed`           | rest               | `.gtd/ERRORS.md` present → `escalate`, human; else → `fixing`, agent                                                                                                                                                                                                                                  |
-| `gtd: close-package`         | — (ladder)         | remaining packages → `building`, agent; else reviewable diff → `review`, agent; else idle/health                                                                                                                                                                                                      |
-| `gtd: await-review`          | rest               | `await-review`, human — while an invocation rests here, the program edge opens the review checkout window (see `await-review`, §4)                                                                                                                                                                    |
-| `gtd: grilling`              | rest               | `grilling`, agent                                                                                                                                                                                                                                                                                     |
-| `gtd: done`                  | rest or mid-chain  | learning enabled + squash base present → mid-chain `writeLearningTemplate`; else squash enabled + squash base present → mid-chain `writeSquashTemplate`; else rest `idle`, human                                                                                                                      |
-| `gtd: squashing`             | rest               | `squashing`, agent                                                                                                                                                                                                                                                                                    |
-| `gtd: review <hash>`         | rest               | `review`, agent                                                                                                                                                                                                                                                                                       |
-| `gtd: health-check`          | rest               | `.gtd/ERRORS.md` present → `escalate`, human; else → `health-fixing`, agent                                                                                                                                                                                                                           |
-| `gtd: testing`               | rest (usually)     | `idle`, human — see the health-fix re-test carve-out below                                                                                                                                                                                                                                            |
-| `gtd: learning`              | rest               | `learning`, agent                                                                                                                                                                                                                                                                                     |
-| `gtd: await-learning-review` | rest               | `await-learning-review`, human                                                                                                                                                                                                                                                                        |
-| `gtd: learning-apply`        | rest               | `learning-apply`, agent                                                                                                                                                                                                                                                                               |
-| `gtd: learning-applied`      | rest or mid-chain  | squash enabled + squash base present → mid-chain `writeSquashTemplate`; else rest `idle`, human                                                                                                                                                                                                       |
+| Subject                      | Class at that HEAD | Lands at (state, actor)                                                                                                                                                                                                                                      |
+| ---------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `gtd: architecting`          | rest               | `architecting`, agent                                                                                                                                                                                                                                        |
+| `gtd: grilled`               | rest               | `grilled`, agent                                                                                                                                                                                                                                             |
+| `gtd: building`              | rest               | `building`, agent                                                                                                                                                                                                                                            |
+| `gtd: tests-green`           | rest or mid-chain  | the health path's green marker (a green check writes it only when no packages are in play): learning enabled + squash base → mid-chain `writeLearningTemplate`; else squash enabled + squash base → mid-chain `writeSquashTemplate`; else rest `idle`, human |
+| `gtd: test-failed`           | rest               | `fixing`, agent — a red check **below** the fix-attempt cap (at the cap the check writes `gtd: escalated` instead, decided at write time)                                                                                                                    |
+| `gtd: escalated`             | rest               | `escalate`, human — a red check that crossed the cap and wrote .gtd/ERRORS.md                                                                                                                                                                                |
+| `gtd: agentic-review`        | rest               | `agentic-review`, agent — a green check with packages remaining and the review threshold not reached (force-approved green closes inline instead, without this marker)                                                                                       |
+| `gtd: close-package`         | — (ladder)         | remaining packages → `building`, agent; else reviewable diff → `review`, agent; else idle/health                                                                                                                                                             |
+| `gtd: await-review`          | rest               | `await-review`, human — while an invocation rests here, the program edge opens the review checkout window (see `await-review`, §4)                                                                                                                           |
+| `gtd: grilling`              | rest               | `grilling`, agent                                                                                                                                                                                                                                            |
+| `gtd: done`                  | rest or mid-chain  | learning enabled + squash base present → mid-chain `writeLearningTemplate`; else squash enabled + squash base present → mid-chain `writeSquashTemplate`; else rest `idle`, human                                                                             |
+| `gtd: squashing`             | rest               | `squashing`, agent                                                                                                                                                                                                                                           |
+| `gtd: review <hash>`         | rest               | `review`, agent                                                                                                                                                                                                                                              |
+| `gtd: health-check`          | rest               | `health-fixing`, agent — a red health check **below** the cap (at the cap it writes `gtd: escalated` instead)                                                                                                                                                |
+| `gtd: testing`               | rest (usually)     | `idle`, human — see the health-fix re-test carve-out below                                                                                                                                                                                                   |
+| `gtd: learning`              | rest               | `learning`, agent                                                                                                                                                                                                                                            |
+| `gtd: await-learning-review` | rest               | `await-learning-review`, human                                                                                                                                                                                                                               |
+| `gtd: learning-apply`        | rest               | `learning-apply`, agent                                                                                                                                                                                                                                      |
+| `gtd: learning-applied`      | rest or mid-chain  | squash enabled + squash base present → mid-chain `writeSquashTemplate`; else rest `idle`, human                                                                                                                                                              |
 
 The parameterized anchor `gtd: review <hash>` (`reviewingSubject` in
 `src/Subjects.ts`) is written only by `gtd review <target>` (§3); `<hash>` is
 the resolved review base and supplies `reviewBase` directly, overriding the
 ordinary review-scope rules (§4, Review).
 
-**Turn-commit classification** (the other half of `classifyHead`, keyed on
-`(actor, gate)`):
+**Turn-commit classification** (the definition's `turnRules`, keyed on
+`(actor, gate)`). Because branch outcomes are encoded in the label at capture
+(§2.1), every row is a pure function of the subject plus the small
+config-dependent flag set — no row re-inspects the landed turn's own diff:
 
-| Turn commit                  | Class                                                     | Lands at                                                                                                                                                                                                                                                       |
-| ---------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gtd(agent): grilling`       | empty diff → rest; non-empty → rest                       | `grilling`, agent (empty, re-emit) or `grilling`, human (non-empty, answer gate)                                                                                                                                                                               |
-| `gtd(human): grilling`       | empty diff → mid-chain; non-empty → rest                  | empty → `commitRouting "gtd: architecting", seedArchitectureFromTodo: true` → `architecting`/agent; non-empty → rest `grilling`, agent                                                                                                                         |
-| `gtd(agent): architecting`   | empty diff → rest; non-empty → rest                       | `architecting`, agent (empty, re-emit) or `architecting`, human (non-empty, answer gate)                                                                                                                                                                       |
-| `gtd(human): architecting`   | empty diff → mid-chain; non-empty → rest                  | empty → `commitRouting "gtd: grilled"` → `grilled`/agent; non-empty → rest `architecting`, agent                                                                                                                                                               |
-| `gtd(human): grilled`        | `.gtd/PLAN.md` present → mid-chain; else — (ladder)       | mid-chain → `commitRouting "gtd: grilled", seedArchitectureFromPlan: true` (writes .gtd/ARCHITECTURE.md from .gtd/PLAN.md, removes .gtd/PLAN.md); without .gtd/PLAN.md it falls to the ladder (a half-seeded crash recovers via the .gtd/ARCHITECTURE.md rung) |
-| `gtd(agent): grilled`        | mid-chain                                                 | `commitRouting "gtd: building"` (removes .gtd/ARCHITECTURE.md)                                                                                                                                                                                                 |
-| `gtd(agent): building`       | mid-chain                                                 | `runTest`                                                                                                                                                                                                                                                      |
-| `gtd(agent): fixing`         | empty diff → rest; non-empty → mid-chain                  | empty → rest `fixing`, agent (re-emit); non-empty → `runTest`                                                                                                                                                                                                  |
-| `gtd(agent): agentic-review` | rest                                                      | `agentic-review`, agent (only reached when .gtd/FEEDBACK.md was never written at all — the .gtd/FEEDBACK.md-present cases are handled by the steering-file precedence check that runs before this)                                                             |
-| `gtd(agent): review`         | mid-chain                                                 | `commitRouting "gtd: await-review"`                                                                                                                                                                                                                            |
-| `gtd(human): review`         | mid-chain                                                 | substantive → `commitRouting "gtd: grilling"` (removes .gtd/REVIEW.md); non-substantive (clean or checkbox-only) → `commitRouting "gtd: done"` (removes .gtd/REVIEW.md)                                                                                        |
-| `gtd(agent): squashing`      | squash base present → mid-chain; else rest                | mid-chain → `squashCommit`; rest → `squashing`, agent                                                                                                                                                                                                          |
-| `gtd(agent): health-fixing`  | mid-chain                                                 | `commitRouting "gtd: testing"` (removes .gtd/HEALTH.md)                                                                                                                                                                                                        |
-| `gtd(human): health-fixing`  | — (precedence)                                            | the hand-written-HEALTH.md entry turn: no `classifyHead` row — the steering-file precedence rung (§5.2) rests it at `health-fixing`, agent. A clean `gtd step agent` at this HEAD is inert (the entry description must survive until an agent has read it)     |
-| `gtd(human): escalate`       | mid-chain                                                 | `runTest` (re-test after the human's fix)                                                                                                                                                                                                                      |
-| `gtd(agent): learning`       | squash base present + non-template → mid-chain; else rest | mid-chain → `commitRouting "gtd: await-learning-review"`; rest → `learning`, agent (re-emit until the agent overwrites the template)                                                                                                                           |
-| `gtd(human): learning`       | mid-chain (unconditional — no reject path)                | `commitRouting "gtd: learning-apply"`                                                                                                                                                                                                                          |
-| `gtd(agent): learning-apply` | mid-chain                                                 | `commitRouting "gtd: learning-applied"` (removes .gtd/LEARNINGS.md)                                                                                                                                                                                            |
+| Turn commit                         | Class                                               | Lands at                                                                                                                                                                                                                                                       |
+| ----------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gtd(agent): grilling`              | rest                                                | `grilling`, human (capture rules guarantee a draft turn is never empty — the answer gate is next)                                                                                                                                                              |
+| `gtd(human): grilling`              | rest                                                | `grilling`, agent (a non-empty answer — the empty accept-defaults case captures as `grilling-accepted` instead)                                                                                                                                                |
+| `gtd(human): grilling-accepted`     | mid-chain                                           | `commitRouting "gtd: architecting", seedArchitectureFromTodo: true` → `architecting`/agent                                                                                                                                                                     |
+| `gtd(agent): architecting`          | rest                                                | `architecting`, human                                                                                                                                                                                                                                          |
+| `gtd(human): architecting`          | rest                                                | `architecting`, agent                                                                                                                                                                                                                                          |
+| `gtd(human): architecting-accepted` | mid-chain                                           | `commitRouting "gtd: grilled"` → `grilled`/agent                                                                                                                                                                                                               |
+| `gtd(human): grilled`               | `.gtd/PLAN.md` present → mid-chain; else — (ladder) | mid-chain → `commitRouting "gtd: grilled", seedArchitectureFromPlan: true` (writes .gtd/ARCHITECTURE.md from .gtd/PLAN.md, removes .gtd/PLAN.md); without .gtd/PLAN.md it falls to the ladder (a half-seeded crash recovers via the .gtd/ARCHITECTURE.md rung) |
+| `gtd(agent): grilled`               | packages present → mid-chain; else rest             | mid-chain → `commitRouting "gtd: building"` (removes .gtd/ARCHITECTURE.md); no packages produced → rest `grilled`, agent                                                                                                                                       |
+| `gtd(agent): building`              | mid-chain                                           | `runTest` (the green outcome — `gtd: agentic-review`, inline close, or `gtd: tests-green` — is decided at dispatch)                                                                                                                                            |
+| `gtd(agent): fixing`                | mid-chain                                           | `runTest` (capture rules forbid an empty fixing turn, so a landed one always strips .gtd/FEEDBACK.md and re-tests)                                                                                                                                             |
+| `gtd(agent): agentic-review`        | rest                                                | `agentic-review`, agent — a no-verdict turn (dirtied something but never wrote .gtd/FEEDBACK.md); inert re-emit, never an implicit approval                                                                                                                    |
+| `gtd(agent): agentic-approved`      | mid-chain                                           | `closePackage` → `close-package` (the approval verdict, decided at capture from the empty .gtd/FEEDBACK.md write)                                                                                                                                              |
+| `gtd(agent): agentic-findings`      | rest                                                | `fixing`, agent (a findings round)                                                                                                                                                                                                                             |
+| `gtd(agent): review`                | .gtd/REVIEW.md present → mid-chain; else rest       | mid-chain → `commitRouting "gtd: await-review"`; without a produced record → rest `review`, agent                                                                                                                                                              |
+| `gtd(human): review-approved`       | mid-chain                                           | `commitRouting "gtd: done"` (removes .gtd/REVIEW.md) — approval, decided at capture (clean step, checkbox-only flips, or REVIEW.md deletion)                                                                                                                   |
+| `gtd(human): review-feedback`       | mid-chain                                           | `commitRouting "gtd: grilling"` (removes .gtd/REVIEW.md) — substantive feedback re-enters grilling                                                                                                                                                             |
+| `gtd(agent): squashing`             | squash base present → mid-chain; else rest          | mid-chain → `squashCommit`; rest → `squashing`, agent                                                                                                                                                                                                          |
+| `gtd(agent): health-fixing`         | mid-chain                                           | `commitRouting "gtd: testing"` (removes .gtd/HEALTH.md)                                                                                                                                                                                                        |
+| `gtd(human): health-fixing`         | — (precedence)                                      | the hand-written-HEALTH.md entry turn: no classification row — the steering-file precedence rung (§5.2) rests it at `health-fixing`, agent. A clean `gtd step agent` at this HEAD is inert (the entry description must survive until an agent has read it)     |
+| `gtd(human): escalate`              | mid-chain                                           | `runTest` (re-test after the human's fix)                                                                                                                                                                                                                      |
+| `gtd(agent): learning`              | squash base present → mid-chain; else rest          | mid-chain → `commitRouting "gtd: await-learning-review"`; rest → `learning`, agent (the capture rule guarantees a real draft)                                                                                                                                  |
+| `gtd(human): learning`              | mid-chain (unconditional — no reject path)          | `commitRouting "gtd: learning-apply"`                                                                                                                                                                                                                          |
+| `gtd(agent): learning-apply`        | mid-chain                                           | `commitRouting "gtd: learning-applied"` (removes .gtd/LEARNINGS.md)                                                                                                                                                                                            |
 
 **The health-fix re-test carve-out.** `gtd: testing` classifies as a plain rest
 (`idle`, human) for `gtd next` / `gtd status` — a clean tree there "self-heals":
@@ -235,23 +279,25 @@ the very next invocation's health check simply re-runs. But a mutating
 invocation that lands on `gtd: testing` mid-chain (i.e. the same invocation that
 just captured the health-fixer's own turn) must re-test in that same chain
 rather than stopping; this is handled as a special case in `applyTurnTaking`,
-not in `classifyHead`. Likewise, `gtd: health-check` forces a re-test on **any**
-invoking actor once the fix-attempt budget is already exhausted (`capReached`) —
-there is nothing left to fix, so even a human's `gtd step human` must force the
-escalating re-test rather than be refused as an out-of-turn step. These two
-carve-outs sit _above_ the out-of-turn refusals in `applyTurnTaking` on purpose:
-they perform bookkeeping (a re-test), never a turn capture, so they don't breach
-the strict actor separation of turns (§3).
+not in classification. This carve-out sits _above_ the out-of-turn refusals in
+`applyTurnTaking` on purpose: it performs bookkeeping (a re-test), never a turn
+capture, so it doesn't breach the strict actor separation of turns (§3). (The
+old at-cap `gtd: health-check` carve-out is gone: the check decides at write
+time, so a cap-crossing red lands as `gtd: escalated` directly.)
 
 ### 2.3 Compatibility rule and upgrade requirement
 
 Any `gtd: *` subject **outside** the closed routing set above parses as
-`"boundary"` — this includes every v1 subject: `gtd: new task`, `gtd: grilling`,
-`gtd: building`, `gtd: fixing`, `gtd: feedback`, `gtd: transport`, and a bare
-`gtd: review` without a hash. v2 does not recognize these; they are treated
-exactly like an ordinary non-`gtd` commit — inert, cold-start boundary. This is
-intentional: `parseSubject` is total and safe to run over v1 history without
-throwing.
+`"boundary"` — this includes almost every v1 subject (`gtd: new task`,
+`gtd: fixing`, `gtd: feedback`, `gtd: transport`, a bare `gtd: review` without a
+hash) and the pre-label v2 routing subjects (`gtd: planning`,
+`gtd: tests green`, `gtd: errors`, …). v2 does not recognize these; they are
+treated exactly like an ordinary non-`gtd` commit — inert, cold-start boundary.
+This is intentional: `parseSubject` is total and safe to run over v1 history
+without throwing. Two v1 subjects — `gtd: grilling` and `gtd: building` —
+collide with live v2 labels and now parse as those labels; see the upgrading doc
+for why this is harmless at a clean boundary (and the upgrade requirement below
+for why an in-flight v1 cycle isn't supported at all).
 
 **Upgrade requirement**: a repository must have finished or cleaned up its v1
 cycles (no v1 steering files, no v1 `gtd:` HEAD mid-workflow) before upgrading
