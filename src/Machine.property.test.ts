@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest"
 import fc from "fast-check"
 import {
   DEFAULT_PAYLOAD,
-  foldCounters,
   GtdStateError,
   resolve,
+  type Counters,
   type GtdEvent,
   type GtdState,
   type ResolvePayload,
 } from "./Machine.js"
+import { labelCounterStamps, stampLabelCounters } from "./Workflow.js"
 
 /**
  * Property sweep over edge-consistent payloads: random payloads are generated
@@ -79,10 +80,18 @@ const HEADS = [...TURN_SUBJECTS, ...ROUTING_SUBJECTS, ...BOUNDARY_SUBJECTS] as c
 
 const arbInvoker = fc.constantFrom<ResolvePayload["invoker"]>("human", "agent", "none")
 
+/** Small non-negative counter vectors, as a trailer read could produce. */
+const arbCounters: fc.Arbitrary<Counters> = fc.record({
+  testFixCount: fc.integer({ min: 0, max: 5 }),
+  reviewFixCount: fc.integer({ min: 0, max: 5 }),
+  healthFixCount: fc.integer({ min: 0, max: 5 }),
+})
+
 /** Raw independent facts, constrained into an edge-consistent payload below. */
 const arbPayload: fc.Arbitrary<ResolvePayload> = fc
   .record({
     invoker: arbInvoker,
+    counters: arbCounters,
     head: fc.constantFrom(...HEADS),
     clean: fc.boolean(),
     codeDirtyRaw: fc.boolean(),
@@ -126,6 +135,7 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
     const isTurnHead = (TURN_SUBJECTS as readonly string[]).includes(raw.head)
     return {
       invoker: raw.invoker,
+      counters: raw.counters,
       headTurnDiff: isTurnHead ? "diff --git a/x b/x\n+x\n" : "",
       todoExists: raw.todoExists,
       todoCommitted: raw.todoExists && raw.todoCommittedRaw,
@@ -172,14 +182,9 @@ const arbPayload: fc.Arbitrary<ResolvePayload> = fc
 
 const arbCommit: fc.Arbitrary<GtdEvent> = fc
   .record({
-    isErrors: fc.boolean(),
-    isFeedback: fc.boolean(),
-    isPackageStart: fc.boolean(),
-    removedErrors: fc.boolean(),
-    isHealthCheck: fc.boolean(),
-    isTestsGreen: fc.boolean(),
+    isWorkflowCommit: fc.boolean(),
   })
-  .map((f) => ({ type: "COMMIT" as const, isWorkflowCommit: true, ...f }))
+  .map((f) => ({ type: "COMMIT" as const, ...f }))
 
 const arbEvents: fc.Arbitrary<GtdEvent[]> = fc
   .tuple(fc.array(arbCommit, { maxLength: 12 }), arbPayload)
@@ -362,6 +367,8 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
           kind: "captureTurn",
           actor: "human",
           gate: expectedState === "grilling" ? "grilling-accepted" : "architecting-accepted",
+          // Accept-defaults captures have no stamp — the vector is carried.
+          counters: payload.counters,
         })
       }),
       { numRuns: 500 },
@@ -449,17 +456,31 @@ describe("resolve — property sweep over edge-consistent payloads", () => {
   })
 })
 
-describe("foldCounters — property invariants", () => {
-  it("counters are non-negative and unaffected by RESOLVE events", () => {
+describe("stampLabelCounters — property invariants", () => {
+  it("stamped vectors stay non-negative; unstamped labels carry the vector unchanged", () => {
     fc.assert(
-      fc.property(fc.array(arbCommit, { maxLength: 30 }), arbPayload, (commits, payload) => {
-        const bare = foldCounters(commits)
-        expect(bare.testFixCount).toBeGreaterThanOrEqual(0)
-        expect(bare.reviewFixCount).toBeGreaterThanOrEqual(0)
-        expect(bare.healthFixCount).toBeGreaterThanOrEqual(0)
-        const withResolve = foldCounters([...commits, { type: "RESOLVE", payload }])
-        expect(withResolve).toEqual(bare)
-      }),
+      fc.property(
+        arbCounters,
+        fc.constantFrom(
+          "building" as const,
+          "close-package" as const,
+          "test-failed" as const,
+          "health-check" as const,
+          "tests-green" as const,
+          "escalated" as const,
+          "done" as const,
+          undefined,
+        ),
+        (prev, phase) => {
+          const next = stampLabelCounters(phase, prev)
+          expect(next.testFixCount).toBeGreaterThanOrEqual(0)
+          expect(next.reviewFixCount).toBeGreaterThanOrEqual(0)
+          expect(next.healthFixCount).toBeGreaterThanOrEqual(0)
+          if (phase === undefined || labelCounterStamps[phase] === undefined) {
+            expect(next).toEqual(prev)
+          }
+        },
+      ),
       { numRuns: 1000 },
     )
   })

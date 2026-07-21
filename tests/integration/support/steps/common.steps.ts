@@ -247,6 +247,13 @@ Then("the HEAD commit subject is {string}", (world: GtdWorld, subject: string) =
   )
 })
 
+// The commit MESSAGE body (everything after the subject line) — for the
+// `Gtd-Counters` trailer every machine-written commit carries.
+Then("the last commit body contains {string}", (world: GtdWorld, text: string) => {
+  const body = world.lastCommitBody()
+  assert.ok(body.includes(text), `Expected last commit body to contain "${text}". Got:\n${body}`)
+})
+
 Then("the git log contains {string}", (world: GtdWorld, subject: string) => {
   const log = world.gitLog()
   assert.ok(log.includes(subject), `Expected git log to contain "${subject}". Got:\n${log}`)
@@ -345,7 +352,10 @@ Then("the commit subjects from oldest to newest are:", (world: GtdWorld, doc: st
     world.tier === "inmem"
       ? world
           .repo!.commitHistory()
-          .map((c) => c.message)
+          // Subject line only — commit bodies (e.g. the `Gtd-Counters`
+          // trailer) are not part of the sequence assertion, matching the
+          // subprocess tier's `--format=%s`.
+          .map((c) => c.message.split("\n")[0] ?? "")
           .join("\n")
       : execFileSync("git", ["log", "--reverse", "--format=%s"], {
           cwd: world.repoDir,

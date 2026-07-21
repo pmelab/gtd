@@ -2,7 +2,7 @@
  * Pure, event-sourced resolver for the gtd v2 turn-taking state machine.
  *
  * This module is the **interpreter**: the machine's shape (states, HEAD
- * classification rules, interrupt/fallback ladders, counter folds, illegal
+ * classification rules, interrupt/fallback ladders, counter stamps, illegal
  * combinations, entry points) lives as data in `./Workflow.ts`
  * (`defaultWorkflow`), and `resolve(events)` folds the event stream through
  * that definition. The contract types (`GtdState`, `CommitEvent`,
@@ -48,6 +48,8 @@ import {
   defaultWorkflow,
   isAutonomousActor,
   isInteractiveActor,
+  stampLabelCounters,
+  zeroCounters,
 } from "./Workflow.js"
 
 export type {
@@ -125,33 +127,6 @@ export class GtdStateError extends Error {
 }
 
 /**
- * Counter folds over the event stream (oldest→newest), interpreting the
- * definition's `counters` rules — the edge stays thin. Only `COMMIT` events
- * contribute; `RESOLVE` events are ignored here. Reset is checked before
- * increment for every counter, so a commit that both resets and increments
- * (none currently do) would net to 1, not 0.
- */
-export const foldCounters = (events: readonly GtdEvent[]): Counters => {
-  const counts: Record<keyof Counters, number> = {
-    testFixCount: 0,
-    reviewFixCount: 0,
-    healthFixCount: 0,
-  }
-  const rules = Object.entries(defaultWorkflow.counters) as [
-    keyof Counters,
-    (typeof defaultWorkflow.counters)[keyof Counters],
-  ][]
-  for (const event of events) {
-    if (event.type !== "COMMIT") continue
-    for (const [name, rule] of rules) {
-      if (rule.resetsOn(event)) counts[name] = 0
-      if (rule.incrementsOn(event)) counts[name] += 1
-    }
-  }
-  return counts
-}
-
-/**
  * The nearest workflow (turn or routing) commit's turn identity, walking
  * newest→oldest and skipping boundary commits (`isWorkflowCommit === false`).
  * Used to recognize an operational-recovery HEAD: a boundary commit (e.g. a
@@ -181,6 +156,7 @@ const lastWorkflowTurn = (
  */
 export const DEFAULT_PAYLOAD: ResolvePayload = {
   invoker: "none",
+  counters: zeroCounters,
   headTurnDiff: "",
   todoExists: false,
   todoCommitted: false,
@@ -546,6 +522,28 @@ const resolveBaseline = (
 }
 
 /**
+ * Attach the counter vector a mid-chain action's commit must carry as its
+ * `Gtd-Counters` trailer. `commitRouting` subjects are fixed at dispatch, so
+ * their label stamp applies here; the write-time-decided labels (`runTest` /
+ * `runHealthCheck` outcomes, the inline close) carry the PREVIOUS vector and
+ * the edge applies the chosen label's stamp at write time. `squashCommit` is
+ * exempt: its message is the human-authored SQUASH_MSG.md content verbatim.
+ */
+const attachCounters = (action: EdgeAction, prev: Counters): EdgeAction => {
+  switch (action.kind) {
+    case "commitRouting": {
+      const parsed = parseSubject(action.subject)
+      const phase = parsed.kind === "routing" ? parsed.phase : undefined
+      return { ...action, counters: stampLabelCounters(phase, prev) }
+    }
+    case "squashCommit":
+      return action
+    default:
+      return { ...action, counters: prev }
+  }
+}
+
+/**
  * Layer turn-taking semantics over the baseline classification: out-of-turn
  * guards, fixpoint (idempotent re-invocation), the idle health-check
  * carve-out, and the dirty-boundary entry turn. `invoker: "none"` never
@@ -596,7 +594,7 @@ const applyTurnTaking = (
       state: entryGate as GtdState,
       actor: invoker,
       pending: false,
-      edgeAction: { kind: "captureTurn", actor: invoker, gate: entryGate },
+      edgeAction: { kind: "captureTurn", actor: invoker, gate: entryGate, counters },
       context,
     }
   }
@@ -611,7 +609,7 @@ const applyTurnTaking = (
       state: baseline.state,
       actor: baseline.actor,
       pending: false,
-      edgeAction: baseline.action,
+      edgeAction: attachCounters(baseline.action, counters),
       context,
     }
   }
@@ -649,6 +647,7 @@ const applyTurnTaking = (
         errorCount: counters.healthFixCount,
         capReached: counters.healthFixCount >= p.fixAttemptCap,
         chainAfterGreen: chainAfterGreenAtHealthFix,
+        counters,
       },
       context,
     }
@@ -691,6 +690,7 @@ const applyTurnTaking = (
         errorCount: counters.healthFixCount,
         capReached: counters.healthFixCount >= p.fixAttemptCap,
         chainAfterGreen,
+        counters,
       },
       context,
     }
@@ -741,7 +741,15 @@ const applyTurnTaking = (
     state: baseline.state,
     actor: awaited,
     pending: false,
-    edgeAction: { kind: "captureTurn", actor: invoker, gate: match.label },
+    edgeAction: {
+      kind: "captureTurn",
+      actor: invoker,
+      gate: match.label,
+      // The captured turn's trailer vector: the rule's stamp (a write-time
+      // branch decision, e.g. a findings round counting a review cycle)
+      // applied to the previous vector, or the previous vector carried.
+      counters: match.stamp?.(counters, p) ?? counters,
+    },
     context,
   }
 }
@@ -753,19 +761,20 @@ const pickEntryGate = (p: ResolvePayload): TurnGate => {
 }
 
 /**
- * Resolve the event stream to a single decision. Folds `COMMIT[]` into the
- * three counters, classifies HEAD (rest vs mid-chain) per the definition's
- * wire-format table, then layers turn-taking semantics on top.
+ * Resolve the event stream to a single decision. Reads the current counter
+ * vector off the payload (the nearest workflow commit's `Gtd-Counters`
+ * trailer, parsed at the edge), classifies HEAD (rest vs mid-chain) per the
+ * definition's wire-format table, then layers turn-taking semantics on top.
  *
  * Throws `GtdStateError` for an illegal steering-file combination (before
  * classification) or for corruption (no rule matched). Every other input —
  * including `resolve([])` — returns a `Result` without throwing.
  */
 export const resolve = (events: readonly GtdEvent[]): Result => {
-  const counters = foldCounters(events)
   let payload: ResolvePayload = DEFAULT_PAYLOAD
   for (const event of events) if (event.type === "RESOLVE") payload = event.payload
   const p = payload
+  const counters = p.counters
   assertLegal(p)
   const head = p.lastCommitSubject
   const corrupt = (): never => {
@@ -798,9 +807,9 @@ export interface TurnPrediction {
  */
 // fallow-ignore-next-line complexity
 export const predictTurn = (events: readonly GtdEvent[]): TurnPrediction => {
-  const counters = foldCounters(events)
   let payload: ResolvePayload = DEFAULT_PAYLOAD
   for (const event of events) if (event.type === "RESOLVE") payload = event.payload
+  const counters = payload.counters
   const head = payload.lastCommitSubject
   const corrupt = (): never => {
     throw new GtdStateError(

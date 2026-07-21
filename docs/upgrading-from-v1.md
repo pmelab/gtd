@@ -59,9 +59,16 @@ from a plain boundary HEAD.
 repository root; they now live under `.gtd/`. Upgrade at a clean boundary (idle,
 post-squash): a repo at rest needs nothing. Mid-cycle repos should either finish
 the cycle on the old build first or move the root-level steering files into
-`.gtd/` by hand and commit. History classification is backward-compatible — the
-counter folds recognize both the old root paths and the new `.gtd/` paths in
-existing commits.
+`.gtd/` by hand and commit. History classification is backward-compatible —
+commit **subjects** steer, and old subjects outside the current label grammar
+parse as inert boundaries.
+
+**Fix/review budgets moved into commit trailers.** Machine-written commits now
+carry their counter vector as a `Gtd-Counters: t=… r=… h=…` body trailer,
+written at commit time; resolution reads the nearest workflow commit's trailer
+instead of re-counting history. Commits from earlier builds have no trailer and
+read as a **zero** budget — after upgrading, in-flight fix/review caps simply
+restart from zero. No action needed.
 
 **Re-copy the loop skill.** If you vendor `skills/loop/` into a consuming repo
 or agent harness, upgrading the `gtd` binary also means re-copying that skill

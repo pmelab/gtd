@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest"
 import {
   awaitedActor,
   DEFAULT_PAYLOAD,
-  foldCounters,
   GtdStateError,
   predictTurn,
   resolve,
+  type Counters,
   type GtdEvent,
   type ResolvePayload,
 } from "./Machine.js"
+import { stampLabelCounters, zeroCounters } from "./Workflow.js"
 
 // ── Builders ──────────────────────────────────────────────────────────────
 
@@ -16,27 +17,17 @@ const commit = (
   flags: {
     turnActor?: "human" | "agent"
     turnGate?: string
-    isErrors?: boolean
-    isFeedback?: boolean
-    isPackageStart?: boolean
     isWorkflowCommit?: boolean
-    removedErrors?: boolean
-    isHealthCheck?: boolean
-    isTestsGreen?: boolean
   } = {},
 ): GtdEvent => ({
   // Defaults first, caller overrides spread on top — call sites pass literal
   // objects holding only the keys they mean to set, never explicit undefined.
   type: "COMMIT",
-  isErrors: false,
-  isFeedback: false,
-  isPackageStart: false,
   isWorkflowCommit: true,
-  removedErrors: false,
-  isHealthCheck: false,
-  isTestsGreen: false,
   ...flags,
 })
+
+const counters = (overrides: Partial<Counters>): Counters => ({ ...zeroCounters, ...overrides })
 
 const basePayload = (overrides: Partial<ResolvePayload> = {}): ResolvePayload => ({
   ...DEFAULT_PAYLOAD,
@@ -49,100 +40,52 @@ const R = (overrides: Partial<ResolvePayload> = {}): GtdEvent => ({
   payload: basePayload(overrides),
 })
 
-// ── Counter folds ─────────────────────────────────────────────────────────
+// ── Counter vector (trailer-carried, stamped at write time) ──────────────
 
-describe("foldCounters — testFixCount", () => {
-  it("empty stream → 0", () => {
-    expect(foldCounters([]).testFixCount).toBe(0)
+describe("payload counters", () => {
+  it("empty stream → zero vector in context", () => {
     expect(resolve([]).context.testFixCount).toBe(0)
+    expect(resolve([]).context.reviewFixCount).toBe(0)
   })
 
-  it("N trailing isErrors → N", () => {
-    const events = [
-      commit({ isErrors: true }),
-      commit({ isErrors: true }),
-      commit({ isErrors: true }),
-    ]
-    expect(foldCounters(events).testFixCount).toBe(3)
-  })
-
-  it("walks through non-error workflow commits without resetting", () => {
-    const events = [commit({ isErrors: true }), commit(), commit({ isErrors: true })]
-    expect(foldCounters(events).testFixCount).toBe(2)
-  })
-
-  it("resets on isPackageStart", () => {
-    const events = [
-      commit({ isErrors: true }),
-      commit({ isPackageStart: true }),
-      commit({ isErrors: true }),
-    ]
-    expect(foldCounters(events).testFixCount).toBe(1)
-  })
-
-  it("resets on isFeedback", () => {
-    const events = [
-      commit({ isErrors: true }),
-      commit({ isFeedback: true }),
-      commit({ isErrors: true }),
-    ]
-    expect(foldCounters(events).testFixCount).toBe(1)
-  })
-
-  it("resets on removedErrors", () => {
-    const events = [
-      commit({ isErrors: true }),
-      commit({ removedErrors: true }),
-      commit({ isErrors: true }),
-    ]
-    expect(foldCounters(events).testFixCount).toBe(1)
+  it("context reports the payload's trailer vector verbatim", () => {
+    const result = resolve([R({ counters: counters({ testFixCount: 2, reviewFixCount: 1 }) })])
+    expect(result.context.testFixCount).toBe(2)
+    expect(result.context.reviewFixCount).toBe(1)
   })
 })
 
-describe("foldCounters — reviewFixCount", () => {
-  it("increments on isFeedback, resets on isPackageStart", () => {
-    const events = [
-      commit({ isFeedback: true }),
-      commit({ isFeedback: true }),
-      commit({ isPackageStart: true }),
-      commit({ isFeedback: true }),
-    ]
-    expect(foldCounters(events).reviewFixCount).toBe(1)
+describe("stampLabelCounters", () => {
+  it("building and close-package reset t and r, carry h", () => {
+    const prev = counters({ testFixCount: 2, reviewFixCount: 3, healthFixCount: 1 })
+    for (const phase of ["building", "close-package"] as const) {
+      expect(stampLabelCounters(phase, prev)).toEqual(
+        counters({ testFixCount: 0, reviewFixCount: 0, healthFixCount: 1 }),
+      )
+    }
   })
 
-  it("is unaffected by isErrors/removedErrors", () => {
-    const events = [
-      commit({ isFeedback: true }),
-      commit({ isErrors: true }),
-      commit({ removedErrors: true }),
-    ]
-    expect(foldCounters(events).reviewFixCount).toBe(1)
-  })
-})
-
-describe("foldCounters — healthFixCount", () => {
-  it("increments on isHealthCheck, resets on isPackageStart and removedErrors", () => {
-    const events = [
-      commit({ isHealthCheck: true }),
-      commit({ isHealthCheck: true }),
-      commit({ removedErrors: true }),
-      commit({ isHealthCheck: true }),
-    ]
-    expect(foldCounters(events).healthFixCount).toBe(1)
+  it("test-failed increments t", () => {
+    expect(stampLabelCounters("test-failed", counters({ testFixCount: 1 }))).toEqual(
+      counters({ testFixCount: 2 }),
+    )
   })
 
-  it("resets on isPackageStart", () => {
-    const events = [commit({ isHealthCheck: true }), commit({ isPackageStart: true })]
-    expect(foldCounters(events).healthFixCount).toBe(0)
+  it("health-check increments h", () => {
+    expect(stampLabelCounters("health-check", zeroCounters)).toEqual(
+      counters({ healthFixCount: 1 }),
+    )
   })
 
-  it("resets on isTestsGreen (a green re-test ends the health run)", () => {
-    const events = [
-      commit({ isHealthCheck: true }),
-      commit({ isHealthCheck: true }),
-      commit({ isTestsGreen: true }),
-    ]
-    expect(foldCounters(events).healthFixCount).toBe(0)
+  it("tests-green resets h (a green re-test ends the health run)", () => {
+    const prev = counters({ testFixCount: 1, healthFixCount: 2 })
+    expect(stampLabelCounters("tests-green", prev)).toEqual(counters({ testFixCount: 1 }))
+  })
+
+  it("unstamped labels and undefined carry the vector unchanged", () => {
+    const prev = counters({ testFixCount: 1, reviewFixCount: 2, healthFixCount: 3 })
+    expect(stampLabelCounters("escalated", prev)).toEqual(prev)
+    expect(stampLabelCounters(undefined, prev)).toEqual(prev)
   })
 })
 
@@ -271,7 +214,12 @@ describe("dirty boundary entry", () => {
     const result = resolve([R({ invoker: "human", workingTreeClean: false })])
     expect(result.state).toBe("grilling")
     expect(result.actor).toBe("human")
-    expect(result.edgeAction).toEqual({ kind: "captureTurn", actor: "human", gate: "grilling" })
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "human",
+      gate: "grilling",
+      counters: zeroCounters,
+    })
   })
 
   it("escape hatch: a dirty tree that already contains ARCHITECTURE.md captures gtd(human): architecting instead", () => {
@@ -281,6 +229,7 @@ describe("dirty boundary entry", () => {
     expect(result.state).toBe("architecting")
     expect(result.actor).toBe("human")
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "captureTurn",
       actor: "human",
       gate: "architecting",
@@ -302,7 +251,12 @@ describe("dirty boundary entry", () => {
     const result = resolve([R({ invoker: "human", workingTreeClean: false, planExists: true })])
     expect(result.state).toBe("grilled")
     expect(result.actor).toBe("human")
-    expect(result.edgeAction).toEqual({ kind: "captureTurn", actor: "human", gate: "grilled" })
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "human",
+      gate: "grilled",
+      counters: zeroCounters,
+    })
   })
 
   it("HEALTH.md entry: a dirty tree with a hand-written HEALTH.md captures gtd(human): health-fixing", () => {
@@ -317,6 +271,7 @@ describe("dirty boundary entry", () => {
     expect(result.state).toBe("health-fixing")
     expect(result.actor).toBe("human")
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "captureTurn",
       actor: "human",
       gate: "health-fixing",
@@ -333,7 +288,12 @@ describe("dirty boundary entry", () => {
       }),
     ])
     expect(result.state).toBe("grilled")
-    expect(result.edgeAction).toEqual({ kind: "captureTurn", actor: "human", gate: "grilled" })
+    expect(result.edgeAction).toEqual({
+      kind: "captureTurn",
+      actor: "human",
+      gate: "grilled",
+      counters: zeroCounters,
+    })
   })
 
   it("a committed PLAN.md at a boundary HEAD refuses an agent step (awaits human)", () => {
@@ -360,6 +320,7 @@ describe("gtd(human): grilled seeds ARCHITECTURE.md from PLAN.md", () => {
     ])
     expect(result.state).toBe("grilled")
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "commitRouting",
       subject: "gtd: grilled",
       seedArchitectureFromPlan: true,
@@ -434,6 +395,7 @@ describe("empty agent turn at the HEALTH.md entry rest", () => {
     ])
     expect(result.state).toBe("health-fixing")
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "captureTurn",
       actor: "agent",
       gate: "health-fixing",
@@ -455,6 +417,7 @@ describe("accept-defaults grilling turn chains to gtd: architecting", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "commitRouting",
       subject: "gtd: architecting",
       seedArchitectureFromTodo: true,
@@ -473,7 +436,11 @@ describe("accept-defaults architecting turn chains to gtd: grilled", () => {
         workingTreeClean: true,
       }),
     ])
-    expect(result.edgeAction).toEqual({ kind: "commitRouting", subject: "gtd: grilled" })
+    expect(result.edgeAction).toEqual({
+      kind: "commitRouting",
+      subject: "gtd: grilled",
+      counters: zeroCounters,
+    })
   })
 })
 
@@ -668,6 +635,7 @@ describe("gtd(agent): grilled mid-chains to gtd: building", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "commitRouting",
       subject: "gtd: building",
       removeArchitecture: true,
@@ -704,7 +672,7 @@ describe("squash chain", () => {
         workingTreeClean: true,
       }),
     ])
-    expect(result.edgeAction).toEqual({ kind: "writeSquashTemplate" })
+    expect(result.edgeAction).toEqual({ kind: "writeSquashTemplate", counters: zeroCounters })
   })
 
   it("gtd: squashing → rest squashing prompt for agent", () => {
@@ -739,7 +707,7 @@ describe("squash chain", () => {
         workingTreeClean: true,
       }),
     ])
-    expect(result.edgeAction).toEqual({ kind: "writeLearningTemplate" })
+    expect(result.edgeAction).toEqual({ kind: "writeLearningTemplate", counters: zeroCounters })
   })
 
   it("gtd: done + learning enabled + squash disabled + squashBase → writeLearningTemplate (orthogonal to squash)", () => {
@@ -753,7 +721,7 @@ describe("squash chain", () => {
         workingTreeClean: true,
       }),
     ])
-    expect(result.edgeAction).toEqual({ kind: "writeLearningTemplate" })
+    expect(result.edgeAction).toEqual({ kind: "writeLearningTemplate", counters: zeroCounters })
   })
 })
 
@@ -798,6 +766,7 @@ describe("learning chain", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "commitRouting",
       subject: "gtd: await-learning-review",
     })
@@ -825,6 +794,7 @@ describe("learning chain", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "commitRouting",
       subject: "gtd: learning-apply",
     })
@@ -861,6 +831,7 @@ describe("learning chain", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "commitRouting",
       subject: "gtd: learning-applied",
       removeLearning: true,
@@ -877,7 +848,7 @@ describe("learning chain", () => {
         workingTreeClean: true,
       }),
     ])
-    expect(result.edgeAction).toEqual({ kind: "writeSquashTemplate" })
+    expect(result.edgeAction).toEqual({ kind: "writeSquashTemplate", counters: zeroCounters })
   })
 
   it("gtd: learning-applied + squash disabled → rest idle for human", () => {
@@ -904,6 +875,7 @@ describe("learning chain", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "captureTurn",
       actor: "human",
       gate: "learning",
@@ -1007,6 +979,7 @@ describe("health lifecycle", () => {
     ])
     expect(result.state).toBe("health-fixing")
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "captureTurn",
       actor: "agent",
       gate: "health-fixing",
@@ -1033,6 +1006,7 @@ describe("health lifecycle", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "commitRouting",
       subject: "gtd: testing",
       removeHealth: true,
@@ -1063,6 +1037,7 @@ describe("health lifecycle", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "runHealthCheck",
       errorCount: 0,
       capReached: false,
@@ -1080,6 +1055,7 @@ describe("health lifecycle", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "runHealthCheck",
       errorCount: 0,
       capReached: false,
@@ -1088,14 +1064,18 @@ describe("health lifecycle", () => {
   })
 
   it("idle human step does not chain after green once the run's anchor is gone (no healthFixBase)", () => {
+    // The edge withholds `healthFixBase` after a green re-test ended the run
+    // (the anchor scan resets on `gtd: tests-green`) — resolve sees only its
+    // absence.
     const events = [
-      commit({ isHealthCheck: true }),
-      commit({ isTestsGreen: true }),
+      commit(),
+      commit(),
       R({ invoker: "human", workingTreeClean: true, squashEnabled: true }),
     ]
     const result = resolve(events)
     expect(result.state).toBe("idle")
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "runHealthCheck",
       errorCount: 0,
       capReached: false,
@@ -1119,7 +1099,7 @@ describe("feedback lifecycle", () => {
       R({ invoker: "agent", packagesPresent: true, feedbackPresent: true, feedbackEmpty: true }),
     ])
     expect(result.state).toBe("close-package")
-    expect(result.edgeAction).toEqual({ kind: "closePackage" })
+    expect(result.edgeAction).toEqual({ kind: "closePackage", counters: zeroCounters })
   })
 
   it("empty FEEDBACK.md, invoker none → reported pending, no mutation", () => {
@@ -1184,7 +1164,11 @@ describe("review lifecycle", () => {
         workingTreeClean: true,
       }),
     ])
-    expect(result.edgeAction).toEqual({ kind: "commitRouting", subject: "gtd: await-review" })
+    expect(result.edgeAction).toEqual({
+      kind: "commitRouting",
+      subject: "gtd: await-review",
+      counters: zeroCounters,
+    })
   })
 
   it("gtd: await-review is a rest → await-review (human)", () => {
@@ -1212,6 +1196,7 @@ describe("review lifecycle", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "commitRouting",
       subject: "gtd: done",
       removeReview: true,
@@ -1230,6 +1215,7 @@ describe("review lifecycle", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "captureTurn",
       actor: "human",
       gate: "review-approved",
@@ -1248,6 +1234,7 @@ describe("review lifecycle", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "captureTurn",
       actor: "human",
       gate: "review-feedback",
@@ -1265,6 +1252,7 @@ describe("review lifecycle", () => {
       }),
     ])
     expect(result.edgeAction).toEqual({
+      counters: zeroCounters,
       kind: "commitRouting",
       subject: "gtd: grilling",
       removeReview: true,

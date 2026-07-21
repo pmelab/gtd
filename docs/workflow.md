@@ -55,8 +55,9 @@ context, oldest to newest. See `decisionLog` under
 and `await-learning-review` await the **human**; every other state awaits the
 **agent**.
 
-For the full precedence ladder, illegal combinations, and the counter folds that
-drive the fix loops, see [STATES.md](../STATES.md) — this section is a summary.
+For the full precedence ladder, illegal combinations, and the counter trailers
+that drive the fix loops, see [STATES.md](../STATES.md) — this section is a
+summary.
 
 ### Turn commits — `gtd(<actor>): <gate>`
 
@@ -227,10 +228,11 @@ through the test gate and re-reviews. Once `reviewFixCount >= reviewThreshold`
 writing `.gtd/FEEDBACK.md` — so a package can never review-loop forever. The
 findings round that crosses the threshold still gets its fixing round; the
 force-approve close then fires at the next green re-test instead of another
-review. (Any agentic-review turn that touches `.gtd/FEEDBACK.md` counts toward
-the threshold — including the approval write itself; an approval that crosses
-the threshold simply closes the package as usual.) Setting
-`agenticReview: false` force-approves every package immediately.
+review. (Every agentic-review verdict turn — findings **and** the approval
+itself — counts toward the threshold, stamped into the turn commit's
+`Gtd-Counters` trailer at capture; an approval that crosses the threshold simply
+closes the package as usual.) Setting `agenticReview: false` force-approves
+every package immediately.
 
 A **do-nothing agent invocation** — `gtd step agent` on a clean tree at ANY
 agent-awaited rest whose move is a file artifact (`grilling`, `architecting`,
@@ -393,8 +395,8 @@ relevant fix-attempt budget to zero.
 | `health-check`          | — (edge-only)  | mid-chain only                                                 |
 | `health-fixing`         | agent          | `.gtd/HEALTH.md` present                                       |
 
-See [STATES.md](../STATES.md) for the full precedence ladder, the counter folds,
-and every illegal steering-file combination.
+See [STATES.md](../STATES.md) for the full precedence ladder, the counter
+trailers, and every illegal steering-file combination.
 
 ## Build orchestration
 

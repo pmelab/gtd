@@ -69,9 +69,10 @@ export type GtdState =
   | "health-fixing"
 
 /**
- * One first-parent commit, reduced to the flags the folds + ladder consume.
- * The edge derives every flag from the commit subject (via `parseSubject`)
- * and, for `removedErrors`, the commit's name-status diff.
+ * One first-parent commit, reduced to what the machine still reads from the
+ * stream: the turn identity for the boundary-skip recovery walk. Counters no
+ * longer fold from the stream — they ride the labels themselves as
+ * `Gtd-Counters` trailers (the δ-discipline) and arrive on the payload.
  */
 export interface CommitEvent {
   readonly type: "COMMIT"
@@ -79,20 +80,8 @@ export interface CommitEvent {
   readonly turnActor?: Actor
   /** The `<gate>` of a turn commit. */
   readonly turnGate?: string
-  /** Routing `gtd: test-failed`. */
-  readonly isErrors: boolean
-  /** Agentic-review turn whose diff touched FEEDBACK.md (a findings round). */
-  readonly isFeedback: boolean
-  /** Routing `gtd: building` | `gtd: close-package`. */
-  readonly isPackageStart: boolean
-  /** Recognized v2 turn or routing subject (kind !== "boundary"). */
+  /** Recognized turn or machine-label subject (kind !== "boundary"). */
   readonly isWorkflowCommit: boolean
-  /** That commit's diff deleted `ERRORS.md`. */
-  readonly removedErrors: boolean
-  /** Routing `gtd: health-check`. */
-  readonly isHealthCheck: boolean
-  /** Routing `gtd: tests-green` — ends a health-fix run for counter purposes. */
-  readonly isTestsGreen: boolean
 }
 
 /** A `.gtd/` work package, reduced to what the prompts list. */
@@ -161,6 +150,14 @@ export interface ResolvePayload {
   readonly pendingFeedbackDeletion: boolean
   /** Subject of HEAD (first-parent). */
   readonly lastCommitSubject: string
+  /**
+   * The counter vector of the NEAREST workflow commit's `Gtd-Counters`
+   * trailer (zero when the nearest labeled commit carries none — fresh
+   * repos, post-squash boundaries, and pre-trailer histories). Every commit
+   * the machine writes carries the vector stamped at write time, so reading
+   * ONE trailer replaces folding the whole stream.
+   */
+  readonly counters: Counters
   /** The whole working tree is clean. */
   readonly workingTreeClean: boolean
   /** `.gtd/` packages, lowest-numbered first; `packages[0]` is the active one. */
@@ -279,7 +276,13 @@ export interface ResolvePayload {
  *                          with zero commits.
  */
 export type EdgeAction =
-  | { readonly kind: "captureTurn"; readonly actor: Actor; readonly gate: TurnGate }
+  | {
+      readonly kind: "captureTurn"
+      readonly actor: Actor
+      readonly gate: TurnGate
+      /** The stamped vector this turn commit carries (attached at dispatch). */
+      readonly counters?: Counters
+    }
   | {
       readonly kind: "commitRouting"
       readonly subject: string
@@ -290,6 +293,8 @@ export type EdgeAction =
       readonly removeFeedback?: boolean
       readonly removeHealth?: boolean
       readonly removeLearning?: boolean
+      /** The stamped vector this label carries (attached at dispatch). */
+      readonly counters?: Counters
     }
   | {
       readonly kind: "runTest"
@@ -304,16 +309,20 @@ export type EdgeAction =
        * (no packages), whose settle decision follows.
        */
       readonly onGreen: "tests-green" | "agentic-review" | "close-package"
+      /** The PREVIOUS vector at dispatch; the writer stamps each outcome label from it. */
+      readonly counters?: Counters
     }
-  | { readonly kind: "closePackage" }
-  | { readonly kind: "writeSquashTemplate" }
+  | { readonly kind: "closePackage"; readonly counters?: Counters }
+  | { readonly kind: "writeSquashTemplate"; readonly counters?: Counters }
   | { readonly kind: "squashCommit"; readonly squashBase: string }
-  | { readonly kind: "writeLearningTemplate" }
+  | { readonly kind: "writeLearningTemplate"; readonly counters?: Counters }
   | {
       readonly kind: "runHealthCheck"
       readonly errorCount: number
       readonly capReached: boolean
       readonly chainAfterGreen: boolean
+      /** The PREVIOUS vector at dispatch; the writer stamps each outcome label from it. */
+      readonly counters?: Counters
     }
 
 /** The three derived counters folded from the `COMMIT[]` stream. */
@@ -407,15 +416,32 @@ export interface LadderRule {
 }
 
 /**
- * One counter's reset/increment rule, read off a `CommitEvent`: `resetsOn`
- * zeroes the running count, `incrementsOn` bumps it by one. Reset is checked
- * before increment for every counter, so a commit that both resets and
- * increments (none currently do) would net to 1, not 0.
+ * The zero vector — fresh repos, post-squash boundaries, and histories
+ * written before trailers existed.
  */
-export interface CounterRule {
-  readonly resetsOn: (event: CommitEvent) => boolean
-  readonly incrementsOn: (event: CommitEvent) => boolean
+export const zeroCounters: Counters = { testFixCount: 0, reviewFixCount: 0, healthFixCount: 0 }
+
+/**
+ * Write-time counter stamping (the δ-discipline): the WRITER of each machine
+ * label derives that commit's vector from the previous label's vector. Labels
+ * with no entry carry the previous vector unchanged. Turn-side stamps live on
+ * the capture rules (`CaptureRule.stamp`).
+ */
+export const labelCounterStamps: Partial<Record<RoutingPhase, (prev: Counters) => Counters>> = {
+  // A package starts (first or next): fresh test and review budgets.
+  building: (prev) => ({ ...prev, testFixCount: 0, reviewFixCount: 0 }),
+  "close-package": (prev) => ({ ...prev, testFixCount: 0, reviewFixCount: 0 }),
+  // A red round below the cap.
+  "test-failed": (prev) => ({ ...prev, testFixCount: prev.testFixCount + 1 }),
+  // A red health round below the cap.
+  "health-check": (prev) => ({ ...prev, healthFixCount: prev.healthFixCount + 1 }),
+  // A green marker ends the health run.
+  "tests-green": (prev) => ({ ...prev, healthFixCount: 0 }),
 }
+
+/** Apply a machine label's stamp to the previous vector (carry when unmapped). */
+export const stampLabelCounters = (phase: RoutingPhase | undefined, prev: Counters): Counters =>
+  phase !== undefined ? (labelCounterStamps[phase]?.(prev) ?? prev) : prev
 
 /**
  * One illegal steering-file combination: a predicate over `ResolvePayload`
@@ -474,6 +500,12 @@ export interface CaptureRule {
   readonly when?: (p: ResolvePayload) => boolean
   /** The `<gate>` label the captured commit carries (`gtd(<actor>): <label>`). */
   readonly label: TurnGate
+  /**
+   * Write-time counter stamp for the captured commit (default: carry the
+   * previous vector). The verdict labels increment the review-fix count; the
+   * escalate turn's ERRORS.md deletion resets the test/health budgets.
+   */
+  readonly stamp?: (prev: Counters, p: ResolvePayload) => Counters
 }
 
 /**
@@ -538,7 +570,6 @@ export interface WorkflowDefinition {
   readonly routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>>
   readonly interrupts: readonly LadderRule[]
   readonly fallback: readonly LadderRule[]
-  readonly counters: Record<keyof Counters, CounterRule>
   readonly conflicts: readonly IllegalCombinationRule[]
   readonly entry: readonly EntryRule[]
   readonly agentTurnValidation: Partial<Record<TurnGate, AgentTurnValidation>>
@@ -650,7 +681,12 @@ const states: Record<GtdState, StateDef> = {
     awaits: "human",
     prompts: { human: "@escalate" },
     captureRules: [
-      { label: "escalate" },
+      {
+        label: "escalate",
+        // Deleting ERRORS.md is the budget reset, stamped on the turn itself.
+        stamp: (prev, p) =>
+          p.pendingErrorsDeletion ? { ...prev, testFixCount: 0, healthFixCount: 0 } : prev,
+      },
       // An empty human step still lands the escalate turn (its own chain
       // re-tests; without an ERRORS.md deletion the budget stays spent).
       { empty: true, actor: "human", label: "escalate" },
@@ -666,8 +702,16 @@ const states: Record<GtdState, StateDef> = {
       // approval; a non-empty one is a findings round. A dirty tree that
       // never wrote FEEDBACK.md at all is a no-verdict turn (inert
       // re-emit after capture — never an implicit approval).
-      { when: (p) => p.feedbackPresent && p.feedbackEmpty, label: "agentic-approved" },
-      { when: (p) => p.feedbackPresent, label: "agentic-findings" },
+      {
+        when: (p) => p.feedbackPresent && p.feedbackEmpty,
+        label: "agentic-approved",
+        stamp: (prev) => ({ ...prev, reviewFixCount: prev.reviewFixCount + 1 }),
+      },
+      {
+        when: (p) => p.feedbackPresent,
+        label: "agentic-findings",
+        stamp: (prev) => ({ ...prev, reviewFixCount: prev.reviewFixCount + 1 }),
+      },
       { label: "agentic-review" },
     ],
   },
@@ -1210,37 +1254,6 @@ const fallback: readonly LadderRule[] = [
   },
 ]
 
-// ─── Default definition: counters ────────────────────────────────────────────
-
-/**
- * Counter folds over the event stream (oldest→newest), in the machine — the
- * edge stays thin. Only `COMMIT` events contribute.
- *
- * - `testFixCount` resets to 0 on any of {`isPackageStart`, `isFeedback`,
- *   `removedErrors`} and increments on `isErrors`.
- * - `reviewFixCount` resets to 0 on `isPackageStart` and increments on
- *   `isFeedback`.
- * - `healthFixCount` resets to 0 on `isPackageStart`, `removedErrors`, and
- *   `isTestsGreen` (a green re-test ends the health run — without this reset,
- *   a run that ends without a history-collapsing squash would leave the count
- *   lingering and re-trigger the learning/squash chain at later idle rests),
- *   and increments on `isHealthCheck`.
- */
-const counters: Record<keyof Counters, CounterRule> = {
-  testFixCount: {
-    resetsOn: (e) => e.isPackageStart || e.isFeedback || e.removedErrors,
-    incrementsOn: (e) => e.isErrors,
-  },
-  reviewFixCount: {
-    resetsOn: (e) => e.isPackageStart,
-    incrementsOn: (e) => e.isFeedback,
-  },
-  healthFixCount: {
-    resetsOn: (e) => e.isPackageStart || e.removedErrors || e.isTestsGreen,
-    incrementsOn: (e) => e.isHealthCheck,
-  },
-}
-
 // ─── Default definition: illegal combinations ────────────────────────────────
 
 // HEALTH.md-specific combinations are listed before the generic "<file>
@@ -1463,7 +1476,6 @@ export const defaultWorkflow: WorkflowDefinition = {
   routingRules,
   interrupts,
   fallback,
-  counters,
   conflicts,
   entry,
   agentTurnValidation,

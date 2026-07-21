@@ -49,10 +49,10 @@ to the on-disk `./Foo.ts`, and importing `*.md` prompt files as text. Pass CLI
 args after `--`, e.g. `npm run dev -- format <file>`.
 
 The decision core is pure and IO-free: the machine's shape (states,
-classification rules, precedence ladders, counter folds) is declared as data in
+classification rules, precedence ladders, counter stamps) is declared as data in
 `src/Workflow.ts` (`defaultWorkflow`), and `src/Machine.ts` is the interpreter
 that folds event streams through it — so the whole state ladder and the counter
-folds are trivially unit-testable in isolation; all git/filesystem IO is
+stamps are trivially unit-testable in isolation; all git/filesystem IO is
 confined to the edge (`src/Events.ts`).
 
 `npm run build` produces `dist/gtd.bundle.mjs`, which npm exposes as the `gtd`

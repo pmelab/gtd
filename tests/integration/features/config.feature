@@ -144,7 +144,7 @@ Feature: .gtdrc config system
       """
       Implement the helper.
       """
-    And a commit "gtd: test-failed"
+    And a commit "gtd: test-failed" with counters "t=1 r=0 h=0"
     And a file "src/helper.ts" with:
       """
       export const helper = (x: string) => x
@@ -174,10 +174,11 @@ Feature: .gtdrc config system
       """
       Finding: round one.
       """
-    And a commit "gtd(agent): fixing" that adds "src/fix.ts" with:
+    And a file "src/fix.ts" with:
       """
       export const fix = 1
       """
+    And a commit "gtd(agent): fixing" with counters "t=0 r=1 h=0"
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"

@@ -72,6 +72,9 @@ Feature: Testing — the bounded build/test/fix loop
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: test-failed"
+    # The red outcome stamps the fix-attempt count into the trailer at write
+    # time — the next resolve reads this ONE trailer instead of folding history.
+    And the last commit body contains "Gtd-Counters: t=1 r=0 h=0"
     And the file ".gtd/FEEDBACK.md" exists
     And the file ".gtd/FEEDBACK.md" contains "SENTINEL_FAILURE"
     When I run gtd next
@@ -106,9 +109,9 @@ Feature: Testing — the bounded build/test/fix loop
       """
       Implement the helper.
       """
-    And a commit "gtd: test-failed"
-    And a commit "gtd: test-failed"
-    And a commit "gtd: test-failed"
+    And a commit "gtd: test-failed" with counters "t=1 r=0 h=0"
+    And a commit "gtd: test-failed" with counters "t=2 r=0 h=0"
+    And a commit "gtd: test-failed" with counters "t=3 r=0 h=0"
     And a file "src/helper.ts" with:
       """
       export const helper = (x: string) => x
@@ -116,6 +119,8 @@ Feature: Testing — the bounded build/test/fix loop
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: escalated"
+    # Escalation carries the spent budget unchanged (no stamp on "escalated").
+    And the last commit body contains "Gtd-Counters: t=3 r=0 h=0"
     And the file ".gtd/ERRORS.md" exists
     And the file ".gtd/FEEDBACK.md" does not exist
     When I run gtd next with "--json"
@@ -208,9 +213,9 @@ Feature: Testing — the bounded build/test/fix loop
       """
       Implement the helper.
       """
-    And a commit "gtd: test-failed"
-    And a commit "gtd: test-failed"
-    And a commit "gtd: test-failed"
+    And a commit "gtd: test-failed" with counters "t=1 r=0 h=0"
+    And a commit "gtd: test-failed" with counters "t=2 r=0 h=0"
+    And a commit "gtd: test-failed" with counters "t=3 r=0 h=0"
     And a file "src/helper.ts" with:
       """
       export const helper = (x: string) => x

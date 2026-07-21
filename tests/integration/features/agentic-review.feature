@@ -129,10 +129,11 @@ Feature: Agentic Review — verdict-by-file, with force-approve guards
       """
       Finding: round two.
       """
-    And a commit "gtd(agent): fixing" that adds "src/fix.ts" with:
+    And a file "src/fix.ts" with:
       """
       export const fix = 1
       """
+    And a commit "gtd(agent): fixing" with counters "t=0 r=2 h=0"
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd: close-package"

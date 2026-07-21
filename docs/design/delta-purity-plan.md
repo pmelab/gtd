@@ -30,24 +30,23 @@
 >   no packages → `gtd: tests-green`, now health-path-only with a settle-only
 >   routing rule. The step-agent checkpoint guard keys on the agentic-review
 >   label; the recovery-ladder `runTest` gets the same fill.
-> - **Phase C3 — REMAINING (mapped).** Counter trailers: every machine-written
->   commit (turns AND labels) carries the counter vector in a
->   `Gtd-Counters: t=n r=n h=n` body trailer, computed by the WRITER from the
->   nearest previous label's trailer plus the definition's reset/increment rules
->   applied to the commit being written (turns mostly carry-forward;
->   `agentic-findings`/`-approved` increment r; the escalate turn's
->   ERRORS-deletion resets t and h; `building`/`close-package` reset t and r).
->   `gatherEvents` then reads ONE trailer (nearest workflow commit) instead of
->   folding; `foldCounters` and all `CommitEvent` counter flags are deleted;
->   caps and force-approve read the vector at dispatch (dispatch already has
->   it). **Discovered prerequisite:** hand-authored e2e histories carry no
->   trailers — the integration step-definitions need a trailer-bearing commit
->   step (e.g. `And a commit "gtd: test-failed" with counters "t=2"`), and the
->   cap/threshold scenarios must set their vectors explicitly. Decide the
->   no-trailer default (zero vector) and note it as the upgrade rule for old
->   histories.
-> - **Phase D — REMAINING.** The δ conformance property test lands once C3
->   removes the history fold from resolution: permute everything except the
+> - **Phase C3 — LANDED.** Counter trailers: every machine-written commit (turns
+>   AND labels) carries its vector as a `Gtd-Counters: t=n r=n h=n` body
+>   trailer, computed by the writer — label stamps live in `labelCounterStamps`
+>   (`test-failed` t+1, `health-check` h+1, `building`/`close-package` t=r=0,
+>   `tests-green` h=0), turn stamps in `CaptureRule.stamp` (verdict turns r+1,
+>   the escalate turn's ERRORS-deletion t=h=0). The machine attaches vectors at
+>   dispatch (`attachCounters` + `fillInActionBudgets`); write-time-decided
+>   labels (runTest/runHealthCheck outcomes, the inline close) get the previous
+>   vector and the edge applies the chosen label's stamp. `gatherEvents` reads
+>   ONE trailer (nearest workflow commit) into `payload.counters`;
+>   `foldCounters` and all `CommitEvent` counter flags are deleted; squash
+>   commits carry no trailer. Zero vector is the no-trailer default (the upgrade
+>   rule). E2e grew `Given a commit "…" with counters "t=… r=… h=…"` and the
+>   cap/threshold scenarios spell their vectors explicitly; two scenarios pin
+>   the trailer wire format on machine-written commits.
+> - **Phase D — REMAINING.** The δ conformance property test lands now that C3
+>   removed the history fold from resolution: permute everything except the
 >   nearest label (+trailers) and the pending diff; assert identical output.
 
 > Companion to `configurable-state-machine.md` Appendix C. Decisions taken:

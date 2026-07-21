@@ -7,7 +7,7 @@ import { Cwd } from "./Cwd.js"
 import { formatFile } from "./Format.js"
 import { TestRunner } from "./TestRunner.js"
 import { parseSubject, turnSubject, type Actor } from "./Subjects.js"
-import { isInteractiveActor } from "./Workflow.js"
+import { isInteractiveActor, stampLabelCounters, zeroCounters, type Counters } from "./Workflow.js"
 import { parseOpenQuestions } from "./OpenQuestions.js"
 import { parseReviewDoc } from "./ReviewDoc.js"
 import type {
@@ -48,10 +48,6 @@ const ERRORS_FILE = `${GTD_DIR}/ERRORS.md`
 const HEALTH_FILE = `${GTD_DIR}/HEALTH.md`
 const SQUASH_MSG_FILE = `${GTD_DIR}/SQUASH_MSG.md`
 const LEARNINGS_FILE = `${GTD_DIR}/LEARNINGS.md`
-// Pre-namespace history wrote FEEDBACK.md at the repo root. Recognized for
-// COMMIT-event classification only (isFeedback), never for diffs or
-// working-tree probes — a root FEEDBACK.md in the tree today is project code.
-const LEGACY_FEEDBACK_FILE = "FEEDBACK.md"
 
 /** The `.gtd/` steering-file paths, grouped for external consumers (e.g. src/Lsp.ts) that need the whole set rather than one. */
 export const STEERING_FILES = {
@@ -324,12 +320,27 @@ export const isCheckboxOnlyDiff = (diff: string): boolean => {
 /** Subject of a commit's first line, trimmed. */
 const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").trim()
 
-/**
- * The commit's diff touched the feedback steering file. The legacy root path
- * keeps pre-namespaced history classifying identically.
- */
-const touchedFeedback = (touched: ReadonlyArray<string>): boolean =>
-  touched.includes(FEEDBACK_FILE) || touched.includes(LEGACY_FEEDBACK_FILE)
+// The counter vector every machine-written commit carries as a body trailer.
+// The WRITER computes it (from the nearest previous workflow commit's vector
+// plus the label's stamp), so the reader is a single trailer parse — no fold
+// over history. A workflow commit without the trailer (pre-trailer history)
+// reads as the zero vector: budgets restart, which is the documented upgrade
+// rule.
+const COUNTERS_TRAILER_RE = /^Gtd-Counters: t=(\d+) r=(\d+) h=(\d+)\s*$/m
+const parseCountersTrailer = (message: string): Counters => {
+  const m = COUNTERS_TRAILER_RE.exec(message)
+  return m
+    ? {
+        testFixCount: Number(m[1]),
+        reviewFixCount: Number(m[2]),
+        healthFixCount: Number(m[3]),
+      }
+    : zeroCounters
+}
+
+/** `subject` + the `Gtd-Counters` body trailer — the full commit message. */
+const countersMessage = (subject: string, counters: Counters): string =>
+  `${subject}\n\nGtd-Counters: t=${counters.testFixCount} r=${counters.reviewFixCount} h=${counters.healthFixCount}`
 
 // A squash commit's marker for "this message carries a `## Decisions`
 // section" — a body-only trailer, since squash commits take on arbitrary
@@ -391,43 +402,36 @@ export const gatherEvents = (
       : Option.none<string>()
     // Discard the merge-base when it is HEAD itself (trunk-based workflow): the
     // range main..HEAD would be empty and disable the budgets. Whole-history
-    // fallback is safe because foldCounters resets on every package boundary.
+    // fallback is safe because the counter vector rides on each commit's own
+    // trailer — the read below is depth-independent.
     const base =
       Option.isSome(mergeBase) && mergeBase.value !== headHash ? mergeBase : Option.none<string>()
 
     const history = yield* git.commitHistory(Option.getOrUndefined(base))
-    const commitEvents: Array<CommitEvent> = history.map((commit): CommitEvent => {
-      const subject = subjectOf(commit.message)
-      const parsed = parseSubject(subject)
-      const isTurn = parsed.kind === "turn"
-      const isRouting = parsed.kind === "routing"
-      // One discriminant read each; "" never matches a real phase/gate, so
-      // every flag below collapses to a single comparison instead of an
-      // `isRouting && …` / `isTurn && …` conjunct.
-      const routingPhase = parsed.kind === "routing" ? parsed.phase : ""
-      const turnGate = parsed.kind === "turn" ? parsed.gate : ""
+    // One parse per commit, shared by the COMMIT events, the counter-trailer
+    // read, and the health-anchor scan below.
+    const parsedHistory = history.map((commit) => parseSubject(subjectOf(commit.message)))
+    const commitEvents: Array<CommitEvent> = history.map((_, i): CommitEvent => {
+      const parsed = parsedHistory[i]!
       return {
         type: "COMMIT",
         ...(parsed.kind === "turn" ? { turnActor: parsed.actor, turnGate: parsed.gate } : {}),
-        isErrors: routingPhase === "test-failed",
-        // A `gtd(agent): agentic-review` turn whose diff touched
-        // `.gtd/FEEDBACK.md` — a findings round. Over-counts the approval
-        // round too (an empty FEEDBACK.md write still touches the path), but
-        // `gtd: close-package` resets the reviewFixCount fold immediately
-        // after, so the extra count is harmless (documented in the task
-        // contract).
-        isFeedback:
-          (turnGate === "agentic-review" ||
-            turnGate === "agentic-approved" ||
-            turnGate === "agentic-findings") &&
-          touchedFeedback(commit.touched),
-        isPackageStart: routingPhase === "building" || routingPhase === "close-package",
-        isWorkflowCommit: isTurn || isRouting,
-        removedErrors: commit.removedErrors,
-        isHealthCheck: routingPhase === "health-check",
-        isTestsGreen: routingPhase === "tests-green",
+        isWorkflowCommit: parsed.kind !== "boundary",
       }
     })
+
+    // --- Counters (one trailer read, no fold) --------------------------------
+    // The nearest workflow commit's `Gtd-Counters` trailer IS the current
+    // vector: every machine-written commit carries the vector its writer
+    // computed, so history depth never matters. Boundary commits (user work,
+    // squash results, legacy subjects) are skipped; a trailer-less workflow
+    // commit (pre-trailer history) reads as zero.
+    let counters: Counters = zeroCounters
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (parsedHistory[i]!.kind === "boundary") continue
+      counters = parseCountersTrailer(history[i]!.message)
+      break
+    }
 
     // --- RESOLVE payload (working-tree snapshot) -----------------------------
     const hasCommits = yield* git.hasCommits()
@@ -801,10 +805,11 @@ export const gatherEvents = (
     const healthCommitted = healthPresent && !isUncommitted(HEALTH_FILE)
 
     // --- Health squash base (squash/learning after green health-fix run) --------
-    // Only computed when squash and/or learning is enabled. Mirrors
-    // foldCounters: scans all of history forward, resetting on
-    // isPackageStart/removedErrors/isTestsGreen events, and anchoring on the
-    // EARLIEST of the current run's two possible start markers — the first
+    // Only computed when squash and/or learning is enabled. Scans all of
+    // history forward (facts derived per-commit from `parsedHistory`),
+    // resetting on package-start/removedErrors/tests-green commits, and
+    // anchoring on the EARLIEST of the current run's two possible start
+    // markers — the first
     // `gtd: health-check` routing commit (the idle-path detour) or the first
     // `gtd(human): health-fixing` turn commit (a hand-written HEALTH.md
     // entry, which may reach green with zero health-check commits ever
@@ -832,21 +837,31 @@ export const gatherEvents = (
             (headParsedForSquash.phase === "learning-applied" && config.squash))) ||
         (headParsedForSquash.kind === "turn" &&
           SQUASH_OR_LEARNING_TURN_GATES.has(headParsedForSquash.gate))
+      const phaseAt = (i: number): string => {
+        const p = parsedHistory[i]!
+        return p.kind === "routing" ? p.phase : ""
+      }
       let lastTestsGreenIdx = -1
-      for (let i = 0; i < commitEvents.length; i++) {
-        if (commitEvents[i]!.isTestsGreen) lastTestsGreenIdx = i
+      for (let i = 0; i < history.length; i++) {
+        if (phaseAt(i) === "tests-green") lastTestsGreenIdx = i
       }
       const ignoredTestsGreenIdx = inHealthProcessingChain ? lastTestsGreenIdx : -1
-      const isHealthEntryTurn = (c: CommitEvent): boolean =>
-        isInteractiveActor(c.turnActor ?? "") && c.turnGate === "health-fixing"
       let anchorIdx = -1
-      for (let i = 0; i < commitEvents.length; i++) {
-        const c = commitEvents[i]!
-        if (c.isPackageStart || c.removedErrors || (c.isTestsGreen && i !== ignoredTestsGreenIdx)) {
+      for (let i = 0; i < history.length; i++) {
+        const p = parsedHistory[i]!
+        const phase = phaseAt(i)
+        const isPackageStart = phase === "building" || phase === "close-package"
+        if (
+          isPackageStart ||
+          history[i]!.removedErrors ||
+          (phase === "tests-green" && i !== ignoredTestsGreenIdx)
+        ) {
           anchorIdx = -1
           continue
         }
-        if (anchorIdx === -1 && (c.isHealthCheck || isHealthEntryTurn(c))) anchorIdx = i
+        const isHealthEntryTurn =
+          p.kind === "turn" && isInteractiveActor(p.actor) && p.gate === "health-fixing"
+        if (anchorIdx === -1 && (phase === "health-check" || isHealthEntryTurn)) anchorIdx = i
       }
       if (anchorIdx !== -1) {
         const anchorHash = history[anchorIdx]!.hash
@@ -869,6 +884,7 @@ export const gatherEvents = (
 
     const payload: ResolvePayload = {
       invoker,
+      counters,
       headTurnDiff,
       todoExists,
       todoCommitted,
@@ -1094,7 +1110,9 @@ export const perform = (
             yield* formatFile(resolve(file)).pipe(Effect.catchAll(() => Effect.void))
           }
         }
-        yield* git.commitAllWithPrefix(turnSubject(action.actor, action.gate))
+        yield* git.commitAllWithPrefix(
+          countersMessage(turnSubject(action.actor, action.gate), action.counters ?? zeroCounters),
+        )
         return { stop: false }
       }
 
@@ -1144,7 +1162,9 @@ export const perform = (
         if (action.removeLearning === true) {
           yield* fs.remove(resolve(LEARNINGS_FILE)).pipe(Effect.catchAll(() => Effect.void))
         }
-        yield* git.commitAllWithPrefix(action.subject)
+        yield* git.commitAllWithPrefix(
+          countersMessage(action.subject, action.counters ?? zeroCounters),
+        )
         return { stop: false }
       }
 
@@ -1160,6 +1180,10 @@ export const perform = (
         yield* fs.remove(resolve(FEEDBACK_FILE)).pipe(Effect.catchAll(() => Effect.void))
         const runner = yield* TestRunner
         const result = yield* runner.run()
+        // The outcome label is decided HERE, at write time, and so is its
+        // counter vector: `action.counters` carries the PREVIOUS vector and
+        // the chosen label's stamp is applied to it.
+        const prev = action.counters ?? zeroCounters
         if (result.exitCode === 0) {
           if (action.onGreen === "close-package") {
             const packages = yield* getPackages(fs, root)
@@ -1167,10 +1191,14 @@ export const perform = (
             if (first !== undefined) {
               yield* git.removePackageDir(`${GTD_DIR}/${first.name}`)
             }
-            yield* git.commitAllWithPrefix("gtd: close-package")
+            yield* git.commitAllWithPrefix(
+              countersMessage("gtd: close-package", stampLabelCounters("close-package", prev)),
+            )
             return { stop: false }
           }
-          yield* git.commitAllWithPrefix(`gtd: ${action.onGreen}`)
+          yield* git.commitAllWithPrefix(
+            countersMessage(`gtd: ${action.onGreen}`, stampLabelCounters(action.onGreen, prev)),
+          )
           return { stop: false }
         }
         const target = action.capReached ? ERRORS_FILE : FEEDBACK_FILE
@@ -1180,9 +1208,12 @@ export const perform = (
           : emptyFailureSentinel(config.testCommand, result.exitCode)
         yield* ensureGtdDir
         yield* fs.writeFileString(resolve(target), body)
-        // The red outcome is decided HERE, at write time: below the cap the
-        // label rests for the fixer; at the cap it escalates to the human.
-        yield* git.commitAllWithPrefix(action.capReached ? "gtd: escalated" : "gtd: test-failed")
+        // Below the cap the label rests for the fixer (and counts the
+        // attempt); at the cap it escalates to the human (vector carried).
+        const redPhase = action.capReached ? ("escalated" as const) : ("test-failed" as const)
+        yield* git.commitAllWithPrefix(
+          countersMessage(`gtd: ${redPhase}`, stampLabelCounters(redPhase, prev)),
+        )
         return { stop: false }
       }
 
@@ -1196,7 +1227,12 @@ export const perform = (
         if (first !== undefined) {
           yield* git.removePackageDir(`${GTD_DIR}/${first.name}`)
         }
-        yield* git.commitAllWithPrefix("gtd: close-package")
+        yield* git.commitAllWithPrefix(
+          countersMessage(
+            "gtd: close-package",
+            stampLabelCounters("close-package", action.counters ?? zeroCounters),
+          ),
+        )
         return { stop: false }
       }
 
@@ -1205,7 +1241,9 @@ export const perform = (
       case "writeSquashTemplate": {
         yield* ensureGtdDir
         yield* fs.writeFileString(resolve(SQUASH_MSG_FILE), SQUASH_TEMPLATE)
-        yield* git.commitAllWithPrefix("gtd: squashing")
+        yield* git.commitAllWithPrefix(
+          countersMessage("gtd: squashing", action.counters ?? zeroCounters),
+        )
         return { stop: false }
       }
 
@@ -1214,7 +1252,9 @@ export const perform = (
       case "writeLearningTemplate": {
         yield* ensureGtdDir
         yield* fs.writeFileString(resolve(LEARNINGS_FILE), LEARNING_TEMPLATE)
-        yield* git.commitAllWithPrefix("gtd: learning")
+        yield* git.commitAllWithPrefix(
+          countersMessage("gtd: learning", action.counters ?? zeroCounters),
+        )
         return { stop: false }
       }
 
@@ -1243,9 +1283,12 @@ export const perform = (
       case "runHealthCheck": {
         const runner = yield* TestRunner
         const result = yield* runner.run()
+        const prev = action.counters ?? zeroCounters
         if (result.exitCode === 0) {
           if (action.chainAfterGreen) {
-            yield* git.commitAllWithPrefix("gtd: tests-green")
+            yield* git.commitAllWithPrefix(
+              countersMessage("gtd: tests-green", stampLabelCounters("tests-green", prev)),
+            )
             return { stop: false }
           }
           return { stop: true }
@@ -1259,7 +1302,10 @@ export const perform = (
         yield* fs.writeFileString(resolve(target), body)
         // Write-time outcome, mirroring runTest: at the cap the label
         // escalates directly instead of resting a spent health-fix gate.
-        yield* git.commitAllWithPrefix(action.capReached ? "gtd: escalated" : "gtd: health-check")
+        const healthPhase = action.capReached ? ("escalated" as const) : ("health-check" as const)
+        yield* git.commitAllWithPrefix(
+          countersMessage(`gtd: ${healthPhase}`, stampLabelCounters(healthPhase, prev)),
+        )
         return { stop: false }
       }
     }

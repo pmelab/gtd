@@ -99,18 +99,22 @@ machine, `gatherEvents`, and `perform` must never know it exists — no
 state through a new entry point must run AFTER the close hook, or it will
 classify against the rewound HEAD.
 
-### Agentic Cycle Count Fold
+### Agentic Cycle Counters (Trailer-Carried, Stamped at Write Time)
 
-`testFixCount` / `reviewFixCount` / `healthFixCount` are **folded in the
-machine** (`foldCounters` in `src/Machine.ts`, interpreting the reset/increment
-rules declared in `src/Workflow.ts`) from flags `gatherEvents` (`src/Events.ts`)
-attaches to each `CommitEvent` — `isPackageStart`, `isFeedback`, `isErrors`,
-`isHealthCheck`, `removedErrors` — not recomputed at the Effect edge.
-`reviewFixCount` (the agentic-review cycle count) resets on `isPackageStart` and
-increments on `isFeedback` (an agentic-review turn whose diff touched
-`.gtd/FEEDBACK.md` (or legacy root `FEEDBACK.md`) — a findings round). Derived
-counters accumulate inside the state machine from event flags, keeping the edge
-thin.
+`testFixCount` / `reviewFixCount` / `healthFixCount` ride on the commits
+themselves: every machine-written commit (turn AND label) carries its vector as
+a `Gtd-Counters: t=N r=N h=N` body trailer, computed by the **writer** from the
+previous vector plus the written label's stamp (`labelCounterStamps` /
+`CaptureRule.stamp` in `src/Workflow.ts` — e.g. `test-failed` → t+1, a
+findings/approval verdict turn → r+1, `building`/`close-package` → t=r=0).
+`gatherEvents` (`src/Events.ts`) reads ONE trailer — the nearest workflow
+commit's — into `payload.counters`; there is no fold over history, and a
+trailer-less workflow commit (pre-trailer history) reads as the zero vector
+(budgets restart — the documented upgrade rule). Squash commits carry NO trailer
+(their message is the human-authored SQUASH_MSG.md verbatim) and are skipped as
+boundaries. Hand-authored e2e histories that need a non-zero budget must spell
+the trailer on their newest workflow commit
+(`Given a commit "…" with counters "t=3 r=0 h=0"`).
 
 ## CLI Design
 

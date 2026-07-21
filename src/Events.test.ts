@@ -12,7 +12,6 @@ import { ConfigService } from "./Config.js"
 import type { ConfigOperations } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { TestRunner } from "./TestRunner.js"
-import { foldCounters } from "./Machine.js"
 import type { CommitEvent, EdgeAction, GtdEvent, ResolvePayload } from "./Machine.js"
 import { turnSubject } from "./Subjects.js"
 
@@ -263,28 +262,18 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
     expect(commits[2]!.turnActor).toBeUndefined()
   })
 
-  it("sets isErrors / isPackageStart / isWorkflowCommit per routing subject", async () => {
+  it("sets isWorkflowCommit for turn and routing subjects, false for boundaries", async () => {
     commitFile("gtd: building", "a.ts", "//a\n")
     commitFile(turnSubject("agent", "building"), "b.ts", "//b\n")
     commitFile("gtd: test-failed", "c.ts", "//c\n")
-    commitFile("gtd: close-package", "e.ts", "//e\n")
     commitFile("feat: real work", "f.ts", "//f\n")
 
     const commits = commitsOf(await runGather())
-    expect(commits).toHaveLength(5)
-    expect(commits[0]).toMatchObject({
-      isPackageStart: true,
-      isWorkflowCommit: true,
-      isErrors: false,
-    })
-    expect(commits[1]).toMatchObject({ isWorkflowCommit: true, isPackageStart: false })
-    expect(commits[2]).toMatchObject({ isErrors: true, isWorkflowCommit: true })
-    expect(commits[3]).toMatchObject({ isPackageStart: true, isWorkflowCommit: true })
-    expect(commits[4]).toMatchObject({
-      isWorkflowCommit: false,
-      isErrors: false,
-      isPackageStart: false,
-    })
+    expect(commits).toHaveLength(4)
+    expect(commits[0]).toMatchObject({ isWorkflowCommit: true })
+    expect(commits[1]).toMatchObject({ isWorkflowCommit: true })
+    expect(commits[2]).toMatchObject({ isWorkflowCommit: true })
+    expect(commits[3]).toMatchObject({ isWorkflowCommit: false })
   })
 
   it("v1 subjects (gtd: new task, bare gtd: review, gtd: feedback) parse as inert boundary commits", async () => {
@@ -301,65 +290,35 @@ describe("gatherEvents — COMMIT flags from the v2 grammar", { timeout: 30_000 
     }
   })
 
-  it("isFeedback: true only for a gtd(agent): agentic-review turn whose diff touched FEEDBACK.md", async () => {
-    commitFile(turnSubject("agent", "agentic-review"), ".gtd/FEEDBACK.md", "finding: rename foo\n")
-    commitFile(turnSubject("agent", "building"), "b.ts", "//b\n") // agentic-review gate but no FEEDBACK touch below
-    commitFile("gtd: close-package", "c.ts", "//c\n")
+  it("payload.counters reads the nearest workflow commit's Gtd-Counters trailer", async () => {
+    commitFile("gtd: building", "a.ts", "//a\n")
+    git("commit", "--allow-empty", "-q", "-m", "gtd: test-failed\n\nGtd-Counters: t=2 r=0 h=1")
 
-    const commits = commitsOf(await runGather())
-    expect(commits[0]).toMatchObject({ isFeedback: true })
-    expect(commits[1]).toMatchObject({ isFeedback: false })
-    expect(commits[2]).toMatchObject({ isFeedback: false })
+    const p = resolveOf(await runGather())
+    expect(p.counters).toEqual({ testFixCount: 2, reviewFixCount: 0, healthFixCount: 1 })
   })
 
-  it("isFeedback also counts an empty (approval) agentic-review touching FEEDBACK.md (documented over-count)", async () => {
-    // Findings round: writes FEEDBACK.md with content.
-    commitFile(turnSubject("agent", "agentic-review"), ".gtd/FEEDBACK.md", "finding\n")
-    // Approval round: agent empties FEEDBACK.md — still touches the path.
-    writeRepoFile(join(repoDir, ".gtd/FEEDBACK.md"), "")
-    git("add", "-A")
-    git("commit", "-q", "-m", turnSubject("agent", "agentic-review"))
+  it("payload.counters skips boundary commits above the nearest workflow commit", async () => {
+    git("commit", "--allow-empty", "-q", "-m", "gtd: test-failed\n\nGtd-Counters: t=1 r=2 h=0")
+    commitFile("feat: user work on top", "x.ts", "//x\n")
+    commitFile("chore: more user work", "y.ts", "//y\n")
 
-    const commits = commitsOf(await runGather())
-    expect(commits[0]).toMatchObject({ isFeedback: true })
-    expect(commits[1]).toMatchObject({ isFeedback: true })
+    const p = resolveOf(await runGather())
+    expect(p.counters).toEqual({ testFixCount: 1, reviewFixCount: 2, healthFixCount: 0 })
   })
 
-  it("sets removedErrors only on the commit whose diff deletes ERRORS.md", async () => {
-    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "boom\n") // adds ERRORS.md
-    git("rm", ".gtd/ERRORS.md")
-    git("commit", "-q", "-m", turnSubject("human", "escalate")) // deletes ERRORS.md (human resume)
-    commitFile("feat: after", "x.ts", "//x\n")
+  it("payload.counters is the zero vector for a trailer-less workflow commit (pre-trailer upgrade rule)", async () => {
+    git(
+      "commit",
+      "--allow-empty",
+      "-q",
+      "-m",
+      "gtd: building\n\nGtd-Counters: t=3 r=3 h=3", // older trailer, superseded below
+    )
+    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "boom\n") // no trailer — pre-trailer history
 
-    const commits = commitsOf(await runGather())
-    expect(commits).toHaveLength(3)
-    expect(commits[0]).toMatchObject({ isErrors: true, removedErrors: false })
-    expect(commits[1]).toMatchObject({ removedErrors: true, isWorkflowCommit: true })
-    expect(commits[2]).toMatchObject({ removedErrors: false })
-  })
-
-  it("sets isHealthCheck for gtd: health-check only", async () => {
-    commitFile("gtd: health-check", ".gtd/HEALTH.md", "# Health\nfail\n")
-    commitFile("gtd: testing", "x.ts", "//fix\n")
-    commitFile("feat: regular", "y.ts", "//y\n")
-
-    const commits = commitsOf(await runGather())
-    expect(commits).toHaveLength(3)
-    expect(commits[0]).toMatchObject({ isHealthCheck: true })
-    expect(commits[1]).toMatchObject({ isHealthCheck: false })
-    expect(commits[2]).toMatchObject({ isHealthCheck: false })
-  })
-
-  it("sets isTestsGreen for gtd: tests-green only", async () => {
-    commitFile("gtd: tests-green", "x.ts", "//x\n")
-    commitFile("gtd: testing", "y.ts", "//y\n")
-    commitFile("feat: regular", "z.ts", "//z\n")
-
-    const commits = commitsOf(await runGather())
-    expect(commits).toHaveLength(3)
-    expect(commits[0]).toMatchObject({ isTestsGreen: true })
-    expect(commits[1]).toMatchObject({ isTestsGreen: false })
-    expect(commits[2]).toMatchObject({ isTestsGreen: false })
+    const p = resolveOf(await runGather())
+    expect(p.counters).toEqual({ testFixCount: 0, reviewFixCount: 0, healthFixCount: 0 })
   })
 })
 
@@ -1191,31 +1150,33 @@ describe("gatherEvents — healthFixBase anchoring", { timeout: 30_000 }, () => 
   })
 })
 
-// ── gatherEvents: COMMIT-stream base folds ───────────────────────────────────
+// ── gatherEvents: counter trailer vs. stream base ────────────────────────────
 
-describe("gatherEvents — COMMIT-stream base folds (issue-7)", { timeout: 30_000 }, () => {
-  afterEach(cleanup)
+describe(
+  "gatherEvents — counter trailer is base-independent (issue-7)",
+  { timeout: 30_000 },
+  () => {
+    afterEach(cleanup)
 
-  it("trunk regression: gtd: test-failed commits after gtd: building fold into testFixCount == 2, not 0", async () => {
-    initRepo(false)
-    commitFile("gtd: building", ".gtd/TODO.md", "# Plan\n")
-    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "error 1\n")
-    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "error 2\n")
-    const events = await runGather()
-    expect(foldCounters(events).testFixCount).toBe(2)
-  })
+    it("trunk: the nearest trailer is read even when merge-base(main, HEAD) == HEAD", async () => {
+      initRepo(false)
+      commitFile("gtd: building", ".gtd/TODO.md", "# Plan\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: test-failed\n\nGtd-Counters: t=2 r=0 h=0")
+      const p = resolveOf(await runGather())
+      expect(p.counters.testFixCount).toBe(2)
+    })
 
-  it("feature-branch control: only post-branch-point gtd: test-failed commits are included", async () => {
-    initRepo(false)
-    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "pre-branch error\n")
-    git("checkout", "-q", "-b", "feature")
-    commitFile("gtd: building", ".gtd/TODO.md", "# Plan\n")
-    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "error 1\n")
-    commitFile("gtd: test-failed", ".gtd/ERRORS.md", "error 2\n")
-    const events = await runGather()
-    expect(foldCounters(events).testFixCount).toBe(2)
-  })
-})
+    it("feature branch: the nearest trailer wins regardless of the branch point", async () => {
+      initRepo(false)
+      git("commit", "--allow-empty", "-q", "-m", "gtd: test-failed\n\nGtd-Counters: t=9 r=0 h=0")
+      git("checkout", "-q", "-b", "feature")
+      commitFile("gtd: building", ".gtd/TODO.md", "# Plan\n")
+      git("commit", "--allow-empty", "-q", "-m", "gtd: test-failed\n\nGtd-Counters: t=2 r=0 h=0")
+      const p = resolveOf(await runGather())
+      expect(p.counters.testFixCount).toBe(2)
+    })
+  },
+)
 
 // ── reviewAgainst (unchanged from v1) ────────────────────────────────────────
 

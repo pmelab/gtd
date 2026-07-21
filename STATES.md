@@ -614,10 +614,11 @@ remaining (ladder rule, since that routing subject's landing state depends on
 package/diff facts, not the subject alone).
 
 **Exit:** `gtd(agent): building` mid-chains straight into `runTest` → red writes
-.gtd/FEEDBACK.md/.gtd/ERRORS.md and commits `gtd: test-failed`; green commits
-`gtd: tests-green` → **testing**'s outcome (agentic-review or force-approved
-close, or the idle/squash path when there is no `.gtd/` at all — the health side
-of the same routing subject).
+.gtd/FEEDBACK.md (below cap, `gtd: test-failed`) or .gtd/ERRORS.md (at cap,
+`gtd: escalated`); green commits the outcome decided at dispatch:
+`gtd: agentic-review` (packages present, review enabled), an inline
+`gtd: close-package` (force-approved), or `gtd: tests-green` (the health path,
+no `.gtd/` at all).
 
 ### `testing`
 
@@ -628,11 +629,13 @@ accumulated diff. Edge-only — no independent prompt; it is the mid-chain
 
 **Awaited actor:** agent (the actor who authored the turn being tested).
 
-**Actions:** run `testCommand`; exit 0 → commit `gtd: tests-green`; exit ≠ 0 →
-count fix attempts since the most recent of {package start, last agentic-review
-findings round, last `.gtd/ERRORS.md` removal} (the `testFixCount` fold) — below
-`fixAttemptCap` (default 3) → write .gtd/FEEDBACK.md, commit `gtd: test-failed`;
-at/over the cap → write .gtd/ERRORS.md, commit `gtd: test-failed`.
+**Actions:** run `testCommand`; exit 0 → commit the green outcome decided at
+dispatch (`gtd: agentic-review`, an inline force-approved `gtd: close-package`,
+or the health path's `gtd: tests-green`); exit ≠ 0 → read the fix-attempt budget
+(`testFixCount`) from the nearest workflow commit's `Gtd-Counters` trailer —
+below `fixAttemptCap` (default 3) → write .gtd/FEEDBACK.md, commit
+`gtd: test-failed` (stamping t+1 into its trailer); at/over the cap → write
+.gtd/ERRORS.md, commit `gtd: escalated` (budget carried).
 
 **Prompt:** none — always mid-chain, folding straight into the next rest.
 
