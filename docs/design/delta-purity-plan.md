@@ -1,5 +1,33 @@
 # Implementation plan: full δ(label, diff)
 
+> **Status (updated during implementation):**
+>
+> - **Phase 0+A — LANDED.** Phase 0's table review surfaced a major
+>   simplification the plan's draft table over-engineered: the actor is already
+>   part of every turn label (`gtd(human): X` ≠ `gtd(agent): X`), so only labels
+>   whose OWN diff disambiguated their meaning needed splitting — six new labels
+>   (`grilling-accepted`, `architecting-accepted`, `review-approved`,
+>   `review-feedback`, `agentic-approved`, `agentic-findings`) instead of the
+>   drafted ~30-state redraw. Turn capture is rule-driven (`captureRules` per
+>   state), inert-by-default with opt-in `empty` rules, the fixpoint is a label
+>   fact, `headTurnIsEmpty` / `headTurnReviewSubstantive` are deleted, and the
+>   FEEDBACK.md interrupt dissolved into the verdict labels (a fallback rung
+>   keeps rider/crash recovery).
+> - **Phase B — LANDED.** Template probes are pending-diff matchers
+>   (`squashMsgDirty` / `learningMsgDirty`); content inspection is down to
+>   FEEDBACK.md emptiness and REVIEW.md checkbox-only, both consumed at capture.
+>   The effects-as-diffs invariant holds structurally (every `perform()` arm
+>   ends in a commit or a stop).
+> - **Phase C — REMAINING.** Counter trailers (`Gtd-Counters` computed from the
+>   previous label), write-time check outcomes (`gtd: escalated` at cap; green
+>   splitting into `agentic-review`/`close-package` at the act), the
+>   errors/health interrupt deletion, and `foldCounters` removal. This is the
+>   second wire-format break and the context-dependent e2e pass — do it in a
+>   dedicated session.
+> - **Phase D — REMAINING.** The δ conformance property test only becomes
+>   meaningful once Phase C removes the counter/config reads from resolution;
+>   land it together with C.
+
 > Companion to `configurable-state-machine.md` Appendix C. Decisions taken:
 > **full purity** (all five moves, including counters and config at write time),
 > **keep the corruption refusal** (steering files + no label → hard error),
