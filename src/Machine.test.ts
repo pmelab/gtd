@@ -1039,12 +1039,12 @@ describe("health lifecycle", () => {
     })
   })
 
-  it("gtd: health-check rest with ERRORS.md present (cap reached) → escalate", () => {
+  it("gtd: escalated (the health check's at-cap write-time outcome) → escalate", () => {
     const result = resolve([
       R({
         invoker: "none",
         errorsPresent: true,
-        lastCommitSubject: "gtd: health-check",
+        lastCommitSubject: "gtd: escalated",
         workingTreeClean: true,
       }),
     ])

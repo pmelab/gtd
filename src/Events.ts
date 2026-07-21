@@ -1170,7 +1170,9 @@ export const perform = (
           : emptyFailureSentinel(config.testCommand, result.exitCode)
         yield* ensureGtdDir
         yield* fs.writeFileString(resolve(target), body)
-        yield* git.commitAllWithPrefix("gtd: test-failed")
+        // The red outcome is decided HERE, at write time: below the cap the
+        // label rests for the fixer; at the cap it escalates to the human.
+        yield* git.commitAllWithPrefix(action.capReached ? "gtd: escalated" : "gtd: test-failed")
         return { stop: false }
       }
 
@@ -1245,7 +1247,9 @@ export const perform = (
         const target = action.capReached ? ERRORS_FILE : HEALTH_FILE
         yield* ensureGtdDir
         yield* fs.writeFileString(resolve(target), body)
-        yield* git.commitAllWithPrefix("gtd: health-check")
+        // Write-time outcome, mirroring runTest: at the cap the label
+        // escalates directly instead of resting a spent health-fix gate.
+        yield* git.commitAllWithPrefix(action.capReached ? "gtd: escalated" : "gtd: health-check")
         return { stop: false }
       }
     }

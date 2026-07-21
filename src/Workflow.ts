@@ -320,7 +320,6 @@ export interface ClassifyFlags {
   readonly squashEnabled: boolean
   readonly hasSquashBase: boolean
   readonly learningEnabled: boolean
-  readonly errorsPresent: boolean
   readonly reviewPresent: boolean
 }
 
@@ -1021,12 +1020,11 @@ const routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>> = {
     // No packages: the health path's green re-test — learning/squash/idle.
     { to: settle("testing", false) },
   ],
-  // Marker state: a red check outcome; which file the check wrote (FEEDBACK
-  // below cap, ERRORS at cap) decides fixing vs escalate.
-  "test-failed": [
-    { when: (f) => f.errorsPresent, to: rest("escalate", "human") },
-    { to: rest("fixing", "agent") },
-  ],
+  // Marker state: a red check outcome BELOW the cap (the check decides at
+  // write time — at the cap it writes `gtd: escalated` instead).
+  "test-failed": [{ to: rest("fixing", "agent") }],
+  // The check crossed the fix-attempt cap and wrote ERRORS.md: a human gate.
+  escalated: [{ to: rest("escalate", "human") }],
   // Depends on remaining packages / reviewable diff — fallback ladder.
   "close-package": [{ to: defer }],
   "await-review": [{ to: rest("await-review", "human") }],
@@ -1039,10 +1037,7 @@ const routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>> = {
   "await-learning-review": [{ to: rest("await-learning-review", "human") }],
   "learning-apply": [{ to: rest("learning-apply", "agent") }],
   "learning-applied": [{ to: settle("learning-applied", true) }],
-  "health-check": [
-    { when: (f) => f.errorsPresent, to: rest("escalate", "human") },
-    { to: rest("health-fixing", "agent") },
-  ],
+  "health-check": [{ to: rest("health-fixing", "agent") }],
   // `gtd: testing` — a re-test is owed (the health-fixer's turn consumed
   // HEALTH.md). A plain REST for classification purposes (`gtd next`/pure
   // queries report idle/human here, since a clean tree "self-heals" — the
@@ -1066,10 +1061,6 @@ const routingRules: Partial<Record<RoutingPhase, readonly RuleBranch[]>> = {
  * turn that consumes the file.
  */
 const interrupts: readonly LadderRule[] = [
-  {
-    when: (f) => f.payload.errorsPresent,
-    branches: [{ to: rest("escalate", "human") }],
-  },
   {
     when: (f) => f.payload.healthPresent && !f.headIsHealthFixerTurn,
     branches: [{ to: rest("health-fixing", "agent") }],
@@ -1148,6 +1139,12 @@ const fallback: readonly LadderRule[] = [
     branches: [
       { to: chain("building", "agent", { kind: "runTest", errorCount: 0, capReached: false }) },
     ],
+  },
+  {
+    // A committed ERRORS.md under an unrecognized (boundary) HEAD — rider/
+    // crash recovery; the machine's own cap writes land as `gtd: escalated`.
+    when: (f) => f.payload.errorsPresent,
+    branches: [{ to: rest("escalate", "human") }],
   },
   {
     // A committed FEEDBACK.md under an unrecognized (boundary) HEAD — e.g. a
@@ -1315,7 +1312,9 @@ const learningFileConflictRules: readonly IllegalCombinationRule[] = [
 
 /** ERRORS.md briefly outlives the packages during the health-check cap escalation. */
 const isHealthCapEscalation = (p: ResolvePayload): boolean =>
-  p.lastCommitSubject === "gtd: health-check" || p.lastCommitSubject === "gtd: testing"
+  p.lastCommitSubject === "gtd: health-check" ||
+  p.lastCommitSubject === "gtd: testing" ||
+  p.lastCommitSubject === "gtd: escalated"
 
 const reviewAndFeedbackRules: readonly IllegalCombinationRule[] = [
   {

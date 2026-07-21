@@ -115,7 +115,7 @@ Feature: Testing — the bounded build/test/fix loop
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd: test-failed"
+    And the last commit subject is "gtd: escalated"
     And the file ".gtd/ERRORS.md" exists
     And the file ".gtd/FEEDBACK.md" does not exist
     When I run gtd next with "--json"
@@ -142,7 +142,7 @@ Feature: Testing — the bounded build/test/fix loop
       """
       Implement the helper.
       """
-    And a commit "gtd: test-failed" that adds ".gtd/ERRORS.md" with:
+    And a commit "gtd: escalated" that adds ".gtd/ERRORS.md" with:
       """
       Earlier escalation output.
       """
@@ -174,7 +174,7 @@ Feature: Testing — the bounded build/test/fix loop
       """
       Implement the helper.
       """
-    And a commit "gtd: test-failed" that adds ".gtd/ERRORS.md" with:
+    And a commit "gtd: escalated" that adds ".gtd/ERRORS.md" with:
       """
       Earlier escalation output.
       """

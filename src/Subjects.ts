@@ -90,6 +90,7 @@ export type RoutingPhase =
   | "building"
   | "tests-green"
   | "test-failed"
+  | "escalated"
   | "close-package"
   | "await-review"
   | "grilling"
@@ -110,6 +111,7 @@ export const ROUTING_SUBJECT: Record<Exclude<RoutingPhase, "review">, string> = 
   building: "gtd: building",
   "tests-green": "gtd: tests-green",
   "test-failed": "gtd: test-failed",
+  escalated: "gtd: escalated",
   "close-package": "gtd: close-package",
   "await-review": "gtd: await-review",
   grilling: "gtd: grilling",

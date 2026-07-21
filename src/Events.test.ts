@@ -1386,7 +1386,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(git("log", "-1", "--format=%s")).toBe("gtd: test-failed")
   })
 
-  it("runTest red at cap: writes ERRORS.md (not FEEDBACK.md) and commits gtd: test-failed", async () => {
+  it("runTest red at cap: writes ERRORS.md (not FEEDBACK.md) and commits gtd: escalated", async () => {
     await runPerform(
       { kind: "runTest", errorCount: 3, capReached: true },
       { exitCode: 1, output: "FAIL: persistent\n" },
@@ -1394,7 +1394,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(true)
     expect(readFileSync(join(repoDir, ".gtd/ERRORS.md"), "utf8")).toContain("FAIL: persistent")
     expect(existsSync(join(repoDir, ".gtd/FEEDBACK.md"))).toBe(false)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: test-failed")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: escalated")
   })
 
   it("runTest red under cap, empty output: FEEDBACK.md exists, non-empty, contains sentinel", async () => {
@@ -1520,7 +1520,7 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(git("status", "--porcelain").trim()).toBe("")
   })
 
-  it("runHealthCheck red at cap → writes ERRORS.md, commits gtd: health-check, stop: false", async () => {
+  it("runHealthCheck red at cap → writes ERRORS.md, commits gtd: escalated, stop: false", async () => {
     const result = await runPerform(
       { kind: "runHealthCheck", errorCount: 3, capReached: true, chainAfterGreen: false },
       { exitCode: 1, output: "FAIL: persistent\n" },
@@ -1529,6 +1529,6 @@ describe("perform — EdgeAction execution", { timeout: 30_000 }, () => {
     expect(existsSync(join(repoDir, ".gtd/ERRORS.md"))).toBe(true)
     expect(readFileSync(join(repoDir, ".gtd/ERRORS.md"), "utf8")).toContain("FAIL: persistent")
     expect(existsSync(join(repoDir, ".gtd/HEALTH.md"))).toBe(false)
-    expect(git("log", "-1", "--format=%s")).toBe("gtd: health-check")
+    expect(git("log", "-1", "--format=%s")).toBe("gtd: escalated")
   })
 })

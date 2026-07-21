@@ -518,14 +518,6 @@ const resolveBaseline = (
     squashEnabled: p.squashEnabled,
     hasSquashBase: p.squashBase !== undefined,
     learningEnabled: p.learningEnabled,
-    // A pending (uncommitted) deletion of ERRORS.md still counts as "ERRORS.md
-    // was committed at this HEAD" for classification purposes: `fs.exists`
-    // (which `p.errorsPresent` reads) already sees the file as gone once the
-    // working tree deletes it, but the `gtd: test-failed` commit at HEAD was still
-    // the cap-reached escalation round — the human resuming by deleting
-    // ERRORS.md must land at the escalate turn (mid-chain re-test), not
-    // fixing.
-    errorsPresent: p.errorsPresent || p.pendingErrorsDeletion,
     reviewPresent: p.reviewPresent,
   }
 
@@ -623,19 +615,9 @@ const applyTurnTaking = (
   // runTest re-test. `gtd next` (invoker "none") is unaffected (handled by
   // the branch above) and still reports idle/human, matching "a clean tree
   // self-heals: the next invocation's health check will simply re-run."
-  //
-  // `gtd: health-check` gets the same forced re-check ONLY once the
-  // fix-attempt budget is already exhausted (`capReached`): a health-fixing
-  // rest normally awaits the agent's fix, but once the cap is used up there
-  // is nothing left to fix — any invocation (including a human's `gtd step`)
-  // must force the re-test that writes ERRORS.md and escalates, rather than
-  // silently no-op-ing as an "agent turn awaited, clean tree" out-of-turn step.
-  const healthCheckCapReached =
-    head === "gtd: health-check" && counters.healthFixCount >= p.fixAttemptCap
-  if (
-    (head === "gtd: testing" && baseline.state === "idle") ||
-    (healthCheckCapReached && baseline.state === "health-fixing")
-  ) {
+  // (The old at-cap `gtd: health-check` carve-out is gone: the check decides
+  // at write time, so a cap-crossing red lands as `gtd: escalated` directly.)
+  if (head === "gtd: testing" && baseline.state === "idle") {
     // `healthFixBase !== undefined` alone: the edge only anchors a base for a
     // live, unprocessed health run (the anchor scan resets on `gtd: tests
     // green`), and a hand-written-HEALTH.md entry run whose first fix goes

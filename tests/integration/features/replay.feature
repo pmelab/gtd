@@ -57,7 +57,7 @@ Feature: Replay — every committed rest resolves deterministically
       """
       Implement the helper.
       """
-    And a commit "gtd: test-failed" that adds ".gtd/ERRORS.md" with:
+    And a commit "gtd: escalated" that adds ".gtd/ERRORS.md" with:
       """
       persistent failure output
       """

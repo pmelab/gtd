@@ -135,15 +135,17 @@ Feature: Health check — the idle test loop
     And a gtd config file at ".gtdrc" with:
       """
       testCommand: bash gate.sh
-      fixAttemptCap: 1
+      fixAttemptCap: 0
       """
     And a commit "feat: initial feature" that adds "src/lib.ts" with:
       """
       export const lib = 1
       """
-    And a commit "gtd: health-check"
+    # With a zero budget the very first red check is already at the cap: the
+    # check decides at write time and lands gtd: escalated + ERRORS.md.
     When I run gtd step human
     Then it succeeds
+    And the last commit subject is "gtd: escalated"
     And the file ".gtd/ERRORS.md" exists
     And the file ".gtd/HEALTH.md" does not exist
     When I run gtd next with "--json"
@@ -168,7 +170,7 @@ Feature: Health check — the idle test loop
       """
       export const lib = 1
       """
-    And a commit "gtd: health-check" that adds ".gtd/ERRORS.md" with:
+    And a commit "gtd: escalated" that adds ".gtd/ERRORS.md" with:
       """
       Earlier health-check escalation output.
       """
