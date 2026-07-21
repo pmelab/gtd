@@ -48,9 +48,12 @@ the two gaps the tsdown build otherwise covers: resolving `./Foo.js` specifiers
 to the on-disk `./Foo.ts`, and importing `*.md` prompt files as text. Pass CLI
 args after `--`, e.g. `npm run dev -- format <file>`.
 
-The decision core (`src/Machine.ts`) is pure and IO-free, so the whole state
-ladder and the counter folds are trivially unit-testable in isolation; all
-git/filesystem IO is confined to the edge (`src/Events.ts`).
+The decision core is pure and IO-free: the machine's shape (states,
+classification rules, precedence ladders, counter folds) is declared as data in
+`src/Workflow.ts` (`defaultWorkflow`), and `src/Machine.ts` is the interpreter
+that folds event streams through it — so the whole state ladder and the counter
+folds are trivially unit-testable in isolation; all git/filesystem IO is
+confined to the edge (`src/Events.ts`).
 
 `npm run build` produces `dist/gtd.bundle.mjs`, which npm exposes as the `gtd`
 binary via the `bin` field in `package.json`.
@@ -59,12 +62,12 @@ binary via the `bin` field in `package.json`.
 
 Run mutation testing on-demand with `npm run test:mutation` (StrykerJS, ~2 min)
 — never run it as part of routine development; it is a deliberate,
-manually-triggered check. The single `stryker.config.json` mutates six core
+manually-triggered check. The single `stryker.config.json` mutates seven core
 files:
 
 ```
-src/Machine.ts  src/Prompt.ts  src/Config.ts
-src/Format.ts   src/State.ts   src/Events.ts
+src/Machine.ts  src/Workflow.ts  src/Prompt.ts  src/Config.ts
+src/Format.ts   src/State.ts     src/Events.ts
 ```
 
 `src/Git.ts` is excluded: the Cucumber harness stubs git at the Effect boundary,

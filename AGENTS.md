@@ -19,11 +19,18 @@ When removing a step from a linear workflow (e.g. plan → build → learn →
 cleanup), trace **every** reference before deleting:
 
 - `src/Subjects.ts` closed sets (`TurnGate`, `RoutingPhase`, `ROUTING_SUBJECT`)
-- `src/Machine.ts` (the `GtdState` type, `resolveBaseline` / `classifyHead`
-  rest/mid-chain classification table, `awaitedActor`, `predictTurn`)
+- `src/Workflow.ts` (`defaultWorkflow` — the machine's whole declarative shape:
+  the `GtdState` type, the state's `StateDef` (awaited actor, gate, prompt/model
+  bindings, empty-agent-turn policy), its `turnRules` / `routingRules` rows,
+  interrupt/fallback ladder rungs, counter rules, `conflicts`, `entry` rules,
+  and `agentTurnValidation`)
+- `src/Machine.ts` (the interpreter — usually untouched by a step change, but
+  check the turn-taking carve-outs in `applyTurnTaking` for hardcoded
+  subjects/states, e.g. the idle/health-fix same-chain re-tests)
 - `src/Events.ts` (`gatherEvents` flag derivation, `perform`)
 - `src/program.ts` dispatch
-- `src/Prompt.ts` (`isPromptState`, `MODEL_STATE`, templates)
+- `src/Prompt.ts` (template imports/registrations; `isPromptState` and the
+  template/model selection read the `src/Workflow.ts` state defs)
 - `src/State.ts` (`edgeActionHandlers` — a total map over `EdgeAction["kind"]`,
   so it won't fail to compile on a removed/added variant the way an
   exhaustive-switch-free table can silently drift)
@@ -94,14 +101,15 @@ classify against the rewound HEAD.
 ### Agentic Cycle Count Fold
 
 `testFixCount` / `reviewFixCount` / `healthFixCount` are **folded in the
-machine** (`foldCounters` in `src/Machine.ts`) from flags `gatherEvents`
-(`src/Events.ts`) attaches to each `CommitEvent` — `isPackageStart`,
-`isFeedback`, `isErrors`, `isHealthCheck`, `removedErrors` — not recomputed at
-the Effect edge. `reviewFixCount` (the agentic-review cycle count) resets on
-`isPackageStart` and increments on `isFeedback` (an agentic-review turn whose
-diff touched `.gtd/FEEDBACK.md` (or legacy root `FEEDBACK.md`) — a findings
-round). Derived counters accumulate inside the state machine from event flags,
-keeping the edge thin.
+machine** (`foldCounters` in `src/Machine.ts`, interpreting the reset/increment
+rules declared in `src/Workflow.ts`) from flags `gatherEvents` (`src/Events.ts`)
+attaches to each `CommitEvent` — `isPackageStart`, `isFeedback`, `isErrors`,
+`isHealthCheck`, `removedErrors` — not recomputed at the Effect edge.
+`reviewFixCount` (the agentic-review cycle count) resets on `isPackageStart` and
+increments on `isFeedback` (an agentic-review turn whose diff touched
+`.gtd/FEEDBACK.md` (or legacy root `FEEDBACK.md`) — a findings round). Derived
+counters accumulate inside the state machine from event flags, keeping the edge
+thin.
 
 ## CLI Design
 

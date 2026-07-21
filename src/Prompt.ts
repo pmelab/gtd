@@ -23,73 +23,21 @@ import learningApplyMd from "./prompts/learning-apply.md"
 import escalateMd from "./prompts/escalate.md"
 import idleMd from "./prompts/idle.md"
 import { builtinTierDefault, stateTier, type ModelState } from "./Config.js"
+import { defaultWorkflow } from "./Workflow.js"
 import type { GtdState, Result } from "./Machine.js"
 
 /**
- * The 15 prompt-bearing states (frozen contract) — `src/State.ts` consumes
- * this single classification instead of duplicating an edge-only set.
- * `buildPrompt` throws for the other six (testing, planning, close-package,
+ * The prompt-bearing states (frozen contract: the definition's
+ * `kind: "prompt"` states — 15 today) — `src/State.ts` consumes this single
+ * classification instead of duplicating an edge-only set. `buildPrompt`
+ * throws for the `kind: "label"` states (testing, planning, close-package,
  * done, health-check, learning-applied), which are performed by the driver
- * and must never render a prompt.
+ * and must never render a prompt. Which template renders, and which
+ * `ModelState` resolves `{{MODEL}}`, both come from the definition's
+ * per-state `prompts`/`model` bindings.
  */
-const PROMPT_STATES: ReadonlySet<GtdState> = new Set<GtdState>([
-  "grilling",
-  "architecting",
-  "grilled",
-  "building",
-  "fixing",
-  "agentic-review",
-  "review",
-  "await-review",
-  "squashing",
-  "learning",
-  "await-learning-review",
-  "learning-apply",
-  "escalate",
-  "idle",
-  "health-fixing",
-])
-
-export const isPromptState = (state: GtdState): boolean => PROMPT_STATES.has(state)
-
-/** The prompt-bearing states `buildPrompt` renders a section for. */
-type PromptState =
-  | "grilling"
-  | "architecting"
-  | "grilled"
-  | "building"
-  | "fixing"
-  | "agentic-review"
-  | "review"
-  | "await-review"
-  | "squashing"
-  | "learning"
-  | "await-learning-review"
-  | "learning-apply"
-  | "escalate"
-  | "idle"
-  | "health-fixing"
-
-/**
- * Which `ModelState` a prompt-bearing state resolves `{{MODEL}}` against.
- * `grilled` shares the `decompose` tier; `review`, `squashing`, `learning`,
- * and `learning-apply` share the `clean` tier (renamed states, same model
- * tier); the human-gated states (`await-review`, `await-learning-review`,
- * `escalate`, `idle`) spawn no subagent and carry none.
- */
-const MODEL_STATE: Partial<Record<PromptState, ModelState>> = {
-  grilling: "grilling",
-  architecting: "architecting",
-  grilled: "decompose",
-  building: "building",
-  fixing: "fixing",
-  "health-fixing": "fixing",
-  "agentic-review": "agentic-review",
-  review: "clean",
-  squashing: "clean",
-  learning: "clean",
-  "learning-apply": "clean",
-}
+export const isPromptState = (state: GtdState): boolean =>
+  defaultWorkflow.states[state].kind === "prompt"
 
 /**
  * Built-in model resolver, reusing the single source of truth in `Config.ts`
@@ -153,31 +101,14 @@ eta.loadTemplate("@idle", idleMd)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ;(eta as any).resolvePath = null
 
-/** Maps each non-grilling/architecting PromptState to its registered template name. */
-const STATE_TEMPLATE: Record<Exclude<PromptState, "grilling" | "architecting">, string> = {
-  grilled: "@decompose",
-  building: "@building",
-  fixing: "@fixing",
-  "agentic-review": "@agentic-review",
-  review: "@review",
-  "await-review": "@await-review",
-  squashing: "@squashing",
-  learning: "@learning",
-  "await-learning-review": "@await-learning-review",
-  "learning-apply": "@learning-apply",
-  escalate: "@escalate",
-  idle: "@idle",
-  "health-fixing": "@health-fixing",
-}
-
 /**
  * Assemble the full prompt for a resolved, prompt-bearing state via Eta
  * templates. Each state template is a complete, self-contained Eta template
  * that pulls in shared partials (`@header`, tail) and the
  * state-specific dynamic values (`model`, `tail`) as view-model variables.
  *
- * Throws for the five edge-only states — they are performed by the driver and
- * must never reach here.
+ * Throws for the edge-only (`kind: "label"`) states — they are performed by
+ * the driver and must never reach here.
  */
 export const buildPrompt = (
   result: Result,
@@ -188,25 +119,24 @@ export const buildPrompt = (
   if (!isPromptState(state)) {
     throw new Error(`State "${state}" is performed by the edge and must never reach buildPrompt`)
   }
-  const promptState = state as PromptState
+  const stateDef = defaultWorkflow.states[state]
 
   // Resolve the model string for states that spawn a subagent.
-  const modelState = MODEL_STATE[promptState]
-  const model = modelState !== undefined ? resolveModel(modelState) : ""
+  const model = stateDef.model !== undefined ? resolveModel(stateDef.model) : ""
 
   // Select the tail: agent turns get the pinned tail sentence in plain mode;
   // human turns and any --json output carry no tail at all.
   const tail = output === "plain" && result.actor === "agent" ? "@agent-turn" : undefined
 
-  // Select the state template. For `grilling`/`architecting`, which prompt
+  // Select the state template from the definition's per-actor bindings. The
+  // dynamic gates (grilling/architecting) bind both actors — which prompt
   // renders depends on which actor the resolver is awaiting at this rest.
-  let templateName: string
-  if (promptState === "grilling") {
-    templateName = result.actor === "human" ? "@grilling-answers" : "@grilling-agent"
-  } else if (promptState === "architecting") {
-    templateName = result.actor === "human" ? "@architecting-answers" : "@architecting-agent"
-  } else {
-    templateName = STATE_TEMPLATE[promptState]
+  // Single-template states fall back to their sole binding regardless of the
+  // result's actor (the historical one-template-per-state behavior).
+  const prompts = stateDef.prompts ?? {}
+  const templateName = prompts[result.actor] ?? Object.values(prompts)[0]
+  if (templateName === undefined) {
+    throw new Error(`State "${state}" declares no prompt template`)
   }
 
   const raw = eta.renderString(`<%~ include(it.tmpl, it) %>`, {
