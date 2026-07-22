@@ -299,12 +299,18 @@ interface StateParts {
   readonly model: string | undefined
 }
 
+const assembleContentFields = (
+  content: Partial<Record<ContentKey, string>>,
+): Partial<StateDef> => ({
+  ...(content.script !== undefined ? { script: content.script } : {}),
+  ...(content.prompt !== undefined ? { prompt: content.prompt } : {}),
+  ...(content.message !== undefined ? { message: content.message } : {}),
+  ...(content.commit !== undefined ? { commit: content.commit } : {}),
+})
+
 const assembleStateDef = (parts: StateParts): StateDef => ({
   ...(parts.actor !== undefined ? { actor: parts.actor } : {}),
-  ...(parts.content.script !== undefined ? { script: parts.content.script } : {}),
-  ...(parts.content.prompt !== undefined ? { prompt: parts.content.prompt } : {}),
-  ...(parts.content.message !== undefined ? { message: parts.content.message } : {}),
-  ...(parts.content.commit !== undefined ? { commit: parts.content.commit } : {}),
+  ...assembleContentFields(parts.content),
   ...(parts.on !== undefined ? { on: parts.on } : {}),
   ...(parts.initial !== undefined ? { initial: parts.initial } : {}),
   ...(parts.retry !== undefined ? { retry: parts.retry } : {}),
