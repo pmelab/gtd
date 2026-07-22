@@ -27,12 +27,12 @@ No chat scrollback. No lost sessions. No infinite fix loops. Just git.
 - **Harness agnostic.** gtd emits prompts to stdout (or JSON). Claude Code, a
   bash loop, a CI job, or you reading it out loud — the workflow doesn't care
   who executes it.
-- **Bounded, not runaway.** Fix attempts are budgeted. When the cap is hit, gtd
-  stops and escalates to a human instead of burning tokens rewriting the same
-  test for the 47th time.
-- **Clean history.** When the feature ships, all the intermediate `gtd:` commits
-  squash into one conventional commit — as if a very disciplined engineer did it
-  in one sitting.
+- **Bounded, not runaway.** Fix attempts are capped (`retry` on a state). When
+  the cap is hit, gtd redirects to a human gate instead of burning tokens
+  rewriting the same test for the 47th time.
+- **Clean history.** When the feature ships, every intermediate
+  `gtd(actor): state` commit squashes into one conventional commit — as if a
+  very disciplined engineer did it in one sitting.
 
 ## Install
 
@@ -51,30 +51,33 @@ schema stub on first run (see [Configuration](docs/configuration.md#auto-init)).
 
 ## How it works
 
-Three commands drive everything:
+gtd is a small **pattern machine**: named states, each awaiting one actor and
+carrying one piece of content (a script, a prompt, a message, or a squash commit
+template), with an ordered set of change-patterns routing to the next state.
+Four commands drive it:
 
-- **`gtd step human`** — advance the workflow as the **human** actor.
-- **`gtd step agent`** — advance the workflow as the **agent** actor.
-- **`gtd next`** — print the prompt for whichever actor is currently awaited,
-  without mutating anything.
+- **`gtd step <actor>`** — authenticate as `<actor>` and perform the one
+  transition the pending changes match.
+- **`gtd next [--json]`** — print whichever actor is awaited and what they
+  should do, without mutating anything.
+- **`gtd run`** — execute the awaited script (the only place gtd itself spawns a
+  subprocess), then step its actor.
+- **`gtd status`** — a dry-run report of the resolved state and which pattern
+  each pending change matches.
 
-The loop is two beats, repeated: run `gtd step agent`, then `gtd next --json`.
-If the `actor` field says `"agent"`, feed the prompt to your agent and repeat;
-if it says `"human"`, stop — it's your move. You act by editing files (answering
-questions, reviewing the diff in your editor, fixing code) and running
-`gtd step human`.
+The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
+`"message"` means it's a human's move (stop and hand off); `"script"` means
+`gtd run` it; `"prompt"` means feed `content` to your agent, then run
+`gtd step <actor>` once it's done. See [STATES.md](STATES.md) for the model and
+[Driving the loop](docs/loop.md) for the full protocol.
 
-Along the way, gtd grills your idea into a product plan, then a technical
-architecture, decomposes it into work packages, builds them one at a time, runs
-your tests after every package, has the agent review its own diff, walks you
-through a final review, and squashes the whole cycle into one clean commit.
-
-You don't have to start at the beginning: the steering file you hand the entry
-turn picks the phase — plain notes start product grilling,
-`.gtd/ARCHITECTURE.md` starts technical grilling, a final `.gtd/PLAN.md` goes
-straight to decomposition, and a hand-written `.gtd/HEALTH.md` goes straight
-into the error-fixing loop. See
-[Entry points](docs/workflow.md#entry-points-which-file-starts-the-cycle-where).
+Along the way, the bundled default workflow grills your idea into a product
+plan, then a technical architecture, decomposes it into task files, builds them,
+runs your tests, has the agent review its own diff, walks you through a final
+review, and squashes the whole cycle into one clean commit — see
+[STATES.md](STATES.md#10-the-bundled-default-workflow) for the full shape. The
+workflow itself is just `.gtdrc` config — swap it for your own (see
+[Configuration](docs/configuration.md)).
 
 `gtd-loop`, installed alongside `gtd`, is a ready-to-run driver for the whole
 protocol — point it at a repo and it runs the loop until it's your turn. See
@@ -82,21 +85,21 @@ protocol — point it at a repo and it runs the loop until it's your turn. See
 
 Before wiring gtd into a repo, note the
 [repository requirements](docs/cli.md#repository-requirements) — most
-importantly: gitignore everything your test command writes.
+importantly: gitignore everything your scripts write.
 
 ## Documentation
 
+- [STATES.md](STATES.md) — the full pattern-machine specification: the model,
+  the pattern grammar, resolution, retry, the squash lifecycle, and the bundled
+  default workflow
 - [CLI reference](docs/cli.md) — every command, exit codes, JSON schemas,
   repository requirements
-- [The workflow](docs/workflow.md) — states, grilling, budgets, the review gate,
-  learning, squash
 - [Driving the loop](docs/loop.md) — the reference loop driver, `gtd-loop`,
   custom agents
-- [Configuration](docs/configuration.md) — `.gtdrc` schema, lookup, auto-init
-- [Upgrading from v1](docs/upgrading-from-v1.md) — breaking changes and
-  migration
+- [Configuration](docs/configuration.md) — `.gtdrc` `workflow:` schema, lookup,
+  auto-init
+- [Upgrading](docs/upgrading.md) — breaking changes and migration
 - [Development](docs/development.md) — building, testing, releasing
-- [STATES.md](STATES.md) — the full state-machine specification
 
 ## License
 

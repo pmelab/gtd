@@ -21,54 +21,53 @@ run `npm install` on a fresh clone — no manual setup needed. The hook runs
 file before each commit (`oxfmt --no-error-on-unmatched-pattern --write`),
 mirroring the `format:check` step enforced in CI (`oxfmt --check .`).
 
-## Prompt templates
+## Templates
 
-Each prompt-bearing state has a self-contained Eta template in
-`src/prompts/*.md` that owns its full prompt — header, context, and body. Shared
-fragments live as partials in `src/prompts/partials/`: `header`, the context
-renderers (`diff`, `feedback`, `package`), and the single `agent-turn` tail
-partial (the pinned "Finish your turn by running `gtd step agent`. Then run
-`gtd next` …" loop-closing instructions).
-
-At module load, `src/Prompt.ts` registers every template on a single `new Eta()`
-instance via `loadTemplate`. `readFile` and `resolvePath` are nulled afterward
-so rendering resolves exclusively from the in-memory cache — the compiled ESM
-bundle carries no runtime `fs` dependency.
-
-`buildPrompt(result, resolveModel?, output?)` selects the state's template,
-builds a view-model (model string, tail partial name, context), renders it,
-collapses runs of three or more blank lines to two, and ensures exactly one
-trailing newline. It throws for the five states that render no prompt at all
-(`testing`, `planning`, `close-package`, `done`, `health-check`) — those are
-performed entirely by the edge.
+Every state's content (`script`/`prompt`/`message`/`commit`) is an Eta template
+string, rendered by `src/PatternTemplates.ts`'s `renderStateTemplate` against
+the variable set documented in
+[Configuration](configuration.md#template-variables). There is no template-file
+registry to keep in sync: a workflow's content strings are either inline in its
+YAML/`.gtdrc` or a `./`-relative file reference auto-inlined at config load
+(`src/PatternConfig.ts`) — see
+[Configuration](configuration.md#content-values-inline-or-a-file-reference). The
+bundled default workflow (`src/workflows/default.yaml`) is imported as raw text
+via tsdown's `.yaml`-as-text loader (`tsdown.config.ts`) and compiled through
+the same path a `.gtdrc` `workflow:` key goes through
+(`src/workflows/default.ts`) — no privileged code path.
 
 `npm run dev` runs `src/main.ts` directly via Node's native TypeScript
-type-stripping (requires Node 22.6+). It registers `dev/hooks.mjs`, which fills
-the two gaps the tsdown build otherwise covers: resolving `./Foo.js` specifiers
-to the on-disk `./Foo.ts`, and importing `*.md` prompt files as text. Pass CLI
-args after `--`, e.g. `npm run dev -- format <file>`.
+type-stripping (requires Node 22.6+). It registers `dev/hooks.mjs`, which
+resolves `./Foo.js` specifiers to the on-disk `./Foo.ts` and imports `*.md`
+files as raw text. **Known gap:** `dev/hooks.mjs` predates the v3 `default.yaml`
+asset and does not yet mirror tsdown's `.yaml`-as-text loader, so `npm run dev`
+currently fails to import `src/workflows/default.yaml`
+(`ERR_UNKNOWN_FILE_EXTENSION`) — pass a `.gtdrc` with a `workflow:` key that
+never triggers the bundled-default import path, or extend the hook's `load`
+function to handle `.yaml` the same way it handles `.md`, to run from source
+today.
 
-The decision core is pure and IO-free: the machine's shape (states,
-classification rules, precedence ladders, counter stamps) is declared as data in
-`src/Workflow.ts` (`defaultWorkflow`), and `src/Machine.ts` is the interpreter
-that folds event streams through it — so the whole state ladder and the counter
-stamps are trivially unit-testable in isolation; all git/filesystem IO is
-confined to the edge (`src/Events.ts`).
+The decision core is pure and IO-free: the pattern machine's shape (states,
+patterns, retry) is a plain-data `WorkflowDefinition` (`src/PatternMachine.ts`),
+and the same module's `resolveState`/`step` are the pure resolver/interpreter
+over it — so the whole engine is trivially unit-testable in isolation; all
+git/filesystem/template IO is confined to the edge (`src/Edge.ts`).
 
 `npm run build` produces `dist/gtd.bundle.mjs`, which npm exposes as the `gtd`
 binary via the `bin` field in `package.json`.
 
 ## Mutation testing
 
-Run mutation testing on-demand with `npm run test:mutation` (StrykerJS, ~2 min)
-— never run it as part of routine development; it is a deliberate,
-manually-triggered check. The single `stryker.config.json` mutates seven core
-files:
-
-```
-src/Machine.ts  src/Workflow.ts  src/Prompt.ts  src/Config.ts
-src/Format.ts   src/State.ts     src/Events.ts
-```
+Run mutation testing on-demand with `npm run test:mutation` (StrykerJS) — never
+run it as part of routine development; it is a deliberate, manually-triggered
+check. `stryker.config.json`'s `mutate` list still names the pre-v3 module set
+(`src/Machine.ts`, `src/Workflow.ts`, `src/Prompt.ts`, `src/Config.ts`,
+`src/Format.ts`, `src/State.ts`, `src/Events.ts`) — none of `Machine.ts`,
+`Workflow.ts`, `Prompt.ts`, or `State.ts` exist anymore (see
+[Architecture](../AGENTS.md#the-pattern-machine-module-map) for the v3 module
+map); this needs updating to the pattern-machine files (`src/PatternMachine.ts`,
+`src/PatternConfig.ts`, `src/PatternTemplates.ts`, `src/Edge.ts`,
+`src/Config.ts`, `src/Format.ts`) before the mutation run is meaningful again.
 
 `src/Git.ts` is excluded: the Cucumber harness stubs git at the Effect boundary,
 so `Git.ts` mutants have zero in-memory coverage.

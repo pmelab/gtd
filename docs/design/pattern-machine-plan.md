@@ -1,5 +1,15 @@
 # Plan: the pattern machine (gtd v3)
 
+> **Status: implemented** (commits `b89e1ae..HEAD`). Two amendments made during
+> implementation, not reflected in the plan text below: (1) the commit subject's
+> `<actor>` half was fixed to record WHO STEPPED (the invoker), not the resolved
+> state's own declared actor — see `PatternMachine.ts`'s `resolveState` doc
+> comment and commit `09cd9df`; (2) the bundled default workflow's content is
+> fully INLINE, with no `./`-relative file references — the single-file
+> `dist/gtd.bundle.mjs` build can't ship a sibling `prompts/` directory to
+> resolve them against at runtime, unlike a `.gtdrc`-configured workflow, which
+> resolves file refs relative to its own config file's location on disk.
+
 > Interview outcome (all decided with the user, 2026-07-22):
 >
 > 1. **Ground-up v3.** The current definition model (gates, guard functions,
