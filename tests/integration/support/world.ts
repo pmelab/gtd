@@ -6,7 +6,7 @@ import { execSync, execFile as execFileCb } from "node:child_process"
 import { promisify } from "node:util"
 
 const execFile = promisify(execFileCb)
-import { readFileSync, existsSync, unlinkSync } from "node:fs"
+import { existsSync, unlinkSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { makeProgram } from "../../../src/program.js"
 import { inMemoryLayers } from "./inmem/layers.js"
@@ -37,9 +37,6 @@ export class GtdWorld extends QuickPickleWorld {
   /** Path to a stub agent script for `gtd-loop` scenarios (@live only). */
   stubAgentPath: string | undefined = undefined
 
-  /** Directory the next `runGtd` uses as cwd; defaults to the repo root. */
-  runCwd: string | undefined = undefined
-
   /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_VAR_` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
   envVars: Record<string, string> = {}
 
@@ -58,7 +55,7 @@ export class GtdWorld extends QuickPickleWorld {
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
     try {
       const { stdout, stderr } = await execFile(process.execPath, [GTD_BIN, ...args], {
-        cwd: this.runCwd ?? this.repoDir,
+        cwd: this.repoDir,
         env: { ...process.env, NODE_OPTIONS: undefined },
         encoding: "utf-8",
         timeout: 30_000,
@@ -108,20 +105,6 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   // ── Observation helpers — branch on tier ──────────────────────────────────
-
-  repoFile(path: string): string {
-    if (this.repo !== undefined) {
-      // Access the worktree map via the public-ish API: use fileAtRef("HEAD", path)
-      // for committed files, or worktree for unstaged. We need current worktree content.
-      // InMemRepo exposes writeFile/deleteFile but not a direct worktree read.
-      // Use the internal worktree via cast — same pattern as layers.ts.
-      const worktree = (this.repo as unknown as { worktree: Map<string, string> })["worktree"]
-      const content = worktree.get(path)
-      if (content === undefined) throw new Error(`File not found in in-memory repo: ${path}`)
-      return content
-    }
-    return readFileSync(join(this.repoDir, path), "utf-8")
-  }
 
   // fallow-ignore-next-line complexity
   repoFileExists(path: string): boolean {
@@ -208,48 +191,12 @@ export class GtdWorld extends QuickPickleWorld {
     )
   }
 
-  /** Resolve any revision (ref, HEAD~N, branch) to a hash, or null when it doesn't resolve. */
-  resolveRefOrNull(ref: string): string | null {
-    if (this.repo !== undefined) {
-      return this.repo.resolveRef(ref)
-    }
-    try {
-      return execSync(`git rev-parse --verify --quiet ${ref}`, {
-        cwd: this.repoDir,
-        encoding: "utf-8",
-        stdio: "pipe",
-      }).trim()
-    } catch {
-      return null
-    }
-  }
-
-  /** Create or move a repo-local ref (e.g. refs/gtd/review-head) to the given revision. */
-  setGitRef(ref: string, target: string): void {
-    if (this.repo !== undefined) {
-      this.repo.updateRef(ref, target)
-      return
-    }
-    execSync(`git update-ref ${ref} ${target}`, { cwd: this.repoDir, stdio: "pipe" })
-  }
-
   /** Porcelain status with untracked files listed individually. */
   gitStatus(): string {
     if (this.repo !== undefined) {
       return this.repo.statusPorcelain()
     }
     return execSync("git status --porcelain -uall", {
-      cwd: this.repoDir,
-      encoding: "utf-8",
-    })
-  }
-
-  /** One-line log starting from an arbitrary revision (not just HEAD). */
-  gitLogAt(ref: string): string {
-    if (this.repo !== undefined) {
-      return this.repo.logFrom(ref)
-    }
-    return execSync(`git log --oneline ${ref}`, {
       cwd: this.repoDir,
       encoding: "utf-8",
     })
@@ -262,15 +209,6 @@ export class GtdWorld extends QuickPickleWorld {
       return
     }
     unlinkSync(join(this.repoDir, path))
-  }
-
-  /** Move HEAD (and branch tip) to a revision without touching index or worktree. */
-  softResetHead(target: string): void {
-    if (this.repo !== undefined) {
-      this.repo.softResetTo(target)
-      return
-    }
-    execSync(`git reset -q --soft ${target}`, { cwd: this.repoDir, stdio: "pipe" })
   }
 
   execInRepo(cmd: string, args: string[] = []): string {

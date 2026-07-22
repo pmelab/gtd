@@ -51,17 +51,6 @@ export class InMemRepo {
     return this.headCommit()?.files ?? new Map()
   }
 
-  private ancestorChain(hash: string): string[] {
-    const chain: string[] = []
-    let cur: string | null = hash
-    while (cur !== null) {
-      chain.push(cur)
-      const c = this.getCommit(cur)
-      cur = c?.parent ?? null
-    }
-    return chain
-  }
-
   // ---------------------------------------------------------------------------
   // Read methods
   // ---------------------------------------------------------------------------
@@ -196,17 +185,6 @@ export class InMemRepo {
       const touched = diffTrees(parentTree, c.files).map((e) => e.path)
       return { hash: c.hash, message: c.message, removedErrors, touched }
     })
-  }
-
-  /** One-line log ("<short-hash> <subject>", newest→oldest) starting from `ref`. */
-  logFrom(ref: string): string {
-    const hash = this.resolveRef(ref)
-    if (!hash) throw new Error(`Cannot resolve ref: ${ref}`)
-    return (
-      this.ancestorChain(hash)
-        .map((h) => `${h.slice(0, 7)} ${this.getCommit(h)?.message.split("\n")[0] ?? ""}`)
-        .join("\n") + "\n"
-    )
   }
 
   fileAtRef(ref: string, path: string): string | null {
@@ -344,23 +322,6 @@ export class InMemRepo {
 
   deleteFile(path: string): void {
     this.worktree.delete(path)
-  }
-
-  renameBranch(newName: string): void {
-    const hash = this.branches.get(this.currentBranch)
-    if (hash !== undefined) {
-      this.branches.delete(this.currentBranch)
-      this.branches.set(newName, hash)
-    }
-    this.currentBranch = newName
-  }
-
-  createBranch(newBranch: string): void {
-    // Create a new branch at current HEAD and switch to it
-    if (this.head !== null) {
-      this.branches.set(newBranch, this.head)
-    }
-    this.currentBranch = newBranch
   }
 }
 

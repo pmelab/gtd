@@ -224,4 +224,42 @@ describe("ConfigService", () => {
       expect(String(second.cause)).not.toMatch(/Invalid gtd config/)
     }
   })
+
+  it("loading config does NOT create a stub — only ConfigInit.ensure does", async () => {
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(existsSync(join(projectDir, ".gtdrc.json"))).toBe(false)
+  })
+
+  it("ensure commits the stub with a path-scoped add and the chore message", async () => {
+    await ensureInit()
+
+    const subject = execFileSync("git", ["log", "-1", "--pretty=%s"], { cwd: projectDir })
+      .toString()
+      .trim()
+    expect(subject).toBe("chore: add .gtdrc.json")
+
+    // Only the stub was staged/committed — path-scoped add, not `git add -A`.
+    const committedFiles = execFileSync(
+      "git",
+      ["show", "--name-only", "--pretty=format:", "HEAD"],
+      { cwd: projectDir },
+    )
+      .toString()
+      .trim()
+    expect(committedFiles).toBe(".gtdrc.json")
+  })
+
+  it("ensure does not write or commit a stub when a config already exists", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  testCommand: "existing"\n`)
+
+    await ensureInit()
+
+    expect(existsSync(join(projectDir, ".gtdrc.json"))).toBe(false)
+    // No commit was created (fresh repo has no HEAD).
+    expect(() =>
+      execFileSync("git", ["rev-parse", "HEAD"], { cwd: projectDir, stdio: "ignore" }),
+    ).toThrow()
+  })
 })

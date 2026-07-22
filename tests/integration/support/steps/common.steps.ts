@@ -1,7 +1,6 @@
 import { Given, Then, When } from "quickpickle"
 import { execFileSync } from "node:child_process"
-import { writeFileSync, mkdirSync, readFileSync, mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
@@ -24,29 +23,6 @@ Given("a test project", (world: GtdWorld) => {
   }
 })
 
-// Exercises the main/master local-branch fallback in resolveDefaultBranch()
-// (test repos have no remote, so origin/HEAD is unavailable). Renames the
-// current branch, fixing the default-branch name the counter/review base use.
-Given("a default branch {string}", (world: GtdWorld, branch: string) => {
-  if (world.tier === "inmem") {
-    world.repo!.renameBranch(branch)
-  } else {
-    execFileSync("git", ["branch", "-M", branch], { cwd: world.repoDir, stdio: "pipe" })
-  }
-})
-
-// Creates a new branch from the current HEAD and switches to it, leaving the old
-// branch intact so resolveDefaultBranch() still finds it. Commits added AFTER
-// this step land in `merge-base(default, HEAD)..HEAD` — the range the machine
-// folds the test-fix / review-fix counters over.
-Given("a branch {string}", (world: GtdWorld, branch: string) => {
-  if (world.tier === "inmem") {
-    world.repo!.createBranch(branch)
-  } else {
-    execFileSync("git", ["checkout", "-b", branch], { cwd: world.repoDir, stdio: "pipe" })
-  }
-})
-
 // ── Working-tree file edits (uncommitted) ────────────────────────────────────
 
 function writeRepoFile(world: GtdWorld, path: string, content: string, createDirs = true): void {
@@ -64,24 +40,8 @@ Given("a file {string} with:", (world: GtdWorld, path: string, content: string) 
   writeRepoFile(world, path, content)
 })
 
-Given("a file {string} with content:", (world: GtdWorld, path: string, content: string) => {
-  writeRepoFile(world, path, content)
-})
-
 Given("{string} is modified to:", (world: GtdWorld, path: string, content: string) => {
   writeRepoFile(world, path, content, false)
-})
-
-Given("{string} has appended {string}", (world: GtdWorld, path: string, text: string) => {
-  if (world.tier === "inmem") {
-    const worktree = (world.repo as unknown as { worktree: Map<string, string> })["worktree"]
-    const existing = worktree.get(path) ?? ""
-    world.repo!.writeFile(path, existing + text + "\n")
-  } else {
-    const full = join(world.repoDir, path)
-    const existing = readFileSync(full, "utf-8")
-    writeFileSync(full, existing + text + "\n")
-  }
 })
 
 // Plain working-tree deletion — what an editor's "delete file" does. Distinct
@@ -89,14 +49,6 @@ Given("{string} has appended {string}", (world: GtdWorld, path: string, text: st
 // differs from HEAD, e.g. inside an open review checkout window.
 Given("the file {string} is deleted", (world: GtdWorld, path: string) => {
   world.deleteWorktreeFile(path)
-})
-
-Given("a directory {string}", (world: GtdWorld, path: string) => {
-  if (world.tier === "inmem") {
-    // Directories are implicit in the in-memory store; no-op.
-  } else {
-    mkdirSync(join(world.repoDir, path), { recursive: true })
-  }
 })
 
 // ── Committed history (one step = one commit) ────────────────────────────────
@@ -118,26 +70,6 @@ Given(
       execFileSync("git", ["add", path], { cwd: world.repoDir, stdio: "pipe" })
       execFileSync("git", ["commit", "-q", "-m", message], { cwd: world.repoDir, stdio: "pipe" })
     }
-  },
-)
-
-// Initialises a brand-new empty repo (no prior commit) so that `message` becomes
-// the root commit. Mirrors "a commit … that adds … with:" but starts from a
-// fresh mkdtemp rather than reusing world.repoDir.
-Given(
-  "a root commit {string} that adds {string} with:",
-  (world: GtdWorld, message: string, path: string, content: string) => {
-    const dir = mkdtempSync(join(tmpdir(), "gtd-test-"))
-    execFileSync("git", ["init", "-q"], { cwd: dir, stdio: "pipe" })
-    execFileSync("git", ["config", "user.name", "Test"], { cwd: dir, stdio: "pipe" })
-    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: dir, stdio: "pipe" })
-    execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir, stdio: "pipe" })
-    const full = join(dir, path)
-    mkdirSync(join(full, ".."), { recursive: true })
-    writeFileSync(full, content.endsWith("\n") ? content : content + "\n")
-    execFileSync("git", ["add", path], { cwd: dir, stdio: "pipe" })
-    execFileSync("git", ["commit", "-q", "-m", message], { cwd: dir, stdio: "pipe" })
-    world.repoDir = dir
   },
 )
 
@@ -228,13 +160,6 @@ Then("stderr contains {string}", (world: GtdWorld, text: string) => {
   )
 })
 
-Then("stderr does not contain {string}", (world: GtdWorld, text: string) => {
-  assert.ok(
-    !world.lastResult.stderr.includes(text),
-    `Expected stderr NOT to contain "${text}". Got:\n${world.lastResult.stderr}`,
-  )
-})
-
 // Post-loop observables. Edge-driven auto states emit no prompt — a single `gtd`
 // run performs the git action(s) and drives the loop forward — so assert the
 // landed commit subject instead of a retired prompt string.
@@ -246,83 +171,16 @@ Then("the last commit subject is {string}", (world: GtdWorld, subject: string) =
   )
 })
 
-Then("the HEAD commit subject is {string}", (world: GtdWorld, subject: string) => {
-  assert.strictEqual(
-    world.lastCommitSubject(),
-    subject,
-    `Expected HEAD commit subject "${subject}". Got "${world.lastCommitSubject()}".\nLog:\n${world.gitLog()}`,
-  )
-})
-
-// The commit MESSAGE body (everything after the subject line) — for the
-// `Gtd-Counters` trailer every machine-written commit carries.
-Then("the last commit body contains {string}", (world: GtdWorld, text: string) => {
-  const body = world.lastCommitBody()
-  assert.ok(body.includes(text), `Expected last commit body to contain "${text}". Got:\n${body}`)
-})
-
 Then("the git log contains {string}", (world: GtdWorld, subject: string) => {
   const log = world.gitLog()
   assert.ok(log.includes(subject), `Expected git log to contain "${subject}". Got:\n${log}`)
 })
 
-Then("the git log does not contain {string}", (world: GtdWorld, subject: string) => {
-  const log = world.gitLog()
-  assert.ok(!log.includes(subject), `Expected git log NOT to contain "${subject}". Got:\n${log}`)
-})
-
-// ── Git refs / status / ref-scoped log ──────────────────────────────────────
-// Observables for the review checkout window (refs/gtd/review-head rewind),
-// generic over any revision so other fixtures can reuse them.
-
-Given("the git ref {string} points at {string}", (world: GtdWorld, ref: string, target: string) => {
-  world.setGitRef(ref, target)
-})
-
-Given("HEAD is soft-reset to {string}", (world: GtdWorld, target: string) => {
-  world.softResetHead(target)
-})
-
-Then("the git ref {string} exists", (world: GtdWorld, ref: string) => {
-  assert.ok(world.resolveRefOrNull(ref) !== null, `Expected git ref "${ref}" to exist.`)
-})
-
-Then("the git ref {string} does not exist", (world: GtdWorld, ref: string) => {
-  assert.ok(world.resolveRefOrNull(ref) === null, `Expected git ref "${ref}" NOT to exist.`)
-})
-
-Then(
-  "the git log at {string} contains {string}",
-  (world: GtdWorld, ref: string, subject: string) => {
-    const log = world.gitLogAt(ref)
-    assert.ok(
-      log.includes(subject),
-      `Expected git log at ${ref} to contain "${subject}". Got:\n${log}`,
-    )
-  },
-)
-
-Then("the git status contains {string}", (world: GtdWorld, text: string) => {
-  const status = world.gitStatus()
-  assert.ok(status.includes(text), `Expected git status to contain "${text}". Got:\n${status}`)
-})
-
-Then("the git status does not contain {string}", (world: GtdWorld, text: string) => {
-  const status = world.gitStatus()
-  assert.ok(!status.includes(text), `Expected git status NOT to contain "${text}". Got:\n${status}`)
-})
+// ── Git status ───────────────────────────────────────────────────────────────
 
 Then("the git status is clean", (world: GtdWorld) => {
   const status = world.gitStatus()
   assert.strictEqual(status.trim(), "", `Expected a clean git status. Got:\n${status}`)
-})
-
-Then("the file {string} exists", (world: GtdWorld, path: string) => {
-  assert.ok(world.repoFileExists(path), `Expected file "${path}" to exist.`)
-})
-
-Then("the file {string} does not exist", (world: GtdWorld, path: string) => {
-  assert.ok(!world.repoFileExists(path), `Expected file "${path}" NOT to exist.`)
 })
 
 Then("{string} exists", (world: GtdWorld, path: string) => {
@@ -332,25 +190,6 @@ Then("{string} exists", (world: GtdWorld, path: string) => {
 Then("{string} does not exist", (world: GtdWorld, path: string) => {
   assert.ok(!world.repoFileExists(path), `Expected "${path}" NOT to exist.`)
 })
-
-Then("the file {string} contains {string}", (world: GtdWorld, path: string, text: string) => {
-  const content = world.repoFile(path)
-  assert.ok(
-    content.includes(text),
-    `Expected file "${path}" to contain "${text}". Got:\n${content}`,
-  )
-})
-
-Then(
-  "the file {string} does not contain {string}",
-  (world: GtdWorld, path: string, text: string) => {
-    const content = world.repoFile(path)
-    assert.ok(
-      !content.includes(text),
-      `Expected file "${path}" NOT to contain "${text}". Got:\n${content}`,
-    )
-  },
-)
 
 // Full-history assertion for journey scenarios: the exact commit subject
 // sequence, oldest → newest, one subject per docstring line.
@@ -386,11 +225,6 @@ Then("the commit count is unchanged", (world: GtdWorld) => {
     world.savedCommitCount,
     `Expected commit count to remain ${world.savedCommitCount}, got ${current}`,
   )
-})
-
-Then("the commit count is {int}", (world: GtdWorld, expected: number) => {
-  const current = world.commitCount()
-  assert.strictEqual(current, expected, `Expected commit count ${expected}, got ${current}`)
 })
 
 Then("the commit count increased by {int}", (world: GtdWorld, n: number) => {
