@@ -1,10 +1,12 @@
 # Design: the builder / work-packages flow as pure workflow configuration
 
-> Status: LANDED (2026-07-22) — Option A shipped in the bundled default workflow
-> (`src/workflows/default.yaml`'s `picking` state; see
-> [STATES.md §10](../../STATES.md#10-the-bundled-default-workflow)). The rest of
-> this document is kept as the decision record: why Option A was chosen over
-> B/C/D, and the process-per-task topology (§6) remains a documented,
+> Status: LANDED, then relocated (2026-07-22) — Option A shipped in the bundled
+> default workflow's `picking` state; the bundled default has since been
+> drastically simplified and no longer includes it. The full Option-A machine
+> now lives as a copy-paste example at
+> [docs/examples/advanced-workflow.md](../examples/advanced-workflow.md). The
+> rest of this document is kept as the decision record: why Option A was chosen
+> over B/C/D, and the process-per-task topology (§6) remains a documented,
 > unimplemented recipe.
 >
 > Context (as originally written): v2 had an engine-level package loop

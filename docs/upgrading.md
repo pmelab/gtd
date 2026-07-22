@@ -67,11 +67,16 @@ upgrading.
 ## How to adopt
 
 `workflow:` is optional — with no config at all, the bundled default workflow
-applies (the same grilling → architecting → decompose → building → checking →
-reviewing → await-review → squashing → done shape v2 shipped, now expressed as
-data rather than baked into the engine). Nothing to do for a repo that's happy
-with the default shape beyond a normal `npm install -g @pmelab/gtd` upgrade,
-from a settled (post-squash, idle) boundary.
+applies: a single-shot `grilling` plan, direct `building`, a `checking`/`fixing`
+loop, and a direct-diff `await-review` before `squashing` (see
+[STATES.md §10](../STATES.md#10-the-bundled-default-workflow)) — expressed as
+data rather than baked into the engine. The fuller grilling ⇄ grilling-answer /
+architecting ⇄ architecting-answer / decompose / picking / reviewing shape v2
+shipped is preserved as a copy-paste `.gtdrc` example at
+[docs/examples/advanced-workflow.md](examples/advanced-workflow.md) rather than
+the bundled default. Nothing to do for a repo that's happy with the default
+shape beyond a normal `npm install -g @pmelab/gtd` upgrade, from a settled
+(post-squash, idle) boundary.
 
 A repo that customized v2's `workflow:` key (actors, gates, guard vocabulary,
 ladders) needs to rewrite it from scratch in the v3 schema — see

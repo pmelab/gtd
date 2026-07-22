@@ -306,11 +306,19 @@ the file.
 
 ## Recipe: a per-task builder loop without a script state
 
-The bundled default workflow's `picking` state (see
-[STATES.md §10](../STATES.md#10-the-bundled-default-workflow)) is a `script`
-arbiter that turns a task-queue glob into a diff patterns can see. A driver that
-can't run scripts can get the same per-task loop out of pure prompt/`on`
-declarations instead, at the cost of trusting the agent to honor a marker
-protocol rather than a deterministic `ls`: see
+A `picking`-style queue arbiter (see
+[docs/examples/advanced-workflow.md](examples/advanced-workflow.md)) is a
+`script` state that turns a task-queue glob into a diff patterns can see. A
+driver that can't run scripts can get the same per-task loop out of pure
+prompt/`on` declarations instead, at the cost of trusting the agent to honor a
+marker protocol rather than a deterministic `ls`: see
 [docs/design/work-packages.md §3](design/work-packages.md) ("Option B —
 agent-encoded verdict") for the worked example.
+
+## A fuller example: two-phase planning, task decomposition, agent-prepared review
+
+The bundled default above is deliberately small. For a heavier machine — Q&A
+planning loops, an architecture phase, task decomposition, the deterministic
+per-task `picking` arbiter, and agent-prepared `.gtd/REVIEW.md` review — see
+[docs/examples/advanced-workflow.md](examples/advanced-workflow.md), a
+copy-paste-ready `.gtdrc` recipe.

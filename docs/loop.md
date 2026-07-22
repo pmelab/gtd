@@ -24,9 +24,8 @@ A loop is a simple cycle:
 2. Repeat until a `"message"` rest halts the loop, or a zero-commit `gtd run` at
    idle settles it (the green terminal signal).
 
-A human acts by editing files (e.g. answering questions in `.gtd/TODO.md`,
-annotating `.gtd/REVIEW.md`, fixing code) and then running `gtd step human` to
-capture the edit as their turn.
+A human acts by editing files (e.g. writing/editing `.gtd/TODO.md`, fixing code)
+and then running `gtd step human` to capture the edit as their turn.
 
 ```bash
 gtd next --json   # ask who's up and what they should do

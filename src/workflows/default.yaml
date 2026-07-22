@@ -15,45 +15,41 @@
 #
 # States, in cycle order:
 #   idle (initial, human, message)
-#     -> grilling (agent, prompt)
-#   grilling <-> grilling-answer (human, message): agent develops
-#     .gtd/TODO.md; human edits it (another round) or accepts as-is (moves on)
-#   architecting <-> architecting-answer (human, message): same shape for
-#     .gtd/ARCHITECTURE.md (seeded from TODO.md, which is deleted once read)
-#   decompose (agent, prompt): ARCHITECTURE.md -> ordered, self-contained task
-#     files under .gtd/tasks/ (e.g. .gtd/tasks/01-short-name.md), separate
-#     from every other .gtd/*.md workflow file by glob; ARCHITECTURE.md
-#     deleted
-#   picking (check, script): the deterministic queue arbiter — takes the
-#     first .gtd/tasks/*.md by name into .gtd/NEXT.md, or removes
-#     .gtd/NEXT.md when the queue is empty. `on` is order-sensitive: "D
-#     .gtd/NEXT.md" is declared BEFORE the wildcard-status ".gtd/NEXT.md" row
-#     because `*` as a status matches every status including `D` (see
-#     STATES.md §3) — declaring the wildcard row first would swallow the
-#     empty-queue deletion and never reach "reviewing".
-#   building (agent, prompt): implements EXACTLY ONE task — the one
-#     .gtd/NEXT.md names — then deletes that task file (never touching
-#     .gtd/NEXT.md, which picking owns)
-#   checking (check, script): runs `npm test` inline; A/M .gtd/FEEDBACK.md
-#     -> fixing (capped, redirects to escalate); clean -> picking (back to
-#     the arbiter, not straight to reviewing — there may be more tasks)
+#     -> grilling (agent, prompt): a SINGLE turn — reads .gtd/TODO.md's
+#     sketch, explores the codebase, and develops it into a concrete
+#     implementation plan in that one turn. No Q&A loop: open questions are
+#     resolved inline (stated as assumptions) rather than asked, since the
+#     human's checkpoint is the review at the end, not a back-and-forth here.
+#   grilling -> building (agent, prompt): implements the plan in .gtd/TODO.md
+#     directly (no task decomposition, no per-task queue) and deletes
+#     .gtd/TODO.md once the work is complete and verified.
+#   building -> checking (check, script): runs the test command inline;
+#     A/M .gtd/FEEDBACK.md -> fixing (capped, redirects to escalate); clean ->
+#     await-review.
 #   fixing (agent, prompt) <-> checking
 #   escalate (human, message): manual intervention, then back to checking
-#   reviewing (agent, prompt) -> await-review (human, message):
-#     D .gtd/REVIEW.md -> squashing (approve); anything else -> grilling
-#     (treated as feedback, per the plan's sketch)
+#   await-review (human, message): the human reviews the cycle's diff
+#     directly (e.g. `git diff <startCommit>` or `git log`) — there is no
+#     agent-prepared review file. A clean step (C) approves -> squashing;
+#     anything pending (a fresh .gtd/TODO.md, code edits, or both) is
+#     feedback -> grilling, re-entering the pipeline with that input.
 #   squashing (agent, prompt): authors .gtd/COMMIT_MSG.md -> done
 #   done (commit): squashes the whole cycle into one commit, message read
 #     from the pending .gtd/COMMIT_MSG.md
 #
-# `grilling`, `architecting`, and `reviewing` declare `model: smart` — an
-# opaque harness hint (see the comment at `grilling` below) for the heavier
-# planning/reviewing turns. Every other state is unset (harness default).
+# `grilling` declares `model: smart` — an opaque harness hint (see the
+# comment at `grilling` below) for its heavier one-shot planning turn. Every
+# other state is unset (harness default).
 #
 # `vars.testCommand` is this workflow's own declared default for `checking`'s
 # script (see it.vars in PatternTemplates.ts) — override it per-repo with a
 # top-level `.gtdrc` `vars: { testCommand: ... }` key, or per-invocation with
 # a `GTD_VAR_testCommand` environment variable (highest precedence).
+#
+# A fuller machine — two-phase Q&A planning, an architecture phase, task
+# decomposition, a deterministic per-task builder loop, and agent-prepared
+# review — is preserved as a copy-paste `.gtdrc` example at
+# docs/examples/advanced-workflow.md.
 
 vars:
   testCommand: npm test
@@ -76,158 +72,42 @@ states:
     # only passes it through to `gtd next --json`/`gtd status --json` so the
     # driving loop can map it onto whatever models its agent harness
     # provides. "smart" here just names the harness-chosen tier for the
-    # heavier planning/reviewing turns; states without a `model` use the
-    # harness's default.
-    model: smart
-    prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state (plans, task specs, review records) — never create, edit, or
-      delete anything under `.gtd/` except `.gtd/TODO.md`, which this prompt
-      tells you to write.
-
-      `.gtd/TODO.md` holds the plan under development. Read it, then develop
-      it into a concrete, product-level plan in this one turn — explore the
-      codebase before asking anything, so every open question is one the
-      codebase genuinely cannot answer.
-
-      Scope: product and user-facing decisions only. Leave implementation
-      details (file/module structure, data models, tech-stack choices) for
-      the next phase (`.gtd/ARCHITECTURE.md`).
-
-      For every remaining open question, add it under a `## Open Questions`
-      heading, one `### <question>` sub-heading each, with a
-      `Suggested default: <answer>` line the human can accept as-is. Omit the
-      section entirely once there are none.
-
-      Leave `.gtd/TODO.md` uncommitted and finish your turn — do not commit,
-      and do not run `gtd step agent` yourself; the harness does that.
-    on:
-      "* **": grilling-answer
-
-  grilling-answer:
-    actor: human
-    message: |
-      `.gtd/TODO.md` holds the plan under development, with any open
-      questions under `## Open Questions` — each carrying a suggested
-      default.
-
-      To answer a question, edit its entry in place (replace
-      `Suggested default: ...` with `Answer: ...`, or annotate further), then
-      run `gtd step human`.
-
-      To accept all suggested defaults as-is and move on to technical
-      architecting, run `gtd step human` with no edits.
-    on:
-      "C": architecting
-      "* **": grilling
-
-  architecting:
-    actor: agent
+    # heavier planning turn; states without a `model` use the harness's
+    # default.
     model: smart
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except
-      `.gtd/ARCHITECTURE.md` and `.gtd/TODO.md`, which this prompt tells you
-      to write and delete respectively.
+      `.gtd/TODO.md`, which this prompt tells you to develop.
 
-      Read `.gtd/TODO.md` (the converged product plan) and develop
-      `.gtd/ARCHITECTURE.md` from it in this one turn: file/module structure,
-      data models, library/tech-stack choices, error-handling strategy — the
-      *how*, building on the *what* already settled. Do not re-open
-      product-level decisions from `.gtd/TODO.md`; treat them as settled.
+      `.gtd/TODO.md` holds a short sketch of what to build. Read it, explore
+      the codebase, and develop it into a concrete implementation plan in
+      this one turn — there is no follow-up round here, so settle every open
+      question yourself: state each assumption inline (e.g. under an
+      `## Assumptions` heading) rather than asking. The human's checkpoint is
+      the review at the end of the cycle, not a back-and-forth now.
 
-      For every remaining open question, add it under a `## Open Questions`
-      heading the same way as the grilling phase (one `### <question>`
-      sub-heading, a `Suggested default: <answer>` line). Omit the section
-      once there are none.
-
-      Once `.gtd/ARCHITECTURE.md` is written, delete `.gtd/TODO.md` — its
-      content has been folded in and it must not linger.
-
-      Leave everything uncommitted and finish your turn.
+      Leave `.gtd/TODO.md` uncommitted and finish your turn — do not commit,
+      and do not run `gtd step agent` yourself; the harness does that.
     on:
-      "* **": architecting-answer
-
-  architecting-answer:
-    actor: human
-    message: |
-      `.gtd/ARCHITECTURE.md` holds the technical plan under development, with
-      any open questions under `## Open Questions`.
-
-      To answer a question, edit its entry in place, then run
-      `gtd step human`.
-
-      To accept all suggested defaults as-is and move on to decomposing the
-      work, run `gtd step human` with no edits.
-    on:
-      "C": decompose
-      "* **": architecting
-
-  decompose:
-    actor: agent
-    prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except the
-      task-spec files this prompt tells you to write (under `.gtd/tasks/`),
-      and `.gtd/ARCHITECTURE.md`, which it tells you to delete.
-
-      Read `.gtd/ARCHITECTURE.md` (the converged technical plan) and
-      decompose it into an ordered set of self-contained task files under
-      `.gtd/tasks/` (e.g. `.gtd/tasks/01-short-name.md`,
-      `.gtd/tasks/02-short-name.md`, ...). Order them so the test suite can
-      pass again after each one lands; each file is self-contained
-      (description, acceptance criteria as `- [ ]` checkboxes, relevant
-      paths) since a building turn receives only that one file as context.
-
-      No task file may reference any other `.gtd/` file, or a requirement to
-      preserve/update workflow state — `.gtd/` is machine-managed and gets
-      cleaned up as the cycle proceeds.
-
-      Once the task files are written, delete `.gtd/ARCHITECTURE.md`. Leave
-      everything uncommitted and finish your turn.
-    on:
-      "* .gtd/tasks/**": picking
-
-  picking:
-    actor: check
-    script: |
-      #!/usr/bin/env bash
-      # gtd check turn (the queue arbiter) — the driver (`gtd run`) executes
-      # this verbatim, then steps the check actor. Mechanics only: take the
-      # first task file (by name) under .gtd/tasks/ into .gtd/NEXT.md, or
-      # remove .gtd/NEXT.md when the queue is empty. What NEXT.md's
-      # presence/absence MEANS (another task to build vs. the queue closing
-      # out to review) is decided by this state's own `on` rules at capture
-      # time — never here.
-      set +e
-      next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
-      if [ -n "$next" ]; then
-        printf '%s' "$next" > .gtd/NEXT.md
-      else
-        rm -f .gtd/NEXT.md
-      fi
-    on:
-      "D .gtd/NEXT.md": reviewing
-      "* .gtd/NEXT.md": building
-      "C": reviewing
+      "* **": building
 
   building:
     actor: agent
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create or edit anything under `.gtd/` except deleting the
-      one task file this prompt tells you to delete; never touch
-      `.gtd/NEXT.md` yourself — the `picking` state owns it.
+      state — never create or edit anything under `.gtd/` except deleting
+      `.gtd/TODO.md`, which this prompt tells you to delete once its work is
+      complete.
 
-      The task file to implement is: <%~ it.read(".gtd/NEXT.md") %>
+      The plan to implement is: <%~ it.read(".gtd/TODO.md") %>
 
-      Read that file and implement EXACTLY the one task it describes — no
-      more, no less; leave every other task file under `.gtd/tasks/`
-      untouched. Use TDD discipline: one test, then the implementation that
-      passes it, then the next — never write all the tests first.
+      Read that plan and implement it in full. Use TDD discipline: one test,
+      then the implementation that passes it, then the next — never write
+      all the tests first.
 
-      Delete the task file once its work is complete and verified. Leave
-      everything else uncommitted and finish your turn.
+      Delete `.gtd/TODO.md` once the work it describes is complete and
+      verified. Leave everything else uncommitted and finish your turn.
     on:
       "* **": checking
 
@@ -262,7 +142,7 @@ states:
     on:
       "A .gtd/FEEDBACK.md": fixing
       "M .gtd/FEEDBACK.md": fixing
-      "C": picking
+      "C": await-review
 
   fixing:
     actor: agent
@@ -295,45 +175,22 @@ states:
     on:
       "* **": checking
 
-  reviewing:
-    actor: agent
-    model: smart
-    prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `.gtd/REVIEW.md`, which this prompt tells you to write.
-
-      Write `.gtd/REVIEW.md` to help a human review the cycle's full diff
-      (inlined below): group hunks semantically (same feature/refactor/fix,
-      even across files), and for each group write a short heading, an
-      explanation of what changed and why, and `- [ ] ./path/to/file.ts#42`
-      style file pointers (checkboxes are for the human to tick, not you).
-
-      Leave `.gtd/REVIEW.md` uncommitted and finish your turn.
-      <% if (it.processDiff.trim()) { %>
-
-      ## Full cycle diff
-
-      ```diff
-      <%~ it.processDiff %>
-      ```
-      <% } %>
-    on:
-      "* .gtd/REVIEW.md": await-review
-
   await-review:
     actor: human
     message: |
-      `.gtd/REVIEW.md` holds the review record for the completed cycle.
+      The cycle's checks are green. Review its changes directly — e.g.
+      `git diff <%= it.startCommit %>` for the full diff, or `git log
+      --stat <%= it.startCommit %>..HEAD` for a commit-by-commit view of
+      what changed. There is no separate review file to read.
 
-      To approve: delete `.gtd/REVIEW.md` and run `gtd step human`.
+      To approve: leave the tree clean (no pending changes) and run
+      `gtd step human` — this squashes the whole cycle into one commit.
 
-      To request changes: edit `.gtd/REVIEW.md` (or the code) with what's
-      wrong — including just ticking its checkboxes — then run
-      `gtd step human`; this sends the cycle back through grilling with your
-      feedback as the new input.
+      To request changes: write what's wrong as a fresh `.gtd/TODO.md` (code
+      edits alone also count), then run `gtd step human`; this sends the
+      cycle back through `grilling` with your feedback as the new input.
     on:
-      "D .gtd/REVIEW.md": squashing
+      "C": squashing
       "* **": grilling
 
   squashing:

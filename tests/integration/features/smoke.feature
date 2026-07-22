@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — default workflow hops, gtd next --json, cu
   its own dedicated feature files — see refusals.feature,
   default-workflow.feature, retry.feature, squash.feature.
 
-  Scenario: the default workflow's happy path advances idle -> grilling -> grilling-answer -> architecting
+  Scenario: the default workflow's happy path advances idle -> grilling -> building -> checking
     Given a test project
     And a file ".gtd/TODO.md" with:
       """
@@ -26,10 +26,15 @@ Feature: v3 pattern-machine smoke — default workflow hops, gtd next --json, cu
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): grilling-answer"
-    When I run gtd step human
+    And the last commit subject is "gtd(agent): building"
+    Given the file ".gtd/TODO.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(human): architecting"
+    And the last commit subject is "gtd(agent): checking"
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project

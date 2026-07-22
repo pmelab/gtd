@@ -3,15 +3,13 @@ Feature: The bundled default workflow — full cycle journeys
 
   Comprehensive coverage of `src/workflows/default.yaml` (see its own header
   comment for the state list) beyond smoke.feature's minimal hops: the full
-  idle-through-done cycle including the per-task `picking ⇄ building ⇄
-  checking`/`fixing` loop over two tasks and the squash finale, the
-  fix-retry-escalate path once `fixing`'s cap (max 3) is reached, and the
-  await-review feedback loop that sends a cycle back through grilling. A
-  check turn (`checking` or `picking`) is simulated by writing its verdict
-  file directly (`.gtd/FEEDBACK.md`, `.gtd/NEXT.md`) and running
-  `gtd step check` — @inmem never executes either script itself.
+  idle-through-done cycle including a check/fix round, the fix-retry-escalate
+  path once `fixing`'s cap (max 3) is reached, and the await-review feedback
+  loop that sends a cycle back through grilling. A check turn (`checking`) is
+  simulated by writing its verdict file directly (`.gtd/FEEDBACK.md`) and
+  running `gtd step check` — @inmem never executes the script itself.
 
-  Scenario: the full cycle advances idle through done, including a per-task picking/building/checking loop and a check/fix round
+  Scenario: the full cycle advances idle through done, including a check/fix round and an await-review feedback lap
     Given a test project
     And a file ".gtd/TODO.md" with:
       """
@@ -20,51 +18,21 @@ Feature: The bundled default workflow — full cycle journeys
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
+
+    # grilling: a single agent turn develops the sketch into a plan, no Q&A loop
     Given ".gtd/TODO.md" is modified to:
       """
-      Build a thing. Developed into a concrete plan with no open questions.
-      """
-    When I run gtd step agent
-    Then it succeeds
-    And the last commit subject is "gtd(agent): grilling-answer"
-    When I run gtd step human
-    Then it succeeds
-    And the last commit subject is "gtd(human): architecting"
-    Given a file ".gtd/ARCHITECTURE.md" with:
-      """
-      Technical plan for the thing.
-      """
-    And the file ".gtd/TODO.md" is deleted
-    When I run gtd step agent
-    Then it succeeds
-    And the last commit subject is "gtd(agent): architecting-answer"
-    When I run gtd step human
-    Then it succeeds
-    And the last commit subject is "gtd(human): decompose"
-    Given a file ".gtd/tasks/01-build-thing.md" with:
-      """
-      Task spec: build the thing.
-      """
-    And a file ".gtd/tasks/02-polish-thing.md" with:
-      """
-      Task spec: polish the thing.
-      """
-    And the file ".gtd/ARCHITECTURE.md" is deleted
-    When I run gtd step agent
-    Then it succeeds
-    And the last commit subject is "gtd(agent): picking"
+      Build a thing. Implementation plan: add src/thing.ts exporting `thing`.
 
-    # picking (task 1 of 2): the arbiter takes the first task file by name
-    Given a file ".gtd/NEXT.md" with:
+      ## Assumptions
+      - No existing thing.ts to conflict with.
       """
-      .gtd/tasks/01-build-thing.md
-      """
-    When I run gtd step check
+    When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(check): building"
+    And the last commit subject is "gtd(agent): building"
 
-    # building (task 1): implements exactly the task NEXT.md names, then deletes it
-    Given the file ".gtd/tasks/01-build-thing.md" is deleted
+    # building: implements the plan directly, deletes TODO.md when done
+    Given the file ".gtd/TODO.md" is deleted
     And a file "src/thing.ts" with:
       """
       export const thing = 1
@@ -72,6 +40,8 @@ Feature: The bundled default workflow — full cycle journeys
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): checking"
+
+    # checking (red): a failing run leaves FEEDBACK.md, sends the cycle to fixing
     Given a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
@@ -79,58 +49,60 @@ Feature: The bundled default workflow — full cycle journeys
     When I run gtd step check
     Then it succeeds
     And the last commit subject is "gtd(check): fixing"
+
+    # fixing: addresses the feedback, deletes it, steps back to checking
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): checking"
+
+    # checking (green): a clean step moves straight to await-review
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): picking"
+    And the last commit subject is "gtd(check): await-review"
 
-    # picking (task 2 of 2): overwrites NEXT.md with the one remaining task
-    Given ".gtd/NEXT.md" is modified to:
+    # await-review: request changes first (anything pending is feedback, back to grilling)
+    Given a file ".gtd/TODO.md" with:
       """
-      .gtd/tasks/02-polish-thing.md
+      Also add a doc comment to thing.ts.
       """
-    When I run gtd step check
+    When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(check): building"
+    And the last commit subject is "gtd(human): grilling"
 
-    # building (task 2): implements it, deletes the task file
-    Given the file ".gtd/tasks/02-polish-thing.md" is deleted
-    And a file "src/thing-polish.ts" with:
+    # second lap: grilling -> building -> checking (green) -> await-review
+    Given ".gtd/TODO.md" is modified to:
       """
-      export const polished = true
+      Also add a doc comment to thing.ts. Plan: add a one-line comment above
+      the export.
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): building"
+    Given the file ".gtd/TODO.md" is deleted
+    And a file "src/thing.ts" with:
+      """
+      // The thing.
+      export const thing = 1
       """
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): checking"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): picking"
+    And the last commit subject is "gtd(check): await-review"
 
-    # picking: the queue is now empty — NEXT.md is removed, cycle exits to review
-    Given the file ".gtd/NEXT.md" is deleted
-    When I run gtd step check
-    Then it succeeds
-    And the last commit subject is "gtd(check): reviewing"
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      ## Add thing
-      - [ ] src/thing.ts#1
-      """
-    When I run gtd step agent
-    Then it succeeds
-    And the last commit subject is "gtd(agent): await-review"
-    Given the file ".gtd/REVIEW.md" is deleted
+    # await-review: approve with a clean tree
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): squashing"
+
+    # squashing: the agent authors the commit message, entering it squashes the cycle
     Given a file ".gtd/COMMIT_MSG.md" with:
       """
       feat: build a thing
 
-      Implements the thing end to end.
+      Implements the thing end to end, including a review-feedback round.
       """
     When I run gtd step agent
     Then it succeeds
@@ -177,18 +149,14 @@ Feature: The bundled default workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(check): escalate"
 
-  Scenario: await-review feedback (anything but deleting REVIEW.md) sends the cycle back to grilling
+  Scenario: await-review feedback (anything pending) sends the cycle back to grilling
     Given a test project
-    And a commit "gtd(agent): await-review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(check): await-review" that adds "src/thing.ts" with:
       """
-      ## Add thing
-      - [ ] src/thing.ts#1
+      export const thing = 1
       """
-    And ".gtd/REVIEW.md" is modified to:
+    And a file ".gtd/TODO.md" with:
       """
-      ## Add thing
-      - [ ] src/thing.ts#1
-
       Please also add a test for the empty-input case.
       """
     When I run gtd step human

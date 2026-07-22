@@ -231,55 +231,41 @@ The workflow gtd ships with when `.gtdrc` has no `workflow:` key
 (`src/workflows/default.yaml`, compiled through the exact same compiler a custom
 `workflow:` key goes through — no privileged code path):
 
-| State                 | Actor | Content | `on`                                                                              | Retry              | Model   |
-| --------------------- | ----- | ------- | --------------------------------------------------------------------------------- | ------------------ | ------- |
-| `idle` (initial)      | human | message | `* **` → `grilling`                                                               | —                  | —       |
-| `grilling`            | agent | prompt  | `* **` → `grilling-answer`                                                        | —                  | `smart` |
-| `grilling-answer`     | human | message | `C` → `architecting`; `* **` → `grilling`                                         | —                  | —       |
-| `architecting`        | agent | prompt  | `* **` → `architecting-answer`                                                    | —                  | `smart` |
-| `architecting-answer` | human | message | `C` → `decompose`; `* **` → `architecting`                                        | —                  | —       |
-| `decompose`           | agent | prompt  | `* .gtd/tasks/**` → `picking`                                                     | —                  | —       |
-| `picking`             | check | script  | `D .gtd/NEXT.md` → `reviewing`; `* .gtd/NEXT.md` → `building`; `C` → `reviewing`  | —                  | —       |
-| `building`            | agent | prompt  | `* **` → `checking`                                                               | —                  | —       |
-| `checking`            | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `C` → `picking` | —                  | —       |
-| `fixing`              | agent | prompt  | `* **` → `checking`                                                               | max 3 → `escalate` | —       |
-| `escalate`            | human | message | `* **` → `checking`                                                               | —                  | —       |
-| `reviewing`           | agent | prompt  | `* .gtd/REVIEW.md` → `await-review`                                               | —                  | `smart` |
-| `await-review`        | human | message | `D .gtd/REVIEW.md` → `squashing`; `* **` → `grilling`                             | —                  | —       |
-| `squashing`           | agent | prompt  | `A .gtd/COMMIT_MSG.md` → `done`; `M .gtd/COMMIT_MSG.md` → `done`                  | —                  | —       |
-| `done`                | —     | commit  | (final — squashes the whole cycle, message read from `.gtd/COMMIT_MSG.md`)        | —                  | —       |
+| State            | Actor | Content | `on`                                                                                   | Retry              | Model   |
+| ---------------- | ----- | ------- | -------------------------------------------------------------------------------------- | ------------------ | ------- |
+| `idle` (initial) | human | message | `* **` → `grilling`                                                                    | —                  | —       |
+| `grilling`       | agent | prompt  | `* **` → `building`                                                                    | —                  | `smart` |
+| `building`       | agent | prompt  | `* **` → `checking`                                                                    | —                  | —       |
+| `checking`       | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `C` → `await-review` | —                  | —       |
+| `fixing`         | agent | prompt  | `* **` → `checking`                                                                    | max 3 → `escalate` | —       |
+| `escalate`       | human | message | `* **` → `checking`                                                                    | —                  | —       |
+| `await-review`   | human | message | `C` → `squashing`; `* **` → `grilling`                                                 | —                  | —       |
+| `squashing`      | agent | prompt  | `A .gtd/COMMIT_MSG.md` → `done`; `M .gtd/COMMIT_MSG.md` → `done`                       | —                  | —       |
+| `done`           | —     | commit  | (final — squashes the whole cycle, message read from `.gtd/COMMIT_MSG.md`)             | —                  | —       |
+
+A fuller machine — two-phase Q&A planning, an architecture phase, task
+decomposition, the deterministic `picking` queue arbiter with a per-task
+build/check loop, and agent-prepared `.gtd/REVIEW.md` review — is preserved as a
+copy-paste-ready example at
+[docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md) rather
+than shipped as the bundled default.
 
 ### Walkthrough
 
-A human writes `.gtd/TODO.md` (or just leaves a rough sketch pending) and runs
-`gtd step human` at `idle`: that dirty tree matches `"* **"`, so the step lands
-`gtd(human): grilling`. The agent develops `.gtd/TODO.md` into a product-level
-plan and steps; the human either accepts as-is (a **clean** `gtd step human` at
-`grilling-answer` — the `C` event — moves on to `architecting`) or edits the
-file (`"* **"` sends it back to `grilling` for another round). Architecting
-repeats the same shape one file later (`.gtd/ARCHITECTURE.md`), then `decompose`
-turns the converged architecture into an ordered set of self-contained task
-files under `.gtd/tasks/` (e.g. `.gtd/tasks/01-short-name.md`) — a glob
-deliberately separate from every other `.gtd/*.md` workflow file (`FEEDBACK.md`,
-`NEXT.md`, `REVIEW.md`, `COMMIT_MSG.md`).
+A human writes `.gtd/TODO.md` (a short sketch — a few sentences is enough) and
+runs `gtd step human` at `idle`: that dirty tree matches `"* **"`, so the step
+lands `gtd(human): grilling`. `grilling` is a SINGLE agent turn — there is no
+Q&A loop: the agent reads `.gtd/TODO.md`, explores the codebase, and develops it
+into a concrete implementation plan in that one turn, stating any open
+question's resolution inline (as an assumption) rather than asking, since the
+human's checkpoint is the review at the end of the cycle, not a back-and-forth
+here. `.gtd/TODO.md` stays as the plan artifact and the turn steps straight to
+`building`.
 
-`picking` is the deterministic queue arbiter: a `script` state whose only job is
-to inspect `.gtd/tasks/` (a tree property patterns can't see directly) and turn
-it into a diff patterns CAN see. It takes the first `.gtd/tasks/*.md` file by
-name into `.gtd/NEXT.md`, or removes `.gtd/NEXT.md` once the glob is empty. Its
-`on` map is declaration-order-sensitive: `"D .gtd/NEXT.md"` is listed **before**
-the wildcard-status `"* .gtd/NEXT.md"` row, because a `*` status matches every
-status including `D` (§3) — declaring the wildcard first would swallow the
-empty-queue deletion and the process would never reach `reviewing`. So: writing
-or overwriting `NEXT.md` (`A`/`M`, the non-empty-queue cases) falls through to
-the wildcard row → `building`; deleting it (the queue just emptied) matches the
-`D`-specific row first → `reviewing`; a clean step (the queue was already empty
-and `NEXT.md` never existed) is the bare `C` row → `reviewing`.
-
-`building` implements EXACTLY ONE task per turn — the one `.gtd/NEXT.md` names,
-interpolated into its prompt via `it.read(".gtd/NEXT.md")` — then deletes that
-task file (never touching `.gtd/NEXT.md` itself, which `picking` owns
-exclusively) and steps to `checking`.
+`building` implements the plan in `.gtd/TODO.md` directly — no task
+decomposition, no per-task queue — using TDD discipline (one test, then the
+implementation that passes it, then the next), and deletes `.gtd/TODO.md` once
+the work is complete and verified before stepping to `checking`.
 
 `checking` is a `script` state: `gtd run` executes its inline test-running
 wrapper (`<%~ it.vars.testCommand %>`, defaulting to `npm test` — this
@@ -287,32 +273,26 @@ workflow's own declared `vars:`, overridable via a top-level `.gtdrc` `vars:`
 key or a `GTD_VAR_testCommand` environment variable; see
 [Configuration](docs/configuration.md#variables)) and steps the `check` actor
 itself. A red run leaves `.gtd/FEEDBACK.md` pending (`A`/`M .gtd/FEEDBACK.md` →
-`fixing`); a clean run (`C`) returns to `picking` — not straight to `reviewing`
-— since the just-checked task may not have been the last one in the queue.
-`fixing`'s `retry: { max: 3, otherwise: escalate }` means the fourth consecutive
-entry into `fixing` within one process redirects to `escalate` — a human gate —
-instead; a human's own `"* **"` step from `escalate` returns to `checking` (with
-the process's retry trace unaffected by counting rules other than "how many
-times has `fixing` itself been entered"). Note this cap POOLS across every task
-in one process — a ten-task cycle shares one `fixing` budget of 3 total
-attempts, not 3 per task; see
-[docs/design/work-packages.md §6](docs/design/work-packages.md) for the
-process-per-task topology that would give each task its own budget.
+`fixing`); a clean run (`C`) moves on to `await-review`. `fixing`'s
+`retry: { max: 3, otherwise: escalate }` means the fourth consecutive entry into
+`fixing` within one process redirects to `escalate` — a human gate — instead; a
+human's own `"* **"` step from `escalate` returns to `checking` (with the
+process's retry trace unaffected by counting rules other than "how many times
+has `fixing` itself been entered").
 
-The cycle repeats `picking ⇄ building ⇄ checking`/`fixing` once per task until
-`picking` finds `.gtd/tasks/` empty, at which point it removes `.gtd/NEXT.md`
-(or, on the very first entry with zero tasks, finds nothing to remove) and
-proceeds to `reviewing`.
+`await-review` is a direct diff review, with no agent-prepared review file: the
+human is told to inspect the cycle's changes themselves (e.g.
+`git diff <startCommit>` or `git log --stat <startCommit>..HEAD`). A **clean**
+`gtd step human` (the `C` event) approves and moves to `squashing`; anything
+else pending — a fresh `.gtd/TODO.md` describing what's wrong, code edits, or
+both — is feedback and sends the cycle back to `grilling` (`"* **"`),
+re-entering the pipeline with that input. `squashing` has the agent author
+`.gtd/COMMIT_MSG.md`; writing or modifying it (`A`/`M .gtd/COMMIT_MSG.md`)
+transitions into `done` — a `commit:` state — which performs the squash
+lifecycle from §8 and ends the process there. The next invocation, with no
+`gtd(...)` HEAD to resolve, starts fresh at `idle`.
 
-`reviewing` writes `.gtd/REVIEW.md` for a human to read; `await-review` resolves
-an approval (deleting the file, `D .gtd/REVIEW.md`) to `squashing`, and anything
-else pending (edits, code changes) back to `grilling` as feedback. `squashing`
-has the agent author `.gtd/COMMIT_MSG.md`; writing or modifying it
-(`A`/`M .gtd/COMMIT_MSG.md`) transitions into `done` — a `commit:` state — which
-performs the squash lifecycle from §8 and ends the process there. The next
-invocation, with no `gtd(...)` HEAD to resolve, starts fresh at `idle`.
-
-`grilling`, `architecting`, and `reviewing` — the heavier planning/reviewing
-turns — declare `model: smart`, an opaque hint `gtd next`/`gtd status` `--json`
-emit verbatim for the driving loop to map onto its harness. Every other state
-leaves `model` unset, so the harness's own default applies.
+`grilling` — the heavier one-shot planning turn — declares `model: smart`, an
+opaque hint `gtd next`/`gtd status` `--json` emit verbatim for the driving loop
+to map onto its harness. Every other state leaves `model` unset, so the
+harness's own default applies.

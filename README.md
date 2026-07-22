@@ -21,9 +21,9 @@ No chat scrollback. No lost sessions. No infinite fix loops. Just git.
 - **Shareable.** Push the branch, and the workflow travels with it — the state
   lives in the commits, so another machine (or another person) picks up exactly
   where you left off.
-- **Files, not chat.** Plans live in `.gtd/TODO.md`, reviews in
-  `.gtd/REVIEW.md`. Answer the agent's questions inline, approve by ticking
-  checkboxes — all in your own editor. There is no chat UI to lose.
+- **Files, not chat.** Plans live in `.gtd/TODO.md`. Request changes by editing
+  it, approve by leaving the tree clean — all in your own editor. There is no
+  chat UI to lose.
 - **Harness agnostic.** gtd emits prompts to stdout (or JSON). Claude Code, a
   bash loop, a CI job, or you reading it out loud — the workflow doesn't care
   who executes it.
@@ -71,11 +71,15 @@ The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
 `gtd step <actor>` once it's done. See [STATES.md](STATES.md) for the model and
 [Driving the loop](docs/loop.md) for the full protocol.
 
-Along the way, the bundled default workflow grills your idea into a product
-plan, then a technical architecture, decomposes it into task files, builds them,
-runs your tests, has the agent review its own diff, walks you through a final
-review, and squashes the whole cycle into one clean commit — see
-[STATES.md](STATES.md#10-the-bundled-default-workflow) for the full shape. The
+Along the way, the bundled default workflow develops your sketch into an
+implementation plan in one turn, builds it, runs your tests (looping on
+failures), walks you through a direct diff review, and squashes the whole cycle
+into one clean commit — see
+[STATES.md](STATES.md#10-the-bundled-default-workflow) for the full shape. A
+heavier machine — two-phase Q&A planning, an architecture phase, task
+decomposition, a per-task build loop, and agent-prepared review — is preserved
+as a copy-paste `.gtdrc` example at
+[docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md). The
 workflow itself is just `.gtdrc` config — swap it for your own (see
 [Configuration](docs/configuration.md)).
 
