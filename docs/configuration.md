@@ -303,3 +303,14 @@ moves to `working`; any other pending change loops back to `drafting`. Writing
 `COMMIT_MSG.md` at `working` enters `done`, which squashes every commit since
 `idle` into one, using `COMMIT_MSG.md`'s content as the message, and discards
 the file.
+
+## Recipe: a per-task builder loop without a script state
+
+The bundled default workflow's `picking` state (see
+[STATES.md §10](../STATES.md#10-the-bundled-default-workflow)) is a `script`
+arbiter that turns a task-queue glob into a diff patterns can see. A driver that
+can't run scripts can get the same per-task loop out of pure prompt/`on`
+declarations instead, at the cost of trusting the agent to honor a marker
+protocol rather than a deterministic `ls`: see
+[docs/design/work-packages.md §3](design/work-packages.md) ("Option B —
+agent-encoded verdict") for the worked example.

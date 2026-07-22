@@ -3,13 +3,15 @@ Feature: The bundled default workflow — full cycle journeys
 
   Comprehensive coverage of `src/workflows/default.yaml` (see its own header
   comment for the state list) beyond smoke.feature's minimal hops: the full
-  idle-through-done cycle including a check/fix round and the squash finale,
-  the fix-retry-escalate path once `fixing`'s cap (max 3) is reached, and the
+  idle-through-done cycle including the per-task `picking ⇄ building ⇄
+  checking`/`fixing` loop over two tasks and the squash finale, the
+  fix-retry-escalate path once `fixing`'s cap (max 3) is reached, and the
   await-review feedback loop that sends a cycle back through grilling. A
-  check turn is simulated by writing `.gtd/FEEDBACK.md` directly and running
-  `gtd step check` — @inmem never executes the check script itself.
+  check turn (`checking` or `picking`) is simulated by writing its verdict
+  file directly (`.gtd/FEEDBACK.md`, `.gtd/NEXT.md`) and running
+  `gtd step check` — @inmem never executes either script itself.
 
-  Scenario: the full cycle advances idle through done, including a check/fix round
+  Scenario: the full cycle advances idle through done, including a per-task picking/building/checking loop and a check/fix round
     Given a test project
     And a file ".gtd/TODO.md" with:
       """
@@ -39,15 +41,30 @@ Feature: The bundled default workflow — full cycle journeys
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): decompose"
-    Given a file ".gtd/01-build-thing.md" with:
+    Given a file ".gtd/tasks/01-build-thing.md" with:
       """
       Task spec: build the thing.
+      """
+    And a file ".gtd/tasks/02-polish-thing.md" with:
+      """
+      Task spec: polish the thing.
       """
     And the file ".gtd/ARCHITECTURE.md" is deleted
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): building"
-    Given the file ".gtd/01-build-thing.md" is deleted
+    And the last commit subject is "gtd(agent): picking"
+
+    # picking (task 1 of 2): the arbiter takes the first task file by name
+    Given a file ".gtd/NEXT.md" with:
+      """
+      .gtd/tasks/01-build-thing.md
+      """
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): building"
+
+    # building (task 1): implements exactly the task NEXT.md names, then deletes it
+    Given the file ".gtd/tasks/01-build-thing.md" is deleted
     And a file "src/thing.ts" with:
       """
       export const thing = 1
@@ -66,6 +83,34 @@ Feature: The bundled default workflow — full cycle journeys
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): checking"
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): picking"
+
+    # picking (task 2 of 2): overwrites NEXT.md with the one remaining task
+    Given ".gtd/NEXT.md" is modified to:
+      """
+      .gtd/tasks/02-polish-thing.md
+      """
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): building"
+
+    # building (task 2): implements it, deletes the task file
+    Given the file ".gtd/tasks/02-polish-thing.md" is deleted
+    And a file "src/thing-polish.ts" with:
+      """
+      export const polished = true
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): checking"
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): picking"
+
+    # picking: the queue is now empty — NEXT.md is removed, cycle exits to review
+    Given the file ".gtd/NEXT.md" is deleted
     When I run gtd step check
     Then it succeeds
     And the last commit subject is "gtd(check): reviewing"

@@ -20,11 +20,23 @@
 #     .gtd/TODO.md; human edits it (another round) or accepts as-is (moves on)
 #   architecting <-> architecting-answer (human, message): same shape for
 #     .gtd/ARCHITECTURE.md (seeded from TODO.md, which is deleted once read)
-#   decompose (agent, prompt): ARCHITECTURE.md -> task spec files under
-#     .gtd/, ARCHITECTURE.md deleted
-#   building (agent, prompt): implements every task file
+#   decompose (agent, prompt): ARCHITECTURE.md -> ordered, self-contained task
+#     files under .gtd/tasks/ (e.g. .gtd/tasks/01-short-name.md), separate
+#     from every other .gtd/*.md workflow file by glob; ARCHITECTURE.md
+#     deleted
+#   picking (check, script): the deterministic queue arbiter — takes the
+#     first .gtd/tasks/*.md by name into .gtd/NEXT.md, or removes
+#     .gtd/NEXT.md when the queue is empty. `on` is order-sensitive: "D
+#     .gtd/NEXT.md" is declared BEFORE the wildcard-status ".gtd/NEXT.md" row
+#     because `*` as a status matches every status including `D` (see
+#     STATES.md §3) — declaring the wildcard row first would swallow the
+#     empty-queue deletion and never reach "reviewing".
+#   building (agent, prompt): implements EXACTLY ONE task — the one
+#     .gtd/NEXT.md names — then deletes that task file (never touching
+#     .gtd/NEXT.md, which picking owns)
 #   checking (check, script): runs `npm test` inline; A/M .gtd/FEEDBACK.md
-#     -> fixing (capped, redirects to escalate); clean -> reviewing
+#     -> fixing (capped, redirects to escalate); clean -> picking (back to
+#     the arbiter, not straight to reviewing — there may be more tasks)
 #   fixing (agent, prompt) <-> checking
 #   escalate (human, message): manual intervention, then back to checking
 #   reviewing (agent, prompt) -> await-review (human, message):
@@ -156,16 +168,16 @@ states:
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except the
-      task-spec files this prompt tells you to write, and
-      `.gtd/ARCHITECTURE.md`, which it tells you to delete.
+      task-spec files this prompt tells you to write (under `.gtd/tasks/`),
+      and `.gtd/ARCHITECTURE.md`, which it tells you to delete.
 
       Read `.gtd/ARCHITECTURE.md` (the converged technical plan) and
-      decompose it into an ordered set of task files directly under `.gtd/`
-      (e.g. `.gtd/01-short-name.md`, `.gtd/02-short-name.md`, ...). Order
-      them so the test suite can pass again after each one lands; each file
-      is self-contained (description, acceptance criteria as `- [ ]`
-      checkboxes, relevant paths) since building agents receive only that one
-      file as context.
+      decompose it into an ordered set of self-contained task files under
+      `.gtd/tasks/` (e.g. `.gtd/tasks/01-short-name.md`,
+      `.gtd/tasks/02-short-name.md`, ...). Order them so the test suite can
+      pass again after each one lands; each file is self-contained
+      (description, acceptance criteria as `- [ ]` checkboxes, relevant
+      paths) since a building turn receives only that one file as context.
 
       No task file may reference any other `.gtd/` file, or a requirement to
       preserve/update workflow state — `.gtd/` is machine-managed and gets
@@ -174,24 +186,48 @@ states:
       Once the task files are written, delete `.gtd/ARCHITECTURE.md`. Leave
       everything uncommitted and finish your turn.
     on:
-      "* .gtd/**": building
+      "* .gtd/tasks/**": picking
+
+  picking:
+    actor: check
+    script: |
+      #!/usr/bin/env bash
+      # gtd check turn (the queue arbiter) — the driver (`gtd run`) executes
+      # this verbatim, then steps the check actor. Mechanics only: take the
+      # first task file (by name) under .gtd/tasks/ into .gtd/NEXT.md, or
+      # remove .gtd/NEXT.md when the queue is empty. What NEXT.md's
+      # presence/absence MEANS (another task to build vs. the queue closing
+      # out to review) is decided by this state's own `on` rules at capture
+      # time — never here.
+      set +e
+      next=$(ls .gtd/tasks/*.md 2>/dev/null | head -n 1)
+      if [ -n "$next" ]; then
+        printf '%s' "$next" > .gtd/NEXT.md
+      else
+        rm -f .gtd/NEXT.md
+      fi
+    on:
+      "D .gtd/NEXT.md": reviewing
+      "* .gtd/NEXT.md": building
+      "C": reviewing
 
   building:
     actor: agent
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create or edit anything under `.gtd/` except deleting a
-      task file once it is fully implemented, and removing `.gtd/` entirely
-      once every task file is gone.
+      state — never create or edit anything under `.gtd/` except deleting the
+      one task file this prompt tells you to delete; never touch
+      `.gtd/NEXT.md` yourself — the `picking` state owns it.
 
-      Implement every task file under `.gtd/` in order, respecting their
-      dependencies (tasks with no dependency between them may be done in
-      parallel). Use TDD discipline: one test, then the implementation that
+      The task file to implement is: <%~ it.read(".gtd/NEXT.md") %>
+
+      Read that file and implement EXACTLY the one task it describes — no
+      more, no less; leave every other task file under `.gtd/tasks/`
+      untouched. Use TDD discipline: one test, then the implementation that
       passes it, then the next — never write all the tests first.
 
-      Delete each task file once its work is complete and verified. Leave
-      everything else uncommitted and finish your turn once the whole set is
-      done.
+      Delete the task file once its work is complete and verified. Leave
+      everything else uncommitted and finish your turn.
     on:
       "* **": checking
 
@@ -226,7 +262,7 @@ states:
     on:
       "A .gtd/FEEDBACK.md": fixing
       "M .gtd/FEEDBACK.md": fixing
-      "C": reviewing
+      "C": picking
 
   fixing:
     actor: agent

@@ -1,12 +1,19 @@
 # Design: the builder / work-packages flow as pure workflow configuration
 
-> Status: PLAN (2026-07-22) — options under discussion, nothing implemented.
-> Context: v2 had an engine-level package loop (`hasPackages` /
-> `packagesRemaining` guards, the `close-package` label, `removePackageDir`). v3
-> deleted all of it; the bundled default's `building` state now implements the
-> entire task set in ONE monolithic agent turn. This doc plans how to get the
-> incremental task-by-task loop back **without the engine ever learning what a
-> "package" is** — it stays a concern of the workflow configuration.
+> Status: LANDED (2026-07-22) — Option A shipped in the bundled default workflow
+> (`src/workflows/default.yaml`'s `picking` state; see
+> [STATES.md §10](../../STATES.md#10-the-bundled-default-workflow)). The rest of
+> this document is kept as the decision record: why Option A was chosen over
+> B/C/D, and the process-per-task topology (§6) remains a documented,
+> unimplemented recipe.
+>
+> Context (as originally written): v2 had an engine-level package loop
+> (`hasPackages` / `packagesRemaining` guards, the `close-package` label,
+> `removePackageDir`). v3 deleted all of it; the bundled default's `building`
+> state used to implement the entire task set in ONE monolithic agent turn. This
+> doc plans how to get the incremental task-by-task loop back **without the
+> engine ever learning what a "package" is** — it stays a concern of the
+> workflow configuration.
 
 ## 1. What the loop actually needs
 
