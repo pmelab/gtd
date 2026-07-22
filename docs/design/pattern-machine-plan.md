@@ -25,28 +25,38 @@
 >    within a segment, `**` across segments).
 > 6. **No-match dirty step:** refusal — exit non-zero, name the state's declared
 >    patterns, commit nothing.
-> 7. **`final: true` squashes** the process (entry-parent through the final
->    commit) into one commit whose message is a tree-carried message file (path
->    configurable on the final state, default `.gtd/SQUASH_MSG.md`), consumed
->    verbatim.
-> 8. **Template variables** for script/prompt/message (all Eta; inline or a path
->    relative to the config file, auto-inlined): `startCommit`, `currentCommit`,
->    `previousCommit`, `state`, `actor`, `processDiff` (startCommit..HEAD +
->    pending), `lastDiff` (the last transition's diff), and `config` passthrough
->    (e.g. `testCommand`).
+> 7. **Squash = the `commit:` content kind** (revised 2026-07-22, replacing the
+>    earlier `final: true` flag). A state whose content property is `commit:` is
+>    the final state — no separate flag, no actor. Entering it performs, in one
+>    execution: (a) render the `commit:` Eta template against the PENDING
+>    working tree (`it.read(path)` reads files as they sit — the message file is
+>    never committed first; a failed render refuses the step and touches
+>    nothing), (b) soft-reset to the process's start parent and write ONE commit
+>    with the rendered message, (c) discard all remaining uncommitted changes,
+>    message file included. Squashing is optional (no `commit:` state = no
+>    squash) and nothing about it is hardcoded: the message filename appears
+>    only in user-authored patterns/templates, and the standard shape is an
+>    ordinary prompt state (`squashing`) whose agent authors the message file,
+>    with `"A COMMIT_MSG.md": done` routing to the commit state.
+> 8. **Template variables** for script/prompt/message/commit (all Eta; inline or
+>    a path relative to the config file, auto-inlined): `startCommit`,
+>    `currentCommit`, `previousCommit`, `state`, `actor`, `processDiff`
+>    (startCommit..HEAD + pending), `lastDiff` (the last transition's diff),
+>    `read(path)` (working-tree file read, available in every content kind), and
+>    `config` passthrough. No blessed config keys: there is no `testCommand` — a
+>    check's command lives inline in its `script:` (or the referenced file).
 
 ## 1. The model
 
 A workflow is a set of named **states**. Each state declares:
 
-| Property                          | Meaning                                                                                                                                                                                                                                                                                                                                                                |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `actor`                           | A plain string: who is expected to act here. No kinds — every actor just creates modifications in the tree. `gtd step <actor>` authenticates against it.                                                                                                                                                                                                               |
-| `script` \| `prompt` \| `message` | Exactly one. `script` — an executable the DRIVER runs (`gtd next` emits it rendered; `gtd run` executes + steps). `prompt` — instructions for an agent. `message` — text for a human (drivers halt here). Inline string or a file path relative to the config file (auto-inlined). All are Eta templates over the variable set above.                                  |
-| `on`                              | An ordered map of change patterns → next state. Evaluated at step time against the pending diff; first match wins; the step commits everything pending as `gtd(<actor>): <next-state>`.                                                                                                                                                                                |
-| `initial: true`                   | Exactly one state: where an unrecognized HEAD (any non-`gtd(actor): state` subject, or a state name outside this workflow) resolves. THE entry point; replaces entry rules, the fallback ladder, and boundary handling.                                                                                                                                                |
-| `final: true`                     | Entering this state squashes the process: soft-reset to the process's start commit (the parent of its first workflow commit) and commit with the message file's content.                                                                                                                                                                                               |
-| `retry`                           | Optional: `{ max: <n>, otherwise: <state> }` — when a transition would enter this state for the (max+1)-th time within the current process, it enters `otherwise` instead, decided at write time and encoded in the committed label. Visit counting walks only the current process's commits (start → HEAD), so it stays bounded and resets naturally at entry/squash. |
+| Property                                      | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `actor`                                       | A plain string: who is expected to act here. No kinds — every actor just creates modifications in the tree. `gtd step <actor>` authenticates against it. Commit states have NO actor — gtd itself performs them.                                                                                                                                                                                                                                          |
+| `script` \| `prompt` \| `message` \| `commit` | Exactly one — the content kind. `script` — an executable the DRIVER runs (`gtd next` emits it rendered; `gtd run` executes + steps). `prompt` — instructions for an agent. `message` — text for a human (drivers halt here). `commit` — the squash-commit message template; having it makes the state FINAL (see decision 7). Inline string or a file path relative to the config file (auto-inlined). All are Eta templates over the variable set above. |
+| `on`                                          | An ordered map of change patterns → next state. Evaluated at step time against the pending diff; first match wins; the step commits everything pending as `gtd(<actor>): <next-state>` — unless the target is a commit state, in which case the step performs the squash instead (decision 7). A commit state has no `on`: the process ends there.                                                                                                        |
+| `initial: true`                               | Exactly one state: where an unrecognized HEAD (any non-`gtd(actor): state` subject, or a state name outside this workflow) resolves. THE entry point; replaces entry rules, the fallback ladder, and boundary handling.                                                                                                                                                                                                                                   |
+| `retry`                                       | Optional: `{ max: <n>, otherwise: <state> }` — when a transition would enter this state for the (max+1)-th time within the current process, it enters `otherwise` instead, decided at write time and encoded in the committed label. Visit counting walks only the current process's commits (start → HEAD), so it stays bounded and resets naturally at entry/squash.                                                                                    |
 
 Pattern grammar: `<status> <glob>` where status ∈ `A|M|D|*`, or the bare token
 `C` (clean tree — the empty step as an explicit, opt-in event). Contains-match:
@@ -82,12 +92,14 @@ clean-step no-op when no `C` event is declared.
 ## 3. What the CLI becomes
 
 - `gtd step <actor>` — authenticate, match patterns, commit
-  `gtd(<actor>): <next-state>` (with retry redirection and final-squash at write
-  time). Refusals: out-of-turn, no-match.
+  `gtd(<actor>): <next-state>` (with retry redirection at write time). A
+  transition targeting a commit state performs the squash instead of a turn
+  commit. Refusals: out-of-turn, no-match, failed `commit:` render.
 - `gtd next [--json]` — emit the resolved state's rendered
   script/prompt/message; JSON carries
   `{state, actor, kind: script|prompt|message, content}` as the driver dispatch
-  key.
+  key. Resolution never rests AT a commit state (entering one ends the process),
+  so `kind: commit` never appears here.
 - `gtd run` — the built-in script driver: execute the emitted script verbatim,
   then `gtd step <actor>`.
 - `gtd status` — state, actor, and which pattern each pending change matches.
@@ -98,28 +110,33 @@ clean-step no-op when no `C` event is declared.
 Sketch (final shape decided during Phase 3): `idle` (initial; message;
 `"* *" → grilling`… actually entry captures the dirty tree), `grilling` ⇄
 `grilling-answer`, `architecting` ⇄ `architecting-answer`, `decompose`,
-`building`, `checking` (script; `A FEEDBACK.md → fixing`, retry max 3 →
-`escalate`, `C → reviewing`), `fixing`, `reviewing`, `await-review`
-(`D REVIEW.md → done`, `M REVIEW.md → grilling`), `escalate`, `done` (final).
-Health path becomes `idle`'s own script + `A HEALTH.md` edge. Verdict changes vs
-today: agentic approval = DELETE FEEDBACK.md; review approval = DELETE
-REVIEW.md; the check script owns its attempt count only if we want
-output-dependent budgets (the engine `retry` covers the standard case).
+`building`, `checking` (script — the test command lives INLINE in the script, no
+`testCommand` config key; `A FEEDBACK.md → fixing`, retry max 3 → `escalate`,
+`C → reviewing`), `fixing`, `reviewing`, `await-review`
+(`D REVIEW.md → squashing`, `M REVIEW.md → grilling`), `escalate`, `squashing`
+(prompt: author the commit-message file; `A COMMIT_MSG.md → done`), `done`
+(`commit: <%~ it.read("COMMIT_MSG.md") %>`). Health path becomes `idle`'s own
+script + `A HEALTH.md` edge. Verdict changes vs today: agentic approval = DELETE
+FEEDBACK.md; review approval = DELETE REVIEW.md; the check script owns its
+attempt count only if we want output-dependent budgets (the engine `retry`
+covers the standard case).
 
 ## 5. Phases (each lands green, committed, pushed)
 
 1. **Engine core.** New `src/PatternMachine.ts` (or repurposed Machine.ts):
    state defs, pattern parser/matcher, resolve (HEAD state name → state;
    unrecognized → initial), step semantics (refusals, C-event, no-match), retry
-   redirection, final-squash edge action. New minimal `ResolvePayload` (pending
-   changes as `{status, path}[]`, hashes, clean flag). Unit + property tests (δ:
-   next = f(state, diff); totality; refusal invariants).
+   redirection, the commit-state squash action (render-then-squash-then-drop,
+   refusal on render failure). New minimal `ResolvePayload` (pending changes as
+   `{status, path}[]`, hashes, clean flag). Unit + property tests (δ: next =
+   f(state, diff); totality; refusal invariants).
 2. **Config + templates.** The `workflow:` key becomes the ONLY definition
    source (bundled default = a YAML asset compiled the same way): states, actor
-   strings, script/prompt/message (inline or file-relative, auto-inlined at
-   load), `on` maps, initial/final/retry validation (exactly one initial,
-   exactly one content property, every target defined, retry.otherwise defined).
-   Eta rendering with the agreed variable set.
+   strings, script/prompt/message/commit (inline or file-relative, auto-inlined
+   at load), `on` maps, validation (exactly one initial, exactly one content
+   property, every target defined, retry.otherwise defined, commit states carry
+   no actor and no `on`). Eta rendering with the agreed variable set, including
+   the `read(path)` helper.
 3. **Default workflow re-authoring + CLI.** Write the bundled default config;
    rewire program.ts (step/next/run/status), gtd-loop, loop skill; delete the
    old model (Workflow.ts rules, WorkflowConfig guard language, Subjects
