@@ -60,12 +60,18 @@ import {
  * ## Validation
  *
  * Config-shape errors (unknown keys, wrong types, unreadable file
- * references) are collected and thrown together; if the shape is clean, the
- * assembled `WorkflowDefinition` is additionally run through the engine's
+ * references) are collected; whenever `states` itself parses into
+ * per-state objects (however messy — a truly unassemblable `workflow:` value,
+ * e.g. not an object, or a missing/empty `states`, is the only case that
+ * throws early with just the shape errors), the assembled
+ * `WorkflowDefinition` is ADDITIONALLY run through the engine's
  * `validateDefinition` (exactly one initial state, exactly one content kind
  * per state, `on`/`retry` targets all resolve, commit states carry no
- * actor/`on`, etc). A bad config fails LOUDLY at load time — `compileWorkflowConfig`
- * throws — and never at step time.
+ * actor/`on`, etc), and both lists of findings are merged (de-duplicating
+ * identical messages) into ONE thrown error — never just the first problem
+ * found, so an unrelated state's bad `on` target is never hidden behind an
+ * earlier state's content-kind violation. A bad config fails LOUDLY at load
+ * time — `compileWorkflowConfig` throws — and never at step time.
  */
 
 // ── Small helpers ────────────────────────────────────────────────────────────
@@ -198,19 +204,11 @@ const compileContent = (
     const resolved = resolveContent(rawValue, configDir, `state "${name}" (${key})`, errors)
     if (resolved !== undefined) content[key] = resolved
   }
-  const presentCount = CONTENT_KEYS.filter((k) => content[k] !== undefined).length
-  if (presentCount !== 1) {
-    // Only report the config-shape count when every declared content value
-    // resolved cleanly — a load-error content key is already reported above,
-    // and piling on a second, confusing "wrong count" message for the same
-    // key would obscure the actual problem.
-    const declaredCount = CONTENT_KEYS.filter((k) => raw[k] !== undefined).length
-    if (declaredCount === presentCount) {
-      errors.push(
-        `state "${name}" must declare exactly one of script/prompt/message/commit (found ${declaredCount})`,
-      )
-    }
-  }
+  // The "exactly one content kind" rule is NOT re-checked here — it's owned
+  // solely by the engine's `validateDefinition` (`validateContentKind`),
+  // which runs over the fully assembled definition alongside every other
+  // shape error (see `compileWorkflowConfig`'s aggregation). Duplicating the
+  // count check here used to hide every other finding behind it.
   return content
 }
 
@@ -311,20 +309,30 @@ export const compileWorkflowConfig = (raw: unknown, configDir: string): Compiled
   }
 
   const rawStates = raw.states
-  const states: Record<string, StateDef> = {}
   if (!isPlainObject(rawStates) || Object.keys(rawStates).length === 0) {
+    // Truly unassemblable: there is no per-state work to even attempt, so
+    // there is nothing `validateDefinition` could add — throw with just the
+    // shape errors collected so far.
     errors.push(`"states" must be a non-empty object`)
-  } else {
-    for (const [name, s] of Object.entries(rawStates)) {
-      states[name] = compileState(name, s, configDir, errors)
-    }
+    throw new Error(formatErrors(errors))
   }
 
-  if (errors.length > 0) throw new Error(formatErrors(errors))
+  const states: Record<string, StateDef> = {}
+  for (const [name, s] of Object.entries(rawStates)) {
+    states[name] = compileState(name, s, configDir, errors)
+  }
 
+  // A definition can still be assembled (however messy) whenever `states`
+  // itself parsed — so run `validateDefinition` unconditionally and merge its
+  // findings with the shape errors collected above into ONE thrown error,
+  // rather than stopping at the first shape problem and hiding everything
+  // `validateDefinition` would otherwise have caught (e.g. a bad `on` target
+  // in an unrelated state). De-duplicate identical messages (both passes can
+  // independently notice the same problem).
   const definition: WorkflowDefinition = { states }
   const definitionErrors = validateDefinition(definition)
-  if (definitionErrors.length > 0) throw new Error(formatErrors(definitionErrors))
+  const allErrors = Array.from(new Set([...errors, ...definitionErrors]))
+  if (allErrors.length > 0) throw new Error(formatErrors(allErrors))
 
   return { definition, config: raw.vars }
 }

@@ -308,7 +308,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig({ states: { a: { actor: "human", initial: true } } }, "/dir"),
     ).toThrowError(
-      /state "a" must declare exactly one of script\/prompt\/message\/commit \(found 0\)/,
+      /state "a": must declare exactly one of script\/prompt\/message\/commit \(found 0\)/,
     )
 
     expect(() =>
@@ -321,7 +321,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
         "/dir",
       ),
     ).toThrowError(
-      /state "a" must declare exactly one of script\/prompt\/message\/commit \(found 2\)/,
+      /state "a": must declare exactly one of script\/prompt\/message\/commit \(found 2\)/,
     )
   })
 
@@ -445,8 +445,61 @@ describe("compileWorkflowConfig — config-shape validation", () => {
       expect(message).toContain('state "a": "actor" must be a string')
       expect(message).toContain('state "a": "initial" must be a boolean')
       expect(message).toContain(
-        'state "a" must declare exactly one of script/prompt/message/commit (found 0)',
+        'state "a": must declare exactly one of script/prompt/message/commit (found 0)',
       )
+    }
+  })
+
+  it("aggregates a config-shape finding together with a validateDefinition finding (docs' worked example)", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          states: {
+            idle: {
+              actor: "human",
+              initial: true,
+              message: "start",
+              prompt: "also a prompt",
+              on: { "* **": "nowhere" },
+            },
+          },
+        },
+        "/dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain(
+        'state "idle": must declare exactly one of script/prompt/message/commit (found 2)',
+      )
+      expect(message).toContain('state "idle": "on" target "nowhere" is not a defined state')
+    }
+  })
+
+  it("aggregates a content-kind finding in one state with an unrelated bad `on` target in another", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          states: {
+            a: {
+              actor: "human",
+              initial: true,
+              message: "start",
+              prompt: "also a prompt",
+              on: { "* **": "b" },
+            },
+            b: { actor: "human", message: "hi", on: { "* **": "nowhere" } },
+          },
+        },
+        "/dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain(
+        'state "a": must declare exactly one of script/prompt/message/commit (found 2)',
+      )
+      expect(message).toContain('state "b": "on" target "nowhere" is not a defined state')
     }
   })
 })

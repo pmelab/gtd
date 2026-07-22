@@ -41,9 +41,10 @@ A minimal bash implementation of the pinned protocol, driving an agent CLI (e.g.
 reference for what a loop driver must do; keep any other implementation
 (including `skills/loop/SKILL.md`) consistent with it rather than editing both
 independently. `bin/gtd-loop` is this exact script, packaged as the `gtd-loop`
-binary, with one addition: it stops with a diagnostic if the same `"prompt"`
+binary, with two additions: it stops with a diagnostic if the same `"prompt"`
 state/content repeat with no progress (see `skills/loop/SKILL.md`'s "Stall
-detection").
+detection"), and it lets `GTD_LOOP_AGENT_CMD` swap in any coding agent CLI in
+place of the default `claude -p`, receiving the prompt via `$GTD_LOOP_PROMPT`.
 
 ```bash
 #!/usr/bin/env bash

@@ -169,12 +169,16 @@ Errors (all exit 1, message on stderr):
 
 ## Error envelope
 
-Every command, in `--json` mode, reports a failure inside the JSON object rather
-than as unstructured text, and still exits 1:
+Every command, in `--json` mode, reports a failure as a machine-readable
+envelope on **stdout**, and still exits 1:
 
 ```json
 { "state": "error", "prompt": "<message>" }
 ```
+
+A human-readable `gtd: <message>` line is still written to **stderr** regardless
+of `--json` — the envelope adds a structured stdout channel, it does not replace
+the plain-text one.
 
 ## Repository requirements
 
@@ -182,12 +186,13 @@ than as unstructured text, and still exits 1:
   **first-parent** commits only.
 - **Test/build artifacts must be gitignored.** This is **load-bearing**, not a
   style preference: every step decision detects "clean" via
-  `git status --porcelain`, which silently omits anything matched by
-  `.gitignore`. If a `script` state's command (or the build it triggers) writes
-  tracked-but-untracked output — a `dist/`, a coverage report, a log file — into
-  the working tree, the tree never goes clean after a green run, and the check's
-  `"C"` pattern never fires. Gitignore every path your scripts write before
-  wiring gtd into a repo.
+  `git diff --name-status HEAD` (tracked changes) unioned with
+  `git ls-files --others --exclude-standard` (untracked files), which silently
+  omits anything matched by `.gitignore`. If a `script` state's command (or the
+  build it triggers) writes tracked-but-untracked output — a `dist/`, a coverage
+  report, a log file — into the working tree, the tree never goes clean after a
+  green run, and the check's `"C"` pattern never fires. Gitignore every path
+  your scripts write before wiring gtd into a repo.
 - **Repository root invocation.** Every subcommand except `--help`/ `--version`
   must run from the git repository root — the workflow, pending changes, and
   process history are resolved against the process cwd.

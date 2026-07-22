@@ -264,12 +264,12 @@ states:
     message: |
       `.gtd/REVIEW.md` holds the review record for the completed cycle.
 
-      To approve: delete `.gtd/REVIEW.md` (or just tick its checkboxes) and
-      run `gtd step human`.
+      To approve: delete `.gtd/REVIEW.md` and run `gtd step human`.
 
       To request changes: edit `.gtd/REVIEW.md` (or the code) with what's
-      wrong, then run `gtd step human` — this sends the cycle back through
-      grilling with your feedback as the new input.
+      wrong — including just ticking its checkboxes — then run
+      `gtd step human`; this sends the cycle back through grilling with your
+      feedback as the new input.
     on:
       "D .gtd/REVIEW.md": squashing
       "* **": grilling

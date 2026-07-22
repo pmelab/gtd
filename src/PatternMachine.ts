@@ -501,7 +501,7 @@ const validateContentKind = (name: string, state: StateDef): string[] => {
   return kindCount === 1
     ? []
     : [
-        `state "${name}" must declare exactly one of script/prompt/message/commit (found ${kindCount})`,
+        `state "${name}": must declare exactly one of script/prompt/message/commit (found ${kindCount})`,
       ]
 }
 
