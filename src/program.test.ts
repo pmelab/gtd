@@ -20,24 +20,14 @@ import { makeProgram } from "./program.js"
 
 // GitService whose every method fails — proves the flag handler never calls git.
 const failingGitLayer = Layer.succeed(GitService, {
-  statusPorcelain: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
   hasCommits: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   lastCommitSubject: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
   resolveRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  readRefOption: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   topLevel: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  resolveDefaultBranch: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  mergeBase: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  isAncestor: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  lastDeletionOf: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitHistory: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   diffHead: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   diffRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  diffPath: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitDiff: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   changedPaths: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitAllWithPrefix: () =>
@@ -45,21 +35,6 @@ const failingGitLayer = Layer.succeed(GitService, {
   softResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitAsIs: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   discardPending: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  updateRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  deleteRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  mixedResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  restoreStagedFrom: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  addIntentToAdd: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  mixedResetHead: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  resetHard: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  revertNoCommit: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  removeGtdDir: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  removePackageDir: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
 })
 

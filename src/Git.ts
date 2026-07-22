@@ -1,13 +1,11 @@
 import { Command, CommandExecutor } from "@effect/platform"
 import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
-import { Context, Effect, Layer, Option, Stream } from "effect"
+import { Context, Effect, Layer, Stream } from "effect"
 import { renderDiff } from "./Diff.js"
 import { Cwd } from "./Cwd.js"
 
 export interface GitReaderOperations {
-  /** `git status --porcelain -uall` — untracked files listed individually, never collapsed to a directory entry. */
-  readonly statusPorcelain: () => Effect.Effect<string, Error>
   /**
    * `git diff HEAD` including untracked files (via a transient intent-to-add),
    * optionally with `:(exclude)` pathspecs. Exclusions match repo-root-relative
@@ -23,25 +21,9 @@ export interface GitReaderOperations {
    * it. An entry prefixed with `!` re-includes that exact path.
    */
   readonly diffRef: (ref: string, exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
-  readonly diffPath: (path: string) => Effect.Effect<string, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
-  /**
-   * `git rev-parse --verify --quiet <ref>` as a probe: `Option.some(hash)`
-   * when the ref exists, `Option.none()` when it doesn't (unlike `resolveRef`,
-   * which fails). Used for optional repo-local refs like `refs/gtd/*`.
-   */
-  readonly readRefOption: (ref: string) => Effect.Effect<Option.Option<string>, Error>
   /** `git rev-parse --show-toplevel` — the working-tree root; fails outside a repository. */
   readonly topLevel: () => Effect.Effect<string, Error>
-  readonly resolveDefaultBranch: () => Effect.Effect<Option.Option<string>, Error>
-  readonly mergeBase: (a: string, b: string) => Effect.Effect<Option.Option<string>, Error>
-  /** `git merge-base --is-ancestor a b` — true iff `a` is an ancestor of `b` (or equal). */
-  readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
-  /**
-   * `git log --first-parent --diff-filter=D --format=%H -- <path>` — returns the
-   * most recent commit that deleted `path` as `Option.some(sha)`, or `Option.none()`.
-   */
-  readonly lastDeletionOf: (path: string) => Effect.Effect<Option.Option<string>, Error>
   /**
    * First-parent history from `base..HEAD` (or all commits if no base), oldest→newest.
    * Each entry carries the full commit message, `removedErrors: true` iff that
@@ -98,43 +80,6 @@ export interface GitWriterOperations {
    */
   readonly commitAllWithPrefix: (prefix: string) => Effect.Effect<void, Error>
   readonly softResetTo: (ref: string) => Effect.Effect<void, Error>
-  /** `git update-ref <ref> <hash>` — create or move a repo-local ref (e.g. `refs/gtd/*`). */
-  readonly updateRef: (ref: string, hash: string) => Effect.Effect<void, Error>
-  /** `git update-ref -d <ref>` — idempotent: deleting a missing ref is a no-op. */
-  readonly deleteRef: (ref: string) => Effect.Effect<void, Error>
-  /** `git reset --mixed <ref>` — HEAD and index move to `ref`, the working tree is untouched. */
-  readonly mixedResetTo: (ref: string) => Effect.Effect<void, Error>
-  /**
-   * `git restore --staged --source=<source> -- <paths…>` — set the index
-   * entries under each path to their state at `source` (including removals),
-   * leaving HEAD and the working tree untouched. Tolerant when no path matches.
-   */
-  readonly restoreStagedFrom: (
-    source: string,
-    paths: ReadonlyArray<string>,
-  ) => Effect.Effect<void, Error>
-  /**
-   * `git add --intent-to-add .` — register untracked files in the index with
-   * an empty placeholder so they render as additions (with content hunks) in
-   * `git diff` and editor SCM views, without staging their content.
-   */
-  readonly addIntentToAdd: () => Effect.Effect<void, Error>
-  /** `git reset HEAD~1` (mixed) — undoes the last commit, keeping changes in the working tree. */
-  readonly mixedResetHead: () => Effect.Effect<void, Error>
-  /**
-   * `git reset --hard HEAD` — index and tracked working tree back to HEAD;
-   * staged-but-new files are dropped, pure untracked (`??`) files survive.
-   */
-  readonly resetHard: () => Effect.Effect<void, Error>
-  /** `git revert --no-commit <ref>` — stages the inverse of ref into the working tree, no commit. */
-  readonly revertNoCommit: (ref: string) => Effect.Effect<void, Error>
-  /** Removes the `.gtd/` directory idempotently (no error if absent). */
-  readonly removeGtdDir: () => Effect.Effect<void, Error>
-  /**
-   * `git rm -r <dir>` (stage the deletion); then if `.gtd/` is now empty, removes
-   * the empty directory too. Idempotent/tolerant if the dir is already absent.
-   */
-  readonly removePackageDir: (dir: string) => Effect.Effect<void, Error>
   /**
    * `git commit --allow-empty -m <message>` — commits whatever is CURRENTLY
    * STAGED, verbatim, without an implicit `git add` first (unlike
@@ -277,11 +222,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     )
 
   return {
-    // -uall lists untracked files individually: an untracked `.gtd/` dir must
-    // never collapse to a single `?? .gtd/` entry, or per-path probes
-    // (isUncommitted, onlyReviewDirty) would miss the steering files inside it.
-    statusPorcelain: () => exec("git", "status", "--porcelain", "-uall"),
-
     diffHead: (exclude: ReadonlyArray<string> = []) =>
       Effect.gen(function* () {
         // Collect tracked changes (name-status relative to HEAD)
@@ -459,20 +399,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         return all
       }),
 
-    diffPath: (path: string) =>
-      Effect.gen(function* () {
-        // Check if the file exists in HEAD
-        const beforeOrNull = yield* exec("git", "show", `HEAD:${path}`).pipe(
-          Effect.catchAll(() => Effect.succeed<string | null>(null)),
-        )
-        const after = readWorktreeFile(root, path)
-
-        if (beforeOrNull === null && after === null) return ""
-        if (beforeOrNull === after) return ""
-
-        return renderDiff([{ path, before: beforeOrNull, after }])
-      }),
-
     resolveRef: (ref: string) =>
       exec("git", "rev-parse", "--verify", ref).pipe(
         Effect.map((s) => s.trim()),
@@ -483,61 +409,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         ),
       ),
 
-    readRefOption: (ref: string) =>
-      exec("git", "rev-parse", "--verify", "--quiet", ref).pipe(
-        Effect.map((s) => Option.some(s.trim())),
-        Effect.catchAll(() => Effect.succeed(Option.none<string>())),
-      ),
-
     topLevel: () => exec("git", "rev-parse", "--show-toplevel").pipe(Effect.map((s) => s.trim())),
-
-    resolveDefaultBranch: () =>
-      exec("git", "rev-parse", "--abbrev-ref", "origin/HEAD").pipe(
-        Effect.map((s) => s.trim()),
-        Effect.flatMap((s) =>
-          s !== "" && s !== "origin/HEAD"
-            ? Effect.succeed(Option.some(s.replace(/^origin\//, "")))
-            : Effect.fail(new Error("no remote HEAD")),
-        ),
-        Effect.catchAll(() =>
-          exec("git", "rev-parse", "--verify", "--quiet", "refs/heads/main").pipe(
-            Effect.map(() => Option.some("main")),
-            Effect.catchAll(() =>
-              exec("git", "rev-parse", "--verify", "--quiet", "refs/heads/master").pipe(
-                Effect.map(() => Option.some("master")),
-                Effect.catchAll(() => Effect.succeed(Option.none<string>())),
-              ),
-            ),
-          ),
-        ),
-      ),
-
-    mergeBase: (a: string, b: string) =>
-      exec("git", "merge-base", a, b).pipe(
-        Effect.map((s) => Option.some(s.trim())),
-        Effect.catchAll(() => Effect.succeed(Option.none<string>())),
-      ),
-
-    isAncestor: (a: string, b: string) =>
-      Command.make("git", "merge-base", "--is-ancestor", a, b).pipe(
-        Command.workingDirectory(root),
-        Command.exitCode,
-        Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
-        Effect.map((code) => code === 0),
-        Effect.catchAll(() => Effect.succeed(false)),
-      ),
-
-    lastDeletionOf: (path: string) =>
-      exec("git", "log", "--first-parent", "--diff-filter=D", "--format=%H", "--", path).pipe(
-        Effect.map((out) => {
-          const hash = out
-            .split("\n")
-            .map((l) => l.trim())
-            .filter((l) => l.length > 0)[0]
-          return hash !== undefined ? Option.some(hash) : Option.none<string>()
-        }),
-        Effect.catchAll(() => Effect.succeed(Option.none<string>())),
-      ),
 
     commitHistory: (base?: string) => {
       const range = base !== undefined ? `${base}..HEAD` : undefined
@@ -581,71 +453,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       )
     },
 
-    removeGtdDir: () => exec("rm", "-rf", ".gtd").pipe(Effect.asVoid),
-
-    revertNoCommit: (ref: string) => exec("git", "revert", "--no-commit", ref).pipe(Effect.asVoid),
-
-    mixedResetHead: () =>
-      Effect.gen(function* () {
-        const parentCode = yield* Command.make(
-          "git",
-          "rev-parse",
-          "--verify",
-          "--quiet",
-          "HEAD~1",
-        ).pipe(
-          Command.workingDirectory(root),
-          Command.exitCode,
-          Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
-          Effect.mapError((e) => new Error(String(e))),
-        )
-        if (parentCode !== 0) {
-          return yield* Effect.fail(
-            new Error(
-              "cannot reset transport commit: it is the repository root commit (no parent to reset to)",
-            ),
-          )
-        }
-        const resetCode = yield* Command.make("git", "reset", "HEAD~1").pipe(
-          Command.workingDirectory(root),
-          Command.exitCode,
-          Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
-          Effect.mapError((e) => new Error(String(e))),
-        )
-        if (resetCode !== 0) {
-          return yield* Effect.fail(new Error(`git reset HEAD~1 failed (exit ${resetCode})`))
-        }
-      }),
-
-    resetHard: () => exec("git", "reset", "--hard", "HEAD").pipe(Effect.asVoid),
-
-    removePackageDir: (dir: string) =>
-      Effect.gen(function* () {
-        // Stage deletion; tolerate failure if already absent or untracked
-        yield* Command.make("git", "rm", "-r", "--", dir).pipe(
-          Command.workingDirectory(root),
-          Command.exitCode,
-          Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
-          Effect.mapError((e) => new Error(String(e))),
-        )
-        // If .gtd/ is now empty, remove the empty directory too
-        const gtdEntries = yield* exec("ls", "-1", ".gtd").pipe(
-          Effect.map((out) =>
-            out
-              .split("\n")
-              .map((s) => s.trim())
-              .filter((s) => s.length > 0),
-          ),
-          Effect.catchAll(() => Effect.succeed<string[]>([])),
-        )
-        if (gtdEntries.length === 0) {
-          yield* exec("rm", "-rf", ".gtd").pipe(
-            Effect.asVoid,
-            Effect.catchAll(() => Effect.void),
-          )
-        }
-      }),
-
     commitAllWithPrefix: (prefix: string) =>
       Effect.gen(function* () {
         yield* exec("git", "add", "-A")
@@ -679,29 +486,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         yield* exec("git", "add", "-A")
         yield* exec("git", "reset", "--hard", "HEAD")
       }).pipe(Effect.asVoid),
-
-    updateRef: (ref: string, hash: string) =>
-      exec("git", "update-ref", ref, hash).pipe(Effect.asVoid),
-
-    deleteRef: (ref: string) =>
-      exec("git", "update-ref", "-d", ref).pipe(
-        Effect.asVoid,
-        Effect.catchAll(() => Effect.void),
-      ),
-
-    mixedResetTo: (ref: string) => exec("git", "reset", "--mixed", ref).pipe(Effect.asVoid),
-
-    restoreStagedFrom: (source: string, paths: ReadonlyArray<string>) =>
-      paths.length === 0
-        ? Effect.void
-        : exec("git", "restore", "--staged", `--source=${source}`, "--", ...paths).pipe(
-            Effect.asVoid,
-            // `git restore` errors when a pathspec matches nothing at either
-            // side — for an optional dir like `.gtd/` that's a no-op, not a failure.
-            Effect.catchAll(() => Effect.void),
-          ),
-
-    addIntentToAdd: () => exec("git", "add", "--intent-to-add", ".").pipe(Effect.asVoid),
   }
 }
 

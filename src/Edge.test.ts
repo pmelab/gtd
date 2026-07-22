@@ -25,19 +25,12 @@ const notImplemented = (name: string) => () =>
 
 /** A `GitOperations` stub with every method failing by default — tests override just what they exercise, so an unexpected call fails loudly instead of silently succeeding. */
 const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
-  statusPorcelain: notImplemented("statusPorcelain"),
   diffHead: notImplemented("diffHead"),
   lastCommitSubject: notImplemented("lastCommitSubject"),
   hasCommits: notImplemented("hasCommits"),
   diffRef: notImplemented("diffRef"),
-  diffPath: notImplemented("diffPath"),
   resolveRef: notImplemented("resolveRef"),
-  readRefOption: notImplemented("readRefOption"),
   topLevel: notImplemented("topLevel"),
-  resolveDefaultBranch: notImplemented("resolveDefaultBranch"),
-  mergeBase: notImplemented("mergeBase"),
-  isAncestor: notImplemented("isAncestor"),
-  lastDeletionOf: notImplemented("lastDeletionOf"),
   commitHistory: notImplemented("commitHistory"),
   commitDiff: notImplemented("commitDiff"),
   changedPaths: notImplemented("changedPaths"),
@@ -45,16 +38,6 @@ const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
   softResetTo: notImplemented("softResetTo"),
   commitAsIs: notImplemented("commitAsIs"),
   discardPending: notImplemented("discardPending"),
-  updateRef: notImplemented("updateRef"),
-  deleteRef: notImplemented("deleteRef"),
-  mixedResetTo: notImplemented("mixedResetTo"),
-  restoreStagedFrom: notImplemented("restoreStagedFrom"),
-  addIntentToAdd: notImplemented("addIntentToAdd"),
-  mixedResetHead: notImplemented("mixedResetHead"),
-  resetHard: notImplemented("resetHard"),
-  revertNoCommit: notImplemented("revertNoCommit"),
-  removeGtdDir: notImplemented("removeGtdDir"),
-  removePackageDir: notImplemented("removePackageDir"),
   ...overrides,
 })
 

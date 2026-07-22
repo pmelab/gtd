@@ -93,8 +93,6 @@ function renderPathDiff(
 // ---------------------------------------------------------------------------
 
 const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
-  statusPorcelain: () => Effect.succeed(repo.statusPorcelain()),
-
   hasCommits: () => Effect.succeed(repo.hasCommits()),
 
   lastCommitSubject: () => {
@@ -109,29 +107,7 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
       : Effect.fail(new Error(`Cannot resolve ref: ${ref}`))
   },
 
-  readRefOption: (ref: string) => {
-    const hash = repo.resolveRef(ref)
-    return Effect.succeed(hash !== null ? Option.some(hash) : Option.none<string>())
-  },
-
   topLevel: () => Effect.succeed("/repo"),
-
-  resolveDefaultBranch: () => {
-    const branch = repo.resolveDefaultBranch()
-    return Effect.succeed(branch !== null ? Option.some(branch) : Option.none<string>())
-  },
-
-  mergeBase: (a: string, b: string) => {
-    const result = repo.mergeBase(a, b)
-    return Effect.succeed(result !== null ? Option.some(result) : Option.none<string>())
-  },
-
-  isAncestor: (a: string, b: string) => Effect.succeed(repo.isAncestor(a, b)),
-
-  lastDeletionOf: (path: string) => {
-    const hash = repo.lastDeletionOf(path)
-    return Effect.succeed(hash !== null ? Option.some(hash) : Option.none<string>())
-  },
 
   commitHistory: (base?: string) => Effect.succeed(repo.commitHistory(base)),
 
@@ -154,17 +130,6 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
     Effect.sync(() => {
       const allPaths = repo.changedPathsBetween(ref, "HEAD")
       return renderPathDiff(repo, allPaths, exclude, ref, "HEAD")
-    }),
-
-  diffPath: (path: string) =>
-    Effect.sync(() => {
-      const before = repo.fileAtRef("HEAD", path)
-      const after = repo["worktree"].get(path) ?? null
-
-      if (before === null && after === null) return ""
-      if (before === after) return ""
-
-      return renderDiff([{ path, before, after }])
     }),
 
   commitDiff: (hash: string, exclude: ReadonlyArray<string> = []) =>
@@ -192,27 +157,6 @@ const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => ({
   commitAsIs: (message: string) => tryCatch(() => repo.commitAsIs(message)),
 
   discardPending: () => tryCatch(() => repo.discardPending()),
-
-  updateRef: (ref: string, hash: string) => tryCatch(() => repo.updateRef(ref, hash)),
-
-  deleteRef: (ref: string) => tryCatch(() => repo.deleteRef(ref)),
-
-  mixedResetTo: (ref: string) => tryCatch(() => repo.mixedResetTo(ref)),
-
-  restoreStagedFrom: (source: string, paths: ReadonlyArray<string>) =>
-    tryCatch(() => repo.restoreStagedFrom(source, paths)),
-
-  addIntentToAdd: () => tryCatch(() => repo.addIntentToAdd()),
-
-  mixedResetHead: () => tryCatch(() => repo.mixedResetHead()),
-
-  resetHard: () => tryCatch(() => repo.resetHard()),
-
-  revertNoCommit: (ref: string) => tryCatch(() => repo.revertNoCommit(ref)),
-
-  removeGtdDir: () => tryCatch(() => repo.removeGtdDir()),
-
-  removePackageDir: (dir: string) => tryCatch(() => repo.removePackageDir(dir)),
 })
 
 // ---------------------------------------------------------------------------
