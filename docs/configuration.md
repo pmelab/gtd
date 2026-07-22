@@ -55,6 +55,7 @@ workflow:
       retry:
         max: <number>
         otherwise: <targetState>
+      model: <string> # optional, opaque harness hint — forbidden on a commit state
 ```
 
 See [STATES.md](../STATES.md#1-the-model) for what each field means to the
@@ -85,6 +86,29 @@ A `vars:` key sibling to `states:` inside `workflow:` is passed through verbatim
 (any shape, unvalidated) as the `config` template variable — see the table
 below. It's the one place custom, workflow-specific values reach templates; gtd
 never inspects it.
+
+### `model:` — the opaque harness hint
+
+A state may declare `model: <string>` — an OPAQUE label (e.g. `smart`, `fast`,
+or a concrete model id) gtd never interprets; it is only passed through verbatim
+so the driving loop can map it onto whatever models its agent harness provides.
+Unset means "use the harness's default." Forbidden on a commit state (never at
+rest, emits nothing):
+
+```yaml
+workflow:
+  states:
+    working:
+      actor: agent
+      model: smart
+      prompt: do the thing
+      on:
+        "* **": done
+```
+
+`gtd next --json` and `gtd status --json` include a `"model"` key only when the
+resolved state declares one — it is **omitted entirely**, never emitted as
+`null`, when unset.
 
 ### Template variables
 

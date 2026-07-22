@@ -83,7 +83,8 @@ process in the same step that entered it — see
 [STATES.md §5](../STATES.md#5-resolution)).
 
 Plain mode prints the rendered content verbatim (with exactly one trailing
-newline). `--json` emits `{state, actor, kind, content}`:
+newline) — never the `model` hint, which is JSON-only. `--json` emits
+`{state, actor, kind, content, model?}`:
 
 ```json
 {
@@ -99,6 +100,8 @@ newline). `--json` emits `{state, actor, kind, content}`:
 - `kind` — `"script"` | `"prompt"` | `"message"` — the dispatch key a driver
   switches on (see [Driving the loop](loop.md)).
 - `content` — the fully rendered template.
+- `model` — the state's opaque `model:` hint, verbatim, present only when the
+  state declares one; **omitted entirely** (never `null`) when unset.
 
 ## `gtd run`
 
@@ -132,10 +135,13 @@ Pending:
   A scratch.txt -> (no match)
 ```
 
-or, on a clean tree: `Pending: (clean)`.
+or, on a clean tree: `Pending: (clean)`. A `Model: <value>` line appears right
+after `Awaits:` only when the resolved state declares a `model:` hint.
 
-`--json` emits `{state, actor, changes: [{status, path, pattern}]}` — `pattern`
-is `null` when no declared row matches that change:
+`--json` emits `{state, actor, changes: [{status, path, pattern}], model?}` —
+`pattern` is `null` when no declared row matches that change; `model` is present
+only when the resolved state declares one (omitted entirely, never `null`,
+otherwise):
 
 ```json
 {

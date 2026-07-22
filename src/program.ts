@@ -213,6 +213,7 @@ const runNextCommand = (
           actor: rendered.actor,
           kind: rendered.kind,
           content: rendered.content,
+          ...(rendered.model !== undefined ? { model: rendered.model } : {}),
         }) + "\n",
       )
     } else {
@@ -297,9 +298,17 @@ const runStatusCommand = (
       return { status: change.status, path: change.path, pattern: matchedRow?.[0] ?? null }
     })
     if (json) {
-      write(JSON.stringify({ state: rest.state, actor: rest.actor, changes: statusChanges }) + "\n")
+      write(
+        JSON.stringify({
+          state: rest.state,
+          actor: rest.actor,
+          changes: statusChanges,
+          ...(rest.stateDef.model !== undefined ? { model: rest.stateDef.model } : {}),
+        }) + "\n",
+      )
     } else {
       const lines = [`State: ${rest.state}`, `Awaits: ${rest.actor}`]
+      if (rest.stateDef.model !== undefined) lines.push(`Model: ${rest.stateDef.model}`)
       if (statusChanges.length === 0) {
         lines.push("Pending: (clean)")
       } else {

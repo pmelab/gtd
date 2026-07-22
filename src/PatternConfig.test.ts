@@ -361,6 +361,80 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     ).toThrowError(/state "a": "on" target for pattern "\* \*" must be a string/)
   })
 
+  it("compiles a `model` string through onto the state", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          working: {
+            actor: "agent",
+            model: "smart",
+            prompt: "do the thing",
+            initial: true,
+            on: { "* *": "done" },
+          },
+          done: { commit: "chore: done" },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states["working"]!.model).toBe("smart")
+  })
+
+  it("omits `model` entirely when the state declares none", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          working: {
+            actor: "agent",
+            prompt: "do the thing",
+            initial: true,
+            on: { "* *": "done" },
+          },
+          done: { commit: "chore: done" },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states["working"]).not.toHaveProperty("model")
+  })
+
+  it("rejects a non-string `model` as a config-shape error", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          states: {
+            a: { actor: "human", message: "hi", initial: true, model: 42 },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "model" must be a string/)
+  })
+
+  it("aggregates a bad `model` alongside an unrelated config-shape error", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          states: {
+            a: {
+              actor: "human",
+              message: "hi",
+              initial: true,
+              model: 42,
+              on: { "* **": "nowhere" },
+            },
+          },
+        },
+        "/dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain('state "a": "model" must be a string')
+      expect(message).toContain('state "a": "on" target "nowhere" is not a defined state')
+    }
+  })
+
   it("rejects a malformed `retry` block", () => {
     expect(() =>
       compileWorkflowConfig(

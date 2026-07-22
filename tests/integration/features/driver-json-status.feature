@@ -110,6 +110,74 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And stdout contains "A DONE.md -> A DONE.md"
     And stdout contains "A scratch.txt -> (no match)"
 
+  Scenario: gtd next --json carries the state's declared model hint, and gtd status shows it too
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            model: smart
+            prompt: "do the work described in NOTE.md"
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"working\""
+    And stdout contains "\"model\":\"smart\""
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "State: working"
+    And stdout contains "Model: smart"
+    When I run gtd status with "--json"
+    Then it succeeds
+    And stdout contains "\"model\":\"smart\""
+
+  Scenario: gtd next --json and gtd status --json omit "model" entirely when the state declares none
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "do the work described in NOTE.md"
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"working\""
+    And stdout does not contain "\"model\""
+    When I run gtd status
+    Then it succeeds
+    And stdout does not contain "Model:"
+    When I run gtd status with "--json"
+    Then it succeeds
+    And stdout does not contain "\"model\""
+
   Scenario: gtd status --json reports the same pattern matches structurally
     Given a test project
     And a gtd config file at ".gtdrc" with:

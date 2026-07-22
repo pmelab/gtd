@@ -165,6 +165,8 @@ export interface RenderedRest {
   readonly actor: string
   readonly kind: ContentKind
   readonly content: string
+  /** The resolved rest's `model` hint, verbatim — omitted (not `undefined`-valued) when the state declares none, so `--json` callers can `key in obj`/`??`-check its absence. */
+  readonly model?: string
 }
 
 /** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state). */
@@ -184,7 +186,13 @@ export const renderRest = (
         rest.stateDef.message ??
         rest.stateDef.commit!
       const content = renderStateTemplate(template, context)
-      return { state: rest.state, actor: rest.actor, kind, content }
+      return {
+        state: rest.state,
+        actor: rest.actor,
+        kind,
+        content,
+        ...(rest.stateDef.model !== undefined ? { model: rest.stateDef.model } : {}),
+      }
     },
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })

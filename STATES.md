@@ -21,13 +21,14 @@ See [docs/configuration.md](docs/configuration.md) for the full `.gtdrc`
 
 A workflow is a set of named **states**. Each state declares:
 
-| Property                                      | Meaning                                                                                                                                                                                                                           |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `actor`                                       | A plain string: who acts here. No closed vocabulary, no "kinds" — every actor just makes changes in the working tree. `gtd step <actor>` authenticates against it. **Commit states carry no `actor`** — gtd itself performs them. |
-| `script` \| `prompt` \| `message` \| `commit` | Exactly one — the state's content kind (see §2). All four are Eta templates, inline or a `./`-relative file reference auto-inlined at config load (see [Configuration](docs/configuration.md)).                                   |
-| `on`                                          | An ordered map of change patterns → next state (see §3). Evaluated at step time against the pending diff; **first match wins**. Absent on a commit state (a commit state has no outgoing edges — the process ends there).         |
-| `initial: true`                               | Exactly one state across the whole workflow: where an unrecognized HEAD resolves (see §5). Must not be a commit state.                                                                                                            |
-| `retry`                                       | Optional `{ max, otherwise }` — redirects a transition into this state to `otherwise` once this state has already been entered `max` times within the current process (see §7).                                                   |
+| Property                                      | Meaning                                                                                                                                                                                                                                                                                                                      |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `actor`                                       | A plain string: who acts here. No closed vocabulary, no "kinds" — every actor just makes changes in the working tree. `gtd step <actor>` authenticates against it. **Commit states carry no `actor`** — gtd itself performs them.                                                                                            |
+| `script` \| `prompt` \| `message` \| `commit` | Exactly one — the state's content kind (see §2). All four are Eta templates, inline or a `./`-relative file reference auto-inlined at config load (see [Configuration](docs/configuration.md)).                                                                                                                              |
+| `on`                                          | An ordered map of change patterns → next state (see §3). Evaluated at step time against the pending diff; **first match wins**. Absent on a commit state (a commit state has no outgoing edges — the process ends there).                                                                                                    |
+| `initial: true`                               | Exactly one state across the whole workflow: where an unrecognized HEAD resolves (see §5). Must not be a commit state.                                                                                                                                                                                                       |
+| `retry`                                       | Optional `{ max, otherwise }` — redirects a transition into this state to `otherwise` once this state has already been entered `max` times within the current process (see §7).                                                                                                                                              |
+| `model`                                       | Optional, opaque string — a harness hint (e.g. `smart`, `fast`, or a concrete model id) emitted verbatim alongside the state's content for the driving loop to map onto its agent harness. gtd never interprets it; unset means "use the harness's default". **Forbidden on a commit state** (never at rest, emits nothing). |
 
 A state is either a **rest** (has an `actor` — `gtd` halts there and awaits that
 actor's next step) or a **commit state** (has `commit:` instead of an
@@ -230,22 +231,22 @@ The workflow gtd ships with when `.gtdrc` has no `workflow:` key
 (`src/workflows/default.yaml`, compiled through the exact same compiler a custom
 `workflow:` key goes through — no privileged code path):
 
-| State                 | Actor | Content | `on`                                                                                | Retry              |
-| --------------------- | ----- | ------- | ----------------------------------------------------------------------------------- | ------------------ |
-| `idle` (initial)      | human | message | `* **` → `grilling`                                                                 | —                  |
-| `grilling`            | agent | prompt  | `* **` → `grilling-answer`                                                          | —                  |
-| `grilling-answer`     | human | message | `C` → `architecting`; `* **` → `grilling`                                           | —                  |
-| `architecting`        | agent | prompt  | `* **` → `architecting-answer`                                                      | —                  |
-| `architecting-answer` | human | message | `C` → `decompose`; `* **` → `architecting`                                          | —                  |
-| `decompose`           | agent | prompt  | `* .gtd/**` → `building`                                                            | —                  |
-| `building`            | agent | prompt  | `* **` → `checking`                                                                 | —                  |
-| `checking`            | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `C` → `reviewing` | —                  |
-| `fixing`              | agent | prompt  | `* **` → `checking`                                                                 | max 3 → `escalate` |
-| `escalate`            | human | message | `* **` → `checking`                                                                 | —                  |
-| `reviewing`           | agent | prompt  | `* .gtd/REVIEW.md` → `await-review`                                                 | —                  |
-| `await-review`        | human | message | `D .gtd/REVIEW.md` → `squashing`; `* **` → `grilling`                               | —                  |
-| `squashing`           | agent | prompt  | `A .gtd/COMMIT_MSG.md` → `done`; `M .gtd/COMMIT_MSG.md` → `done`                    | —                  |
-| `done`                | —     | commit  | (final — squashes the whole cycle, message read from `.gtd/COMMIT_MSG.md`)          | —                  |
+| State                 | Actor | Content | `on`                                                                                | Retry              | Model   |
+| --------------------- | ----- | ------- | ----------------------------------------------------------------------------------- | ------------------ | ------- |
+| `idle` (initial)      | human | message | `* **` → `grilling`                                                                 | —                  | —       |
+| `grilling`            | agent | prompt  | `* **` → `grilling-answer`                                                          | —                  | `smart` |
+| `grilling-answer`     | human | message | `C` → `architecting`; `* **` → `grilling`                                           | —                  | —       |
+| `architecting`        | agent | prompt  | `* **` → `architecting-answer`                                                      | —                  | `smart` |
+| `architecting-answer` | human | message | `C` → `decompose`; `* **` → `architecting`                                          | —                  | —       |
+| `decompose`           | agent | prompt  | `* .gtd/**` → `building`                                                            | —                  | —       |
+| `building`            | agent | prompt  | `* **` → `checking`                                                                 | —                  | —       |
+| `checking`            | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `C` → `reviewing` | —                  | —       |
+| `fixing`              | agent | prompt  | `* **` → `checking`                                                                 | max 3 → `escalate` | —       |
+| `escalate`            | human | message | `* **` → `checking`                                                                 | —                  | —       |
+| `reviewing`           | agent | prompt  | `* .gtd/REVIEW.md` → `await-review`                                                 | —                  | `smart` |
+| `await-review`        | human | message | `D .gtd/REVIEW.md` → `squashing`; `* **` → `grilling`                               | —                  | —       |
+| `squashing`           | agent | prompt  | `A .gtd/COMMIT_MSG.md` → `done`; `M .gtd/COMMIT_MSG.md` → `done`                    | —                  | —       |
+| `done`                | —     | commit  | (final — squashes the whole cycle, message read from `.gtd/COMMIT_MSG.md`)          | —                  | —       |
 
 ### Walkthrough
 
@@ -275,3 +276,8 @@ has the agent author `.gtd/COMMIT_MSG.md`; writing or modifying it
 (`A`/`M .gtd/COMMIT_MSG.md`) transitions into `done` — a `commit:` state — which
 performs the squash lifecycle from §8 and ends the process there. The next
 invocation, with no `gtd(...)` HEAD to resolve, starts fresh at `idle`.
+
+`grilling`, `architecting`, and `reviewing` — the heavier planning/reviewing
+turns — declare `model: smart`, an opaque hint `gtd next`/`gtd status` `--json`
+emit verbatim for the driving loop to map onto its harness. Every other state
+leaves `model` unset, so the harness's own default applies.

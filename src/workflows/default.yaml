@@ -33,6 +33,10 @@
 #   squashing (agent, prompt): authors .gtd/COMMIT_MSG.md -> done
 #   done (commit): squashes the whole cycle into one commit, message read
 #     from the pending .gtd/COMMIT_MSG.md
+#
+# `grilling`, `architecting`, and `reviewing` declare `model: smart` — an
+# opaque harness hint (see the comment at `grilling` below) for the heavier
+# planning/reviewing turns. Every other state is unset (harness default).
 
 states:
   idle:
@@ -48,6 +52,13 @@ states:
 
   grilling:
     actor: agent
+    # `model` is an opaque harness hint — gtd never interprets this string, it
+    # only passes it through to `gtd next --json`/`gtd status --json` so the
+    # driving loop can map it onto whatever models its agent harness
+    # provides. "smart" here just names the harness-chosen tier for the
+    # heavier planning/reviewing turns; states without a `model` use the
+    # harness's default.
+    model: smart
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state (plans, task specs, review records) — never create, edit, or
@@ -92,6 +103,7 @@ states:
 
   architecting:
     actor: agent
+    model: smart
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except
@@ -236,6 +248,7 @@ states:
 
   reviewing:
     actor: agent
+    model: smart
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except

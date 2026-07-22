@@ -27,8 +27,11 @@ has no default command and it is a usage error. Only `gtd next --json`,
 Repeat this cycle until it halts:
 
 1. Run `gtd next --json`. This is pure — it never mutates anything. Parse the
-   single-line JSON object: `{"state", "actor", "kind", "content"}`. **`kind` is
-   the dispatch key**:
+   single-line JSON object: `{"state", "actor", "kind", "content"}`, plus an
+   optional `"model"` — an opaque string the workflow author chose (e.g.
+   `"smart"`), present only when the state declares one. If present, map it to
+   your harness's own model selection; if absent, use your default. gtd never
+   interprets this string itself. **`kind` is the dispatch key**:
    - `"message"` (a human rest): halt — see "Halting on a human gate" below.
    - `"script"` (a check rest): `content` is an executable wrapper shell script.
      Run `gtd run` — it executes that emitted script verbatim and steps the

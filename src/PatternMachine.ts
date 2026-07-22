@@ -65,6 +65,16 @@ export interface StateDef {
   readonly on?: readonly OnEdge[]
   readonly initial?: true
   readonly retry?: RetryDef
+  /**
+   * An OPAQUE harness hint — gtd never interprets this string, it only
+   * passes it through verbatim (`gtd next --json`/`gtd status --json`) so
+   * the driving loop can map it onto whatever models its agent harness
+   * provides (e.g. `"smart"`, `"fast"`, or a concrete model id). Unset means
+   * "use the harness's default". Plays no role in engine decisions — `step`
+   * and `resolveState` never read it. Forbidden on a commit state (never at
+   * rest, emits nothing — see `validateDefinition`).
+   */
+  readonly model?: string
 }
 
 /** A workflow: named states. Exactly one must declare `initial: true`. */
@@ -518,6 +528,18 @@ const validateActorShape = (name: string, state: StateDef): string[] => {
   return errors
 }
 
+/** `model`, when present, must be a non-empty string; forbidden on a commit state — same rule family as the actor/`on` prohibitions: a commit state is never at rest and emits nothing for a harness to map a model onto. */
+const validateModel = (name: string, state: StateDef): string[] => {
+  const errors: string[] = []
+  if (state.model !== undefined && state.model === "") {
+    errors.push(`state "${name}": "model" must be a non-empty string`)
+  }
+  if (isCommitState(state) && state.model !== undefined) {
+    errors.push(`state "${name}": a commit state cannot declare "model"`)
+  }
+  return errors
+}
+
 /** Every `on` row parses, and its target names a defined state. */
 const validateOnEdges = (name: string, state: StateDef, names: readonly string[]): string[] => {
   const errors: string[] = []
@@ -559,6 +581,7 @@ const validateState = (
     ...validateActorShape(name, state),
     ...validateOnEdges(name, state, names),
     ...validateRetry(name, state, names),
+    ...validateModel(name, state),
   ]
 }
 
@@ -572,7 +595,8 @@ const validateState = (
  * content kind; commit states carry no `actor` and no `on`; non-commit
  * states carry an `actor`; every `on` pattern parses and every `on` target
  * and `retry.otherwise` names a defined state; `retry.max` is a
- * non-negative integer.
+ * non-negative integer; `model`, when present, is a non-empty string and is
+ * never declared on a commit state.
  */
 export const validateDefinition = (def: WorkflowDefinition): readonly string[] => {
   const names = Object.keys(def.states)

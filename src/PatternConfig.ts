@@ -33,6 +33,7 @@ import {
  *     retry:
  *       max: <number>
  *       otherwise: <targetState>
+ *     model: <string>     # optional, opaque harness hint — never on a commit state
  * ```
  *
  * ## The `config` passthrough (Phase 2's pick, for Phase 3/docs to confirm)
@@ -98,6 +99,7 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "on",
   "initial",
   "retry",
+  "model",
 ])
 
 const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["vars", "states"])
@@ -226,6 +228,20 @@ const compileActor = (
   return raw.actor
 }
 
+/** The `model` field: an opaque string, or undefined (either absent or invalid — the type mismatch is its own error). Never interpreted or validated beyond "is it a string" — see `PatternMachine.StateDef.model`. */
+const compileModel = (
+  raw: Record<string, unknown>,
+  name: string,
+  errors: string[],
+): string | undefined => {
+  if (raw.model === undefined) return undefined
+  if (typeof raw.model !== "string") {
+    errors.push(`state "${name}": "model" must be a string`)
+    return undefined
+  }
+  return raw.model
+}
+
 /** The `initial` field: `true` only when the raw value is the literal boolean `true`. */
 const compileInitial = (
   raw: Record<string, unknown>,
@@ -247,6 +263,7 @@ interface StateParts {
   readonly on: readonly OnEdge[] | undefined
   readonly initial: true | undefined
   readonly retry: RetryDef | undefined
+  readonly model: string | undefined
 }
 
 const assembleStateDef = (parts: StateParts): StateDef => ({
@@ -258,6 +275,7 @@ const assembleStateDef = (parts: StateParts): StateDef => ({
   ...(parts.on !== undefined ? { on: parts.on } : {}),
   ...(parts.initial !== undefined ? { initial: parts.initial } : {}),
   ...(parts.retry !== undefined ? { retry: parts.retry } : {}),
+  ...(parts.model !== undefined ? { model: parts.model } : {}),
 })
 
 /** One state's full shape: actor, content, `on`, `initial`, `retry`. */
@@ -283,6 +301,7 @@ const compileState = (
     on: compileOn(raw.on, name, errors),
     initial: compileInitial(raw, name, errors),
     retry: compileRetry(raw.retry, name, errors),
+    model: compileModel(raw, name, errors),
   })
 }
 

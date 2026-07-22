@@ -26,7 +26,7 @@ replaced the old machinery; if you're looking for `TurnGate`, `captureRules`,
 There is no engine-side wiring left to trace through when a workflow's shape
 changes — a workflow (bundled default or custom) is DATA, not code. To change
 what the bundled default does, edit `src/workflows/default.yaml` (states,
-`actor`, exactly one content kind, `on` edges, `retry`) —
+`actor`, exactly one content kind, `on` edges, `retry`, `model`) —
 `src/workflows/ default.ts` compiles it through the same `compileWorkflowConfig`
 a user's `.gtdrc` `workflow:` key goes through, so it never needs its own logic.
 After editing the YAML, update:

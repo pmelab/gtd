@@ -740,6 +740,50 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "a": retry.otherwise "ghost" is not a defined state')
   })
 
+  it("accepts a state declaring a valid `model`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, model: "smart", on: [] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects an empty-string `model`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, model: "", on: [] },
+      },
+    })
+    expect(errors).toContain('state "a": "model" must be a non-empty string')
+  })
+
+  it("rejects a commit state that declares a `model`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { commit: "chore: b", model: "smart" },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "model"')
+  })
+
+  it("aggregates a bad `model` alongside other unrelated findings", () => {
+    const errors = validateDefinition({
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          initial: true,
+          model: "",
+          on: [["* *", "ghost"]],
+        },
+      },
+    })
+    expect(errors).toContain('state "a": "model" must be a non-empty string')
+    expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
+  })
+
   it("rejects a negative or non-integer retry.max", () => {
     const negative = validateDefinition({
       states: {

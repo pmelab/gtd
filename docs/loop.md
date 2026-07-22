@@ -14,10 +14,13 @@ gtd (v3, the pattern machine) exposes three commands a loop driver combines:
 
 A loop is a simple cycle:
 
-1. Run `gtd next --json` and parse `{"state", "actor", "kind", "content"}`.
-   `kind` is the dispatch key: `"message"` → halt (a human rest); `"script"` →
-   run `gtd run`; `"prompt"` → feed `content` to the agent, then
-   `gtd step <actor>` yourself once it's done acting.
+1. Run `gtd next --json` and parse `{"state", "actor", "kind", "content"}`, plus
+   an optional `"model"` — an opaque string the workflow author chose (present
+   only when the resolved state declares one), which you map onto your own
+   harness's model selection if you use one. `kind` is the dispatch key:
+   `"message"` → halt (a human rest); `"script"` → run `gtd run`; `"prompt"` →
+   feed `content` to the agent, then `gtd step <actor>` yourself once it's done
+   acting.
 2. Repeat until a `"message"` rest halts the loop, or a zero-commit `gtd run` at
    idle settles it (the green terminal signal).
 
@@ -41,10 +44,13 @@ A minimal bash implementation of the pinned protocol, driving an agent CLI (e.g.
 reference for what a loop driver must do; keep any other implementation
 (including `skills/loop/SKILL.md`) consistent with it rather than editing both
 independently. `bin/gtd-loop` is this exact script, packaged as the `gtd-loop`
-binary, with two additions: it stops with a diagnostic if the same `"prompt"`
+binary, with three additions: it stops with a diagnostic if the same `"prompt"`
 state/content repeat with no progress (see `skills/loop/SKILL.md`'s "Stall
-detection"), and it lets `GTD_LOOP_AGENT_CMD` swap in any coding agent CLI in
-place of the default `claude -p`, receiving the prompt via `$GTD_LOOP_PROMPT`.
+detection"); it lets `GTD_LOOP_AGENT_CMD` swap in any coding agent CLI in place
+of the default `claude -p`, receiving the prompt via `$GTD_LOOP_PROMPT`; and it
+exports the resolved state's optional `model` hint as `$GTD_LOOP_MODEL`,
+appending `--model "$GTD_LOOP_MODEL"` to the default `claude -p` invocation
+whenever it's non-empty.
 
 ```bash
 #!/usr/bin/env bash
@@ -89,8 +95,10 @@ prompt says explicitly not to run `gtd step agent` itself.
 `gtd-loop` defaults to
 `claude -p "$GTD_LOOP_PROMPT" --dangerously-skip-permissions`, but the agent
 invocation is swappable: set `GTD_LOOP_AGENT_CMD` to any shell command, and it
-runs with the prompt available as `$GTD_LOOP_PROMPT` in its environment. For
-example, to drive a different agent CLI:
+runs with the prompt available as `$GTD_LOOP_PROMPT` (and the resolved state's
+opaque `model` hint, if any, as `$GTD_LOOP_MODEL`) in its environment — an
+adapter that ignores `$GTD_LOOP_MODEL` keeps working unchanged. For example, to
+drive a different agent CLI:
 
 ```bash
 GTD_LOOP_AGENT_CMD='my-agent-cli --prompt "$GTD_LOOP_PROMPT"' gtd-loop

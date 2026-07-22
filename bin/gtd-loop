@@ -10,6 +10,9 @@ set -euo pipefail
 #   - "prompt"  (an agent rest) -> feed `content` to the agent, then
 #     `gtd step <actor>` ourselves — the harness owns ending the turn, not
 #     the prompt text.
+# `.model` (optional, opaque) is exported as $GTD_LOOP_MODEL for the agent
+# adapter invoked at a "prompt" rest; the default adapter appends `--model
+# "$GTD_LOOP_MODEL"` only when it's non-empty.
 prev_state=""
 prev_content=""
 
@@ -25,6 +28,7 @@ while true; do
   actor="$(jq -r .actor <<<"$next_json")"
   kind="$(jq -r .kind <<<"$next_json")"
   content="$(jq -r .content <<<"$next_json")"
+  model="$(jq -r '.model // empty' <<<"$next_json")"
 
   if [[ "$kind" == "message" ]]; then
     echo "--- Your turn ($state) ---"
@@ -57,11 +61,18 @@ while true; do
   prev_content="$content"
 
   # Swappable agent adapter: GTD_LOOP_AGENT_CMD lets any coding agent CLI
-  # stand in for the default, receiving the prompt via $GTD_LOOP_PROMPT.
+  # stand in for the default, receiving the prompt via $GTD_LOOP_PROMPT and
+  # the state's opaque model hint (if any) via $GTD_LOOP_MODEL. An adapter
+  # that ignores $GTD_LOOP_MODEL keeps working — it's exported alongside
+  # $GTD_LOOP_PROMPT, never required.
   cmd="${GTD_LOOP_AGENT_CMD:-}"
   if [[ -z "$cmd" ]]; then
-    cmd='claude -p "$GTD_LOOP_PROMPT" --dangerously-skip-permissions'
+    if [[ -n "$model" ]]; then
+      cmd='claude -p "$GTD_LOOP_PROMPT" --model "$GTD_LOOP_MODEL" --dangerously-skip-permissions'
+    else
+      cmd='claude -p "$GTD_LOOP_PROMPT" --dangerously-skip-permissions'
+    fi
   fi
-  GTD_LOOP_PROMPT="$content" bash -c "$cmd"
+  GTD_LOOP_PROMPT="$content" GTD_LOOP_MODEL="$model" bash -c "$cmd"
   gtd step "$actor" >/dev/null
 done
