@@ -1,1 +1,2 @@
-testCommand: npm test
+vars:
+  testCommand: npm test
