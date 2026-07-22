@@ -1,7 +1,9 @@
 # The bundled default gtd workflow (v3 "pattern machine" — see
-# docs/design/pattern-machine-plan.md). Compiled through the exact same
-# `compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through — no
-# privileged code path (src/workflows/default.ts does the compiling).
+# docs/design/pattern-machine-plan.md, and
+# docs/design/steering-file-loops.md for the two validation loops below).
+# Compiled through the exact same `compileWorkflowConfig` a user's `.gtdrc`
+# `workflow:` key goes through — no privileged code path
+# (src/workflows/default.ts does the compiling).
 #
 # Every content string below is INLINE (no `./`-relative file references):
 # the bundled default ships inside a single-file build
@@ -13,28 +15,45 @@
 # tsdown.config.ts / tests/vitest.rawMd.ts), so this file never needs a
 # sibling prompts/ directory to exist on disk once installed.
 #
-# States, in cycle order — 7 states, no squash:
+# States, in cycle order — 12 states, no squash:
 #   idle (initial, human, message)
-#     -> grilling (agent, prompt): a SINGLE turn — reads .gtd/TODO.md's
-#     sketch, explores the codebase, and develops it into a concrete
-#     implementation plan in that one turn. No Q&A loop: open questions are
-#     resolved inline (stated as assumptions) rather than asked, since the
-#     human's checkpoint is the review at the end, not a back-and-forth here.
-#   grilling -> building (agent, prompt): implements the plan in .gtd/TODO.md
-#     directly (no task decomposition, no per-task queue) and deletes
-#     .gtd/TODO.md once the work is complete and verified.
+#     -> grilling (agent, prompt): reads .gtd/TODO.md's sketch (or a prior
+#     lap's feedback), explores the codebase, and develops it into a concrete
+#     implementation plan, stating any open question it can't settle itself
+#     under a `## Open Questions` heading (see "Loop 1" below) rather than
+#     guessing silently.
+#   grilling -> todo-validating (check, script): mechanics-only parser port
+#     of the open-questions format (see src/OpenQuestions.ts's module doc for
+#     the executable spec this is a bash rendition of). Malformed ->
+#     .gtd/FORMAT.md -> back to grilling; valid -> grilling-answer.
+#   todo-validating -> grilling-answer (human, message): tick off suggested
+#     defaults by replacing them with `Answer:` lines; a clean step accepts
+#     every remaining default -> building; any edit loops back to grilling.
+#   grilling-answer -> building (agent, prompt): implements the plan in
+#     .gtd/TODO.md directly (no task decomposition, no per-task queue) and
+#     deletes .gtd/TODO.md once the work is complete and verified.
 #   building -> checking (check, script): runs the test command inline;
 #     A/M .gtd/FEEDBACK.md -> fixing (capped, redirects to escalate); D
 #     .gtd/FEEDBACK.md (a green run that just cleaned up prior feedback) or C
-#     (green, nothing to clean) -> await-review.
+#     (green, nothing to clean) -> reviewing.
 #   fixing (agent, prompt) <-> checking
 #   escalate (human, message): manual intervention, then back to checking
-#   await-review (human, message): the human reviews the cycle's diff
-#     directly (e.g. `git diff <startCommit>` or `git log`) — there is no
-#     agent-prepared review file. A clean step (C) approves -> idle, an empty
-#     `gtd(human): idle` turn that ends the cycle at rest; anything pending (a
-#     fresh .gtd/TODO.md, code edits, or both) is feedback -> grilling,
-#     re-entering the pipeline with that input.
+#   checking (green) -> reviewing (agent, prompt): writes .gtd/REVIEW.md in
+#     the checkbox review format (see "Loop 2" below), grouping the cycle's
+#     full diff into reviewable chunks.
+#   reviewing -> review-validating (check, script): mechanics-only parser
+#     port of the review format (see src/ReviewDoc.ts's module doc for the
+#     executable spec). Malformed -> .gtd/FORMAT.md -> back to reviewing;
+#     valid -> await-review.
+#   review-validating -> await-review (human, message): tick a pointer's `- [
+#     ]` to `- [x]` to approve that item; deleting .gtd/REVIEW.md outright is
+#     the power-user approve-everything shortcut; anything else pending
+#     (code edits with REVIEW.md untouched) is feedback straight to grilling.
+#   await-review -> review-deciding (check, script), entered by any `M
+#     .gtd/REVIEW.md` step: if no unticked `- [ ]` pointer remains, the cycle
+#     is approved (rm .gtd/REVIEW.md -> idle); otherwise the still-unticked
+#     pointers (with their notes) are extracted into a fresh .gtd/TODO.md and
+#     .gtd/REVIEW.md is removed (-> grilling, feedback lap).
 #
 # The cycle ends at human approval, resting back at idle — there is no
 # squash state. The cycle's commits stay in history; whether/how to squash
@@ -49,9 +68,25 @@
 # the next cycle's `retry` counts, `startCommit`, and diffs never reach back
 # across an approved cycle's own idle-entering commit.
 #
-# `grilling` declares `model: smart` — an opaque harness hint (see the
-# comment at `grilling` below) for its heavier one-shot planning turn. Every
-# other state is unset (harness default).
+# HYGIENE INVARIANT (asserted in e2e — see default-workflow.feature): an
+# approved cycle leaves `.gtd/` empty. FEEDBACK.md is cleaned up by a green
+# `checking` run; FORMAT.md by a valid validator run (either loop); REVIEW.md
+# by the review-deciding approval branch; TODO.md by `building`.
+#
+# Loop 1 — TODO.md open questions (src/OpenQuestions.ts is this format's
+# EXECUTABLE SPEC — its unit tests are the format's spec tests; the
+# `todo-validating`/`review-validating` bash scripts below are a pragmatic
+# grep/awk PORT of the exact same rules, not a full markdown parser. Keep
+# both in sync by hand — there is no shared code path between the two
+# implementations, by design: the engine stays git/filesystem/Effect-free,
+# and the LSP's parsers stay dependency-free).
+#
+# Loop 2 — REVIEW.md checkboxes: same dual-implementation contract, this time
+# against src/ReviewDoc.ts.
+#
+# `grilling` and `reviewing` both declare `model: smart` — an opaque harness
+# hint (see the comment at `grilling` below) for their heavier one-shot
+# planning/reviewing turns. Every other state is unset (harness default).
 #
 # `vars.testCommand` is this workflow's own declared default for `checking`'s
 # script (see it.vars in PatternTemplates.ts) — override it per-repo with a
@@ -90,19 +125,125 @@ states:
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except
-      `.gtd/TODO.md`, which this prompt tells you to develop.
+      `.gtd/TODO.md`, which this prompt tells you to develop. Never touch
+      `.gtd/FORMAT.md` yourself if it exists — a validator writes it, and only
+      the validator removes it once you've fixed the underlying problem.
 
-      `.gtd/TODO.md` holds a short sketch of what to build. Read it, explore
-      the codebase, and develop it into a concrete implementation plan in
-      this one turn — there is no follow-up round here, so settle every open
-      question yourself: state each assumption inline (e.g. under an
-      `## Assumptions` heading) rather than asking. The human's checkpoint is
-      the review at the end of the cycle, not a back-and-forth now.
+      If `.gtd/FORMAT.md` exists, it holds format findings from your last
+      draft of `.gtd/TODO.md` — fix those findings first, then continue
+      below.
+
+      `.gtd/TODO.md` holds a short sketch of what to build (or feedback from
+      a prior review lap). Read it, explore the codebase, and develop it into
+      a concrete implementation plan.
+
+      For every question you cannot settle yourself, add it under a
+      `## Open Questions` heading, one `### <question>` sub-heading each,
+      whose body's FIRST non-blank line is exactly
+      `Suggested default: <your answer>` — the human can accept it as-is or
+      override it. Omit the section entirely once there are no open
+      questions. If `.gtd/TODO.md` already carries `## Open Questions`
+      entries from a previous lap, fold any `Answer: <text>` line into the
+      plan; every remaining entry's body must still start with either
+      `Suggested default: ...` or `Answer: ...` — never anything else.
 
       Leave `.gtd/TODO.md` uncommitted and finish your turn — do not commit,
       and do not run `gtd step agent` yourself; the harness does that.
     on:
-      "* **": building
+      "* **": todo-validating
+
+  todo-validating:
+    actor: check
+    script: |
+      #!/usr/bin/env bash
+      # gtd check turn — the driver (`gtd run`) executes this verbatim, then
+      # steps the check actor. Mechanics only: a pragmatic grep/awk port of
+      # src/OpenQuestions.ts's parser rules (the format's executable spec) —
+      # free-form prose, plus an OPTIONAL "## Open Questions" section; every
+      # "### " sub-heading directly under it is one question whose body's
+      # first non-blank line must start with "Suggested default: " or
+      # "Answer: ". A violation is one finding line (file + line + rule) in
+      # .gtd/FORMAT.md; a clean parse removes any stale .gtd/FORMAT.md
+      # instead. What FORMAT.md's presence/absence MEANS (another drafting
+      # round vs. proceeding to the human) is decided by this state's own
+      # `on` rules at capture time — never here.
+      set +e
+      mkdir -p .gtd
+      awk '
+        BEGIN { in_section = 0; have_question = 0; question = ""; qline = 0; body_seen = 0 }
+        {
+          trimmed = $0
+          gsub(/^[ \t]+|[ \t]+$/, "", trimmed)
+
+          level = 0
+          if (match(trimmed, /^#+/)) level = RLENGTH
+
+          if (in_section && level >= 1 && level <= 2) {
+            if (have_question && !body_seen) {
+              printf ".gtd/TODO.md:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
+            }
+            in_section = 0
+            have_question = 0
+          }
+
+          if (trimmed == "## Open Questions") { in_section = 1; next }
+
+          if (in_section && level == 3) {
+            if (have_question && !body_seen) {
+              printf ".gtd/TODO.md:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
+            }
+            question = trimmed
+            sub(/^### */, "", question)
+            qline = NR
+            have_question = 1
+            body_seen = 0
+            next
+          }
+
+          if (in_section && have_question && !body_seen && trimmed != "") {
+            if (trimmed ~ /^Suggested default: *.+/ || trimmed ~ /^Answer: *.+/) {
+              body_seen = 1
+            } else {
+              printf ".gtd/TODO.md:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
+              body_seen = 1
+            }
+          }
+        }
+        END {
+          if (in_section && have_question && !body_seen) {
+            printf ".gtd/TODO.md:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
+          }
+        }
+      ' .gtd/TODO.md > .gtd/.format-findings
+
+      if [ -s .gtd/.format-findings ]; then
+        mv .gtd/.format-findings .gtd/FORMAT.md
+      else
+        rm -f .gtd/.format-findings
+        rm -f .gtd/FORMAT.md
+      fi
+    on:
+      "A .gtd/FORMAT.md": grilling
+      "M .gtd/FORMAT.md": grilling
+      "D .gtd/FORMAT.md": grilling-answer
+      "C": grilling-answer
+
+  grilling-answer:
+    actor: human
+    message: |
+      `.gtd/TODO.md` holds the plan under development, with any open
+      questions under `## Open Questions` — each carrying a suggested
+      default.
+
+      To answer a question, edit its entry in place (replace
+      `Suggested default: ...` with `Answer: ...`, or add further detail),
+      then run `gtd step human`.
+
+      To accept all suggested defaults as-is and move on to implementation,
+      run `gtd step human` with no edits.
+    on:
+      "C": building
+      "* **": grilling
 
   building:
     actor: agent
@@ -140,8 +281,7 @@ states:
       #
       # A green run also removes any `.gtd/FEEDBACK.md` left over from an
       # earlier red run — there is no squash to discard it for us anymore, so
-      # the script cleans it up itself before resting the cycle at
-      # `await-review`.
+      # the script cleans it up itself before moving on to review.
       set +e
       mkdir -p .gtd
       <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
@@ -160,8 +300,8 @@ states:
     on:
       "A .gtd/FEEDBACK.md": fixing
       "M .gtd/FEEDBACK.md": fixing
-      "D .gtd/FEEDBACK.md": await-review
-      "C": await-review
+      "D .gtd/FEEDBACK.md": reviewing
+      "C": reviewing
 
   fixing:
     actor: agent
@@ -194,23 +334,186 @@ states:
     on:
       "* **": checking
 
+  reviewing:
+    actor: agent
+    model: smart
+    prompt: |
+      You are an autonomous coding agent. `.gtd/` holds this workflow's own
+      state — never create, edit, or delete anything under `.gtd/` except
+      `.gtd/REVIEW.md`, which this prompt tells you to write. Never touch
+      `.gtd/FORMAT.md` yourself if it exists — a validator writes it, and
+      only the validator removes it once you've fixed the underlying
+      problem.
+
+      If `.gtd/FORMAT.md` exists, it holds format findings from your last
+      draft of `.gtd/REVIEW.md` — fix those findings first, then continue
+      below.
+
+      Write `.gtd/REVIEW.md` to help a human review the cycle's full diff
+      (inlined below) in this EXACT format:
+
+      - First non-blank line: `# Review: <%= it.currentCommit.slice(0, 7) %>`
+      - Somewhere in the document: `<!-- base: <%= it.startCommit %> -->`
+      - At least one `## <Chunk Title>` heading, grouping hunks semantically
+        (same feature/refactor/fix, even across files) — a short explanation
+        of what changed and why, then one
+        `- [ ] ./path/to/file.ts#42 — note` file pointer per hunk (checkboxes
+        are for the human to tick, not you; every path is `./`-relative, with
+        an optional `#line` and an optional ` — note`).
+
+      Leave `.gtd/REVIEW.md` uncommitted and finish your turn.
+      <% if (it.processDiff.trim()) { %>
+
+      ## Full cycle diff
+
+      ```diff
+      <%~ it.processDiff %>
+      ```
+      <% } %>
+    on:
+      "* **": review-validating
+
+  review-validating:
+    actor: check
+    script: |
+      #!/usr/bin/env bash
+      # gtd check turn — the driver (`gtd run`) executes this verbatim, then
+      # steps the check actor. Mechanics only: a pragmatic grep/awk port of
+      # src/ReviewDoc.ts's parser rules (the format's executable spec) — a
+      # `# Review: <hash>` header as the first non-blank line, a
+      # `<!-- base: <hash> -->` comment, and at least one `##` chunk with at
+      # least one `- [ ]`/`- [x]` file pointer. A violation is one finding
+      # line (file + line + rule) in .gtd/FORMAT.md; a clean parse removes any
+      # stale .gtd/FORMAT.md instead. What FORMAT.md's presence/absence MEANS
+      # (another drafting round vs. handing off to the human) is decided by
+      # this state's own `on` rules at capture time — never here.
+      set +e
+      mkdir -p .gtd
+      awk '
+        BEGIN {
+          first_nonblank_seen = 0
+          header_ok = 0
+          base_ok = 0
+          chunk_open = 0
+          chunk_title = ""
+          chunk_line = 0
+          chunk_files = 0
+          chunk_count = 0
+        }
+        {
+          trimmed = $0
+          gsub(/^[ \t]+|[ \t]+$/, "", trimmed)
+
+          if (!first_nonblank_seen && trimmed != "") {
+            first_nonblank_seen = 1
+            if (trimmed ~ /^# Review: [^ ]+$/) {
+              header_ok = 1
+            } else {
+              printf ".gtd/REVIEW.md:%d: first non-blank line must be \"# Review: <hash>\"\n", NR
+            }
+          }
+
+          if (trimmed ~ /^<!-- *base: *[^ ]+ *-->$/) base_ok = 1
+
+          if (trimmed ~ /^## [^ ]/) {
+            if (chunk_open && chunk_files == 0) {
+              printf ".gtd/REVIEW.md:%d: chunk \"%s\" has no file pointers\n", chunk_line, chunk_title
+            }
+            chunk_open = 1
+            chunk_title = trimmed
+            sub(/^## /, "", chunk_title)
+            chunk_line = NR
+            chunk_files = 0
+            chunk_count++
+            next
+          }
+
+          if (chunk_open) {
+            if (trimmed ~ /^-[ \t]*\[[ xX]\][ \t]*\.\/[^ \t]+/) {
+              chunk_files++
+            } else if (trimmed ~ /^-[ \t]*\[/) {
+              printf ".gtd/REVIEW.md:%d: file pointer does not match \"- [ ] ./path#line — note\"\n", NR
+            }
+          }
+        }
+        END {
+          if (chunk_open && chunk_files == 0) {
+            printf ".gtd/REVIEW.md:%d: chunk \"%s\" has no file pointers\n", chunk_line, chunk_title
+          }
+          if (!header_ok) {
+            print ".gtd/REVIEW.md:1: missing or malformed \"# Review: <hash>\" header as first line"
+          }
+          if (!base_ok) {
+            print ".gtd/REVIEW.md:1: missing \"<!-- base: <hash> -->\" comment"
+          }
+          if (chunk_count == 0) {
+            print ".gtd/REVIEW.md:1: no \"##\" chunks found"
+          }
+        }
+      ' .gtd/REVIEW.md > .gtd/.format-findings
+
+      if [ -s .gtd/.format-findings ]; then
+        mv .gtd/.format-findings .gtd/FORMAT.md
+      else
+        rm -f .gtd/.format-findings
+        rm -f .gtd/FORMAT.md
+      fi
+    on:
+      "A .gtd/FORMAT.md": reviewing
+      "M .gtd/FORMAT.md": reviewing
+      "D .gtd/FORMAT.md": await-review
+      "C": await-review
+
   await-review:
     actor: human
     message: |
-      The cycle's checks are green. Review its changes directly — e.g.
-      `git diff <%= it.startCommit %>` for the full diff, or `git log
-      --stat <%= it.startCommit %>..HEAD` for a commit-by-commit view of
-      what changed. There is no separate review file to read.
+      `.gtd/REVIEW.md` holds the review record for the completed cycle — tick
+      a pointer's `- [ ]` box to `- [x]` to approve that item; add notes,
+      untick, or edit code for feedback.
 
-      To approve: leave the tree clean (no pending changes) and run
-      `gtd step human` — the cycle ends and the machine rests at `idle`. Its
-      commits stay in history for you to squash however you prefer (e.g.
-      `git rebase -i <%= it.startCommit %>`, an amend, or your PR's
-      squash-merge) or keep as-is — gtd makes no assumption.
+      To approve: tick every box, then run `gtd step human`.
 
-      To request changes: write what's wrong as a fresh `.gtd/TODO.md` (code
-      edits alone also count), then run `gtd step human`; this sends the
-      cycle back through `grilling` with your feedback as the new input.
+      To approve the whole cycle without ticking every box individually:
+      delete `.gtd/REVIEW.md` and run `gtd step human`.
+
+      To request changes: edit `.gtd/REVIEW.md` (ticking/unticking boxes,
+      adding notes) and/or the code, then run `gtd step human` — any edit to
+      `.gtd/REVIEW.md` sends the cycle to a deterministic check that either
+      closes the cycle out (every box ticked) or extracts the still-unticked
+      items into a fresh `.gtd/TODO.md` and routes back through grilling with
+      that feedback. Code-only edits (leaving `.gtd/REVIEW.md` untouched) go
+      straight back to grilling.
     on:
-      "C": idle
+      "D .gtd/REVIEW.md": idle
+      "M .gtd/REVIEW.md": review-deciding
       "* **": grilling
+
+  review-deciding:
+    actor: check
+    script: |
+      #!/usr/bin/env bash
+      # gtd check turn — the driver (`gtd run`) executes this verbatim, then
+      # steps the check actor. Mechanics only: if .gtd/REVIEW.md still has any
+      # unticked "- [ ]" pointer, extract those pointers (with their notes)
+      # into a fresh .gtd/TODO.md; either way, remove .gtd/REVIEW.md. What
+      # the resulting diff MEANS (feedback lap vs. full approval) is decided
+      # by this state's own `on` rules at capture time — never here. The
+      # A/M .gtd/TODO.md row is declared BEFORE the D .gtd/REVIEW.md row (see
+      # this workflow's `on` map below) so a feedback lap — which always also
+      # deletes .gtd/REVIEW.md — is captured as feedback, not mistaken for an
+      # approval.
+      set +e
+      mkdir -p .gtd
+      if grep -qE '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' .gtd/REVIEW.md 2>/dev/null; then
+        {
+          echo "Feedback from review — address these before continuing:"
+          echo
+          grep -E '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' .gtd/REVIEW.md
+        } > .gtd/TODO.md
+      fi
+      rm -f .gtd/REVIEW.md
+    on:
+      "A .gtd/TODO.md": grilling
+      "M .gtd/TODO.md": grilling
+      "D .gtd/REVIEW.md": idle
+      "C": await-review

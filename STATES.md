@@ -236,17 +236,27 @@ anything touches the repository. See
 
 The workflow gtd ships with when `.gtdrc` has no `workflow:` key
 (`src/workflows/default.yaml`, compiled through the exact same compiler a custom
-`workflow:` key goes through — no privileged code path):
+`workflow:` key goes through — no privileged code path). 12 states: the 7-state
+pipeline from before, plus two deterministic **steering-file validation loops**
+— one over `.gtd/TODO.md`'s open-questions format, one over `.gtd/REVIEW.md`'s
+checkbox review format — that map the functionality the deleted v2 LSP server
+(`src/Lsp.ts`) used to provide over those same two files (see
+[docs/design/steering-file-loops.md](docs/design/steering-file-loops.md)):
 
-| State            | Actor | Content | `on`                                                                                                                          | Retry              | Model   |
-| ---------------- | ----- | ------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------- |
-| `idle` (initial) | human | message | `* **` → `grilling`                                                                                                           | —                  | —       |
-| `grilling`       | agent | prompt  | `* **` → `building`                                                                                                           | —                  | `smart` |
-| `building`       | agent | prompt  | `* **` → `checking`                                                                                                           | —                  | —       |
-| `checking`       | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `await-review`; `C` → `await-review` | —                  | —       |
-| `fixing`         | agent | prompt  | `* **` → `checking`                                                                                                           | max 3 → `escalate` | —       |
-| `escalate`       | human | message | `* **` → `checking`                                                                                                           | —                  | —       |
-| `await-review`   | human | message | `C` → `idle`; `* **` → `grilling`                                                                                             | —                  | —       |
+| State               | Actor | Content | `on`                                                                                                                              | Retry              | Model   |
+| ------------------- | ----- | ------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------- |
+| `idle` (initial)    | human | message | `* **` → `grilling`                                                                                                               | —                  | —       |
+| `grilling`          | agent | prompt  | `* **` → `todo-validating`                                                                                                        | —                  | `smart` |
+| `todo-validating`   | check | script  | `A .gtd/FORMAT.md` → `grilling`; `M .gtd/FORMAT.md` → `grilling`; `D .gtd/FORMAT.md` → `grilling-answer`; `C` → `grilling-answer` | —                  | —       |
+| `grilling-answer`   | human | message | `C` → `building`; `* **` → `grilling`                                                                                             | —                  | —       |
+| `building`          | agent | prompt  | `* **` → `checking`                                                                                                               | —                  | —       |
+| `checking`          | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`           | —                  | —       |
+| `fixing`            | agent | prompt  | `* **` → `checking`                                                                                                               | max 3 → `escalate` | —       |
+| `escalate`          | human | message | `* **` → `checking`                                                                                                               | —                  | —       |
+| `reviewing`         | agent | prompt  | `* **` → `review-validating`                                                                                                      | —                  | `smart` |
+| `review-validating` | check | script  | `A .gtd/FORMAT.md` → `reviewing`; `M .gtd/FORMAT.md` → `reviewing`; `D .gtd/FORMAT.md` → `await-review`; `C` → `await-review`     | —                  | —       |
+| `await-review`      | human | message | `D .gtd/REVIEW.md` → `idle`; `M .gtd/REVIEW.md` → `review-deciding`; `* **` → `grilling`                                          | —                  | —       |
+| `review-deciding`   | check | script  | `A .gtd/TODO.md` → `grilling`; `M .gtd/TODO.md` → `grilling`; `D .gtd/REVIEW.md` → `idle`; `C` → `await-review`                   | —                  | —       |
 
 There is no squash — the cycle ends at human approval, an empty
 `gtd(human): idle` turn commit that rests the machine back at its own initial
@@ -269,13 +279,27 @@ than shipped as the bundled default.
 
 A human writes `.gtd/TODO.md` (a short sketch — a few sentences is enough) and
 runs `gtd step human` at `idle`: that dirty tree matches `"* **"`, so the step
-lands `gtd(human): grilling`. `grilling` is a SINGLE agent turn — there is no
-Q&A loop: the agent reads `.gtd/TODO.md`, explores the codebase, and develops it
-into a concrete implementation plan in that one turn, stating any open
-question's resolution inline (as an assumption) rather than asking, since the
-human's checkpoint is the review at the end of the cycle, not a back-and-forth
-here. `.gtd/TODO.md` stays as the plan artifact and the turn steps straight to
-`building`.
+lands `gtd(human): grilling`.
+
+**Loop 1 — TODO.md open questions.** `grilling` reads `.gtd/TODO.md`, explores
+the codebase, and develops it into a concrete implementation plan; anything it
+can't settle itself goes under a `## Open Questions` heading, one
+`### <question>` sub-heading per question, whose body's first non-blank line is
+`Suggested default: <answer>` (see
+[docs/design/steering-file-loops.md §1](docs/design/steering-file-loops.md) for
+the exact format — `src/OpenQuestions.ts`'s parser is this format's executable
+spec). The turn steps to `todo-validating`, a deterministic `script` state that
+parses `.gtd/TODO.md` against that same spec (a grep/awk port, kept in sync by
+hand — see the script's own comments): a malformed draft writes findings to
+`.gtd/FORMAT.md` (`A`/`M .gtd/FORMAT.md` → back to `grilling`, whose prompt
+reads `.gtd/FORMAT.md` first if present); a valid draft removes any stale
+`.gtd/FORMAT.md` (`D .gtd/FORMAT.md` → `grilling-answer`) or has nothing to
+clean up (`C` → `grilling-answer`) either way. At `grilling-answer`, a human
+answers a question by replacing its `Suggested default: ...` line with
+`Answer: ...` in place; a **clean** step (`C`, every default accepted as-is)
+moves to `building`, while any edit (an answer, a new question, code) loops back
+through `grilling`, which folds answers in, possibly asks follow-ups, and
+re-validates.
 
 `building` implements the plan in `.gtd/TODO.md` directly — no task
 decomposition, no per-task queue — using TDD discipline (one test, then the
@@ -288,30 +312,47 @@ workflow's own declared `vars:`, overridable via a top-level `.gtdrc` `vars:`
 key or a `GTD_VAR_testCommand` environment variable; see
 [Configuration](docs/configuration.md#variables)) and steps the `check` actor
 itself. A red run leaves `.gtd/FEEDBACK.md` pending (`A`/`M .gtd/FEEDBACK.md` →
-`fixing`); a green run moves on to `await-review` either way — whether it just
-deleted a previous red run's `.gtd/FEEDBACK.md` (`D .gtd/FEEDBACK.md`, so the
-approved cycle's tree carries no leftover feedback file) or there was nothing to
-clean up (`C`). `fixing`'s `retry: { max: 3, otherwise: escalate }` means the
-fourth consecutive entry into `fixing` within one process redirects to
-`escalate` — a human gate — instead; a human's own `"* **"` step from `escalate`
-returns to `checking` (with the process's retry trace unaffected by counting
-rules other than "how many times has `fixing` itself been entered").
+`fixing`); a green run moves on to `reviewing` either way — whether it just
+deleted a previous red run's `.gtd/FEEDBACK.md` (`D .gtd/FEEDBACK.md`) or there
+was nothing to clean up (`C`). `fixing`'s
+`retry: { max: 3, otherwise: escalate }` means the fourth consecutive entry into
+`fixing` within one process redirects to `escalate` — a human gate — instead; a
+human's own `"* **"` step from `escalate` returns to `checking` (with the
+process's retry trace unaffected by counting rules other than "how many times
+has `fixing` itself been entered").
 
-`await-review` is a direct diff review, with no agent-prepared review file: the
-human is told to inspect the cycle's changes themselves (e.g.
-`git diff <startCommit>` or `git log --stat <startCommit>..HEAD`). A **clean**
-`gtd step human` (the `C` event) approves — moving to `idle`, an empty
-`gtd(human): idle` turn commit that ends the cycle right there with no squash;
-its commits stay in history for the human to squash however they prefer (an
-interactive rebase, an amend, a PR's squash-merge) or leave as-is. This
-idle-entering commit is also this workflow's only process boundary besides an
+**Loop 2 — REVIEW.md checkboxes.** A green `checking` run moves to `reviewing`
+(agent, `model: smart`), which writes `.gtd/REVIEW.md` grouping the cycle's full
+diff into reviewable chunks, in the exact checkbox-pointer format
+`src/ReviewDoc.ts`'s parser defines (header `# Review: <short-hash>`, a
+`<!-- base: <hash> -->` comment, `##` chunks each with
+`- [ ] ./path#line — note` pointers). `review-validating`, a deterministic
+`script` state, parses it the same way `todo-validating` parses `.gtd/TODO.md`:
+malformed → `.gtd/FORMAT.md` → back to `reviewing`; valid (with or without a
+stale `.gtd/FORMAT.md` to clean up) → `await-review`. At `await-review`, a human
+ticks a pointer's `- [ ]` to `- [x]` to approve that item; deleting
+`.gtd/REVIEW.md` outright is the power-user shortcut to approve everything at
+once (`D .gtd/REVIEW.md` → `idle` directly). Any other `M .gtd/REVIEW.md` step —
+ticking/unticking boxes, adding notes, even alongside a code edit — routes to
+`review-deciding` (declared **before** the catch-all `"* **"` row, so a step
+that also touches code still goes to the decider); code-only edits that leave
+`.gtd/REVIEW.md` untouched go straight back to `grilling` as feedback.
+`review-deciding` is deterministic: if no unticked `- [ ]` pointer remains, the
+cycle is approved (`rm .gtd/REVIEW.md` → `D .gtd/REVIEW.md` → `idle`); otherwise
+it extracts the still-unticked pointers (with their notes) into a fresh
+`.gtd/TODO.md` and removes `.gtd/REVIEW.md` — the resulting diff carries both
+`A .gtd/TODO.md` and `D .gtd/REVIEW.md`, and the `A`/`M .gtd/TODO.md` row is
+declared **first** so feedback wins over the approval pattern.
+
+**Hygiene invariant:** an approved cycle leaves `.gtd/` completely empty —
+`.gtd/FEEDBACK.md` is cleaned up by a green `checking` run, `.gtd/FORMAT.md` by
+either loop's valid-parse branch, `.gtd/REVIEW.md` by the `review-deciding`
+approval branch, and `.gtd/TODO.md` by `building`. The idle-entering commit that
+closes the cycle is also this workflow's only process boundary besides an
 unrecognized HEAD (§7): the NEXT cycle's `retry` counts, `startCommit`, and
-diffs never reach back across it. Anything else pending at `await-review` — a
-fresh `.gtd/TODO.md` describing what's wrong, code edits, or both — is feedback
-and sends the cycle back to `grilling` (`"* **"`), re-entering the pipeline with
-that input.
+diffs never reach back across it.
 
-`grilling` — the heavier one-shot planning turn — declares `model: smart`, an
-opaque hint `gtd next`/`gtd status` `--json` emit verbatim for the driving loop
-to map onto its harness. Every other state leaves `model` unset, so the
-harness's own default applies.
+`grilling` and `reviewing` — the heavier one-shot planning/reviewing turns —
+both declare `model: smart`, an opaque hint `gtd next`/`gtd status` `--json`
+emit verbatim for the driving loop to map onto its harness. Every other state
+leaves `model` unset, so the harness's own default applies.

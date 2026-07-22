@@ -3,8 +3,11 @@
 This is the fuller machine gtd shipped as its bundled default before the bundled
 default was drastically simplified (see
 [STATES.md §10](../../STATES.md#10-the-bundled-default-workflow) for what ships
-today). It is preserved here as a copy-paste-ready `.gtdrc` recipe for anyone
-who wants the heavier shape back.
+today — including the two steering-file validation loops the current default
+carries over `.gtd/TODO.md` and `.gtd/REVIEW.md`, which this example's own
+`grilling`/`reviewing` phases predate and don't validate). It is preserved here
+as a copy-paste-ready `.gtdrc` recipe for anyone who wants the heavier shape
+back.
 
 Compared to the simplified bundled default, this machine adds:
 

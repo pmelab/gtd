@@ -2,21 +2,24 @@
 Feature: The bundled default workflow — full cycle journeys
 
   Comprehensive coverage of `src/workflows/default.yaml` (see its own header
-  comment for the state list) beyond smoke.feature's minimal hops: the full
-  idle-through-approval cycle including a check/fix round, the
-  fix-retry-escalate path once `fixing`'s cap (max 3) is reached, the
-  await-review feedback loop that sends a cycle back through grilling, and
-  the process-boundary rule that keeps a fresh cycle's retry budget from
-  pooling with a previous, already-approved one. A check turn (`checking`) is
-  simulated by writing its verdict file directly (`.gtd/FEEDBACK.md`) and
-  running `gtd step check` — @inmem never executes the script itself.
+  comment for the state list) beyond smoke.feature's minimal hops: the two
+  steering-file validation loops (TODO.md open questions, REVIEW.md
+  checkboxes — see docs/design/steering-file-loops.md), a check/fix round,
+  the fix-retry-escalate path once `fixing`'s cap (max 3) is reached, both
+  review outcomes (tick-all approve and partial-tick feedback), the
+  delete-shortcut approve, and the process-boundary rule that keeps a fresh
+  cycle's retry budget from pooling with a previous, already-approved one.
+  Both `check`-actor validators (`todo-validating`/`review-validating`/
+  `review-deciding`) are simulated by writing their verdict files directly
+  (`.gtd/FORMAT.md`, `.gtd/REVIEW.md`, `.gtd/TODO.md`) and running
+  `gtd step check` — @inmem never executes the scripts themselves.
 
   The cycle ends at human approval, resting back at `idle` — there is no
   squash. Every commit the cycle authored stays in history; whether/how to
   squash them is entirely up to the human (see docs/examples/advanced-workflow.md
   for a workflow that adds a squash finale back on top of this one).
 
-  Scenario: the full cycle advances idle through an await-review approval, including a check/fix round and a feedback lap, and rests at idle with no squash
+  Scenario: the full cycle advances idle through an await-review approval, including a malformed-TODO lap, a check/fix round, a malformed-REVIEW lap, and a partial-tick feedback lap, and rests at idle with no squash
     Given a test project
     And a file ".gtd/TODO.md" with:
       """
@@ -26,17 +29,56 @@ Feature: The bundled default workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
 
-    # grilling: a single agent turn develops the sketch into a plan, no Q&A loop
+    # grilling: develops the sketch into a plan, but leaves an open question
+    # without a "Suggested default:"/"Answer:" line — a malformed draft
     Given ".gtd/TODO.md" is modified to:
       """
       Build a thing. Implementation plan: add src/thing.ts exporting `thing`.
 
-      ## Assumptions
-      - No existing thing.ts to conflict with.
+      ## Open Questions
+
+      ### Should thing export a default too?
+
+      Not sure yet.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): building"
+    And the last commit subject is "gtd(agent): todo-validating"
+
+    # todo-validating (malformed): simulate the validator finding that draft's error
+    Given a file ".gtd/FORMAT.md" with:
+      """
+      .gtd/TODO.md:5: open question "Should thing export a default too?" is missing a "Suggested default: ..." or "Answer: ..." line
+      """
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): grilling"
+
+    # grilling: fixes the finding
+    Given the file ".gtd/FORMAT.md" is deleted
+    And ".gtd/TODO.md" is modified to:
+      """
+      Build a thing. Implementation plan: add src/thing.ts exporting `thing`.
+
+      ## Open Questions
+
+      ### Should thing export a default too?
+
+      Suggested default: no, named export only.
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): todo-validating"
+
+    # todo-validating (valid, nothing to clean up): a clean step moves to grilling-answer
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): grilling-answer"
+
+    # grilling-answer: accept the suggested default with a clean step
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): building"
 
     # building: implements the plan directly, deletes TODO.md when done
     Given the file ".gtd/TODO.md" is deleted
@@ -63,29 +105,99 @@ Feature: The bundled default workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(agent): checking"
 
-    # checking (green): a clean step moves straight to await-review
+    # checking (green): a clean step moves on to reviewing
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): reviewing"
+
+    # reviewing: writes REVIEW.md, but without the required header line —
+    # a malformed draft
+    Given a file ".gtd/REVIEW.md" with:
+      """
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add thing.ts
+
+      - [ ] ./src/thing.ts#1 — new export
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): review-validating"
+
+    # review-validating (malformed): simulate the validator finding that draft's error
+    Given a file ".gtd/FORMAT.md" with:
+      """
+      .gtd/REVIEW.md:1: missing or malformed "# Review: <hash>" header as first line
+      """
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): reviewing"
+
+    # reviewing: fixes the finding
+    Given the file ".gtd/FORMAT.md" is deleted
+    And ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add thing.ts
+
+      - [ ] ./src/thing.ts#1 — new export
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): review-validating"
+
+    # review-validating (valid, nothing to clean up): a clean step moves to await-review
     When I run gtd step check
     Then it succeeds
     And the last commit subject is "gtd(check): await-review"
 
-    # await-review: request changes first (anything pending is feedback, back to grilling)
-    Given a file ".gtd/TODO.md" with:
+    # await-review: partial-tick feedback — the reviewer adds a note without
+    # ticking the box, routing to the decider (not the catch-all)
+    Given ".gtd/REVIEW.md" is modified to:
       """
-      Also add a doc comment to thing.ts.
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add thing.ts
+
+      - [ ] ./src/thing.ts#1 — new export — also add a doc comment
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): grilling"
+    And the last commit subject is "gtd(human): review-deciding"
 
-    # second lap: grilling -> building -> checking (green) -> await-review
+    # review-deciding: extracts the unticked pointer into a fresh TODO.md,
+    # removes REVIEW.md — the decider always sees both changes, and the
+    # A/M TODO.md row is declared first so feedback wins
+    Given a file ".gtd/TODO.md" with:
+      """
+      Feedback from review — address these before continuing:
+
+      - [ ] ./src/thing.ts#1 — new export — also add a doc comment
+      """
+    And the file ".gtd/REVIEW.md" is deleted
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): grilling"
+
+    # second lap: grilling -> todo-validating -> grilling-answer -> building
+    # -> checking (green) -> reviewing -> review-validating -> await-review
     Given ".gtd/TODO.md" is modified to:
       """
-      Also add a doc comment to thing.ts. Plan: add a one-line comment above
-      the export.
+      Add a doc comment to thing.ts. Plan: add a one-line comment above the
+      export.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): building"
+    And the last commit subject is "gtd(agent): todo-validating"
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): grilling-answer"
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): building"
     Given the file ".gtd/TODO.md" is deleted
     And a file "src/thing.ts" with:
       """
@@ -97,35 +209,50 @@ Feature: The bundled default workflow — full cycle journeys
     And the last commit subject is "gtd(agent): checking"
     When I run gtd step check
     Then it succeeds
+    And the last commit subject is "gtd(check): reviewing"
+    Given a file ".gtd/REVIEW.md" with:
+      """
+      # Review: def5678
+      <!-- base: def5678901234567890123456789012345678abc -->
+
+      ## Doc comment
+
+      - [ ] ./src/thing.ts#1 — doc comment added
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): review-validating"
+    When I run gtd step check
+    Then it succeeds
     And the last commit subject is "gtd(check): await-review"
 
-    # await-review: approve with a clean tree — the cycle ends and rests at
-    # idle, with NO squash: every turn commit the cycle authored stays in
-    # history for the human to squash however they prefer, or not at all.
+    # await-review: tick every box — the decider sees no unticked pointer
+    # left and approves, removing REVIEW.md and resting the cycle at idle
+    # with NO squash: every turn commit the cycle authored stays in history.
+    Given ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: def5678
+      <!-- base: def5678901234567890123456789012345678abc -->
+
+      ## Doc comment
+
+      - [x] ./src/thing.ts#1 — doc comment added
+      """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle"
+    And the last commit subject is "gtd(human): review-deciding"
+    Given the file ".gtd/REVIEW.md" is deleted
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): idle"
     And the git status is clean
     And ".gtd/TODO.md" does not exist
     And ".gtd/FEEDBACK.md" does not exist
+    And ".gtd/FORMAT.md" does not exist
+    And ".gtd/REVIEW.md" does not exist
     And "src/thing.ts" exists
-    And the commit subjects from oldest to newest are:
-      """
-      chore: initial commit
-      gtd(human): grilling
-      gtd(agent): building
-      gtd(agent): checking
-      gtd(check): fixing
-      gtd(agent): checking
-      gtd(check): await-review
-      gtd(human): grilling
-      gtd(agent): building
-      gtd(agent): checking
-      gtd(check): await-review
-      gtd(human): idle
-      """
 
-  Scenario: a green check run that also cleans up leftover feedback rests at await-review with no residue (D .gtd/FEEDBACK.md)
+  Scenario: a green check run that also cleans up leftover feedback moves on to reviewing with no residue (D .gtd/FEEDBACK.md)
     Given a test project
     And a commit "gtd(agent): building" that adds "src/thing.ts" with:
       """
@@ -138,7 +265,7 @@ Feature: The bundled default workflow — full cycle journeys
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): await-review"
+    And the last commit subject is "gtd(check): reviewing"
     And ".gtd/FEEDBACK.md" does not exist
 
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached
@@ -179,15 +306,81 @@ Feature: The bundled default workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(check): escalate"
 
-  Scenario: await-review feedback (anything pending) sends the cycle back to grilling
+  Scenario: a malformed TODO.md draft bounces back to grilling and a valid one that had a stale FORMAT.md to clean up proceeds to grilling-answer
     Given a test project
-    And a commit "gtd(check): await-review" that adds "src/thing.ts" with:
+    And a commit "gtd(agent): todo-validating" that adds ".gtd/TODO.md" with:
       """
-      export const thing = 1
+      Build a thing.
       """
-    And a file ".gtd/TODO.md" with:
+    And a file ".gtd/FORMAT.md" with:
       """
-      Please also add a test for the empty-input case.
+      .gtd/TODO.md:1: open question "X" is missing a "Suggested default: ..." or "Answer: ..." line
+      """
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): grilling"
+    Given a commit "gtd(agent): todo-validating" that adds "src/note.md" with:
+      """
+      the draft is fixed, FORMAT.md still lingers from the last round
+      """
+    Given the file ".gtd/FORMAT.md" is deleted
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): grilling-answer"
+
+  Scenario: a malformed REVIEW.md draft bounces back to reviewing and a valid one that had a stale FORMAT.md to clean up proceeds to await-review
+    Given a test project
+    And a commit "gtd(agent): review-validating" that adds ".gtd/REVIEW.md" with:
+      """
+      Nothing to review.
+      """
+    And a file ".gtd/FORMAT.md" with:
+      """
+      .gtd/REVIEW.md:1: missing or malformed "# Review: <hash>" header as first line
+      """
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): reviewing"
+    Given a commit "gtd(agent): review-validating" that adds "src/note2.md" with:
+      """
+      the draft is fixed, FORMAT.md still lingers from the last round
+      """
+    Given the file ".gtd/FORMAT.md" is deleted
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): await-review"
+
+  Scenario: deleting REVIEW.md outright at await-review is the power-user approve shortcut, bypassing review-deciding
+    Given a test project
+    And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Chunk
+
+      - [ ] ./src/thing.ts#1
+      """
+    Given the file ".gtd/REVIEW.md" is deleted
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle"
+    And ".gtd/REVIEW.md" does not exist
+
+  Scenario: a code-only edit at await-review (REVIEW.md untouched) is feedback straight to grilling
+    Given a test project
+    And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Chunk
+
+      - [ ] ./src/thing.ts#1
+      """
+    Given a file "src/extra.ts" with:
+      """
+      export const extra = 1
       """
     When I run gtd step human
     Then it succeeds
@@ -225,7 +418,7 @@ Feature: The bundled default workflow — full cycle journeys
       """
       export const cycle1 = 1
       """
-    And a commit "gtd(check): await-review" that adds ".gtd/cycle1-note.md" with:
+    And a commit "gtd(check): reviewing" that adds ".gtd/cycle1-note.md" with:
       """
       cycle 1 reviewed clean
       """
@@ -249,9 +442,14 @@ Feature: The bundled default workflow — full cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): building"
-    Given the file ".gtd/TODO.md" is deleted
-    And a file "src/thing2.ts" with:
+    And the last commit subject is "gtd(agent): todo-validating"
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): grilling-answer"
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): building"
+    Given a file "src/thing2.ts" with:
       """
       export const thing2 = 1
       """

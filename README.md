@@ -74,14 +74,17 @@ The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
 [Driving the loop](docs/loop.md) for the full protocol.
 
 Along the way, the bundled default workflow develops your sketch into an
-implementation plan in one turn, builds it, runs your tests (looping on
-failures), and walks you through a direct diff review — approving rests the
-cycle back at idle, with every turn commit still sitting in history for you to
-squash however you like (or not at all; gtd makes no assumption) — see
+implementation plan — asking any open question it can't settle itself via a
+deterministic `.gtd/TODO.md` format, validated before it ever reaches you —
+builds it, runs your tests (looping on failures), and hands you a
+`.gtd/REVIEW.md` checkbox review of the cycle's diff: tick a box to approve that
+item, or edit/untick for feedback. Approving rests the cycle back at idle, with
+every turn commit still sitting in history for you to squash however you like
+(or not at all; gtd makes no assumption) — see
 [STATES.md](STATES.md#10-the-bundled-default-workflow) for the full shape. A
 heavier machine — two-phase Q&A planning, an architecture phase, task
-decomposition, a per-task build loop, agent-prepared review, and a squash finale
-— is preserved as a copy-paste `.gtdrc` example at
+decomposition, a per-task build loop, and a squash finale — is preserved as a
+copy-paste `.gtdrc` example at
 [docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md). The
 workflow itself is just `.gtdrc` config — swap it for your own (see
 [Configuration](docs/configuration.md)).
