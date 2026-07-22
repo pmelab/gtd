@@ -14,13 +14,13 @@ gtd (v3, the pattern machine) exposes three commands a loop driver combines:
 
 A loop is a simple cycle:
 
-1. Run `gtd next --json` and parse `{"state", "actor", "kind", "content"}`, plus
-   an optional `"model"` — an opaque string the workflow author chose (present
-   only when the resolved state declares one), which you map onto your own
-   harness's model selection if you use one. `kind` is the dispatch key:
-   `"message"` → halt (a human rest); `"script"` → run `gtd run`; `"prompt"` →
-   feed `content` to the agent, then `gtd step <actor>` yourself once it's done
-   acting.
+1. Run `gtd next --json` — see [`cli.md`](cli.md#gtd-next---json) for the exact
+   `{state, actor, kind, content, model?}` field shape. `kind` is the dispatch
+   key: `"message"` → halt (a human rest); `"script"` → run `gtd run`;
+   `"prompt"` → feed `content` to the agent, then `gtd step <actor>` yourself
+   once it's done acting. The optional `model` is an opaque string the workflow
+   author chose, which you map onto your own harness's model selection if you
+   use one.
 2. Repeat until a `"message"` rest halts the loop, or a zero-commit `gtd run` at
    idle settles it (the green terminal signal).
 

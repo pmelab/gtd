@@ -1,5 +1,10 @@
 # Design exploration: a fully configurable state machine
 
+> **Historical design record.** The machinery described here (the v2 model —
+> gates, guard functions, actor kinds, conditions) was deleted by the v3
+> rewrite; superseded by `docs/design/pattern-machine-plan.md` and
+> [STATES.md](../../STATES.md).
+
 > Status: exploration, not a commitment. This document maps the building blocks
 > a configuration-driven workflow engine would need so that the current v2
 > machine becomes nothing more than the **default configuration**, and a user

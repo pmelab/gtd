@@ -1,5 +1,9 @@
 # Exploration: every rest is a prompt — checks as a scripted actor
 
+> **Historical design record.** The actor-kind model this explores (v2's
+> gates/counters, actor kinds) was deleted by the v3 rewrite; superseded by
+> `docs/design/pattern-machine-plan.md` and [STATES.md](../../STATES.md).
+
 > Companion to `configurable-state-machine.md` (its Appendix C's δ-purity
 > program is now fully landed — see `delta-purity-plan.md`). This document
 > explores the next generalization: **executed commands become emitted

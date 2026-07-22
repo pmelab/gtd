@@ -1,5 +1,10 @@
 # Implementation plan: full δ(label, diff)
 
+> **Historical design record.** The counters/labels machinery this plan built on
+> (turn labels, capture rules, `Gtd-Counters` trailers) was deleted by the v3
+> rewrite; superseded by `docs/design/pattern-machine-plan.md` and
+> [STATES.md](../../STATES.md).
+
 > **Status (updated during implementation):**
 >
 > - **Phase 0+A — LANDED.** Phase 0's table review surfaced a major

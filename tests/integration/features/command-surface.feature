@@ -19,7 +19,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     When I run gtd with args "bogus-subcommand"
     Then it fails
 
-  Scenario: --help prints the v2 command list
+  Scenario: --help prints the command list
     Given a test project
     When I run gtd with "--help"
     Then it succeeds
