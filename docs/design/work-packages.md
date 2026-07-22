@@ -58,8 +58,8 @@ picking: # the deterministic queue arbiter
       rm -f .gtd/NEXT.md
     fi
   on:
+    "D .gtd/NEXT.md": reviewing # queue just emptied — MUST precede the `*` row
     "* .gtd/NEXT.md": building # queue non-empty (A first time, M after)
-    "D .gtd/NEXT.md": reviewing # queue just emptied
     "C": reviewing # queue empty and NEXT.md never existed
 
 building:
