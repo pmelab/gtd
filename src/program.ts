@@ -11,6 +11,7 @@ import {
   computeProcessRun,
   executeDecision,
   pendingChanges,
+  renderFile,
   renderModel,
   renderRest,
   resolveRest,
@@ -21,7 +22,13 @@ import {
 } from "./Edge.js"
 import { formatFile } from "./Format.js"
 import { startLspServer } from "./Lsp.js"
-import { matchesPattern, parsePattern, step } from "./PatternMachine.js"
+import {
+  matchesPattern,
+  parsePattern,
+  step,
+  type OnEdge,
+  type PendingChange,
+} from "./PatternMachine.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 
 const _require = createRequire(import.meta.url)
@@ -264,6 +271,8 @@ const runNextCommand = (
           kind: rendered.kind,
           content: rendered.content,
           ...(rendered.model !== undefined ? { model: rendered.model } : {}),
+          ...(rendered.file !== undefined ? { file: rendered.file } : {}),
+          ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
         }) + "\n",
       )
     } else {
@@ -317,6 +326,62 @@ interface StatusChange {
   readonly pattern: string | null
 }
 
+/** Which declared `on` pattern (if any) each pending change matches — the pure computation `gtd status` reports (both plain and `--json`). */
+const computeStatusChanges = (
+  onEdges: readonly OnEdge[],
+  changes: readonly PendingChange[],
+): readonly StatusChange[] =>
+  changes.map((change) => {
+    const matchedRow = onEdges.find(([patternStr]) => {
+      const parsed = parsePattern(patternStr)
+      return parsed !== undefined && matchesPattern(parsed, [change])
+    })
+    return { status: change.status, path: change.path, pattern: matchedRow?.[0] ?? null }
+  })
+
+/** `gtd status --json`'s emission — `{state, actor, changes, model?, file?, mode?}`. */
+const writeStatusJson = (
+  write: (chunk: string) => void,
+  rest: ResolvedRest,
+  statusChanges: readonly StatusChange[],
+  model: string | undefined,
+  file: string | undefined,
+): void => {
+  write(
+    JSON.stringify({
+      state: rest.state,
+      actor: rest.actor,
+      changes: statusChanges,
+      ...(model !== undefined ? { model } : {}),
+      ...(file !== undefined ? { file } : {}),
+      ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
+    }) + "\n",
+  )
+}
+
+/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Model:`/`File:`/`Mode:`/`Pending:` lines. */
+const writeStatusPlain = (
+  write: (chunk: string) => void,
+  rest: ResolvedRest,
+  statusChanges: readonly StatusChange[],
+  model: string | undefined,
+  file: string | undefined,
+): void => {
+  const lines = [`State: ${rest.state}`, `Awaits: ${rest.actor}`]
+  if (model !== undefined) lines.push(`Model: ${model}`)
+  if (file !== undefined) lines.push(`File: ${file}`)
+  if (rest.stateDef.mode !== undefined) lines.push(`Mode: ${rest.stateDef.mode}`)
+  if (statusChanges.length === 0) {
+    lines.push("Pending: (clean)")
+  } else {
+    lines.push("Pending:")
+    for (const c of statusChanges) {
+      lines.push(`  ${c.status} ${c.path} -> ${c.pattern ?? "(no match)"}`)
+    }
+  }
+  write(lines.join("\n") + "\n")
+}
+
 /** `gtd status`: pure dry-run reporter — the resolved state/actor, and which declared pattern (if any) each pending change matches. */
 const runStatusCommand = (
   argv: readonly string[],
@@ -329,35 +394,12 @@ const runStatusCommand = (
     const { rest, context } = yield* resolveRestContext(git)
     const changes = yield* pendingChanges(git)
     const model = yield* renderModel(rest.stateDef, context)
-    const onEdges = rest.stateDef.on ?? []
-    const statusChanges: readonly StatusChange[] = changes.map((change) => {
-      const matchedRow = onEdges.find(([patternStr]) => {
-        const parsed = parsePattern(patternStr)
-        return parsed !== undefined && matchesPattern(parsed, [change])
-      })
-      return { status: change.status, path: change.path, pattern: matchedRow?.[0] ?? null }
-    })
+    const file = yield* renderFile(rest.stateDef, context)
+    const statusChanges = computeStatusChanges(rest.stateDef.on ?? [], changes)
     if (json) {
-      write(
-        JSON.stringify({
-          state: rest.state,
-          actor: rest.actor,
-          changes: statusChanges,
-          ...(model !== undefined ? { model } : {}),
-        }) + "\n",
-      )
+      writeStatusJson(write, rest, statusChanges, model, file)
     } else {
-      const lines = [`State: ${rest.state}`, `Awaits: ${rest.actor}`]
-      if (model !== undefined) lines.push(`Model: ${model}`)
-      if (statusChanges.length === 0) {
-        lines.push("Pending: (clean)")
-      } else {
-        lines.push("Pending:")
-        for (const c of statusChanges) {
-          lines.push(`  ${c.status} ${c.path} -> ${c.pattern ?? "(no match)"}`)
-        }
-      }
-      write(lines.join("\n") + "\n")
+      writeStatusPlain(write, rest, statusChanges, model, file)
     }
   })
 

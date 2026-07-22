@@ -84,8 +84,8 @@ process in the same step that entered it — see
 [STATES.md §5](../STATES.md#5-resolution)).
 
 Plain mode prints the rendered content verbatim (with exactly one trailing
-newline) — never the `model` hint, which is JSON-only. `--json` emits
-`{state, actor, kind, content, model?}`:
+newline) — never the `model`/`file`/`mode` hints, which are JSON-only. `--json`
+emits `{state, actor, kind, content, model?, file?, mode?}`:
 
 ```json
 {
@@ -106,6 +106,11 @@ newline) — never the `model` hint, which is JSON-only. `--json` emits
   [Configuration](configuration.md#model--the-opaque-harness-hint-template-rendered)),
   present only when the state declares one; **omitted entirely** (never `null`)
   when unset.
+- `file` — the state's declared steering file, RENDERED the same way; `mode` —
+  its format, verbatim (`"qa"` | `"review"`) (see
+  [Configuration](configuration.md#filemode--the-steering-file-association)).
+  Both present only when the state declares them; **omitted entirely** (never
+  `null`) otherwise.
 
 ## `gtd run`
 
@@ -131,11 +136,12 @@ Pure, read-only dry-run reporter — the same resolution `gtd next` performs, bu
 reporting the resolved state/actor and, for every pending change, which declared
 `on` pattern (if any) matches it — no mutation, and no CONTENT rendering (the
 `script`/`prompt`/`message`/`commit` template is never rendered here, unlike
-`gtd next`). It DOES render the resolved state's `model:` hint (if declared)
-through the same `it.vars`-carrying template context `gtd next` uses — see
+`gtd next`). It DOES render the resolved state's `model:`/`file:` hints (if
+declared) through the same `it.vars`-carrying template context `gtd next` uses —
+see
 [Configuration](configuration.md#model--the-opaque-harness-hint-template-rendered)
-— so a templated `model:` failing to render fails `gtd status` too, exactly like
-it would fail `gtd next`.
+— so a templated `model:`/`file:` failing to render fails `gtd status` too,
+exactly like it would fail `gtd next`.
 
 ```
 State: working
@@ -146,12 +152,15 @@ Pending:
 ```
 
 or, on a clean tree: `Pending: (clean)`. A `Model: <value>` line appears right
-after `Awaits:` only when the resolved state declares a `model:` hint.
+after `Awaits:` when the resolved state declares a `model:` hint, and
+`File: <value>`/`Mode: <value>` lines appear after that (in that order) when
+declared — each independently, only when set.
 
-`--json` emits `{state, actor, changes: [{status, path, pattern}], model?}` —
-`pattern` is `null` when no declared row matches that change; `model` is present
-only when the resolved state declares one (omitted entirely, never `null`,
-otherwise):
+`--json` emits
+`{state, actor, changes: [{status, path, pattern}], model?, file?, mode?}` —
+`pattern` is `null` when no declared row matches that change; `model`/`file`/
+`mode` are present only when the resolved state declares them (omitted entirely,
+never `null`, otherwise):
 
 ```json
 {
@@ -186,17 +195,32 @@ Errors (all exit 1, message on stderr):
 ## `gtd lsp`
 
 Starts an LSP server over stdio for `.gtd/` steering files — document symbols
-for `.gtd/TODO.md`'s open questions and `.gtd/REVIEW.md`'s review chunks/hunks,
-code actions to check/uncheck a hunk or a whole chunk, and diagnostics
-publishing the same parser findings the bundled workflow's `.gtd/FORMAT.md`
-validators produce (see `src/OpenQuestions.ts` / `src/ReviewDoc.ts` and
-[STATES.md §10](../STATES.md#10-the-bundled-default-workflow)). Keyed on file
-name, not workflow state, so it needs no git or `.gtdrc` at all — like
-`gtd format`, it's dispatched before the repository-root guard and auto-init,
-and takes no config-derived context with it. Rejects `--json` (exit 1,
-`gtd lsp does not accept --json`) and extra positional arguments — it's a
-long-running server, not a state command. Runs until the client disconnects (the
-LSP `exit` notification), then exits cleanly.
+for a `qa`-mode file's open questions and a `review`-mode file's review
+chunks/hunks, code actions to check/uncheck a hunk or a whole chunk, and
+diagnostics publishing the same parser findings the bundled workflow's
+`.gtd/FORMAT.md` validators produce (see `src/OpenQuestions.ts` /
+`src/ReviewDoc.ts` and
+[STATES.md §10](../STATES.md#10-the-bundled-default-workflow)).
+
+**Config-driven** (see
+[docs/design/state-file-association.md](design/state-file-association.md)): the
+server locates the active gtd config the same way the CLI does, from the
+`initialize` request's workspace root (falling back to the open document's own
+directory), renders every state's `file:` into an absolute-path → `mode` map,
+and dispatches on it — first declaring state wins a path conflict. A path the
+map doesn't cover (or no config at all) falls back to the basename dispatch
+(`TODO.md` → `qa`, `REVIEW.md` → `review`), so the server still works standalone
+with no `.gtdrc` in sight. Also registers an `executeCommand`,
+`gtd.openSteeringFile`: resolves the current state exactly like `gtd status`
+(config + git HEAD) and asks the client to show its `file:`
+(`window/showDocument`); a state with no `file:` gets an informational message
+naming the state instead — bind it to an editor keybinding for a "jump to the
+active steering file" command.
+
+Dispatched before the repository-root guard and auto-init, like `gtd format`.
+Rejects `--json` (exit 1, `gtd lsp does not accept --json`) and extra positional
+arguments — it's a long-running server, not a state command. Runs until the
+client disconnects (the LSP `exit` notification), then exits cleanly.
 
 ## Error envelope
 

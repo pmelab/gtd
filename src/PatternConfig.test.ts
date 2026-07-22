@@ -474,6 +474,98 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     }
   })
 
+  it("compiles `file`/`mode` strings through onto the state", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          working: {
+            actor: "agent",
+            file: "<%= it.vars.todoFile %>",
+            mode: "qa",
+            prompt: "do the thing",
+            initial: true,
+            on: { "* *": "done" },
+          },
+          done: { commit: "chore: done" },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states["working"]!.file).toBe("<%= it.vars.todoFile %>")
+    expect(definition.states["working"]!.mode).toBe("qa")
+  })
+
+  it("omits `file`/`mode` entirely when the state declares neither", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          working: {
+            actor: "agent",
+            prompt: "do the thing",
+            initial: true,
+            on: { "* *": "done" },
+          },
+          done: { commit: "chore: done" },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states["working"]).not.toHaveProperty("file")
+    expect(definition.states["working"]).not.toHaveProperty("mode")
+  })
+
+  it("rejects a non-string `file` as a config-shape error", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          states: {
+            a: { actor: "human", message: "hi", initial: true, file: 42 },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "file" must be a string/)
+  })
+
+  it("rejects a non-string `mode` as a config-shape error", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          states: {
+            a: {
+              actor: "human",
+              message: "hi",
+              initial: true,
+              file: ".gtd/TODO.md",
+              mode: 42,
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "mode" must be a string/)
+  })
+
+  it("surfaces an out-of-vocabulary `mode` string via `validateDefinition`'s aggregated error", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          states: {
+            a: {
+              actor: "human",
+              message: "hi",
+              initial: true,
+              file: ".gtd/TODO.md",
+              mode: "yolo",
+              on: {},
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/"mode" must be one of qa, review \(got "yolo"\)/)
+  })
+
   it("rejects a malformed `retry` block", () => {
     expect(() =>
       compileWorkflowConfig(

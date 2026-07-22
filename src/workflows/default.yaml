@@ -93,6 +93,23 @@
 # top-level `.gtdrc` `vars: { testCommand: ... }` key, or per-invocation with
 # a `GTD_VAR_testCommand` environment variable (highest precedence).
 #
+# `vars.todoFile`/`reviewFile`/`feedbackFile` are this workflow's ONE source
+# of truth for the three steering-file paths every prompt/script below reads
+# or writes — each appears in templates as `<%~ it.vars.todoFile %>` etc
+# (see docs/design/state-file-association.md §2). Every state that rests on
+# one of these files also declares a `file:`/`mode:` pair (see STATES.md's
+# property table) so `gtd status`/`gtd next --json` and the LSP (`gtd lsp`)
+# know which file a human/editor should look at, and in what format
+# (`qa` for TODO.md's open-questions format, `review` for REVIEW.md's
+# checkbox format) — `fixing`/`escalate` declare `file:` alone (FEEDBACK.md
+# is plain text, no LSP format). KNOWN LIMITATION: `on` pattern keys below are
+# NOT Eta templates — they keep the LITERAL `.gtd/...` paths matching these
+# vars' DEFAULT values. Repointing `todoFile`/`reviewFile`/`feedbackFile` via
+# `.gtdrc`'s top-level `vars:` or a `GTD_VAR_` override changes what `file:`
+# renders to (and what a template reads/writes) WITHOUT changing what the
+# `on` patterns match against — desyncing the machine. See
+# docs/configuration.md's `file:`/`mode:` section for the full caveat.
+#
 # A fuller machine — two-phase Q&A planning, an architecture phase, task
 # decomposition, a deterministic per-task builder loop, agent-prepared
 # review, and the squash finale (`squashing` + `done`) — is preserved as a
@@ -100,6 +117,9 @@
 
 vars:
   testCommand: npm test
+  todoFile: .gtd/TODO.md
+  reviewFile: .gtd/REVIEW.md
+  feedbackFile: .gtd/FEEDBACK.md
 
 states:
   idle:
@@ -115,6 +135,8 @@ states:
 
   grilling:
     actor: agent
+    file: <%= it.vars.todoFile %>
+    mode: qa
     # `model` is an opaque harness hint — gtd never interprets this string, it
     # only passes it through to `gtd next --json`/`gtd status --json` so the
     # driving loop can map it onto whatever models its agent harness
@@ -125,35 +147,40 @@ states:
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except
-      `.gtd/TODO.md`, which this prompt tells you to develop. Never touch
-      `.gtd/FORMAT.md` yourself if it exists — a validator writes it, and only
-      the validator removes it once you've fixed the underlying problem.
+      `<%= it.vars.todoFile %>`, which this prompt tells you to develop. Never
+      touch `.gtd/FORMAT.md` yourself if it exists — a validator writes it,
+      and only the validator removes it once you've fixed the underlying
+      problem.
 
       If `.gtd/FORMAT.md` exists, it holds format findings from your last
-      draft of `.gtd/TODO.md` — fix those findings first, then continue
-      below.
+      draft of `<%= it.vars.todoFile %>` — fix those findings first, then
+      continue below.
 
-      `.gtd/TODO.md` holds a short sketch of what to build (or feedback from
-      a prior review lap). Read it, explore the codebase, and develop it into
-      a concrete implementation plan.
+      `<%= it.vars.todoFile %>` holds a short sketch of what to build (or
+      feedback from a prior review lap). Read it, explore the codebase, and
+      develop it into a concrete implementation plan.
 
       For every question you cannot settle yourself, add it under a
       `## Open Questions` heading, one `### <question>` sub-heading each,
       whose body's FIRST non-blank line is exactly
       `Suggested default: <your answer>` — the human can accept it as-is or
       override it. Omit the section entirely once there are no open
-      questions. If `.gtd/TODO.md` already carries `## Open Questions`
-      entries from a previous lap, fold any `Answer: <text>` line into the
-      plan; every remaining entry's body must still start with either
-      `Suggested default: ...` or `Answer: ...` — never anything else.
+      questions. If `<%= it.vars.todoFile %>` already carries
+      `## Open Questions` entries from a previous lap, fold any
+      `Answer: <text>` line into the plan; every remaining entry's body must
+      still start with either `Suggested default: ...` or `Answer: ...` —
+      never anything else.
 
-      Leave `.gtd/TODO.md` uncommitted and finish your turn — do not commit,
-      and do not run `gtd step agent` yourself; the harness does that.
+      Leave `<%= it.vars.todoFile %>` uncommitted and finish your turn — do
+      not commit, and do not run `gtd step agent` yourself; the harness does
+      that.
     on:
       "* **": todo-validating
 
   todo-validating:
     actor: check
+    file: <%= it.vars.todoFile %>
+    mode: qa
     script: |
       #!/usr/bin/env bash
       # gtd check turn — the driver (`gtd run`) executes this verbatim, then
@@ -180,7 +207,7 @@ states:
 
           if (in_section && level >= 1 && level <= 2) {
             if (have_question && !body_seen) {
-              printf ".gtd/TODO.md:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
+              printf "<%~ it.vars.todoFile %>:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
             }
             in_section = 0
             have_question = 0
@@ -190,7 +217,7 @@ states:
 
           if (in_section && level == 3) {
             if (have_question && !body_seen) {
-              printf ".gtd/TODO.md:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
+              printf "<%~ it.vars.todoFile %>:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
             }
             question = trimmed
             sub(/^### */, "", question)
@@ -204,17 +231,17 @@ states:
             if (trimmed ~ /^Suggested default: *.+/ || trimmed ~ /^Answer: *.+/) {
               body_seen = 1
             } else {
-              printf ".gtd/TODO.md:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
+              printf "<%~ it.vars.todoFile %>:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
               body_seen = 1
             }
           }
         }
         END {
           if (in_section && have_question && !body_seen) {
-            printf ".gtd/TODO.md:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
+            printf "<%~ it.vars.todoFile %>:%d: open question \"%s\" is missing a \"Suggested default: ...\" or \"Answer: ...\" line\n", qline, question
           }
         }
-      ' .gtd/TODO.md > .gtd/.format-findings
+      ' <%~ it.vars.todoFile %> > .gtd/.format-findings
 
       if [ -s .gtd/.format-findings ]; then
         mv .gtd/.format-findings .gtd/FORMAT.md
@@ -230,9 +257,11 @@ states:
 
   grilling-answer:
     actor: human
+    file: <%= it.vars.todoFile %>
+    mode: qa
     message: |
-      `.gtd/TODO.md` holds the plan under development, with any open
-      questions under `## Open Questions` — each carrying a suggested
+      `<%= it.vars.todoFile %>` holds the plan under development, with any
+      open questions under `## Open Questions` — each carrying a suggested
       default.
 
       To answer a question, edit its entry in place (replace
@@ -247,20 +276,22 @@ states:
 
   building:
     actor: agent
+    file: <%= it.vars.todoFile %>
+    mode: qa
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create or edit anything under `.gtd/` except deleting
-      `.gtd/TODO.md`, which this prompt tells you to delete once its work is
-      complete.
+      `<%= it.vars.todoFile %>`, which this prompt tells you to delete once
+      its work is complete.
 
-      The plan to implement is: <%~ it.read(".gtd/TODO.md") %>
+      The plan to implement is: <%~ it.read(it.vars.todoFile) %>
 
       Read that plan and implement it in full. Use TDD discipline: one test,
       then the implementation that passes it, then the next — never write
       all the tests first.
 
-      Delete `.gtd/TODO.md` once the work it describes is complete and
-      verified. Leave everything else uncommitted and finish your turn.
+      Delete `<%= it.vars.todoFile %>` once the work it describes is complete
+      and verified. Leave everything else uncommitted and finish your turn.
     on:
       "* **": checking
 
@@ -279,23 +310,24 @@ states:
       # `vars: { testCommand: ... }` key, or a `GTD_VAR_testCommand`
       # environment variable (highest precedence).
       #
-      # A green run also removes any `.gtd/FEEDBACK.md` left over from an
-      # earlier red run — there is no squash to discard it for us anymore, so
-      # the script cleans it up itself before moving on to review.
+      # A green run also removes any `<%= it.vars.feedbackFile %>` left over
+      # from an earlier red run — there is no squash to discard it for us
+      # anymore, so the script cleans it up itself before moving on to
+      # review.
       set +e
       mkdir -p .gtd
       <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
         if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output .gtd/FEEDBACK.md
+          mv .gtd/.check-output <%~ it.vars.feedbackFile %>
         else
           rm -f .gtd/.check-output
-          printf 'npm test failed with exit code %s and produced no output.' "$code" > .gtd/FEEDBACK.md
+          printf 'npm test failed with exit code %s and produced no output.' "$code" > <%~ it.vars.feedbackFile %>
         fi
       else
         rm -f .gtd/.check-output
-        rm -f .gtd/FEEDBACK.md
+        rm -f <%~ it.vars.feedbackFile %>
       fi
     on:
       "A .gtd/FEEDBACK.md": fixing
@@ -305,19 +337,20 @@ states:
 
   fixing:
     actor: agent
+    file: <%= it.vars.feedbackFile %>
     retry:
       max: 3
       otherwise: escalate
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except
-      `.gtd/FEEDBACK.md`, which this prompt tells you to address.
+      `<%= it.vars.feedbackFile %>`, which this prompt tells you to address.
 
-      Read `.gtd/FEEDBACK.md` (the failing test output) and fix the code so
-      the suite passes. Keep the change focused — do not refactor unrelated
-      code. If the feedback is wrong, empty or delete `.gtd/FEEDBACK.md`
-      instead of "fixing" a non-issue; the machine picks the dispute up
-      either way.
+      Read `<%= it.vars.feedbackFile %>` (the failing test output) and fix
+      the code so the suite passes. Keep the change focused — do not
+      refactor unrelated code. If the feedback is wrong, empty or delete
+      `<%= it.vars.feedbackFile %>` instead of "fixing" a non-issue; the
+      machine picks the dispute up either way.
 
       Leave everything uncommitted and finish your turn — do not commit.
     on:
@@ -325,32 +358,36 @@ states:
 
   escalate:
     actor: human
+    file: <%= it.vars.feedbackFile %>
     message: |
       The agent could not get the check to pass after repeated attempts.
-      `.gtd/FEEDBACK.md` holds the last failing output.
+      `<%= it.vars.feedbackFile %>` holds the last failing output.
 
       Investigate and fix it yourself (editing code and/or
-      `.gtd/FEEDBACK.md`), then run `gtd step human` to try the check again.
+      `<%= it.vars.feedbackFile %>`), then run `gtd step human` to try the
+      check again.
     on:
       "* **": checking
 
   reviewing:
     actor: agent
+    file: <%= it.vars.reviewFile %>
+    mode: review
     model: smart
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except
-      `.gtd/REVIEW.md`, which this prompt tells you to write. Never touch
-      `.gtd/FORMAT.md` yourself if it exists — a validator writes it, and
-      only the validator removes it once you've fixed the underlying
+      `<%= it.vars.reviewFile %>`, which this prompt tells you to write.
+      Never touch `.gtd/FORMAT.md` yourself if it exists — a validator writes
+      it, and only the validator removes it once you've fixed the underlying
       problem.
 
       If `.gtd/FORMAT.md` exists, it holds format findings from your last
-      draft of `.gtd/REVIEW.md` — fix those findings first, then continue
-      below.
+      draft of `<%= it.vars.reviewFile %>` — fix those findings first, then
+      continue below.
 
-      Write `.gtd/REVIEW.md` to help a human review the cycle's full diff
-      (inlined below) in this EXACT format:
+      Write `<%= it.vars.reviewFile %>` to help a human review the cycle's
+      full diff (inlined below) in this EXACT format:
 
       - First non-blank line: `# Review: <%= it.currentCommit.slice(0, 7) %>`
       - Somewhere in the document: `<!-- base: <%= it.startCommit %> -->`
@@ -361,7 +398,7 @@ states:
         are for the human to tick, not you; every path is `./`-relative, with
         an optional `#line` and an optional ` — note`).
 
-      Leave `.gtd/REVIEW.md` uncommitted and finish your turn.
+      Leave `<%= it.vars.reviewFile %>` uncommitted and finish your turn.
       <% if (it.processDiff.trim()) { %>
 
       ## Full cycle diff
@@ -375,6 +412,8 @@ states:
 
   review-validating:
     actor: check
+    file: <%= it.vars.reviewFile %>
+    mode: review
     script: |
       #!/usr/bin/env bash
       # gtd check turn — the driver (`gtd run`) executes this verbatim, then
@@ -409,7 +448,7 @@ states:
             if (trimmed ~ /^# Review: [^ ]+$/) {
               header_ok = 1
             } else {
-              printf ".gtd/REVIEW.md:%d: first non-blank line must be \"# Review: <hash>\"\n", NR
+              printf "<%~ it.vars.reviewFile %>:%d: first non-blank line must be \"# Review: <hash>\"\n", NR
             }
           }
 
@@ -417,7 +456,7 @@ states:
 
           if (trimmed ~ /^## [^ ]/) {
             if (chunk_open && chunk_files == 0) {
-              printf ".gtd/REVIEW.md:%d: chunk \"%s\" has no file pointers\n", chunk_line, chunk_title
+              printf "<%~ it.vars.reviewFile %>:%d: chunk \"%s\" has no file pointers\n", chunk_line, chunk_title
             }
             chunk_open = 1
             chunk_title = trimmed
@@ -432,25 +471,25 @@ states:
             if (trimmed ~ /^-[ \t]*\[[ xX]\][ \t]*\.\/[^ \t]+/) {
               chunk_files++
             } else if (trimmed ~ /^-[ \t]*\[/) {
-              printf ".gtd/REVIEW.md:%d: file pointer does not match \"- [ ] ./path#line — note\"\n", NR
+              printf "<%~ it.vars.reviewFile %>:%d: file pointer does not match \"- [ ] ./path#line — note\"\n", NR
             }
           }
         }
         END {
           if (chunk_open && chunk_files == 0) {
-            printf ".gtd/REVIEW.md:%d: chunk \"%s\" has no file pointers\n", chunk_line, chunk_title
+            printf "<%~ it.vars.reviewFile %>:%d: chunk \"%s\" has no file pointers\n", chunk_line, chunk_title
           }
           if (!header_ok) {
-            print ".gtd/REVIEW.md:1: missing or malformed \"# Review: <hash>\" header as first line"
+            print "<%~ it.vars.reviewFile %>:1: missing or malformed \"# Review: <hash>\" header as first line"
           }
           if (!base_ok) {
-            print ".gtd/REVIEW.md:1: missing \"<!-- base: <hash> -->\" comment"
+            print "<%~ it.vars.reviewFile %>:1: missing \"<!-- base: <hash> -->\" comment"
           }
           if (chunk_count == 0) {
-            print ".gtd/REVIEW.md:1: no \"##\" chunks found"
+            print "<%~ it.vars.reviewFile %>:1: no \"##\" chunks found"
           }
         }
-      ' .gtd/REVIEW.md > .gtd/.format-findings
+      ' <%~ it.vars.reviewFile %> > .gtd/.format-findings
 
       if [ -s .gtd/.format-findings ]; then
         mv .gtd/.format-findings .gtd/FORMAT.md
@@ -466,23 +505,26 @@ states:
 
   await-review:
     actor: human
+    file: <%= it.vars.reviewFile %>
+    mode: review
     message: |
-      `.gtd/REVIEW.md` holds the review record for the completed cycle — tick
-      a pointer's `- [ ]` box to `- [x]` to approve that item; add notes,
-      untick, or edit code for feedback.
+      `<%= it.vars.reviewFile %>` holds the review record for the completed
+      cycle — tick a pointer's `- [ ]` box to `- [x]` to approve that item;
+      add notes, untick, or edit code for feedback.
 
       To approve: tick every box, then run `gtd step human`.
 
       To approve the whole cycle without ticking every box individually:
-      delete `.gtd/REVIEW.md` and run `gtd step human`.
+      delete `<%= it.vars.reviewFile %>` and run `gtd step human`.
 
-      To request changes: edit `.gtd/REVIEW.md` (ticking/unticking boxes,
-      adding notes) and/or the code, then run `gtd step human` — any edit to
-      `.gtd/REVIEW.md` sends the cycle to a deterministic check that either
-      closes the cycle out (every box ticked) or extracts the still-unticked
-      items into a fresh `.gtd/TODO.md` and routes back through grilling with
-      that feedback. Code-only edits (leaving `.gtd/REVIEW.md` untouched) go
-      straight back to grilling.
+      To request changes: edit `<%= it.vars.reviewFile %>`
+      (ticking/unticking boxes, adding notes) and/or the code, then run
+      `gtd step human` — any edit to `<%= it.vars.reviewFile %>` sends the
+      cycle to a deterministic check that either closes the cycle out (every
+      box ticked) or extracts the still-unticked items into a fresh
+      `<%= it.vars.todoFile %>` and routes back through grilling with that
+      feedback. Code-only edits (leaving `<%= it.vars.reviewFile %>`
+      untouched) go straight back to grilling.
     on:
       "D .gtd/REVIEW.md": idle
       "M .gtd/REVIEW.md": review-deciding
@@ -490,6 +532,8 @@ states:
 
   review-deciding:
     actor: check
+    file: <%= it.vars.reviewFile %>
+    mode: review
     script: |
       #!/usr/bin/env bash
       # gtd check turn — the driver (`gtd run`) executes this verbatim, then
@@ -504,14 +548,14 @@ states:
       # approval.
       set +e
       mkdir -p .gtd
-      if grep -qE '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' .gtd/REVIEW.md 2>/dev/null; then
+      if grep -qE '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' <%~ it.vars.reviewFile %> 2>/dev/null; then
         {
           echo "Feedback from review — address these before continuing:"
           echo
-          grep -E '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' .gtd/REVIEW.md
-        } > .gtd/TODO.md
+          grep -E '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' <%~ it.vars.reviewFile %>
+        } > <%~ it.vars.todoFile %>
       fi
-      rm -f .gtd/REVIEW.md
+      rm -f <%~ it.vars.reviewFile %>
     on:
       "A .gtd/TODO.md": grilling
       "M .gtd/TODO.md": grilling

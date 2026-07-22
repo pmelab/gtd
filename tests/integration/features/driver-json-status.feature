@@ -215,3 +215,77 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"pattern\":\"A DONE.md\""
     And stdout contains "\"pattern\":null"
+
+  Scenario: gtd next --json and gtd status --json carry the state's declared file/mode, and plain gtd status shows both
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            file: ".gtd/PLAN.md"
+            mode: qa
+            prompt: "do the work described in NOTE.md"
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"working\""
+    And stdout contains "\"file\":\".gtd/PLAN.md\""
+    And stdout contains "\"mode\":\"qa\""
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "State: working"
+    And stdout contains "File: .gtd/PLAN.md"
+    And stdout contains "Mode: qa"
+    When I run gtd status with "--json"
+    Then it succeeds
+    And stdout contains "\"file\":\".gtd/PLAN.md\""
+    And stdout contains "\"mode\":\"qa\""
+
+  Scenario: gtd next --json and gtd status --json omit "file"/"mode" entirely when the state declares neither
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "do the work described in NOTE.md"
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout does not contain "\"file\""
+    And stdout does not contain "\"mode\""
+    When I run gtd status
+    Then it succeeds
+    And stdout does not contain "File:"
+    And stdout does not contain "Mode:"
+    When I run gtd status with "--json"
+    Then it succeeds
+    And stdout does not contain "\"file\""
+    And stdout does not contain "\"mode\""

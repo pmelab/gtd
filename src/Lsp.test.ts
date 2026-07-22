@@ -7,7 +7,13 @@ import {
   toggleHunkEdit,
   toggleChunkEdits,
   reviewCodeActions,
+  basenameFallbackMode,
+  buildFileModeMap,
+  modeForDocument,
+  resolveWorkspaceRoot,
+  steeringFileOutcome,
 } from "./Lsp.js"
+import type { WorkflowDefinition } from "./PatternMachine.js"
 
 const questionsDoc = [
   "# Plan",
@@ -179,5 +185,130 @@ describe("reviewCodeActions", () => {
       end: { line: 5, character: 0 },
     })
     expect(actions[0]?.edit?.changes?.[uri]).toBeDefined()
+  })
+})
+
+describe("basenameFallbackMode", () => {
+  it("maps TODO.md to qa and REVIEW.md to review, and anything else to undefined", () => {
+    expect(basenameFallbackMode("TODO.md")).toBe("qa")
+    expect(basenameFallbackMode("REVIEW.md")).toBe("review")
+    expect(basenameFallbackMode("NOTES.md")).toBeUndefined()
+  })
+})
+
+describe("buildFileModeMap", () => {
+  const def = (states: WorkflowDefinition["states"]): WorkflowDefinition => ({ states })
+
+  it("renders each state's `file:` (vars-layer context) into an absolute path keyed to its `mode`", () => {
+    const { map, warnings } = buildFileModeMap(
+      def({
+        grilling: {
+          actor: "agent",
+          prompt: "x",
+          file: "<%= it.vars.todoFile %>",
+          mode: "qa",
+          initial: true,
+        },
+        reviewing: {
+          actor: "agent",
+          prompt: "x",
+          file: "<%= it.vars.reviewFile %>",
+          mode: "review",
+        },
+        idle: { actor: "human", message: "x" },
+      }),
+      { todoFile: ".gtd/TODO.md", reviewFile: ".gtd/REVIEW.md" },
+      "/repo",
+    )
+    expect(warnings).toEqual([])
+    expect(map.get("/repo/.gtd/TODO.md")).toBe("qa")
+    expect(map.get("/repo/.gtd/REVIEW.md")).toBe("review")
+    expect(map.size).toBe(2)
+  })
+
+  it("skips a state whose `file:` fails to render and warns, without failing the whole map", () => {
+    const { map, warnings } = buildFileModeMap(
+      def({
+        broken: { actor: "agent", prompt: "x", file: "<%= it.vars.nope.deeper %>", mode: "qa" },
+        ok: { actor: "agent", prompt: "x", file: "PLAN.md", mode: "qa" },
+      }),
+      {},
+      "/repo",
+    )
+    expect(map.get("/repo/PLAN.md")).toBe("qa")
+    expect(map.size).toBe(1)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('state "broken"')
+  })
+
+  it("keeps the FIRST declaring state's mode on a path conflict, warning about the later one", () => {
+    const { map, warnings } = buildFileModeMap(
+      def({
+        first: { actor: "agent", prompt: "x", file: "SHARED.md", mode: "qa" },
+        second: { actor: "agent", prompt: "x", file: "SHARED.md", mode: "review" },
+      }),
+      {},
+      "/repo",
+    )
+    expect(map.get("/repo/SHARED.md")).toBe("qa")
+    expect(map.size).toBe(1)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('state "second"')
+  })
+
+  it("ignores a state declaring neither `file:` nor `mode:`", () => {
+    const { map, warnings } = buildFileModeMap(
+      def({ idle: { actor: "human", message: "x", initial: true } }),
+      {},
+      "/repo",
+    )
+    expect(map.size).toBe(0)
+    expect(warnings).toEqual([])
+  })
+})
+
+describe("modeForDocument", () => {
+  it("prefers the config-driven map over the basename fallback", () => {
+    const map = new Map([["/repo/PLAN.md", "qa" as const]])
+    expect(modeForDocument("file:///repo/PLAN.md", map)).toBe("qa")
+  })
+
+  it("falls back to basename dispatch for a path the map doesn't cover", () => {
+    const map = new Map()
+    expect(modeForDocument("file:///repo/.gtd/TODO.md", map)).toBe("qa")
+    expect(modeForDocument("file:///repo/.gtd/REVIEW.md", map)).toBe("review")
+    expect(modeForDocument("file:///repo/NOTES.md", map)).toBeUndefined()
+  })
+})
+
+describe("resolveWorkspaceRoot", () => {
+  it("prefers the first workspaceFolders entry", () => {
+    expect(
+      resolveWorkspaceRoot({
+        workspaceFolders: [{ uri: "file:///repo" }, { uri: "file:///other" }],
+        rootUri: "file:///deprecated",
+      }),
+    ).toBe("/repo")
+  })
+
+  it("falls back to the deprecated rootUri when workspaceFolders is absent", () => {
+    expect(resolveWorkspaceRoot({ rootUri: "file:///repo" })).toBe("/repo")
+  })
+
+  it("is undefined when neither is present", () => {
+    expect(resolveWorkspaceRoot({})).toBeUndefined()
+    expect(resolveWorkspaceRoot({ workspaceFolders: null, rootUri: null })).toBeUndefined()
+  })
+})
+
+describe("steeringFileOutcome", () => {
+  it("resolves a declared `file:` to a `file://` URI under root", () => {
+    const outcome = steeringFileOutcome("grilling", ".gtd/TODO.md", "/repo")
+    expect(outcome).toEqual({ kind: "show", uri: "file:///repo/.gtd/TODO.md" })
+  })
+
+  it("informs, naming the state, when no `file:` is declared", () => {
+    const outcome = steeringFileOutcome("idle", undefined, "/repo")
+    expect(outcome).toEqual({ kind: "inform", state: "idle" })
   })
 })

@@ -98,9 +98,12 @@ Before wiring gtd into a repo, note the
 importantly: gitignore everything your scripts write.
 
 Editor integration: `gtd lsp` starts an LSP server over stdio for `.gtd/`
-steering files — symbols and check/uncheck actions over `.gtd/REVIEW.md`'s
-chunks, symbols over `.gtd/TODO.md`'s open questions, and diagnostics for both,
-live as you edit (see [CLI reference](docs/cli.md#gtd-lsp)).
+steering files — symbols and check/uncheck actions over a `review`-mode file's
+chunks, symbols over a `qa`-mode file's open questions, diagnostics for both
+(live as you edit), and a `gtd.openSteeringFile` command that jumps to the
+current state's steering file. Config-driven via each state's `file:`/`mode:`
+(see [CLI reference](docs/cli.md#gtd-lsp)) — falls back to basename dispatch
+(`TODO.md`/`REVIEW.md`) with no config in sight.
 
 ## Documentation
 

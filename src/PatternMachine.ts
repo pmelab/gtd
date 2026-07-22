@@ -75,7 +75,29 @@ export interface StateDef {
    * rest, emits nothing — see `validateDefinition`).
    */
   readonly model?: string
+  /**
+   * Optional — THE steering file this state is about: the file a human/
+   * editor should look at while the machine rests here. An Eta template
+   * (rendered through the same `it.vars`-carrying context as content and
+   * `model`) that must render non-empty. Forbidden on a commit state (never
+   * at rest — see `validateDefinition`). Multiple states may share one
+   * `file:` (and, in the bundled default, do). The engine never reads a
+   * path out of this string itself — only the LSP (`src/Lsp.ts`) interprets
+   * it, to map rendered paths to `mode`.
+   */
+  readonly file?: string
+  /**
+   * Optional, requires `file:`. The associated file's FORMAT, from a closed
+   * vocabulary the LSP dispatches on (`qa` | `review`) — like `model`, this
+   * is opaque, emitted data: the ENGINE never branches on it, `step` and
+   * `resolveState` never read it. Forbidden on a commit state (see
+   * `validateDefinition`).
+   */
+  readonly mode?: StateMode
 }
+
+/** The closed vocabulary `mode:` may declare — see `StateDef.mode`. */
+export type StateMode = "qa" | "review"
 
 /** A workflow: named states. Exactly one must declare `initial: true`. */
 export interface WorkflowDefinition {
@@ -540,6 +562,46 @@ const validateModel = (name: string, state: StateDef): string[] => {
   return errors
 }
 
+const STATE_MODES: ReadonlySet<string> = new Set<StateMode>(["qa", "review"])
+
+/**
+ * `file`, when present, must be a non-empty string; forbidden on a commit
+ * state — same rule family as `model` (`validateModel`): a commit state is
+ * never at rest, so it has no file for a human/editor to look at.
+ */
+const validateFile = (name: string, state: StateDef): string[] => {
+  const errors: string[] = []
+  if (state.file !== undefined && state.file === "") {
+    errors.push(`state "${name}": "file" must be a non-empty string`)
+  }
+  if (isCommitState(state) && state.file !== undefined) {
+    errors.push(`state "${name}": a commit state cannot declare "file"`)
+  }
+  return errors
+}
+
+/**
+ * `mode`, when present, must be one of the closed vocabulary and requires a
+ * sibling `file:`; forbidden on a commit state — same rule family as `model`/
+ * `file`.
+ */
+const validateMode = (name: string, state: StateDef): string[] => {
+  if (state.mode === undefined) return []
+  const errors: string[] = []
+  if (!STATE_MODES.has(state.mode)) {
+    errors.push(
+      `state "${name}": "mode" must be one of ${Array.from(STATE_MODES).join(", ")} (got "${state.mode}")`,
+    )
+  }
+  if (state.file === undefined) {
+    errors.push(`state "${name}": "mode" requires "file"`)
+  }
+  if (isCommitState(state)) {
+    errors.push(`state "${name}": a commit state cannot declare "mode"`)
+  }
+  return errors
+}
+
 /** Every `on` row parses, and its target names a defined state. */
 const validateOnEdges = (name: string, state: StateDef, names: readonly string[]): string[] => {
   const errors: string[] = []
@@ -582,6 +644,8 @@ const validateState = (
     ...validateOnEdges(name, state, names),
     ...validateRetry(name, state, names),
     ...validateModel(name, state),
+    ...validateFile(name, state),
+    ...validateMode(name, state),
   ]
 }
 
@@ -596,7 +660,10 @@ const validateState = (
  * states carry an `actor`; every `on` pattern parses and every `on` target
  * and `retry.otherwise` names a defined state; `retry.max` is a
  * non-negative integer; `model`, when present, is a non-empty string and is
- * never declared on a commit state.
+ * never declared on a commit state; `file`, when present, is a non-empty
+ * string and is never declared on a commit state; `mode`, when present, is
+ * one of the closed vocabulary (`qa`/`review`), requires a sibling `file`,
+ * and is never declared on a commit state.
  */
 export const validateDefinition = (def: WorkflowDefinition): readonly string[] => {
   const names = Object.keys(def.states)

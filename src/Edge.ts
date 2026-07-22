@@ -218,6 +218,10 @@ export interface RenderedRest {
   readonly content: string
   /** The resolved rest's `model` hint, verbatim — omitted (not `undefined`-valued) when the state declares none, so `--json` callers can `key in obj`/`??`-check its absence. */
   readonly model?: string
+  /** The resolved rest's `file:` steering file, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
+  readonly file?: string
+  /** The resolved rest's `mode:` hint, verbatim (a closed literal — never Eta-rendered) — omitted when the state declares none. */
+  readonly mode?: StateDef["mode"]
 }
 
 /**
@@ -240,7 +244,23 @@ export const renderModel = (
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
-/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state) plus its `model:` hint, if declared (see `renderModel`). */
+/**
+ * Render a state's declared `file:` steering-file template (if any) through
+ * the SAME template context as its content/`model` — see `renderModel`'s doc
+ * comment; the render-failure semantics are identical (propagates as a
+ * thrown/rejected error, same call site as `gtd next`/`gtd status`).
+ */
+export const renderFile = (
+  stateDef: StateDef,
+  context: TemplateContext,
+): Effect.Effect<string | undefined, Error> =>
+  Effect.try({
+    try: () =>
+      stateDef.file !== undefined ? renderStateTemplate(stateDef.file, context) : undefined,
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state) plus its `model:`/`file:` hints, if declared (see `renderModel`/`renderFile`). `mode:` is a closed literal, never Eta-rendered — passed through verbatim. */
 export const renderRest = (
   rest: ResolvedRest,
   context: TemplateContext,
@@ -259,12 +279,15 @@ export const renderRest = (
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
     const model = yield* renderModel(rest.stateDef, context)
+    const file = yield* renderFile(rest.stateDef, context)
     return {
       state: rest.state,
       actor: rest.actor,
       kind,
       content,
       ...(model !== undefined ? { model } : {}),
+      ...(file !== undefined ? { file } : {}),
+      ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
     }
   })
 

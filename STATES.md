@@ -29,6 +29,13 @@ A workflow is a set of named **states**. Each state declares:
 | `initial: true`                               | Exactly one state across the whole workflow: where an unrecognized HEAD resolves (see §5). Must not be a commit state.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `retry`                                       | Optional `{ max, otherwise }` — redirects a transition into this state to `otherwise` once this state has already been entered `max` times within the current process (see §7).                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `model`                                       | Optional, opaque string — a harness hint (e.g. `smart`, `fast`, or a concrete model id) emitted alongside the state's content for the driving loop to map onto its agent harness. **Rendered as an Eta template through the same `it.vars`-carrying context as content** (a plain string with no Eta tags passes through unchanged) — see [Configuration](docs/configuration.md#model--the-opaque-harness-hint-template-rendered). gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state** (never at rest, emits nothing). |
+| `file`                                        | Optional — THE steering file this state is about: the file a human/editor should look at while the machine rests here. An **Eta template**, rendered exactly like `model` (must render non-empty). **Forbidden on a commit state.** Multiple states may share one `file:`. gtd itself never reads a path out of this string — only `gtd lsp` (`src/Lsp.ts`) interprets it, to map rendered paths to `mode` — see [Configuration](docs/configuration.md#filemode--the-steering-file-association).                                                                                     |
+| `mode`                                        | Optional, requires `file:`. The associated file's FORMAT, from a closed vocabulary (`qa` \| `review`) the LSP dispatches document symbols/code actions/diagnostics on. An unknown value is a load error. Like `model`, this is opaque emitted data — the ENGINE never branches on it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                               |
+
+**Emission:** `gtd next --json`/`gtd status --json` gain optional `file`
+(rendered) and `mode` (verbatim) keys, omitted — never `null` — when unset,
+exactly like `model`; plain `gtd status` prints `File:`/`Mode:` lines (after
+`Model:`) when set.
 
 A state is either a **rest** (has an `actor` — `gtd` halts there and awaits that
 actor's next step) or a **commit state** (has `commit:` instead of an
@@ -243,20 +250,25 @@ checkbox review format — that map the functionality the deleted v2 LSP server
 (`src/Lsp.ts`) used to provide over those same two files (see
 [docs/design/steering-file-loops.md](docs/design/steering-file-loops.md)):
 
-| State               | Actor | Content | `on`                                                                                                                              | Retry              | Model   |
-| ------------------- | ----- | ------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------- |
-| `idle` (initial)    | human | message | `* **` → `grilling`                                                                                                               | —                  | —       |
-| `grilling`          | agent | prompt  | `* **` → `todo-validating`                                                                                                        | —                  | `smart` |
-| `todo-validating`   | check | script  | `A .gtd/FORMAT.md` → `grilling`; `M .gtd/FORMAT.md` → `grilling`; `D .gtd/FORMAT.md` → `grilling-answer`; `C` → `grilling-answer` | —                  | —       |
-| `grilling-answer`   | human | message | `C` → `building`; `* **` → `grilling`                                                                                             | —                  | —       |
-| `building`          | agent | prompt  | `* **` → `checking`                                                                                                               | —                  | —       |
-| `checking`          | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`           | —                  | —       |
-| `fixing`            | agent | prompt  | `* **` → `checking`                                                                                                               | max 3 → `escalate` | —       |
-| `escalate`          | human | message | `* **` → `checking`                                                                                                               | —                  | —       |
-| `reviewing`         | agent | prompt  | `* **` → `review-validating`                                                                                                      | —                  | `smart` |
-| `review-validating` | check | script  | `A .gtd/FORMAT.md` → `reviewing`; `M .gtd/FORMAT.md` → `reviewing`; `D .gtd/FORMAT.md` → `await-review`; `C` → `await-review`     | —                  | —       |
-| `await-review`      | human | message | `D .gtd/REVIEW.md` → `idle`; `M .gtd/REVIEW.md` → `review-deciding`; `* **` → `grilling`                                          | —                  | —       |
-| `review-deciding`   | check | script  | `A .gtd/TODO.md` → `grilling`; `M .gtd/TODO.md` → `grilling`; `D .gtd/REVIEW.md` → `idle`; `C` → `await-review`                   | —                  | —       |
+| State               | Actor | Content | `on`                                                                                                                              | Retry              | Model   | File                | Mode     |
+| ------------------- | ----- | ------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | ------------------- | -------- |
+| `idle` (initial)    | human | message | `* **` → `grilling`                                                                                                               | —                  | —       | —                   | —        |
+| `grilling`          | agent | prompt  | `* **` → `todo-validating`                                                                                                        | —                  | `smart` | `vars.todoFile`     | `qa`     |
+| `todo-validating`   | check | script  | `A .gtd/FORMAT.md` → `grilling`; `M .gtd/FORMAT.md` → `grilling`; `D .gtd/FORMAT.md` → `grilling-answer`; `C` → `grilling-answer` | —                  | —       | `vars.todoFile`     | `qa`     |
+| `grilling-answer`   | human | message | `C` → `building`; `* **` → `grilling`                                                                                             | —                  | —       | `vars.todoFile`     | `qa`     |
+| `building`          | agent | prompt  | `* **` → `checking`                                                                                                               | —                  | —       | `vars.todoFile`     | `qa`     |
+| `checking`          | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`           | —                  | —       | —                   | —        |
+| `fixing`            | agent | prompt  | `* **` → `checking`                                                                                                               | max 3 → `escalate` | —       | `vars.feedbackFile` | —        |
+| `escalate`          | human | message | `* **` → `checking`                                                                                                               | —                  | —       | `vars.feedbackFile` | —        |
+| `reviewing`         | agent | prompt  | `* **` → `review-validating`                                                                                                      | —                  | `smart` | `vars.reviewFile`   | `review` |
+| `review-validating` | check | script  | `A .gtd/FORMAT.md` → `reviewing`; `M .gtd/FORMAT.md` → `reviewing`; `D .gtd/FORMAT.md` → `await-review`; `C` → `await-review`     | —                  | —       | `vars.reviewFile`   | `review` |
+| `await-review`      | human | message | `D .gtd/REVIEW.md` → `idle`; `M .gtd/REVIEW.md` → `review-deciding`; `* **` → `grilling`                                          | —                  | —       | `vars.reviewFile`   | `review` |
+| `review-deciding`   | check | script  | `A .gtd/TODO.md` → `grilling`; `M .gtd/TODO.md` → `grilling`; `D .gtd/REVIEW.md` → `idle`; `C` → `await-review`                   | —                  | —       | `vars.reviewFile`   | `review` |
+
+`File` names the workflow's own `vars:` entry the state's `file:` renders
+(`todoFile: .gtd/TODO.md`, `reviewFile: .gtd/REVIEW.md`,
+`feedbackFile: .gtd/FEEDBACK.md` — see below); `fixing`/`escalate` declare
+`file:` alone (`.gtd/FEEDBACK.md` is plain text, no LSP format).
 
 There is no squash — the cycle ends at human approval, an empty
 `gtd(human): idle` turn commit that rests the machine back at its own initial
@@ -356,3 +368,19 @@ diffs never reach back across it.
 both declare `model: smart`, an opaque hint `gtd next`/`gtd status` `--json`
 emit verbatim for the driving loop to map onto its harness. Every other state
 leaves `model` unset, so the harness's own default applies.
+
+The default's `vars:` also declares `todoFile`/`reviewFile`/`feedbackFile` (the
+three filenames above, in one place), which every `file:` and every
+prompt/script that names those files reads as `<%~ it.vars.todoFile %>` etc —
+one source of truth per filename. **Known limitation:** `on` pattern keys are
+NOT Eta templates — they keep the LITERAL `.gtd/...` paths matching these vars'
+default values (see
+[Configuration](docs/configuration.md#filemode--the-steering-file-association)).
+Repointing `todoFile`/`reviewFile`/`feedbackFile` via a top-level `.gtdrc`
+`vars:` key or a `GTD_VAR_` override changes what `file:` renders to (and what a
+template reads/writes) WITHOUT changing what the `on` patterns match against —
+desyncing the machine. `gtd lsp` (§3 of
+[docs/design/state-file-association.md](docs/design/state-file-association.md))
+reads this same `file:`/`mode:` pair to dispatch document symbols/code
+actions/diagnostics, config-driven rather than hardcoded to `TODO.md`/
+`REVIEW.md`.

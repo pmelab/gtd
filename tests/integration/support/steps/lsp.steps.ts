@@ -16,6 +16,8 @@ const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 
 interface JsonRpcResponse {
   readonly id?: number
+  readonly method?: string
+  readonly params?: unknown
   readonly result?: unknown
   readonly error?: { readonly message: string }
 }
@@ -26,6 +28,8 @@ interface LspClient {
   nextId: number
   readonly pending: Map<number, (response: JsonRpcResponse) => void>
   readonly stderr: string[]
+  /** Requests the SERVER sent to this client (e.g. `window/showDocument`), oldest → newest — auto-acknowledged (see `dispatch`) so the server's own await unblocks; recorded here for assertions. */
+  readonly serverRequests: JsonRpcResponse[]
 }
 
 const clients = new WeakMap<GtdWorld, LspClient>()
@@ -51,11 +55,34 @@ function popFrame(
   return { message: JSON.parse(body) as JsonRpcResponse, rest: buffer.subarray(bodyStart + length) }
 }
 
-/** Delivers one decoded response to its pending request, if any is still waiting. */
-function dispatch(client: LspClient, response: JsonRpcResponse): void {
-  if (response.id === undefined) return
-  client.pending.get(response.id)?.(response)
-  client.pending.delete(response.id)
+/**
+ * Handles a message carrying a `method` — the server calling US
+ * (`window/showDocument` and friends): recorded in `serverRequests` for
+ * assertions, and, when it carries an `id` (a request, not a notification),
+ * immediately acknowledged with a generic success result so the server's own
+ * `await` unblocks (this minimal client doesn't actually show anything — it
+ * just proves the round trip).
+ */
+function handleServerRequest(client: LspClient, message: JsonRpcResponse): void {
+  client.serverRequests.push(message)
+  if (message.id === undefined) return
+  client.proc.stdin.write(frame({ jsonrpc: "2.0", id: message.id, result: { success: true } }))
+}
+
+/** Delivers a RESPONSE (no `method`) to one of our own pending requests' waiter, if still waiting. */
+function handleResponse(client: LspClient, message: JsonRpcResponse): void {
+  if (message.id === undefined) return
+  client.pending.get(message.id)?.(message)
+  client.pending.delete(message.id)
+}
+
+/** Dispatches one decoded message to whichever of the two handlers above applies. */
+function dispatch(client: LspClient, message: JsonRpcResponse): void {
+  if (message.method !== undefined) {
+    handleServerRequest(client, message)
+  } else {
+    handleResponse(client, message)
+  }
 }
 
 /** Consumes every complete frame currently sitting in the client's buffer, dispatching each in turn. */
@@ -98,6 +125,7 @@ Given("an LSP server started in the test project", (world: GtdWorld) => {
     nextId: 1,
     pending: new Map(),
     stderr: [],
+    serverRequests: [],
   }
   proc.stdout.on("data", (chunk: Buffer) => {
     client.buffer = Buffer.concat([client.buffer, chunk])
@@ -132,6 +160,34 @@ When(
       textDocument: { uri },
     })
     ;(world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse = response
+  },
+)
+
+When(
+  "the LSP client sends a workspace\\/executeCommand request for {string}",
+  async (world: GtdWorld, command: string) => {
+    const client = clients.get(world)!
+    const response = await request(client, "workspace/executeCommand", { command, arguments: [] })
+    ;(world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse = response
+  },
+)
+
+Then(
+  "the LSP client received a window\\/showDocument request for {string}",
+  (world: GtdWorld, path: string) => {
+    const client = clients.get(world)!
+    const expectedUri = pathToFileURL(join(world.repoDir, path)).toString()
+    const found = client.serverRequests.some(
+      (m) =>
+        m.method === "window/showDocument" &&
+        (m.params as { uri?: string } | undefined)?.uri === expectedUri,
+    )
+    assert.ok(
+      found,
+      `Expected a window/showDocument request for "${expectedUri}". Got server requests: ${JSON.stringify(
+        client.serverRequests,
+      )}`,
+    )
   },
 )
 

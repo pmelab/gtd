@@ -5,6 +5,7 @@ import {
   computeProcessRun,
   executeDecision,
   pendingChanges,
+  renderFile,
   renderModel,
   resolveVars,
 } from "./Edge.js"
@@ -341,6 +342,44 @@ describe("renderModel", () => {
 
   it("a model render failure propagates as a thrown/rejected error, same as a content render failure", async () => {
     const outcome = await run1(renderModel(stateDef("<%= it.vars.nope.deeper %>"), context())).then(
+      () => "resolved" as const,
+      (e: Error) => e,
+    )
+    expect(outcome).not.toBe("resolved")
+    expect(outcome).toBeInstanceOf(Error)
+  })
+})
+
+describe("renderFile", () => {
+  const stateDefWithFile = (file?: string): StateDef =>
+    file !== undefined ? { actor: "agent", prompt: "x", file } : { actor: "agent", prompt: "x" }
+
+  const run2 = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
+
+  it("a state with no `file:` renders to `undefined`", async () => {
+    const result = await run2(renderFile(stateDefWithFile(), context()))
+    expect(result).toBeUndefined()
+  })
+
+  it("a plain string with no Eta tags passes through unchanged", async () => {
+    const result = await run2(renderFile(stateDefWithFile(".gtd/FEEDBACK.md"), context()))
+    expect(result).toBe(".gtd/FEEDBACK.md")
+  })
+
+  it("a templated `file:` resolves against the same `it.vars` the content sees", async () => {
+    const result = await run2(
+      renderFile(
+        stateDefWithFile("<%= it.vars.todoFile %>"),
+        context({ vars: { todoFile: ".gtd/TODO.md" } }),
+      ),
+    )
+    expect(result).toBe(".gtd/TODO.md")
+  })
+
+  it("a file render failure propagates as a thrown/rejected error, same as a content render failure", async () => {
+    const outcome = await run2(
+      renderFile(stateDefWithFile("<%= it.vars.nope.deeper %>"), context()),
+    ).then(
       () => "resolved" as const,
       (e: Error) => e,
     )

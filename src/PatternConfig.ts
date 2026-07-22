@@ -5,6 +5,7 @@ import {
   type OnEdge,
   type RetryDef,
   type StateDef,
+  type StateMode,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
 
@@ -34,6 +35,8 @@ import {
  *       max: <number>
  *       otherwise: <targetState>
  *     model: <string>     # optional, opaque harness hint — never on a commit state
+ *     file: <string>      # optional, an Eta template naming the state's steering file — never on a commit state
+ *     mode: qa | review   # optional, requires "file" — never on a commit state
  * ```
  *
  * ## `vars:` — one of `it.vars`'s three layers
@@ -133,6 +136,8 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "initial",
   "retry",
   "model",
+  "file",
+  "mode",
 ])
 
 const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["vars", "states"])
@@ -275,6 +280,34 @@ const compileModel = (
   return raw.model
 }
 
+/** The `file` field: an Eta template string naming the state's steering file, or undefined (either absent or invalid — the type mismatch is its own error). Vocabulary/shape rules (non-empty, forbidden on a commit state) are `validateDefinition`'s concern, not this compiler's — see `PatternMachine.StateDef.file`. */
+const compileFile = (
+  raw: Record<string, unknown>,
+  name: string,
+  errors: string[],
+): string | undefined => {
+  if (raw.file === undefined) return undefined
+  if (typeof raw.file !== "string") {
+    errors.push(`state "${name}": "file" must be a string`)
+    return undefined
+  }
+  return raw.file
+}
+
+/** The `mode` field: a plain string, or undefined (either absent or invalid — the type mismatch is its own error). Whether it names one of the closed `qa`/`review` vocabulary is `validateDefinition`'s concern, not this compiler's — see `PatternMachine.StateDef.mode`. */
+const compileMode = (
+  raw: Record<string, unknown>,
+  name: string,
+  errors: string[],
+): StateMode | undefined => {
+  if (raw.mode === undefined) return undefined
+  if (typeof raw.mode !== "string") {
+    errors.push(`state "${name}": "mode" must be a string`)
+    return undefined
+  }
+  return raw.mode as StateMode
+}
+
 /** The `initial` field: `true` only when the raw value is the literal boolean `true`. */
 const compileInitial = (
   raw: Record<string, unknown>,
@@ -297,6 +330,8 @@ interface StateParts {
   readonly initial: true | undefined
   readonly retry: RetryDef | undefined
   readonly model: string | undefined
+  readonly file: string | undefined
+  readonly mode: StateMode | undefined
 }
 
 const assembleContentFields = (
@@ -308,13 +343,37 @@ const assembleContentFields = (
   ...(content.commit !== undefined ? { commit: content.commit } : {}),
 })
 
+/**
+ * Spreads only the DEFINED entries of `fields` — the shared "omit rather
+ * than write `undefined`" pattern every scalar `StateDef` field needs
+ * (`exactOptionalPropertyTypes`). Generalized into one helper (rather than a
+ * repeated `...(x !== undefined ? { x } : {})` per field) so adding a new
+ * optional state property never grows `assembleStateDef` itself — see this
+ * module's own header comment on why that function was already split once
+ * for fallow's complexity gate.
+ */
+type DefinedFields<T> = { [K in keyof T]?: NonNullable<T[K]> }
+
+const definedEntries = <T extends Record<string, unknown>>(fields: T): DefinedFields<T> => {
+  const out: DefinedFields<T> = {}
+  for (const key of Object.keys(fields) as (keyof T)[]) {
+    const value = fields[key]
+    if (value !== undefined) out[key] = value as DefinedFields<T>[typeof key]
+  }
+  return out
+}
+
 const assembleStateDef = (parts: StateParts): StateDef => ({
-  ...(parts.actor !== undefined ? { actor: parts.actor } : {}),
+  ...definedEntries({
+    actor: parts.actor,
+    on: parts.on,
+    initial: parts.initial,
+    retry: parts.retry,
+    model: parts.model,
+    file: parts.file,
+    mode: parts.mode,
+  }),
   ...assembleContentFields(parts.content),
-  ...(parts.on !== undefined ? { on: parts.on } : {}),
-  ...(parts.initial !== undefined ? { initial: parts.initial } : {}),
-  ...(parts.retry !== undefined ? { retry: parts.retry } : {}),
-  ...(parts.model !== undefined ? { model: parts.model } : {}),
 })
 
 /** One state's full shape: actor, content, `on`, `initial`, `retry`. */
@@ -341,6 +400,8 @@ const compileState = (
     initial: compileInitial(raw, name, errors),
     retry: compileRetry(raw.retry, name, errors),
     model: compileModel(raw, name, errors),
+    file: compileFile(raw, name, errors),
+    mode: compileMode(raw, name, errors),
   })
 }
 

@@ -30,6 +30,17 @@ Compared to the simplified bundled default, this machine adds:
   this: it rests at `idle` on approval instead and leaves every turn commit in
   history for the human to squash (or not) however they choose.
 
+This example also carries `file:`/`mode:` annotations on every state that rests
+on a steering file (see the state table below and
+[docs/design/state-file-association.md](../design/state-file-association.md)) —
+it is the LSP-heavy flow, with `gtd lsp` dispatching document symbols/code
+actions/diagnostics off those declarations rather than a hardcoded basename:
+`grilling`/`grilling-answer` and `architecting`/`architecting-answer` are
+`qa`-format (`vars.todoFile`/`vars.architectureFile` respectively — a new
+`architectureFile` var joins `testCommand`), `reviewing`/`await-review` are
+`review`-format (`vars.reviewFile`), and `fixing`/`escalate` declare `file:`
+alone (`vars.feedbackFile` is plain text, no LSP format).
+
 Paste the block below under a top-level `workflow:` key in your own `.gtdrc` (or
 `.gtdrc.yaml`) — it's the complete definition, unmodified in content from the
 version this example is frozen from, only re-indented to nest under `workflow:`.
@@ -38,22 +49,22 @@ into.
 
 ## State table
 
-| State                 | Actor | Content | `on`                                                                              | Retry              | Model   |
-| --------------------- | ----- | ------- | --------------------------------------------------------------------------------- | ------------------ | ------- |
-| `idle` (initial)      | human | message | `* **` → `grilling`                                                               | —                  | —       |
-| `grilling`            | agent | prompt  | `* **` → `grilling-answer`                                                        | —                  | `smart` |
-| `grilling-answer`     | human | message | `C` → `architecting`; `* **` → `grilling`                                         | —                  | —       |
-| `architecting`        | agent | prompt  | `* **` → `architecting-answer`                                                    | —                  | `smart` |
-| `architecting-answer` | human | message | `C` → `decompose`; `* **` → `architecting`                                        | —                  | —       |
-| `decompose`           | agent | prompt  | `* .gtd/tasks/**` → `picking`                                                     | —                  | —       |
-| `picking`             | check | script  | `D .gtd/NEXT.md` → `reviewing`; `* .gtd/NEXT.md` → `building`; `C` → `reviewing`  | —                  | —       |
-| `building`            | agent | prompt  | `* **` → `checking`                                                               | —                  | —       |
-| `checking`            | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `C` → `picking` | —                  | —       |
-| `fixing`              | agent | prompt  | `* **` → `checking`                                                               | max 3 → `escalate` | —       |
-| `escalate`            | human | message | `* **` → `checking`                                                               | —                  | —       |
-| `reviewing`           | agent | prompt  | `* .gtd/REVIEW.md` → `await-review`                                               | —                  | `smart` |
-| `await-review`        | human | message | `D .gtd/REVIEW.md` → `squashing`; `* **` → `grilling`                             | —                  | —       |
-| `squashing`           | agent | prompt  | `A .gtd/COMMIT_MSG.md` → `done`; `M .gtd/COMMIT_MSG.md` → `done`                  | —                  | —       |
+| State                 | Actor | Content | `on`                                                                              | Retry              | Model   | File                    | Mode     |
+| --------------------- | ----- | ------- | --------------------------------------------------------------------------------- | ------------------ | ------- | ----------------------- | -------- |
+| `idle` (initial)      | human | message | `* **` → `grilling`                                                               | —                  | —       | —                       | —        |
+| `grilling`            | agent | prompt  | `* **` → `grilling-answer`                                                        | —                  | `smart` | `vars.todoFile`         | `qa`     |
+| `grilling-answer`     | human | message | `C` → `architecting`; `* **` → `grilling`                                         | —                  | —       | `vars.todoFile`         | `qa`     |
+| `architecting`        | agent | prompt  | `* **` → `architecting-answer`                                                    | —                  | `smart` | `vars.architectureFile` | `qa`     |
+| `architecting-answer` | human | message | `C` → `decompose`; `* **` → `architecting`                                        | —                  | —       | `vars.architectureFile` | `qa`     |
+| `decompose`           | agent | prompt  | `* .gtd/tasks/**` → `picking`                                                     | —                  | —       | —                       | —        |
+| `picking`             | check | script  | `D .gtd/NEXT.md` → `reviewing`; `* .gtd/NEXT.md` → `building`; `C` → `reviewing`  | —                  | —       | —                       | —        |
+| `building`            | agent | prompt  | `* **` → `checking`                                                               | —                  | —       | —                       | —        |
+| `checking`            | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `C` → `picking` | —                  | —       | —                       | —        |
+| `fixing`              | agent | prompt  | `* **` → `checking`                                                               | max 3 → `escalate` | —       | `vars.feedbackFile`     | —        |
+| `escalate`            | human | message | `* **` → `checking`                                                               | —                  | —       | `vars.feedbackFile`     | —        |
+| `reviewing`           | agent | prompt  | `* .gtd/REVIEW.md` → `await-review`                                               | —                  | `smart` | `vars.reviewFile`       | `review` |
+| `await-review`        | human | message | `D .gtd/REVIEW.md` → `squashing`; `* **` → `grilling`                             | —                  | —       | `vars.reviewFile`       | `review` |
+| `squashing`           | agent | prompt  | `A .gtd/COMMIT_MSG.md` → `done`; `M .gtd/COMMIT_MSG.md` → `done`                  | —                  | —       | —                       | —        |
 | `done`                | —     | commit  | (final — squashes the whole cycle, message read from `.gtd/COMMIT_MSG.md`)        | —                  | —       |
 
 ## The `.gtdrc` recipe
@@ -62,6 +73,10 @@ into.
 workflow:
   vars:
     testCommand: npm test
+    todoFile: .gtd/TODO.md
+    architectureFile: .gtd/ARCHITECTURE.md
+    reviewFile: .gtd/REVIEW.md
+    feedbackFile: .gtd/FEEDBACK.md
 
   states:
     idle:
@@ -77,6 +92,8 @@ workflow:
 
     grilling:
       actor: agent
+      file: <%= it.vars.todoFile %>
+      mode: qa
       # `model` is an opaque harness hint — gtd never interprets this string, it
       # only passes it through to `gtd next --json`/`gtd status --json` so the
       # driving loop can map it onto whatever models its agent harness
@@ -87,13 +104,13 @@ workflow:
       prompt: |
         You are an autonomous coding agent. `.gtd/` holds this workflow's own
         state (plans, task specs, review records) — never create, edit, or
-        delete anything under `.gtd/` except `.gtd/TODO.md`, which this prompt
-        tells you to write.
+        delete anything under `.gtd/` except `<%= it.vars.todoFile %>`, which
+        this prompt tells you to write.
 
-        `.gtd/TODO.md` holds the plan under development. Read it, then develop
-        it into a concrete, product-level plan in this one turn — explore the
-        codebase before asking anything, so every open question is one the
-        codebase genuinely cannot answer.
+        `<%= it.vars.todoFile %>` holds the plan under development. Read it,
+        then develop it into a concrete, product-level plan in this one turn —
+        explore the codebase before asking anything, so every open question is
+        one the codebase genuinely cannot answer.
 
         Scope: product and user-facing decisions only. Leave implementation
         details (file/module structure, data models, tech-stack choices) for
@@ -111,9 +128,11 @@ workflow:
 
     grilling-answer:
       actor: human
+      file: <%= it.vars.todoFile %>
+      mode: qa
       message: |
-        `.gtd/TODO.md` holds the plan under development, with any open
-        questions under `## Open Questions` — each carrying a suggested
+        `<%= it.vars.todoFile %>` holds the plan under development, with any
+        open questions under `## Open Questions` — each carrying a suggested
         default.
 
         To answer a question, edit its entry in place (replace
@@ -128,26 +147,30 @@ workflow:
 
     architecting:
       actor: agent
+      file: <%= it.vars.architectureFile %>
+      mode: qa
       model: smart
       prompt: |
         You are an autonomous coding agent. `.gtd/` holds this workflow's own
         state — never create, edit, or delete anything under `.gtd/` except
-        `.gtd/ARCHITECTURE.md` and `.gtd/TODO.md`, which this prompt tells you
-        to write and delete respectively.
+        `<%= it.vars.architectureFile %>` and `<%= it.vars.todoFile %>`, which
+        this prompt tells you to write and delete respectively.
 
-        Read `.gtd/TODO.md` (the converged product plan) and develop
-        `.gtd/ARCHITECTURE.md` from it in this one turn: file/module structure,
-        data models, library/tech-stack choices, error-handling strategy — the
-        *how*, building on the *what* already settled. Do not re-open
-        product-level decisions from `.gtd/TODO.md`; treat them as settled.
+        Read `<%= it.vars.todoFile %>` (the converged product plan) and
+        develop `<%= it.vars.architectureFile %>` from it in this one turn:
+        file/module structure, data models, library/tech-stack choices,
+        error-handling strategy — the *how*, building on the *what* already
+        settled. Do not re-open product-level decisions from
+        `<%= it.vars.todoFile %>`; treat them as settled.
 
         For every remaining open question, add it under a `## Open Questions`
         heading the same way as the grilling phase (one `### <question>`
         sub-heading, a `Suggested default: <answer>` line). Omit the section
         once there are none.
 
-        Once `.gtd/ARCHITECTURE.md` is written, delete `.gtd/TODO.md` — its
-        content has been folded in and it must not linger.
+        Once `<%= it.vars.architectureFile %>` is written, delete
+        `<%= it.vars.todoFile %>` — its content has been folded in and it must
+        not linger.
 
         Leave everything uncommitted and finish your turn.
       on:
@@ -155,9 +178,11 @@ workflow:
 
     architecting-answer:
       actor: human
+      file: <%= it.vars.architectureFile %>
+      mode: qa
       message: |
-        `.gtd/ARCHITECTURE.md` holds the technical plan under development, with
-        any open questions under `## Open Questions`.
+        `<%= it.vars.architectureFile %>` holds the technical plan under
+        development, with any open questions under `## Open Questions`.
 
         To answer a question, edit its entry in place, then run
         `gtd step human`.
@@ -271,19 +296,20 @@ workflow:
 
     fixing:
       actor: agent
+      file: <%= it.vars.feedbackFile %>
       retry:
         max: 3
         otherwise: escalate
       prompt: |
         You are an autonomous coding agent. `.gtd/` holds this workflow's own
         state — never create, edit, or delete anything under `.gtd/` except
-        `.gtd/FEEDBACK.md`, which this prompt tells you to address.
+        `<%= it.vars.feedbackFile %>`, which this prompt tells you to address.
 
-        Read `.gtd/FEEDBACK.md` (the failing test output) and fix the code so
-        the suite passes. Keep the change focused — do not refactor unrelated
-        code. If the feedback is wrong, empty or delete `.gtd/FEEDBACK.md`
-        instead of "fixing" a non-issue; the machine picks the dispute up
-        either way.
+        Read `<%= it.vars.feedbackFile %>` (the failing test output) and fix
+        the code so the suite passes. Keep the change focused — do not
+        refactor unrelated code. If the feedback is wrong, empty or delete
+        `<%= it.vars.feedbackFile %>` instead of "fixing" a non-issue; the
+        machine picks the dispute up either way.
 
         Leave everything uncommitted and finish your turn — do not commit.
       on:
@@ -291,30 +317,35 @@ workflow:
 
     escalate:
       actor: human
+      file: <%= it.vars.feedbackFile %>
       message: |
         The agent could not get the check to pass after repeated attempts.
-        `.gtd/FEEDBACK.md` holds the last failing output.
+        `<%= it.vars.feedbackFile %>` holds the last failing output.
 
         Investigate and fix it yourself (editing code and/or
-        `.gtd/FEEDBACK.md`), then run `gtd step human` to try the check again.
+        `<%= it.vars.feedbackFile %>`), then run `gtd step human` to try the
+        check again.
       on:
         "* **": checking
 
     reviewing:
       actor: agent
+      file: <%= it.vars.reviewFile %>
+      mode: review
       model: smart
       prompt: |
         You are an autonomous coding agent. `.gtd/` holds this workflow's own
         state — never create, edit, or delete anything under `.gtd/` except
-        `.gtd/REVIEW.md`, which this prompt tells you to write.
+        `<%= it.vars.reviewFile %>`, which this prompt tells you to write.
 
-        Write `.gtd/REVIEW.md` to help a human review the cycle's full diff
-        (inlined below): group hunks semantically (same feature/refactor/fix,
-        even across files), and for each group write a short heading, an
-        explanation of what changed and why, and `- [ ] ./path/to/file.ts#42`
-        style file pointers (checkboxes are for the human to tick, not you).
+        Write `<%= it.vars.reviewFile %>` to help a human review the cycle's
+        full diff (inlined below): group hunks semantically (same
+        feature/refactor/fix, even across files), and for each group write a
+        short heading, an explanation of what changed and why, and
+        `- [ ] ./path/to/file.ts#42` style file pointers (checkboxes are for
+        the human to tick, not you).
 
-        Leave `.gtd/REVIEW.md` uncommitted and finish your turn.
+        Leave `<%= it.vars.reviewFile %>` uncommitted and finish your turn.
         <% if (it.processDiff.trim()) { %>
 
         ## Full cycle diff
@@ -328,13 +359,17 @@ workflow:
 
     await-review:
       actor: human
+      file: <%= it.vars.reviewFile %>
+      mode: review
       message: |
-        `.gtd/REVIEW.md` holds the review record for the completed cycle.
+        `<%= it.vars.reviewFile %>` holds the review record for the completed
+        cycle.
 
-        To approve: delete `.gtd/REVIEW.md` and run `gtd step human`.
+        To approve: delete `<%= it.vars.reviewFile %>` and run
+        `gtd step human`.
 
-        To request changes: edit `.gtd/REVIEW.md` (or the code) with what's
-        wrong — including just ticking its checkboxes — then run
+        To request changes: edit `<%= it.vars.reviewFile %>` (or the code)
+        with what's wrong — including just ticking its checkboxes — then run
         `gtd step human`; this sends the cycle back through grilling with your
         feedback as the new input.
       on:

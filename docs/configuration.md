@@ -60,6 +60,8 @@ workflow:
         max: <number>
         otherwise: <targetState>
       model: <string> # optional, opaque harness hint — forbidden on a commit state
+      file: <string> # optional, an Eta template naming the state's steering file — forbidden on a commit state
+      mode: qa | review # optional, requires "file" — forbidden on a commit state
 ```
 
 See [STATES.md](../STATES.md#1-the-model) for what each field means to the
@@ -118,6 +120,57 @@ committed.
 `gtd next --json` and `gtd status --json` include a `"model"` key (the RENDERED
 value) only when the resolved state declares one — it is **omitted entirely**,
 never emitted as `null`, when unset.
+
+### `file:`/`mode:` — the steering-file association
+
+A state may additionally declare `file:` — an Eta template naming THE steering
+file this state is about: the file a human/editor should look at while the
+machine rests here (rendered through the same `it.vars`-carrying context as
+content/`model`; must render non-empty). Forbidden on a commit state (never at
+rest). Multiple states may share one `file:` (and, in the bundled default, do):
+
+```yaml
+workflow:
+  vars:
+    planFile: .gtd/PLAN.md
+  states:
+    working:
+      actor: agent
+      file: <%= it.vars.planFile %>
+      mode: qa
+      prompt: develop the plan
+      on:
+        "* **": done
+```
+
+`mode:` requires a sibling `file:` and names the file's FORMAT, from a closed,
+documented vocabulary:
+
+| `mode`   | Format                                                                                                                       |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `qa`     | The open-questions format (`## Open Questions`, one `###` sub-heading per question, `Suggested default: ...`/`Answer: ...`). |
+| `review` | The checkbox review format (`# Review: <hash>` header, `<!-- base: <hash> -->` comment, `##` chunks, `- [ ]` pointers).      |
+
+An unknown `mode` value is a load error naming the allowed values (typos must
+not silently disable editor support) — like `model`, the ENGINE never branches
+on `mode`; only `gtd lsp` (see
+[docs/design/state-file-association.md](design/state-file-association.md))
+interprets it, to decide which document symbols/code actions/diagnostics a file
+gets.
+
+`gtd next --json`/`gtd status --json` gain `"file"` (the RENDERED path) and
+`"mode"` (verbatim) keys, each **omitted entirely** (never `null`) when the
+resolved state declares none — exactly like `model`. Plain `gtd status` prints
+`File:`/`Mode:` lines (right after `Model:`, when present) when set.
+
+**Known limitation — `on` pattern keys are NOT Eta templates.** A workflow's
+`on` patterns keep LITERAL `.gtd/…` paths, so repointing a filename var
+(`.gtdrc`'s top-level `vars:`, or a `GTD_VAR_` override) without ALSO overriding
+the workflow's `on` patterns desyncs the machine: `file:` (and any template
+reading/writing that path) follows the var, but the `on` map that decides what a
+change to that path MEANS keeps matching the old literal path. The vars are a
+DRY mechanism inside templates and the state↔file association, not a rename
+switch. (Making pattern keys var-aware at compile time is possible future work.)
 
 ### Template variables
 

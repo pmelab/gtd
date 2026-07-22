@@ -1,14 +1,14 @@
 # Design: state ↔ steering-file association (`file:` + `mode:`)
 
-> Status: PLAN (2026-07-22), approved for implementation. Goal: retain the v2
-> relationship between states and steering files — but as pure workflow
-> CONFIGURATION that works for any state machine. Each state may declare one
-> associated `file:` (an Eta template, so filenames live in `vars:` and are
-> never repeated) and a `mode:` (`qa` | `review`) naming the file's FORMAT. The
-> LSP stops hardcoding basenames: it reads the gtd config from the workspace
-> (cwd/parent lookup, same cosmiconfig search the CLI uses), maps rendered file
-> paths to modes, and regains the jump-to-relevant- file command — full v2
-> functionality, zero hardcoded workflow knowledge.
+> Status: LANDED (2026-07-22). Goal: retain the v2 relationship between states
+> and steering files — but as pure workflow CONFIGURATION that works for any
+> state machine. Each state may declare one associated `file:` (an Eta template,
+> so filenames live in `vars:` and are never repeated) and a `mode:` (`qa` |
+> `review`) naming the file's FORMAT. The LSP stops hardcoding basenames: it
+> reads the gtd config from the workspace (cwd/parent lookup, same cosmiconfig
+> search the CLI uses), maps rendered file paths to modes, and regains the
+> jump-to-relevant- file command — full v2 functionality, zero hardcoded
+> workflow knowledge.
 
 ## 1. The two new state properties
 

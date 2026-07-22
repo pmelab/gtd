@@ -70,7 +70,12 @@ describe("ConfigService", () => {
 
     expect(cfg.workflow.states["idle"]?.initial).toBe(true)
     expect(cfg.workflow.states["grilling"]).toBeDefined()
-    expect(cfg.workflowVars).toEqual({ testCommand: "npm test" })
+    expect(cfg.workflowVars).toEqual({
+      testCommand: "npm test",
+      todoFile: ".gtd/TODO.md",
+      reviewFile: ".gtd/REVIEW.md",
+      feedbackFile: ".gtd/FEEDBACK.md",
+    })
     expect(cfg.rcVars).toEqual({})
   })
 

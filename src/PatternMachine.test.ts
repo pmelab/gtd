@@ -13,6 +13,7 @@ import {
   validateDefinition,
   type PendingChange,
   type StateDef,
+  type StateMode,
   type StepDecision,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
@@ -781,6 +782,103 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain('state "a": "model" must be a non-empty string')
+    expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
+  })
+
+  it("accepts a state declaring a valid `file` alone (no `mode`)", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, file: ".gtd/FEEDBACK.md", on: [] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("accepts a state declaring `file` and a valid `mode`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          initial: true,
+          file: ".gtd/TODO.md",
+          mode: "qa",
+          on: [],
+        },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects an empty-string `file`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, file: "", on: [] },
+      },
+    })
+    expect(errors).toContain('state "a": "file" must be a non-empty string')
+  })
+
+  it("rejects a commit state that declares a `file`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { commit: "chore: b", file: ".gtd/TODO.md" },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "file"')
+  })
+
+  it("rejects a `mode` outside the closed vocabulary, naming the allowed values", () => {
+    const errors = validateDefinition({
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          initial: true,
+          file: ".gtd/TODO.md",
+          mode: "yolo" as StateMode,
+          on: [],
+        },
+      },
+    })
+    expect(errors).toContain('state "a": "mode" must be one of qa, review (got "yolo")')
+  })
+
+  it("rejects a `mode` with no sibling `file`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, mode: "qa", on: [] },
+      },
+    })
+    expect(errors).toContain('state "a": "mode" requires "file"')
+  })
+
+  it("rejects a commit state that declares a `mode`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { commit: "chore: b", file: ".gtd/TODO.md", mode: "qa" },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "mode"')
+  })
+
+  it("aggregates a bad `file`/`mode` alongside other unrelated findings", () => {
+    const errors = validateDefinition({
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          initial: true,
+          file: "",
+          mode: "yolo" as StateMode,
+          on: [["* *", "ghost"]],
+        },
+      },
+    })
+    expect(errors).toContain('state "a": "file" must be a non-empty string')
+    expect(errors).toContain('state "a": "mode" must be one of qa, review (got "yolo")')
     expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
   })
 
