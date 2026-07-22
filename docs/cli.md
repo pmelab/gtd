@@ -4,14 +4,17 @@
 Usage: gtd [command] [options]
 
 Commands:
-  step             Advance the workflow as the human actor (to fixpoint)
-  step-agent       Advance the workflow as the agent actor (to fixpoint)
-  next             Print the prompt for whichever actor is awaited (no mutation)
-  status           Predict the next commit and state from the working tree (no mutation)
-  review <target>  Anchor an ad-hoc human review against a git ref or branch
-  questions        List open questions from the active grilling/architecting doc
-  changesets       List changesets/files from the active review doc
+  step <actor>     Authenticate as <actor>, match the resolved rest's
+                   declared patterns against the pending changes, and commit
+                   (or squash) the one resulting transition
+  next             Print the resolved rest's rendered script/prompt/message
+                   (no mutation)
+  run              Execute the resolved rest's emitted script, then step its
+                   actor (the built-in script driver)
+  status           Print the resolved rest's state/actor and which declared
+                   pattern (if any) each pending change matches (no mutation)
   format <file>    Format a markdown file in place
+  lsp              Start the LSP server for .gtd/ steering files (stdio)
 
 Options:
   --json           Output structured JSON instead of plain text
@@ -23,198 +26,163 @@ Options:
 repository-state work — they run outside a repo and in any repo state. Bare
 `gtd` (no subcommand) is a usage error: it prints the help text and exits 1
 without touching the repository. Every other command must be run from the
-**repository root** — gtd derives steering files, diffs, and pathspecs relative
-to cwd, so it refuses with a clear error if invoked from a subdirectory.
+**repository root** — gtd derives the workflow, pending changes, and process
+history relative to cwd, so it refuses with a clear error if invoked from a
+subdirectory.
 
 `--json` is the only long option. Any other `--` option (including a typo like
 `--jsn`) is rejected with a usage error rather than silently ignored, so a
 mistyped flag can never degrade a JSON caller to plain-text mode.
 
-One nuance to "(no mutation)": `next` and `status` never author commits or
-change workflow state, but while a human review is pending they do maintain the
-review checkout window (closing it to read state, re-arming it on the way out —
-see [Human review gate](workflow.md#human-review-gate)), which transiently moves
-HEAD and the index. The working tree is never touched.
+## `gtd step <actor>`
 
-## `gtd step` / `gtd step-agent`
+Authenticates `<actor>` against the resolved rest and performs the ONE resulting
+transition. Unlike v2, there is no fixpoint chain to drive: the pattern
+machine's `on` edges are direct one-hop transitions, so a single invocation
+authors at most one commit (a normal turn) or performs one squash
+(§[STATES.md](../STATES.md#8-the-squash-lifecycle)) — never both, never a chain
+of several. A caller that wants several transitions issues several invocations.
 
-Both drive the **same fixpoint loop** — gather → resolve → perform the returned
-edge action → repeat — differing only in which actor's turn they are allowed to
-capture:
+- **Out-of-turn refusal** — `<actor>` isn't the resolved state's declared actor:
+  exit non-zero, zero commits.
+  `gtd step <actor>: out of turn — "<state>" awaits <awaited-actor>`
+- **No-match refusal** — the tree is dirty and no declared `on` pattern matches:
+  exit non-zero, zero commits, naming every declared pattern.
+  `gtd step <actor>: no declared pattern matches the pending changes at "<state>" — declared patterns: <p1>, <p2>, …`
+- **No-op** — the tree is clean and the state declares no `C` pattern: exit
+  **0**, zero commits. This is the default, silent case a loop driver relies on
+  (see [Driving the loop](loop.md)).
+- **Commit/squash** — a pattern matched: exit 0, one commit (or one squash)
+  authored.
 
-- **`gtd step`** captures the **human** turn at whichever gate is awaiting one.
-- **`gtd step-agent`** captures the **agent** turn.
-
-**Fixpoint advance.** A single invocation may author several commits: it authors
-the awaited actor's turn commit, then keeps performing any further mid-chain
-routing (a test run, a routing commit, a package close, …) until it reaches a
-rest where a prompt would be shown, or a fixpoint where nothing changed.
-`gtd step`/`gtd step-agent` never print a prompt themselves — that's
-`gtd next`'s job.
-
-**Idempotence.** Re-running the same command again once the tree is settled at a
-rest authors **zero** new commits. It exits 0 while the rest still awaits that
-command's actor (an inert empty agent turn, the idle health check); once the
-rest awaits the _other_ actor, the re-run is an out-of-turn refusal — still zero
-commits, but non-zero exit.
-
-**Out-of-turn refusal.** Human and agent turns are strictly separated: the wrong
-mutator always errors, at every state, on clean and dirty trees alike.
-`gtd step-agent` while a human turn is awaited refuses with
-`"<state> awaits a human turn — run \`gtd step\`"`; `gtd
-step`while an agent turn is awaited refuses with`"<state> awaits an agent turn —
-run \`gtd
-step-agent\`"`— exit non-zero, zero commits either way. Human edits made while the agent is awaited (e.g. amendment notes in`.gtd/`package files after the`gtd:
-planning` commit lands) stay pending in the working tree and ride along as input
-to the agent's next captured turn; left unamended, the build proceeds.
-
-**Red-test fixpoints exit 0.** A red test run below the fix-attempt cap (or the
-health-fix cap) still writes its findings and commits — it is a normal,
-successful step of the loop, not a failure of the `step`/`step-agent`
-invocation. `step`/`step-agent` only exit non-zero for a genuine refusal or an
-operational error (bad config, missing test binary, corrupted state).
-
-**Output.** Plain mode prints one `committed: <subject>` line per commit this
-invocation authored (oldest→newest), then a final `state: <state>` line:
+Plain-mode output is one line:
 
 ```
 committed: gtd(human): grilling
-committed: gtd: architecting
-state: architecting
 ```
 
-`--json` emits `{state, actions, commits}` instead (see
-[JSON schemas](#json-schemas)).
-
-## `gtd next`
-
-Pure prompt emitter — it **never mutates** the repository. It reports whichever
-actor is currently awaited and, if the tree is at a genuine rest, the full
-prompt for that actor.
-
-**Purity.** No commits, no file writes, no test runs — `gtd next` only gathers
-and resolves.
-
-**Dirty-tree refusal.** If the working tree has pending changes outside the
-steering-file set, `gtd next` refuses rather than guess at a prompt for a state
-that hasn't been captured yet:
+or, at a no-op:
 
 ```
-gtd next: working tree is dirty — run `gtd status` to inspect it, then advance with `gtd step` or `gtd step-agent` (whichever actor is awaited)
+nothing to do at "idle"
 ```
 
-**Pending.** If HEAD is mid-chain — bookkeeping the next `step`/`step-agent`
-invocation would perform before reaching a rest — `gtd next` reports
-`pending: true` with no prompt. Mid-chain bookkeeping is invoker-agnostic, so
-either mutator resumes it; the report names the actor whose chain it is. In
-plain mode an agent-driven checkpoint prints `"mid-chain checkpoint — run \`gtd
-step-agent\` to continue, then run \`gtd next\`
-again"`, a human-driven one prints `"mid-chain checkpoint — run \`gtd step\` to
-continue"`.
+`--json` emits `{state, subject}` — `subject` is `null` at a no-op:
 
-**Agent tail lines.** In plain-mode output, a prompt for the **agent** actor
-ends with the pinned tail:
-
-```
-Finish your turn by running `gtd step-agent`. Then run `gtd next` and follow
-its output — repeat this cycle as long as the output is addressed to you (the
-agent); when it awaits the human, stop and hand off.
+```json
+{ "state": "grilling", "subject": "gtd(human): grilling" }
 ```
 
-The first sentence closes the current turn; the second closes the outer loop —
-it is what lets a plain-text agent chain multiple iterations (e.g. successive
-test/fix cycles) without an external driver, until a human gate is reached.
-Human-actor prompts carry no tail. `--json` output never embeds the tail into
-`prompt` either — the structured `actor` field (see
-[JSON schemas](#json-schemas) below) carries the same information: `"agent"`
-means another agent round, `"human"` means stop and hand off.
+## `gtd next [--json]`
 
-## `gtd status`
+Pure emitter of the resolved rest's rendered content — it **never mutates** the
+repository (no commits, no file writes, no script execution). Resolves HEAD
+exactly like `gtd step`, renders that state's declared
+`script`/`prompt`/`message` template, and prints it. `kind` is never `"commit"`
+here: resolution never rests at a commit state (entering one always ends the
+process in the same step that entered it — see
+[STATES.md §5](../STATES.md#5-resolution)).
 
-Pure, read-only **dry-run prediction** — the same gather+resolve `gtd next`
-runs, but reporting a prediction of the next turn rather than the actual prompt.
-Performs no git mutation, no test run, no file write — guaranteed side-effect
-free, including on a dirty tree.
+Plain mode prints the rendered content verbatim (with exactly one trailing
+newline) — never the `model`/`file`/`mode` hints, which are JSON-only. `--json`
+emits `{state, actor, kind, content, model?, file?, mode?}`:
 
-Prints four fields:
+```json
+{
+  "state": "building",
+  "actor": "agent",
+  "kind": "prompt",
+  "content": "You are an autonomous coding agent. ..."
+}
+```
+
+- `state` — the resolved state.
+- `actor` — the state's declared actor.
+- `kind` — `"script"` | `"prompt"` | `"message"` — the dispatch key a driver
+  switches on (see [Driving the loop](loop.md)).
+- `content` — the fully rendered template.
+- `model` — the state's opaque `model:` hint, RENDERED through the same template
+  context as `content` (see
+  [Configuration](configuration.md#model--the-opaque-harness-hint-template-rendered)),
+  present only when the state declares one; **omitted entirely** (never `null`)
+  when unset.
+- `file` — the state's declared steering file, RENDERED the same way; `mode` —
+  its format, verbatim (`"qa"` | `"review"`) (see
+  [Configuration](configuration.md#filemode--the-steering-file-association)).
+  Both present only when the state declares them; **omitted entirely** (never
+  `null`) otherwise.
+
+## `gtd run`
+
+The built-in driver for a `script`-content rest — the **only** place gtd itself
+spawns a subprocess. Renders the resolved rest exactly like `gtd next`, executes
+its content verbatim via `bash -c` (foreground, inherited stdio, exit code
+deliberately ignored — a check script encodes its outcome in the tree, e.g.
+writing a findings file, never in its exit status), then runs `gtd step <actor>`
+for that state's own actor to capture the outcome in one command. Refuses (exit
+non-zero, no execution, no step) when the resolved rest isn't a script:
 
 ```
-State: grilling
-Awaits: human
-Predicted commit: gtd(human): grilling
-Predicted state: grilling
+gtd run: "<state>" awaits a <kind> from "<actor>" — nothing scripted to run
 ```
 
-- **State** — the currently resolved state.
-- **Awaits** — the actor (`human` or `agent`) whose turn it is.
-- **Predicted commit** — the subject `step`/`step-agent` would author next, or
-  `(none)` at a fixpoint (e.g. idle with nothing to do).
-- **Predicted state** — the state that commit would land in.
+Reports the same `{state, subject}` (or `committed: …` / `nothing to do at "…"`)
+as `gtd step` for the capturing step it performs. Takes no arguments — extra
+positional args are rejected.
+
+## `gtd status [--json]`
+
+Pure, read-only dry-run reporter — the same resolution `gtd next` performs, but
+reporting the resolved state/actor and, for every pending change, which declared
+`on` pattern (if any) matches it — no mutation, and no CONTENT rendering (the
+`script`/`prompt`/`message`/`commit` template is never rendered here, unlike
+`gtd next`). It DOES render the resolved state's `model:`/`file:` hints (if
+declared) through the same `it.vars`-carrying template context `gtd next` uses —
+see
+[Configuration](configuration.md#model--the-opaque-harness-hint-template-rendered)
+— so a templated `model:`/`file:` failing to render fails `gtd status` too,
+exactly like it would fail `gtd next`.
+
+```
+State: working
+Awaits: agent
+Pending:
+  A DONE.md -> A DONE.md
+  A scratch.txt -> (no match)
+```
+
+or, on a clean tree: `Pending: (clean)`. A `Model: <value>` line appears right
+after `Awaits:` when the resolved state declares a `model:` hint, and
+`File: <value>`/`Mode: <value>` lines appear after that (in that order) when
+declared — each independently, only when set.
+
+`--json` emits
+`{state, actor, changes: [{status, path, pattern}], model?, file?, mode?}` —
+`pattern` is `null` when no declared row matches that change; `model`/`file`/
+`mode` are present only when the resolved state declares them (omitted entirely,
+never `null`, otherwise):
+
+```json
+{
+  "state": "working",
+  "actor": "agent",
+  "changes": [
+    { "status": "A", "path": "DONE.md", "pattern": "A DONE.md" },
+    { "status": "A", "path": "scratch.txt", "pattern": null }
+  ]
+}
+```
 
 `gtd status` takes no arguments — extra positional args are rejected.
-
-## `gtd review <target>`
-
-A pure mutator that **anchors, then exits** — it never prints a prompt itself.
-Use it to start an ad-hoc human review against an explicit git ref or branch,
-independent of the automatic review base the workflow otherwise computes.
-
-1. Refuses on a dirty tree.
-2. Resolves `<target>` via merge-base semantics and computes the diff HEAD adds
-   over `merge-base(<target>, HEAD)`.
-3. Refuses if that diff is empty after filtering ("nothing to review").
-4. Authors exactly one commit: `gtd: reviewing <full-hash-of-the-base>`.
-5. Prints a short confirmation pointing at `gtd next` — it does **not** print
-   the review prompt itself.
-
-```bash
-gtd review main
-# anchored review at <hash> — run `gtd next` to get the review prompt
-gtd next --json
-# {"actor":"agent", ...} — the review-record prompt scoped to that anchor
-```
-
-Errors (all exit 1, message on stderr):
-
-- Missing target: `gtd review: missing target argument`
-- Extra arguments:
-  `gtd review: too many arguments — expected one target, got: …`
-- Unresolvable ref: `gtd review: cannot resolve ref '<target>': <error message>`
-- Empty diff:
-  `gtd review: nothing to review (<target> diff is empty after filtering)`
-
-## `gtd questions` / `gtd changesets`
-
-Pure, read-only reporters — no dirty-tree check, no mutation — that parse the
-structured content out of the active grilling/architecting and review documents,
-for a future UI:
-
-- **`gtd questions`** reads whichever of `.gtd/TODO.md` / `.gtd/ARCHITECTURE.md`
-  is present and reports its `## Open Questions` list (see
-  [Structured grilling/architecting and review files](workflow.md#structured-grillingarchitecting-and-review-files)).
-  Reports an empty list when neither file exists.
-- **`gtd changesets`** reads `.gtd/REVIEW.md`, if present, and reports its
-  chunks/file-pointer list. Reports an empty list when the file doesn't exist.
-
-Both take no arguments and always exit 0 — a malformed file is reported via the
-`errors` field/lines rather than failing the command (the same diagnosis
-`gtd step-agent` would refuse the agent's next turn capture with).
-
-```bash
-gtd questions --json
-# {"file":".gtd/TODO.md","questions":[{"question":"Which operations?","status":"suggested","text":"add and subtract."}],"errors":[]}
-gtd changesets --json
-# {"file":".gtd/REVIEW.md","shortHash":"abc1234","fullHash":"abc1234...","changesets":[...],"errors":[]}
-```
 
 ## `gtd format <file>`
 
 Formats a markdown file in place with a bundled prettier (`parser: "markdown"`,
 `printWidth: 80`, `proseWrap: "always"`), ignoring the host repo's own
-`.prettierrc` so `.gtd/TODO.md`/`.gtd/REVIEW.md` stay consistently formatted
-regardless of the host project's toolchain. Rejects `--json` (exit 1,
-`gtd format does not accept --json`) — it is a plain file operation, not a v2
-state command.
+`.prettierrc` so `.gtd/`-tracked files stay consistently formatted regardless of
+the host project's toolchain. Rejects `--json` (exit 1,
+`gtd format does not accept --json`) — it's a plain file operation, not a state
+command.
 
 Errors (all exit 1, message on stderr):
 
@@ -224,133 +192,64 @@ Errors (all exit 1, message on stderr):
   `gtd format: <file> is not a markdown file (expected .md or .markdown)`
 - File not found: `gtd: skipped formatting <file>: not found`
 
-## JSON schemas
+## `gtd lsp`
 
-Pass `--json` to `step`, `step-agent`, `next`, `status`, `review`, `questions`,
-or `changesets` for machine-readable single-line JSON output instead of plain
-text.
+Starts an LSP server over stdio for `.gtd/` steering files — document symbols
+for a `qa`-mode file's open questions and a `review`-mode file's review
+chunks/hunks, code actions to check/uncheck a hunk or a whole chunk, and
+diagnostics publishing the same parser findings the bundled workflow's
+`.gtd/FORMAT.md` validators produce (see `src/OpenQuestions.ts` /
+`src/ReviewDoc.ts` and
+[STATES.md §10](../STATES.md#10-the-bundled-default-workflow)).
 
-**`step` / `step-agent`** — `{state, actions, commits}`:
+**Config-driven** (see
+[docs/design/state-file-association.md](design/state-file-association.md)): the
+server locates the active gtd config the same way the CLI does, from the
+`initialize` request's workspace root (falling back to the open document's own
+directory), renders every state's `file:` into an absolute-path → `mode` map,
+and dispatches on it — first declaring state wins a path conflict. A path the
+map doesn't cover (or no config at all) falls back to the basename dispatch
+(`TODO.md` → `qa`, `REVIEW.md` → `review`), so the server still works standalone
+with no `.gtdrc` in sight. Also registers an `executeCommand`,
+`gtd.openSteeringFile`: resolves the current state exactly like `gtd status`
+(config + git HEAD) and asks the client to show its `file:`
+(`window/showDocument`); a state with no `file:` gets an informational message
+naming the state instead — bind it to an editor keybinding for a "jump to the
+active steering file" command.
 
-```json
-{
-  "state": "architecting",
-  "actions": ["capture the human turn as \"gtd(human): grilling\""],
-  "commits": ["gtd(human): grilling", "gtd: architecting"]
-}
-```
+Dispatched before the repository-root guard and auto-init, like `gtd format`.
+Rejects `--json` (exit 1, `gtd lsp does not accept --json`) and extra positional
+arguments — it's a long-running server, not a state command. Runs until the
+client disconnects (the LSP `exit` notification), then exits cleanly.
 
-- `state` — the final resolved state after the fixpoint loop settled.
-- `actions` — human-readable descriptions of every edge action this invocation
-  performed, oldest→newest.
-- `commits` — every commit subject this invocation authored, oldest→newest.
+## Error envelope
 
-**`next`** — `{state, actor, pending, prompt}`:
-
-```json
-{
-  "state": "building",
-  "actor": "agent",
-  "pending": false,
-  "prompt": "..."
-}
-```
-
-- `state` — the resolved state.
-- `actor` — `"human"` or `"agent"`: who owns the next move. This is the single
-  loop-driver signal: `"agent"` means proceed with another round — act on
-  `prompt` when present, then run `gtd step-agent`; at an agent-driven pending
-  checkpoint (`prompt` is `null`, nothing to act on) just run `gtd step-agent`.
-  `"human"` means halt and hand off (a human rest, whose prompt body already
-  tells the human what to do, or a human-driven pending checkpoint resumed by
-  `gtd step`).
-- `pending` — `true` at a mid-chain HEAD (no prompt yet — resume with a mutator
-  first); `false` at a genuine rest.
-- `prompt` — the full prompt markdown when `pending` is `false`, else `null`.
-
-**`status`** — `{state, actor, predictedCommit, predictedState}`:
-
-```json
-{
-  "state": "grilling",
-  "actor": "human",
-  "predictedCommit": "gtd(human): grilling",
-  "predictedState": "grilling"
-}
-```
-
-`predictedCommit` is `null` when the next invocation would author nothing (e.g.
-idle with a green health check).
-
-**`questions`** — `{file, questions, errors}`:
-
-```json
-{
-  "file": ".gtd/TODO.md",
-  "questions": [
-    {
-      "question": "Which operations?",
-      "status": "suggested",
-      "text": "add and subtract."
-    }
-  ],
-  "errors": []
-}
-```
-
-`file` is `null` when neither `.gtd/TODO.md` nor `.gtd/ARCHITECTURE.md` is
-present. `errors` lists any structural problems in the file — the same diagnosis
-that would make `gtd step-agent` refuse the agent's next turn capture.
-
-**`changesets`** — `{file, shortHash, fullHash, changesets, errors}`:
-
-```json
-{
-  "file": ".gtd/REVIEW.md",
-  "shortHash": "abc1234",
-  "fullHash": "abc1234def5678901234567890123456789abcd",
-  "changesets": [
-    {
-      "title": "Add calculator",
-      "description": "New add function for the calculator.",
-      "files": [{ "path": "./src/calc.ts", "line": 1, "checked": false }]
-    }
-  ],
-  "errors": []
-}
-```
-
-`file` is `null` when `.gtd/REVIEW.md` doesn't exist. `errors` mirrors
-`questions`' field above.
-
-**Error envelope** — every command, in `--json` mode, reports failures inside
-the JSON object rather than as unstructured text, and still exits 1:
+Every command, in `--json` mode, reports a failure as a machine-readable
+envelope on **stdout**, and still exits 1:
 
 ```json
 { "state": "error", "prompt": "<message>" }
 ```
 
-There is no auto-advance flag anywhere in the wire format — `actor` replaces it.
-The caller decides whether to keep looping based on `actor` (halt on `"human"`)
-and `pending` (re-run `step`/`step-agent` first when `true`), not on a boolean
-auto-advance flag.
+A human-readable `gtd: <message>` line is still written to **stderr** regardless
+of `--json` — the envelope adds a structured stdout channel, it does not replace
+the plain-text one.
 
 ## Repository requirements
 
-- **Single writer, linear branch.** State is folded from **first-parent**
-  history only. A merge commit at HEAD is unsupported (documented, not handled)
-  — it degrades gracefully on the default branch rather than crashing, but do
-  not rely on merge commits mid-cycle.
+- **Single writer, linear branch.** A process's history is walked via
+  **first-parent** commits only.
 - **Test/build artifacts must be gitignored.** This is **load-bearing**, not a
-  style preference: every fixpoint hop in `gtd step`/`gtd step-agent` detects
-  "clean" via `git status --porcelain`, which silently omits anything matched by
-  `.gitignore`. If your `testCommand` (or the build it triggers) writes
-  tracked-but-untracked output — a `dist/`, a coverage report, a log file — into
-  the working tree, the tree never goes clean after a green test run, and the
-  fixpoint loop cannot converge: it will either loop forever re-detecting a
-  "dirty" boundary or misclassify build output as the human's next feature
-  capture. Gitignore every path your test/build toolchain writes before wiring
-  gtd into a repo.
-- **Repository root invocation.** Every subcommand except `--help`/`--version`
-  must run from the git repository root — steering files and diffs are resolved
-  against the process cwd.
+  style preference: every step decision detects "clean" via
+  `git diff --name-status HEAD` (tracked changes) unioned with
+  `git ls-files --others --exclude-standard` (untracked files), which silently
+  omits anything matched by `.gitignore`. If a `script` state's command (or the
+  build it triggers) writes tracked-but-untracked output — a `dist/`, a coverage
+  report, a log file — into the working tree, the tree never goes clean after a
+  green run, and the check's `"C"` pattern never fires. Gitignore every path
+  your scripts write before wiring gtd into a repo.
+- **Repository root invocation.** Every state subcommand (`step`/`next`/`run`/
+  `status`) must run from the git repository root — the workflow, pending
+  changes, and process history are resolved against the process cwd.
+  `--help`/`--version`, `format`, and `lsp` skip this guard entirely (and any
+  git/`.gtdrc` dependency along with it).

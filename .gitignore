@@ -38,9 +38,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 test
 test/
 
-# downloaded/built CLI bundle
-scripts/gtd.bundle.mjs
-scripts/gtd.bundle.mjs.tmp
 .fallow/
 
 # stryker

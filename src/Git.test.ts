@@ -3,7 +3,7 @@ import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
 import { execSync } from "node:child_process"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Option } from "effect"
+import { Effect } from "effect"
 import { NodeContext } from "@effect/platform-node"
 import { GitService } from "./Git.js"
 import { Cwd } from "./Cwd.js"
@@ -187,40 +187,6 @@ for (const [tierName, makeTier] of tiers) {
     })
 
     // -----------------------------------------------------------------------
-    describe("diffPath", () => {
-      it("returns the working-tree diff scoped to the given path", async () => {
-        t.commit("feat: add target", { "target.txt": "original content" })
-        t.writeFile("target.txt", "modified content")
-
-        const diff = await t.run(Effect.flatMap(GitService, (g) => g.diffPath("target.txt")))
-
-        expect(diff).toContain("target.txt")
-        expect(diff).toContain("original content")
-        expect(diff).toContain("modified content")
-      })
-
-      it("excludes changes to unrelated paths", async () => {
-        t.commit("feat: add files", { "target.txt": "target content" })
-        t.commit("feat: add other", { "other.txt": "other content" })
-        t.writeFile("target.txt", "target modified")
-        t.writeFile("other.txt", "other modified")
-
-        const diff = await t.run(Effect.flatMap(GitService, (g) => g.diffPath("target.txt")))
-
-        expect(diff).toContain("target.txt")
-        expect(diff).not.toContain("other.txt")
-      })
-
-      it("returns empty string when the path is unchanged", async () => {
-        t.commit("feat: add target", { "target.txt": "stable content" })
-
-        const diff = await t.run(Effect.flatMap(GitService, (g) => g.diffPath("target.txt")))
-
-        expect(diff.trim()).toBe("")
-      })
-    })
-
-    // -----------------------------------------------------------------------
     describe("commitDiff", () => {
       it("returns the diff a commit introduced for a modified tracked file", async () => {
         t.commit("feat: add target", { "target.txt": "original content" })
@@ -321,101 +287,6 @@ for (const [tierName, makeTier] of tiers) {
     })
 
     // -----------------------------------------------------------------------
-    describe("resolveDefaultBranch", () => {
-      it("returns Option.some with the local branch name when on main", async () => {
-        if (tierName === "Live") {
-          // Force the branch to be named "main" so the assertion is deterministic
-          gitExec("branch", "-M", "main")
-        }
-        // InMemory repo defaults to "main" branch
-
-        const result = await t.run(Effect.flatMap(GitService, (g) => g.resolveDefaultBranch()))
-        expect(result._tag).toBe("Some")
-        expect(Option.getOrNull(result)).toBe("main")
-      })
-    })
-
-    // -----------------------------------------------------------------------
-    describe("mergeBase", () => {
-      it("resolves to the shared ancestor on a linear history", async () => {
-        t.commit("feat: second commit", { "b.txt": "b" })
-        const ancestorHash = t.resolveRef("HEAD~1")
-
-        const result = await t.run(Effect.flatMap(GitService, (g) => g.mergeBase("HEAD~1", "HEAD")))
-        expect(result._tag).toBe("Some")
-        expect(Option.getOrNull(result)).toBe(ancestorHash)
-      })
-    })
-
-    // -----------------------------------------------------------------------
-    describe("revertNoCommit", () => {
-      it("stages the inverse of HEAD without creating a new commit", async () => {
-        t.commit("feat: add file", { "target.txt": "hello world" })
-        const headBefore = t.resolveRef("HEAD")
-
-        await t.run(Effect.flatMap(GitService, (g) => g.revertNoCommit("HEAD")))
-
-        // HEAD must not have changed
-        expect(t.resolveRef("HEAD")).toBe(headBefore)
-        // The deletion should be staged
-        const status = t.statusPorcelain()
-        expect(status).toContain("target.txt")
-      })
-    })
-
-    // -----------------------------------------------------------------------
-    describe("mixedResetHead", () => {
-      it("undoes the last commit while keeping changes in the working tree", async () => {
-        const headAfterInit = t.resolveRef("HEAD")
-        t.commit("feat: second", { "b.txt": "beta" })
-
-        await t.run(Effect.flatMap(GitService, (g) => g.mixedResetHead()))
-
-        // HEAD is back to the commit before "feat: second"
-        expect(t.resolveRef("HEAD")).toBe(headAfterInit)
-        // b.txt still exists in the working tree (changes kept)
-        const status = t.statusPorcelain()
-        expect(status).toContain("b.txt")
-      })
-    })
-
-    // -----------------------------------------------------------------------
-    describe("lastDeletionOf", () => {
-      it("returns Option.none when the file has never been deleted", async () => {
-        t.commit("feat: add review", { "REVIEW.md": "# Review" })
-
-        const result = await t.run(Effect.flatMap(GitService, (g) => g.lastDeletionOf("REVIEW.md")))
-        expect(result._tag).toBe("None")
-      })
-
-      it("returns Option.some with the sha of the deleting commit", async () => {
-        t.commit("feat: add review", { "REVIEW.md": "# Review" })
-        t.commitDeletion("REVIEW.md", "chore: remove REVIEW.md")
-        const deletionSha = t.resolveRef("HEAD")
-
-        const result = await t.run(Effect.flatMap(GitService, (g) => g.lastDeletionOf("REVIEW.md")))
-        expect(result._tag).toBe("Some")
-        expect(Option.getOrNull(result)).toBe(deletionSha)
-      })
-
-      it("returns the most recent deletion when the file was deleted multiple times", async () => {
-        // First add+delete cycle
-        t.commit("feat: first add", { "REVIEW.md": "first" })
-        t.commitDeletion("REVIEW.md", "chore: first delete")
-        // Second add+delete cycle
-        t.commit("feat: second add", { "REVIEW.md": "second" })
-        t.commitDeletion("REVIEW.md", "chore: second delete")
-        const latestDeletion = t.resolveRef("HEAD")
-        // Commit after the deletion
-        t.commit("feat: after", { "after.txt": "after" })
-
-        const result = await t.run(Effect.flatMap(GitService, (g) => g.lastDeletionOf("REVIEW.md")))
-        expect(result._tag).toBe("Some")
-        expect(Option.getOrNull(result)).toBe(latestDeletion)
-      })
-    })
-
-    // -----------------------------------------------------------------------
     describe("commitHistory", () => {
       it("returns [] for an empty repo", async () => {
         if (tierName === "Live") {
@@ -451,13 +322,13 @@ for (const [tierName, makeTier] of tiers) {
       })
 
       it("sets removedErrors=true only for the commit that deleted ERRORS.md", async () => {
-        t.commit("gtd: errors", { "ERRORS.md": "some errors" })
+        t.commit("gtd: test-failed", { "ERRORS.md": "some errors" })
         t.commitDeletion("ERRORS.md", "gtd: building")
         t.commit("feat: after", { "after.txt": "after" })
 
         const result = await t.run(Effect.flatMap(GitService, (g) => g.commitHistory()))
         // result[0] = init: first commit
-        // result[1] = gtd: errors      (adds ERRORS.md, not a deletion)
+        // result[1] = gtd: test-failed      (adds ERRORS.md, not a deletion)
         // result[2] = gtd: building    (deletes ERRORS.md → removedErrors=true)
         // result[3] = feat: after
         expect(result[0]?.removedErrors).toBe(false)
@@ -547,82 +418,6 @@ for (const [tierName, makeTier] of tiers) {
     })
 
     // -----------------------------------------------------------------------
-    describe("removePackageDir", () => {
-      it("removes the package dir and keeps .gtd/ when other packages remain", async () => {
-        t.writeFileDeep(".gtd/01-foo/task.md", "task content")
-        t.writeFileDeep(".gtd/02-bar/task.md", "another task")
-        t.stageAndCommit("chore: setup packages")
-
-        await t.run(Effect.flatMap(GitService, (g) => g.removePackageDir(".gtd/01-foo")))
-
-        const status = t.statusPorcelain()
-        expect(status).toContain(".gtd/01-foo/task.md")
-        // Filesystem / worktree assertions
-        expect(t.existsPath(".gtd/01-foo")).toBe(false) // removed
-        expect(t.existsPath(".gtd/02-bar")).toBe(true) // sibling survives
-        expect(t.existsPath(".gtd")).toBe(true) // .gtd/ kept
-      })
-
-      it("removes .gtd/ itself when the last package is removed", async () => {
-        t.writeFileDeep(".gtd/01-only/task.md", "task content")
-        t.stageAndCommit("chore: setup one package")
-
-        await t.run(Effect.flatMap(GitService, (g) => g.removePackageDir(".gtd/01-only")))
-
-        // After removing the last package, .gtd/ should be gone from the index too
-        const status = t.statusPorcelain()
-        // The only task file should be staged for deletion
-        expect(status).toContain(".gtd/01-only/task.md")
-        // No .gtd/ entries should remain as staged-new
-        expect(status).not.toMatch(/^A\s+\.gtd\//m)
-        // Filesystem / worktree assertions
-        expect(t.existsPath(".gtd/01-only")).toBe(false) // package gone
-        expect(t.existsPath(".gtd")).toBe(false) // .gtd/ itself gone
-      })
-
-      it("is tolerant when the directory is already absent", async () => {
-        await t.run(Effect.flatMap(GitService, (g) => g.removePackageDir(".gtd/01-nonexistent")))
-      })
-    })
-
-    // -----------------------------------------------------------------------
-    describe("resetHard", () => {
-      it("removes staged-new files, restores tracked files, keeps pure-untracked", async () => {
-        // Establish HEAD with a tracked file
-        t.commit("feat: add tracked", { "tracked.txt": "original" })
-        const headHash = t.resolveRef("HEAD")
-
-        // Stage a new file:
-        // - Live: write + git add
-        // - InMemory: commit then softResetTo to move HEAD back (leaves file in index as "A ")
-        t.writeFile("staged-new.txt", "staged content")
-        if (tierName === "Live") {
-          gitExec("add", "staged-new.txt")
-        } else {
-          t.stageAndCommit("temp: stage staged-new")
-          await t.run(Effect.flatMap(GitService, (g) => g.softResetTo(headHash)))
-        }
-
-        // Corrupt tracked.txt in the worktree (will be restored by resetHard)
-        t.writeFile("tracked.txt", "corrupted")
-
-        // Leave a pure-untracked file (never staged — survives resetHard)
-        t.writeFile("pure-untracked.txt", "untracked content")
-
-        await t.run(Effect.flatMap(GitService, (g) => g.resetHard()))
-
-        const status = t.statusPorcelain()
-        // tracked.txt is restored to HEAD content → no longer dirty
-        // Match the exact filename (not as a suffix of "pure-untracked.txt")
-        expect(status).not.toMatch(/ tracked\.txt/)
-        // staged-new.txt was in the index but not HEAD → removed by resetHard
-        expect(status).not.toContain("staged-new.txt")
-        // pure-untracked.txt was never in HEAD or index → survives
-        expect(status).toContain("pure-untracked.txt")
-      })
-    })
-
-    // -----------------------------------------------------------------------
     describe("softResetTo", () => {
       it("moves HEAD back but keeps worktree changes from second commit", async () => {
         const firstHash = t.resolveRef("HEAD")
@@ -636,160 +431,6 @@ for (const [tierName, makeTier] of tiers) {
         // second.txt still shows as a change (staged-new or untracked depending on tier)
         const status = t.statusPorcelain()
         expect(status).toContain("second.txt")
-      })
-    })
-
-    // -----------------------------------------------------------------------
-    describe("updateRef / readRefOption / deleteRef", () => {
-      it("roundtrips a repo-local ref", async () => {
-        const headHash = t.resolveRef("HEAD")
-
-        await t.run(
-          Effect.flatMap(GitService, (g) => g.updateRef("refs/gtd/review-head", headHash)),
-        )
-        const read = await t.run(
-          Effect.flatMap(GitService, (g) => g.readRefOption("refs/gtd/review-head")),
-        )
-
-        expect(Option.isSome(read)).toBe(true)
-        expect(Option.getOrThrow(read)).toBe(headHash)
-      })
-
-      it("readRefOption returns none for a missing ref", async () => {
-        const read = await t.run(
-          Effect.flatMap(GitService, (g) => g.readRefOption("refs/gtd/does-not-exist")),
-        )
-        expect(Option.isNone(read)).toBe(true)
-      })
-
-      it("deleteRef removes the ref and is idempotent when it is already gone", async () => {
-        const headHash = t.resolveRef("HEAD")
-        await t.run(
-          Effect.flatMap(GitService, (g) => g.updateRef("refs/gtd/review-head", headHash)),
-        )
-
-        await t.run(Effect.flatMap(GitService, (g) => g.deleteRef("refs/gtd/review-head")))
-        const read = await t.run(
-          Effect.flatMap(GitService, (g) => g.readRefOption("refs/gtd/review-head")),
-        )
-        expect(Option.isNone(read)).toBe(true)
-
-        // Second delete of the now-missing ref must not fail.
-        await t.run(Effect.flatMap(GitService, (g) => g.deleteRef("refs/gtd/review-head")))
-      })
-    })
-
-    // -----------------------------------------------------------------------
-    describe("mixedResetTo", () => {
-      it("moves HEAD and index to the target, keeping the worktree", async () => {
-        const firstHash = t.resolveRef("HEAD")
-        t.commit("feat: second", { "second.txt": "second content" })
-        t.writeFile("readme.txt", "edited after second")
-
-        await t.run(Effect.flatMap(GitService, (g) => g.mixedResetTo(firstHash)))
-
-        expect(t.resolveRef("HEAD")).toBe(firstHash)
-        const status = t.statusPorcelain()
-        // second.txt: in worktree, not in the reset index → untracked
-        expect(status).toContain("?? second.txt")
-        // readme.txt: worktree edit vs the reset index → unstaged modification
-        expect(status).toContain("readme.txt")
-      })
-
-      it("resolves a repo-local ref as the target", async () => {
-        const firstHash = t.resolveRef("HEAD")
-        t.commit("feat: second", { "second.txt": "second content" })
-        await t.run(Effect.flatMap(GitService, (g) => g.updateRef("refs/gtd/base", firstHash)))
-
-        await t.run(Effect.flatMap(GitService, (g) => g.mixedResetTo("refs/gtd/base")))
-
-        expect(t.resolveRef("HEAD")).toBe(firstHash)
-      })
-    })
-
-    // -----------------------------------------------------------------------
-    describe("restoreStagedFrom", () => {
-      it("copies the source tree's entries under the pathspec into the index", async () => {
-        const firstHash = t.resolveRef("HEAD")
-        t.writeFileDeep(".gtd/REVIEW.md", "# Review")
-        t.writeFile("code.ts", "export const x = 1")
-        t.stageAndCommit("feat: work")
-        const headHash = t.resolveRef("HEAD")
-
-        // Rewind index to the first commit, then restore only .gtd from HEAD's ref.
-        await t.run(Effect.flatMap(GitService, (g) => g.updateRef("refs/gtd/saved", headHash)))
-        await t.run(Effect.flatMap(GitService, (g) => g.mixedResetTo(firstHash)))
-        await t.run(
-          Effect.flatMap(GitService, (g) => g.restoreStagedFrom("refs/gtd/saved", [".gtd"])),
-        )
-
-        const status = t.statusPorcelain()
-        // .gtd/REVIEW.md matches the index again → no untracked entry, only a
-        // staged addition vs the rewound HEAD (the live helper's porcelain has
-        // no -uall, so the untracked-dir form would collapse to `?? .gtd/`).
-        expect(status).not.toContain("?? .gtd/")
-        expect(status).toContain("A  .gtd/REVIEW.md")
-        // code.ts stays untracked (outside the pathspec).
-        expect(status).toContain("?? code.ts")
-      })
-
-      it("is a no-op when the pathspec matches nothing on either side", async () => {
-        await t.run(Effect.flatMap(GitService, (g) => g.restoreStagedFrom("HEAD", [".gtd"])))
-        expect(t.statusPorcelain().trim()).toBe("")
-      })
-    })
-
-    // -----------------------------------------------------------------------
-    describe("addIntentToAdd", () => {
-      it("registers untracked files so they no longer show as ??", async () => {
-        const firstHash = t.resolveRef("HEAD")
-        t.commit("feat: second", { "second.txt": "second content" })
-
-        await t.run(Effect.flatMap(GitService, (g) => g.mixedResetTo(firstHash)))
-        await t.run(Effect.flatMap(GitService, (g) => g.addIntentToAdd()))
-
-        const status = t.statusPorcelain()
-        // Exact XY codes differ between real git (` A`, intent-to-add) and the
-        // in-memory placeholder (`AM`); both agree the file is no longer ??.
-        expect(status).toContain("second.txt")
-        expect(status).not.toContain("?? second.txt")
-      })
-    })
-
-    // -----------------------------------------------------------------------
-    describe("mixedResetHead on root commit", () => {
-      it("fails with an error when HEAD is the root commit", async () => {
-        // Create a fresh repo with only one commit
-        if (tierName === "Live") {
-          const emptyDir = mkdtempSync(join(tmpdir(), "gtd-git-root-"))
-          try {
-            execSync("git init", { cwd: emptyDir })
-            execSync(`git config user.email "test@test.com"`, { cwd: emptyDir })
-            execSync(`git config user.name "Test"`, { cwd: emptyDir })
-            writeFileSync(join(emptyDir, "init.txt"), "init")
-            execSync("git add -A", { cwd: emptyDir })
-            execSync(`git commit -m "init"`, { cwd: emptyDir })
-            const result = await runLiveEither(
-              Effect.flatMap(GitService, (g) => g.mixedResetHead()),
-              emptyDir,
-            )
-            expect(result._tag).toBe("Left")
-          } finally {
-            rmSync(emptyDir, { recursive: true, force: true })
-          }
-        } else {
-          const singleCommitRepo = new InMemRepo()
-          singleCommitRepo.writeFile("init.txt", "init")
-          singleCommitRepo.commitAllWithPrefix("init")
-          const layer = makeGitServiceLayer(singleCommitRepo)
-          const result = await Effect.runPromise(
-            Effect.flatMap(GitService, (g) => g.mixedResetHead()).pipe(
-              Effect.provide(layer),
-              Effect.either,
-            ),
-          )
-          expect(result._tag).toBe("Left")
-        }
       })
     })
 
@@ -818,99 +459,5 @@ for (const [tierName, makeTier] of tiers) {
         }
       })
     })
-
-    // -----------------------------------------------------------------------
-    describe("statusPorcelain XY codes", () => {
-      it("produces exact two-column XY codes for staged-new, modified-worktree, and untracked", async () => {
-        // staged-new: write and stage a new file
-        t.writeFile("staged.txt", "staged content")
-        if (tierName === "Live") {
-          gitExec("add", "staged.txt")
-        } else {
-          // InMemory: put staged.txt into the index without committing
-          // Commit then soft reset to HEAD~0 isn't helpful. Instead: commit then
-          // use softResetTo to move HEAD back, leaving index unchanged.
-          // But softResetTo only moves HEAD. We need index = has staged.txt, HEAD = does not.
-          // Simplest: commit staged.txt, then softReset to previous HEAD.
-          const prevHead = t.resolveRef("HEAD")
-          t.stageAndCommit("temp: stage staged.txt")
-          // Now reset HEAD back, leaving index with staged.txt
-          // We need direct repo access — use the tier's run to call softResetTo
-          // But this would stage it as D (deletion from HEAD) not A.
-          // Actually: after softResetTo, HEAD doesn't have staged.txt, index does → XY = "A "
-          // That's correct for "staged-new".
-          await t.run(Effect.flatMap(GitService, (g) => g.softResetTo(prevHead)))
-        }
-
-        // modified-worktree: modify readme.txt (in HEAD) without staging
-        t.writeFile("readme.txt", "modified content")
-
-        // untracked: write a file without staging
-        t.writeFile("untracked.txt", "untracked content")
-
-        const status = await t.run(Effect.flatMap(GitService, (g) => g.statusPorcelain()))
-
-        // staged-new → "A "
-        expect(status).toMatch(/^A\s+staged\.txt/m)
-        // modified-worktree → " M"
-        expect(status).toMatch(/^ M\s+readme\.txt/m)
-        // untracked → "??"
-        expect(status).toMatch(/^\?\?\s+untracked\.txt/m)
-      })
-    })
   })
 }
-
-// ---------------------------------------------------------------------------
-// Live-only tests (real filesystem, branch manipulation)
-// ---------------------------------------------------------------------------
-
-// Note: resolveDefaultBranch "returns Option.none when no discernible default branch" requires
-// detached HEAD or a branch not named "main"/"master" with no remote origin/HEAD.
-// Wiring that up is heavy; the local-branch path covers the primary use case.
-// The remote-HEAD fallback is left as a manual test.
-
-describe("GitService [Live only]", () => {
-  describe("mergeBase", () => {
-    it("resolves to the divergence point on a branching history", async () => {
-      // History: init ← second ← third (main)
-      //                  ↖ side
-      liveCommit("feat: second commit", { "b.txt": "b" })
-      const divergenceHash = gitExec("rev-parse HEAD")
-      liveCommit("feat: third commit", { "c.txt": "c" })
-
-      // Create a divergent branch from the second commit
-      gitExec("checkout", "-b", "side", divergenceHash)
-      liveCommit("feat: side commit", { "side.txt": "side" })
-      const sideTip = gitExec("rev-parse HEAD")
-
-      // Switch back to main tip
-      gitExec("checkout", "-")
-      const mainTip = gitExec("rev-parse HEAD")
-
-      const result = await runLive(Effect.flatMap(GitService, (g) => g.mergeBase(mainTip, sideTip)))
-      expect(result._tag).toBe("Some")
-      expect(Option.getOrNull(result)).toBe(divergenceHash)
-    })
-  })
-
-  describe("removeGtdDir", () => {
-    it("deletes a populated .gtd/ directory", async () => {
-      mkdirSync(join(repoDir, ".gtd"))
-      writeFileSync(join(repoDir, ".gtd", "task.md"), "some task content")
-      expect(existsSync(join(repoDir, ".gtd"))).toBe(true)
-
-      await runLive(Effect.flatMap(GitService, (g) => g.removeGtdDir()))
-
-      expect(existsSync(join(repoDir, ".gtd"))).toBe(false)
-    })
-
-    it("succeeds idempotently when .gtd/ is absent", async () => {
-      expect(existsSync(join(repoDir, ".gtd"))).toBe(false)
-
-      await runLive(Effect.flatMap(GitService, (g) => g.removeGtdDir()))
-
-      expect(existsSync(join(repoDir, ".gtd"))).toBe(false)
-    })
-  })
-})

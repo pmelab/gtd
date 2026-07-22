@@ -1,8 +1,9 @@
 /**
- * Pure parser/validator for the "open questions" structure shared by
- * `.gtd/TODO.md` (grilling) and `.gtd/ARCHITECTURE.md` (architecting) — the
- * two phases are mechanically identical, one file and one phase apart, so a
- * single parser covers both.
+ * Pure parser/validator for the "open questions" structure `.gtd/TODO.md`
+ * follows in the bundled default v3 workflow's `grilling`/`grilling-answer`
+ * loop (see `src/workflows/default.yaml` and
+ * `docs/design/steering-file-loops.md` §1) — and for any custom workflow that
+ * reuses the same file/format.
  *
  * Format: free-form prose, plus an OPTIONAL `## Open Questions` section
  * (omitted entirely = zero open questions, not an error). Every `###`
@@ -11,9 +12,21 @@
  * unanswered default) or `Answer: <text>` (a human's answer, or the agent
  * folding one in) — anything else is a validation error.
  *
+ * **Executable spec ↔ bash validator contract:** this module is the
+ * EXECUTABLE SPEC of that format — its own unit tests (`OpenQuestions.test.ts`)
+ * are the format's spec tests. `src/workflows/default.yaml`'s
+ * `todo-validating` state independently re-implements the SAME rules as a
+ * pragmatic bash/awk port (mechanics-only, not a full markdown parser) — see
+ * that state's script for the sibling half of this contract. There is no
+ * shared code path between the two on purpose: the engine (`PatternMachine`/
+ * `Edge`/the bundled workflow) stays git/filesystem/Effect-dependency-free of
+ * this module, and this module (and the LSP built on it, `src/Lsp.ts`) stays
+ * independent of any particular workflow's shape. Keep both in sync by hand
+ * when the format changes.
+ *
  * No git, no filesystem, no Effect — trivially unit-testable and safe to call
- * from both the IO edge (`Events.ts`) and, indirectly via a payload flag,
- * consulted by the pure resolver (`Machine.ts`).
+ * from both the LSP's protocol edge (`src/Lsp.ts`) and any other IO layer that
+ * wants to read/validate `.gtd/TODO.md`.
  */
 
 export type OpenQuestionStatus = "suggested" | "answered"

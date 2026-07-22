@@ -3,8 +3,7 @@ import { writeFileSync, mkdirSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-/** Run git in `dir`, returning trimmed stdout — the suite's shared exec wrapper. */
-export function git(dir: string, ...args: string[]): string {
+function git(dir: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd: dir, encoding: "utf-8" }).trim()
 }
 

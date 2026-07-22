@@ -1,3 +1,0 @@
-# Downloaded/built CLI bundle: suppress its textual diff (renders as "Binary
-# files differ") so gtd review diffs stay small, and mark it generated for GitHub.
-scripts/gtd.bundle.mjs -diff linguist-generated

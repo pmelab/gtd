@@ -51,17 +51,6 @@ export class InMemRepo {
     return this.headCommit()?.files ?? new Map()
   }
 
-  private ancestorChain(hash: string): string[] {
-    const chain: string[] = []
-    let cur: string | null = hash
-    while (cur !== null) {
-      chain.push(cur)
-      const c = this.getCommit(cur)
-      cur = c?.parent ?? null
-    }
-    return chain
-  }
-
   // ---------------------------------------------------------------------------
   // Read methods
   // ---------------------------------------------------------------------------
@@ -154,46 +143,6 @@ export class InMemRepo {
     return c.message.split("\n")[0] ?? null
   }
 
-  mergeBase(a: string, b: string): string | null {
-    const hashA = this.resolveRef(a)
-    const hashB = this.resolveRef(b)
-    if (hashA === null || hashB === null) return null
-    const chainA = new Set(this.ancestorChain(hashA))
-    const chainB = this.ancestorChain(hashB)
-    for (const hash of chainB) {
-      if (chainA.has(hash)) return hash
-    }
-    return null
-  }
-
-  isAncestor(a: string, b: string): boolean {
-    const hashA = this.resolveRef(a)
-    const hashB = this.resolveRef(b)
-    if (hashA === null || hashB === null) return false
-    return this.ancestorChain(hashB).includes(hashA)
-  }
-
-  resolveDefaultBranch(): string | null {
-    if (this.branches.has("main")) return "main"
-    if (this.branches.has("master")) return "master"
-    return null
-  }
-
-  lastDeletionOf(path: string): string | null {
-    // Walk first-parent newest→oldest
-    let cur: string | null = this.head
-    while (cur !== null) {
-      const c = this.getCommit(cur)
-      if (!c) break
-      const parentTree = c.parent ? (this.getCommit(c.parent)?.files ?? new Map()) : new Map()
-      const wasInParent = parentTree.has(path)
-      const isInCommit = c.files.has(path)
-      if (wasInParent && !isInCommit) return cur
-      cur = c.parent
-    }
-    return null
-  }
-
   commitHistory(base?: string): Array<{
     hash: string
     message: string
@@ -238,17 +187,6 @@ export class InMemRepo {
     })
   }
 
-  /** One-line log ("<short-hash> <subject>", newest→oldest) starting from `ref`. */
-  logFrom(ref: string): string {
-    const hash = this.resolveRef(ref)
-    if (!hash) throw new Error(`Cannot resolve ref: ${ref}`)
-    return (
-      this.ancestorChain(hash)
-        .map((h) => `${h.slice(0, 7)} ${this.getCommit(h)?.message.split("\n")[0] ?? ""}`)
-        .join("\n") + "\n"
-    )
-  }
-
   fileAtRef(ref: string, path: string): string | null {
     const hash = this.resolveRef(ref)
     if (!hash) return null
@@ -288,6 +226,23 @@ export class InMemRepo {
   // Write methods
   // ---------------------------------------------------------------------------
 
+  /** Commit whatever is currently staged (the index) verbatim, with no implicit staging first — mirrors `git commit --allow-empty -m <message>` after a soft reset. */
+  commitAsIs(message: string): void {
+    const tree = new Map(this.index)
+    const parent = this.head
+    const hash = makeHash(message, parent, tree)
+    const commit: Commit = { hash, message, files: new Map(tree), parent }
+    this.commits.set(hash, commit)
+    this.head = hash
+    this.branches.set(this.currentBranch, hash)
+  }
+
+  /** Discard every pending change, tracked or untracked: stage everything, then hard-reset (which now drops the freshly-staged untracked paths too). */
+  discardPending(): void {
+    this.index = new Map(this.worktree)
+    this.resetHard()
+  }
+
   commitAllWithPrefix(prefix: string): void {
     // Stage worktree → index
     this.index = new Map(this.worktree)
@@ -322,66 +277,7 @@ export class InMemRepo {
     // worktree and index unchanged
   }
 
-  updateRef(ref: string, hash: string): void {
-    const resolved = this.resolveRef(hash)
-    if (!resolved) throw new Error(`Cannot resolve ref: ${hash}`)
-    this.refs.set(ref, resolved)
-  }
-
-  deleteRef(ref: string): void {
-    // Idempotent, like `git update-ref -d` wrapped tolerantly in src/Git.ts.
-    this.refs.delete(ref)
-  }
-
-  mixedResetTo(ref: string): void {
-    const hash = this.resolveRef(ref)
-    if (!hash) throw new Error(`Cannot resolve ref: ${ref}`)
-    const c = this.getCommit(hash)
-    if (!c) throw new Error(`Commit not found: ${hash}`)
-    this.head = hash
-    this.branches.set(this.currentBranch, hash)
-    // Index resets to the target tree, worktree untouched.
-    this.index = new Map(c.files)
-  }
-
-  restoreStagedFrom(source: string, paths: ReadonlyArray<string>): void {
-    const hash = this.resolveRef(source)
-    if (!hash) throw new Error(`Cannot resolve ref: ${source}`)
-    const tree = this.getCommit(hash)?.files ?? new Map<string, string>()
-    const matchesAny = (path: string): boolean =>
-      paths.some((spec) => path === spec || path.startsWith(spec.endsWith("/") ? spec : `${spec}/`))
-    // Index entries under the pathspecs absent from source → removed…
-    for (const key of this.index.keys()) {
-      if (matchesAny(key) && !tree.has(key)) this.index.delete(key)
-    }
-    // …and source entries under the pathspecs copied in.
-    for (const [key, content] of tree) {
-      if (matchesAny(key)) this.index.set(key, content)
-    }
-  }
-
-  addIntentToAdd(): void {
-    // Real git records an empty placeholder blob for untracked files; the
-    // content diff then shows up as unstaged. An empty string plays that role.
-    for (const path of this.worktree.keys()) {
-      if (!this.index.has(path)) this.index.set(path, "")
-    }
-  }
-
-  mixedResetHead(): void {
-    const c = this.headCommit()
-    if (!c || c.parent === null) {
-      throw new Error("HEAD is the root commit, cannot reset to parent")
-    }
-    const parent = this.getCommit(c.parent)
-    if (!parent) throw new Error("Parent commit not found")
-
-    this.head = parent.hash
-    this.branches.set(this.currentBranch, parent.hash)
-    // Reset index to parent tree, keep worktree
-    this.index = new Map(parent.files)
-  }
-
+  /** Internal helper: `discardPending()` uses this after staging the worktree. */
   resetHard(): void {
     const headTree = this.headTree()
     // Snapshot the old index before resetting it (needed to identify staged-new files)
@@ -411,78 +307,6 @@ export class InMemRepo {
     this.worktree = newWorktree
   }
 
-  // fallow-ignore-next-line complexity
-  revertNoCommit(ref: string): void {
-    const hash = this.resolveRef(ref)
-    if (!hash) throw new Error(`Cannot resolve ref: ${ref}`)
-    const c = this.getCommit(hash)
-    if (!c) throw new Error(`Commit not found: ${hash}`)
-
-    const parentTree = c.parent ? (this.getCommit(c.parent)?.files ?? new Map()) : new Map()
-
-    // Apply inverse delta: reverse what ref introduced vs its parent
-    for (const [path, content] of c.files) {
-      const wasInParent = parentTree.has(path)
-      if (!wasInParent) {
-        // ref added this file → delete it
-        this.worktree.delete(path)
-        this.index.delete(path)
-      } else {
-        const parentContent = parentTree.get(path)!
-        if (parentContent !== content) {
-          // ref modified → restore to pre-ref
-          this.worktree.set(path, parentContent)
-          this.index.set(path, parentContent)
-        }
-      }
-    }
-
-    // ref deleted files → restore them
-    for (const [path, content] of parentTree) {
-      if (!c.files.has(path)) {
-        this.worktree.set(path, content)
-        this.index.set(path, content)
-      }
-    }
-  }
-
-  removeGtdDir(): void {
-    for (const path of this.worktree.keys()) {
-      if (path === ".gtd" || path.startsWith(".gtd/")) {
-        this.worktree.delete(path)
-        this.index.delete(path)
-      }
-    }
-    for (const path of this.index.keys()) {
-      if (path === ".gtd" || path.startsWith(".gtd/")) {
-        this.index.delete(path)
-      }
-    }
-  }
-
-  removePackageDir(dir: string): void {
-    const prefix = dir.endsWith("/") ? dir : `${dir}/`
-
-    // Remove from worktree and index
-    for (const path of this.worktree.keys()) {
-      if (path === dir || path.startsWith(prefix)) {
-        this.worktree.delete(path)
-        this.index.delete(path)
-      }
-    }
-    for (const path of this.index.keys()) {
-      if (path === dir || path.startsWith(prefix)) {
-        this.index.delete(path)
-      }
-    }
-
-    // If .gtd/ has no paths under it, also remove .gtd/
-    const hasGtd = [...this.index.keys()].some((p) => p === ".gtd" || p.startsWith(".gtd/"))
-    if (!hasGtd) {
-      this.removeGtdDir()
-    }
-  }
-
   /** Returns true if any worktree entry equals or starts with `path/`. */
   worktreeHasPath(path: string): boolean {
     const prefix = path.endsWith("/") ? path : `${path}/`
@@ -498,23 +322,6 @@ export class InMemRepo {
 
   deleteFile(path: string): void {
     this.worktree.delete(path)
-  }
-
-  renameBranch(newName: string): void {
-    const hash = this.branches.get(this.currentBranch)
-    if (hash !== undefined) {
-      this.branches.delete(this.currentBranch)
-      this.branches.set(newName, hash)
-    }
-    this.currentBranch = newName
-  }
-
-  createBranch(newBranch: string): void {
-    // Create a new branch at current HEAD and switch to it
-    if (this.head !== null) {
-      this.branches.set(newBranch, this.head)
-    }
-    this.currentBranch = newBranch
   }
 }
 

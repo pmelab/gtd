@@ -5,6 +5,15 @@ import { join, resolve } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 
+// Writes an executable `.git/hooks/pre-commit` with the docstring body —
+// used by scenarios exercising a user hook that reformats files on commit.
+// Moved here from the now-deleted environment.steps.ts: it was the only step
+// defined there that any feature file still exercised.
+Given("an executable pre-commit hook with:", (world: GtdWorld, content: string) => {
+  const dest = join(world.repoDir, ".git/hooks/pre-commit")
+  writeFileSync(dest, content.endsWith("\n") ? content : content + "\n", { mode: 0o755 })
+})
+
 When("I run gtd with args {string}", async (world: GtdWorld, args: string) => {
   await world.runGtd(...args.split(" "))
 })

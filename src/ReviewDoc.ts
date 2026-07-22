@@ -1,7 +1,8 @@
 /**
  * Pure parser/validator for the review structure `.gtd/REVIEW.md` must
- * follow — formalizing the shape the `@review` prompt template
- * (`src/prompts/review.md`) already tells the agent to write:
+ * follow — formalizing the shape the bundled default v3 workflow's
+ * `reviewing` prompt (`src/workflows/default.yaml`) already tells the agent
+ * to write:
  *
  * ```markdown
  * # Review: <short-hash>
@@ -20,9 +21,21 @@
  * line), the `<!-- base: <hash> -->` comment, and at least one `##` chunk
  * with a non-empty title and at least one `- [ ]` / `- [x]` file pointer.
  *
+ * **Executable spec ↔ bash validator contract:** this module is the
+ * EXECUTABLE SPEC of that format — its own unit tests (`ReviewDoc.test.ts`)
+ * are the format's spec tests. `src/workflows/default.yaml`'s
+ * `review-validating` state independently re-implements the SAME rules as a
+ * pragmatic bash/awk port (mechanics-only, not a full markdown parser) — see
+ * that state's script for the sibling half of this contract. There is no
+ * shared code path between the two on purpose: the engine (`PatternMachine`/
+ * `Edge`/the bundled workflow) stays git/filesystem/Effect-dependency-free of
+ * this module, and this module (and the LSP built on it, `src/Lsp.ts`) stays
+ * independent of any particular workflow's shape. Keep both in sync by hand
+ * when the format changes.
+ *
  * No git, no filesystem, no Effect — trivially unit-testable and safe to call
- * from both the IO edge (`Events.ts`) and, indirectly via a payload flag,
- * consulted by the pure resolver (`Machine.ts`).
+ * from both the LSP's protocol edge (`src/Lsp.ts`) and any other IO layer that
+ * wants to read/validate `.gtd/REVIEW.md`.
  */
 
 export interface ReviewFile {

@@ -28,6 +28,12 @@ const run = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string = proje
 const runExit = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string = projectDir) =>
   Effect.runPromiseExit(eff.pipe(Effect.provide(layer(dir))))
 
+const getConfig = (dir?: string) =>
+  run(
+    Effect.flatMap(ConfigService, (c) => Effect.succeed(c)),
+    dir,
+  )
+
 let projectDir: string
 
 beforeEach(() => {
@@ -46,240 +52,139 @@ afterEach(() => {
   rmSync(projectDir, { recursive: true, force: true })
 })
 
+const minimalWorkflowYaml = (idleMessage: string) =>
+  [
+    `workflow:`,
+    `  states:`,
+    `    idle:`,
+    `      actor: human`,
+    `      initial: true`,
+    `      message: "${idleMessage}"`,
+    `      on: {}`,
+    ``,
+  ].join("\n")
+
 describe("ConfigService", () => {
-  it("with no config anywhere: testCommand defaults to `npm run test` and resolveModel returns built-in tier defaults", async () => {
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+  it("with no config anywhere: the bundled default workflow is active", async () => {
+    const cfg = await getConfig()
 
-    expect(cfg.testCommand).toBe("npm run test")
-    expect(cfg.resolveModel("decompose")).toBe("claude-opus-4-8")
-    expect(cfg.resolveModel("grilling")).toBe("claude-opus-4-8")
-    expect(cfg.resolveModel("building")).toBe("claude-sonnet-4-8")
-    expect(cfg.resolveModel("fixing")).toBe("claude-sonnet-4-8")
+    expect(cfg.workflow.states["idle"]?.initial).toBe(true)
+    expect(cfg.workflow.states["grilling"]).toBeDefined()
+    expect(cfg.workflowVars).toEqual({
+      testCommand: "npm test",
+      todoFile: ".gtd/TODO.md",
+      reviewFile: ".gtd/REVIEW.md",
+      feedbackFile: ".gtd/FEEDBACK.md",
+    })
+    expect(cfg.rcVars).toEqual({})
   })
 
-  it("reads testCommand from a single .gtdrc.yaml in cwd", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `testCommand: "pnpm test"\n`)
+  it("reads a custom `workflow:` from a single .gtdrc.yaml in cwd", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), minimalWorkflowYaml("custom idle"))
 
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    const cfg = await getConfig()
 
-    expect(cfg.testCommand).toBe("pnpm test")
+    expect(cfg.workflow.states["idle"]?.message).toBe("custom idle")
+    expect(Object.keys(cfg.workflow.states)).toEqual(["idle"])
   })
 
-  it("merges levels low->high: cwd wins on overlap, non-overlapping ancestor keys still appear", async () => {
+  it("merges levels low->high: cwd's `workflow:` overlays the ancestor's, cwd wins on overlap", async () => {
     // Build a chain entirely under tmpdir so the root-stop path is exercised
     // and the user's home dir is never reached.
     const child = join(projectDir, "a", "b")
     mkdirSync(child, { recursive: true })
 
-    // Ancestor (projectDir): sets testCommand AND a planning model.
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      `testCommand: "ancestor test"\nmodels:\n  planning: "ancestor-planner"\n`,
-    )
-    // Innermost (child = cwd): overrides testCommand, leaves planning untouched.
-    writeFileSync(join(child, ".gtdrc.yaml"), `testCommand: "child test"\n`)
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), minimalWorkflowYaml("ancestor idle"))
+    writeFileSync(join(child, ".gtdrc.yaml"), minimalWorkflowYaml("child idle"))
 
-    const cfg = await run(
-      Effect.flatMap(ConfigService, (c) => Effect.succeed(c)),
-      child,
-    )
+    const cfg = await getConfig(child)
 
-    expect(cfg.testCommand).toBe("child test") // cwd wins
-    expect(cfg.resolveModel("decompose")).toBe("ancestor-planner") // ancestor key survives
+    expect(cfg.workflow.states["idle"]?.message).toBe("child idle") // cwd wins
   })
 
-  it("resolveModel precedence: states beats tier, tier beats built-in, built-in when nothing set", async () => {
+  it("loads JSON config (gtd.config.json)", async () => {
     writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [
-        `models:`,
-        `  planning: "tier-planner"`,
-        `  execution: "tier-executor"`,
-        `  states:`,
-        `    decompose: "state-decompose"`,
-        ``,
-      ].join("\n"),
+      join(projectDir, "gtd.config.json"),
+      JSON.stringify({
+        workflow: {
+          states: {
+            idle: { actor: "human", initial: true, message: "json idle", on: {} },
+          },
+        },
+      }),
     )
 
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    const cfg = await getConfig()
 
-    // (1) states wins
-    expect(cfg.resolveModel("decompose")).toBe("state-decompose")
-    // (2) tier when no state override
-    expect(cfg.resolveModel("grilling")).toBe("tier-planner")
-    expect(cfg.resolveModel("building")).toBe("tier-executor")
+    expect(cfg.workflow.states["idle"]?.message).toBe("json idle")
   })
 
-  it("fails to decode with a readable error on unknown models.states key", async () => {
+  it("reads a top-level `vars:` key into `rcVars`, coercing scalars to strings", async () => {
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
-      [`models:`, `  states:`, `    fix-tests: "nope"`, ``].join("\n"),
+      [`vars:`, `  greeting: hi`, `  attempts: 3`, `  strict: true`, ``].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.rcVars).toEqual({ greeting: "hi", attempts: "3", strict: "true" })
+  })
+
+  it("merges `vars:` levels low->high: cwd's overlays the ancestor's, cwd wins on overlap", async () => {
+    const child = join(projectDir, "a", "b")
+    mkdirSync(child, { recursive: true })
+
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`vars:`, `  greeting: ancestor`, `  onlyAncestor: yes`, ``].join("\n"),
+    )
+    writeFileSync(join(child, ".gtdrc.yaml"), [`vars:`, `  greeting: child`, ``].join("\n"))
+
+    const cfg = await getConfig(child)
+
+    expect(cfg.rcVars).toEqual({ greeting: "child", onlyAncestor: "yes" })
+  })
+
+  it("rejects a non-scalar top-level `vars` entry, aggregated into one error", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`vars:`, `  bad:`, `    nested: true`, ``].join("\n"),
     )
 
     const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
-      const msg = String(exit.cause)
-      expect(msg).toMatch(/fix-tests|states/i)
+      expect(String(exit.cause)).toContain("gtd config:")
+      expect(String(exit.cause)).toContain('"vars.bad" must be a string, number, or boolean')
     }
   })
 
-  it("loads JSON config (gtd.config.json)", async () => {
-    writeFileSync(join(projectDir, "gtd.config.json"), JSON.stringify({ testCommand: "json test" }))
-
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.testCommand).toBe("json test")
-  })
-
-  it("agenticReview defaults to true with no config", async () => {
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.agenticReview).toBe(true)
-  })
-
-  it("agenticReview is overridable", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `agenticReview: false\n`)
-
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.agenticReview).toBe(false)
-  })
-
-  it("squash defaults to true with no config", async () => {
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.squash).toBe(true)
-  })
-
-  it("squash is overridable to false", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `squash: false\n`)
-
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.squash).toBe(false)
-  })
-
-  it("squash is overridable to true explicitly", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `squash: true\n`)
-
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.squash).toBe(true)
-  })
-
-  it("rejects the removed agenticReviewMaxCycles key as an excess property", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `agenticReviewMaxCycles: 5\n`)
+  it("rejects an unknown top-level key as an excess property", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `testCommand: "npm test"\n`)
 
     const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
 
     expect(Exit.isFailure(exit)).toBe(true)
-  })
-
-  it("a .gtdrc with agenticReview: false decodes without excess-property error", async () => {
-    writeFileSync(join(projectDir, ".gtdrc"), `agenticReview: false\n`)
-
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(Exit.isSuccess(exit)).toBe(true)
-    if (Exit.isSuccess(exit)) {
-      expect(exit.value.agenticReview).toBe(false)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toMatch(/testCommand/i)
     }
   })
 
-  it("fixAttemptCap defaults to 3 with no config", async () => {
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.fixAttemptCap).toBe(3)
-  })
-
-  it("fixAttemptCap is overridable via config", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `fixAttemptCap: 5\n`)
-
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.fixAttemptCap).toBe(5)
-  })
-
-  it("reviewThreshold defaults to 3 with no config", async () => {
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.reviewThreshold).toBe(3)
-  })
-
-  it("reviewThreshold is overridable via config", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `reviewThreshold: 7\n`)
-
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.reviewThreshold).toBe(7)
-  })
-
-  it("resolveModel returns planning default for grilling, agentic-review, clean with no config", async () => {
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.resolveModel("grilling")).toBe("claude-opus-4-8")
-    expect(cfg.resolveModel("agentic-review")).toBe("claude-opus-4-8")
-    expect(cfg.resolveModel("clean")).toBe("claude-opus-4-8")
-  })
-
-  it("resolveModel returns execution default for building and fixing with no config", async () => {
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.resolveModel("building")).toBe("claude-sonnet-4-8")
-    expect(cfg.resolveModel("fixing")).toBe("claude-sonnet-4-8")
-  })
-
-  it("models.planning override applies to grilling, agentic-review, clean", async () => {
+  it("surfaces the workflow compiler's own error on an invalid `workflow:` key", async () => {
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
-      [`models:`, `  planning: "tier-planner"`, ``].join("\n"),
+      [`workflow:`, `  states:`, `    idle:`, `      message: "no actor, no initial"`, ``].join(
+        "\n",
+      ),
     )
 
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
 
-    expect(cfg.resolveModel("grilling")).toBe("tier-planner")
-    expect(cfg.resolveModel("agentic-review")).toBe("tier-planner")
-    expect(cfg.resolveModel("clean")).toBe("tier-planner")
-  })
-
-  it("models.execution override applies to building and fixing", async () => {
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [`models:`, `  execution: "tier-executor"`, ``].join("\n"),
-    )
-
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.resolveModel("building")).toBe("tier-executor")
-    expect(cfg.resolveModel("fixing")).toBe("tier-executor")
-  })
-
-  it("models.states per-state overrides for new states beat tier", async () => {
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [
-        `models:`,
-        `  planning: "tier-planner"`,
-        `  execution: "tier-executor"`,
-        `  states:`,
-        `    grilling: "state-griller"`,
-        `    building: "state-builder"`,
-        `    fixing: "state-fixer"`,
-        `    agentic-review: "state-reviewer"`,
-        `    clean: "state-cleaner"`,
-        ``,
-      ].join("\n"),
-    )
-
-    const cfg = await run(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-
-    expect(cfg.resolveModel("grilling")).toBe("state-griller")
-    expect(cfg.resolveModel("building")).toBe("state-builder")
-    expect(cfg.resolveModel("fixing")).toBe("state-fixer")
-    expect(cfg.resolveModel("agentic-review")).toBe("state-reviewer")
-    expect(cfg.resolveModel("clean")).toBe("state-cleaner")
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toMatch(/initial state|must declare an actor/i)
+    }
   })
 
   it("auto-init: with no config, creates and commits `.gtdrc.json` at the root with the $schema URL", async () => {
@@ -296,7 +201,9 @@ describe("ConfigService", () => {
       join(projectDir, ".gtdrc.json"),
       JSON.stringify({
         $schema: "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
-        testCommand: "x",
+        workflow: {
+          states: { idle: { actor: "human", initial: true, message: "x", on: {} } },
+        },
       }),
     )
 
@@ -304,7 +211,7 @@ describe("ConfigService", () => {
 
     expect(Exit.isSuccess(exit)).toBe(true)
     if (Exit.isSuccess(exit)) {
-      expect(exit.value.testCommand).toBe("x")
+      expect(exit.value.workflow.states["idle"]?.message).toBe("x")
     }
   })
 
@@ -323,23 +230,41 @@ describe("ConfigService", () => {
     }
   })
 
-  it("new model state keys decode without excess-property error", async () => {
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [
-        `models:`,
-        `  states:`,
-        `    grilling: "g"`,
-        `    building: "b"`,
-        `    fixing: "f"`,
-        `    agentic-review: "ar"`,
-        `    clean: "cl"`,
-        ``,
-      ].join("\n"),
-    )
-
+  it("loading config does NOT create a stub — only ConfigInit.ensure does", async () => {
     const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
 
     expect(Exit.isSuccess(exit)).toBe(true)
+    expect(existsSync(join(projectDir, ".gtdrc.json"))).toBe(false)
+  })
+
+  it("ensure commits the stub with a path-scoped add and the chore message", async () => {
+    await ensureInit()
+
+    const subject = execFileSync("git", ["log", "-1", "--pretty=%s"], { cwd: projectDir })
+      .toString()
+      .trim()
+    expect(subject).toBe("chore: add .gtdrc.json")
+
+    // Only the stub was staged/committed — path-scoped add, not `git add -A`.
+    const committedFiles = execFileSync(
+      "git",
+      ["show", "--name-only", "--pretty=format:", "HEAD"],
+      { cwd: projectDir },
+    )
+      .toString()
+      .trim()
+    expect(committedFiles).toBe(".gtdrc.json")
+  })
+
+  it("ensure does not write or commit a stub when a config already exists", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  testCommand: "existing"\n`)
+
+    await ensureInit()
+
+    expect(existsSync(join(projectDir, ".gtdrc.json"))).toBe(false)
+    // No commit was created (fresh repo has no HEAD).
+    expect(() =>
+      execFileSync("git", ["rev-parse", "HEAD"], { cwd: projectDir, stdio: "ignore" }),
+    ).toThrow()
   })
 })

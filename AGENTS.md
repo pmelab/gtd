@@ -13,116 +13,156 @@
 
 ## Architecture
 
-### Removing a Workflow Step
+v3 ("the pattern machine" — see `docs/design/pattern-machine-plan.md`) deleted
+the entire v2 definition model (gates, guard functions, actor kinds,
+interrupt/fallback ladders, capture rules, turn/routing rules, counters,
+conflicts, the review checkout window). A workflow is now just named states —
+see [STATES.md](STATES.md) for the model. The sections below describe what
+replaced the old machinery; if you're looking for `TurnGate`, `captureRules`,
+`Gtd-Counters`, or `WorkflowConfig` guards, they no longer exist.
 
-When removing a step from a linear workflow (e.g. plan → build → learn →
-cleanup), trace **every** reference before deleting:
+### Changing the Workflow
 
-- `src/Subjects.ts` closed sets (`TurnGate`, `RoutingPhase`, `ROUTING_SUBJECT`)
-- `src/Machine.ts` (the `GtdState` type, `resolveBaseline` / `classifyHead`
-  rest/mid-chain classification table, `awaitedActor`, `predictTurn`)
-- `src/Events.ts` (`gatherEvents` flag derivation, `perform`)
-- `src/program.ts` dispatch
-- `src/Prompt.ts` (`isPromptState`, `MODEL_STATE`, templates)
-- `src/State.ts` (`edgeActionHandlers` — a total map over `EdgeAction["kind"]`,
-  so it won't fail to compile on a removed/added variant the way an
-  exhaustive-switch-free table can silently drift)
-- STATES.md / README.md / docs/ (especially docs/workflow.md and docs/cli.md)
-- All feature files
+There is no engine-side wiring left to trace through when a workflow's shape
+changes — a workflow (bundled default or custom) is DATA, not code. To change
+what the bundled default does, edit `src/workflows/default.yaml` (states,
+`actor`, exactly one content kind, `on` edges, `retry`, `model`) —
+`src/workflows/ default.ts` compiles it through the same `compileWorkflowConfig`
+a user's `.gtdrc` `workflow:` key goes through, so it never needs its own logic.
+After editing the YAML, update:
 
-Any `gtd: *` subject outside the closed v2 grammar (`src/Subjects.ts`) is an
-inert boundary commit — removed subjects are simply dropped from the closed
-sets, never routed. This is also how v2 stays backward compatible with v1
-history: old v1 subjects fall outside the closed sets and parse as boundary
-commits rather than errors.
+- **STATES.md §10** — the bundled-default table and walkthrough
+- **e2e feature files** that assert on the default workflow's shape
+  (`tests/integration/features/default-workflow.feature`, `gtd-loop.feature`,
+  `driver-run.feature`, `smoke.feature`)
+- **`skills/loop/SKILL.md`** only if the change affects the driver contract
+  itself (dispatch on `kind`, stall detection) — not the default workflow's own
+  states, which the skill never names
 
-### Mode Flags (Effect Dependency Graph)
+A genuinely new engine capability (a new content kind, a new `on` pattern
+grammar, a new state property) is a different, much rarer kind of change — that
+touches `src/PatternMachine.ts` (types + `validateDefinition`),
+`src/PatternConfig.ts` (the compiler), and `src/PatternTemplates.ts` or
+`src/Edge.ts` as needed, plus all of the above.
 
-- Follow the `QuietMode` pattern (Context tag + `static layer`) for any new
-  boolean mode flags that need to flow through the Effect dependency graph
+### The Pattern-Machine Module Map
 
-### Config Values vs. Mode Flags: `agenticReview` / `reviewThreshold`
+- **`src/PatternMachine.ts`** — the pure engine. Definition types
+  (`WorkflowDefinition`, `StateDef`, `ContentKind`), the pattern grammar's
+  parser (`parsePattern`) and matcher (`matchesPattern`/`globToRegExp`), HEAD
+  resolution (`resolveState` — subject grammar + the closed-world actor check
+  - initial-state fallback), the step decision (`step` — refusals, no-op,
+    commit, squash, retry redirection via `applyRetry`), and
+    `validateDefinition`. No git, no filesystem, no Effect — every export is a
+    plain function of its arguments.
+- **`src/PatternConfig.ts`** — compiles the raw `.gtdrc` `workflow:` YAML value
+  into a `WorkflowDefinition` (`compileWorkflowConfig`): per-state field
+  compilers, `./`/`../` file-reference auto-inlining, the `vars:` compiler
+  (`compileVarsMap` — scalar coercion, object/array rejection; shared with
+  `Config.ts`'s top-level `vars:` key so both layers validate identically),
+  config-shape validation collected alongside `validateDefinition`'s findings.
+- **`src/PatternTemplates.ts`** — Eta rendering (`renderStateTemplate`) over
+  `TemplateContext`. Pure-ISH: every impure value (hashes, diffs, the `read`
+  callback) is injected by the caller: this module never touches git or the
+  filesystem.
+- **`src/Edge.ts`** — the Effect edge: `resolveRest` (HEAD → state via
+  `ConfigService.workflow` + `resolveState`), `computeProcessRun` (walks
+  first-parent history for the current process's start/trace, stopping —
+  EXCLUDING the boundary commit itself — at either a non-workflow commit or a
+  workflow commit entering the definition's OWN initial state, e.g. the bundled
+  default's `gtd(human): idle`; a workflow with no `commit:` state, like the
+  bundled default, relies entirely on this initial-entry rule to keep one
+  cycle's `retry` counts/diffs from pooling into the next),
+  `buildTemplateContext`, `renderRest`, `executeDecision` (performs a `"commit"`
+  or `"squash"` `StepDecision` — the only place a turn is actually written or a
+  squash actually performed).
+- **`src/program.ts`** — CLI dispatch (`step`/`next`/`run`/`status`/`format`).
+  Calls `Edge.ts` for everything IO-shaped; calls `PatternMachine.ts`'s pure
+  `step`/`matchesPattern`/`parsePattern` directly where no IO is needed (e.g.
+  `gtd status`'s per-change pattern report).
+- **`src/workflows/default.{yaml,ts}`** — the bundled default workflow, compiled
+  through the exact same `compileWorkflowConfig` path — no privileged code path.
+  Every content string in `default.yaml` MUST be inline (no `./`-relative file
+  references): it ships inside the single-file `dist/gtd.bundle.mjs` build, so
+  it can't reach out to sibling files on disk at runtime.
 
-`agenticReview` and `reviewThreshold` are read from `ConfigService` at the
-Effect edge (`gatherEvents` in `src/Events.ts`) and passed to the pure machine
-as `ResolvePayload` fields (`agenticReviewEnabled`, `reviewThreshold`) — NOT as
-a `Context`-tag layer.
+### The Configurable Machine (`workflow:` and `vars:` in .gtdrc)
 
-**Rule of thumb**:
+`src/Config.ts`'s `ConfigService` reads `.gtdrc` (cosmiconfig, deep-merged
+cwd→home), decodes it against `src/ConfigSchema.ts` (two keys: `workflow` and
+`vars`, both `Schema.Unknown` — the shape is validated structurally by the
+compiler, not by `effect/schema`), and compiles the `workflow:` value through
+`compileWorkflowConfig`, or falls back to `defaultWorkflowDefinition`/
+`defaultWorkflowVars` (`src/workflows/default.ts`) when the key is absent; the
+top-level `vars:` value compiles through the same `compileVarsMap` (see
+`Config.ts`'s `compileRcVars`). There is no module-global registry (no v2-style
+`activeWorkflow()`/`setActiveWorkflow`):
+`ConfigOperations { workflow, workflowVars, rcVars }` flows through the
+`ConfigService` Context tag like any other Effect dependency, read fresh each
+invocation — nothing to reset between tests. `src/Edge.ts`'s `resolveVars`
+merges `workflowVars`/`rcVars` with a third layer — every `GTD_VAR_`-prefixed
+entry of an injected `EnvVars` Context tag (mirroring `Cwd`/`WorktreeReader`,
+never `process.env` read directly) — into the flat `Record<string, string>`
+every template sees as `it.vars`. The engine still blesses NO variable NAMES:
+`testCommand` (the bundled default's own `vars:` entry, read by `checking`'s
+script) is workflow-authored data like any other `it.vars` key, not a name gtd
+itself interprets.
 
-- Render/IO modes (cross-cutting, affect how side effects behave everywhere) →
-  `QuietMode` Context tag + `static layer`
-- Pure-decision inputs (consumed by a guard on a specific resolve event, not
-  needed elsewhere) → field on the `ResolvePayload`
+The commit grammar's closed actor set still DERIVES from the active definition
+(`declaredActors` in `src/PatternMachine.ts`), so custom actor names parse
+exactly like built-in ones — same backward-compatibility mechanism as before,
+generalized: any subject naming a state or actor outside the active workflow's
+declared sets is inert and resolves to the initial state (see `resolveState`,
+STATES.md §5). This is also the whole v1/v2/v3 upgrade story — nothing extra
+needed to keep old history inert.
 
-`agenticReview` is a per-resolve guard input, not a cross-cutting IO mode, so it
-travels as payload rather than as a Context service.
+### The Scripted Check Actor (No In-Process Execution)
 
-Same pattern for the `invoker` actor (`"human" | "agent" | "none"`,
-`src/Machine.ts`): it travels as a `ResolvePayload` field, not a Context tag,
-because it's a pure-decision input consumed by the resolver's turn guards
-(`applyTurnTaking`), not something every side effect needs to see.
-
-Same pattern again for `decisionLog` (`src/Events.ts`): it's a per-prompt input
-consumed only by the grilling/architecting templates, not a cross-cutting IO
-mode, so it travels as a `ResolvePayload`/`ResolveContext` string field. Unlike
-`squashDiff`/`turnDiff`, it isn't sourced from a single steering file —
-`gatherEvents` scans the full first-parent commit history (reusing `allHistory`,
-never a second `git log` spawn) for squash commits carrying a
-`Gtd-Decisions: true` trailer, extracts each one's `## Decisions` section, and
-concatenates them oldest to newest with **no deduplication**. This is
-deliberate: grilling questions are freshly worded every cycle, so a later
-cycle's answer to "the same" topic essentially never matches an earlier
-`### <question>` heading verbatim — a mechanical key-based merge can't detect a
-revisit, so conflict resolution is left to whichever prompt reads the text
-(prefer the more recent entry) rather than attempted in code. Because completed
-cycles' squash commits are immutable, this concatenated text is a stable,
-append-only prefix across invocations — that shape is intentional: it's what
-makes LLM prompt caching effective without an in-repo cache of our own.
-
-### Review Checkout Window (Program-Edge Concern)
-
-The review checkout window (`src/ReviewWindow.ts` — HEAD/index rewound to the
-review base while `gtd: awaiting review` rests, so editors surface the diff) is
-wired ONLY in `src/program.ts`: closed before `ConfigInit.ensure` and every
-`gatherEvents`, re-armed after dispatch (success AND failure paths). The
-machine, `gatherEvents`, and `perform` must never know it exists — no
-`ResolvePayload` field, no `GtdState`, no Context tag. Anything that reads git
-state through a new entry point must run AFTER the close hook, or it will
-classify against the rewound HEAD.
-
-### Agentic Cycle Count Fold
-
-`testFixCount` / `reviewFixCount` / `healthFixCount` are **folded in the
-machine** (`foldCounters` in `src/Machine.ts`) from flags `gatherEvents`
-(`src/Events.ts`) attaches to each `CommitEvent` — `isPackageStart`,
-`isFeedback`, `isErrors`, `isHealthCheck`, `removedErrors` — not recomputed at
-the Effect edge. `reviewFixCount` (the agentic-review cycle count) resets on
-`isPackageStart` and increments on `isFeedback` (an agentic-review turn whose
-diff touched `.gtd/FEEDBACK.md` (or legacy root `FEEDBACK.md`) — a findings
-round). Derived counters accumulate inside the state machine from event flags,
-keeping the edge thin.
+Checks are just an ordinary actor's turns at a `script`-content state (the
+bundled default's `checking` state, awaited by the `check` actor) — the engine
+NEVER executes anything itself. The command lives INLINE in that state's own
+`script:` content (no BLESSED `testCommand` config key — see `docs/upgrading.md`
+— though the bundled default's script does read its own `vars.testCommand`,
+workflow-authored data like any other `it.vars` entry, not a name the engine
+special-cases). `gtd next` renders and prints the script; `gtd run` is the only
+place gtd spawns a subprocess: it executes the rendered script verbatim via
+`bash`, then runs `gtd step <actor>` for that state's own actor to capture the
+outcome from whatever the script left in the tree (e.g. an `on` pattern matching
+`A .gtd/FEEDBACK.md` vs `C`). Mechanics belong in the script; which `on` pattern
+the resulting diff matches is the only thing that decides the outcome — there is
+no separate capture-rule layer to keep in sync. In e2e, simulate a check's
+outcome by writing the output file (e.g. `Given a file "FEEDBACK.md" with:`) and
+running `gtd step check` — `@inmem` scenarios never execute scripts; only
+`@live` scenarios use `gtd run`.
 
 ## CLI Design
 
 - Keep CLI flags orthogonal: each flag controls exactly one concern and no flag
   implies another, so users can combine them freely
 - Never let an unknown `--` option pass silently — reject it with a usage error
-  (`--json` is the only long option in v2); a mistyped `--jsn` silently
-  degrading to plain-text output is a bug class, not a convenience
-- v2 renders plain line output only — there is no spinner/renderer and no
+  (`--json` is the only long option); a mistyped `--jsn` silently degrading to
+  plain-text output is a bug class, not a convenience
+- gtd renders plain line output only — there is no spinner/renderer and no
   agent-event stream in the CLI. Do not re-add `--verbose`/`--debug` (or any
   output-mode flag) without wiring it to a real, tested concern; the flags must
   never exist only in the help text
 
-## Turn Capture
+## Step Capture
 
-- An empty AGENT turn is inert at every gate whose move is a file artifact
-  (`grilling`, `architecting`, `grilled`, `building`, `fixing`,
-  `agentic-review`, `review`, and `squashing` while `SQUASH_MSG.md` is still the
-  template) — the loop protocol opens each iteration with `gtd step-agent`
-  BEFORE the agent acts, so a clean-tree capture there must author nothing. When
-  adding a gate, decide explicitly whether its empty turn is a signal (human
-  accept-defaults, health-fixing's environmental fix) or a no-op, and guard BOTH
-  layers: `applyTurnTaking` (don't capture) and `classifyHead` (don't consume
-  state for historical/crash-recovered empty turns)
+- Capture is pattern-driven, not rule-driven: `PatternMachine.step` matches the
+  awaited state's `on` patterns against the pending diff (first match wins) and
+  commits the matched target verbatim as `gtd(<actor>): <target>` — there is no
+  separate label/capture-rule layer to keep in sync with the diff; the pattern
+  IS the rule. A branch outcome (an approval vs. feedback, a green vs. red
+  check) is encoded by which pattern the AUTHORED diff happens to match, not by
+  a rule re-deriving it after the fact
+- **No matching pattern on a clean tree = a no-op invocation** (zero commits) —
+  inert empty steps are the DEFAULT; the loop protocol opens each iteration with
+  `gtd step <actor>` before the actor has acted, so a clean-tree step must
+  author nothing unless the state explicitly declares a `C` pattern. When adding
+  a state, decide explicitly whether its clean step is a signal (declare a `C`
+  row) or a no-op (declare none)
+- A dirty tree matching no declared pattern is a **refusal**, not a no-op —
+  distinguish "nothing happened" (clean, no `C` row) from "something happened
+  that nothing recognizes" (dirty, no row fires) when writing a new state's `on`
+  map

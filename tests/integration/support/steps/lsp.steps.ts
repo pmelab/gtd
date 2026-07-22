@@ -1,268 +1,230 @@
-import { Given, When, Then, After } from "quickpickle"
+import { After, Given, Then, When } from "quickpickle"
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
-import { readFileSync, writeFileSync } from "node:fs"
-import { pathToFileURL, fileURLToPath } from "node:url"
 import { join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 
-// `gtd lsp` is a long-running stdio server, unlike every other subcommand's
-// run-to-completion `execFile` — so it can't go through the @inmem tier (no
-// separate process to pipe stdin/stdout to) or the @live tier's `runGtdLive`
-// (which waits for exit). These steps speak the real Content-Length-framed
-// JSON-RPC protocol against a real spawned `gtd lsp` process instead.
+// ── A minimal LSP client: enough of the stdio JSON-RPC framing protocol to
+// drive `gtd lsp` for e2e — not a general-purpose client. Kept self-contained
+// (module-local state keyed by world) rather than added to `GtdWorld` itself,
+// since only this feature ever needs a long-running child process; every
+// other scenario's `runGtd*` is one-shot exec.
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
 const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
 
-interface JsonRpcMessage {
-  readonly jsonrpc: "2.0"
+interface JsonRpcResponse {
   readonly id?: number
   readonly method?: string
   readonly params?: unknown
   readonly result?: unknown
-  readonly error?: unknown
+  readonly error?: { readonly message: string }
 }
 
-interface LspSession {
+interface LspClient {
   readonly proc: ChildProcessWithoutNullStreams
+  buffer: Buffer
   nextId: number
-  readonly pending: Map<number, (result: unknown) => void>
-  readonly serverRequests: JsonRpcMessage[]
-  lastResult: unknown
+  readonly pending: Map<number, (response: JsonRpcResponse) => void>
+  readonly stderr: string[]
+  /** Requests the SERVER sent to this client (e.g. `window/showDocument`), oldest → newest — auto-acknowledged (see `dispatch`) so the server's own await unblocks; recorded here for assertions. */
+  readonly serverRequests: JsonRpcResponse[]
 }
 
-const sessions = new WeakMap<GtdWorld, LspSession>()
+const clients = new WeakMap<GtdWorld, LspClient>()
 
-const encode = (message: object): Buffer => {
-  const json = JSON.stringify(message)
-  const header = `Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n`
-  return Buffer.concat([Buffer.from(header, "ascii"), Buffer.from(json, "utf8")])
+function frame(message: Record<string, unknown>): string {
+  const body = JSON.stringify(message)
+  return `Content-Length: ${Buffer.byteLength(body, "utf-8")}\r\n\r\n${body}`
 }
 
-/** Feeds raw stdout bytes through Content-Length framing, dispatching each parsed message. */
-class Framer {
-  private buffer = Buffer.alloc(0)
-  constructor(private readonly onMessage: (message: JsonRpcMessage) => void) {}
+/** One complete `Content-Length`-framed message pulled off the front of `buffer`, and the remainder left behind — or `undefined` if `buffer` doesn't yet hold a full frame. */
+function popFrame(
+  buffer: Buffer,
+): { readonly message: JsonRpcResponse; readonly rest: Buffer } | undefined {
+  const headerEnd = buffer.indexOf("\r\n\r\n")
+  if (headerEnd === -1) return undefined
+  const header = buffer.subarray(0, headerEnd).toString("utf-8")
+  const match = /Content-Length:\s*(\d+)/i.exec(header)
+  if (!match) return undefined
+  const length = Number(match[1])
+  const bodyStart = headerEnd + 4
+  if (buffer.length < bodyStart + length) return undefined
+  const body = buffer.subarray(bodyStart, bodyStart + length).toString("utf-8")
+  return { message: JSON.parse(body) as JsonRpcResponse, rest: buffer.subarray(bodyStart + length) }
+}
 
-  // fallow-ignore-next-line complexity
-  push(chunk: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, chunk])
-    for (;;) {
-      const headerEnd = this.buffer.indexOf("\r\n\r\n")
-      if (headerEnd === -1) return
-      const header = this.buffer.subarray(0, headerEnd).toString("ascii")
-      const match = /Content-Length: (\d+)/.exec(header)
-      if (!match) return
-      const length = Number(match[1])
-      const bodyStart = headerEnd + 4
-      if (this.buffer.length < bodyStart + length) return
-      const body = this.buffer.subarray(bodyStart, bodyStart + length).toString("utf8")
-      this.buffer = this.buffer.subarray(bodyStart + length)
-      this.onMessage(JSON.parse(body) as JsonRpcMessage)
-    }
+/**
+ * Handles a message carrying a `method` — the server calling US
+ * (`window/showDocument` and friends): recorded in `serverRequests` for
+ * assertions, and, when it carries an `id` (a request, not a notification),
+ * immediately acknowledged with a generic success result so the server's own
+ * `await` unblocks (this minimal client doesn't actually show anything — it
+ * just proves the round trip).
+ */
+function handleServerRequest(client: LspClient, message: JsonRpcResponse): void {
+  client.serverRequests.push(message)
+  if (message.id === undefined) return
+  client.proc.stdin.write(frame({ jsonrpc: "2.0", id: message.id, result: { success: true } }))
+}
+
+/** Delivers a RESPONSE (no `method`) to one of our own pending requests' waiter, if still waiting. */
+function handleResponse(client: LspClient, message: JsonRpcResponse): void {
+  if (message.id === undefined) return
+  client.pending.get(message.id)?.(message)
+  client.pending.delete(message.id)
+}
+
+/** Dispatches one decoded message to whichever of the two handlers above applies. */
+function dispatch(client: LspClient, message: JsonRpcResponse): void {
+  if (message.method !== undefined) {
+    handleServerRequest(client, message)
+  } else {
+    handleResponse(client, message)
   }
 }
 
-const sendRequest = (session: LspSession, method: string, params: unknown): Promise<unknown> => {
-  const id = session.nextId++
-  return new Promise((resolve) => {
-    session.pending.set(id, resolve)
-    session.proc.stdin.write(encode({ jsonrpc: "2.0", id, method, params }))
+/** Consumes every complete frame currently sitting in the client's buffer, dispatching each in turn. */
+function drain(client: LspClient): void {
+  for (;;) {
+    const popped = popFrame(client.buffer)
+    if (!popped) return
+    client.buffer = popped.rest
+    dispatch(client, popped.message)
+  }
+}
+
+function request(client: LspClient, method: string, params: unknown): Promise<JsonRpcResponse> {
+  const id = client.nextId++
+  return new Promise((resolvePromise, rejectPromise) => {
+    const timer = setTimeout(() => {
+      client.pending.delete(id)
+      rejectPromise(new Error(`LSP request "${method}" timed out waiting for a response`))
+    }, 10_000)
+    client.pending.set(id, (response) => {
+      clearTimeout(timer)
+      resolvePromise(response)
+    })
+    client.proc.stdin.write(frame({ jsonrpc: "2.0", id, method, params }))
   })
 }
 
-const sendNotification = (session: LspSession, method: string, params: unknown): void => {
-  session.proc.stdin.write(encode({ jsonrpc: "2.0", method, params }))
+function notify(client: LspClient, method: string, params: unknown): void {
+  client.proc.stdin.write(frame({ jsonrpc: "2.0", method, params }))
 }
 
-const uriFor = (world: GtdWorld, path: string): string =>
-  pathToFileURL(join(world.repoDir, path)).toString()
-
-const openDocument = (session: LspSession, world: GtdWorld, path: string): string => {
-  const uri = uriFor(world, path)
-  sendNotification(session, "textDocument/didOpen", {
-    textDocument: {
-      uri,
-      languageId: "markdown",
-      version: 1,
-      text: readFileSync(join(world.repoDir, path), "utf-8"),
-    },
+Given("an LSP server started in the test project", (world: GtdWorld) => {
+  const proc = spawn(process.execPath, [GTD_BIN, "lsp"], {
+    cwd: world.repoDir,
+    stdio: ["pipe", "pipe", "pipe"],
   })
-  return uri
-}
-
-Given("a running gtd lsp server", async (world: GtdWorld) => {
-  const proc = spawn(process.execPath, [GTD_BIN, "lsp"], { cwd: world.repoDir })
-  const session: LspSession = {
+  const client: LspClient = {
     proc,
+    buffer: Buffer.alloc(0),
     nextId: 1,
     pending: new Map(),
+    stderr: [],
     serverRequests: [],
-    lastResult: undefined,
   }
-  sessions.set(world, session)
-
-  // fallow-ignore-next-line complexity
-  const framer = new Framer((message) => {
-    if (message.id !== undefined && message.method === undefined) {
-      const resolve = session.pending.get(message.id)
-      if (resolve) {
-        session.pending.delete(message.id)
-        resolve(message.result ?? message.error)
-      }
-      return
-    }
-    if (message.id !== undefined && message.method !== undefined) {
-      // A request FROM the server (e.g. window/showDocument) — record it and
-      // acknowledge so the server's own await doesn't hang.
-      session.serverRequests.push(message)
-      session.proc.stdin.write(encode({ jsonrpc: "2.0", id: message.id, result: null }))
-    }
+  proc.stdout.on("data", (chunk: Buffer) => {
+    client.buffer = Buffer.concat([client.buffer, chunk])
+    drain(client)
   })
-  proc.stdout.on("data", (chunk: Buffer) => framer.push(chunk))
+  proc.stderr.on("data", (chunk: Buffer) => {
+    client.stderr.push(chunk.toString("utf-8"))
+  })
+  clients.set(world, client)
+})
 
-  await sendRequest(session, "initialize", {
+When("the LSP client sends an initialize request", async (world: GtdWorld) => {
+  const client = clients.get(world)!
+  const response = await request(client, "initialize", {
     processId: process.pid,
     rootUri: pathToFileURL(world.repoDir).toString(),
-    capabilities: { window: { showDocument: { support: true } } },
+    capabilities: {},
   })
-  sendNotification(session, "initialized", {})
-})
-
-After(async (world: GtdWorld) => {
-  const session = sessions.get(world)
-  if (session) {
-    session.proc.kill()
-    sessions.delete(world)
-  }
-})
-
-When("I request document symbols for {string}", async (world: GtdWorld, path: string) => {
-  const session = sessions.get(world)!
-  const uri = openDocument(session, world, path)
-  session.lastResult = await sendRequest(session, "textDocument/documentSymbol", {
-    textDocument: { uri },
-  })
+  ;(world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse = response
+  notify(client, "initialized", {})
 })
 
 When(
-  "I request code actions at line containing {string} of {string}",
-  async (world: GtdWorld, needle: string, path: string) => {
-    const session = sessions.get(world)!
-    const uri = openDocument(session, world, path)
-    const lines = readFileSync(join(world.repoDir, path), "utf-8").split(/\r?\n/)
-    const line = lines.findIndex((l) => l.includes(needle))
-    assert.ok(line !== -1, `no line containing "${needle}" in ${path}`)
-    session.lastResult = await sendRequest(session, "textDocument/codeAction", {
-      textDocument: { uri },
-      range: { start: { line, character: 0 }, end: { line, character: 0 } },
-      context: { diagnostics: [] },
+  "the LSP client requests document symbols for {string} containing:",
+  async (world: GtdWorld, path: string, content: string) => {
+    const client = clients.get(world)!
+    const uri = pathToFileURL(join(world.repoDir, path)).toString()
+    notify(client, "textDocument/didOpen", {
+      textDocument: { uri, languageId: "markdown", version: 1, text: content },
     })
+    const response = await request(client, "textDocument/documentSymbol", {
+      textDocument: { uri },
+    })
+    ;(world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse = response
   },
 )
 
-interface WorkspaceEditLike {
-  readonly changes?: Record<
-    string,
-    ReadonlyArray<{
-      range: {
-        start: { line: number; character: number }
-        end: { line: number; character: number }
-      }
-      newText: string
-    }>
-  >
-}
+When(
+  "the LSP client sends a workspace\\/executeCommand request for {string}",
+  async (world: GtdWorld, command: string) => {
+    const client = clients.get(world)!
+    const response = await request(client, "workspace/executeCommand", { command, arguments: [] })
+    ;(world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse = response
+  },
+)
 
-/** Applies a WorkspaceEdit exactly as an editor accepting the code action would. */
-const applyWorkspaceEdit = (edit: WorkspaceEditLike): void => {
-  for (const [uri, edits] of Object.entries(edit.changes ?? {})) {
-    const path = fileURLToPath(uri)
-    const lines = readFileSync(path, "utf-8").split(/\r?\n/)
-    for (const textEdit of edits) {
-      const line = lines[textEdit.range.start.line]!
-      lines[textEdit.range.start.line] =
-        line.slice(0, textEdit.range.start.character) +
-        textEdit.newText +
-        line.slice(textEdit.range.end.character)
-    }
-    writeFileSync(path, lines.join("\n"))
-  }
-}
+Then(
+  "the LSP client received a window\\/showDocument request for {string}",
+  (world: GtdWorld, path: string) => {
+    const client = clients.get(world)!
+    const expectedUri = pathToFileURL(join(world.repoDir, path)).toString()
+    const found = client.serverRequests.some(
+      (m) =>
+        m.method === "window/showDocument" &&
+        (m.params as { uri?: string } | undefined)?.uri === expectedUri,
+    )
+    assert.ok(
+      found,
+      `Expected a window/showDocument request for "${expectedUri}". Got server requests: ${JSON.stringify(
+        client.serverRequests,
+      )}`,
+    )
+  },
+)
 
-When("I apply the code action titled {string}", (world: GtdWorld, title: string) => {
-  const session = sessions.get(world)!
-  const actions = session.lastResult as ReadonlyArray<{ title: string; edit: WorkspaceEditLike }>
-  const action = actions.find((a) => a.title === title)
-  assert.ok(
-    action,
-    `no code action titled "${title}" — got: ${actions.map((a) => a.title).join(", ")}`,
-  )
-  applyWorkspaceEdit(action.edit)
-})
-
-When("I run the gtd.openSteeringFile command", async (world: GtdWorld) => {
-  const session = sessions.get(world)!
-  await sendRequest(session, "workspace/executeCommand", {
-    command: "gtd.openSteeringFile",
-    arguments: [],
-  })
-})
-
-Then("there are {int} document symbols", (world: GtdWorld, count: number) => {
-  const session = sessions.get(world)!
-  const symbols = session.lastResult as ReadonlyArray<unknown>
-  assert.strictEqual(symbols.length, count)
-})
-
-Then("the document symbols include {string}", (world: GtdWorld, name: string) => {
-  const session = sessions.get(world)!
-  const symbols = session.lastResult as ReadonlyArray<{ name: string }>
-  assert.ok(
-    symbols.some((s) => s.name === name),
-    `expected a symbol named "${name}" — got: ${symbols.map((s) => s.name).join(", ")}`,
+Then("the LSP response has no error", (world: GtdWorld) => {
+  const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+  assert.strictEqual(
+    response.error,
+    undefined,
+    `Expected no LSP error, got: ${JSON.stringify(response.error)}`,
   )
 })
 
-Then("the first symbol's children include {string}", (world: GtdWorld, name: string) => {
-  const session = sessions.get(world)!
-  const symbols = session.lastResult as ReadonlyArray<{
-    children?: ReadonlyArray<{ name: string }>
-  }>
-  const children = symbols[0]?.children ?? []
+Then("the LSP response result has a {string} capability", (world: GtdWorld, key: string) => {
+  const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+  const capabilities = (response.result as { capabilities?: Record<string, unknown> })?.capabilities
   assert.ok(
-    children.some((c) => c.name === name),
-    `expected a child symbol named "${name}" — got: ${children.map((c) => c.name).join(", ")}`,
+    capabilities !== undefined && key in capabilities,
+    `Expected capabilities to include "${key}". Got: ${JSON.stringify(capabilities)}`,
   )
-})
-
-Then("the server asked to show document {string}", (world: GtdWorld, path: string) => {
-  const session = sessions.get(world)!
-  const expectedUri = uriFor(world, path)
-  const request = session.serverRequests.find((r) => r.method === "window/showDocument")
-  assert.ok(
-    request,
-    `no window/showDocument request received — got: ${session.serverRequests.map((r) => r.method).join(", ")}`,
-  )
-  assert.strictEqual((request.params as { uri: string }).uri, expectedUri)
 })
 
 Then(
-  "the server showed an information message containing {string}",
-  (world: GtdWorld, needle: string) => {
-    const session = sessions.get(world)!
-    const request = session.serverRequests.find(
-      (r) => r.method === "window/showMessageRequest" || r.method === "window/showMessage",
-    )
+  "the LSP response result contains a symbol named {string}",
+  (world: GtdWorld, name: string) => {
+    const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+    const symbols = response.result as ReadonlyArray<{ name: string }>
     assert.ok(
-      request,
-      `no window/showMessage(Request) received — got: ${session.serverRequests.map((r) => r.method).join(", ")}`,
-    )
-    const message = (request.params as { message: string }).message
-    assert.ok(
-      message.includes(needle),
-      `expected message to contain "${needle}" — got: "${message}"`,
+      symbols.some((s) => s.name === name),
+      `Expected a symbol named "${name}". Got: ${JSON.stringify(symbols.map((s) => s.name))}`,
     )
   },
 )
+
+After(async (world: GtdWorld) => {
+  const client = clients.get(world)
+  if (!client) return
+  clients.delete(world)
+  notify(client, "exit", null)
+  client.proc.kill()
+})

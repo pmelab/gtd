@@ -2,8 +2,9 @@ import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
+import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
-import { TestRunner } from "./TestRunner.js"
+import { WorktreeReader } from "./WorktreeReader.js"
 import { isEnveloped, makeProgram, runVersionOrHelp } from "./program.js"
 
 // Version/help must short-circuit before the Effect runtime exists: layer
@@ -15,10 +16,10 @@ if (runVersionOrHelp(process.argv, (chunk) => process.stdout.write(chunk))) {
 
 makeProgram().pipe(
   Effect.provide(GitService.Live),
-  Effect.provide(TestRunner.Live),
-  // Satisfies `ConfigService`, a requirement of `TestRunner.Live`.
   Effect.provide(ConfigService.Live),
   Effect.provide(ConfigInit.Live),
+  Effect.provide(WorktreeReader.Live),
+  Effect.provide(EnvVars.Live),
   Effect.provide(Cwd.Live),
   Effect.provide(NodeContext.layer),
   Effect.catchAll((error) =>

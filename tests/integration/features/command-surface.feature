@@ -1,10 +1,10 @@
 @inmem
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
-  gtd v2 exposes `step`, `step-agent`, `next`, `status`, `format`, `review`,
-  `questions`, and `changesets` as its subcommands. Bare `gtd` (no subcommand)
-  is a usage error. `--help` and `--version` short-circuit before any
-  repo-state work and exit 0 everywhere, including outside a workflow state.
+  gtd v3 exposes `step <actor>`, `next`, `run`, `status`, `format`, and `lsp`
+  as its subcommands. Bare `gtd` (no subcommand) is a usage error. `--help`
+  and `--version` short-circuit before any repo-state work and exit 0
+  everywhere, including outside a workflow state.
 
   Scenario: Bare gtd fails with usage help and authors nothing
     Given a test project
@@ -19,11 +19,11 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     When I run gtd with args "bogus-subcommand"
     Then it fails
 
-  Scenario: --help prints the v2 command list
+  Scenario: --help prints the command list
     Given a test project
     When I run gtd with "--help"
     Then it succeeds
-    And stdout contains "step-agent"
+    And stdout contains "step <actor>"
     And stdout contains "next"
 
   Scenario: --version prints the version and exits 0
@@ -51,3 +51,15 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     When I run gtd with "--version"
     Then it succeeds
     And stdout matches "\d+\.\d+\.\d+"
+
+  Scenario: --help lists the lsp subcommand
+    Given a test project
+    When I run gtd with "--help"
+    Then it succeeds
+    And stdout contains "lsp"
+
+  Scenario: gtd lsp rejects --json — it's a long-running server, not a state command
+    Given a test project
+    When I run gtd with args "lsp --json"
+    Then it fails
+    And stderr contains "gtd lsp does not accept --json"

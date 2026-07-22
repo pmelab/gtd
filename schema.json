@@ -1,82 +1,15 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$defs": {
-    "Int": {
-      "type": "integer",
-      "description": "an integer",
-      "title": "int"
-    }
-  },
   "type": "object",
   "required": [],
   "properties": {
-    "testCommand": {
-      "type": "string"
+    "workflow": {
+      "$id": "/schemas/unknown",
+      "title": "unknown"
     },
-    "models": {
-      "type": "object",
-      "required": [],
-      "properties": {
-        "planning": {
-          "type": "string"
-        },
-        "execution": {
-          "type": "string"
-        },
-        "states": {
-          "type": "object",
-          "required": [],
-          "properties": {
-            "decompose": {
-              "type": "string"
-            },
-            "grilling": {
-              "type": "string"
-            },
-            "architecting": {
-              "type": "string"
-            },
-            "building": {
-              "type": "string"
-            },
-            "fixing": {
-              "type": "string"
-            },
-            "agentic-review": {
-              "type": "string"
-            },
-            "clean": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    },
-    "agenticReview": {
-      "type": "boolean"
-    },
-    "squash": {
-      "type": "boolean"
-    },
-    "learning": {
-      "type": "boolean"
-    },
-    "decisionLog": {
-      "type": "boolean"
-    },
-    "fixAttemptCap": {
-      "$ref": "#/$defs/Int",
-      "description": "a non-negative number",
-      "title": "greaterThanOrEqualTo(0)",
-      "minimum": 0
-    },
-    "reviewThreshold": {
-      "$ref": "#/$defs/Int",
-      "description": "a number greater than or equal to 1",
-      "title": "greaterThanOrEqualTo(1)",
-      "minimum": 1
+    "vars": {
+      "$id": "/schemas/unknown",
+      "title": "unknown"
     }
   },
   "additionalProperties": false

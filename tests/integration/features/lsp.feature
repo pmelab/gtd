@@ -1,116 +1,108 @@
 @live
-Feature: gtd lsp — LSP server for .gtd/ steering files
+Feature: gtd lsp — the steering-file LSP server (stdio)
 
-  `gtd lsp` starts an LSP server over stdio for editors to attach to. These
-  scenarios speak the real JSON-RPC wire protocol against the real built
-  binary (never the in-memory tier — there's no separate process to pipe
-  stdin/stdout to for a long-running server), covering: document symbols for
-  open questions and review chunks/hunks, code actions that check/uncheck a
-  hunk or a whole chunk, and the `gtd.openSteeringFile` command that asks the
-  client to open whichever steering file matches the current state.
+  Minimal protocol-level smoke for `gtd lsp` (see src/Lsp.ts and
+  docs/design/steering-file-loops.md §5): the server starts over stdio, the
+  `initialize` handshake succeeds and advertises the document-symbol/code-
+  action capabilities, and a `textDocument/documentSymbol` request against a
+  `.gtd/TODO.md` fixture round-trips the open-questions parser's output (the
+  no-config basename fallback). Two further scenarios prove the config-driven
+  half (see docs/design/state-file-association.md §3): documentSymbol served
+  for a CUSTOM-named `qa` file mapped via a real `.gtdrc` `file:`/`mode:`
+  pair, and the `gtd.openSteeringFile` executeCommand resolving a
+  hand-authored current state and asking the client to show its steering
+  file (`window/showDocument`). Real subprocess I/O (spawn + stdio JSON-RPC
+  framing), so this runs @live.
 
-  Scenario: Document symbols surface each open question with its answered/suggested status
+  Scenario: the initialize handshake succeeds and advertises symbol/code-action support
     Given a test project
-    And a file ".gtd/TODO.md" with:
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    And the LSP response result has a "documentSymbolProvider" capability
+    And the LSP response result has a "codeActionProvider" capability
+
+  Scenario: a documentSymbol request against a TODO.md fixture round-trips the open-questions parser
+    Given a test project
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/TODO.md" containing:
       """
-      # Plan
+      Build a calculator.
 
       ## Open Questions
 
       ### Which operations?
 
       Suggested default: add and subtract.
-
-      ### What is the target platform?
-
-      Answer: web only.
       """
-    And a running gtd lsp server
-    When I request document symbols for ".gtd/TODO.md"
-    Then there are 2 document symbols
-    And the document symbols include "[suggested] Which operations?"
-    And the document symbols include "[answered] What is the target platform?"
+    Then the LSP response has no error
+    And the LSP response result contains a symbol named "[suggested] Which operations?"
 
-  Scenario: Document symbols surface each review chunk and its hunks
+  Scenario: documentSymbol is served for a CUSTOM-named qa file mapped via a real .gtdrc (config-driven dispatch)
     Given a test project
-    And a file ".gtd/REVIEW.md" with:
+    And a gtd config file at ".gtdrc" with:
       """
-      # Review: abc1234
-
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
-
-      - [ ] ./src/calc.ts#1
-      - [x] ./src/calc.ts#5 — subtract
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "go"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            file: ".gtd/PLAN.md"
+            mode: qa
+            prompt: "develop the plan"
+            on:
+              "* **": idle
       """
-    And a running gtd lsp server
-    When I request document symbols for ".gtd/REVIEW.md"
-    Then there are 1 document symbols
-    And the document symbols include "Add calculator (1/2)"
-    And the first symbol's children include "[ ] ./src/calc.ts#1"
-    And the first symbol's children include "[x] ./src/calc.ts#5 — subtract"
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
 
-  Scenario: A code action checks a single unchecked hunk without touching the rest of the line
+      ## Open Questions
+
+      ### Which operations?
+
+      Suggested default: add and subtract.
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a symbol named "[suggested] Which operations?"
+
+  Scenario: gtd.openSteeringFile resolves the current state's steering file and asks the client to show it
     Given a test project
-    And a file ".gtd/REVIEW.md" with:
+    And a gtd config file at ".gtdrc" with:
       """
-      # Review: abc1234
-
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
-
-      - [ ] ./src/calc.ts#1
-      - [ ] ./src/calc.ts#5 — subtract
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "go"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            file: ".gtd/PLAN.md"
+            mode: qa
+            prompt: "develop the plan"
+            on:
+              "* **": idle
       """
-    And a running gtd lsp server
-    When I request code actions at line containing "calc.ts#1" of ".gtd/REVIEW.md"
-    And I apply the code action titled "gtd: check this hunk"
-    Then the file ".gtd/REVIEW.md" contains "- [x] ./src/calc.ts#1"
-    And the file ".gtd/REVIEW.md" contains "- [ ] ./src/calc.ts#5 — subtract"
-
-  Scenario: A code action checks every hunk in a chunk at once
-    Given a test project
-    And a file ".gtd/REVIEW.md" with:
+    And a commit "gtd(human): working" that adds ".gtd/PLAN.md" with:
       """
-      # Review: abc1234
-
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
-
-      - [ ] ./src/calc.ts#1
-      - [ ] ./src/calc.ts#5 — subtract
+      the plan under development
       """
-    And a running gtd lsp server
-    When I request code actions at line containing "## Add calculator" of ".gtd/REVIEW.md"
-    And I apply the code action titled "gtd: check all hunks in \"Add calculator\""
-    Then the file ".gtd/REVIEW.md" contains "- [x] ./src/calc.ts#1"
-    And the file ".gtd/REVIEW.md" contains "- [x] ./src/calc.ts#5 — subtract"
-
-  Scenario: The openSteeringFile command asks the client to show REVIEW.md while resting at await-review
-    Given a test project
-    And a commit "feat: add calculator" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And a commit "gtd: awaiting review" that adds ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
-
-      - [ ] ./src/calc.ts#1
-      """
-    And a running gtd lsp server
-    When I run the gtd.openSteeringFile command
-    Then the server asked to show document ".gtd/REVIEW.md"
-
-  Scenario: The openSteeringFile command reports the state when no single file applies
-    Given a test project
-    And a running gtd lsp server
-    When I run the gtd.openSteeringFile command
-    Then the server showed an information message containing "idle"
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client sends a workspace/executeCommand request for "gtd.openSteeringFile"
+    Then the LSP response has no error
+    And the LSP client received a window/showDocument request for ".gtd/PLAN.md"

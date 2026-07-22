@@ -7,7 +7,7 @@ export default defineConfig({
   target: "node20",
   outDir: "dist",
   outExtensions: () => ({ js: ".mjs" }),
-  loader: { ".md": "text" },
+  loader: { ".md": "text", ".yaml": "text" },
   banner: {
     js: `#!/usr/bin/env node
 import { createRequire as __createRequire } from 'module';

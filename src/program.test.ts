@@ -1,10 +1,10 @@
 /**
  * Unit tests for src/program.ts — short-circuit flags (--version / --help),
  * bare/unknown-command usage errors, `format` arg validation, and the JSON
- * error envelope shape. Full behavioral coverage of `step` / `step-agent` /
- * `next` / `status` / `review` against a real repo lives in the feature files
- * owned by other tasks in this package; this file sticks to what it can test
- * without a real repo, as today.
+ * error envelope shape. Full behavioral coverage of `step <actor>` / `next` /
+ * `run` / `status` against a real repo lives in the feature files owned by
+ * other tasks in this package; this file sticks to what it can test without
+ * a real repo, as today.
  */
 
 import { NodeContext } from "@effect/platform-node"
@@ -12,74 +12,53 @@ import { Effect, Exit, Layer } from "effect"
 import { describe, expect, it } from "vitest"
 import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
+import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
+import { WorktreeReader } from "./WorktreeReader.js"
+import { defaultWorkflowDefinition } from "./workflows/default.js"
 import { makeProgram } from "./program.js"
-import { TestRunner } from "./TestRunner.js"
 
 // GitService whose every method fails — proves the flag handler never calls git.
 const failingGitLayer = Layer.succeed(GitService, {
-  statusPorcelain: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
   hasCommits: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   lastCommitSubject: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
   resolveRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  readRefOption: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   topLevel: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  resolveDefaultBranch: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  mergeBase: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  isAncestor: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  lastDeletionOf: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitHistory: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   diffHead: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   diffRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  diffPath: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitDiff: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  changedPaths: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitAllWithPrefix: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
   softResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  updateRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  deleteRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  mixedResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  restoreStagedFrom: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  addIntentToAdd: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  mixedResetHead: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  resetHard: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  revertNoCommit: () =>
-    Effect.fail(new Error("GitService must not be called for --version/--help")),
-  removeGtdDir: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  removePackageDir: () =>
+  commitAsIs: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  discardPending: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
 })
 
 // Minimal stub ConfigService — satisfies the type but never called for flags.
 const stubConfigLayer = Layer.succeed(ConfigService, {
-  testCommand: "npm run test",
-  resolveModel: () => "stub",
-  agenticReview: false,
-  squash: false,
-  learning: false,
-  decisionLog: false,
-  fixAttemptCap: 0,
-  reviewThreshold: 0,
+  workflow: defaultWorkflowDefinition,
+  workflowVars: {},
+  rcVars: {},
 })
 
-// Minimal stub TestRunner — satisfies the type but never called for flags.
-const stubTestRunnerLayer = Layer.succeed(TestRunner, {
-  run: () => Effect.fail(new Error("TestRunner must not be called for --version/--help")),
+// Minimal stub WorktreeReader — never called for flags.
+const stubWorktreeReaderLayer = Layer.succeed(WorktreeReader, {
+  read: () => {
+    throw new Error("WorktreeReader must not be called for --version/--help")
+  },
 })
 
 const testLayers = failingGitLayer.pipe(
   Layer.provideMerge(NodeContext.layer),
   Layer.provideMerge(stubConfigLayer),
-  Layer.provideMerge(stubTestRunnerLayer),
+  Layer.provideMerge(stubWorktreeReaderLayer),
   Layer.provideMerge(ConfigInit.Noop),
   Layer.provideMerge(Cwd.layer("")),
+  Layer.provideMerge(EnvVars.layer({})),
 )
 
 async function runFlag(
@@ -118,10 +97,10 @@ describe("--help short-circuit", () => {
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(output).toContain("Usage")
     expect(output).toContain("step")
-    expect(output).toContain("step-agent")
+    expect(output).toContain("step <actor>")
     expect(output).toContain("next")
     expect(output).toContain("status")
-    expect(output).toContain("review")
+    expect(output).toContain("run")
     expect(output).toContain("format")
     expect(output).toMatch(/\n$/)
   })

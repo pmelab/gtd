@@ -4,97 +4,20 @@ import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Command, CommandExecutor, FileSystem } from "@effect/platform"
+import { compileVarsMap, compileWorkflowConfig } from "./PatternConfig.js"
+import { parseStateSubject, type WorkflowDefinition } from "./PatternMachine.js"
+import { defaultWorkflowDefinition, defaultWorkflowVars } from "./workflows/default.js"
 import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
-
-/**
- * Planning/execution states a model can be resolved for — the machine's
- * agent-bearing states. The two decompose states (`grilled`, `planning`) share
- * the `decompose` tier; the rest map per `stateTier`. `agenticReview` is the
- * kill-switch for the agentic-review gate.
- */
-export type ModelState =
-  | "decompose"
-  | "grilling"
-  | "architecting"
-  | "building"
-  | "fixing"
-  | "agentic-review"
-  | "clean"
-
-/** Which tier a state belongs to. The single source of state→tier mapping. */
-export type ModelTier = "planning" | "execution"
-
-/**
- * State→tier mapping, exported so later packages can reuse it. `resolveModel`
- * remains the single source of truth for the full resolution algorithm.
- */
-export const stateTier: Record<ModelState, ModelTier> = {
-  decompose: "planning",
-  grilling: "planning",
-  architecting: "planning",
-  building: "execution",
-  fixing: "execution",
-  "agentic-review": "planning",
-  clean: "planning",
-}
-
-/** Built-in tier defaults, used when nothing is configured. */
-export const builtinTierDefault: Record<ModelTier, string> = {
-  planning: "claude-opus-4-8",
-  execution: "claude-sonnet-4-8",
-}
-
-const DEFAULT_TEST_COMMAND = "npm run test"
-const DEFAULT_AGENTIC_REVIEW = true
-const DEFAULT_SQUASH = true
-const DEFAULT_LEARNING = true
-const DEFAULT_DECISION_LOG = true
-const DEFAULT_FIX_ATTEMPT_CAP = 3
-const DEFAULT_REVIEW_THRESHOLD = 3
-
-// Closed struct for models.states: known keys only, each optional.
-// Using a plain Struct (not Record) means unknown keys are rejected during
-// decode rather than silently stripped.
-const ModelStatesSchema = Schema.Struct({
-  decompose: Schema.optional(Schema.String),
-  grilling: Schema.optional(Schema.String),
-  architecting: Schema.optional(Schema.String),
-  building: Schema.optional(Schema.String),
-  fixing: Schema.optional(Schema.String),
-  "agentic-review": Schema.optional(Schema.String),
-  clean: Schema.optional(Schema.String),
-})
-
-const ModelsSchema = Schema.Struct({
-  planning: Schema.optional(Schema.String),
-  execution: Schema.optional(Schema.String),
-  states: Schema.optional(ModelStatesSchema),
-})
-
-export const ConfigSchema = Schema.Struct({
-  testCommand: Schema.optional(Schema.String),
-  models: Schema.optional(ModelsSchema),
-  agenticReview: Schema.optional(Schema.Boolean),
-  squash: Schema.optional(Schema.Boolean),
-  learning: Schema.optional(Schema.Boolean),
-  decisionLog: Schema.optional(Schema.Boolean),
-  fixAttemptCap: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(0))),
-  reviewThreshold: Schema.optional(Schema.Int.pipe(Schema.greaterThanOrEqualTo(1))),
-})
-
-type DecodedConfig = Schema.Schema.Type<typeof ConfigSchema>
+import { ConfigSchema, type DecodedConfig } from "./ConfigSchema.js"
 
 export interface ConfigOperations {
-  readonly testCommand: string
-  readonly resolveModel: (state: ModelState) => string
-  readonly agenticReview: boolean
-  readonly squash: boolean
-  readonly learning: boolean
-  /** Record/read squash commits' `## Decisions` sections (kill-switch, default true) — see `src/Events.ts`'s `decisionLog` computation. */
-  readonly decisionLog: boolean
-  readonly fixAttemptCap: number
-  readonly reviewThreshold: number
+  /** The active workflow definition — the bundled default, or the `.gtdrc` `workflow:` key compiled through `compileWorkflowConfig`. */
+  readonly workflow: WorkflowDefinition
+  /** The active workflow's own declared `vars:` defaults (layer 1 of the merged `it.vars` — see `src/Edge.ts`'s `resolveVars`). `defaultWorkflowVars` for the bundled default. */
+  readonly workflowVars: Record<string, string>
+  /** The top-level `.gtdrc` `vars:` key (layer 2), already cwd→home deep-merged like any other config key. `{}` when absent. */
+  readonly rcVars: Record<string, string>
 }
 
 /**
@@ -255,28 +178,39 @@ const anyConfigPresent = (root: string): Effect.Effect<boolean, Error> =>
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
-const toOperations = (decoded: DecodedConfig): ConfigOperations => {
-  const resolveModel = (state: ModelState): string => {
-    const stateOverride = decoded.models?.states?.[state]
-    if (stateOverride !== undefined) return stateOverride
-
-    const tier = stateTier[state]
-    const tierOverride = tier === "planning" ? decoded.models?.planning : decoded.models?.execution
-    if (tierOverride !== undefined) return tierOverride
-
-    return builtinTierDefault[tier]
+/**
+ * Compile the decoded config's top-level `vars:` key into the `rcVars` layer,
+ * sharing `PatternConfig.ts`'s `compileVarsMap` with the workflow's own
+ * `vars:` so both layers validate identically (scalar coercion, object/array
+ * rejection). Throws a single aggregated `Error` on any bad entry — same
+ * "collected, never partial" discipline as `compileWorkflowConfig`.
+ */
+const compileRcVars = (raw: unknown): Record<string, string> => {
+  const errors: string[] = []
+  const vars = compileVarsMap(raw, errors)
+  if (errors.length > 0) {
+    throw new Error(`gtd config:\n${errors.map((e) => `  - ${e}`).join("\n")}`)
   }
+  return vars
+}
 
-  return {
-    testCommand: decoded.testCommand ?? DEFAULT_TEST_COMMAND,
-    resolveModel,
-    agenticReview: decoded.agenticReview ?? DEFAULT_AGENTIC_REVIEW,
-    squash: decoded.squash ?? DEFAULT_SQUASH,
-    learning: decoded.learning ?? DEFAULT_LEARNING,
-    decisionLog: decoded.decisionLog ?? DEFAULT_DECISION_LOG,
-    fixAttemptCap: decoded.fixAttemptCap ?? DEFAULT_FIX_ATTEMPT_CAP,
-    reviewThreshold: decoded.reviewThreshold ?? DEFAULT_REVIEW_THRESHOLD,
+/**
+ * Compile the decoded config's `workflow:` key (or the bundled default, when
+ * absent) plus its top-level `vars:` key into `ConfigOperations`. `root` is
+ * used as the workflow compiler's `configDir` — the directory a custom
+ * workflow's `./`-relative content references resolve against. Throws (via
+ * `compileWorkflowConfig`/`compileRcVars`) on any invalid custom
+ * workflow/vars; the bundled default's workflow half never throws here (it
+ * is pre-compiled and validated once at module load, see
+ * `./workflows/default.ts`).
+ */
+const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations => {
+  const rcVars = compileRcVars(decoded.vars)
+  if (decoded.workflow === undefined) {
+    return { workflow: defaultWorkflowDefinition, workflowVars: defaultWorkflowVars, rcVars }
   }
+  const { definition, vars: workflowVars } = compileWorkflowConfig(decoded.workflow, root)
+  return { workflow: definition, workflowVars, rcVars }
 }
 
 const formatSchemaError = (e: ParseError): string => {
@@ -329,18 +263,15 @@ export class ConfigInit extends Context.Tag("ConfigInit")<
 
         yield* writeStub
         yield* git("add", ".gtdrc.json")
-        // A repo that's already mid-workflow (any `gtd:` HEAD) must not gain
-        // a NEW boundary commit on top: the machine owns the commit history
-        // here, and stacking a fresh `chore:` commit would produce an
-        // unrecognized boundary HEAD most workflow states can't resolve past
-        // (only a narrow "operational recovery" fallback in
-        // `resolveBaseline` tolerates it, and only for a `gtd(agent):
-        // building` checkpoint specifically). Instead, amend the stub INTO
-        // the existing HEAD commit — HEAD's subject (and therefore what the
-        // resolver classifies) is unchanged, only its tree gains
-        // `.gtdrc.json`, so every workflow state stays resolvable exactly as
-        // if the stub had already been present from the start.
-        if (headSubject !== undefined && headSubject.startsWith("gtd:")) {
+        // A repo that's already mid-workflow (any `gtd(actor): state` HEAD)
+        // must not gain a NEW boundary commit on top: the machine owns the
+        // commit history here, and stacking a fresh `chore:` commit would
+        // produce an unrecognized boundary HEAD that resolves back to the
+        // workflow's initial state. Instead, amend the stub INTO the
+        // existing HEAD commit — HEAD's subject (and therefore what
+        // `resolveState` classifies) is unchanged, only its tree gains
+        // `.gtdrc.json`.
+        if (headSubject !== undefined && parseStateSubject(headSubject) !== undefined) {
           yield* git("commit", "--amend", "--no-edit")
         } else {
           yield* git("commit", "-m", "chore: add .gtdrc.json")
@@ -370,7 +301,10 @@ export class ConfigService extends Context.Tag("ConfigService")<ConfigService, C
       })
         .pipe(Effect.mapError(formatSchemaError))
         .pipe(Effect.mapError((msg) => new Error(msg)))
-      return toOperations(decoded)
+      return yield* Effect.try({
+        try: () => toOperations(decoded, root),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      })
     }),
   )
 }

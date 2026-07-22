@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest"
-import { Effect } from "effect"
 import {
   questionSymbols,
+  questionDiagnostics,
   reviewSymbols,
+  reviewDiagnostics,
   toggleHunkEdit,
   toggleChunkEdits,
   reviewCodeActions,
-  currentSteeringFile,
-  STATE_FILE,
+  basenameFallbackMode,
+  buildFileModeMap,
+  modeForDocument,
+  resolveWorkspaceRoot,
+  steeringFileOutcome,
 } from "./Lsp.js"
-import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
-import { inMemoryLayers } from "../tests/integration/support/inmem/layers.js"
+import type { WorkflowDefinition } from "./PatternMachine.js"
 
 const questionsDoc = [
   "# Plan",
@@ -58,6 +61,29 @@ describe("questionSymbols", () => {
   })
 })
 
+describe("questionDiagnostics", () => {
+  it("returns no diagnostics for a well-formed document", () => {
+    expect(questionDiagnostics(questionsDoc)).toEqual([])
+  })
+
+  it("publishes one diagnostic per malformed question, matching parseOpenQuestions's own errors", () => {
+    const malformed = [
+      "## Open Questions",
+      "",
+      "### Which operations?",
+      "",
+      "Not sure yet.",
+      "",
+    ].join("\n")
+    const diagnostics = questionDiagnostics(malformed)
+    expect(diagnostics).toHaveLength(1)
+    expect(diagnostics[0]?.message).toBe(
+      'Open question "Which operations?" is missing a "Suggested default: ..." or "Answer: ..." line',
+    )
+    expect(diagnostics[0]?.source).toBe("gtd")
+  })
+})
+
 describe("reviewSymbols", () => {
   it("maps each chunk to a symbol with its checked/total count and one child per hunk", () => {
     const symbols = reviewSymbols(reviewDoc)
@@ -68,6 +94,23 @@ describe("reviewSymbols", () => {
     ])
     expect(symbols[0]?.selectionRange.start.line).toBe(3)
     expect(symbols[0]?.children?.[0]?.selectionRange.start.line).toBe(5)
+  })
+})
+
+describe("reviewDiagnostics", () => {
+  it("returns no diagnostics for a well-formed document", () => {
+    expect(reviewDiagnostics(reviewDoc)).toEqual([])
+  })
+
+  it("publishes one diagnostic per structural error, matching parseReviewDoc's own errors", () => {
+    const malformed = "Just some text\n"
+    const diagnostics = reviewDiagnostics(malformed)
+    expect(diagnostics.map((d) => d.message)).toEqual([
+      "Missing or malformed '# Review: <hash>' header as the document's first line",
+      "Missing '<!-- base: <hash> -->' comment",
+      "REVIEW.md has no '##' chunks",
+    ])
+    expect(diagnostics.every((d) => d.source === "gtd")).toBe(true)
   })
 })
 
@@ -145,47 +188,127 @@ describe("reviewCodeActions", () => {
   })
 })
 
-describe("STATE_FILE", () => {
-  it("maps every review-related state to .gtd/REVIEW.md", () => {
-    expect(STATE_FILE["review"]).toBe(".gtd/REVIEW.md")
-    expect(STATE_FILE["await-review"]).toBe(".gtd/REVIEW.md")
-  })
-
-  it("omits work-package and no-file states, leaving the caller to fall back", () => {
-    expect(STATE_FILE["building"]).toBeUndefined()
-    expect(STATE_FILE["idle"]).toBeUndefined()
+describe("basenameFallbackMode", () => {
+  it("maps TODO.md to qa and REVIEW.md to review, and anything else to undefined", () => {
+    expect(basenameFallbackMode("TODO.md")).toBe("qa")
+    expect(basenameFallbackMode("REVIEW.md")).toBe("review")
+    expect(basenameFallbackMode("NOTES.md")).toBeUndefined()
   })
 })
 
-describe("currentSteeringFile", () => {
-  const runWith = (repo: InMemRepo) =>
-    Effect.runPromise(currentSteeringFile.pipe(Effect.provide(inMemoryLayers(repo))))
+describe("buildFileModeMap", () => {
+  const def = (states: WorkflowDefinition["states"]): WorkflowDefinition => ({ states })
 
-  it("resolves to REVIEW.md while resting at await-review", async () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc", 'testCommand: "true"\n')
-    repo.writeFile("readme.txt", "hello")
-    repo.commitAllWithPrefix("init: first commit")
-    repo.writeFile("src/code.ts", "export const x = 1")
-    repo.commitAllWithPrefix("gtd(agent): building")
-    repo.writeFile(
-      ".gtd/REVIEW.md",
-      "# Review: abc1234\n\n<!-- base: abc1234 -->\n\n## Chunk\n\n- [ ] ./src/code.ts#1\n",
+  it("renders each state's `file:` (vars-layer context) into an absolute path keyed to its `mode`", () => {
+    const { map, warnings } = buildFileModeMap(
+      def({
+        grilling: {
+          actor: "agent",
+          prompt: "x",
+          file: "<%= it.vars.todoFile %>",
+          mode: "qa",
+          initial: true,
+        },
+        reviewing: {
+          actor: "agent",
+          prompt: "x",
+          file: "<%= it.vars.reviewFile %>",
+          mode: "review",
+        },
+        idle: { actor: "human", message: "x" },
+      }),
+      { todoFile: ".gtd/TODO.md", reviewFile: ".gtd/REVIEW.md" },
+      "/repo",
     )
-    repo.commitAllWithPrefix("gtd(agent): review")
-    repo.commitAllWithPrefix("gtd: awaiting review")
-
-    const outcome = await runWith(repo)
-    expect(outcome).toEqual({ kind: "file", uri: expect.stringContaining("REVIEW.md") })
+    expect(warnings).toEqual([])
+    expect(map.get("/repo/.gtd/TODO.md")).toBe("qa")
+    expect(map.get("/repo/.gtd/REVIEW.md")).toBe("review")
+    expect(map.size).toBe(2)
   })
 
-  it("reports the state when it has no single mapped file", async () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtdrc", 'testCommand: "true"\n')
-    repo.writeFile("readme.txt", "hello")
-    repo.commitAllWithPrefix("init: first commit")
+  it("skips a state whose `file:` fails to render and warns, without failing the whole map", () => {
+    const { map, warnings } = buildFileModeMap(
+      def({
+        broken: { actor: "agent", prompt: "x", file: "<%= it.vars.nope.deeper %>", mode: "qa" },
+        ok: { actor: "agent", prompt: "x", file: "PLAN.md", mode: "qa" },
+      }),
+      {},
+      "/repo",
+    )
+    expect(map.get("/repo/PLAN.md")).toBe("qa")
+    expect(map.size).toBe(1)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('state "broken"')
+  })
 
-    const outcome = await runWith(repo)
-    expect(outcome).toEqual({ kind: "none", state: "idle" })
+  it("keeps the FIRST declaring state's mode on a path conflict, warning about the later one", () => {
+    const { map, warnings } = buildFileModeMap(
+      def({
+        first: { actor: "agent", prompt: "x", file: "SHARED.md", mode: "qa" },
+        second: { actor: "agent", prompt: "x", file: "SHARED.md", mode: "review" },
+      }),
+      {},
+      "/repo",
+    )
+    expect(map.get("/repo/SHARED.md")).toBe("qa")
+    expect(map.size).toBe(1)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('state "second"')
+  })
+
+  it("ignores a state declaring neither `file:` nor `mode:`", () => {
+    const { map, warnings } = buildFileModeMap(
+      def({ idle: { actor: "human", message: "x", initial: true } }),
+      {},
+      "/repo",
+    )
+    expect(map.size).toBe(0)
+    expect(warnings).toEqual([])
+  })
+})
+
+describe("modeForDocument", () => {
+  it("prefers the config-driven map over the basename fallback", () => {
+    const map = new Map([["/repo/PLAN.md", "qa" as const]])
+    expect(modeForDocument("file:///repo/PLAN.md", map)).toBe("qa")
+  })
+
+  it("falls back to basename dispatch for a path the map doesn't cover", () => {
+    const map = new Map()
+    expect(modeForDocument("file:///repo/.gtd/TODO.md", map)).toBe("qa")
+    expect(modeForDocument("file:///repo/.gtd/REVIEW.md", map)).toBe("review")
+    expect(modeForDocument("file:///repo/NOTES.md", map)).toBeUndefined()
+  })
+})
+
+describe("resolveWorkspaceRoot", () => {
+  it("prefers the first workspaceFolders entry", () => {
+    expect(
+      resolveWorkspaceRoot({
+        workspaceFolders: [{ uri: "file:///repo" }, { uri: "file:///other" }],
+        rootUri: "file:///deprecated",
+      }),
+    ).toBe("/repo")
+  })
+
+  it("falls back to the deprecated rootUri when workspaceFolders is absent", () => {
+    expect(resolveWorkspaceRoot({ rootUri: "file:///repo" })).toBe("/repo")
+  })
+
+  it("is undefined when neither is present", () => {
+    expect(resolveWorkspaceRoot({})).toBeUndefined()
+    expect(resolveWorkspaceRoot({ workspaceFolders: null, rootUri: null })).toBeUndefined()
+  })
+})
+
+describe("steeringFileOutcome", () => {
+  it("resolves a declared `file:` to a `file://` URI under root", () => {
+    const outcome = steeringFileOutcome("grilling", ".gtd/TODO.md", "/repo")
+    expect(outcome).toEqual({ kind: "show", uri: "file:///repo/.gtd/TODO.md" })
+  })
+
+  it("informs, naming the state, when no `file:` is declared", () => {
+    const outcome = steeringFileOutcome("idle", undefined, "/repo")
+    expect(outcome).toEqual({ kind: "inform", state: "idle" })
   })
 })
