@@ -20,6 +20,7 @@ import {
   type ResolvedRest,
 } from "./Edge.js"
 import { formatFile } from "./Format.js"
+import { startLspServer } from "./Lsp.js"
 import { matchesPattern, parsePattern, step } from "./PatternMachine.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 
@@ -39,6 +40,7 @@ Commands:
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   format <file>    Format a markdown file in place
+  lsp              Start the LSP server for .gtd/ steering files (stdio)
 
 Options:
   --json           Output structured JSON instead of plain text
@@ -103,6 +105,23 @@ const runFormatCommand = (
       )
     }
     yield* formatFile(args[0]!)
+  })
+
+/**
+ * `gtd lsp`: start the LSP server for `.gtd/` steering files over stdio.
+ * Rejects `--json` (not a state command) and extra positional arguments
+ * (takes none). Dispatched alongside `format` — before the known-subcommand
+ * guard, the repo-root guard, and auto-init — since the server needs no
+ * git/config/workflow dependency at all (it's keyed on file name, not
+ * workflow state; see `src/Lsp.ts`'s module doc).
+ */
+const runLspCommand = (argv: readonly string[], json: boolean): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    if (json) {
+      return yield* Effect.fail(new Error("gtd lsp does not accept --json"))
+    }
+    yield* rejectExtraArgs("lsp", argv)
+    yield* startLspServer()
   })
 
 /**
@@ -479,6 +498,10 @@ export function makeProgram(
 
     if (positional === "format") {
       return yield* runFormatCommand(argv, json)
+    }
+
+    if (positional === "lsp") {
+      return yield* runLspCommand(argv, json)
     }
 
     const sub = yield* requireKnownSubcommand(positional, json, write)

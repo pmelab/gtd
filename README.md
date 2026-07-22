@@ -97,6 +97,11 @@ Before wiring gtd into a repo, note the
 [repository requirements](docs/cli.md#repository-requirements) — most
 importantly: gitignore everything your scripts write.
 
+Editor integration: `gtd lsp` starts an LSP server over stdio for `.gtd/`
+steering files — symbols and check/uncheck actions over `.gtd/REVIEW.md`'s
+chunks, symbols over `.gtd/TODO.md`'s open questions, and diagnostics for both,
+live as you edit (see [CLI reference](docs/cli.md#gtd-lsp)).
+
 ## Documentation
 
 - [STATES.md](STATES.md) — the full pattern-machine specification: the model,

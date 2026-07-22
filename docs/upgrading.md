@@ -52,17 +52,27 @@ upgrading.
   a human review rested, so editors would show the diff directly. Deleted in v3
   (may return later as an explicit state property — not in scope now).
 - **`forceApprove`, content-inspection verdicts.** FEEDBACK.md emptiness,
-  checkbox-only REVIEW.md diffs, and doc-structure validation are gone —
-  verdicts are now expressed purely by which file a turn writes or deletes,
-  matched by an ordinary `on` pattern (`D REVIEW.md` = approve, `M REVIEW.md` =
-  feedback, in the bundled default).
+  checkbox-only REVIEW.md diffs, and doc-structure validation are gone as ENGINE
+  mechanisms — verdicts are now expressed purely by which file a turn writes or
+  deletes, matched by an ordinary `on` pattern. The bundled default workflow's
+  own two validation loops (`todo-validating`/`review-validating`/
+  `review-deciding` — see
+  [docs/design/steering-file-loops.md](design/steering-file-loops.md)) rebuild
+  checkbox-review and doc-structure verdicts as ordinary WORKFLOW data
+  (`script`-content states + `on` patterns), not an engine hook: `D REVIEW.md` =
+  approve, `M REVIEW.md` = route to the deterministic decider, in the bundled
+  default.
 - **`gtd questions` / `gtd changesets` / `gtd review <target>`.** Gone; the v3
-  command surface is `step` / `next` / `run` / `status` / `format` (see
+  command surface is `step` / `next` / `run` / `status` / `format` / `lsp` (see
   [CLI reference](cli.md)).
 - **Model tiers, the decision log.** No `models` config key, no `Gtd-Decisions`
   trailer scan, no grilling/architecting "prior decisions" context assembled
   from history.
-- **LSP.** Not part of v3.
+- **LSP.** Deleted at the v3 rewrite, then resurrected file-format-keyed rather
+  than state-keyed (`gtd lsp` — see
+  [Development](development.md#the-lsp-server)): the v2 `gtd.openSteeringFile`
+  command and its hardcoded state→file map are NOT back, since a v3 workflow
+  declares no such mapping.
 
 ## How to adopt
 

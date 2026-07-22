@@ -51,6 +51,24 @@ git/filesystem/template IO is confined to the edge (`src/Edge.ts`).
 `npm run build` produces `dist/gtd.bundle.mjs`, which npm exposes as the `gtd`
 binary via the `bin` field in `package.json`.
 
+## The LSP server
+
+`gtd lsp` (`src/Lsp.ts`) serves editor tooling over `.gtd/`'s two steering-file
+formats — document symbols and diagnostics for `.gtd/TODO.md`'s open questions
+and `.gtd/REVIEW.md`'s review chunks/hunks, plus check/uncheck code actions for
+the latter. It's keyed on file NAME, not workflow state: a v3 workflow declares
+no state→file mapping (a state names no file), so the server needs no
+git/`.gtdrc` dependency at all and serves whatever content the editor hands it
+over the LSP protocol, exactly like any other document.
+
+`src/OpenQuestions.ts` and `src/ReviewDoc.ts` are the pure parsers behind both
+the LSP and the bundled default workflow's own bash validators
+(`todo-validating`/`review-validating` in `src/workflows/default.yaml`) — see
+[docs/design/steering-file-loops.md](design/steering-file-loops.md) for the
+"executable spec ↔ bash validator" contract linking the two independent
+implementations, and each module's own doc comment for the format it defines.
+Their unit tests are that format's spec tests.
+
 ## Mutation testing
 
 Run mutation testing on-demand with `npm run test:mutation` (StrykerJS) — never
@@ -59,7 +77,14 @@ check. `stryker.config.json`'s `mutate` list names the v3 pattern-machine module
 set (`src/PatternMachine.ts`, `src/PatternConfig.ts`, `src/PatternTemplates.ts`,
 `src/Edge.ts`, `src/Config.ts`, `src/Format.ts` — see
 [Architecture](../AGENTS.md#the-pattern-machine-module-map) for the v3 module
-map).
+map), plus the steering-file format parsers and the LSP built on them
+(`src/OpenQuestions.ts`, `src/ReviewDoc.ts`, `src/Lsp.ts` — see
+["The LSP server"](#the-lsp-server) below). `src/Lsp.ts`'s protocol-adapter tail
+(`startLspServer`) is exercised only by the `@live` e2e (excluded from the
+mutation run's Cucumber harness), so mutants confined to that tail may survive
+without it being a coverage gap in the ordinary test suite — the pure
+symbol/edit/diagnostic builders above it are unit-tested and mutation-checked
+normally.
 
 `src/Git.ts` is excluded: the Cucumber harness stubs git at the Effect boundary,
 so `Git.ts` mutants have zero in-memory coverage.

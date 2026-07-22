@@ -1,13 +1,12 @@
 # Plan: steering-file validation loops in the default workflow
 
-> Status: §2–§4 (the two validation loops in the default workflow) LANDED
-> 2026-07-22. §5 (the LSP resurrection) tracked separately — see its own status
-> note below. Goal: the bundled default workflow completely maps the
-> functionality the deleted v2 LSP server (`src/Lsp.ts`, removed in the v3
-> rewrite) provided over the two steering files: the **open-questions format**
-> in `.gtd/TODO.md` and the **checkbox review format** in `.gtd/REVIEW.md` —
-> including a deterministic validation loop for each. Everything is pure
-> workflow configuration; the engine is untouched.
+> Status: §2–§4 (the two validation loops in the default workflow) AND §5 (the
+> LSP resurrection) both LANDED 2026-07-22. Goal: the bundled default workflow
+> completely maps the functionality the deleted v2 LSP server (`src/Lsp.ts`,
+> removed in the v3 rewrite) provided over the two steering files: the
+> **open-questions format** in `.gtd/TODO.md` and the **checkbox review format**
+> in `.gtd/REVIEW.md` — including a deterministic validation loop for each.
+> Everything is pure workflow configuration; the engine is untouched.
 
 ## 1. The formats (authoritative spec = the deleted parsers)
 

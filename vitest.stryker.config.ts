@@ -14,6 +14,7 @@ export default defineConfig({
       "./tests/integration/support/steps/config.steps.ts",
       "./tests/integration/support/steps/formatting.steps.ts",
       "./tests/integration/support/steps/gtd-loop.steps.ts",
+      "./tests/integration/support/steps/lsp.steps.ts",
     ],
     testTimeout: 300_000,
     hookTimeout: 30_000,

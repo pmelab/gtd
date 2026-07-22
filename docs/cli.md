@@ -14,6 +14,7 @@ Commands:
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   format <file>    Format a markdown file in place
+  lsp              Start the LSP server for .gtd/ steering files (stdio)
 
 Options:
   --json           Output structured JSON instead of plain text
@@ -182,6 +183,21 @@ Errors (all exit 1, message on stderr):
   `gtd format: <file> is not a markdown file (expected .md or .markdown)`
 - File not found: `gtd: skipped formatting <file>: not found`
 
+## `gtd lsp`
+
+Starts an LSP server over stdio for `.gtd/` steering files — document symbols
+for `.gtd/TODO.md`'s open questions and `.gtd/REVIEW.md`'s review chunks/hunks,
+code actions to check/uncheck a hunk or a whole chunk, and diagnostics
+publishing the same parser findings the bundled workflow's `.gtd/FORMAT.md`
+validators produce (see `src/OpenQuestions.ts` / `src/ReviewDoc.ts` and
+[STATES.md §10](../STATES.md#10-the-bundled-default-workflow)). Keyed on file
+name, not workflow state, so it needs no git or `.gtdrc` at all — like
+`gtd format`, it's dispatched before the repository-root guard and auto-init,
+and takes no config-derived context with it. Rejects `--json` (exit 1,
+`gtd lsp does not accept --json`) and extra positional arguments — it's a
+long-running server, not a state command. Runs until the client disconnects (the
+LSP `exit` notification), then exits cleanly.
+
 ## Error envelope
 
 Every command, in `--json` mode, reports a failure as a machine-readable
@@ -208,6 +224,8 @@ the plain-text one.
   report, a log file — into the working tree, the tree never goes clean after a
   green run, and the check's `"C"` pattern never fires. Gitignore every path
   your scripts write before wiring gtd into a repo.
-- **Repository root invocation.** Every subcommand except `--help`/ `--version`
-  must run from the git repository root — the workflow, pending changes, and
-  process history are resolved against the process cwd.
+- **Repository root invocation.** Every state subcommand (`step`/`next`/`run`/
+  `status`) must run from the git repository root — the workflow, pending
+  changes, and process history are resolved against the process cwd.
+  `--help`/`--version`, `format`, and `lsp` skip this guard entirely (and any
+  git/`.gtdrc` dependency along with it).
