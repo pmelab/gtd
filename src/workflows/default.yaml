@@ -13,7 +13,7 @@
 # tsdown.config.ts / tests/vitest.rawMd.ts), so this file never needs a
 # sibling prompts/ directory to exist on disk once installed.
 #
-# States, in cycle order:
+# States, in cycle order — 7 states, no squash:
 #   idle (initial, human, message)
 #     -> grilling (agent, prompt): a SINGLE turn — reads .gtd/TODO.md's
 #     sketch, explores the codebase, and develops it into a concrete
@@ -24,18 +24,30 @@
 #     directly (no task decomposition, no per-task queue) and deletes
 #     .gtd/TODO.md once the work is complete and verified.
 #   building -> checking (check, script): runs the test command inline;
-#     A/M .gtd/FEEDBACK.md -> fixing (capped, redirects to escalate); clean ->
-#     await-review.
+#     A/M .gtd/FEEDBACK.md -> fixing (capped, redirects to escalate); D
+#     .gtd/FEEDBACK.md (a green run that just cleaned up prior feedback) or C
+#     (green, nothing to clean) -> await-review.
 #   fixing (agent, prompt) <-> checking
 #   escalate (human, message): manual intervention, then back to checking
 #   await-review (human, message): the human reviews the cycle's diff
 #     directly (e.g. `git diff <startCommit>` or `git log`) — there is no
-#     agent-prepared review file. A clean step (C) approves -> squashing;
-#     anything pending (a fresh .gtd/TODO.md, code edits, or both) is
-#     feedback -> grilling, re-entering the pipeline with that input.
-#   squashing (agent, prompt): authors .gtd/COMMIT_MSG.md -> done
-#   done (commit): squashes the whole cycle into one commit, message read
-#     from the pending .gtd/COMMIT_MSG.md
+#     agent-prepared review file. A clean step (C) approves -> idle, an empty
+#     `gtd(human): idle` turn that ends the cycle at rest; anything pending (a
+#     fresh .gtd/TODO.md, code edits, or both) is feedback -> grilling,
+#     re-entering the pipeline with that input.
+#
+# The cycle ends at human approval, resting back at idle — there is no
+# squash state. The cycle's commits stay in history; whether/how to squash
+# them (amend, interactive rebase, a PR's squash-merge) is entirely the
+# human's business once they're done reviewing — gtd makes no assumption.
+# That squash-flavored finale (a `squashing` prompt state + a `done` commit
+# state) still exists as an ENGINE capability (see STATES.md §8) and is kept
+# as part of the fuller machine at docs/examples/advanced-workflow.md.
+#
+# A `gtd(<actor>): idle` commit — entering the workflow's own initial state —
+# is therefore a PROCESS BOUNDARY (see `computeProcessRun` in src/Edge.ts):
+# the next cycle's `retry` counts, `startCommit`, and diffs never reach back
+# across an approved cycle's own idle-entering commit.
 #
 # `grilling` declares `model: smart` — an opaque harness hint (see the
 # comment at `grilling` below) for its heavier one-shot planning turn. Every
@@ -47,9 +59,9 @@
 # a `GTD_VAR_testCommand` environment variable (highest precedence).
 #
 # A fuller machine — two-phase Q&A planning, an architecture phase, task
-# decomposition, a deterministic per-task builder loop, and agent-prepared
-# review — is preserved as a copy-paste `.gtdrc` example at
-# docs/examples/advanced-workflow.md.
+# decomposition, a deterministic per-task builder loop, agent-prepared
+# review, and the squash finale (`squashing` + `done`) — is preserved as a
+# copy-paste `.gtdrc` example at docs/examples/advanced-workflow.md.
 
 vars:
   testCommand: npm test
@@ -125,6 +137,11 @@ states:
       # `vars:` above) — override it with a top-level `.gtdrc`
       # `vars: { testCommand: ... }` key, or a `GTD_VAR_testCommand`
       # environment variable (highest precedence).
+      #
+      # A green run also removes any `.gtd/FEEDBACK.md` left over from an
+      # earlier red run — there is no squash to discard it for us anymore, so
+      # the script cleans it up itself before resting the cycle at
+      # `await-review`.
       set +e
       mkdir -p .gtd
       <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
@@ -138,10 +155,12 @@ states:
         fi
       else
         rm -f .gtd/.check-output
+        rm -f .gtd/FEEDBACK.md
       fi
     on:
       "A .gtd/FEEDBACK.md": fixing
       "M .gtd/FEEDBACK.md": fixing
+      "D .gtd/FEEDBACK.md": await-review
       "C": await-review
 
   fixing:
@@ -184,42 +203,14 @@ states:
       what changed. There is no separate review file to read.
 
       To approve: leave the tree clean (no pending changes) and run
-      `gtd step human` — this squashes the whole cycle into one commit.
+      `gtd step human` — the cycle ends and the machine rests at `idle`. Its
+      commits stay in history for you to squash however you prefer (e.g.
+      `git rebase -i <%= it.startCommit %>`, an amend, or your PR's
+      squash-merge) or keep as-is — gtd makes no assumption.
 
       To request changes: write what's wrong as a fresh `.gtd/TODO.md` (code
       edits alone also count), then run `gtd step human`; this sends the
       cycle back through `grilling` with your feedback as the new input.
     on:
-      "C": squashing
+      "C": idle
       "* **": grilling
-
-  squashing:
-    actor: agent
-    prompt: |
-      You are an autonomous coding agent. The cycle is approved and done.
-      `.gtd/` holds this workflow's own state — never create, edit, or delete
-      anything under `.gtd/` except `.gtd/COMMIT_MSG.md`, which this prompt
-      tells you to write.
-
-      Write `.gtd/COMMIT_MSG.md` with ONE conventional-commits message for
-      the entire cycle (subject line `type(scope): subject`, imperative mood,
-      <= 72 characters; a body explaining the why, trade-offs, and key
-      decisions). Plain text, no markdown wrapper.
-
-      Leave `.gtd/COMMIT_MSG.md` uncommitted and finish your turn — entering
-      this file squashes the whole cycle into one commit using its content as
-      the message.
-      <% if (it.processDiff.trim()) { %>
-
-      ## Full cycle diff
-
-      ```diff
-      <%~ it.processDiff %>
-      ```
-      <% } %>
-    on:
-      "A .gtd/COMMIT_MSG.md": done
-      "M .gtd/COMMIT_MSG.md": done
-
-  done:
-    commit: '<%~ it.read(".gtd/COMMIT_MSG.md") %>'

@@ -125,7 +125,7 @@ const resolveRestContext = (
     const worktree = yield* WorktreeReader
     const envVars = yield* EnvVars
     const rest = yield* resolveRest()
-    const run = yield* computeProcessRun(git)
+    const run = yield* computeProcessRun(git, rest.def)
     const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
     const context = yield* buildTemplateContext(
       git,
@@ -159,7 +159,7 @@ const stepAsActor = (
     const worktree = yield* WorktreeReader
     const envVars = yield* EnvVars
     const rest = yield* resolveRest()
-    const run = yield* computeProcessRun(git)
+    const run = yield* computeProcessRun(git, rest.def)
     const changes = yield* pendingChanges(git)
     const decision = step(rest.def, rest.state, invoker, { changes, processTrace: run.trace })
 

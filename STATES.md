@@ -154,21 +154,28 @@ all also resolves to the initial state.
 A state's `retry: { max, otherwise }` caps how many times **that state** may be
 entered within the current **process** (the contiguous run of
 `gtd(<actor>): <state>` commits ending at HEAD — bounded by the nearest
-non-matching commit, e.g. an old squash result or the repo's own root). Once a
-transition's raw target has already been entered `max` times in the current
-process's trace, the transition is redirected to `otherwise` instead — decided
-**at write time**, so the redirected state is what actually lands in history,
-never the raw `on`-match target. If `otherwise` itself carries a `retry` cap,
-the same check applies to it recursively; a redirect cycle (A's `otherwise` is
-B, B's `otherwise` is A, both over cap) terminates rather than looping forever —
-once a target repeats within one redirect chain, that target is accepted as
-final.
+**process boundary**, i.e. whichever comes first walking back from HEAD: a
+non-matching commit (an old squash result, legacy/pre-v3 history, the repo's own
+root), or a workflow commit that **enters the workflow's own initial state** —
+e.g. the bundled default's `gtd(human): idle`, the empty approval turn that ends
+a cycle with no squash. Either boundary kind is EXCLUDED from the process itself
+— it belongs to the finished cycle, like an old squash commit did — see
+`computeProcessRun` in `src/Edge.ts`). Once a transition's raw target has
+already been entered `max` times in the current process's trace, the transition
+is redirected to `otherwise` instead — decided **at write time**, so the
+redirected state is what actually lands in history, never the raw `on`-match
+target. If `otherwise` itself carries a `retry` cap, the same check applies to
+it recursively; a redirect cycle (A's `otherwise` is B, B's `otherwise` is A,
+both over cap) terminates rather than looping forever — once a target repeats
+within one redirect chain, that target is accepted as final.
 
 A cap of `0` redirects on the very first attempt to enter the state.
 
 Retry counting resets naturally at the start of each process: a squash (§8)
-starts a fresh one-commit history, and an unrecognized HEAD starting a new
-process (§5) begins with an empty trace.
+starts a fresh one-commit history, a workflow commit entering the initial state
+(e.g. an approved cycle resting back at `idle` with no squash) starts the next
+process with an empty trace right after it, and an unrecognized HEAD starting a
+new process (§5) also begins with an empty trace.
 
 ## 8. The squash lifecycle
 
@@ -231,22 +238,30 @@ The workflow gtd ships with when `.gtdrc` has no `workflow:` key
 (`src/workflows/default.yaml`, compiled through the exact same compiler a custom
 `workflow:` key goes through — no privileged code path):
 
-| State            | Actor | Content | `on`                                                                                   | Retry              | Model   |
-| ---------------- | ----- | ------- | -------------------------------------------------------------------------------------- | ------------------ | ------- |
-| `idle` (initial) | human | message | `* **` → `grilling`                                                                    | —                  | —       |
-| `grilling`       | agent | prompt  | `* **` → `building`                                                                    | —                  | `smart` |
-| `building`       | agent | prompt  | `* **` → `checking`                                                                    | —                  | —       |
-| `checking`       | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `C` → `await-review` | —                  | —       |
-| `fixing`         | agent | prompt  | `* **` → `checking`                                                                    | max 3 → `escalate` | —       |
-| `escalate`       | human | message | `* **` → `checking`                                                                    | —                  | —       |
-| `await-review`   | human | message | `C` → `squashing`; `* **` → `grilling`                                                 | —                  | —       |
-| `squashing`      | agent | prompt  | `A .gtd/COMMIT_MSG.md` → `done`; `M .gtd/COMMIT_MSG.md` → `done`                       | —                  | —       |
-| `done`           | —     | commit  | (final — squashes the whole cycle, message read from `.gtd/COMMIT_MSG.md`)             | —                  | —       |
+| State            | Actor | Content | `on`                                                                                                                          | Retry              | Model   |
+| ---------------- | ----- | ------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------- |
+| `idle` (initial) | human | message | `* **` → `grilling`                                                                                                           | —                  | —       |
+| `grilling`       | agent | prompt  | `* **` → `building`                                                                                                           | —                  | `smart` |
+| `building`       | agent | prompt  | `* **` → `checking`                                                                                                           | —                  | —       |
+| `checking`       | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `await-review`; `C` → `await-review` | —                  | —       |
+| `fixing`         | agent | prompt  | `* **` → `checking`                                                                                                           | max 3 → `escalate` | —       |
+| `escalate`       | human | message | `* **` → `checking`                                                                                                           | —                  | —       |
+| `await-review`   | human | message | `C` → `idle`; `* **` → `grilling`                                                                                             | —                  | —       |
+
+There is no squash — the cycle ends at human approval, an empty
+`gtd(human): idle` turn commit that rests the machine back at its own initial
+state (a **process boundary**, see §7). The cycle's turn commits stay in history
+exactly as authored; whether/how to squash them (an interactive rebase, an
+amend, a PR's squash-merge) is entirely the human's business, and gtd makes no
+assumption about it. The squash-flavored finale this default used to end on — a
+`squashing` prompt state authoring `.gtd/COMMIT_MSG.md` plus a `done` commit
+state — is still an engine capability (§8), just not part of the bundled default
+anymore; it lives on in the fuller machine below.
 
 A fuller machine — two-phase Q&A planning, an architecture phase, task
 decomposition, the deterministic `picking` queue arbiter with a per-task
-build/check loop, and agent-prepared `.gtd/REVIEW.md` review — is preserved as a
-copy-paste-ready example at
+build/check loop, agent-prepared `.gtd/REVIEW.md` review, and that squash finale
+(`squashing` + `done`) — is preserved as a copy-paste-ready example at
 [docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md) rather
 than shipped as the bundled default.
 
@@ -273,24 +288,28 @@ workflow's own declared `vars:`, overridable via a top-level `.gtdrc` `vars:`
 key or a `GTD_VAR_testCommand` environment variable; see
 [Configuration](docs/configuration.md#variables)) and steps the `check` actor
 itself. A red run leaves `.gtd/FEEDBACK.md` pending (`A`/`M .gtd/FEEDBACK.md` →
-`fixing`); a clean run (`C`) moves on to `await-review`. `fixing`'s
-`retry: { max: 3, otherwise: escalate }` means the fourth consecutive entry into
-`fixing` within one process redirects to `escalate` — a human gate — instead; a
-human's own `"* **"` step from `escalate` returns to `checking` (with the
-process's retry trace unaffected by counting rules other than "how many times
-has `fixing` itself been entered").
+`fixing`); a green run moves on to `await-review` either way — whether it just
+deleted a previous red run's `.gtd/FEEDBACK.md` (`D .gtd/FEEDBACK.md`, so the
+approved cycle's tree carries no leftover feedback file) or there was nothing to
+clean up (`C`). `fixing`'s `retry: { max: 3, otherwise: escalate }` means the
+fourth consecutive entry into `fixing` within one process redirects to
+`escalate` — a human gate — instead; a human's own `"* **"` step from `escalate`
+returns to `checking` (with the process's retry trace unaffected by counting
+rules other than "how many times has `fixing` itself been entered").
 
 `await-review` is a direct diff review, with no agent-prepared review file: the
 human is told to inspect the cycle's changes themselves (e.g.
 `git diff <startCommit>` or `git log --stat <startCommit>..HEAD`). A **clean**
-`gtd step human` (the `C` event) approves and moves to `squashing`; anything
-else pending — a fresh `.gtd/TODO.md` describing what's wrong, code edits, or
-both — is feedback and sends the cycle back to `grilling` (`"* **"`),
-re-entering the pipeline with that input. `squashing` has the agent author
-`.gtd/COMMIT_MSG.md`; writing or modifying it (`A`/`M .gtd/COMMIT_MSG.md`)
-transitions into `done` — a `commit:` state — which performs the squash
-lifecycle from §8 and ends the process there. The next invocation, with no
-`gtd(...)` HEAD to resolve, starts fresh at `idle`.
+`gtd step human` (the `C` event) approves — moving to `idle`, an empty
+`gtd(human): idle` turn commit that ends the cycle right there with no squash;
+its commits stay in history for the human to squash however they prefer (an
+interactive rebase, an amend, a PR's squash-merge) or leave as-is. This
+idle-entering commit is also this workflow's only process boundary besides an
+unrecognized HEAD (§7): the NEXT cycle's `retry` counts, `startCommit`, and
+diffs never reach back across it. Anything else pending at `await-review` — a
+fresh `.gtd/TODO.md` describing what's wrong, code edits, or both — is feedback
+and sends the cycle back to `grilling` (`"* **"`), re-entering the pipeline with
+that input.
 
 `grilling` — the heavier one-shot planning turn — declares `model: smart`, an
 opaque hint `gtd next`/`gtd status` `--json` emit verbatim for the driving loop

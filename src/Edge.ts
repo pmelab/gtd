@@ -3,6 +3,7 @@ import { GitService, type GitOperations } from "./Git.js"
 import { ConfigService } from "./Config.js"
 import {
   contentKindOf,
+  initialStateOf,
   parseStateSubject,
   resolveState,
   type ChangeStatus,
@@ -97,18 +98,39 @@ export interface ProcessRun {
 
 /**
  * Walk first-parent history backward from HEAD while each commit's subject
- * parses as `gtd(actor): state` (a v3 workflow commit); the first
- * non-matching commit (a boundary: an old squash result, legacy history, the
- * repo's own initial commit) is the run's start parent.
+ * parses as `gtd(actor): state` (a v3 workflow commit) AND that state isn't
+ * the workflow's initial state; the walk stops — EXCLUDING that boundary
+ * commit itself, which belongs to the finished cycle — at whichever comes
+ * first:
+ *
+ * - a non-matching commit (a foreign boundary: legacy/pre-v3 history, the
+ *   repo's own root commit), or
+ * - a workflow commit that ENTERS the initial state (e.g. the bundled
+ *   default's `gtd(human): idle`) — with no `commit:`/squash state in the
+ *   default workflow anymore, this is the process boundary between one
+ *   approved cycle and the next: without it, consecutive cycles' commits
+ *   would fuse into one process and `retry` counts would pool across cycles.
+ *
+ * HEAD itself being such an initial-entering commit yields an EMPTY run
+ * (`trace: []`, `startHash`/`startParentHash` both HEAD's own hash) — the
+ * same shape a fresh rest at a squashed boundary has always had.
  */
-export const computeProcessRun = (git: GitOperations): Effect.Effect<ProcessRun, Error> =>
+export const computeProcessRun = (
+  git: GitOperations,
+  def: WorkflowDefinition,
+): Effect.Effect<ProcessRun, Error> =>
   Effect.gen(function* () {
     const hasCommits = yield* git.hasCommits()
     if (!hasCommits) return { startHash: "", startParentHash: EMPTY_TREE, trace: [] }
 
+    const initialState = initialStateOf(def)
     const history = yield* git.commitHistory() // oldest -> newest, full first-parent history
     let i = history.length - 1
-    while (i >= 0 && parseStateSubject(subjectOf(history[i]!.message)) !== undefined) i--
+    while (i >= 0) {
+      const parsed = parseStateSubject(subjectOf(history[i]!.message))
+      if (parsed === undefined || parsed.state === initialState) break
+      i--
+    }
     const startIdx = i + 1
     const trace = history.slice(startIdx).map((h) => parseStateSubject(subjectOf(h.message))!.state)
     const startParentHash = i >= 0 ? history[i]!.hash : EMPTY_TREE

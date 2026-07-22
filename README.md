@@ -30,9 +30,11 @@ No chat scrollback. No lost sessions. No infinite fix loops. Just git.
 - **Bounded, not runaway.** Fix attempts are capped (`retry` on a state). When
   the cap is hit, gtd redirects to a human gate instead of burning tokens
   rewriting the same test for the 47th time.
-- **Clean history.** When the feature ships, every intermediate
-  `gtd(actor): state` commit squashes into one conventional commit — as if a
-  very disciplined engineer did it in one sitting.
+- **Your call on history.** Every intermediate `gtd(actor): state` commit is a
+  real, attributed commit — nothing hidden in chat. Squash them into one
+  conventional commit if you want that (an interactive rebase, an amend, a PR's
+  squash-merge, or a custom workflow with a `commit:` finale), or don't — gtd
+  makes no assumption.
 
 ## Install
 
@@ -73,12 +75,13 @@ The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
 
 Along the way, the bundled default workflow develops your sketch into an
 implementation plan in one turn, builds it, runs your tests (looping on
-failures), walks you through a direct diff review, and squashes the whole cycle
-into one clean commit — see
+failures), and walks you through a direct diff review — approving rests the
+cycle back at idle, with every turn commit still sitting in history for you to
+squash however you like (or not at all; gtd makes no assumption) — see
 [STATES.md](STATES.md#10-the-bundled-default-workflow) for the full shape. A
 heavier machine — two-phase Q&A planning, an architecture phase, task
-decomposition, a per-task build loop, and agent-prepared review — is preserved
-as a copy-paste `.gtdrc` example at
+decomposition, a per-task build loop, agent-prepared review, and a squash finale
+— is preserved as a copy-paste `.gtdrc` example at
 [docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md). The
 workflow itself is just `.gtdrc` config — swap it for your own (see
 [Configuration](docs/configuration.md)).

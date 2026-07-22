@@ -67,7 +67,12 @@ touches `src/PatternMachine.ts` (types + `validateDefinition`),
   filesystem.
 - **`src/Edge.ts`** — the Effect edge: `resolveRest` (HEAD → state via
   `ConfigService.workflow` + `resolveState`), `computeProcessRun` (walks
-  first-parent history for the current process's start/trace),
+  first-parent history for the current process's start/trace, stopping —
+  EXCLUDING the boundary commit itself — at either a non-workflow commit or a
+  workflow commit entering the definition's OWN initial state, e.g. the bundled
+  default's `gtd(human): idle`; a workflow with no `commit:` state, like the
+  bundled default, relies entirely on this initial-entry rule to keep one
+  cycle's `retry` counts/diffs from pooling into the next),
   `buildTemplateContext`, `renderRest`, `executeDecision` (performs a `"commit"`
   or `"squash"` `StepDecision` — the only place a turn is actually written or a
   squash actually performed).

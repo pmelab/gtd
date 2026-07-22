@@ -21,6 +21,11 @@ Compared to the simplified bundled default, this machine adds:
 - **Agent-prepared review** — `reviewing` has the agent write `.gtd/REVIEW.md`
   summarizing the full cycle diff for a human to check before `await-review`
   resolves an approval or feedback.
+- **A squash finale** — approval at `await-review` moves to `squashing` (the
+  agent authors `.gtd/COMMIT_MSG.md`) and then `done`, a `commit:` state that
+  squashes the whole cycle into one commit. The simplified bundled default drops
+  this: it rests at `idle` on approval instead and leaves every turn commit in
+  history for the human to squash (or not) however they choose.
 
 Paste the block below under a top-level `workflow:` key in your own `.gtdrc` (or
 `.gtdrc.yaml`) — it's the complete definition, unmodified in content from the

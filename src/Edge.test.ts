@@ -9,7 +9,7 @@ import {
   resolveVars,
 } from "./Edge.js"
 import type { TemplateContext } from "./PatternTemplates.js"
-import type { StateDef } from "./PatternMachine.js"
+import type { StateDef, WorkflowDefinition } from "./PatternMachine.js"
 
 /**
  * Unit coverage for the surviving edge logic that doesn't need a real (or
@@ -43,10 +43,21 @@ const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
 
 const run = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
 
+/**
+ * A minimal definition for `computeProcessRun`'s tests: only `idle`'s
+ * `initial: true` matters to the boundary walk (`initialStateOf` never looks
+ * up any OTHER state named in test history, e.g. "grilling"/"building" below
+ * — the walk only compares parsed state names against the initial state's
+ * NAME as a string).
+ */
+const def: WorkflowDefinition = {
+  states: { idle: { actor: "human", message: "m", initial: true } },
+}
+
 describe("computeProcessRun", () => {
   it("an empty repo has an empty run, the empty-tree sentinel as start parent", async () => {
     const git = stubGit({ hasCommits: () => Effect.succeed(false) })
-    const result = await run(computeProcessRun(git))
+    const result = await run(computeProcessRun(git, def))
     expect(result).toEqual({
       startHash: "",
       startParentHash: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
@@ -54,21 +65,21 @@ describe("computeProcessRun", () => {
     })
   })
 
-  it("walks back to the nearest boundary commit, collecting the workflow run's trace", async () => {
+  it("walks back to the nearest non-workflow boundary commit, collecting the workflow run's trace (a) — [boundary, gtd(human): grilling, gtd(agent): building]", async () => {
     const history = [
       { hash: "h0", message: "chore: init", removedErrors: false, touched: [] },
-      { hash: "h1", message: "gtd(agent): grilling", removedErrors: false, touched: [] },
-      { hash: "h2", message: "gtd(human): grilling-answer", removedErrors: false, touched: [] },
+      { hash: "h1", message: "gtd(human): grilling", removedErrors: false, touched: [] },
+      { hash: "h2", message: "gtd(agent): building", removedErrors: false, touched: [] },
     ]
     const git = stubGit({
       hasCommits: () => Effect.succeed(true),
       commitHistory: () => Effect.succeed(history),
     })
-    const result = await run(computeProcessRun(git))
+    const result = await run(computeProcessRun(git, def))
     expect(result).toEqual({
       startHash: "h1",
       startParentHash: "h0",
-      trace: ["grilling", "grilling-answer"],
+      trace: ["grilling", "building"],
     })
   })
 
@@ -80,19 +91,72 @@ describe("computeProcessRun", () => {
       hasCommits: () => Effect.succeed(true),
       commitHistory: () => Effect.succeed(history),
     })
-    const result = await run(computeProcessRun(git))
+    const result = await run(computeProcessRun(git, def))
     expect(result.startParentHash).toBe("4b825dc642cb6eb9a060e54bf8d69288fbee4904")
     expect(result.trace).toEqual(["grilling"])
   })
 
-  it("no workflow commit at HEAD (a fresh boundary) is an empty run whose start is HEAD itself", async () => {
+  it("no workflow commit at HEAD (a fresh non-workflow boundary) is an empty run whose start is HEAD itself", async () => {
     const history = [{ hash: "h0", message: "chore: squashed", removedErrors: false, touched: [] }]
     const git = stubGit({
       hasCommits: () => Effect.succeed(true),
       commitHistory: () => Effect.succeed(history),
     })
-    const result = await run(computeProcessRun(git))
+    const result = await run(computeProcessRun(git, def))
     expect(result).toEqual({ startHash: "h0", startParentHash: "h0", trace: [] })
+  })
+
+  it("(b) a commit entering the initial state mid-history is ALSO a process boundary, excluded from the newer process's trace — [boundary, …cycle1…, gtd(human): idle, gtd(human): grilling, gtd(agent): building]", async () => {
+    const history = [
+      { hash: "h0", message: "chore: init", removedErrors: false, touched: [] },
+      { hash: "h1", message: "gtd(agent): building", removedErrors: false, touched: [] }, // cycle 1
+      { hash: "h2", message: "gtd(human): idle", removedErrors: false, touched: [] }, // boundary: approval rests at idle
+      { hash: "h3", message: "gtd(human): grilling", removedErrors: false, touched: [] }, // cycle 2
+      { hash: "h4", message: "gtd(agent): building", removedErrors: false, touched: [] },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result).toEqual({
+      startHash: "h3",
+      startParentHash: "h2",
+      trace: ["grilling", "building"],
+    })
+  })
+
+  it("(c) HEAD itself entering the initial state yields an EMPTY process — fresh rest, trace []", async () => {
+    const history = [
+      { hash: "h0", message: "chore: init", removedErrors: false, touched: [] },
+      { hash: "h1", message: "gtd(agent): building", removedErrors: false, touched: [] },
+      { hash: "h2", message: "gtd(human): idle", removedErrors: false, touched: [] },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result).toEqual({ startHash: "h2", startParentHash: "h2", trace: [] })
+  })
+
+  it("(d) retry counting resets across an idle boundary — a state entered 3x before the idle entry counts 0 after", async () => {
+    const history = [
+      { hash: "h0", message: "chore: init", removedErrors: false, touched: [] },
+      { hash: "h1", message: "gtd(agent): fixing", removedErrors: false, touched: [] },
+      { hash: "h2", message: "gtd(agent): fixing", removedErrors: false, touched: [] },
+      { hash: "h3", message: "gtd(agent): fixing", removedErrors: false, touched: [] },
+      { hash: "h4", message: "gtd(human): idle", removedErrors: false, touched: [] }, // boundary
+      { hash: "h5", message: "gtd(human): grilling", removedErrors: false, touched: [] },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result.startParentHash).toBe("h4")
+    expect(result.trace).toEqual(["grilling"])
+    expect(result.trace.filter((state) => state === "fixing")).toHaveLength(0)
   })
 })
 
