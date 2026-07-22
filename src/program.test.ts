@@ -12,6 +12,7 @@ import { Effect, Exit, Layer } from "effect"
 import { describe, expect, it } from "vitest"
 import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
+import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
 import { defaultWorkflowDefinition } from "./workflows/default.js"
@@ -65,7 +66,8 @@ const failingGitLayer = Layer.succeed(GitService, {
 // Minimal stub ConfigService — satisfies the type but never called for flags.
 const stubConfigLayer = Layer.succeed(ConfigService, {
   workflow: defaultWorkflowDefinition,
-  vars: undefined,
+  workflowVars: {},
+  rcVars: {},
 })
 
 // Minimal stub WorktreeReader — never called for flags.
@@ -81,6 +83,7 @@ const testLayers = failingGitLayer.pipe(
   Layer.provideMerge(stubWorktreeReaderLayer),
   Layer.provideMerge(ConfigInit.Noop),
   Layer.provideMerge(Cwd.layer("")),
+  Layer.provideMerge(EnvVars.layer({})),
 )
 
 async function runFlag(

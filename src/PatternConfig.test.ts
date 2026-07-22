@@ -69,17 +69,56 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
     })
   })
 
-  it("the `vars:` key becomes the `config` passthrough verbatim", () => {
-    const { config } = compileWorkflowConfig(
-      { ...draftCheckRevise, vars: { greeting: "hi", nested: { n: 1 } } },
+  it("the `vars:` key compiles to a scalar-coerced `Record<string, string>`", () => {
+    const { vars } = compileWorkflowConfig(
+      { ...draftCheckRevise, vars: { greeting: "hi", attempts: 3, strict: true } },
       "/config-dir",
     )
-    expect(config).toEqual({ greeting: "hi", nested: { n: 1 } })
+    expect(vars).toEqual({ greeting: "hi", attempts: "3", strict: "true" })
   })
 
-  it("`config` is undefined when no `vars:` key is given", () => {
-    const { config } = compileWorkflowConfig(draftCheckRevise, "/config-dir")
-    expect(config).toBeUndefined()
+  it("`vars` is `{}` when no `vars:` key is given", () => {
+    const { vars } = compileWorkflowConfig(draftCheckRevise, "/config-dir")
+    expect(vars).toEqual({})
+  })
+
+  it("rejects a non-object `vars:` value", () => {
+    expect(() =>
+      compileWorkflowConfig({ ...draftCheckRevise, vars: ["nope"] }, "/config-dir"),
+    ).toThrowError(/"vars" must be a mapping of name -> scalar value, got array/)
+  })
+
+  it("rejects an object/array value nested inside `vars:`, dropping just that key", () => {
+    try {
+      compileWorkflowConfig(
+        { ...draftCheckRevise, vars: { good: "ok", bad: { nested: true }, alsoBad: [1, 2] } },
+        "/config-dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain('"vars.bad" must be a string, number, or boolean, got object')
+      expect(message).toContain('"vars.alsoBad" must be a string, number, or boolean, got array')
+    }
+  })
+
+  it("aggregates a bad `vars:` entry alongside an unrelated config-shape error", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          states: {
+            a: { actor: 1, initial: true, message: "hi", on: {} },
+          },
+          vars: { bad: { nested: true } },
+        },
+        "/dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain('state "a": "actor" must be a string')
+      expect(message).toContain('"vars.bad" must be a string, number, or boolean, got object')
+    }
   })
 })
 

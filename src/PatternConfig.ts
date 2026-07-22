@@ -21,8 +21,8 @@ import {
  * ## Schema
  *
  * ```yaml
- * vars:                 # optional — passed through to templates verbatim as `config`
- *   anyKey: anyValue
+ * vars:                 # optional — the workflow's own declared `it.vars` defaults
+ *   anyKey: anyScalarValue
  * states:
  *   <name>:
  *     actor: <string>    # forbidden on a commit state, required otherwise
@@ -36,17 +36,20 @@ import {
  *     model: <string>     # optional, opaque harness hint — never on a commit state
  * ```
  *
- * ## The `config` passthrough (Phase 2's pick, for Phase 3/docs to confirm)
+ * ## `vars:` — one of `it.vars`'s three layers
  *
- * The plan leaves the `config` template variable's SOURCE open ("the rest of
- * the .gtdrc document, or a `vars:`-style sub-key — pick the simplest
- * thing"). This compiler's only input is the `workflow:` key's own raw value
- * (per the Phase 2 brief) — it never sees the rest of the `.gtdrc` document —
- * so the simplest self-contained choice is a sibling `vars:` key INSIDE the
- * `workflow:` value, passed through verbatim (any shape, no validation) as
- * the `config` template variable. If a later phase decides templates should
- * instead see the whole `.gtdrc` document, that is a call for whoever wires
- * `ConfigService` (Phase 3), not this module.
+ * A sibling `vars:` key INSIDE the `workflow:` value declares the workflow's
+ * OWN defaults for the merged `it.vars` template map (see
+ * `PatternTemplates.TemplateContext.vars`) — the lowest-precedence of its
+ * three layers (a top-level `.gtdrc` `vars:` key, then `GTD_VAR_`-prefixed
+ * environment variables, both assembled by `src/Edge.ts`'s `resolveVars`,
+ * override it here). Every value must be a YAML scalar (string/number/
+ * boolean) — `compileVarsMap` coerces it to a string; an object/array value
+ * is a config-shape load error, collected alongside every other finding
+ * rather than guessed at. This compiler's only input is the `workflow:`
+ * key's own raw value (per the Phase 2 brief) — it never sees the rest of the
+ * `.gtdrc` document, so the top-level `vars:` layer is entirely
+ * `ConfigService`'s concern (`src/Config.ts`), not this module's.
  *
  * ## File references
  *
@@ -90,6 +93,36 @@ const describeType = (v: unknown): string => {
 const isFileReference = (value: string): boolean =>
   value.startsWith("./") || value.startsWith("../")
 
+const isScalar = (v: unknown): v is string | number | boolean =>
+  typeof v === "string" || typeof v === "number" || typeof v === "boolean"
+
+/**
+ * Compile a flat `name -> scalar` map — the `vars:` shape shared by a
+ * workflow's own declared defaults (this module) and the top-level `.gtdrc`
+ * `vars:` key (`src/Config.ts`, which imports this same function so the two
+ * layers validate identically). `undefined` (the key absent) compiles to
+ * `{}`. A non-object value, or any individual value that isn't a YAML scalar
+ * (string/number/boolean), pushes a load error onto `errors` — the whole
+ * value or just that key is dropped, never guessed at — and the well-formed
+ * keys still compile. Every scalar is coerced to its string form.
+ */
+export const compileVarsMap = (raw: unknown, errors: string[]): Record<string, string> => {
+  if (raw === undefined) return {}
+  if (!isPlainObject(raw)) {
+    errors.push(`"vars" must be a mapping of name -> scalar value, got ${describeType(raw)}`)
+    return {}
+  }
+  const vars: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (!isScalar(value)) {
+      errors.push(`"vars.${key}" must be a string, number, or boolean, got ${describeType(value)}`)
+      continue
+    }
+    vars[key] = String(value)
+  }
+  return vars
+}
+
 const CONTENT_KEYS = ["script", "prompt", "message", "commit"] as const
 type ContentKey = (typeof CONTENT_KEYS)[number]
 
@@ -106,11 +139,11 @@ const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["vars", "states"])
 
 // ── Compilation result ───────────────────────────────────────────────────────
 
-/** What `compileWorkflowConfig` produces: the compiled definition, plus the `vars:` passthrough for templates. */
+/** What `compileWorkflowConfig` produces: the compiled definition, plus the workflow's own declared `it.vars` defaults. */
 export interface CompiledWorkflowConfig {
   readonly definition: WorkflowDefinition
-  /** The raw `vars:` value (any shape, unvalidated) — the `config` template variable. `undefined` when absent. */
-  readonly config: unknown
+  /** The compiled `vars:` map (scalar-coerced) — the lowest-precedence layer of the merged `it.vars` (see `src/Edge.ts`'s `resolveVars`). `{}` when absent. */
+  readonly vars: Record<string, string>
 }
 
 const formatErrors = (errors: readonly string[]): string =>
@@ -309,8 +342,8 @@ const compileState = (
 
 /**
  * Compile the raw, decoded `workflow:` YAML value into a `WorkflowDefinition`
- * plus the `vars:` passthrough. `configDir` is the config file's own
- * directory, used to resolve `./`/`../` file references. Throws a single
+ * plus the workflow's own compiled `vars:` map. `configDir` is the config
+ * file's own directory, used to resolve `./`/`../` file references. Throws a single
  * `Error` (message: `"workflow config:\n  - ..."`, one line per finding) on
  * ANY config-shape problem or `validateDefinition` finding — never partially
  * succeeds.
@@ -326,6 +359,8 @@ export const compileWorkflowConfig = (raw: unknown, configDir: string): Compiled
   if (unknownTopKeys.length > 0) {
     errors.push(`unknown top-level key(s) ${unknownTopKeys.join(", ")}`)
   }
+
+  const vars = compileVarsMap(raw.vars, errors)
 
   const rawStates = raw.states
   if (!isPlainObject(rawStates) || Object.keys(rawStates).length === 0) {
@@ -353,5 +388,5 @@ export const compileWorkflowConfig = (raw: unknown, configDir: string): Compiled
   const allErrors = Array.from(new Set([...errors, ...definitionErrors]))
   if (allErrors.length > 0) throw new Error(formatErrors(allErrors))
 
-  return { definition, config: raw.vars }
+  return { definition, vars }
 }

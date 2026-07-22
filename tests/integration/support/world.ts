@@ -40,6 +40,9 @@ export class GtdWorld extends QuickPickleWorld {
   /** Directory the next `runGtd` uses as cwd; defaults to the repo root. */
   runCwd: string | undefined = undefined
 
+  /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_VAR_` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
+  envVars: Record<string, string> = {}
+
   /** Dispatch: routes to the live or in-process implementation based on this.tier. */
   async runGtd(...args: string[]): Promise<void> {
     if (this.tier === "inmem") {
@@ -89,7 +92,9 @@ export class GtdWorld extends QuickPickleWorld {
     // Compose argv: ["node", "gtd.js", ...args]
     const argv = ["node", "gtd.js", ...args]
 
-    const program = makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo)))
+    const program = makeProgram({ argv, write }).pipe(
+      Effect.provide(inMemoryLayers(repo, this.envVars)),
+    )
 
     const exit = await Effect.runPromiseExit(program)
     if (Exit.isSuccess(exit)) {

@@ -22,5 +22,5 @@ const compiled = compileWorkflowConfig(parseYaml(defaultYaml), ".")
 
 export const defaultWorkflowDefinition: WorkflowDefinition = compiled.definition
 
-/** The default workflow declares no `vars:` — always `undefined`. */
-export const defaultWorkflowVars: unknown = compiled.config
+/** The default workflow's own declared `vars:` defaults — `{ testCommand: "npm test" }`, overridable via a top-level `.gtdrc` `vars:` key or a `GTD_VAR_testCommand` environment variable (see `src/Edge.ts`'s `resolveVars`). */
+export const defaultWorkflowVars: Record<string, string> = compiled.vars

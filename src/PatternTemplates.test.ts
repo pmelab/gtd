@@ -14,7 +14,7 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
       throw new Error(`ENOENT: no such file or directory, open '${path}'`)
     return `contents of ${path}`
   },
-  config: { greeting: "hi" },
+  vars: { greeting: "hi" },
   ...overrides,
 })
 
@@ -43,17 +43,17 @@ describe("renderStateTemplate — the full variable set", () => {
     )
   })
 
-  it("renders the config passthrough, any shape", () => {
-    const out = renderStateTemplate("greeting=<%= it.config.greeting %>", baseContext())
+  it("renders the merged `it.vars` map by name", () => {
+    const out = renderStateTemplate("greeting=<%= it.vars.greeting %>", baseContext())
     expect(out).toBe("greeting=hi")
   })
 
-  it("config passthrough may be undefined and is usable via typeof checks", () => {
+  it("`it.vars` is always a plain object, even when empty — usable via `in` checks", () => {
     const out = renderStateTemplate(
-      "config=<%= typeof it.config === 'undefined' ? 'none' : 'present' %>",
-      baseContext({ config: undefined }),
+      "greeting=<%= 'greeting' in it.vars ? 'present' : 'none' %>",
+      baseContext({ vars: {} }),
     )
-    expect(out).toBe("config=none")
+    expect(out).toBe("greeting=none")
   })
 })
 
@@ -82,7 +82,7 @@ describe("renderStateTemplate — render-error propagation", () => {
 
   it("throws when the template references an undefined property chain", () => {
     expect(() =>
-      renderStateTemplate("<%= it.config.nonexistent.deeper %>", baseContext({ config: {} })),
+      renderStateTemplate("<%= it.vars.nonexistent.deeper %>", baseContext({ vars: {} })),
     ).toThrow()
   })
 

@@ -57,7 +57,9 @@ touches `src/PatternMachine.ts` (types + `validateDefinition`),
     plain function of its arguments.
 - **`src/PatternConfig.ts`** — compiles the raw `.gtdrc` `workflow:` YAML value
   into a `WorkflowDefinition` (`compileWorkflowConfig`): per-state field
-  compilers, `./`/`../` file-reference auto-inlining, the `vars:` passthrough,
+  compilers, `./`/`../` file-reference auto-inlining, the `vars:` compiler
+  (`compileVarsMap` — scalar coercion, object/array rejection; shared with
+  `Config.ts`'s top-level `vars:` key so both layers validate identically),
   config-shape validation collected alongside `validateDefinition`'s findings.
 - **`src/PatternTemplates.ts`** — Eta rendering (`renderStateTemplate`) over
   `TemplateContext`. Pure-ISH: every impure value (hashes, diffs, the `read`
@@ -79,18 +81,27 @@ touches `src/PatternMachine.ts` (types + `validateDefinition`),
   references): it ships inside the single-file `dist/gtd.bundle.mjs` build, so
   it can't reach out to sibling files on disk at runtime.
 
-### The Configurable Machine (`workflow:` in .gtdrc)
+### The Configurable Machine (`workflow:` and `vars:` in .gtdrc)
 
 `src/Config.ts`'s `ConfigService` reads `.gtdrc` (cosmiconfig, deep-merged
-cwd→home), decodes it against `src/ConfigSchema.ts` (one key: `workflow`,
-`Schema.Unknown` — the shape is validated structurally by the compiler, not by
-`effect/schema`), and compiles the `workflow:` value through
+cwd→home), decodes it against `src/ConfigSchema.ts` (two keys: `workflow` and
+`vars`, both `Schema.Unknown` — the shape is validated structurally by the
+compiler, not by `effect/schema`), and compiles the `workflow:` value through
 `compileWorkflowConfig`, or falls back to `defaultWorkflowDefinition`/
-`defaultWorkflowVars` (`src/workflows/default.ts`) when the key is absent. There
-is no module-global registry (no v2-style `activeWorkflow()`/
-`setActiveWorkflow`): `ConfigOperations { workflow, vars }` flows through the
+`defaultWorkflowVars` (`src/workflows/default.ts`) when the key is absent; the
+top-level `vars:` value compiles through the same `compileVarsMap` (see
+`Config.ts`'s `compileRcVars`). There is no module-global registry (no v2-style
+`activeWorkflow()`/`setActiveWorkflow`):
+`ConfigOperations { workflow, workflowVars, rcVars }` flows through the
 `ConfigService` Context tag like any other Effect dependency, read fresh each
-invocation — nothing to reset between tests.
+invocation — nothing to reset between tests. `src/Edge.ts`'s `resolveVars`
+merges `workflowVars`/`rcVars` with a third layer — every `GTD_VAR_`-prefixed
+entry of an injected `EnvVars` Context tag (mirroring `Cwd`/`WorktreeReader`,
+never `process.env` read directly) — into the flat `Record<string, string>`
+every template sees as `it.vars`. The engine still blesses NO variable NAMES:
+`testCommand` (the bundled default's own `vars:` entry, read by `checking`'s
+script) is workflow-authored data like any other `it.vars` key, not a name gtd
+itself interprets.
 
 The commit grammar's closed actor set still DERIVES from the active definition
 (`declaredActors` in `src/PatternMachine.ts`), so custom actor names parse
@@ -105,11 +116,13 @@ needed to keep old history inert.
 Checks are just an ordinary actor's turns at a `script`-content state (the
 bundled default's `checking` state, awaited by the `check` actor) — the engine
 NEVER executes anything itself. The command lives INLINE in that state's own
-`script:` content (no `testCommand` config key — see `docs/upgrading.md`).
-`gtd next` renders and prints the script; `gtd run` is the only place gtd spawns
-a subprocess: it executes the rendered script verbatim via `bash`, then runs
-`gtd step <actor>` for that state's own actor to capture the outcome from
-whatever the script left in the tree (e.g. an `on` pattern matching
+`script:` content (no BLESSED `testCommand` config key — see `docs/upgrading.md`
+— though the bundled default's script does read its own `vars.testCommand`,
+workflow-authored data like any other `it.vars` entry, not a name the engine
+special-cases). `gtd next` renders and prints the script; `gtd run` is the only
+place gtd spawns a subprocess: it executes the rendered script verbatim via
+`bash`, then runs `gtd step <actor>` for that state's own actor to capture the
+outcome from whatever the script left in the tree (e.g. an `on` pattern matching
 `A .gtd/FEEDBACK.md` vs `C`). Mechanics belong in the script; which `on` pattern
 the resulting diff matches is the only thing that decides the outcome — there is
 no separate capture-rule layer to keep in sync. In e2e, simulate a check's

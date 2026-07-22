@@ -2,6 +2,7 @@ import { NodeContext, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
+import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
 import { isEnveloped, makeProgram, runVersionOrHelp } from "./program.js"
@@ -18,6 +19,7 @@ makeProgram().pipe(
   Effect.provide(ConfigService.Live),
   Effect.provide(ConfigInit.Live),
   Effect.provide(WorktreeReader.Live),
+  Effect.provide(EnvVars.Live),
   Effect.provide(Cwd.Live),
   Effect.provide(NodeContext.layer),
   Effect.catchAll((error) =>

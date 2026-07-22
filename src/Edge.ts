@@ -117,16 +117,45 @@ export const computeProcessRun = (git: GitOperations): Effect.Effect<ProcessRun,
     return { startHash, startParentHash, trace }
   })
 
+// ── Variables (`it.vars`) ────────────────────────────────────────────────────
+
+/** The `GTD_VAR_`-prefix stripped, exact-case, from every matching entry — the highest-precedence `it.vars` layer. A `value === undefined` entry (a name declared-but-unset in the environment) is skipped, never coerced to the string `"undefined"`. */
+const envVarsFrom = (env: Readonly<Record<string, string | undefined>>): Record<string, string> => {
+  const PREFIX = "GTD_VAR_"
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined || !key.startsWith(PREFIX)) continue
+    out[key.slice(PREFIX.length)] = value
+  }
+  return out
+}
+
+/**
+ * Assemble the merged `it.vars` map every template sees, from three layers
+ * (later wins): the active workflow's own declared `vars:` defaults
+ * (`ConfigOperations.workflowVars`), the top-level `.gtdrc` `vars:` key
+ * (`ConfigOperations.rcVars`), and every `GTD_VAR_`-prefixed environment
+ * variable (exact-case name match after the prefix) — the only layer that
+ * may introduce a name neither config layer declared. Pure: `env` is
+ * whatever the caller's `EnvVars` service handed it, never `process.env`
+ * read directly here.
+ */
+export const resolveVars = (
+  workflowVars: Record<string, string>,
+  rcVars: Record<string, string>,
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string> => ({ ...workflowVars, ...rcVars, ...envVarsFrom(env) })
+
 // ── Template context ─────────────────────────────────────────────────────────
 
-/** Build the `PatternTemplates.TemplateContext` for rendering `state`'s content at the resolved rest. */
+/** Build the `PatternTemplates.TemplateContext` for rendering `state`'s content at the resolved rest. `vars` is the already-merged three-layer map (see `resolveVars`). */
 export const buildTemplateContext = (
   git: GitOperations,
   read: (path: string) => string,
   state: StateName,
   actor: string,
   run: ProcessRun,
-  vars: unknown,
+  vars: Record<string, string>,
 ): Effect.Effect<TemplateContext, Error> =>
   Effect.gen(function* () {
     const hasCommits = yield* git.hasCommits()
@@ -154,7 +183,7 @@ export const buildTemplateContext = (
       processDiff,
       lastDiff,
       read,
-      config: vars,
+      vars,
     }
   })
 
@@ -169,32 +198,52 @@ export interface RenderedRest {
   readonly model?: string
 }
 
-/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state). */
+/**
+ * Render a state's declared `model:` hint (if any) through the SAME template
+ * context as its content — a plain string with no Eta tags (e.g. `"smart"`)
+ * passes through unchanged, but `model: "<%= it.vars.reviewModel %>"` now
+ * resolves against the merged `it.vars`. A render failure behaves exactly
+ * like a content render failure at the same call site (`gtd next`/`gtd
+ * status` error out, nothing committed) — see `renderRest`, and
+ * `program.ts`'s status command, which calls this directly (it never renders
+ * a state's content, only its `model`).
+ */
+export const renderModel = (
+  stateDef: StateDef,
+  context: TemplateContext,
+): Effect.Effect<string | undefined, Error> =>
+  Effect.try({
+    try: () =>
+      stateDef.model !== undefined ? renderStateTemplate(stateDef.model, context) : undefined,
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state) plus its `model:` hint, if declared (see `renderModel`). */
 export const renderRest = (
   rest: ResolvedRest,
   context: TemplateContext,
 ): Effect.Effect<RenderedRest, Error> =>
-  Effect.try({
-    try: () => {
-      const kind = contentKindOf(rest.stateDef)
-      if (kind === undefined) {
-        throw new Error(`state "${rest.state}" declares no content — invalid definition`)
-      }
-      const template =
-        rest.stateDef.script ??
-        rest.stateDef.prompt ??
-        rest.stateDef.message ??
-        rest.stateDef.commit!
-      const content = renderStateTemplate(template, context)
-      return {
-        state: rest.state,
-        actor: rest.actor,
-        kind,
-        content,
-        ...(rest.stateDef.model !== undefined ? { model: rest.stateDef.model } : {}),
-      }
-    },
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  Effect.gen(function* () {
+    const kind = contentKindOf(rest.stateDef)
+    if (kind === undefined) {
+      return yield* Effect.fail(
+        new Error(`state "${rest.state}" declares no content — invalid definition`),
+      )
+    }
+    const template =
+      rest.stateDef.script ?? rest.stateDef.prompt ?? rest.stateDef.message ?? rest.stateDef.commit!
+    const content = yield* Effect.try({
+      try: () => renderStateTemplate(template, context),
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    })
+    const model = yield* renderModel(rest.stateDef, context)
+    return {
+      state: rest.state,
+      actor: rest.actor,
+      kind,
+      content,
+      ...(model !== undefined ? { model } : {}),
+    }
   })
 
 // ── Executing a step decision ────────────────────────────────────────────────

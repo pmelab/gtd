@@ -70,7 +70,8 @@ describe("ConfigService", () => {
 
     expect(cfg.workflow.states["idle"]?.initial).toBe(true)
     expect(cfg.workflow.states["grilling"]).toBeDefined()
-    expect(cfg.vars).toBeUndefined()
+    expect(cfg.workflowVars).toEqual({ testCommand: "npm test" })
+    expect(cfg.rcVars).toEqual({})
   })
 
   it("reads a custom `workflow:` from a single .gtdrc.yaml in cwd", async () => {
@@ -111,6 +112,47 @@ describe("ConfigService", () => {
     const cfg = await getConfig()
 
     expect(cfg.workflow.states["idle"]?.message).toBe("json idle")
+  })
+
+  it("reads a top-level `vars:` key into `rcVars`, coercing scalars to strings", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`vars:`, `  greeting: hi`, `  attempts: 3`, `  strict: true`, ``].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.rcVars).toEqual({ greeting: "hi", attempts: "3", strict: "true" })
+  })
+
+  it("merges `vars:` levels low->high: cwd's overlays the ancestor's, cwd wins on overlap", async () => {
+    const child = join(projectDir, "a", "b")
+    mkdirSync(child, { recursive: true })
+
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`vars:`, `  greeting: ancestor`, `  onlyAncestor: yes`, ``].join("\n"),
+    )
+    writeFileSync(join(child, ".gtdrc.yaml"), [`vars:`, `  greeting: child`, ``].join("\n"))
+
+    const cfg = await getConfig(child)
+
+    expect(cfg.rcVars).toEqual({ greeting: "child", onlyAncestor: "yes" })
+  })
+
+  it("rejects a non-scalar top-level `vars` entry, aggregated into one error", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`vars:`, `  bad:`, `    nested: true`, ``].join("\n"),
+    )
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain("gtd config:")
+      expect(String(exit.cause)).toContain('"vars.bad" must be a string, number, or boolean')
+    }
   })
 
   it("rejects an unknown top-level key as an excess property", async () => {

@@ -100,8 +100,11 @@ newline) — never the `model` hint, which is JSON-only. `--json` emits
 - `kind` — `"script"` | `"prompt"` | `"message"` — the dispatch key a driver
   switches on (see [Driving the loop](loop.md)).
 - `content` — the fully rendered template.
-- `model` — the state's opaque `model:` hint, verbatim, present only when the
-  state declares one; **omitted entirely** (never `null`) when unset.
+- `model` — the state's opaque `model:` hint, RENDERED through the same template
+  context as `content` (see
+  [Configuration](configuration.md#model--the-opaque-harness-hint-template-rendered)),
+  present only when the state declares one; **omitted entirely** (never `null`)
+  when unset.
 
 ## `gtd run`
 
@@ -125,7 +128,13 @@ positional args are rejected.
 
 Pure, read-only dry-run reporter — the same resolution `gtd next` performs, but
 reporting the resolved state/actor and, for every pending change, which declared
-`on` pattern (if any) matches it — no mutation, no template rendering.
+`on` pattern (if any) matches it — no mutation, and no CONTENT rendering (the
+`script`/`prompt`/`message`/`commit` template is never rendered here, unlike
+`gtd next`). It DOES render the resolved state's `model:` hint (if declared)
+through the same `it.vars`-carrying template context `gtd next` uses — see
+[Configuration](configuration.md#model--the-opaque-harness-hint-template-rendered)
+— so a templated `model:` failing to render fails `gtd status` too, exactly like
+it would fail `gtd next`.
 
 ```
 State: working

@@ -15,11 +15,13 @@ bundled default workflow applies (see
 
 ## Schema
 
-v3's `.gtdrc` has exactly one blessed top-level key:
+v3's `.gtdrc` has exactly two blessed top-level keys:
 
 - **`workflow`** (object, optional) — the whole machine definition, compiled by
   `src/PatternConfig.ts`. Absent = the bundled default workflow. See
   ["The `workflow:` key" below](#the-workflow-key) for its schema.
+- **`vars`** (object, optional) — a flat `name -> scalar` map, one layer of the
+  merged `it.vars` every template sees — see ["Variables"](#variables) below.
 - **`$schema`** (string, optional) — stripped before validation, so it never
   counts as an unknown key. Point it at the published schema for editor-backed
   autocompletion. A `schema.json` is generated from `src/ConfigSchema.ts` at
@@ -28,8 +30,10 @@ v3's `.gtdrc` has exactly one blessed top-level key:
 Any other top-level key is **rejected** (`onExcessProperty: "error"`) — v3 has
 no `testCommand`, `fixAttemptCap`, `reviewThreshold`, `agenticReview`, `squash`,
 `learning`, `decisionLog`, or `models` keys; all of that machinery is gone (see
-[Upgrading](upgrading.md)). A check's command lives inline in its own `script:`
-content — there is no blessed config key for it.
+[Upgrading](upgrading.md)). The engine blesses no VARIABLE NAMES either —
+`testCommand` (the bundled default workflow's own var, see
+["Variables"](#variables)) is workflow-authored data like any other `it.vars`
+entry, not a special key gtd interprets.
 
 ## The `workflow:` key
 
@@ -40,8 +44,8 @@ compiled through the exact same compiler (`src/workflows/default.yaml` →
 
 ```yaml
 workflow:
-  vars: # optional — passed through to templates verbatim as `it.config`
-    anyKey: anyValue
+  vars: # optional — the workflow's own declared `it.vars` defaults (see "Variables" below)
+    anyKey: anyScalarValue
   states:
     <name>:
       actor: <string> # forbidden on a commit state, required otherwise
@@ -80,20 +84,17 @@ workflow:
         "* **": done
 ```
 
-### `vars:` — the `config` template passthrough
+A `vars:` key sibling to `states:` inside `workflow:` declares the workflow's
+own defaults for `it.vars` — see ["Variables"](#variables) below for the full
+three-layer picture.
 
-A `vars:` key sibling to `states:` inside `workflow:` is passed through verbatim
-(any shape, unvalidated) as the `config` template variable — see the table
-below. It's the one place custom, workflow-specific values reach templates; gtd
-never inspects it.
-
-### `model:` — the opaque harness hint
+### `model:` — the opaque harness hint, template-rendered
 
 A state may declare `model: <string>` — an OPAQUE label (e.g. `smart`, `fast`,
-or a concrete model id) gtd never interprets; it is only passed through verbatim
-so the driving loop can map it onto whatever models its agent harness provides.
-Unset means "use the harness's default." Forbidden on a commit state (never at
-rest, emits nothing):
+or a concrete model id) gtd never interprets; it is only passed through so the
+driving loop can map it onto whatever models its agent harness provides. Unset
+means "use the harness's default." Forbidden on a commit state (never at rest,
+emits nothing):
 
 ```yaml
 workflow:
@@ -106,14 +107,22 @@ workflow:
         "* **": done
 ```
 
-`gtd next --json` and `gtd status --json` include a `"model"` key only when the
-resolved state declares one — it is **omitted entirely**, never emitted as
-`null`, when unset.
+Like every content string, `model:` is rendered as an Eta template through the
+exact same context as the state's content — a plain string with no Eta tags
+(`smart` above) passes through unchanged, but
+`model: "<%= it.vars.reviewModel %>"` resolves against the merged `it.vars` (see
+["Variables"](#variables)). A render failure behaves exactly like a content
+render failure at the same call site: `gtd next`/`gtd status` error out, nothing
+committed.
+
+`gtd next --json` and `gtd status --json` include a `"model"` key (the RENDERED
+value) only when the resolved state declares one — it is **omitted entirely**,
+never emitted as `null`, when unset.
 
 ### Template variables
 
-Every `script`/`prompt`/`message`/`commit` template is rendered as an Eta
-template (`it.<name>`) with:
+Every `script`/`prompt`/`message`/`commit`/`model` template is rendered as an
+Eta template (`it.<name>`) with:
 
 | Variable         | Meaning                                                                                                                                                                                                                                 |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -125,7 +134,64 @@ template (`it.<name>`) with:
 | `processDiff`    | `startCommit..HEAD` plus the pending working-tree diff.                                                                                                                                                                                 |
 | `lastDiff`       | The diff of the last transition alone.                                                                                                                                                                                                  |
 | `read(path)`     | Reads a working-tree file (pending contents, not HEAD's) by repo-relative path. Throws for a missing/unreadable path — for a `commit:` template, that throw refuses the step (see [STATES.md §8](../STATES.md#8-the-squash-lifecycle)). |
-| `config`         | The `vars:` passthrough above (any shape, unvalidated; `undefined` for the bundled default).                                                                                                                                            |
+| `vars`           | The merged three-layer variable map, always a flat `Record<string, string>` — see ["Variables"](#variables) below.                                                                                                                      |
+
+## Variables
+
+Every template — `script`/`prompt`/`message`/`commit`, and now `model` — sees
+`it.vars`: a flat `Record<string, string>` assembled from three layers, **later
+wins**:
+
+1. **The workflow's own `vars:` key** (sibling to `states:`, shown above) — the
+   workflow author's declared defaults. The bundled default workflow declares
+   `vars: { testCommand: "npm test" }`, read by `checking`'s script as
+   `<%~ it.vars.testCommand %>` (see
+   [STATES.md §10](../STATES.md#10-the-bundled-default-workflow)).
+2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
+   inside it) — per-repo tuning without redefining the whole workflow. Subject
+   to the same cwd→home deep merge as everything else in `.gtdrc` (innermost
+   wins per-key).
+3. **`GTD_VAR_<name>` environment variables** — highest precedence, checked at
+   every invocation. The prefix is stripped and the REMAINING CASE matched
+   exactly: `GTD_VAR_testCommand` sets `testCommand`, not `TESTCOMMAND` or
+   `testcommand`. This is the only layer that may introduce a name neither
+   config layer declared.
+
+Values in layers 1–2 must be YAML scalars (string/number/boolean) — coerced to
+strings at load time; an object or array value is a load error, collected
+alongside every other config-shape finding (see
+["Validation and errors"](#validation-and-errors)). Environment values are
+already strings.
+
+```yaml
+# .gtdrc — overriding the bundled default's testCommand
+vars:
+  testCommand: npm run test:ci
+```
+
+```bash
+# highest precedence — beats both the workflow default and the .gtdrc value above
+GTD_VAR_testCommand="npm run test -- --bail" gtd run
+```
+
+A template reads any of it as `it.vars.<name>`:
+
+```yaml
+workflow:
+  vars:
+    reviewer: alice
+  states:
+    working:
+      actor: agent
+      prompt: "Assigned reviewer: <%= it.vars.reviewer %>"
+      model: "<%= it.vars.reviewModel %>" # a GTD_VAR_reviewModel override, or a .gtdrc vars: entry
+      on:
+        "* **": done
+```
+
+No variable name is blessed by the engine — `testCommand` is workflow-authored
+data like any other `it.vars` entry, not a special key gtd interprets; a custom
+workflow is free to declare and read any names it likes.
 
 ## Validation and errors
 
@@ -148,8 +214,12 @@ Other load failures:
   filename.
 - **Non-object top-level** — a YAML list or `null` at the root is rejected with
   the filename in the message.
-- **Unknown top-level key** — anything besides `workflow`/`$schema` emits
+- **Unknown top-level key** — anything besides `workflow`/`vars`/`$schema` emits
   `Invalid gtd config: <field>: <reason>`.
+- **A bad top-level `vars:` entry** — an object/array value fails the same way
+  as a bad workflow-level `vars:` entry (see ["Variables"](#variables)), one
+  aggregated error:
+  `gtd config:\n  - "vars.<name>" must be a string, number, or boolean, got <type>`.
 
 All of these exit **1** and write to **stderr**, never stdout.
 
@@ -179,8 +249,7 @@ the workflow's initial state.
 ## A complete example
 
 A three-state note-taking machine: draft, revise-or-accept, and a squashed
-commit — one prompt/message pair with a `vars:` passthrough and a `retry` cap
-this example doesn't otherwise use:
+commit — one prompt/message pair reading a workflow-declared `it.vars` entry:
 
 ```yaml
 # .gtdrc.yaml
@@ -201,7 +270,7 @@ workflow:
       actor: agent
       prompt: |
         Read NOTE.md and draft a short write-up in DRAFT.md.
-        Reviewer of record: <%= it.config.reviewer %>.
+        Reviewer of record: <%= it.vars.reviewer %>.
         Leave DRAFT.md uncommitted and finish your turn.
       on:
         "* **": revising

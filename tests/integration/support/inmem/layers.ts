@@ -15,13 +15,14 @@ import {
   type GitOperations,
 } from "../../../../src/Git.js"
 import { ConfigInit, ConfigService, type ConfigOperations } from "../../../../src/Config.js"
-import { compileWorkflowConfig } from "../../../../src/PatternConfig.js"
+import { compileVarsMap, compileWorkflowConfig } from "../../../../src/PatternConfig.js"
 import {
   defaultWorkflowDefinition,
   defaultWorkflowVars,
 } from "../../../../src/workflows/default.js"
 import { InMemRepo } from "./Repo.js"
 import { Cwd } from "../../../../src/Cwd.js"
+import { EnvVars } from "../../../../src/EnvVars.js"
 import { WorktreeReader } from "../../../../src/WorktreeReader.js"
 
 // ---------------------------------------------------------------------------
@@ -411,21 +412,38 @@ const parseConfigContent = (filename: string, content: string): Record<string, u
 }
 
 /**
+ * Mirrors the real `Config.ts`'s `compileRcVars`: the top-level `.gtdrc`
+ * `vars:` key, validated through the SAME `compileVarsMap` the real service
+ * uses. Throws the same aggregated `"gtd config:\n  - ..."` shape on a bad
+ * entry.
+ */
+const compileRcVars = (raw: unknown): Record<string, string> => {
+  const errors: string[] = []
+  const vars = compileVarsMap(raw, errors)
+  if (errors.length > 0) {
+    throw new Error(`gtd config:\n${errors.map((e) => `  - ${e}`).join("\n")}`)
+  }
+  return vars
+}
+
+/**
  * Mirrors the real `ConfigService.Live`'s `toOperations`: an absent
  * `workflow:` key compiles to the bundled default; a present one is compiled
  * through the SAME `compileWorkflowConfig` the real service uses — no
- * bespoke in-memory workflow interpretation. `configDir` is `"/repo"`
- * (this harness's fixed in-memory root, matching `topLevel`/`realPath`
- * above) so a scenario's custom workflow could reference `./`-relative
- * content if it ever needed to (none currently do; every @inmem custom-
- * workflow scenario writes inline content).
+ * bespoke in-memory workflow interpretation. Likewise the top-level `vars:`
+ * key goes through the same `compileRcVars` the real service uses.
+ * `configDir` is `"/repo"` (this harness's fixed in-memory root, matching
+ * `topLevel`/`realPath` above) so a scenario's custom workflow could
+ * reference `./`-relative content if it ever needed to (none currently do;
+ * every @inmem custom-workflow scenario writes inline content).
  */
 const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
+  const rcVars = compileRcVars(raw["vars"])
   if (raw["workflow"] === undefined) {
-    return { workflow: defaultWorkflowDefinition, vars: defaultWorkflowVars }
+    return { workflow: defaultWorkflowDefinition, workflowVars: defaultWorkflowVars, rcVars }
   }
-  const { definition, config: vars } = compileWorkflowConfig(raw["workflow"], "/repo")
-  return { workflow: definition, vars }
+  const { definition, vars: workflowVars } = compileWorkflowConfig(raw["workflow"], "/repo")
+  return { workflow: definition, workflowVars, rcVars }
 }
 
 const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> => {
@@ -470,8 +488,9 @@ const makeInMemoryWorktreeReader = (repo: InMemRepo): Layer.Layer<WorktreeReader
 
 export function inMemoryLayers(
   repo: InMemRepo,
+  env: Readonly<Record<string, string | undefined>> = {},
 ): Layer.Layer<
-  GitService | FileSystem.FileSystem | ConfigService | ConfigInit | Cwd | WorktreeReader
+  GitService | FileSystem.FileSystem | ConfigService | ConfigInit | Cwd | WorktreeReader | EnvVars
 > {
   // Reader + Writer share the same repo instance
   const readerOps = makeGitReaderOps(repo)
@@ -491,6 +510,7 @@ export function inMemoryLayers(
     ConfigInit.Noop,
     Cwd.layer("/repo"),
     makeInMemoryWorktreeReader(repo),
+    EnvVars.layer(env),
   )
 }
 

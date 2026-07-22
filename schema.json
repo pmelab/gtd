@@ -6,6 +6,10 @@
     "workflow": {
       "$id": "/schemas/unknown",
       "title": "unknown"
+    },
+    "vars": {
+      "$id": "/schemas/unknown",
+      "title": "unknown"
     }
   },
   "additionalProperties": false

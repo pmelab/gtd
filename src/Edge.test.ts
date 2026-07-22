@@ -1,8 +1,15 @@
 import { Effect } from "effect"
 import { describe, expect, it, vi } from "vitest"
 import type { GitOperations } from "./Git.js"
-import { computeProcessRun, executeDecision, pendingChanges } from "./Edge.js"
+import {
+  computeProcessRun,
+  executeDecision,
+  pendingChanges,
+  renderModel,
+  resolveVars,
+} from "./Edge.js"
 import type { TemplateContext } from "./PatternTemplates.js"
+import type { StateDef } from "./PatternMachine.js"
 
 /**
  * Unit coverage for the surviving edge logic that doesn't need a real (or
@@ -138,7 +145,7 @@ const context = (overrides: Partial<TemplateContext> = {}): TemplateContext => (
   read: () => {
     throw new Error("no file registered")
   },
-  config: undefined,
+  vars: {},
   ...overrides,
 })
 
@@ -211,5 +218,86 @@ describe("executeDecision", () => {
       ),
     )
     expect(outcome).toEqual({ kind: "noop", state: "idle" })
+  })
+})
+
+describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)", () => {
+  it("with only a workflow default, that default wins", () => {
+    expect(resolveVars({ testCommand: "npm test" }, {}, {})).toEqual({
+      testCommand: "npm test",
+    })
+  })
+
+  it("a `.gtdrc` `vars:` entry overrides the workflow's own default for the same name", () => {
+    expect(
+      resolveVars(
+        { testCommand: "npm test", reviewer: "alice" },
+        { testCommand: "npm run check" },
+        {},
+      ),
+    ).toEqual({ testCommand: "npm run check", reviewer: "alice" })
+  })
+
+  it("a `GTD_VAR_`-prefixed environment variable beats both the workflow default and the rc value", () => {
+    expect(
+      resolveVars(
+        { testCommand: "npm test" },
+        { testCommand: "npm run check" },
+        { GTD_VAR_testCommand: "echo env-wins" },
+      ),
+    ).toEqual({ testCommand: "echo env-wins" })
+  })
+
+  it("an env var may introduce a name neither config layer declared", () => {
+    expect(resolveVars({}, {}, { GTD_VAR_brandNew: "hello" })).toEqual({ brandNew: "hello" })
+  })
+
+  it("matches the `GTD_VAR_` prefix by exact remaining case — `testCommand`, not `testcommand`", () => {
+    expect(resolveVars({}, {}, { GTD_VAR_testCommand: "a", GTD_VAR_TESTCOMMAND: "b" })).toEqual({
+      testCommand: "a",
+      TESTCOMMAND: "b",
+    })
+  })
+
+  it("ignores env entries without the `GTD_VAR_` prefix, and an unset (`undefined`-valued) entry", () => {
+    expect(
+      resolveVars({}, {}, { PATH: "/usr/bin", GTD_VAR_kept: "yes", GTD_VAR_unset: undefined }),
+    ).toEqual({ kept: "yes" })
+  })
+})
+
+describe("renderModel", () => {
+  const stateDef = (model?: string): StateDef =>
+    model !== undefined ? { actor: "agent", prompt: "x", model } : { actor: "agent", prompt: "x" }
+
+  const run1 = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
+
+  it("a state with no `model:` renders to `undefined`", async () => {
+    const result = await run1(renderModel(stateDef(), context()))
+    expect(result).toBeUndefined()
+  })
+
+  it("a plain string with no Eta tags passes through unchanged", async () => {
+    const result = await run1(renderModel(stateDef("smart"), context()))
+    expect(result).toBe("smart")
+  })
+
+  it("a templated `model:` resolves against the same `it.vars` the content sees", async () => {
+    const result = await run1(
+      renderModel(
+        stateDef("<%= it.vars.reviewModel %>"),
+        context({ vars: { reviewModel: "opus" } }),
+      ),
+    )
+    expect(result).toBe("opus")
+  })
+
+  it("a model render failure propagates as a thrown/rejected error, same as a content render failure", async () => {
+    const outcome = await run1(renderModel(stateDef("<%= it.vars.nope.deeper %>"), context())).then(
+      () => "resolved" as const,
+      (e: Error) => e,
+    )
+    expect(outcome).not.toBe("resolved")
+    expect(outcome).toBeInstanceOf(Error)
   })
 })

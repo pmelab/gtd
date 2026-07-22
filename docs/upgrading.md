@@ -36,14 +36,18 @@ upgrading.
   affordance left is a state's own `retry: { max, otherwise }`
   (§[STATES.md](../STATES.md#7-retry)) — a plain per-process entry cap
   redirected at write time, with no trailer to read back.
-- **`.gtdrc` keys.** `testCommand`, `fixAttemptCap`, `reviewThreshold`,
-  `agenticReview`, `squash`, `learning`, `decisionLog`, and `models` are all
-  gone — `workflow:` is the only blessed key (see
+- **`.gtdrc` keys.** The old `testCommand`, `fixAttemptCap`, `reviewThreshold`,
+  `agenticReview`, `squash`, `learning`, `decisionLog`, and `models` keys are
+  all gone — `workflow:` and `vars:` are the only two blessed keys (see
   [Configuration](configuration.md)). A check's command now lives inline in its
-  own `script:` content; squashing is a `commit:` state instead of a boolean
-  flag; there is no learning phase, no decision log, and no model tiering — a
-  workflow author is free to build any of that shape back with states of their
-  own, but gtd no longer bakes it in.
+  own `script:` content, reading a workflow-declared `it.vars` entry (the
+  bundled default's `testCommand`, overridable via the top-level `vars:` key or
+  a `GTD_VAR_testCommand` environment variable — see
+  [Configuration's "Variables"](configuration.md#variables)) rather than a
+  blessed `testCommand` config key; squashing is a `commit:` state instead of a
+  boolean flag; there is no learning phase, no decision log, and no model
+  tiering — a workflow author is free to build any of that shape back with
+  states of their own, but gtd no longer bakes it in.
 - **The review checkout window.** v2 rewound HEAD/index to the review base while
   a human review rested, so editors would show the diff directly. Deleted in v3
   (may return later as an explicit state property — not in scope now).

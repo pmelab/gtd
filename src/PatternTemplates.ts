@@ -40,8 +40,19 @@ export interface TemplateContext {
   readonly lastDiff: string
   /** Read a working-tree file (pending contents, not HEAD's) by repo-relative path. Throws for a missing/unreadable path — that throw is the render failure the plan's `commit:` refusal rule depends on. */
   readonly read: (path: string) => string
-  /** The `vars:` passthrough compiled by `./PatternConfig.js` (`CompiledWorkflowConfig.config`) — any shape, unvalidated. */
-  readonly config: unknown
+  /**
+   * The merged variable map every template sees as `it.vars.<name>` —
+   * assembled by `src/Edge.ts`'s `resolveVars` from three layers (later
+   * wins): the workflow's own declared `vars:` defaults
+   * (`CompiledWorkflowConfig.vars`), the top-level `.gtdrc` `vars:` key, and
+   * `GTD_VAR_`-prefixed environment variables (exact-case match after the
+   * prefix). Always a flat `Record<string, string>` — every source value is
+   * coerced to a string at load time (env vars are naturally strings; YAML
+   * scalars in the first two layers are coerced by `PatternConfig.ts`'s
+   * `compileVarsMap`). No name is blessed by the engine: `it.vars` is empty
+   * unless a workflow/config/env layer populates it.
+   */
+  readonly vars: Record<string, string>
 }
 
 // One shared Eta instance, `renderString`-only (no named template registry —

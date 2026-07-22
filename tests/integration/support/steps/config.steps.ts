@@ -34,6 +34,17 @@ Given(
   },
 )
 
+// Sets an environment variable the in-memory tier's `EnvVars` layer exposes —
+// exactly the `GTD_VAR_`-prefixed highest-precedence layer of the merged
+// `it.vars` (see src/Edge.ts's `resolveVars`). Never touches the real
+// `process.env`: `world.envVars` flows straight into `inMemoryLayers`.
+Given(
+  "an environment variable {string} set to {string}",
+  (world: GtdWorld, name: string, value: string) => {
+    world.envVars[name] = value
+  },
+)
+
 // Re-roots the existing test repo beneath a freshly created shared ancestor
 // temp dir (under os.tmpdir(), NOT under home) and drops a `.gtdrc` there. The
 // ancestor is a plain directory, not a git root, so this proves ConfigService's

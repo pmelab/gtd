@@ -4,7 +4,7 @@ import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Command, CommandExecutor, FileSystem } from "@effect/platform"
-import { compileWorkflowConfig } from "./PatternConfig.js"
+import { compileVarsMap, compileWorkflowConfig } from "./PatternConfig.js"
 import { parseStateSubject, type WorkflowDefinition } from "./PatternMachine.js"
 import { defaultWorkflowDefinition, defaultWorkflowVars } from "./workflows/default.js"
 import { Cwd } from "./Cwd.js"
@@ -14,8 +14,10 @@ import { ConfigSchema, type DecodedConfig } from "./ConfigSchema.js"
 export interface ConfigOperations {
   /** The active workflow definition — the bundled default, or the `.gtdrc` `workflow:` key compiled through `compileWorkflowConfig`. */
   readonly workflow: WorkflowDefinition
-  /** The active workflow's `vars:` passthrough (any shape, unvalidated) — the `config` template variable. `undefined` for the bundled default. */
-  readonly vars: unknown
+  /** The active workflow's own declared `vars:` defaults (layer 1 of the merged `it.vars` — see `src/Edge.ts`'s `resolveVars`). `defaultWorkflowVars` for the bundled default. */
+  readonly workflowVars: Record<string, string>
+  /** The top-level `.gtdrc` `vars:` key (layer 2), already cwd→home deep-merged like any other config key. `{}` when absent. */
+  readonly rcVars: Record<string, string>
 }
 
 /**
@@ -177,20 +179,38 @@ const anyConfigPresent = (root: string): Effect.Effect<boolean, Error> =>
   })
 
 /**
+ * Compile the decoded config's top-level `vars:` key into the `rcVars` layer,
+ * sharing `PatternConfig.ts`'s `compileVarsMap` with the workflow's own
+ * `vars:` so both layers validate identically (scalar coercion, object/array
+ * rejection). Throws a single aggregated `Error` on any bad entry — same
+ * "collected, never partial" discipline as `compileWorkflowConfig`.
+ */
+const compileRcVars = (raw: unknown): Record<string, string> => {
+  const errors: string[] = []
+  const vars = compileVarsMap(raw, errors)
+  if (errors.length > 0) {
+    throw new Error(`gtd config:\n${errors.map((e) => `  - ${e}`).join("\n")}`)
+  }
+  return vars
+}
+
+/**
  * Compile the decoded config's `workflow:` key (or the bundled default, when
- * absent) into `ConfigOperations`. `root` is used as the workflow compiler's
- * `configDir` — the directory a custom workflow's `./`-relative content
- * references resolve against. Throws (via `compileWorkflowConfig`) on any
- * invalid custom workflow; the bundled default never throws here (it is
- * pre-compiled and validated once at module load, see
+ * absent) plus its top-level `vars:` key into `ConfigOperations`. `root` is
+ * used as the workflow compiler's `configDir` — the directory a custom
+ * workflow's `./`-relative content references resolve against. Throws (via
+ * `compileWorkflowConfig`/`compileRcVars`) on any invalid custom
+ * workflow/vars; the bundled default's workflow half never throws here (it
+ * is pre-compiled and validated once at module load, see
  * `./workflows/default.ts`).
  */
 const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations => {
+  const rcVars = compileRcVars(decoded.vars)
   if (decoded.workflow === undefined) {
-    return { workflow: defaultWorkflowDefinition, vars: defaultWorkflowVars }
+    return { workflow: defaultWorkflowDefinition, workflowVars: defaultWorkflowVars, rcVars }
   }
-  const { definition, config: vars } = compileWorkflowConfig(decoded.workflow, root)
-  return { workflow: definition, vars }
+  const { definition, vars: workflowVars } = compileWorkflowConfig(decoded.workflow, root)
+  return { workflow: definition, workflowVars, rcVars }
 }
 
 const formatSchemaError = (e: ParseError): string => {

@@ -3,6 +3,7 @@ import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
+import { EnvVars } from "./EnvVars.js"
 import { WorktreeReader } from "./WorktreeReader.js"
 import { GitService, type GitOperations } from "./Git.js"
 import {
@@ -10,12 +11,17 @@ import {
   computeProcessRun,
   executeDecision,
   pendingChanges,
+  renderModel,
   renderRest,
   resolveRest,
+  resolveVars,
   type ExecutableDecision,
+  type ProcessRun,
+  type ResolvedRest,
 } from "./Edge.js"
 import { formatFile } from "./Format.js"
 import { matchesPattern, parsePattern, step } from "./PatternMachine.js"
+import type { TemplateContext } from "./PatternTemplates.js"
 
 const _require = createRequire(import.meta.url)
 const GTD_VERSION: string = (_require("../package.json") as { version: string }).version
@@ -61,6 +67,7 @@ type ProgramRequirements =
   | ConfigInit
   | Cwd
   | WorktreeReader
+  | EnvVars
 
 /** Non-flag positional arguments past the subcommand name (argv[3..]). */
 const commandArgs = (argv: readonly string[]): string[] =>
@@ -99,6 +106,39 @@ const runFormatCommand = (
   })
 
 /**
+ * Resolve HEAD's rest, the current process run, and the template context for
+ * rendering that rest's OWN state/actor — the common prefix shared by `gtd
+ * next`, `gtd run`, and `gtd status` (each fetches `git` itself first, since
+ * `gtd status` also needs it for `pendingChanges`; `stepAsActor`'s squash
+ * path renders a DIFFERENT state, so it builds its own context inline
+ * instead of sharing this helper).
+ */
+const resolveRestContext = (
+  git: GitOperations,
+): Effect.Effect<
+  { readonly rest: ResolvedRest; readonly run: ProcessRun; readonly context: TemplateContext },
+  Error,
+  GitService | ConfigService | WorktreeReader | EnvVars
+> =>
+  Effect.gen(function* () {
+    const config = yield* ConfigService
+    const worktree = yield* WorktreeReader
+    const envVars = yield* EnvVars
+    const rest = yield* resolveRest()
+    const run = yield* computeProcessRun(git)
+    const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const context = yield* buildTemplateContext(
+      git,
+      worktree.read,
+      rest.state,
+      rest.actor,
+      run,
+      vars,
+    )
+    return { rest, run, context }
+  })
+
+/**
  * Authenticate `invoker` against the resolved rest and perform the one
  * resulting transition (commit or squash), shared by `gtd step` and
  * `gtd run` (which steps the script's own actor after executing it).
@@ -117,6 +157,7 @@ const stepAsActor = (
     const git = yield* GitService
     const config = yield* ConfigService
     const worktree = yield* WorktreeReader
+    const envVars = yield* EnvVars
     const rest = yield* resolveRest()
     const run = yield* computeProcessRun(git)
     const changes = yield* pendingChanges(git)
@@ -137,13 +178,14 @@ const stepAsActor = (
     }
 
     const executable: ExecutableDecision = decision
+    const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
     const context = yield* buildTemplateContext(
       git,
       worktree.read,
       decision.kind === "squash" ? decision.state : rest.state,
       invoker,
       run,
-      config.vars,
+      vars,
     )
     const outcome = yield* executeDecision(git, run, executable, context)
     return { state: rest.state, subject: outcome.kind === "noop" ? null : outcome.subject }
@@ -193,18 +235,7 @@ const runNextCommand = (
 ): Effect.Effect<void, Error, ProgramRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const config = yield* ConfigService
-    const worktree = yield* WorktreeReader
-    const rest = yield* resolveRest()
-    const run = yield* computeProcessRun(git)
-    const context = yield* buildTemplateContext(
-      git,
-      worktree.read,
-      rest.state,
-      rest.actor,
-      run,
-      config.vars,
-    )
+    const { rest, context } = yield* resolveRestContext(git)
     const rendered = yield* renderRest(rest, context)
     if (json) {
       write(
@@ -236,18 +267,7 @@ const runRunCommand = (
   Effect.gen(function* () {
     yield* rejectExtraArgs("run", argv)
     const git = yield* GitService
-    const config = yield* ConfigService
-    const worktree = yield* WorktreeReader
-    const rest = yield* resolveRest()
-    const run = yield* computeProcessRun(git)
-    const context = yield* buildTemplateContext(
-      git,
-      worktree.read,
-      rest.state,
-      rest.actor,
-      run,
-      config.vars,
-    )
+    const { rest, context } = yield* resolveRestContext(git)
     const rendered = yield* renderRest(rest, context)
     if (rendered.kind !== "script") {
       return yield* Effect.fail(
@@ -287,8 +307,9 @@ const runStatusCommand = (
   Effect.gen(function* () {
     yield* rejectExtraArgs("status", argv)
     const git: GitOperations = yield* GitService
-    const rest = yield* resolveRest()
+    const { rest, context } = yield* resolveRestContext(git)
     const changes = yield* pendingChanges(git)
+    const model = yield* renderModel(rest.stateDef, context)
     const onEdges = rest.stateDef.on ?? []
     const statusChanges: readonly StatusChange[] = changes.map((change) => {
       const matchedRow = onEdges.find(([patternStr]) => {
@@ -303,12 +324,12 @@ const runStatusCommand = (
           state: rest.state,
           actor: rest.actor,
           changes: statusChanges,
-          ...(rest.stateDef.model !== undefined ? { model: rest.stateDef.model } : {}),
+          ...(model !== undefined ? { model } : {}),
         }) + "\n",
       )
     } else {
       const lines = [`State: ${rest.state}`, `Awaits: ${rest.actor}`]
-      if (rest.stateDef.model !== undefined) lines.push(`Model: ${rest.stateDef.model}`)
+      if (model !== undefined) lines.push(`Model: ${model}`)
       if (statusChanges.length === 0) {
         lines.push("Pending: (clean)")
       } else {

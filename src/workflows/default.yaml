@@ -37,6 +37,14 @@
 # `grilling`, `architecting`, and `reviewing` declare `model: smart` — an
 # opaque harness hint (see the comment at `grilling` below) for the heavier
 # planning/reviewing turns. Every other state is unset (harness default).
+#
+# `vars.testCommand` is this workflow's own declared default for `checking`'s
+# script (see it.vars in PatternTemplates.ts) — override it per-repo with a
+# top-level `.gtdrc` `vars: { testCommand: ... }` key, or per-invocation with
+# a `GTD_VAR_testCommand` environment variable (highest precedence).
+
+vars:
+  testCommand: npm test
 
 states:
   idle:
@@ -196,9 +204,14 @@ states:
       # red run's output as .gtd/FEEDBACK.md. What that output MEANS (another
       # fix round vs escalation) is decided by the workflow's own `on`/`retry`
       # rules at capture time — never here.
+      #
+      # `it.vars.testCommand` defaults to "npm test" (this workflow's own
+      # `vars:` above) — override it with a top-level `.gtdrc`
+      # `vars: { testCommand: ... }` key, or a `GTD_VAR_testCommand`
+      # environment variable (highest precedence).
       set +e
       mkdir -p .gtd
-      npm test > .gtd/.check-output 2>&1
+      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
         if [ -s .gtd/.check-output ]; then
