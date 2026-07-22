@@ -28,7 +28,6 @@ export default defineConfig({
             "./tests/integration/support/hooks.ts",
             "./tests/integration/support/steps/common.steps.ts",
             "./tests/integration/support/steps/config.steps.ts",
-            "./tests/integration/support/steps/environment.steps.ts",
             "./tests/integration/support/steps/formatting.steps.ts",
             "./tests/integration/support/steps/gtd-loop.steps.ts",
           ],
