@@ -46,7 +46,7 @@ Given("{string} is modified to:", (world: GtdWorld, path: string, content: strin
 
 // Plain working-tree deletion — what an editor's "delete file" does. Distinct
 // from "a deleted committed file" (git rm), which refuses when the index entry
-// differs from HEAD, e.g. inside an open review checkout window.
+// differs from HEAD.
 Given("the file {string} is deleted", (world: GtdWorld, path: string) => {
   world.deleteWorktreeFile(path)
 })
@@ -198,9 +198,8 @@ Then("the commit subjects from oldest to newest are:", (world: GtdWorld, doc: st
     world.tier === "inmem"
       ? world
           .repo!.commitHistory()
-          // Subject line only — commit bodies (e.g. the `Gtd-Counters`
-          // trailer) are not part of the sequence assertion, matching the
-          // subprocess tier's `--format=%s`.
+          // Subject line only — commit bodies are not part of the sequence
+          // assertion, matching the subprocess tier's `--format=%s`.
           .map((c) => c.message.split("\n")[0] ?? "")
           .join("\n")
       : execFileSync("git", ["log", "--reverse", "--format=%s"], {
