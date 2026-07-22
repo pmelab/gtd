@@ -6,7 +6,6 @@
   "printWidth": 100,
   "sortPackageJson": false,
   "ignorePatterns": [
-    "scripts/gtd.bundle.mjs",
     "src/prompts/**/*.md",
     ".stryker-tmp/",
     "stryker-incremental.json",
