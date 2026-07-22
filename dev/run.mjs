@@ -1,4 +1,4 @@
-// Dev entry: register the TS/`.md` resolution hooks, then run the CLI from
+// Dev entry: register the TS/`.yaml` resolution hooks, then run the CLI from
 // source so `npm run dev` works without a tsup build. argv is preserved, so
 // `npm run dev -- format <file>` reaches `src/main.ts` unchanged.
 //

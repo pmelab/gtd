@@ -38,14 +38,9 @@ the same path a `.gtdrc` `workflow:` key goes through
 
 `npm run dev` runs `src/main.ts` directly via Node's native TypeScript
 type-stripping (requires Node 22.6+). It registers `dev/hooks.mjs`, which
-resolves `./Foo.js` specifiers to the on-disk `./Foo.ts` and imports `*.md`
-files as raw text. **Known gap:** `dev/hooks.mjs` predates the v3 `default.yaml`
-asset and does not yet mirror tsdown's `.yaml`-as-text loader, so `npm run dev`
-currently fails to import `src/workflows/default.yaml`
-(`ERR_UNKNOWN_FILE_EXTENSION`) — pass a `.gtdrc` with a `workflow:` key that
-never triggers the bundled-default import path, or extend the hook's `load`
-function to handle `.yaml` the same way it handles `.md`, to run from source
-today.
+resolves `./Foo.js` specifiers to the on-disk `./Foo.ts` and imports `*.yaml`
+files as raw text, mirroring tsdown's `.yaml`-as-text loader — this is what lets
+`src/workflows/default.yaml` resolve when running from source.
 
 The decision core is pure and IO-free: the pattern machine's shape (states,
 patterns, retry) is a plain-data `WorkflowDefinition` (`src/PatternMachine.ts`),
@@ -60,14 +55,11 @@ binary via the `bin` field in `package.json`.
 
 Run mutation testing on-demand with `npm run test:mutation` (StrykerJS) — never
 run it as part of routine development; it is a deliberate, manually-triggered
-check. `stryker.config.json`'s `mutate` list still names the pre-v3 module set
-(`src/Machine.ts`, `src/Workflow.ts`, `src/Prompt.ts`, `src/Config.ts`,
-`src/Format.ts`, `src/State.ts`, `src/Events.ts`) — none of `Machine.ts`,
-`Workflow.ts`, `Prompt.ts`, or `State.ts` exist anymore (see
+check. `stryker.config.json`'s `mutate` list names the v3 pattern-machine module
+set (`src/PatternMachine.ts`, `src/PatternConfig.ts`, `src/PatternTemplates.ts`,
+`src/Edge.ts`, `src/Config.ts`, `src/Format.ts` — see
 [Architecture](../AGENTS.md#the-pattern-machine-module-map) for the v3 module
-map); this needs updating to the pattern-machine files (`src/PatternMachine.ts`,
-`src/PatternConfig.ts`, `src/PatternTemplates.ts`, `src/Edge.ts`,
-`src/Config.ts`, `src/Format.ts`) before the mutation run is meaningful again.
+map).
 
 `src/Git.ts` is excluded: the Cucumber harness stubs git at the Effect boundary,
 so `Git.ts` mutants have zero in-memory coverage.

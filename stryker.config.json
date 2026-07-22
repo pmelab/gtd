@@ -3,13 +3,12 @@
   "testRunner": "vitest",
   "vitest": { "configFile": "vitest.stryker.config.ts" },
   "mutate": [
-    "src/Machine.ts",
-    "src/Workflow.ts",
-    "src/Prompt.ts",
+    "src/PatternMachine.ts",
+    "src/PatternConfig.ts",
+    "src/PatternTemplates.ts",
+    "src/Edge.ts",
     "src/Config.ts",
-    "src/Format.ts",
-    "src/State.ts",
-    "src/Events.ts"
+    "src/Format.ts"
   ],
   "checkers": ["typescript"],
   "tsconfigFile": "tsconfig.json",
