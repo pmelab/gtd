@@ -75,6 +75,18 @@ export interface GitReaderOperations {
     hash: string,
     exclude?: ReadonlyArray<string>,
   ) => Effect.Effect<string, Error>
+  /**
+   * The pending working-tree changes vs HEAD, as `{path, status}` pairs —
+   * tracked modifications (`git diff --name-status HEAD`) unioned with
+   * untracked files (reported as `status: "A"`), deduplicated by path. Same
+   * path-collection logic as `diffHead`, without the content-diffing pass —
+   * the v3 pattern machine's `step`/`gtd status` only need the status/path
+   * shape, never rendered diff text, for pattern matching.
+   */
+  readonly changedPaths: () => Effect.Effect<
+    ReadonlyArray<{ readonly path: string; readonly status: string }>,
+    Error
+  >
 }
 
 export interface GitWriterOperations {
@@ -123,6 +135,28 @@ export interface GitWriterOperations {
    * the empty directory too. Idempotent/tolerant if the dir is already absent.
    */
   readonly removePackageDir: (dir: string) => Effect.Effect<void, Error>
+  /**
+   * `git commit --allow-empty -m <message>` — commits whatever is CURRENTLY
+   * STAGED, verbatim, without an implicit `git add` first (unlike
+   * `commitAllWithPrefix`). This is the second half of the v3 pattern
+   * machine's squash mechanics (`docs/design/pattern-machine-plan.md`
+   * decision 7): after `softResetTo` moves HEAD back without touching the
+   * index, a plain commit here re-commits the index exactly as it stood at
+   * the pre-reset HEAD — so an UNTRACKED message-template file (never
+   * staged) is automatically excluded from the squashed commit's tree.
+   * Retries once without the pre-commit hook on the same "empty git commit"
+   * hook rejection `commitAllWithPrefix` guards against.
+   */
+  readonly commitAsIs: (message: string) => Effect.Effect<void, Error>
+  /**
+   * Discards EVERY pending change, tracked or untracked (`git add -A` then
+   * `git reset --hard HEAD`). Instead of leaving untracked survivors like
+   * `resetHard`, staging first makes every untracked path "staged-but-new"
+   * so the hard reset drops it too. Used to discard a squash's leftover
+   * message-template file (and anything else pending) after `commitAsIs`
+   * lands the squash commit.
+   */
+  readonly discardPending: () => Effect.Effect<void, Error>
 }
 
 export interface GitOperations extends GitReaderOperations, GitWriterOperations {}
@@ -401,6 +435,30 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         return renderDiff(files)
       }),
 
+    changedPaths: () =>
+      Effect.gen(function* () {
+        const nameStatusOut = yield* exec("git", "diff", "--name-status", "HEAD").pipe(
+          Effect.catchAll(() => Effect.succeed("")),
+        )
+        const trackedPaths = parseNameStatus(nameStatusOut)
+
+        const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard", "-z")
+        const untracked = untrackedRaw
+          .split("\0")
+          .filter((s) => s.length > 0)
+          .map((path) => ({ path, status: "A" }))
+
+        const seen = new Set<string>()
+        const all: Array<{ path: string; status: string }> = []
+        for (const entry of [...trackedPaths, ...untracked]) {
+          if (!seen.has(entry.path)) {
+            seen.add(entry.path)
+            all.push(entry)
+          }
+        }
+        return all
+      }),
+
     diffPath: (path: string) =>
       Effect.gen(function* () {
         // Check if the file exists in HEAD
@@ -604,6 +662,23 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       }).pipe(Effect.asVoid),
 
     softResetTo: (ref: string) => exec("git", "reset", "--soft", ref).pipe(Effect.asVoid),
+
+    commitAsIs: (message: string) =>
+      exec("git", "commit", "--allow-empty", "-m", message)
+        .pipe(
+          Effect.catchAll((error) =>
+            error.message.includes("empty git commit")
+              ? exec("git", "commit", "--allow-empty", "--no-verify", "-m", message)
+              : Effect.fail(error),
+          ),
+        )
+        .pipe(Effect.asVoid),
+
+    discardPending: () =>
+      Effect.gen(function* () {
+        yield* exec("git", "add", "-A")
+        yield* exec("git", "reset", "--hard", "HEAD")
+      }).pipe(Effect.asVoid),
 
     updateRef: (ref: string, hash: string) =>
       exec("git", "update-ref", ref, hash).pipe(Effect.asVoid),

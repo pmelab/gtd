@@ -1,31 +1,32 @@
 # Driving the loop
 
-gtd splits what used to be one mutating command into three:
+gtd (v3, the pattern machine) exposes three commands a loop driver combines:
 
-- **`gtd step human`** — advance the workflow as the **human** actor, to
-  fixpoint.
-- **`gtd step agent`** — advance the workflow as the **agent** actor, to
-  fixpoint.
-- **`gtd next`** — print the prompt for whichever actor is currently awaited,
+- **`gtd step <actor>`** — authenticate as `<actor>`, match the resolved rest's
+  declared patterns against the pending changes, and commit (or squash) the one
+  resulting transition. Performs AT MOST one transition — there is no fixpoint
+  chain to drive.
+- **`gtd next`** — print the resolved rest's rendered script/prompt/message,
   without mutating anything.
+- **`gtd run`** — execute the resolved rest's emitted script (only for a
+  `script`-content rest), then step that state's own actor to capture the
+  outcome. The only place gtd spawns a subprocess.
 
-An agent loop is a two-beat protocol repeated forever:
+A loop is a simple cycle:
 
-1. Run `gtd step agent` to advance any agent-owned bookkeeping to a fixpoint.
-2. Run `gtd next --json` and read the `actor` field. If it is `"human"`,
-   **halt** — the human owns the next move, and the agent's job is done for this
-   turn. If it is `"agent"`, feed `prompt` (when non-null) to the agent, let it
-   act, then go back to step 1; at a pending checkpoint (`prompt` is null) go
-   straight back to step 1.
+1. Run `gtd next --json` and parse `{"state", "actor", "kind", "content"}`.
+   `kind` is the dispatch key: `"message"` → halt (a human rest); `"script"` →
+   run `gtd run`; `"prompt"` → feed `content` to the agent, then
+   `gtd step <actor>` yourself once it's done acting.
+2. Repeat until a `"message"` rest halts the loop, or a zero-commit `gtd run` at
+   idle settles it (the green terminal signal).
 
-A human acts by editing files (answering questions in `.gtd/TODO.md` or
-`.gtd/ARCHITECTURE.md`, annotating `.gtd/REVIEW.md`, fixing code) and then
-running `gtd step human` to capture the edit as their turn and hand control back
-to the agent side of the loop.
+A human acts by editing files (e.g. answering questions in `.gtd/TODO.md`,
+annotating `.gtd/REVIEW.md`, fixing code) and then running `gtd step human` to
+capture the edit as their turn.
 
 ```bash
-gtd step agent            # advance the machine's own bookkeeping
-gtd next --json            # ask who's up and what they should do
+gtd next --json   # ask who's up and what they should do
 ```
 
 See [`skills/loop/SKILL.md`](../skills/loop/SKILL.md) for the agent-facing
@@ -35,62 +36,52 @@ that same script for anyone who doesn't want to drive the loop by hand.
 
 ## The reference loop driver
 
-A minimal bash implementation of the pinned two-beat protocol, driving an agent
-CLI (e.g. `claude -p`) against `gtd --json` output. This is the authoritative
+A minimal bash implementation of the pinned protocol, driving an agent CLI (e.g.
+`claude -p`) against `gtd next --json` output. This is the authoritative
 reference for what a loop driver must do; keep any other implementation
 (including `skills/loop/SKILL.md`) consistent with it rather than editing both
-independently.
+independently. `bin/gtd-loop` is this exact script, packaged as the `gtd-loop`
+binary, with one addition: it stops with a diagnostic if the same `"prompt"`
+state/content repeat with no progress (see `skills/loop/SKILL.md`'s "Stall
+detection").
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 while true; do
-  # 1. Advance the machine's own agent-owned bookkeeping to a fixpoint.
-  gtd step agent --json >/dev/null || true
+  next_json="$(gtd next --json)"
+  state="$(jq -r .state <<<"$next_json")"
+  actor="$(jq -r .actor <<<"$next_json")"
+  kind="$(jq -r .kind <<<"$next_json")"
+  content="$(jq -r .content <<<"$next_json")"
 
-  # 2. Ask who's up next. `actor` is the single "proceed" signal.
-  next="$(gtd next --json)"
-  actor="$(jq -r .actor <<<"$next")"
-  prompt="$(jq -r .prompt <<<"$next")"
-
-  if [[ "$actor" != "agent" ]]; then
-    echo "Halting — the human owns the next move."
-    break
+  if [[ "$kind" == "message" ]]; then
+    echo "--- Your turn ($state) ---"
+    gtd next
+    exit 0
   fi
 
-  if [[ "$prompt" == "null" ]]; then
-    # Agent-driven pending checkpoint: nothing to act on — loop back to
-    # step 1, whose `gtd step agent` resumes the mid-chain bookkeeping.
+  if [[ "$kind" == "script" ]]; then
+    head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
+    gtd run
+    head_after="$(git rev-parse HEAD 2>/dev/null || echo none)"
+    if [[ "$head_before" == "$head_after" ]]; then
+      echo "--- Settled ($state: check passed, nothing to do) ---"
+      exit 0
+    fi
     continue
   fi
 
-  # Agent's turn: feed the prompt to the agent, then let it finish with
-  # `gtd step agent` itself (the prompt's tail instructs it to).
-  claude -p "$prompt" --dangerously-skip-permissions
+  # kind == "prompt": feed the prompt to the agent, then close out its turn.
+  claude -p "$content" --dangerously-skip-permissions
+  gtd step "$actor" >/dev/null
 done
 ```
 
-The agent is expected to run `gtd step agent` itself once it finishes acting on
-the prompt (the plain-mode tail says exactly this) — the driver's own
-`gtd step agent` calls exist to advance any bookkeeping the agent doesn't own
-(routing commits, test runs) between agent turns.
-
-The loop halts on `actor: "human"` alone: a human rest (`pending: false`, the
-prompt body addresses the human) or a human-driven pending checkpoint
-(`pending: true`, resumed by the human's own `gtd step human`). Everything the
-agent side can drive — agent rests and agent-driven checkpoints — reports
-`actor: "agent"`, so multiple agent turns and commits (e.g. successive test/fix
-cycles, a force-approved package close) chain without human involvement until an
-actual human gate is hit.
-
-`bin/gtd-loop`, installed as the `gtd-loop` binary, is the packaged
-implementation of this exact script — kept in sync with it the same way
-`skills/loop/SKILL.md` is. It additionally attempts `gtd step human` (not just
-`gtd step agent`) every iteration, so a plain rerun after you've edited a file
-at a human gate (no commit needed) picks up your edit and keeps going, and it
-halts with a diagnostic if the same state and prompt repeat with no progress
-(see `skills/loop/SKILL.md`'s "Stall detection").
+The driver — not the prompt text — owns ending the agent's turn
+(`gtd step "$actor"` right after the agent acts): every default-workflow agent
+prompt says explicitly not to run `gtd step agent` itself.
 
 ## Using a different agent
 

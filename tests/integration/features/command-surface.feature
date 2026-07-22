@@ -1,10 +1,10 @@
 @inmem
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
-  gtd v2 exposes `step`, `step-agent`, `next`, `status`, `format`, `review`,
-  `questions`, and `changesets` as its subcommands. Bare `gtd` (no subcommand)
-  is a usage error. `--help` and `--version` short-circuit before any
-  repo-state work and exit 0 everywhere, including outside a workflow state.
+  gtd v3 exposes `step <actor>`, `next`, `run`, `status`, and `format` as its
+  subcommands. Bare `gtd` (no subcommand) is a usage error. `--help` and
+  `--version` short-circuit before any repo-state work and exit 0 everywhere,
+  including outside a workflow state.
 
   Scenario: Bare gtd fails with usage help and authors nothing
     Given a test project

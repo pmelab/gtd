@@ -368,8 +368,11 @@ describe("step — clean tree", () => {
     const decision = step(simpleWorkflow, "working", "agent", { changes: [], processTrace: [] })
     expect(decision).toEqual({
       kind: "commit",
-      subject: "gtd(agent): idle",
-      actor: "agent",
+      // "idle" is entered with ITS OWN declared actor ("human"), not the
+      // invoker ("agent") who authored this step — load-bearing for the next
+      // invocation's resolveState to land back on "idle" directly.
+      subject: "gtd(human): idle",
+      actor: "human",
       from: "working",
       to: "idle",
     })
@@ -447,8 +450,9 @@ describe("step — retry redirection", () => {
     })
     expect(decision).toEqual({
       kind: "commit",
-      subject: "gtd(agent): checking",
-      actor: "agent",
+      // "checking"'s own declared actor is "check", not "agent" (the invoker).
+      subject: "gtd(check): checking",
+      actor: "check",
       from: "fixing",
       to: "checking",
     })
@@ -463,8 +467,9 @@ describe("step — retry redirection", () => {
     })
     expect(decision).toEqual({
       kind: "commit",
-      subject: "gtd(agent): escalate",
-      actor: "agent",
+      // "escalate"'s own declared actor is "human".
+      subject: "gtd(human): escalate",
+      actor: "human",
       from: "fixing",
       to: "escalate",
     })
@@ -479,8 +484,8 @@ describe("step — retry redirection", () => {
     })
     expect(decision).toEqual({
       kind: "commit",
-      subject: "gtd(agent): escalate",
-      actor: "agent",
+      subject: "gtd(human): escalate",
+      actor: "human",
       from: "fixing",
       to: "escalate",
     })
@@ -493,8 +498,8 @@ describe("step — retry redirection", () => {
     })
     expect(decision).toEqual({
       kind: "commit",
-      subject: "gtd(agent): checking",
-      actor: "agent",
+      subject: "gtd(check): checking",
+      actor: "check",
       from: "fixing",
       to: "checking",
     })

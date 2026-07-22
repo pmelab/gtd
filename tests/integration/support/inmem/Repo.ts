@@ -288,6 +288,23 @@ export class InMemRepo {
   // Write methods
   // ---------------------------------------------------------------------------
 
+  /** Commit whatever is currently staged (the index) verbatim, with no implicit staging first — mirrors `git commit --allow-empty -m <message>` after a soft reset. */
+  commitAsIs(message: string): void {
+    const tree = new Map(this.index)
+    const parent = this.head
+    const hash = makeHash(message, parent, tree)
+    const commit: Commit = { hash, message, files: new Map(tree), parent }
+    this.commits.set(hash, commit)
+    this.head = hash
+    this.branches.set(this.currentBranch, hash)
+  }
+
+  /** Discard every pending change, tracked or untracked: stage everything, then hard-reset (which now drops the freshly-staged untracked paths too). */
+  discardPending(): void {
+    this.index = new Map(this.worktree)
+    this.resetHard()
+  }
+
   commitAllWithPrefix(prefix: string): void {
     // Stage worktree → index
     this.index = new Map(this.worktree)

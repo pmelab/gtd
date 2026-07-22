@@ -1,10 +1,10 @@
 /**
  * Unit tests for src/program.ts — short-circuit flags (--version / --help),
  * bare/unknown-command usage errors, `format` arg validation, and the JSON
- * error envelope shape. Full behavioral coverage of `step` / `step-agent` /
- * `next` / `status` / `review` against a real repo lives in the feature files
- * owned by other tasks in this package; this file sticks to what it can test
- * without a real repo, as today.
+ * error envelope shape. Full behavioral coverage of `step <actor>` / `next` /
+ * `run` / `status` against a real repo lives in the feature files owned by
+ * other tasks in this package; this file sticks to what it can test without
+ * a real repo, as today.
  */
 
 import { NodeContext } from "@effect/platform-node"
@@ -13,6 +13,8 @@ import { describe, expect, it } from "vitest"
 import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { GitService } from "./Git.js"
+import { WorktreeReader } from "./WorktreeReader.js"
+import { defaultWorkflowDefinition } from "./workflows/default.js"
 import { makeProgram } from "./program.js"
 
 // GitService whose every method fails — proves the flag handler never calls git.
@@ -36,9 +38,13 @@ const failingGitLayer = Layer.succeed(GitService, {
   diffRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   diffPath: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitDiff: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  changedPaths: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitAllWithPrefix: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
   softResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  commitAsIs: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  discardPending: () =>
+    Effect.fail(new Error("GitService must not be called for --version/--help")),
   updateRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   deleteRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   mixedResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
@@ -58,19 +64,21 @@ const failingGitLayer = Layer.succeed(GitService, {
 
 // Minimal stub ConfigService — satisfies the type but never called for flags.
 const stubConfigLayer = Layer.succeed(ConfigService, {
-  testCommand: "npm run test",
-  resolveModel: () => "stub",
-  agenticReview: false,
-  squash: false,
-  learning: false,
-  decisionLog: false,
-  fixAttemptCap: 0,
-  reviewThreshold: 0,
+  workflow: defaultWorkflowDefinition,
+  vars: undefined,
+})
+
+// Minimal stub WorktreeReader — never called for flags.
+const stubWorktreeReaderLayer = Layer.succeed(WorktreeReader, {
+  read: () => {
+    throw new Error("WorktreeReader must not be called for --version/--help")
+  },
 })
 
 const testLayers = failingGitLayer.pipe(
   Layer.provideMerge(NodeContext.layer),
   Layer.provideMerge(stubConfigLayer),
+  Layer.provideMerge(stubWorktreeReaderLayer),
   Layer.provideMerge(ConfigInit.Noop),
   Layer.provideMerge(Cwd.layer("")),
 )
@@ -114,7 +122,7 @@ describe("--help short-circuit", () => {
     expect(output).toContain("step <actor>")
     expect(output).toContain("next")
     expect(output).toContain("status")
-    expect(output).toContain("review")
+    expect(output).toContain("run")
     expect(output).toContain("format")
     expect(output).toMatch(/\n$/)
   })

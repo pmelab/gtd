@@ -14,17 +14,15 @@ import {
   type GitWriterOperations,
   type GitOperations,
 } from "../../../../src/Git.js"
+import { ConfigInit, ConfigService, type ConfigOperations } from "../../../../src/Config.js"
+import { compileWorkflowConfig } from "../../../../src/PatternConfig.js"
 import {
-  ConfigInit,
-  ConfigService,
-  type ConfigOperations,
-  builtinTierDefault,
-  stateTier,
-  type ModelState,
-} from "../../../../src/Config.js"
+  defaultWorkflowDefinition,
+  defaultWorkflowVars,
+} from "../../../../src/workflows/default.js"
 import { InMemRepo } from "./Repo.js"
 import { Cwd } from "../../../../src/Cwd.js"
-import { activateWorkflowConfig } from "../../../../src/WorkflowConfig.js"
+import { WorktreeReader } from "../../../../src/WorktreeReader.js"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -177,6 +175,8 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
       const allPaths = repo.changedPathsBetween(parent, hash)
       return renderPathDiff(repo, allPaths, exclude, parent, hash)
     }),
+
+  changedPaths: () => Effect.succeed(repo.changedPathsWorktree()),
 })
 
 // ---------------------------------------------------------------------------
@@ -187,6 +187,10 @@ const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => ({
   commitAllWithPrefix: (prefix: string) => tryCatch(() => repo.commitAllWithPrefix(prefix)),
 
   softResetTo: (ref: string) => tryCatch(() => repo.softResetTo(ref)),
+
+  commitAsIs: (message: string) => tryCatch(() => repo.commitAsIs(message)),
+
+  discardPending: () => tryCatch(() => repo.discardPending()),
 
   updateRef: (ref: string, hash: string) => tryCatch(() => repo.updateRef(ref, hash)),
 
@@ -406,56 +410,22 @@ const parseConfigContent = (filename: string, content: string): Record<string, u
   }
 }
 
-const stringField = (raw: Record<string, unknown>, key: string, fallback: string): string =>
-  typeof raw[key] === "string" ? (raw[key] as string) : fallback
-
-const boolField = (raw: Record<string, unknown>, key: string, fallback: boolean): boolean =>
-  typeof raw[key] === "boolean" ? (raw[key] as boolean) : fallback
-
-const numberField = (raw: Record<string, unknown>, key: string, fallback: number): number =>
-  typeof raw[key] === "number" ? (raw[key] as number) : fallback
-
+/**
+ * Mirrors the real `ConfigService.Live`'s `toOperations`: an absent
+ * `workflow:` key compiles to the bundled default; a present one is compiled
+ * through the SAME `compileWorkflowConfig` the real service uses — no
+ * bespoke in-memory workflow interpretation. `configDir` is `"/repo"`
+ * (this harness's fixed in-memory root, matching `topLevel`/`realPath`
+ * above) so a scenario's custom workflow could reference `./`-relative
+ * content if it ever needed to (none currently do; every @inmem custom-
+ * workflow scenario writes inline content).
+ */
 const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
-  // Mirror the real ConfigService: install (or reset) the active workflow
-  // definition as part of config-ops construction, before any resolve.
-  activateWorkflowConfig(raw["workflow"])
-  const testCommand = stringField(raw, "testCommand", "npm run test")
-  const agenticReview = boolField(raw, "agenticReview", true)
-  const squash = boolField(raw, "squash", true)
-  const learning = boolField(raw, "learning", true)
-  const decisionLog = boolField(raw, "decisionLog", true)
-  const fixAttemptCap = numberField(raw, "fixAttemptCap", 3)
-  const reviewThreshold = numberField(raw, "reviewThreshold", 3)
-
-  const modelsRaw = raw["models"]
-  const models =
-    modelsRaw !== null && typeof modelsRaw === "object" && !Array.isArray(modelsRaw)
-      ? (modelsRaw as Record<string, unknown>)
-      : {}
-
-  const resolveModel = (state: ModelState): string => {
-    const statesRaw = models["states"]
-    if (statesRaw !== null && typeof statesRaw === "object" && !Array.isArray(statesRaw)) {
-      const stateOverride = (statesRaw as Record<string, unknown>)[state]
-      if (typeof stateOverride === "string") return stateOverride
-    }
-    const tier = stateTier[state]
-    const tierKey = tier === "planning" ? "planning" : "execution"
-    const tierOverride = models[tierKey]
-    if (typeof tierOverride === "string") return tierOverride
-    return builtinTierDefault[tier]
+  if (raw["workflow"] === undefined) {
+    return { workflow: defaultWorkflowDefinition, vars: defaultWorkflowVars }
   }
-
-  return {
-    testCommand,
-    resolveModel,
-    agenticReview,
-    squash,
-    learning,
-    decisionLog,
-    fixAttemptCap,
-    reviewThreshold,
-  }
+  const { definition, config: vars } = compileWorkflowConfig(raw["workflow"], "/repo")
+  return { workflow: definition, vars }
 }
 
 const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> => {
@@ -477,12 +447,32 @@ const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> 
 }
 
 // ---------------------------------------------------------------------------
+// 5. In-memory WorktreeReader layer
+// ---------------------------------------------------------------------------
+
+/** `PatternTemplates.TemplateContext.read` for the in-memory tier: a synchronous lookup straight into the repo's worktree map (never real `fs`). */
+const makeInMemoryWorktreeReader = (repo: InMemRepo): Layer.Layer<WorktreeReader> => {
+  const worktree = (repo as unknown as { worktree: Map<string, string> })["worktree"]
+  return Layer.succeed(WorktreeReader, {
+    read: (path: string) => {
+      const content = worktree.get(path)
+      if (content === undefined) {
+        throw new Error(`ENOENT: no such file or directory, open '${path}'`)
+      }
+      return content
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Assembly
 // ---------------------------------------------------------------------------
 
 export function inMemoryLayers(
   repo: InMemRepo,
-): Layer.Layer<GitService | FileSystem.FileSystem | ConfigService | ConfigInit | Cwd> {
+): Layer.Layer<
+  GitService | FileSystem.FileSystem | ConfigService | ConfigInit | Cwd | WorktreeReader
+> {
   // Reader + Writer share the same repo instance
   const readerOps = makeGitReaderOps(repo)
   const writerOps = makeGitWriterOps(repo)
@@ -494,7 +484,14 @@ export function inMemoryLayers(
 
   const configLayer = makeInMemoryConfigService(repo)
 
-  return Layer.mergeAll(gitServiceLayer, fsLayer, configLayer, ConfigInit.Noop, Cwd.layer(""))
+  return Layer.mergeAll(
+    gitServiceLayer,
+    fsLayer,
+    configLayer,
+    ConfigInit.Noop,
+    Cwd.layer("/repo"),
+    makeInMemoryWorktreeReader(repo),
+  )
 }
 
 // Fine-grained layer for unit tests that need only the git service.

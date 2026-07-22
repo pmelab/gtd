@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { GitService } from "./Git.js"
+import { WorktreeReader } from "./WorktreeReader.js"
 import { isEnveloped, makeProgram, runVersionOrHelp } from "./program.js"
 
 // Version/help must short-circuit before the Effect runtime exists: layer
@@ -16,6 +17,7 @@ makeProgram().pipe(
   Effect.provide(GitService.Live),
   Effect.provide(ConfigService.Live),
   Effect.provide(ConfigInit.Live),
+  Effect.provide(WorktreeReader.Live),
   Effect.provide(Cwd.Live),
   Effect.provide(NodeContext.layer),
   Effect.catchAll((error) =>

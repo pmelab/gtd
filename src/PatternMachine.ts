@@ -297,7 +297,17 @@ export interface StepNoOp {
   readonly state: StateName
 }
 
-/** Commit everything pending as `gtd(<actor>): <to>` (the target after any retry redirection). */
+/**
+ * Commit everything pending as `gtd(<actor>): <to>` (the target after any
+ * retry redirection). `actor` is `to`'s OWN declared actor — the actor now
+ * awaited at the entered state, not the invoker who authored this step. This
+ * is load-bearing: `resolveState` only resolves a subject directly to its
+ * named state when that state's declared actor matches the subject's parsed
+ * actor (anything else is boundary/garbage) — so a transition that handed off
+ * to a different actor than `from`'s must still resolve correctly on the
+ * NEXT invocation, which only works if the written subject already names
+ * `to`'s actor.
+ */
 export interface StepCommit {
   readonly kind: "commit"
   readonly subject: string
@@ -410,10 +420,19 @@ export const step = (
     return { kind: "squash", state: finalTarget, template: targetDef.commit }
   }
 
+  // The written subject names WHO IS NOW AWAITED (targetDef's own actor), not
+  // `invoker` (who just acted) — see StepCommit's doc comment for why this is
+  // load-bearing for resolution. A validated definition guarantees a
+  // non-commit state declares an actor; an unvalidated one surfaces the gap
+  // as a thrown structural error, matching the throws above.
+  if (targetDef.actor === undefined) {
+    throw new Error(`step: "${finalTarget}" is not a commit state but declares no actor`)
+  }
+
   return {
     kind: "commit",
-    subject: stateSubject(invoker, finalTarget),
-    actor: invoker,
+    subject: stateSubject(targetDef.actor, finalTarget),
+    actor: targetDef.actor,
     from: state,
     to: finalTarget,
   }

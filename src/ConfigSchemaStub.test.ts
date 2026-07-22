@@ -50,14 +50,15 @@ describe("ConfigService $schema + stub", () => {
   it("decodes a config containing a $schema key without an excess-property error", async () => {
     writeFileSync(
       join(projectDir, ".gtdrc.json"),
-      JSON.stringify({ $schema: "https://example.com/schema.json", testCommand: "with schema" }),
+      JSON.stringify({ $schema: "https://example.com/schema.json" }),
     )
 
     const exit = await getConfig(projectDir)
 
     expect(Exit.isSuccess(exit)).toBe(true)
     if (Exit.isSuccess(exit)) {
-      expect(exit.value.testCommand).toBe("with schema")
+      // No `workflow:` key present → the bundled default is active.
+      expect(exit.value.workflow.states["idle"]).toBeDefined()
     }
   })
 
