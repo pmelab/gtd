@@ -58,9 +58,9 @@ export const resolveRest = (): Effect.Effect<ResolvedRest, Error, GitService | C
     const headSubject = hasCommits ? yield* git.lastCommitSubject() : ""
     const state = resolveState(def, headSubject)
     const stateDef = def.states[state]!
-    // `resolveState` never rests at a commit state (no subject's actor can
-    // equal an undefined one) — this is a defensive check against a
-    // programmer error, not a real runtime path.
+    // `resolveState` never rests at a commit state (it excludes them
+    // explicitly) — this is a defensive check against a programmer error,
+    // not a real runtime path.
     if (stateDef.actor === undefined) {
       return yield* Effect.fail(
         new Error(`gtd: resolved at commit state "${state}" — a process never rests there`),

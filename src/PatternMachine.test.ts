@@ -166,14 +166,26 @@ describe("resolveState", () => {
     )
   })
 
-  it("falls back to the initial state when the actor doesn't match the state's declared actor", () => {
-    // "working" is declared with actor "agent" — "human" naming it is unrecognized.
-    expect(resolveState(simpleWorkflow, "gtd(human): working")).toBe(initialStateOf(simpleWorkflow))
+  it("resolves by state name alone — the subject's actor need NOT match the state's own declared actor", () => {
+    // "working" is declared with actor "agent", but a subject naming "human"
+    // (e.g. a human handing off into an agent state) still resolves to
+    // "working" — resolution reads the state name only (decision 2).
+    expect(resolveState(simpleWorkflow, "gtd(human): working")).toBe("working")
   })
 
-  it("never resolves AT a commit state — a commit-shaped subject can't legitimately name one", () => {
-    // "done" has no actor, so no parsed actor can ever equal it.
+  it("falls back to the initial state for an actor outside the workflow's closed-world vocabulary", () => {
+    // "nobody" is declared by no state in this workflow at all.
+    expect(resolveState(simpleWorkflow, "gtd(nobody): working")).toBe(
+      initialStateOf(simpleWorkflow),
+    )
+  })
+
+  it("never resolves AT a commit state, even when a subject names one with a recognized actor", () => {
+    // "done" is a commit state and carries no actor of its own, but a
+    // hand-authored subject can still name a recognized actor here — excluded
+    // explicitly (`isCommitState`), not via an actor-mismatch trick.
     expect(resolveState(simpleWorkflow, "gtd(agent): done")).toBe(initialStateOf(simpleWorkflow))
+    expect(resolveState(simpleWorkflow, "gtd(human): done")).toBe(initialStateOf(simpleWorkflow))
     expect(resolveState(simpleWorkflow, "gtd(nobody): done")).toBe(initialStateOf(simpleWorkflow))
   })
 
@@ -363,16 +375,87 @@ describe("step — no-match refusal on a dirty tree", () => {
   })
 })
 
+// ── Attribution: subject actor is the invoker, resolution keys on state name ──
+
+describe("step + resolveState — cross-actor handoff attribution", () => {
+  it("a human stepping at a human state into an agent state writes the human's actor, and resolution still hands the turn to the agent", () => {
+    // "idle" is a human state whose "A TODO.md" edge targets "working", an
+    // AGENT state — a cross-actor handoff.
+    const decision = step(simpleWorkflow, "idle", "human", {
+      changes: [change("A", "TODO.md")],
+      processTrace: [],
+    })
+    expect(decision).toEqual({
+      kind: "commit",
+      // The subject carries "human" (the invoker), not "working"'s own
+      // declared actor ("agent").
+      subject: "gtd(human): working",
+      actor: "human",
+      from: "idle",
+      to: "working",
+    })
+    if (decision.kind !== "commit") throw new Error("expected a commit decision")
+
+    // Resolving that exact subject on the next invocation must still land on
+    // "working" — resolution reads the state name alone.
+    const resolved = resolveState(simpleWorkflow, decision.subject)
+    expect(resolved).toBe("working")
+
+    // And it's "working"'s OWN declared actor ("agent") — not "human", the
+    // subject's actor — who is now recognized as awaited: the agent may step,
+    // the human (who just authored the handoff) is refused as out-of-turn.
+    expect(
+      step(simpleWorkflow, resolved, "agent", { changes: [], processTrace: [] }).kind,
+    ).not.toBe("refusal")
+    expect(step(simpleWorkflow, resolved, "human", { changes: [], processTrace: [] })).toEqual({
+      kind: "refusal",
+      reason: "out-of-turn",
+      state: "working",
+      awaits: "agent",
+    })
+  })
+})
+
+describe("step — out-of-turn refusal keys on the RESOLVED state's declared actor, not the subject's actor", () => {
+  it("a subject authored by one actor still gates the NEXT step by the resolved state's own declared actor", () => {
+    // Simulate HEAD carrying a handoff subject: "human" authored the step
+    // that entered "working" (an agent state) — exactly what the previous
+    // test's `step` call would write.
+    const headSubject = "gtd(human): working"
+    const resolved = resolveState(simpleWorkflow, headSubject)
+    expect(resolved).toBe("working")
+
+    // The subject's own actor ("human") is irrelevant to who may step next —
+    // only "working"'s declared actor ("agent") governs turn-taking.
+    expect(step(simpleWorkflow, resolved, "human", { changes: [], processTrace: [] })).toEqual({
+      kind: "refusal",
+      reason: "out-of-turn",
+      state: "working",
+      awaits: "agent",
+    })
+  })
+})
+
+describe("resolveState — an undeclared actor is a boundary, resolving to the initial state", () => {
+  it("an actor token no state in the workflow declares resolves to initial, even with an otherwise-valid state name", () => {
+    // "nobody" is not "human", "agent", or "check" (or any other actor
+    // declared anywhere in `simpleWorkflow`) — a closed-world boundary.
+    expect(resolveState(simpleWorkflow, "gtd(nobody): working")).toBe(
+      initialStateOf(simpleWorkflow),
+    )
+  })
+})
+
 describe("step — clean tree", () => {
   it("fires the declared C event when present", () => {
     const decision = step(simpleWorkflow, "working", "agent", { changes: [], processTrace: [] })
     expect(decision).toEqual({
       kind: "commit",
-      // "idle" is entered with ITS OWN declared actor ("human"), not the
-      // invoker ("agent") who authored this step — load-bearing for the next
-      // invocation's resolveState to land back on "idle" directly.
-      subject: "gtd(human): idle",
-      actor: "human",
+      // The subject carries the INVOKER's actor ("agent"), not "idle"'s own
+      // declared actor ("human") — resolveState reads the state name alone,
+      // so this still resolves back to "idle" on the next invocation.
+      subject: "gtd(agent): idle",
+      actor: "agent",
       from: "working",
       to: "idle",
     })
@@ -450,9 +533,10 @@ describe("step — retry redirection", () => {
     })
     expect(decision).toEqual({
       kind: "commit",
-      // "checking"'s own declared actor is "check", not "agent" (the invoker).
-      subject: "gtd(check): checking",
-      actor: "check",
+      // The subject carries the INVOKER's actor ("agent"), not "checking"'s
+      // own declared actor ("check").
+      subject: "gtd(agent): checking",
+      actor: "agent",
       from: "fixing",
       to: "checking",
     })
@@ -467,9 +551,10 @@ describe("step — retry redirection", () => {
     })
     expect(decision).toEqual({
       kind: "commit",
-      // "escalate"'s own declared actor is "human".
-      subject: "gtd(human): escalate",
-      actor: "human",
+      // The subject carries the INVOKER's actor ("agent"), not "escalate"'s
+      // own declared actor ("human").
+      subject: "gtd(agent): escalate",
+      actor: "agent",
       from: "fixing",
       to: "escalate",
     })
@@ -484,8 +569,8 @@ describe("step — retry redirection", () => {
     })
     expect(decision).toEqual({
       kind: "commit",
-      subject: "gtd(human): escalate",
-      actor: "human",
+      subject: "gtd(agent): escalate",
+      actor: "agent",
       from: "fixing",
       to: "escalate",
     })
@@ -498,8 +583,8 @@ describe("step — retry redirection", () => {
     })
     expect(decision).toEqual({
       kind: "commit",
-      subject: "gtd(check): checking",
-      actor: "check",
+      subject: "gtd(agent): checking",
+      actor: "agent",
       from: "fixing",
       to: "checking",
     })

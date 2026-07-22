@@ -86,10 +86,14 @@ export const isCommitState = (state: StateDef): boolean => state.commit !== unde
 
 // ── Commit-subject grammar ───────────────────────────────────────────────────
 
-/** `gtd(<actor>): <state>` — the subject a step commit carries. */
+/**
+ * `gtd(<actor>): <state>` — the subject a step commit carries. Per decision
+ * 2, `<actor>` is WHO AUTHORED THE STEP (the invoker), and `<state>` is the
+ * state being ENTERED; `resolveState` reads back only the state name.
+ */
 export const stateSubject = (actor: Actor, state: StateName): string => `gtd(${actor}): ${state}`
 
-/** A parsed `gtd(<actor>): <state>` subject. */
+/** A parsed `gtd(<actor>): <state>` subject — `actor` is the step's author (the invoker), not necessarily `state`'s own declared actor. */
 export interface ParsedStateSubject {
   readonly actor: Actor
   readonly state: StateName
@@ -128,17 +132,41 @@ export const initialStateOf = (def: WorkflowDefinition): StateName => {
 }
 
 /**
- * Resolve HEAD's commit subject to a state name. An unrecognized subject —
- * non-`gtd(...)`, malformed, naming a state not defined in this workflow, or
- * naming an actor that doesn't match that state's declared actor — resolves
- * to the INITIAL state; that is the entry point by design (old v1/v2
- * histories, and every completed process's squash commit, all land here).
+ * Every actor declared by ANY state in the workflow — the closed-world
+ * vocabulary a parsed subject's actor is checked against by `resolveState`.
+ * Commit states carry no `actor` and so contribute nothing.
+ */
+const declaredActors = (def: WorkflowDefinition): ReadonlySet<Actor> => {
+  const actors = new Set<Actor>()
+  for (const state of Object.values(def.states)) {
+    if (state.actor !== undefined) actors.add(state.actor)
+  }
+  return actors
+}
+
+/**
+ * Resolve HEAD's commit subject to a state name — by STATE NAME ALONE, per
+ * decision 2: "History is an attributed state trace; resolution = read
+ * HEAD's state name." The subject's actor names WHO AUTHORED the step (the
+ * invoker), not who is now awaited — so it is checked only against the
+ * workflow's closed-world actor vocabulary (`declaredActors`), never against
+ * the resolved state's OWN declared actor. This is what makes a cross-actor
+ * handoff resolve correctly: a human stepping out of a human state into an
+ * agent state writes `gtd(human): <agent-state>`, and the NEXT invocation
+ * must still resolve that subject to `<agent-state>` so the agent (that
+ * state's own declared actor) is the one now recognized as awaited.
  *
- * The actor-match requirement is what makes this total function also keep
- * commit states unreachable as a "current state": a commit state has no
- * `actor`, so no subject can ever satisfy `state.actor === parsed.actor`
- * against it (a parsed actor is always a non-empty string). This is
- * deliberate — resolution must never rest AT a commit state, matching the
+ * An unrecognized subject — non-`gtd(...)`, malformed, naming a state not
+ * defined in this workflow, naming an actor outside the closed-world
+ * vocabulary, or naming a commit state — resolves to the INITIAL state; that
+ * is the entry point by design (old v1/v2 histories, and every completed
+ * process's squash commit, all land here).
+ *
+ * Commit states are excluded explicitly (`isCommitState`), not via an
+ * actor-mismatch trick: entering a commit state always squashes, so no
+ * `gtd(<actor>): <commit-state>` subject is ever written by `step` — but a
+ * hand-authored one could still appear (e.g. malformed test fixtures), and
+ * resolution must never rest AT a commit state regardless, matching the
  * plan's `gtd next` contract (`kind: commit` never appears there).
  */
 export const resolveState = (def: WorkflowDefinition, headSubject: string): StateName => {
@@ -146,7 +174,8 @@ export const resolveState = (def: WorkflowDefinition, headSubject: string): Stat
   if (parsed === undefined) return initialStateOf(def)
   const state = def.states[parsed.state]
   if (state === undefined) return initialStateOf(def)
-  if (state.actor !== parsed.actor) return initialStateOf(def)
+  if (isCommitState(state)) return initialStateOf(def)
+  if (!declaredActors(def).has(parsed.actor)) return initialStateOf(def)
   return parsed.state
 }
 
@@ -299,14 +328,13 @@ export interface StepNoOp {
 
 /**
  * Commit everything pending as `gtd(<actor>): <to>` (the target after any
- * retry redirection). `actor` is `to`'s OWN declared actor — the actor now
- * awaited at the entered state, not the invoker who authored this step. This
- * is load-bearing: `resolveState` only resolves a subject directly to its
- * named state when that state's declared actor matches the subject's parsed
- * actor (anything else is boundary/garbage) — so a transition that handed off
- * to a different actor than `from`'s must still resolve correctly on the
- * NEXT invocation, which only works if the written subject already names
- * `to`'s actor.
+ * retry redirection). `actor` is the INVOKER who authored this step — per
+ * decision 2, the subject records "the state being ENTERED and who authored
+ * the step". This works for a cross-actor handoff (a transition whose target
+ * is awaited by a different actor than `from`'s) because `resolveState`
+ * resolves by STATE NAME ALONE: it never compares the subject's actor against
+ * `to`'s own declared actor, so the next invocation lands on `to` regardless
+ * of which actor's name the subject carries.
  */
 export interface StepCommit {
   readonly kind: "commit"
@@ -375,8 +403,10 @@ const applyRetry = (
  * steps are the default, silent case. A match's target is retry-redirected
  * (`applyRetry`) before being classified: a commit-state target yields a
  * `"squash"` decision carrying its `commit` template verbatim; anything
- * else yields a `"commit"` decision naming the `gtd(<actor>): <to>` subject
- * to write. Throws only on a structurally invalid call (an undefined
+ * else yields a `"commit"` decision naming the `gtd(<invoker>): <to>` subject
+ * to write — `<invoker>` is who authored this step, per decision 2, not `to`'s
+ * own declared actor (see `StepCommit`'s doc comment). Throws only on a
+ * structurally invalid call (an undefined
  * `state`, or a commit-state `state` — stepping AT a commit state is a
  * caller error: a commit state ends the process, `resolveState` never rests
  * there).
@@ -420,19 +450,21 @@ export const step = (
     return { kind: "squash", state: finalTarget, template: targetDef.commit }
   }
 
-  // The written subject names WHO IS NOW AWAITED (targetDef's own actor), not
-  // `invoker` (who just acted) — see StepCommit's doc comment for why this is
-  // load-bearing for resolution. A validated definition guarantees a
-  // non-commit state declares an actor; an unvalidated one surfaces the gap
-  // as a thrown structural error, matching the throws above.
+  // A validated definition guarantees a non-commit state declares an actor;
+  // an unvalidated one surfaces the gap as a thrown structural error,
+  // matching the throws above. (This check no longer drives the written
+  // subject — see StepCommit's doc comment — but a target state with no
+  // actor at all is still a malformed definition worth failing loudly on.)
   if (targetDef.actor === undefined) {
     throw new Error(`step: "${finalTarget}" is not a commit state but declares no actor`)
   }
 
+  // The written subject names WHO AUTHORED THIS STEP (`invoker`), not the
+  // entered state's own declared actor — see StepCommit's doc comment.
   return {
     kind: "commit",
-    subject: stateSubject(targetDef.actor, finalTarget),
-    actor: targetDef.actor,
+    subject: stateSubject(invoker, finalTarget),
+    actor: invoker,
     from: state,
     to: finalTarget,
   }
