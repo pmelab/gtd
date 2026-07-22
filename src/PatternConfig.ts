@@ -214,6 +214,54 @@ const compileContent = (
   return content
 }
 
+/** The `actor` field: a plain string, or undefined (either absent or invalid — the type mismatch is its own error). */
+const compileActor = (
+  raw: Record<string, unknown>,
+  name: string,
+  errors: string[],
+): string | undefined => {
+  if (raw.actor === undefined) return undefined
+  if (typeof raw.actor !== "string") {
+    errors.push(`state "${name}": "actor" must be a string`)
+    return undefined
+  }
+  return raw.actor
+}
+
+/** The `initial` field: `true` only when the raw value is the literal boolean `true`. */
+const compileInitial = (
+  raw: Record<string, unknown>,
+  name: string,
+  errors: string[],
+): true | undefined => {
+  if (raw.initial === undefined) return undefined
+  if (raw.initial !== true && raw.initial !== false) {
+    errors.push(`state "${name}": "initial" must be a boolean`)
+    return undefined
+  }
+  return raw.initial === true ? true : undefined
+}
+
+/** One state's compiled parts, assembled into a `StateDef` (only present fields carried over — `exactOptionalPropertyTypes`). */
+interface StateParts {
+  readonly actor: string | undefined
+  readonly content: Partial<Record<ContentKey, string>>
+  readonly on: readonly OnEdge[] | undefined
+  readonly initial: true | undefined
+  readonly retry: RetryDef | undefined
+}
+
+const assembleStateDef = (parts: StateParts): StateDef => ({
+  ...(parts.actor !== undefined ? { actor: parts.actor } : {}),
+  ...(parts.content.script !== undefined ? { script: parts.content.script } : {}),
+  ...(parts.content.prompt !== undefined ? { prompt: parts.content.prompt } : {}),
+  ...(parts.content.message !== undefined ? { message: parts.content.message } : {}),
+  ...(parts.content.commit !== undefined ? { commit: parts.content.commit } : {}),
+  ...(parts.on !== undefined ? { on: parts.on } : {}),
+  ...(parts.initial !== undefined ? { initial: parts.initial } : {}),
+  ...(parts.retry !== undefined ? { retry: parts.retry } : {}),
+})
+
 /** One state's full shape: actor, content, `on`, `initial`, `retry`. */
 const compileState = (
   name: string,
@@ -231,38 +279,13 @@ const compileState = (
     errors.push(`state "${name}": unknown key(s) ${unknownKeys.join(", ")}`)
   }
 
-  let actor: string | undefined
-  if (raw.actor !== undefined) {
-    if (typeof raw.actor !== "string") {
-      errors.push(`state "${name}": "actor" must be a string`)
-    } else {
-      actor = raw.actor
-    }
-  }
-
-  let initial: true | undefined
-  if (raw.initial !== undefined) {
-    if (raw.initial !== true && raw.initial !== false) {
-      errors.push(`state "${name}": "initial" must be a boolean`)
-    } else if (raw.initial === true) {
-      initial = true
-    }
-  }
-
-  const content = compileContent(raw, name, configDir, errors)
-  const on = compileOn(raw.on, name, errors)
-  const retry = compileRetry(raw.retry, name, errors)
-
-  return {
-    ...(actor !== undefined ? { actor } : {}),
-    ...(content.script !== undefined ? { script: content.script } : {}),
-    ...(content.prompt !== undefined ? { prompt: content.prompt } : {}),
-    ...(content.message !== undefined ? { message: content.message } : {}),
-    ...(content.commit !== undefined ? { commit: content.commit } : {}),
-    ...(on !== undefined ? { on } : {}),
-    ...(initial !== undefined ? { initial } : {}),
-    ...(retry !== undefined ? { retry } : {}),
-  }
+  return assembleStateDef({
+    actor: compileActor(raw, name, errors),
+    content: compileContent(raw, name, configDir, errors),
+    on: compileOn(raw.on, name, errors),
+    initial: compileInitial(raw, name, errors),
+    retry: compileRetry(raw.retry, name, errors),
+  })
 }
 
 // ── Top-level compile ────────────────────────────────────────────────────────
