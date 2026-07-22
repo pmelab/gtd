@@ -118,11 +118,47 @@ actionable input.
 | Docs                                                  | `configuration.md` / `README.md` walkthrough mentions; `docs/examples/advanced-workflow.md` intro gains one line noting the default now carries the validation loops (the example itself is NOT reworked in this change — noted as a possible follow-up to rebase it on the new default).                                                                  |
 | Live verification                                     | Real-script drive (`gtd run` at each validator) covering: agent writes malformed TODO → FORMAT.md → fixed lap; answers folded; malformed REVIEW lap; tick-all approve; partial-tick feedback extracting TODO.md; final tree `.gtd`-free at idle.                                                                                                           |
 
-## 5. Explicitly out of scope
+## 5. The LSP server comes back (v3-shaped)
 
-- Resurrecting the LSP server itself (editor tooling can be rebuilt later on
-  these stable formats; the workflow now enforces them).
+The v2 LSP (`src/Lsp.ts`, deleted at the v3 rewrite) is resurrected, scoped to
+what is workflow-agnostic — the FILE FORMATS, not any particular state machine:
+
+- **Restore the pure parsers verbatim from history** —
+  `git show 60c7490^:src/OpenQuestions.ts` / `:src/ReviewDoc.ts` (+ their unit
+  tests) — they are pure (no git/fs/Effect) and restore cleanly. They are the
+  executable spec of §1; the bash validators in §3 implement the SAME rules
+  (note this dual-implementation contract in both places — the parsers' unit
+  tests are the format's spec tests).
+- **New `src/Lsp.ts`** (recover from history, then STRIP the v2-model
+  dependencies — Events/Machine/ReviewWindow/STATE_FILE are gone): keyed on FILE
+  NAME, not state. For `.gtd/TODO.md`: document symbols for open questions
+  ([suggested]/[answered]). For `.gtd/REVIEW.md`: chunk/hunk symbols and the
+  check/uncheck code actions (hunk and whole-chunk). BOTH files: publish the
+  parsers' `errors` as diagnostics — the same findings the workflow's
+  `.gtd/FORMAT.md` validators produce, live in the editor. The v2
+  `gtd.openSteeringFile` command and its hardcoded state→file map are NOT
+  restored (a v3 workflow is arbitrary data; a state names no file) — noted as a
+  possible future addition driven by workflow config.
+- **CLI**: re-add the `gtd lsp` subcommand (stdio transport, as before) to
+  `program.ts` dispatch + help + `docs/cli.md`; re-add the
+  `vscode-languageserver` / `vscode-languageserver-textdocument` dependencies;
+  confirm the tsdown single-file bundle still builds and the subcommand starts
+  from `dist/gtd.bundle.mjs`.
+- **Tests**: parser unit tests restored; the LSP's pure helpers
+  (symbol/edit/diagnostic builders) unit-tested as in v2 (recover `Lsp.test.ts`
+  from history and adapt); restore/adapt the old protocol-level e2e
+  (`lsp.steps.ts` + feature) if it adapts cleanly, otherwise a minimal @live
+  smoke that `gtd lsp` starts and answers `initialize`.
+- **Housekeeping**: add the restored pure modules to `stryker.config.json`'s
+  mutate list; `docs/development.md` + `docs/upgrading.md` notes (the LSP is
+  back, file-format-keyed); README one-liner on editor integration.
+
+## 6. Explicitly out of scope
+
 - `ARCHITECTURE.md` (the old second question phase) — the default keeps a single
   grilling step; the advanced example still shows the two-phase shape.
 - Engine-level validation of steering files — validation stays a workflow
-  concern, per the v3 charter.
+  concern, per the v3 charter; the LSP is editor tooling over the same formats,
+  not an engine hook.
+- The `gtd.openSteeringFile` command (needs a state→file mapping that v3
+  workflows don't declare — future work, possibly a per-state `file:` hint).
