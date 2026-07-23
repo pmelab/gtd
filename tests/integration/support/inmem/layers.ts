@@ -107,6 +107,13 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
       : Effect.fail(new Error(`Cannot resolve ref: ${ref}`))
   },
 
+  readRefOption: (ref: string) => {
+    const hash = repo.resolveRef(ref)
+    return Effect.succeed(hash !== null ? Option.some(hash) : Option.none<string>())
+  },
+
+  isAncestor: (a: string, b: string) => Effect.succeed(repo.isAncestor(a, b)),
+
   topLevel: () => Effect.succeed("/repo"),
 
   commitHistory: (base?: string) => Effect.succeed(repo.commitHistory(base)),
@@ -157,6 +164,17 @@ const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => ({
   commitAsIs: (message: string) => tryCatch(() => repo.commitAsIs(message)),
 
   discardPending: () => tryCatch(() => repo.discardPending()),
+
+  updateRef: (ref: string, hash: string) => tryCatch(() => repo.updateRef(ref, hash)),
+
+  deleteRef: (ref: string) => tryCatch(() => repo.deleteRef(ref)),
+
+  mixedResetTo: (ref: string) => tryCatch(() => repo.mixedResetTo(ref)),
+
+  restoreStagedFrom: (source: string, paths: ReadonlyArray<string>) =>
+    tryCatch(() => repo.restoreStagedFrom(source, paths)),
+
+  addIntentToAdd: () => tryCatch(() => repo.addIntentToAdd()),
 })
 
 // ---------------------------------------------------------------------------

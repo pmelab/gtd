@@ -85,6 +85,14 @@
                 "type": "string",
                 "enum": ["qa", "review"],
                 "description": "The steering file's format, dispatched on by the LSP. Requires a sibling `file:`. Forbidden on a commit state."
+              },
+              "reviewWindow": {
+                "type": "boolean",
+                "description": "When true, gtd opens a review checkout window while the machine rests here — HEAD/index are rewound to the review base so the whole base..HEAD diff surfaces as uncommitted changes in the editor. Forbidden on a commit state."
+              },
+              "reviewBase": {
+                "type": "boolean",
+                "description": "Marks the state whose most-recent in-process commit anchors the review window's diff base; absent any, the base is the process start. Forbidden on a commit state."
               }
             }
           }

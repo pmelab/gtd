@@ -151,7 +151,14 @@ Feature: The bundled default workflow — full cycle journeys
     # review-validating (valid, nothing to clean up): a clean step moves to await-review
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): await-review"
+    # await-review declares `reviewWindow: true` (STATES.md §11): landing here
+    # opens the review checkout window, rewinding raw HEAD to the review base.
+    # `gtd status` closes the window before reading, so it still resolves the
+    # true rest — the window then re-arms on its way out.
+    And the git ref "refs/gtd/review-head" exists
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "State: await-review"
 
     # await-review: partial-tick feedback — the reviewer adds a note without
     # ticking the box, routing to the decider (not the catch-all)
@@ -224,7 +231,12 @@ Feature: The bundled default workflow — full cycle journeys
     And the last commit subject is "gtd(agent): review-validating"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): await-review"
+    # await-review opens the review checkout window (see above) — resolve the
+    # true rest via `gtd status` rather than raw HEAD.
+    And the git ref "refs/gtd/review-head" exists
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "State: await-review"
 
     # await-review: tick every box — the decider sees no unticked pointer
     # left and approves, removing REVIEW.md and resting the cycle at idle
@@ -348,7 +360,12 @@ Feature: The bundled default workflow — full cycle journeys
     Given the file ".gtd/FORMAT.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): await-review"
+    # await-review opens the review checkout window (reviewWindow: true) — assert
+    # the resolved state via `gtd status`, which closes the window before reading.
+    And the git ref "refs/gtd/review-head" exists
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "State: await-review"
 
   Scenario: deleting REVIEW.md outright at await-review is the power-user approve shortcut, bypassing review-deciding
     Given a test project

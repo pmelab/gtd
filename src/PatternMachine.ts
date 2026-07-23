@@ -94,6 +94,29 @@ export interface StateDef {
    * `validateDefinition`).
    */
   readonly mode?: StateMode
+  /**
+   * Optional. When `true`, gtd opens a "review checkout window" while a
+   * process RESTS at this state: HEAD and the index are temporarily rewound to
+   * the review base (see `reviewBase`) with the working tree untouched, so the
+   * whole `base..HEAD` diff surfaces as ordinary uncommitted changes in any
+   * editor's standard git integration. The window is closed (HEAD/index
+   * restored) the moment the process rests anywhere else. This module's PURE
+   * functions never read it — `resolveState`/`step` are oblivious; the window
+   * is opened/closed entirely at the edge (`src/ReviewWindow.ts`), keyed on
+   * this flag of the resolved rest. Forbidden on a commit state (never at
+   * rest — see `validateDefinition`).
+   */
+  readonly reviewWindow?: boolean
+  /**
+   * Optional. Marks a state whose most-recent in-process turn commit is the
+   * BASE of the review window's diff (`base..HEAD`) — everything committed
+   * after entering this state surfaces as pending while the window is open.
+   * When no in-process commit entered a `reviewBase` state, the window falls
+   * back to the process start (see `src/ReviewWindow.ts`). Like `reviewWindow`
+   * the ENGINE never reads it — it is history-derived edge data. Forbidden on
+   * a commit state (see `validateDefinition`).
+   */
+  readonly reviewBase?: boolean
 }
 
 /** The closed vocabulary `mode:` may declare — see `StateDef.mode`. */
@@ -115,6 +138,14 @@ export const contentKindOf = (state: StateDef): ContentKind | undefined => {
 
 /** True when a state is a commit (final, squash) state. */
 export const isCommitState = (state: StateDef): boolean => state.commit !== undefined
+
+/** True when a rest at `state` should open the review checkout window (see `StateDef.reviewWindow`). Safe for an unknown state name (returns `false`). */
+export const isReviewWindowState = (def: WorkflowDefinition, state: StateName): boolean =>
+  def.states[state]?.reviewWindow === true
+
+/** True when `state` anchors the review window's diff base (see `StateDef.reviewBase`). Safe for an unknown state name (returns `false`). */
+export const isReviewBaseState = (def: WorkflowDefinition, state: StateName): boolean =>
+  def.states[state]?.reviewBase === true
 
 // ── Commit-subject grammar ───────────────────────────────────────────────────
 
@@ -602,6 +633,24 @@ const validateMode = (name: string, state: StateDef): string[] => {
   return errors
 }
 
+/**
+ * `reviewWindow`/`reviewBase`, when present, are booleans (the compiler
+ * enforces the type) — forbidden on a commit state, same rule family as
+ * `model`/`file`/`mode`: a commit state is never at rest, so no window ever
+ * opens or anchors there.
+ */
+const validateReviewWindow = (name: string, state: StateDef): string[] => {
+  if (!isCommitState(state)) return []
+  const errors: string[] = []
+  if (state.reviewWindow !== undefined) {
+    errors.push(`state "${name}": a commit state cannot declare "reviewWindow"`)
+  }
+  if (state.reviewBase !== undefined) {
+    errors.push(`state "${name}": a commit state cannot declare "reviewBase"`)
+  }
+  return errors
+}
+
 /** Every `on` row parses, and its target names a defined state. */
 const validateOnEdges = (name: string, state: StateDef, names: readonly string[]): string[] => {
   const errors: string[] = []
@@ -685,6 +734,7 @@ const validateState = (
     ...validateModel(name, state),
     ...validateFile(name, state),
     ...validateMode(name, state),
+    ...validateReviewWindow(name, state),
   ]
 }
 
@@ -702,8 +752,9 @@ const validateState = (
  * never declared on a commit state; `file`, when present, is a non-empty
  * string and is never declared on a commit state; `mode`, when present, is
  * one of the closed vocabulary (`qa`/`review`), requires a sibling `file`,
- * and is never declared on a commit state; every state is reachable from the
- * initial state by walking `on` targets and `retry.otherwise` redirects
+ * and is never declared on a commit state; `reviewWindow`/`reviewBase`, when
+ * present, are never declared on a commit state; every state is reachable from
+ * the initial state by walking `on` targets and `retry.otherwise` redirects
  * (checked only when the initial-state rule itself passed — see
  * `validateReachability`).
  */

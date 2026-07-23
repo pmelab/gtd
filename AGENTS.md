@@ -21,15 +21,21 @@ see [STATES.md](STATES.md) for the model. The sections below describe what
 replaced the old machinery; if you're looking for `TurnGate`, `captureRules`,
 `Gtd-Counters`, or `WorkflowConfig` guards, they no longer exist.
 
+The review checkout window is the one item on that deleted list that has since
+RETURNED — not as hardwired machinery but as a declarative state property
+(`reviewWindow: true`, plus an optional `reviewBase: true`), opened/closed
+entirely at the edge in `src/ReviewWindow.ts` and oblivious to the pure engine
+(see STATES.md §11).
+
 ### Changing the Workflow
 
 There is no engine-side wiring left to trace through when a workflow's shape
 changes — a workflow (bundled default or custom) is DATA, not code. To change
 what the bundled default does, edit `src/workflows/default.yaml` (states,
-`actor`, exactly one content kind, `on` edges, `retry`, `model`) —
-`src/workflows/ default.ts` compiles it through the same `compileWorkflowConfig`
-a user's `.gtdrc` `workflow:` key goes through, so it never needs its own logic.
-After editing the YAML, update:
+`actor`, exactly one content kind, `on` edges, `retry`, `model`, `file`/`mode`,
+`reviewWindow`/`reviewBase`) — `src/workflows/ default.ts` compiles it through
+the same `compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through,
+so it never needs its own logic. After editing the YAML, update:
 
 - **STATES.md §10** — the bundled-default table and walkthrough
 - **e2e feature files** that assert on the default workflow's shape
@@ -76,6 +82,12 @@ touches `src/PatternMachine.ts` (types + `validateDefinition`),
   `buildTemplateContext`, `renderRest`, `executeDecision` (performs a `"commit"`
   or `"squash"` `StepDecision` — the only place a turn is actually written or a
   squash actually performed).
+- **`src/ReviewWindow.ts`** — the review checkout window edge (see STATES.md
+  §11): `openReviewWindow`/`closeReviewWindow` (the `git reset --mixed`
+  open/close bracketing every state subcommand, keyed on the resolved rest's
+  `reviewWindow: true` and on `refs/gtd/review-head` existence) and
+  `reviewBaseHash` (the `reviewBase`-state diff-base derivation). Pure engine is
+  oblivious; `program.ts` calls it, it calls `GitService`/`Edge.ts`.
 - **`src/program.ts`** — CLI dispatch (`step`/`next`/`run`/`status`/`format`).
   Calls `Edge.ts` for everything IO-shaped; calls `PatternMachine.ts`'s pure
   `step`/`matchesPattern`/`parsePattern` directly where no IO is needed (e.g.

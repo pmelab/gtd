@@ -138,6 +138,8 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "model",
   "file",
   "mode",
+  "reviewWindow",
+  "reviewBase",
 ])
 
 const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["vars", "states"])
@@ -313,13 +315,27 @@ const compileInitial = (
   raw: Record<string, unknown>,
   name: string,
   errors: string[],
+): true | undefined => compileBooleanFlag(raw, "initial", name, errors)
+
+/**
+ * A boolean state flag (`initial`/`reviewWindow`/`reviewBase`): `true` only
+ * when the raw value is the literal `true`; a non-boolean is a config error;
+ * `false` (or absent) compiles away to `undefined` so it never lands in the
+ * `StateDef` — `false` and "unset" mean the same thing for every such flag.
+ */
+const compileBooleanFlag = (
+  raw: Record<string, unknown>,
+  key: string,
+  name: string,
+  errors: string[],
 ): true | undefined => {
-  if (raw.initial === undefined) return undefined
-  if (raw.initial !== true && raw.initial !== false) {
-    errors.push(`state "${name}": "initial" must be a boolean`)
+  const value = raw[key]
+  if (value === undefined) return undefined
+  if (value !== true && value !== false) {
+    errors.push(`state "${name}": "${key}" must be a boolean`)
     return undefined
   }
-  return raw.initial === true ? true : undefined
+  return value === true ? true : undefined
 }
 
 /** One state's compiled parts, assembled into a `StateDef` (only present fields carried over — `exactOptionalPropertyTypes`). */
@@ -332,6 +348,8 @@ interface StateParts {
   readonly model: string | undefined
   readonly file: string | undefined
   readonly mode: StateMode | undefined
+  readonly reviewWindow: true | undefined
+  readonly reviewBase: true | undefined
 }
 
 const assembleContentFields = (
@@ -372,6 +390,8 @@ const assembleStateDef = (parts: StateParts): StateDef => ({
     model: parts.model,
     file: parts.file,
     mode: parts.mode,
+    reviewWindow: parts.reviewWindow,
+    reviewBase: parts.reviewBase,
   }),
   ...assembleContentFields(parts.content),
 })
@@ -402,6 +422,8 @@ const compileState = (
     model: compileModel(raw, name, errors),
     file: compileFile(raw, name, errors),
     mode: compileMode(raw, name, errors),
+    reviewWindow: compileBooleanFlag(raw, "reviewWindow", name, errors),
+    reviewBase: compileBooleanFlag(raw, "reviewBase", name, errors),
   })
 }
 

@@ -31,6 +31,8 @@ const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
   hasCommits: notImplemented("hasCommits"),
   diffRef: notImplemented("diffRef"),
   resolveRef: notImplemented("resolveRef"),
+  readRefOption: notImplemented("readRefOption"),
+  isAncestor: notImplemented("isAncestor"),
   topLevel: notImplemented("topLevel"),
   commitHistory: notImplemented("commitHistory"),
   commitDiff: notImplemented("commitDiff"),
@@ -39,6 +41,11 @@ const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
   softResetTo: notImplemented("softResetTo"),
   commitAsIs: notImplemented("commitAsIs"),
   discardPending: notImplemented("discardPending"),
+  updateRef: notImplemented("updateRef"),
+  deleteRef: notImplemented("deleteRef"),
+  mixedResetTo: notImplemented("mixedResetTo"),
+  restoreStagedFrom: notImplemented("restoreStagedFrom"),
+  addIntentToAdd: notImplemented("addIntentToAdd"),
   ...overrides,
 })
 

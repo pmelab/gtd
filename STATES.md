@@ -31,6 +31,8 @@ A workflow is a set of named **states**. Each state declares:
 | `model`                                       | Optional, opaque string — a harness hint (e.g. `smart`, `fast`, or a concrete model id) emitted alongside the state's content for the driving loop to map onto its agent harness. **Rendered as an Eta template through the same `it.vars`-carrying context as content** (a plain string with no Eta tags passes through unchanged) — see [Configuration](docs/configuration.md#model--the-opaque-harness-hint-template-rendered). gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state** (never at rest, emits nothing). |
 | `file`                                        | Optional — THE steering file this state is about: the file a human/editor should look at while the machine rests here. An **Eta template**, rendered exactly like `model` (must render non-empty). **Forbidden on a commit state.** Multiple states may share one `file:`. gtd itself never reads a path out of this string — only `gtd lsp` (`src/Lsp.ts`) interprets it, to map rendered paths to `mode` — see [Configuration](docs/configuration.md#filemode--the-steering-file-association).                                                                                     |
 | `mode`                                        | Optional, requires `file:`. The associated file's FORMAT, from a closed vocabulary (`qa` \| `review`) the LSP dispatches document symbols/code actions/diagnostics on. An unknown value is a load error. Like `model`, this is opaque emitted data — the ENGINE never branches on it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                               |
+| `reviewWindow: true`                          | Optional boolean. While the machine RESTS at this state, gtd opens a **review checkout window** — HEAD and the index are rewound to the review base with the working tree untouched, so the whole `base..HEAD` diff surfaces as ordinary uncommitted changes in the editor's git integration; it closes automatically once the machine rests anywhere else (see §11). The pure engine never observes it. **Forbidden on a commit state.**                                                                                                                                            |
+| `reviewBase: true`                            | Optional boolean. Marks the state whose most-recent in-process commit anchors the review window's diff base (`base..HEAD`); absent any such state, the base is the process start (§11). Like `reviewWindow`, history-derived edge data the engine never reads. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                                      |
 
 **Emission:** `gtd next --json`/`gtd status --json` gain optional `file`
 (rendered) and `mode` (verbatim) keys, omitted — never `null` — when unset,
@@ -234,6 +236,7 @@ workflow with:
   state,
 - a `retry.otherwise` naming an undefined state, or a `retry.max` that isn't a
   non-negative integer,
+- `reviewWindow`/`reviewBase` declared on a commit state (never at rest),
 - a state unreachable from the initial state by walking `on` targets and
   `retry.otherwise` redirects (checked only once the initial-state rule itself
   passes — with zero or several initials there is no well-defined start to walk
@@ -275,6 +278,11 @@ checkbox review format — that map the functionality the deleted v2 LSP server
 (`todoFile: .gtd/TODO.md`, `reviewFile: .gtd/REVIEW.md`,
 `feedbackFile: .gtd/FEEDBACK.md` — see below); `fixing`/`escalate` declare
 `file:` alone (`.gtd/FEEDBACK.md` is plain text, no LSP format).
+
+`await-review` additionally declares **`reviewWindow: true`**: while the cycle
+rests there for human review, gtd opens a review checkout window over the whole
+cycle diff (no `reviewBase` state is declared, so the base is the cycle's
+process boundary). See §11.
 
 There is no squash — the cycle ends at human approval, an empty
 `gtd(human): idle` turn commit that rests the machine back at its own initial
@@ -390,3 +398,51 @@ desyncing the machine. `gtd lsp` (§3 of
 reads this same `file:`/`mode:` pair to dispatch document symbols/code
 actions/diagnostics, config-driven rather than hardcoded to `TODO.md`/
 `REVIEW.md`.
+
+## 11. The review checkout window
+
+A state may declare **`reviewWindow: true`** (§1). While the machine RESTS at
+such a state, gtd surfaces the reviewable diff directly in the editor's git
+integration — no custom UI, just ordinary working-tree changes an SCM panel,
+gutters, per-file diff, and discard-hunk already understand.
+
+**Mechanism.** The whole cycle's work is already committed by the time review
+begins, so an editor would otherwise show a clean tree. gtd temporarily rewinds
+HEAD and the index to the review base (`git reset --mixed <base>`) with the
+working tree untouched, so the entire `base..HEAD` diff re-appears as
+uncommitted changes. The real head is preserved under `refs/gtd/review-head`
+(the base under `refs/gtd/review-base`) so nothing is lost.
+
+**The base.** By default it is the process start (the same boundary
+`computeProcessRun` uses — see §7), so the window shows the whole current cycle.
+A workflow can narrow it by marking an earlier state **`reviewBase: true`**: the
+most-recent in-process commit that entered such a state becomes the base, so
+only work committed after that milestone surfaces (planning-doc churn before it
+stays committed and out of view).
+
+**Open / close lifecycle.** The pure engine (§5–§8) never observes an open
+window — it is opened and closed entirely at the edge (`src/ReviewWindow.ts`),
+bracketing every state subcommand (`step`/`next`/`run`/`status`):
+
+- **Close first, always.** Before anything reads or mutates state, gtd restores
+  the real head if a window is open (keyed solely on `refs/gtd/review-head`
+  existing). This is why the machine resolves the true rest, not the rewound
+  base — and why a reviewer's own edits, made while the window was open, land as
+  the resting state's ordinary pending changes and are captured by its `on`
+  patterns like any other diff (in the bundled default, a code edit at
+  `await-review` routes to `grilling` as feedback; deleting `.gtd/REVIEW.md`
+  approves).
+- **Re-arm last.** After the subcommand finishes — on success, on refusal, and
+  after read-only commands too — gtd re-opens the window if the resolved rest
+  declares `reviewWindow: true`. Every command participates, so the editor's
+  diff view stays consistent no matter which one the driving loop last ran.
+
+Both steps are idempotent under re-entry, so a crash at any point is recovered
+by the next invocation's close. The close fails loudly (leaving the refs in
+place) only if HEAD has moved off the reviewed branch — a `--mixed` reset there
+would rewrite the wrong branch's tip; the error message spells out the manual
+recovery.
+
+`.gtd/` workflow plumbing (the review doc, plan/feedback files) is pinned back
+to the real head's index while the window is open, so the editor's unstaged view
+shows only the actual code changes.

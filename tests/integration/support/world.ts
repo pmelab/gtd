@@ -202,6 +202,23 @@ export class GtdWorld extends QuickPickleWorld {
     })
   }
 
+  /** Whether a repo-local ref (e.g. `refs/gtd/review-head`) resolves to a commit. */
+  gitRefExists(ref: string): boolean {
+    if (this.repo !== undefined) {
+      return this.repo.resolveRef(ref) !== null
+    }
+    try {
+      execSync(`git rev-parse --verify --quiet ${ref}`, {
+        cwd: this.repoDir,
+        encoding: "utf-8",
+        stdio: "pipe",
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
+
   /** Plain working-tree deletion (no git involvement — what an editor's delete does). */
   deleteWorktreeFile(path: string): void {
     if (this.repo !== undefined) {
