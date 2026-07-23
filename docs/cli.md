@@ -13,6 +13,8 @@ Commands:
                    actor (the built-in script driver)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
+  mermaid          Print the active workflow's shape as Mermaid
+                   stateDiagram-v2 source (no mutation)
   format <file>    Format a markdown file in place
   lsp              Start the LSP server for .gtd/ steering files (stdio)
 
@@ -175,6 +177,46 @@ never `null`, otherwise):
 
 `gtd status` takes no arguments — extra positional args are rejected.
 
+## `gtd mermaid`
+
+Pure emitter of the active workflow's **shape** — not the resolved rest — as
+Mermaid [`stateDiagram-v2`](https://mermaid.js.org/syntax/stateDiagram.html)
+source (see `src/Mermaid.ts`): one node per declared state, the `[*] -->`
+initial-state marker, one edge per declared `on` row labeled with its raw
+pattern string (same declaration order the engine itself evaluates), a `--> [*]`
+edge for every commit state (final, no outgoing edges — see
+[STATES.md §8](../STATES.md#8-the-squash-lifecycle)), and one `note right of`
+per rest naming its actor, content kind, and retry cap (e.g.
+`agent · prompt · retry 3→escalate`). No git, no HEAD resolution, no template
+rendering — purely a function of the compiled `WorkflowDefinition`, so its
+output is identical regardless of the current process/branch state.
+
+```
+$ gtd mermaid
+stateDiagram-v2
+    state "idle" as idle
+    state "grilling" as grilling
+    ...
+    [*] --> idle
+    idle --> grilling : * **
+    ...
+    note right of idle : human · message
+    ...
+```
+
+Pipe it straight into a `.md`/`.mmd` file, a GitHub issue/PR description, or any
+Mermaid-aware renderer (GitHub, GitLab, VS Code, Obsidian, the
+[Mermaid Live Editor](https://mermaid.live)) to get a diagram of a custom
+`.gtdrc` `workflow:` with no hand-maintained docs required.
+
+State names are aliased to Mermaid-safe identifiers (non-word characters fold to
+`_`; a digit-led name gets an `s_` prefix) via a `state "<name>" as <alias>`
+declaration up front, so a hyphenated name like `todo-validating` still displays
+with its exact declared spelling. Rejects `--json` (exit 1,
+`gtd mermaid does not accept --json`) — there is no structured shape to emit
+beyond the Mermaid source itself — and takes no arguments (extra positional args
+are rejected).
+
 ## `gtd format <file>`
 
 Formats a markdown file in place with a bundled prettier (`parser: "markdown"`,
@@ -249,7 +291,7 @@ the plain-text one.
   green run, and the check's `"C"` pattern never fires. Gitignore every path
   your scripts write before wiring gtd into a repo.
 - **Repository root invocation.** Every state subcommand (`step`/`next`/`run`/
-  `status`) must run from the git repository root — the workflow, pending
-  changes, and process history are resolved against the process cwd.
+  `status`/`mermaid`) must run from the git repository root — the workflow,
+  pending changes, and process history are resolved against the process cwd.
   `--help`/`--version`, `format`, and `lsp` skip this guard entirely (and any
   git/`.gtdrc` dependency along with it).
