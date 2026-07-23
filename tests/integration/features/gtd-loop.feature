@@ -88,6 +88,83 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
     Then it succeeds
     And stdout contains "--- Settled (watching: check passed, nothing to do) ---"
 
+  Scenario: Carries the memory scope across a loop and clears it at a phase boundary
+    # Two agent phases: `working` (scope "work") then a fixing loop (scope
+    # "fix") that re-enters twice. The stub echoes the memory env vars gtd-loop
+    # exports, so we can see it start fresh at each new scope (RESUME=0) and
+    # resume the same session the second time the SAME scope repeats (RESUME=1)
+    # — the retain-within-a-loop / clear-at-a-boundary contract. The check's
+    # attempt counter lives in .git (never the work tree, so gtd's pending diff
+    # only ever sees .gtd/FEEDBACK.md), forcing exactly two fix laps.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            memory: work
+            prompt: "Create src/fix.ts for the initial build."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              set +e
+              mkdir -p .gtd
+              c=".git/testcount"
+              n=$(cat "$c" 2>/dev/null || echo 0)
+              n=$((n + 1))
+              echo "$n" > "$c"
+              if [ "$n" -lt 3 ]; then echo "fail $n" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": fixing
+              "M .gtd/FEEDBACK.md": fixing
+              "D .gtd/FEEDBACK.md": done
+              "C": done
+          fixing:
+            actor: agent
+            memory: fix
+            prompt: "Fix the failing check."
+            on:
+              "* **": checking
+          done:
+            commit: "chore: fixed"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      echo "AGENT MEMORY=${GTD_LOOP_MEMORY} RESUME=${GTD_LOOP_MEMORY_RESUME}"
+      case "$GTD_LOOP_PROMPT" in
+        *"initial build"*)
+          mkdir -p src
+          echo 'export const x = 1' > src/fix.ts
+          ;;
+        *"Fix the failing"*)
+          echo "// touched at ${GTD_LOOP_MEMORY}" >> src/fix.ts
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run gtd-loop
+    Then it succeeds
+    And stdout contains "AGENT MEMORY=work RESUME=0"
+    And stdout contains "AGENT MEMORY=fix RESUME=0"
+    And stdout contains "AGENT MEMORY=fix RESUME=1"
+    And stdout contains "--- Your turn (idle) ---"
+
   Scenario: Stops instead of spinning when the agent's turn makes no progress
     Given a test project
     And a gtd config file at ".gtdrc" with:

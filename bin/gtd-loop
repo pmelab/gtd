@@ -13,8 +13,26 @@ set -euo pipefail
 # `.model` (optional, opaque) is exported as $GTD_LOOP_MODEL for the agent
 # adapter invoked at a "prompt" rest; the default adapter appends `--model
 # "$GTD_LOOP_MODEL"` only when it's non-empty.
+#
+# `.memory` (optional, opaque — see skills/loop/SKILL.md "Agent memory scope")
+# is the agent-memory scope label. gtd never interprets it; the driver does:
+# consecutive "prompt" turns emitting the SAME label continue ONE agent
+# session (so the agent still remembers its previous turn), and a changed
+# label — or the first turn, or an unset label — starts fresh. That is what
+# lets a loop retain memory within itself (grilling ↔ answer, fixing ↔
+# checking) and clear it at a phase boundary. The previous prompt turn's scope
+# and its agent session id are persisted in the git dir (NOT the working tree,
+# so `gtd status` and the pending diff never see them), so retention survives
+# across restarts — a grilling loop that halts at its human gate every lap
+# still resumes one planning session. The scope, session id, and a
+# resume-or-fresh flag are exported as $GTD_LOOP_MEMORY / $GTD_LOOP_SESSION_ID
+# / $GTD_LOOP_MEMORY_RESUME; the default adapter turns them into
+# `--resume`/`--session-id`. An adapter that ignores them keeps working.
 prev_state=""
 prev_content=""
+# Where the last "prompt" turn's `memory` scope + session id are remembered
+# across iterations and across restarts. In the git dir, never the work tree.
+memory_marker="$(git rev-parse --git-dir 2>/dev/null || echo .git)/gtd-loop-memory"
 
 while true; do
   if ! next_json="$(gtd next --json 2>&1)"; then
@@ -29,6 +47,7 @@ while true; do
   kind="$(jq -r .kind <<<"$next_json")"
   content="$(jq -r .content <<<"$next_json")"
   model="$(jq -r '.model // empty' <<<"$next_json")"
+  memory="$(jq -r '.memory // empty' <<<"$next_json")"
 
   if [[ "$kind" == "message" ]]; then
     echo "--- Your turn ($state) ---"
@@ -60,19 +79,53 @@ while true; do
   prev_state="$state"
   prev_content="$content"
 
+  # Agent-memory scope: compare this turn's `memory` label against the last
+  # prompt turn's (persisted in $memory_marker). Same non-empty label AND a
+  # known prior session -> resume that session; otherwise start fresh with a
+  # new session id. An unset label carries no constraint (harness default) and
+  # clears the marker so a later labelled turn can't accidentally match it.
+  prev_memory=""
+  prev_session=""
+  if [[ -f "$memory_marker" ]]; then
+    prev_memory="$(sed -n 1p "$memory_marker")"
+    prev_session="$(sed -n 2p "$memory_marker")"
+  fi
+  resume=0
+  session_id=""
+  if [[ -n "$memory" ]]; then
+    if [[ "$memory" == "$prev_memory" && -n "$prev_session" ]]; then
+      resume=1
+      session_id="$prev_session"
+    else
+      session_id="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "")"
+    fi
+    printf '%s\n%s\n' "$memory" "$session_id" >"$memory_marker"
+  else
+    rm -f "$memory_marker"
+  fi
+
   # Swappable agent adapter: GTD_LOOP_AGENT_CMD lets any coding agent CLI
-  # stand in for the default, receiving the prompt via $GTD_LOOP_PROMPT and
-  # the state's opaque model hint (if any) via $GTD_LOOP_MODEL. An adapter
-  # that ignores $GTD_LOOP_MODEL keeps working — it's exported alongside
-  # $GTD_LOOP_PROMPT, never required.
+  # stand in for the default, receiving the prompt via $GTD_LOOP_PROMPT, the
+  # state's opaque model hint (if any) via $GTD_LOOP_MODEL, and the memory
+  # scope via $GTD_LOOP_MEMORY / $GTD_LOOP_SESSION_ID / $GTD_LOOP_MEMORY_RESUME
+  # ("1" when this turn should continue the prior session). An adapter that
+  # ignores any of these keeps working — they're exported alongside
+  # $GTD_LOOP_PROMPT, never required. The default adapter maps the memory
+  # signal onto claude's own session flags: --resume to continue the scope's
+  # session, --session-id to pin a fresh one so the next same-scope turn can
+  # resume it.
   cmd="${GTD_LOOP_AGENT_CMD:-}"
   if [[ -z "$cmd" ]]; then
-    if [[ -n "$model" ]]; then
-      cmd='claude -p "$GTD_LOOP_PROMPT" --model "$GTD_LOOP_MODEL" --dangerously-skip-permissions'
-    else
-      cmd='claude -p "$GTD_LOOP_PROMPT" --dangerously-skip-permissions'
+    cmd='claude -p "$GTD_LOOP_PROMPT"'
+    [[ -n "$model" ]] && cmd="$cmd"' --model "$GTD_LOOP_MODEL"'
+    if [[ "$resume" == "1" ]]; then
+      cmd="$cmd"' --resume "$GTD_LOOP_SESSION_ID"'
+    elif [[ -n "$session_id" ]]; then
+      cmd="$cmd"' --session-id "$GTD_LOOP_SESSION_ID"'
     fi
+    cmd="$cmd"' --dangerously-skip-permissions'
   fi
-  GTD_LOOP_PROMPT="$content" GTD_LOOP_MODEL="$model" bash -c "$cmd"
+  GTD_LOOP_PROMPT="$content" GTD_LOOP_MODEL="$model" GTD_LOOP_MEMORY="$memory" \
+    GTD_LOOP_SESSION_ID="$session_id" GTD_LOOP_MEMORY_RESUME="$resume" bash -c "$cmd"
   gtd step "$actor" >/dev/null
 done
