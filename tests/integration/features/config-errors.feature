@@ -47,6 +47,32 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
     And stderr contains "idle"
     And stderr contains "nowhere"
 
+  Scenario: a state unreachable from the initial state fails naming it
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start"
+            on:
+              "* **": done
+          orphan:
+            actor: human
+            message: "no edge leads here"
+            on:
+              "* **": done
+          done:
+            commit: "chore: done"
+      """
+    When I run gtd status
+    Then it fails
+    And stderr contains "workflow config:"
+    And stderr contains "orphan"
+    And stderr contains "unreachable"
+
   Scenario: a content-kind violation and an unrelated "on" target both surface in one error
     Given a test project
     And a gtd config file at ".gtdrc" with:

@@ -4,12 +4,103 @@
   "required": [],
   "properties": {
     "workflow": {
-      "$id": "/schemas/unknown",
-      "title": "unknown"
+      "type": "object",
+      "description": "The whole machine definition: named states (plus the workflow's own vars: defaults). Compiled and validated by gtd at load time; content strings starting with ./ or ../ are file references inlined from the config file's directory.",
+      "additionalProperties": false,
+      "required": ["states"],
+      "properties": {
+        "vars": {
+          "type": "object",
+          "description": "Flat name -> scalar map merged into every template's it.vars. Scalars are coerced to strings.",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean"]
+          }
+        },
+        "states": {
+          "type": "object",
+          "description": "The workflow's named states. At least one; exactly one with initial: true.",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "description": "One workflow state. Declare exactly one content kind (script/prompt/message/commit). A commit state is final: no actor, no on.",
+            "additionalProperties": false,
+            "properties": {
+              "actor": {
+                "type": "string",
+                "description": "Who acts at this state. Required on every non-commit state; forbidden on a commit state."
+              },
+              "script": {
+                "type": "string",
+                "description": "Content kind: a shell script (Eta template). `gtd run` executes it verbatim via bash, then steps this state's actor."
+              },
+              "prompt": {
+                "type": "string",
+                "description": "Content kind: an agent prompt (Eta template), emitted by `gtd next`."
+              },
+              "message": {
+                "type": "string",
+                "description": "Content kind: a human-facing message (Eta template), emitted by `gtd next`."
+              },
+              "commit": {
+                "type": "string",
+                "description": "Content kind: entering this state ends the process by squashing it into one commit with this message (Eta template). Final — no actor, no on."
+              },
+              "on": {
+                "type": "object",
+                "description": "Ordered map of change pattern -> target state. Patterns: \"C\" (clean tree) or \"<A|M|D|*> <glob>\" over the pending diff; first declared match wins. Every target must name a defined state, and every non-initial state must be reachable through these edges (or a retry.otherwise).",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "initial": {
+                "type": "boolean",
+                "description": "Exactly one state in the workflow must declare initial: true (and it must not be a commit state)."
+              },
+              "retry": {
+                "type": "object",
+                "description": "Redirect transitions INTO this state once it has been entered `max` times in the current process.",
+                "additionalProperties": false,
+                "required": ["max", "otherwise"],
+                "properties": {
+                  "max": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Entries allowed this process before redirecting."
+                  },
+                  "otherwise": {
+                    "type": "string",
+                    "description": "Defined state to redirect to once over the cap."
+                  }
+                }
+              },
+              "model": {
+                "type": "string",
+                "description": "Opaque harness hint passed through `gtd next --json`/`gtd status --json` (e.g. \"smart\"). Never interpreted by gtd. Forbidden on a commit state."
+              },
+              "file": {
+                "type": "string",
+                "description": "The state's steering file: an Eta template naming the file a human/editor should look at while the machine rests here. Forbidden on a commit state."
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["qa", "review"],
+                "description": "The steering file's format, dispatched on by the LSP. Requires a sibling `file:`. Forbidden on a commit state."
+              }
+            }
+          }
+        }
+      }
     },
     "vars": {
-      "$id": "/schemas/unknown",
-      "title": "unknown"
+      "type": "object",
+      "description": "Flat name -> scalar map merged into every template's it.vars. Scalars are coerced to strings.",
+      "additionalProperties": {
+        "type": ["string", "number", "boolean"]
+      }
+    },
+    "$schema": {
+      "type": "string",
+      "description": "Editor-only pointer at this schema. Stripped by gtd before validation."
     }
   },
   "additionalProperties": false
