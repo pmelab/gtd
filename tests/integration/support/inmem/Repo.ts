@@ -323,6 +323,85 @@ export class InMemRepo {
   deleteFile(path: string): void {
     this.worktree.delete(path)
   }
+
+  // ---------------------------------------------------------------------------
+  // Refs & review-checkout-window plumbing
+  // ---------------------------------------------------------------------------
+
+  /** `git update-ref <ref> <hash>` — point a repo-local ref at a commit (resolves symbolic inputs first). */
+  updateRef(ref: string, hash: string): void {
+    this.refs.set(ref, this.resolveRef(hash) ?? hash)
+  }
+
+  /** `git update-ref -d <ref>` — idempotent removal of a repo-local ref. */
+  deleteRef(ref: string): void {
+    this.refs.delete(ref)
+  }
+
+  /**
+   * `git reset --mixed <ref>` — move HEAD and the index to `ref`'s commit,
+   * leaving the working tree untouched (so committed work re-surfaces as
+   * pending changes). The open/close primitive of the review checkout window.
+   */
+  mixedResetTo(ref: string): void {
+    if (ref === InMemRepo.EMPTY_TREE) {
+      this.head = null
+      this.branches.delete(this.currentBranch)
+      this.index = new Map()
+      return
+    }
+    const hash = this.resolveRef(ref)
+    if (!hash) throw new Error(`Cannot resolve ref: ${ref}`)
+    this.head = hash
+    this.branches.set(this.currentBranch, hash)
+    this.index = new Map(this.getCommit(hash)?.files ?? new Map())
+    // worktree unchanged (mixed reset)
+  }
+
+  /** True iff `a` is an ancestor of (or equal to) `b` on the first-parent chain. */
+  isAncestor(a: string, b: string): boolean {
+    const ha = this.resolveRef(a)
+    const hb = this.resolveRef(b)
+    if (!ha || !hb) return false
+    let cur: string | null = hb
+    while (cur !== null) {
+      if (cur === ha) return true
+      cur = this.getCommit(cur)?.parent ?? null
+    }
+    return false
+  }
+
+  /**
+   * `git restore --staged --source=<source> -- <paths…>` — set the index
+   * entries under each path to their state at `source` (setting or removing),
+   * leaving HEAD and the working tree untouched. Pins `.gtd/` plumbing back to
+   * the real head while the review window is open.
+   */
+  restoreStagedFrom(source: string, paths: ReadonlyArray<string>): void {
+    const hash = this.resolveRef(source)
+    const tree = hash ? (this.getCommit(hash)?.files ?? new Map<string, string>()) : new Map()
+    for (const p of paths) {
+      const prefix = p.endsWith("/") ? p : `${p}/`
+      const affected = new Set<string>()
+      for (const k of this.index.keys()) if (k === p || k.startsWith(prefix)) affected.add(k)
+      for (const k of tree.keys()) if (k === p || k.startsWith(prefix)) affected.add(k)
+      for (const k of affected) {
+        if (tree.has(k)) this.index.set(k, tree.get(k)!)
+        else this.index.delete(k)
+      }
+    }
+  }
+
+  /**
+   * `git add --intent-to-add .` — register every untracked worktree file in
+   * the index with an empty placeholder, so it renders as an addition (with a
+   * content hunk) rather than an untracked `??` entry.
+   */
+  addIntentToAdd(): void {
+    for (const path of this.worktree.keys()) {
+      if (!this.index.has(path)) this.index.set(path, "")
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

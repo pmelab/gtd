@@ -172,6 +172,49 @@ change to that path MEANS keeps matching the old literal path. The vars are a
 DRY mechanism inside templates and the state↔file association, not a rename
 switch. (Making pattern keys var-aware at compile time is possible future work.)
 
+### `reviewWindow:`/`reviewBase:` — the review checkout window
+
+A state may declare `reviewWindow: true`. While the machine RESTS there, gtd
+opens a **review checkout window**: it rewinds HEAD and the index to the review
+base (`git reset --mixed`) with the working tree untouched, so the whole
+`base..HEAD` diff surfaces as ordinary uncommitted changes in the editor's git
+integration (SCM panel, gutters, per-file diff, discard-hunk). The window closes
+automatically on the next invocation, once the machine rests anywhere else — and
+a reviewer's own edits, made while it was open, become the resting state's
+ordinary pending changes, captured by its `on` patterns like any other diff.
+Forbidden on a commit state (never at rest).
+
+The diff base defaults to the current process's start. To narrow it, mark an
+earlier state `reviewBase: true`: the most-recent in-process commit that entered
+such a state becomes the base, so only work committed after that milestone
+surfaces.
+
+```yaml
+workflow:
+  states:
+    # …
+    building:
+      actor: agent
+      reviewBase: true # the diff shown at review starts here…
+      prompt: implement the plan
+      on:
+        "* **": review
+    review:
+      actor: human
+      reviewWindow: true # …and is surfaced while resting here
+      message: review the diff in your editor, then `gtd step human`
+      on:
+        "C": done
+        "* **": building
+```
+
+The bundled default enables `reviewWindow: true` on `await-review` (no
+`reviewBase` state, so the base is the whole cycle). The pure engine never
+observes an open window — it is opened/closed entirely at the edge; the real
+head is preserved under `refs/gtd/review-head` (the base under
+`refs/gtd/review-base`) for the window's lifetime. See
+[STATES.md §11](../STATES.md) for the full lifecycle.
+
 ### Template variables
 
 Every `script`/`prompt`/`message`/`commit`/`model` template is rendered as an

@@ -507,6 +507,14 @@ states:
     actor: human
     file: <%= it.vars.reviewFile %>
     mode: review
+    # While the cycle rests here for human review, gtd opens a "review checkout
+    # window": HEAD and the index are temporarily rewound to this cycle's start
+    # (the process boundary — no `reviewBase` state is declared, so the base
+    # defaults to it) with the working tree untouched, so the whole cycle diff
+    # surfaces as ordinary uncommitted changes in the editor's git integration.
+    # The window closes automatically on the next invocation, once the cycle
+    # rests anywhere else (see src/ReviewWindow.ts, STATES.md §11).
+    reviewWindow: true
     message: |
       `<%= it.vars.reviewFile %>` holds the review record for the completed
       cycle — tick a pointer's `- [ ]` box to `- [x]` to approve that item;

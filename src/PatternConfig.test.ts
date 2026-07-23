@@ -343,6 +343,49 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     ).toThrowError(/state "a": "initial" must be a boolean/)
   })
 
+  it("rejects a non-boolean reviewWindow/reviewBase", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        { states: { a: { actor: "human", message: "hi", initial: true, reviewWindow: "yes" } } },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "reviewWindow" must be a boolean/)
+    expect(() =>
+      compileWorkflowConfig(
+        { states: { a: { actor: "human", message: "hi", initial: true, reviewBase: 1 } } },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "reviewBase" must be a boolean/)
+  })
+
+  it("compiles reviewWindow/reviewBase booleans onto the StateDef (false omitted)", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          a: {
+            actor: "human",
+            message: "hi",
+            initial: true,
+            reviewBase: true,
+            on: { "* *": "b" },
+          },
+          b: {
+            actor: "human",
+            message: "review",
+            reviewWindow: true,
+            reviewBase: false,
+            on: { C: "a" },
+          },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states.a!.reviewBase).toBe(true)
+    expect(definition.states.b!.reviewWindow).toBe(true)
+    // `false` compiles away — never lands on the StateDef.
+    expect("reviewBase" in definition.states.b!).toBe(false)
+  })
+
   it("rejects zero content keys and more than one content key", () => {
     expect(() =>
       compileWorkflowConfig({ states: { a: { actor: "human", initial: true } } }, "/dir"),
