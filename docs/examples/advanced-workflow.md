@@ -405,8 +405,24 @@ workflow:
         "M .gtd/COMMIT_MSG.md": done
 
     done:
-      commit: '<%~ it.read(".gtd/COMMIT_MSG.md") %>'
+      commit: |
+        <%~ it.read(".gtd/COMMIT_MSG.md") %>
+
+        Token cost: <%= it.processCost %>
+        <% it.processCostByModel.forEach(function(m){ %>
+        - <%= m.model %>: <%= m.cost %>
+        <% }) %>
 ````
+
+The `done` commit appends a token-cost summary to the squashed message: if the
+loop driving this workflow passes `gtd step <actor> --cost=<n> --model=<name>`
+after each agent turn, `it.processCost` is the summed cost of the whole cycle
+(including the `squashing` step itself) and `it.processCostByModel` itemizes it
+per model — so the single squash commit records the feature's complete cost,
+broken down by which model spent what, even though the per-turn trailers are
+discarded with the turns they collapsed. Drop these lines if your driver doesn't
+track cost — `it.processCost` is `0` and `it.processCostByModel` empty then. See
+[Configuration: Token cost](../configuration.md#token-cost).
 
 A clean `gtd step human` at `grilling-answer`/`architecting-answer` (the `C`
 event) accepts the current phase's draft and moves on; any other pending change

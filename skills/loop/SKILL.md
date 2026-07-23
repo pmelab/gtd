@@ -46,7 +46,13 @@ Repeat this cycle until it halts:
      Execute exactly what it says (the prompt itself says not to run
      `gtd step <actor>` yourself — the harness does). Once you're done acting,
      run `gtd step <actor>` (the `actor` from this same JSON object) to capture
-     your turn, then go back to step 1.
+     your turn, then go back to step 1. If your harness reports the token cost
+     of that agent invocation, pass it as
+     `gtd step <actor> --cost=<n> [--model=<name>]` — gtd records the cost (and
+     the model it ran on) on the turn commit and aggregates it across the
+     process into `it.processCost`/`it.processCostByModel` (e.g. for a squash
+     commit message that itemizes cost per model). Omit `--cost`/`--model` when
+     you don't have the numbers; both are optional (`--model` needs `--cost`).
 
 ## Agent memory scope
 

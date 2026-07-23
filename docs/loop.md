@@ -5,7 +5,10 @@ gtd (v3, the pattern machine) exposes three commands a loop driver combines:
 - **`gtd step <actor>`** — authenticate as `<actor>`, match the resolved rest's
   declared patterns against the pending changes, and commit (or squash) the one
   resulting transition. Performs AT MOST one transition — there is no fixpoint
-  chain to drive.
+  chain to drive. Pass `--cost=<n>` (optionally `--model=<name>`) to record the
+  just-finished invocation's token cost and model on the turn commit; gtd sums
+  them across the process into `it.processCost`/`it.processCostByModel` (see
+  [Configuration: Token cost](configuration.md#token-cost)).
 - **`gtd next`** — print the resolved rest's rendered script/prompt/message,
   without mutating anything.
 - **`gtd run`** — execute the resolved rest's emitted script (only for a

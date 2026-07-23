@@ -305,6 +305,8 @@ export const buildFileModeMap = (
         actor: "",
         processDiff: "",
         lastDiff: "",
+        processCost: 0,
+        processCostByModel: [],
         read: (path: string) => {
           throw new Error(
             `"file:" is not readable while building the path→mode map (path: ${path})`,

@@ -52,6 +52,24 @@ export interface TemplateContext {
   readonly processDiff: string
   /** The diff of the last transition alone. */
   readonly lastDiff: string
+  /**
+   * The total token cost accumulated over the current process: the sum of
+   * every `Gtd-Cost:` trailer on the process's turn commits (recorded by
+   * `gtd step <actor> --cost=<n>`), plus the cost of the in-flight step when
+   * one is being performed (so a `commit:` squash template rendered against
+   * the PENDING tree sees the whole-process total, including the squashing
+   * step itself). `0` when nothing has been recorded. Always a number —
+   * assembled by `src/Edge.ts`, never config-derived like `it.vars`.
+   */
+  readonly processCost: number
+  /**
+   * The same accumulated cost broken down per model — one `{ model, cost }`
+   * entry per distinct `--model` tag recorded this process (a cost recorded
+   * with no `--model` is grouped under `"unspecified"`), highest-cost first.
+   * A `commit:` squash template iterates it to list the tokens each model
+   * spent across the whole feature. Empty when nothing has been recorded.
+   */
+  readonly processCostByModel: readonly { readonly model: string; readonly cost: number }[]
   /** Read a working-tree file (pending contents, not HEAD's) by repo-relative path. Throws for a missing/unreadable path — that throw is the render failure the plan's `commit:` refusal rule depends on. */
   readonly read: (path: string) => string
   /**

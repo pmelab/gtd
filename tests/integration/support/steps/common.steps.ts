@@ -91,6 +91,20 @@ When("I run gtd step {word} with {string}", async (world: GtdWorld, actor: strin
   await world.runGtd("step", actor, arg)
 })
 
+When(
+  "I run gtd step {word} with {string} and {string}",
+  async (world: GtdWorld, actor: string, arg1: string, arg2: string) => {
+    await world.runGtd("step", actor, arg1, arg2)
+  },
+)
+
+When(
+  "I run gtd step {word} with {string} and {string} and {string}",
+  async (world: GtdWorld, actor: string, arg1: string, arg2: string, arg3: string) => {
+    await world.runGtd("step", actor, arg1, arg2, arg3)
+  },
+)
+
 When("I run gtd next", async (world: GtdWorld) => {
   await world.runGtd("next")
 })
@@ -174,6 +188,21 @@ Then("the last commit subject is {string}", (world: GtdWorld, subject: string) =
 Then("the git log contains {string}", (world: GtdWorld, subject: string) => {
   const log = world.gitLog()
   assert.ok(log.includes(subject), `Expected git log to contain "${subject}". Got:\n${log}`)
+})
+
+// The last commit's body (everything after the subject line) — where a
+// `Gtd-Cost:` trailer lands, and where a squash template's rendered body sits.
+Then("the last commit body contains {string}", (world: GtdWorld, text: string) => {
+  const body = world.lastCommitBody()
+  assert.ok(body.includes(text), `Expected last commit body to contain "${text}". Got:\n${body}`)
+})
+
+Then("the last commit body does not contain {string}", (world: GtdWorld, text: string) => {
+  const body = world.lastCommitBody()
+  assert.ok(
+    !body.includes(text),
+    `Expected last commit body NOT to contain "${text}". Got:\n${body}`,
+  )
 })
 
 // ── Git status ───────────────────────────────────────────────────────────────
