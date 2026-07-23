@@ -371,6 +371,11 @@ export class InMemRepo {
     return false
   }
 
+  /** True when `key` is exactly `p` or nested under `p/` — one path's directory-prefix match. */
+  private static isUnder(key: string, p: string): boolean {
+    return key === p || key.startsWith(p.endsWith("/") ? p : `${p}/`)
+  }
+
   /**
    * `git restore --staged --source=<source> -- <paths…>` — set the index
    * entries under each path to their state at `source` (setting or removing),
@@ -379,16 +384,14 @@ export class InMemRepo {
    */
   restoreStagedFrom(source: string, paths: ReadonlyArray<string>): void {
     const hash = this.resolveRef(source)
-    const tree = hash ? (this.getCommit(hash)?.files ?? new Map<string, string>()) : new Map()
-    for (const p of paths) {
-      const prefix = p.endsWith("/") ? p : `${p}/`
-      const affected = new Set<string>()
-      for (const k of this.index.keys()) if (k === p || k.startsWith(prefix)) affected.add(k)
-      for (const k of tree.keys()) if (k === p || k.startsWith(prefix)) affected.add(k)
-      for (const k of affected) {
-        if (tree.has(k)) this.index.set(k, tree.get(k)!)
-        else this.index.delete(k)
-      }
+    const tree = hash
+      ? (this.getCommit(hash)?.files ?? new Map<string, string>())
+      : new Map<string, string>()
+    const candidates = new Set([...this.index.keys(), ...tree.keys()])
+    for (const key of candidates) {
+      if (!paths.some((p) => InMemRepo.isUnder(key, p))) continue
+      if (tree.has(key)) this.index.set(key, tree.get(key)!)
+      else this.index.delete(key)
     }
   }
 

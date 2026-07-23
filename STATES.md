@@ -236,7 +236,13 @@ workflow with:
   state,
 - a `retry.otherwise` naming an undefined state, or a `retry.max` that isn't a
   non-negative integer,
-- `reviewWindow`/`reviewBase` declared on a commit state (never at rest).
+- `reviewWindow`/`reviewBase` declared on a commit state (never at rest),
+- a state unreachable from the initial state by walking `on` targets and
+  `retry.otherwise` redirects (checked only once the initial-state rule itself
+  passes — with zero or several initials there is no well-defined start to walk
+  from). A workflow is bound to a project and edited as a project-wide change,
+  so an unreachable state is a typo'd rename or a leftover, never a supported
+  "manual entry point".
 
 A bad config fails loudly — one thrown error naming every finding — before
 anything touches the repository. See

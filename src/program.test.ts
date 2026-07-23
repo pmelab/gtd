@@ -110,6 +110,7 @@ describe("--help short-circuit", () => {
     expect(output).toContain("next")
     expect(output).toContain("status")
     expect(output).toContain("run")
+    expect(output).toContain("mermaid")
     expect(output).toContain("format")
     expect(output).toMatch(/\n$/)
   })

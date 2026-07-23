@@ -7,5 +7,17 @@ import { JSONSchema } from "effect"
 // shape never depends on the bundled default workflow's content.
 import { ConfigSchema } from "../src/ConfigSchema.js"
 
-const schema = JSONSchema.make(ConfigSchema)
+const schema = JSONSchema.make(ConfigSchema) as Record<string, unknown> & {
+  properties: Record<string, unknown>
+}
+
+// `$schema` is a blessed no-op key at runtime (Config.ts strips it before
+// validation, and gtd's own `.gtdrc` stub writes one) — declare it here too,
+// or editors validating a JSON `.gtdrc` against this schema would flag the
+// very stub gtd generates (the top level is additionalProperties: false).
+schema.properties["$schema"] = {
+  type: "string",
+  description: "Editor-only pointer at this schema. Stripped by gtd before validation.",
+}
+
 writeFileSync("schema.json", JSON.stringify(schema, null, 2) + "\n")

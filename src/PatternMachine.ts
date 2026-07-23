@@ -680,6 +680,45 @@ const validateRetry = (name: string, state: StateDef, names: readonly string[]):
   return errors
 }
 
+/**
+ * Every state is reachable from the initial state by walking `on` targets and
+ * `retry.otherwise` redirects (a redirect ENTERS its `otherwise` state exactly
+ * like an `on` match enters its target — see `applyRetry` — so both are real
+ * edges). Plain BFS; targets naming undefined states are skipped here (they
+ * are `validateOnEdges`/`validateRetry` findings of their own). Only called
+ * when `validateInitial` found no problem: with zero or several `initial`
+ * states there is no well-defined start to walk from, and reporting every
+ * state as unreachable would bury the real finding.
+ *
+ * An unreachable state is an ERROR, not a warning: a workflow is bound to a
+ * project and edited as a project-wide change, so "kept on purpose for manual
+ * entry via a hand-authored subject" is not a supported authoring pattern —
+ * an unreachable state is a typo'd rename or a leftover, and silently-dead
+ * config is exactly what load-time validation exists to catch.
+ */
+const validateReachability = (def: WorkflowDefinition, names: readonly string[]): string[] => {
+  const initial = names.find((name) => def.states[name]!.initial === true)!
+  const visited = new Set<StateName>([initial])
+  const queue: StateName[] = [initial]
+  while (queue.length > 0) {
+    const state = def.states[queue.shift()!]!
+    const targets = (state.on ?? []).map(([, target]) => target)
+    if (state.retry !== undefined) targets.push(state.retry.otherwise)
+    for (const target of targets) {
+      if (def.states[target] !== undefined && !visited.has(target)) {
+        visited.add(target)
+        queue.push(target)
+      }
+    }
+  }
+  return names
+    .filter((name) => !visited.has(name))
+    .map(
+      (name) =>
+        `state "${name}" is unreachable from initial state "${initial}" (no "on" target or "retry.otherwise" leads to it)`,
+    )
+}
+
 /** All per-state rule checkers, run over one state. */
 const validateState = (
   def: WorkflowDefinition,
@@ -714,14 +753,19 @@ const validateState = (
  * string and is never declared on a commit state; `mode`, when present, is
  * one of the closed vocabulary (`qa`/`review`), requires a sibling `file`,
  * and is never declared on a commit state; `reviewWindow`/`reviewBase`, when
- * present, are never declared on a commit state.
+ * present, are never declared on a commit state; every state is reachable from
+ * the initial state by walking `on` targets and `retry.otherwise` redirects
+ * (checked only when the initial-state rule itself passed — see
+ * `validateReachability`).
  */
 export const validateDefinition = (def: WorkflowDefinition): readonly string[] => {
   const names = Object.keys(def.states)
   if (names.length === 0) return ["workflow must declare at least one state"]
 
+  const initialErrors = validateInitial(def, names)
   return [
-    ...validateInitial(def, names),
+    ...initialErrors,
     ...names.flatMap((name) => validateState(def, name, names)),
+    ...(initialErrors.length === 0 ? validateReachability(def, names) : []),
   ]
 }
