@@ -304,3 +304,128 @@ sub-millisecond — safe to run on every invocation, exactly like today's
   before landing.
 - **Warning channel is the only architectural change** — everything else slots
   into the existing collect-and-merge flow in `compileWorkflowConfig`.
+
+## 6. Reframe: safeguards for USER-authored machines
+
+§1–§5 read as "validate the definition harder." The actual product goal is
+narrower and different: the bundled default is already covered by e2e; what
+needs protecting is a **user hand-writing a `workflow:` key in `.gtdrc`** — and
+that shifts the design in three ways:
+
+1. **Static analysis is structurally insufficient.** Whether an `on` pattern
+   ever fires depends on what an agent writes into the tree at run time. No
+   load-time check can prove a user's machine makes progress — it can only catch
+   the mechanically-dead shapes (§2's findings 1–8). The worst user-facing
+   failures — an agent↔check loop burning tokens all night, a process resting in
+   a state whose patterns never match what its own prompt asks the agent to
+   produce — need **runtime bounds**, not better proofs.
+2. **Severity must be recalibrated for other people's configs.** A new hard
+   error is a breaking change: a config that ran yesterday must not brick the
+   repo after `npm update`, _especially_ mid-process. Checks that are
+   "error-worthy" for a definition we author (§5's shadowed-row, trap-state)
+   default to **warnings** for user configs; hard errors stay reserved for
+   definitions that cannot execute at all (today's structural rules, plus
+   templates that don't compile).
+3. **A broken config must never take reporting down with it.** Today
+   `compileWorkflowConfig` throws, and everything — including `gtd status` —
+   dies with it. For a user mid-flight that's the difference between "gtd tells
+   me what's wrong" and "gtd won't even tell me where I am."
+
+The safeguards form four layers, ordered by when they catch the problem:
+
+### 6.1 Authoring time — before the machine ever runs
+
+- **A real JSON Schema.** `schema.json` is generated from `ConfigSchema.ts`,
+  where `workflow`/`vars` are `Schema.Unknown` — so the published schema says
+  `"title": "unknown"` and editors validate NOTHING about the one key users
+  hand-write. Hand-authoring the workflow shape into the schema (states map,
+  actor, the four content kinds, `on` as string→string, `retry`
+  `{max, otherwise}`, `model`/`file`/`mode`) gives every yaml-language-server
+  editor squiggles and autocomplete for free, with zero gtd code. The compiler
+  stays the source of truth (the schema can't express "exactly one content kind"
+  or cross-state rules); the schema is the fast first net, not a replacement.
+  Cheapest, highest-leverage single item in this document.
+- **`gtd lint` (a.k.a. "check my machine before I trust it").** Compile the
+  config, run every §5 check, print ALL findings (errors + warnings) plus a
+  human-readable dump of the graph — states, actors, edges, retry caps, and the
+  reachability/terminal classification per state — so an author can _see_ the
+  machine they wrote (mermaid `stateDiagram-v2` output fits: renderable in any
+  markdown viewer, no new dependency to emit text). Also dry-compiles every Eta
+  template. This is where warnings can be exhaustive and loud, because the user
+  explicitly asked.
+
+### 6.2 Load time — every invocation, quiet by default
+
+- **The §5 checks with user-config severities**: structural rules and
+  template-compile failures stay throwing errors; all graph findings
+  (unreachable, trap, shadowed row, retry cycle, autonomous cycle) surface as
+  stderr warnings — one line each, prefixed (`gtd: workflow warning: ...`),
+  never fatal. Errors keep the current all-findings-in-one-throw behavior.
+- **Degrade reporting gracefully**: `gtd status` should still answer with the
+  findings when the config is broken (resolve HEAD against nothing, print the
+  compile errors as the status) rather than crashing with a stack trace.
+  `step`/`run`/`next` keep refusing — acting on a broken machine is worse than
+  stopping — but the _reporting_ path must survive any config.
+
+### 6.3 Run time — the bounds static analysis cannot provide
+
+These are the actual safeguards, in the circuit-breaker sense. All three are
+pure functions of data the engine already has (`processTrace`, the pending diff,
+the definition) — they fit `PatternMachine.step`'s purity discipline.
+
+- **A per-process autonomous-turn budget.** The v2 plan's "chain-depth limit"
+  (§3.11: "bound it and hard-error past, say, 32 hops"), reborn for v3: count
+  process-trace entries into states whose actor differs from the workflow's
+  human-facing rest points — concretely, entries since the last turn authored by
+  a DIFFERENT actor than the loop's autonomous pair, or simplest and honest:
+  total trace length. Past a cap (workflow-overridable via a reserved-ish var or
+  top-level config key, default generous — e.g. 50), `step` refuses with a new
+  refusal reason (`"budget"`) naming the count and how to raise the cap. This is
+  the one safeguard that holds NO MATTER WHAT the user's graph looks like — the
+  livelock heuristic (§3.3) can then stay a soft warning without leaving a hole.
+- **Stall detection in the engine, not the skill.** `skills/loop/SKILL.md`
+  currently tells the driver, in prose, to stop when the same state+content
+  repeats with no new commits. Promote the signal: `gtd next --json` (and
+  `status --json`) can report `"revisits": <n>` — how many times the current
+  state already appears in the process trace. Any driver (not just one that read
+  the skill carefully) can then apply its own stop rule; the skill's prose
+  heuristic becomes one consumer of a first-class field. No behavior change in
+  the engine's own decisions.
+- **Self-explaining refusals.** A no-match refusal already lists the state's
+  declared patterns; for a user debugging their own machine, also list the
+  pending changes that failed to match (status + path, first N). "Your tree has
+  `M src/x.ts` but this state only matches `A .gtd/FORMAT.md`" turns the most
+  common custom-workflow dead end from a mystery into a diff-vs-pattern
+  diagnosis the user can act on immediately.
+
+### 6.4 Recovery — no config may trap the repository
+
+Already true, worth asserting and documenting as a guarantee: the machine's
+whole state is HEAD's commit subject, so a hand-authored commit
+(`git commit --allow-empty -m "gtd(human): <state>"` for any defined non-commit
+state, or any non-gtd subject to fall back to the initial state) exits ANY state
+a broken config strands a process in. A user's workflow can waste turns; it
+cannot brick a repo. An e2e scenario pinning this (hand-commit out of an
+intentionally-trapped custom workflow) makes the guarantee load-bearing instead
+of incidental — and it is the reason every graph finding in §6.2 can afford to
+be a warning.
+
+### What deliberately stays out
+
+- No sandboxing or vetting of `script:` content — the workflow author is
+  trusted; scripts already run verbatim by design (`gtd run`).
+- No engine interpretation of actor names for the budget/livelock rules beyond
+  counting — the actor vocabulary stays unblessed.
+- No auto-repair ("we removed your unreachable state") — findings report; the
+  user decides.
+
+### Revised priority (user-safeguard lens)
+
+1. JSON Schema for the `workflow:` shape (§6.1) — editor-time, zero engine code.
+2. Warning channel + graceful `gtd status` degradation (§6.2) — the
+   architectural enabler.
+3. Autonomous-turn budget refusal (§6.3) — the unconditional backstop.
+4. Graph warnings from §5, demoted to warning severity (§6.2).
+5. Refusal diagnostics + `revisits` in `--json` (§6.3).
+6. `gtd lint` with graph dump (§6.1) — subsumes nothing above, packages all of
+   it for the authoring moment.
