@@ -474,6 +474,80 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     }
   })
 
+  it("compiles a `memory` string through onto the state", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          working: {
+            actor: "agent",
+            memory: "plan",
+            prompt: "do the thing",
+            initial: true,
+            on: { "* *": "done" },
+          },
+          done: { commit: "chore: done" },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states["working"]!.memory).toBe("plan")
+  })
+
+  it("omits `memory` entirely when the state declares none", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          working: {
+            actor: "agent",
+            prompt: "do the thing",
+            initial: true,
+            on: { "* *": "done" },
+          },
+          done: { commit: "chore: done" },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states["working"]).not.toHaveProperty("memory")
+  })
+
+  it("rejects a non-string `memory` as a config-shape error", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          states: {
+            a: { actor: "human", message: "hi", initial: true, memory: 42 },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "memory" must be a string/)
+  })
+
+  it("aggregates a bad `memory` alongside an unrelated config-shape error", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          states: {
+            a: {
+              actor: "human",
+              message: "hi",
+              initial: true,
+              memory: 42,
+              on: { "* **": "nowhere" },
+            },
+          },
+        },
+        "/dir",
+      )
+      throw new Error("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain('state "a": "memory" must be a string')
+      expect(message).toContain('state "a": "on" target "nowhere" is not a defined state')
+    }
+  })
+
   it("compiles `file`/`mode` strings through onto the state", () => {
     const { definition } = compileWorkflowConfig(
       {

@@ -178,6 +178,74 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout does not contain "\"model\""
 
+  Scenario: gtd next --json carries the state's declared memory scope, and gtd status shows it too
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            memory: plan
+            prompt: "do the work described in NOTE.md"
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"working\""
+    And stdout contains "\"memory\":\"plan\""
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "State: working"
+    And stdout contains "Memory: plan"
+    When I run gtd status with "--json"
+    Then it succeeds
+    And stdout contains "\"memory\":\"plan\""
+
+  Scenario: gtd next --json and gtd status --json omit "memory" entirely when the state declares none
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "do the work described in NOTE.md"
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"working\""
+    And stdout does not contain "\"memory\""
+    When I run gtd status
+    Then it succeeds
+    And stdout does not contain "Memory:"
+    When I run gtd status with "--json"
+    Then it succeeds
+    And stdout does not contain "\"memory\""
+
   Scenario: gtd status --json reports the same pattern matches structurally
     Given a test project
     And a gtd config file at ".gtdrc" with:

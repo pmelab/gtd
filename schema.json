@@ -77,6 +77,10 @@
                 "type": "string",
                 "description": "Opaque harness hint passed through `gtd next --json`/`gtd status --json` (e.g. \"smart\"). Never interpreted by gtd. Forbidden on a commit state."
               },
+              "memory": {
+                "type": "string",
+                "description": "Opaque memory-scope label passed through `gtd next --json`/`gtd status --json` (e.g. \"plan\"). A memory-aware driver retains an agent's memory across consecutive agent turns sharing this label and starts fresh when it changes. Never interpreted by gtd. Forbidden on a commit state."
+              },
               "file": {
                 "type": "string",
                 "description": "The state's steering file: an Eta template naming the file a human/editor should look at while the machine rests here. Forbidden on a commit state."

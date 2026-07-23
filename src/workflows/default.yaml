@@ -88,6 +88,15 @@
 # hint (see the comment at `grilling` below) for their heavier one-shot
 # planning/reviewing turns. Every other state is unset (harness default).
 #
+# The four agent states each declare a `memory:` scope label (`plan`,
+# `build`, `fix`, `review` — see the comment at `grilling` below) — another
+# opaque hint a memory-aware driver reads to decide when an agent turn keeps
+# the previous turn's memory and when it starts fresh: a loop that re-enters
+# one state (grilling around its answer loop, fixing around checking) keeps
+# the same label and retains memory across its laps; crossing to the next
+# phase's differently-labelled state clears it. gtd never interprets the
+# label (see STATES.md §1 and skills/loop/SKILL.md's driver contract).
+#
 # `vars.testCommand` is this workflow's own declared default for `checking`'s
 # script (see it.vars in PatternTemplates.ts) — override it per-repo with a
 # top-level `.gtdrc` `vars: { testCommand: ... }` key, or per-invocation with
@@ -144,6 +153,16 @@ states:
     # heavier planning turn; states without a `model` use the harness's
     # default.
     model: smart
+    # `memory` is an opaque memory-scope label — gtd never interprets it, it
+    # only passes it through to `gtd next --json`/`gtd status --json` so a
+    # memory-aware driving loop can decide when an agent turn continues from
+    # the previous turn's memory and when it starts fresh: consecutive agent
+    # turns that emit the SAME label share memory, a change (or the first
+    # turn) is where the driver starts fresh. `grilling` re-enters itself
+    # around the todo-validating/grilling-answer loop, so labelling every lap
+    # `plan` keeps the planner's accumulated exploration across the loop; the
+    # next phase (`building`) carries a different label, clearing it.
+    memory: plan
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except
@@ -278,6 +297,10 @@ states:
     actor: agent
     file: <%= it.vars.todoFile %>
     mode: qa
+    # A distinct memory scope from `plan`: implementation starts fresh, with
+    # the plan already settled in `.gtd/TODO.md` (which this prompt reads
+    # below) rather than carried in the planner's working memory.
+    memory: build
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create or edit anything under `.gtd/` except deleting
@@ -338,6 +361,11 @@ states:
   fixing:
     actor: agent
     file: <%= it.vars.feedbackFile %>
+    # Its own memory scope: the fix loop re-enters `fixing` around `checking`
+    # (up to the retry cap), so labelling every attempt `fix` lets the agent
+    # remember what it already tried across the loop; a green check moves on
+    # to the differently-labelled `reviewing`, clearing it.
+    memory: fix
     retry:
       max: 3
       otherwise: escalate
@@ -374,6 +402,10 @@ states:
     file: <%= it.vars.reviewFile %>
     mode: review
     model: smart
+    # A distinct memory scope again: the reviewer looks at the cycle's full
+    # diff (inlined into its prompt) with a fresh perspective, not the
+    # builder's or fixer's working memory.
+    memory: review
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except

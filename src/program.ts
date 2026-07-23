@@ -12,6 +12,7 @@ import {
   executeDecision,
   pendingChanges,
   renderFile,
+  renderMemory,
   renderModel,
   renderRest,
   resolveRest,
@@ -274,6 +275,7 @@ const runNextCommand = (
           kind: rendered.kind,
           content: rendered.content,
           ...(rendered.model !== undefined ? { model: rendered.model } : {}),
+          ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
           ...(rendered.file !== undefined ? { file: rendered.file } : {}),
           ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
         }) + "\n",
@@ -342,12 +344,13 @@ const computeStatusChanges = (
     return { status: change.status, path: change.path, pattern: matchedRow?.[0] ?? null }
   })
 
-/** `gtd status --json`'s emission — `{state, actor, changes, model?, file?, mode?}`. */
+/** `gtd status --json`'s emission — `{state, actor, changes, model?, memory?, file?, mode?}`. */
 const writeStatusJson = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
   statusChanges: readonly StatusChange[],
   model: string | undefined,
+  memory: string | undefined,
   file: string | undefined,
 ): void => {
   write(
@@ -356,22 +359,25 @@ const writeStatusJson = (
       actor: rest.actor,
       changes: statusChanges,
       ...(model !== undefined ? { model } : {}),
+      ...(memory !== undefined ? { memory } : {}),
       ...(file !== undefined ? { file } : {}),
       ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
     }) + "\n",
   )
 }
 
-/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Model:`/`File:`/`Mode:`/`Pending:` lines. */
+/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Model:`/`Memory:`/`File:`/`Mode:`/`Pending:` lines. */
 const writeStatusPlain = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
   statusChanges: readonly StatusChange[],
   model: string | undefined,
+  memory: string | undefined,
   file: string | undefined,
 ): void => {
   const lines = [`State: ${rest.state}`, `Awaits: ${rest.actor}`]
   if (model !== undefined) lines.push(`Model: ${model}`)
+  if (memory !== undefined) lines.push(`Memory: ${memory}`)
   if (file !== undefined) lines.push(`File: ${file}`)
   if (rest.stateDef.mode !== undefined) lines.push(`Mode: ${rest.stateDef.mode}`)
   if (statusChanges.length === 0) {
@@ -397,12 +403,13 @@ const runStatusCommand = (
     const { rest, context } = yield* resolveRestContext(git)
     const changes = yield* pendingChanges(git)
     const model = yield* renderModel(rest.stateDef, context)
+    const memory = yield* renderMemory(rest.stateDef, context)
     const file = yield* renderFile(rest.stateDef, context)
     const statusChanges = computeStatusChanges(rest.stateDef.on ?? [], changes)
     if (json) {
-      writeStatusJson(write, rest, statusChanges, model, file)
+      writeStatusJson(write, rest, statusChanges, model, memory, file)
     } else {
-      writeStatusPlain(write, rest, statusChanges, model, file)
+      writeStatusPlain(write, rest, statusChanges, model, memory, file)
     }
   })
 

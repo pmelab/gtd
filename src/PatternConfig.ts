@@ -35,6 +35,7 @@ import {
  *       max: <number>
  *       otherwise: <targetState>
  *     model: <string>     # optional, opaque harness hint — never on a commit state
+ *     memory: <string>    # optional, opaque memory-scope label — never on a commit state
  *     file: <string>      # optional, an Eta template naming the state's steering file — never on a commit state
  *     mode: qa | review   # optional, requires "file" — never on a commit state
  * ```
@@ -136,6 +137,7 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "initial",
   "retry",
   "model",
+  "memory",
   "file",
   "mode",
 ])
@@ -280,6 +282,20 @@ const compileModel = (
   return raw.model
 }
 
+/** The `memory` field: an opaque memory-scope label (Eta template), or undefined (either absent or invalid — the type mismatch is its own error). Never interpreted or validated beyond "is it a string" — see `PatternMachine.StateDef.memory`. */
+const compileMemory = (
+  raw: Record<string, unknown>,
+  name: string,
+  errors: string[],
+): string | undefined => {
+  if (raw.memory === undefined) return undefined
+  if (typeof raw.memory !== "string") {
+    errors.push(`state "${name}": "memory" must be a string`)
+    return undefined
+  }
+  return raw.memory
+}
+
 /** The `file` field: an Eta template string naming the state's steering file, or undefined (either absent or invalid — the type mismatch is its own error). Vocabulary/shape rules (non-empty, forbidden on a commit state) are `validateDefinition`'s concern, not this compiler's — see `PatternMachine.StateDef.file`. */
 const compileFile = (
   raw: Record<string, unknown>,
@@ -330,6 +346,7 @@ interface StateParts {
   readonly initial: true | undefined
   readonly retry: RetryDef | undefined
   readonly model: string | undefined
+  readonly memory: string | undefined
   readonly file: string | undefined
   readonly mode: StateMode | undefined
 }
@@ -370,6 +387,7 @@ const assembleStateDef = (parts: StateParts): StateDef => ({
     initial: parts.initial,
     retry: parts.retry,
     model: parts.model,
+    memory: parts.memory,
     file: parts.file,
     mode: parts.mode,
   }),
@@ -400,6 +418,7 @@ const compileState = (
     initial: compileInitial(raw, name, errors),
     retry: compileRetry(raw.retry, name, errors),
     model: compileModel(raw, name, errors),
+    memory: compileMemory(raw, name, errors),
     file: compileFile(raw, name, errors),
     mode: compileMode(raw, name, errors),
   })

@@ -6,6 +6,7 @@ import {
   executeDecision,
   pendingChanges,
   renderFile,
+  renderMemory,
   renderModel,
   resolveVars,
 } from "./Edge.js"
@@ -342,6 +343,44 @@ describe("renderModel", () => {
 
   it("a model render failure propagates as a thrown/rejected error, same as a content render failure", async () => {
     const outcome = await run1(renderModel(stateDef("<%= it.vars.nope.deeper %>"), context())).then(
+      () => "resolved" as const,
+      (e: Error) => e,
+    )
+    expect(outcome).not.toBe("resolved")
+    expect(outcome).toBeInstanceOf(Error)
+  })
+})
+
+describe("renderMemory", () => {
+  const stateDef = (memory?: string): StateDef =>
+    memory !== undefined ? { actor: "agent", prompt: "x", memory } : { actor: "agent", prompt: "x" }
+
+  const run1 = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
+
+  it("a state with no `memory:` renders to `undefined`", async () => {
+    const result = await run1(renderMemory(stateDef(), context()))
+    expect(result).toBeUndefined()
+  })
+
+  it("a plain label with no Eta tags passes through unchanged", async () => {
+    const result = await run1(renderMemory(stateDef("plan"), context()))
+    expect(result).toBe("plan")
+  })
+
+  it("a templated `memory:` resolves against the same `it.vars` the content sees", async () => {
+    const result = await run1(
+      renderMemory(
+        stateDef("<%= it.vars.planScope %>"),
+        context({ vars: { planScope: "grilling" } }),
+      ),
+    )
+    expect(result).toBe("grilling")
+  })
+
+  it("a memory render failure propagates as a thrown/rejected error, same as a content render failure", async () => {
+    const outcome = await run1(
+      renderMemory(stateDef("<%= it.vars.nope.deeper %>"), context()),
+    ).then(
       () => "resolved" as const,
       (e: Error) => e,
     )
