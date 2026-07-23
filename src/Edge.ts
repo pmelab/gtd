@@ -38,33 +38,80 @@ const subjectOf = (message: string): string => (message.split("\n")[0] ?? "").tr
 
 // ── Token-cost trailers ──────────────────────────────────────────────────────
 //
-// `gtd step <actor> --cost=<n>` records the token cost of the invocation that
-// just produced the pending changes as a `Gtd-Cost: <n>` trailer on the turn
-// commit — persisted in the git log, one number per turn. `computeProcessRun`
-// sums every such trailer across the current process's commits so a `commit:`
-// squash template can render the whole-process total via `it.processCost`.
+// `gtd step <actor> --cost=<n> [--model=<name>]` records the token cost of the
+// invocation that just produced the pending changes — and the model it ran on
+// — as a `Gtd-Cost: <n> <model>` trailer on the turn commit, persisted in the
+// git log, one entry per turn. `computeProcessRun` collects every such entry
+// across the current process's commits; the edge sums them into
+// `it.processCost` and groups them by model into `it.processCostByModel`, so a
+// `commit:` squash template can render both the whole-process total and a
+// per-model breakdown (token cost only tells you the price once you know which
+// model spent it).
 
 const COST_TRAILER_PREFIX = "Gtd-Cost: "
-// One `Gtd-Cost: <number>` trailer line — a non-negative integer or decimal,
-// matched anywhere in a commit message body (multiline).
-const COST_TRAILER_RE = /^Gtd-Cost:[ \t]*([0-9]+(?:\.[0-9]+)?)[ \t]*$/gm
+// One `Gtd-Cost: <number>[ <model>]` trailer line — a non-negative integer or
+// decimal, followed by an OPTIONAL model tag (the rest of the line). The number
+// comes first so a model-less entry (`Gtd-Cost: 1450`) still parses. Matched
+// anywhere in a commit message body (multiline).
+const COST_TRAILER_RE = /^Gtd-Cost:[ \t]*([0-9]+(?:\.[0-9]+)?)(?:[ \t]+(.+?))?[ \t]*$/gm
+
+/** The bucket a cost with no `--model` tag is grouped under, kept distinct so a mixed history still totals correctly. */
+export const UNATTRIBUTED_MODEL = "unspecified"
+
+/** One recorded invocation cost: its token count and the model it ran on (`UNATTRIBUTED_MODEL` when none was tagged). */
+export interface CostEntry {
+  readonly cost: number
+  readonly model: string
+}
+
+/** One model's summed token cost — the shape a squash `commit:` template iterates as `it.processCostByModel`. */
+export interface ModelCost {
+  readonly model: string
+  readonly cost: number
+}
 
 /**
- * Append a `Gtd-Cost: <cost>` trailer (after a blank line) to a commit
- * `subject`, or return the subject unchanged when no cost was supplied. The
- * subject (first line) is never touched, so `parseStateSubject`/`resolveState`
- * still read `gtd(<actor>): <state>` back exactly as before.
+ * Append a `Gtd-Cost: <cost>[ <model>]` trailer (after a blank line) to a
+ * commit `subject`, or return the subject unchanged when no cost was supplied.
+ * The subject (first line) is never touched, so `parseStateSubject`/
+ * `resolveState` still read `gtd(<actor>): <state>` back exactly as before.
  */
-export const withCostTrailer = (subject: string, cost: number | undefined): string =>
-  cost === undefined ? subject : `${subject}\n\n${COST_TRAILER_PREFIX}${cost}`
+export const withCostTrailer = (
+  subject: string,
+  cost: number | undefined,
+  model: string | undefined,
+): string =>
+  cost === undefined
+    ? subject
+    : `${subject}\n\n${COST_TRAILER_PREFIX}${cost}${model !== undefined ? ` ${model}` : ""}`
 
-/** Sum every `Gtd-Cost:` trailer found across the given commit messages (`0` when none). */
-export const sumCostTrailers = (messages: readonly string[]): number => {
-  let total = 0
+/** Every `Gtd-Cost:` entry found across the given commit messages (each entry's model defaults to `UNATTRIBUTED_MODEL`). */
+export const parseCostTrailers = (messages: readonly string[]): CostEntry[] => {
+  const entries: CostEntry[] = []
   for (const message of messages) {
-    for (const match of message.matchAll(COST_TRAILER_RE)) total += Number(match[1])
+    for (const match of message.matchAll(COST_TRAILER_RE)) {
+      const model = match[2]?.trim()
+      entries.push({
+        cost: Number(match[1]),
+        model: model !== undefined && model !== "" ? model : UNATTRIBUTED_MODEL,
+      })
+    }
   }
-  return total
+  return entries
+}
+
+/** The total token cost across the given entries (`0` when none). */
+export const totalCostOf = (entries: readonly CostEntry[]): number =>
+  entries.reduce((sum, entry) => sum + entry.cost, 0)
+
+/** Per-model token totals, highest-cost first (ties broken by model name for a stable order). */
+export const costByModel = (entries: readonly CostEntry[]): ModelCost[] => {
+  const byModel = new Map<string, number>()
+  for (const entry of entries)
+    byModel.set(entry.model, (byModel.get(entry.model) ?? 0) + entry.cost)
+  return [...byModel.entries()]
+    .map(([model, cost]) => ({ model, cost }))
+    .sort((a, b) => b.cost - a.cost || a.model.localeCompare(b.model))
 }
 
 /** Collapse an arbitrary git status letter to the pattern grammar's closed `A|M|D` set (mirrors the plan's decision 5 — only those three are meaningful statuses). */
@@ -125,8 +172,8 @@ export interface ProcessRun {
   readonly startParentHash: string
   /** State names entered so far this process, oldest→newest (empty when no turn has landed yet). */
   readonly trace: readonly StateName[]
-  /** The sum of every `Gtd-Cost:` trailer on the process's turn commits (`0` when none were recorded). */
-  readonly totalCost: number
+  /** Every `Gtd-Cost:` entry recorded on the process's turn commits — summed into `it.processCost` and grouped into `it.processCostByModel` (empty when none were recorded). */
+  readonly costEntries: readonly CostEntry[]
 }
 
 /**
@@ -154,7 +201,8 @@ export const computeProcessRun = (
 ): Effect.Effect<ProcessRun, Error> =>
   Effect.gen(function* () {
     const hasCommits = yield* git.hasCommits()
-    if (!hasCommits) return { startHash: "", startParentHash: EMPTY_TREE, trace: [], totalCost: 0 }
+    if (!hasCommits)
+      return { startHash: "", startParentHash: EMPTY_TREE, trace: [], costEntries: [] }
 
     const initialState = initialStateOf(def)
     const history = yield* git.commitHistory() // oldest -> newest, full first-parent history
@@ -167,11 +215,11 @@ export const computeProcessRun = (
     const startIdx = i + 1
     const processCommits = history.slice(startIdx)
     const trace = processCommits.map((h) => parseStateSubject(subjectOf(h.message))!.state)
-    const totalCost = sumCostTrailers(processCommits.map((h) => h.message))
+    const costEntries = parseCostTrailers(processCommits.map((h) => h.message))
     const startParentHash = i >= 0 ? history[i]!.hash : EMPTY_TREE
     const startHash =
       startIdx < history.length ? history[startIdx]!.hash : history[history.length - 1]!.hash
-    return { startHash, startParentHash, trace, totalCost }
+    return { startHash, startParentHash, trace, costEntries }
   })
 
 // ── Variables (`it.vars`) ────────────────────────────────────────────────────
@@ -208,10 +256,11 @@ export const resolveVars = (
 /**
  * Build the `PatternTemplates.TemplateContext` for rendering `state`'s content
  * at the resolved rest. `vars` is the already-merged three-layer map (see
- * `resolveVars`). `currentCost` is the in-flight step's own `--cost` (added to
- * the process's committed `run.totalCost` so a `commit:` squash template sees
- * the whole-process total including the squashing step) — `0` for the pure
- * emitters (`gtd next`/`gtd status`), where no step is being performed.
+ * `resolveVars`). `currentCost`/`currentModel` are the in-flight step's own
+ * `--cost`/`--model` (folded into the process's committed cost entries so a
+ * `commit:` squash template sees the whole-process total AND per-model
+ * breakdown including the squashing step) — `0`/absent for the pure emitters
+ * (`gtd next`/`gtd status`), where no step is being performed.
  */
 export const buildTemplateContext = (
   git: GitOperations,
@@ -221,6 +270,7 @@ export const buildTemplateContext = (
   run: ProcessRun,
   vars: Record<string, string>,
   currentCost = 0,
+  currentModel?: string,
 ): Effect.Effect<TemplateContext, Error> =>
   Effect.gen(function* () {
     const hasCommits = yield* git.hasCommits()
@@ -239,6 +289,13 @@ export const buildTemplateContext = (
       run.trace.length > 0
         ? yield* git.commitDiff(currentCommit).pipe(Effect.catchAll(() => Effect.succeed("")))
         : ""
+    // Fold the in-flight step's own cost into the committed entries so a squash
+    // template (rendered against the pending tree) counts the squashing step too.
+    const stepEntry =
+      currentCost > 0 || currentModel !== undefined
+        ? [{ cost: currentCost, model: currentModel ?? UNATTRIBUTED_MODEL }]
+        : []
+    const allCostEntries = [...run.costEntries, ...stepEntry]
     return {
       startCommit: run.startHash,
       currentCommit,
@@ -247,7 +304,8 @@ export const buildTemplateContext = (
       actor,
       processDiff,
       lastDiff,
-      processCost: run.totalCost + currentCost,
+      processCost: totalCostOf(allCostEntries),
+      processCostByModel: costByModel(allCostEntries),
       read,
       vars,
     }
@@ -349,14 +407,15 @@ export type ExecutableDecision = Extract<StepDecision, { kind: "commit" | "squas
 /**
  * Execute a `PatternMachine.step` decision: a `"commit"` decision stages and
  * commits everything pending under the decided subject, with an optional
- * `Gtd-Cost: <cost>` trailer (the invocation's `--cost`, persisted in the git
- * log); a `"squash"` decision renders the commit-state template against the
- * PENDING tree — a render failure REFUSES the step, touching nothing — then
- * soft-resets to the process's start parent, writes ONE commit with the
- * rendered message (via `commitAsIs`, so the still-uncommitted template file
- * is excluded), and discards everything left pending (the template file
- * included). A squash records no trailer of its own — the whole-process total
- * reaches the message through `it.processCost` in the rendered template. A
+ * `Gtd-Cost: <cost>[ <model>]` trailer (the invocation's `--cost`/`--model`,
+ * persisted in the git log); a `"squash"` decision renders the commit-state
+ * template against the PENDING tree — a render failure REFUSES the step,
+ * touching nothing — then soft-resets to the process's start parent, writes
+ * ONE commit with the rendered message (via `commitAsIs`, so the
+ * still-uncommitted template file is excluded), and discards everything left
+ * pending (the template file included). A squash records no trailer of its own
+ * — the whole-process total and per-model breakdown reach the message through
+ * `it.processCost`/`it.processCostByModel` in the rendered template. A
  * `"noop"` performs no IO.
  */
 export const executeDecision = (
@@ -365,11 +424,12 @@ export const executeDecision = (
   decision: ExecutableDecision,
   context: TemplateContext,
   cost?: number,
+  model?: string,
 ): Effect.Effect<StepOutcome, Error> =>
   Effect.gen(function* () {
     switch (decision.kind) {
       case "commit": {
-        yield* git.commitAllWithPrefix(withCostTrailer(decision.subject, cost))
+        yield* git.commitAllWithPrefix(withCostTrailer(decision.subject, cost, model))
         return { kind: "commit", subject: decision.subject }
       }
       case "squash": {

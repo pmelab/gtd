@@ -177,43 +177,51 @@ switch. (Making pattern keys var-aware at compile time is possible future work.)
 Every `script`/`prompt`/`message`/`commit`/`model` template is rendered as an
 Eta template (`it.<name>`) with:
 
-| Variable         | Meaning                                                                                                                                                                                                                                                                                                                              |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `startCommit`    | The hash the current process started from (before its first turn).                                                                                                                                                                                                                                                                   |
-| `currentCommit`  | HEAD's hash at render time.                                                                                                                                                                                                                                                                                                          |
-| `previousCommit` | The hash before the last transition (HEAD's parent, in-process).                                                                                                                                                                                                                                                                     |
-| `state`          | The state whose content is being rendered.                                                                                                                                                                                                                                                                                           |
-| `actor`          | The actor this render is for.                                                                                                                                                                                                                                                                                                        |
-| `processDiff`    | `startCommit..HEAD` plus the pending working-tree diff.                                                                                                                                                                                                                                                                              |
-| `lastDiff`       | The diff of the last transition alone.                                                                                                                                                                                                                                                                                               |
-| `processCost`    | The accumulated token cost of the current process — the sum of every `Gtd-Cost:` trailer recorded by `gtd step <actor> --cost=<n>` across its turn commits, plus the in-flight step's own `--cost` (so a `commit:` squash template sees the whole-process total). A number, `0` when none recorded. See ["Token cost"](#token-cost). |
-| `read(path)`     | Reads a working-tree file (pending contents, not HEAD's) by repo-relative path. Throws for a missing/unreadable path — for a `commit:` template, that throw refuses the step (see [STATES.md §8](../STATES.md#8-the-squash-lifecycle)).                                                                                              |
-| `vars`           | The merged three-layer variable map, always a flat `Record<string, string>` — see ["Variables"](#variables) below.                                                                                                                                                                                                                   |
+| Variable             | Meaning                                                                                                                                                                                                                                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `startCommit`        | The hash the current process started from (before its first turn).                                                                                                                                                                                                                                                                         |
+| `currentCommit`      | HEAD's hash at render time.                                                                                                                                                                                                                                                                                                                |
+| `previousCommit`     | The hash before the last transition (HEAD's parent, in-process).                                                                                                                                                                                                                                                                           |
+| `state`              | The state whose content is being rendered.                                                                                                                                                                                                                                                                                                 |
+| `actor`              | The actor this render is for.                                                                                                                                                                                                                                                                                                              |
+| `processDiff`        | `startCommit..HEAD` plus the pending working-tree diff.                                                                                                                                                                                                                                                                                    |
+| `lastDiff`           | The diff of the last transition alone.                                                                                                                                                                                                                                                                                                     |
+| `processCost`        | The accumulated token cost of the current process — the sum of every `Gtd-Cost:` trailer recorded by `gtd step <actor> --cost=<n>` across its turn commits, plus the in-flight step's own `--cost` (so a `commit:` squash template sees the whole-process total). A number, `0` when none recorded. See ["Token cost"](#token-cost).       |
+| `processCostByModel` | The same accumulated cost broken down per model: an array of `{ model, cost }`, highest-cost first, one entry per distinct `--model` tag (costs recorded with no `--model` group under `"unspecified"`). A squash template iterates it to itemize the feature's cost per model. Empty when none recorded. See ["Token cost"](#token-cost). |
+| `read(path)`         | Reads a working-tree file (pending contents, not HEAD's) by repo-relative path. Throws for a missing/unreadable path — for a `commit:` template, that throw refuses the step (see [STATES.md §8](../STATES.md#8-the-squash-lifecycle)).                                                                                                    |
+| `vars`               | The merged three-layer variable map, always a flat `Record<string, string>` — see ["Variables"](#variables) below.                                                                                                                                                                                                                         |
 
 ### Token cost
 
-A loop driver that knows how many tokens the invocation it just drove cost can
-record it with `gtd step <actor> --cost=<n>` (a non-negative number). gtd
-appends it to that turn's commit as a `Gtd-Cost: <n>` trailer — a blank line
-then the trailer, below the untouched `gtd(<actor>): <state>` subject — so the
-per-turn cost is persisted in the git log:
+A loop driver that knows how many tokens the invocation it just drove cost — and
+on which model — can record both with
+`gtd step <actor> --cost=<n> [--model=<name>]` (`<n>` a non-negative number).
+gtd appends them to that turn's commit as a `Gtd-Cost: <n> <model>` trailer — a
+blank line then the trailer, below the untouched `gtd(<actor>): <state>` subject
+— so the per-turn cost and model are persisted in the git log:
 
 ```
 gtd(agent): reviewing
 
-Gtd-Cost: 1450
+Gtd-Cost: 1450 claude-opus-4-8
 ```
 
-`gtd status` shows the process's running total (a `Cost:` line / a `cost` key,
-omitted when nothing has been recorded), and `gtd step --json` echoes the number
-it recorded (`{ "state": …, "subject": …, "cost": 1450 }`).
+`--model` is optional and requires `--cost` (a model tag with no token count
+records nothing to sum); a cost recorded without a model is grouped under
+`"unspecified"`. `gtd status` shows the process's running total and, when the
+breakdown adds information, a per-model split (a `Cost:` line with indented
+`<model>: <cost>` lines / a `cost` number and a `costByModel` array, omitted
+when nothing has been recorded). `gtd step --json` echoes what it recorded
+(`{ "state": …, "subject": …, "cost": 1450, "model": "claude-opus-4-8" }`).
 
-Every template sees the running total as `it.processCost` (the table above): the
-sum of the current process's turn-commit trailers, plus the in-flight step's own
-`--cost`. Its intended use is a `commit:` squash template, which renders against
-the pending tree as the process collapses — so the whole feature's total
-(including the squashing step itself) lands in the squash message even though
-the intermediate per-turn trailers are discarded with the turns they rode on:
+Every template sees the running total as `it.processCost` and the per-model
+breakdown as `it.processCostByModel` (the table above): the current process's
+turn-commit entries, plus the in-flight step's own `--cost`/`--model`. Their
+intended use is a `commit:` squash template, which renders against the pending
+tree as the process collapses — so the whole feature's total AND its per-model
+itemization (including the squashing step itself) land in the squash message
+even though the intermediate per-turn trailers are discarded with the turns they
+rode on:
 
 ```yaml
 done:
@@ -221,11 +229,14 @@ done:
     feat: ship it
 
     Total token cost: <%= it.processCost %>
+    <% it.processCostByModel.forEach(function(m){ %>
+    - <%= m.model %>: <%= m.cost %>
+    <% }) %>
 ```
 
-`--cost` is accepted only by `gtd step` (a usage error on any other command),
-and gtd never interprets the number's unit — tokens, cents, whatever the driver
-records — it only sums and reports it.
+`--cost`/`--model` are accepted only by `gtd step` (a usage error on any other
+command), and gtd never interprets the number's unit (tokens, cents, whatever
+the driver records) or the model name — it only records, sums, and groups them.
 
 ## Variables
 

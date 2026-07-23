@@ -156,14 +156,15 @@ all also resolves to the initial state.
   retry redirection (§7) — unless `<to>` is a commit state, in which case the
   process squashes instead of committing a turn.
 
-**Token cost.** `gtd step <actor> --cost=<n>` records the token cost of the
-invocation that produced the pending changes as a `Gtd-Cost: <n>` trailer on the
-turn commit — a blank line then the trailer, below the untouched
-`gtd(<actor>): <state>` subject, so resolution (§5) is unaffected. The edge
-(`src/Edge.ts`) sums every such trailer across the current process into
-`it.processCost` (see §8 and
+**Token cost.** `gtd step <actor> --cost=<n> [--model=<name>]` records the token
+cost of the invocation that produced the pending changes — and the model it ran
+on — as a `Gtd-Cost: <n> <model>` trailer on the turn commit: a blank line then
+the trailer, below the untouched `gtd(<actor>): <state>` subject, so resolution
+(§5) is unaffected. The edge (`src/Edge.ts`) collects every such trailer across
+the current process, summing them into `it.processCost` and grouping them by
+model into `it.processCostByModel` (see §8 and
 [Configuration: Token cost](docs/configuration.md#token-cost)); the engine never
-interprets the number, it only carries and sums it.
+interprets the number or the model name, it only carries, sums, and groups them.
 
 ## 7. Retry
 
@@ -201,9 +202,10 @@ entering it performs, atomically:
 
 1. **Render** the `commit:` Eta template against the PENDING working tree
    (`it.read(path)` reads files as they currently sit, not from any commit;
-   `it.processCost` is the whole-process token total — every turn's `Gtd-Cost:`
-   trailer plus the squashing step's own `--cost` — so the squash message can
-   record the complete cost of the feature even though the per-turn trailers are
+   `it.processCost` is the whole-process token total and `it.processCostByModel`
+   its per-model breakdown — every turn's `Gtd-Cost:` trailer plus the squashing
+   step's own `--cost`/`--model` — so the squash message can record the complete
+   cost of the feature, itemized by model, even though the per-turn trailers are
    discarded with the turns below). A failed render (a malformed template,
    `read()` throwing for a missing path) **refuses the step and touches
    nothing** — no reset, no commit, no file discarded.

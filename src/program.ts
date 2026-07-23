@@ -16,7 +16,9 @@ import {
   renderRest,
   resolveRest,
   resolveVars,
+  UNATTRIBUTED_MODEL,
   type ExecutableDecision,
+  type ModelCost,
   type ProcessRun,
   type ResolvedRest,
 } from "./Edge.js"
@@ -29,6 +31,7 @@ import {
   step,
   type OnEdge,
   type PendingChange,
+  type StepRefusal,
 } from "./PatternMachine.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 
@@ -41,8 +44,9 @@ Commands:
   step <actor>     Authenticate as <actor>, match the resolved rest's
                    declared patterns against the pending changes, and commit
                    (or squash) the one resulting transition. Pass
-                   --cost=<n> to record the just-finished invocation's token
-                   cost on the turn commit (summed into it.processCost)
+                   --cost=<n> (optionally --model=<name>) to record the
+                   just-finished invocation's token cost and model on the
+                   turn commit (summed into it.processCost/processCostByModel)
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   run              Execute the resolved rest's emitted script, then step its
@@ -57,6 +61,7 @@ Commands:
 Options:
   --json           Output structured JSON instead of plain text
   --cost=<n>       (gtd step only) record the invocation's token cost
+  --model=<name>   (gtd step only, with --cost) tag that cost's model
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 `
@@ -110,6 +115,62 @@ const parseCostFlag = (argv: readonly string[]): Effect.Effect<number | undefine
   }
   return Effect.succeed(n)
 }
+
+const MODEL_FLAG = "--model="
+
+/**
+ * Parse the optional `--model=<name>` flag (only `gtd step`, and only
+ * alongside `--cost` — see `makeProgram`). `<name>` tags the recorded cost
+ * with the model the invocation ran on, appended to the `Gtd-Cost:` trailer
+ * and grouped in `it.processCostByModel`. Must be non-empty and single-line
+ * (it rides on one trailer line); a bare `--model` (no `=`) or an empty/
+ * multiline value is a usage error. Returns `undefined` when the flag is absent.
+ */
+const parseModelFlag = (argv: readonly string[]): Effect.Effect<string | undefined, Error> => {
+  if (argv.slice(2).includes("--model")) {
+    return Effect.fail(new Error("gtd: --model requires a value — use --model=<name>"))
+  }
+  const flag = argv.slice(2).find((a) => a.startsWith(MODEL_FLAG))
+  if (flag === undefined) return Effect.succeed(undefined)
+  const raw = flag.slice(MODEL_FLAG.length)
+  if (raw.trim() === "" || /[\r\n]/.test(raw)) {
+    return Effect.fail(new Error("gtd: --model must be a non-empty, single-line value"))
+  }
+  return Effect.succeed(raw)
+}
+
+/**
+ * Parse and validate the `--cost`/`--model` step flags together. Both are
+ * orthogonal to `--json` but only meaningful to `gtd step` — rejected on any
+ * other command rather than silently ignored (same discipline as `--json` on
+ * `format`) — and `--model` requires `--cost` (a model tag with no token count
+ * records nothing to sum).
+ */
+const parseStepFlags = (
+  argv: readonly string[],
+  positional: string | undefined,
+): Effect.Effect<
+  { readonly cost: number | undefined; readonly model: string | undefined },
+  Error
+> =>
+  Effect.gen(function* () {
+    const cost = yield* parseCostFlag(argv)
+    const model = yield* parseModelFlag(argv)
+    if (cost !== undefined && positional !== "step") {
+      return yield* Effect.fail(new Error("gtd: --cost is only valid for `gtd step`"))
+    }
+    if (model !== undefined && positional !== "step") {
+      return yield* Effect.fail(new Error("gtd: --model is only valid for `gtd step`"))
+    }
+    if (model !== undefined && cost === undefined) {
+      return yield* Effect.fail(
+        new Error(
+          "gtd: --model requires --cost — it tags the recorded cost with the model that ran",
+        ),
+      )
+    }
+    return { cost, model }
+  })
 
 /** Rejects extra positional arguments for a subcommand that takes none (`status`, `run`). */
 const rejectExtraArgs = (command: string, argv: readonly string[]): Effect.Effect<void, Error> => {
@@ -193,6 +254,14 @@ const resolveRestContext = (
     return { rest, run, context }
   })
 
+/** The user-facing message for a `step` refusal — out-of-turn names the awaited actor, no-match names every declared pattern. */
+const formatStepRefusal = (invoker: string, refusal: StepRefusal): string =>
+  refusal.reason === "out-of-turn"
+    ? `gtd step ${invoker}: out of turn — "${refusal.state}" awaits ${refusal.awaits}`
+    : `gtd step ${invoker}: no declared pattern matches the pending changes at "${refusal.state}" — declared patterns: ${
+        refusal.patterns.length > 0 ? refusal.patterns.join(", ") : "(none)"
+      }`
+
 /**
  * Authenticate `invoker` against the resolved rest and perform the one
  * resulting transition (commit or squash), shared by `gtd step` and
@@ -204,8 +273,14 @@ const resolveRestContext = (
 const stepAsActor = (
   invoker: string,
   cost?: number,
+  model?: string,
 ): Effect.Effect<
-  { readonly state: string; readonly subject: string | null; readonly cost: number | null },
+  {
+    readonly state: string
+    readonly subject: string | null
+    readonly cost: number | null
+    readonly model: string | null
+  },
   Error,
   ProgramRequirements
 > =>
@@ -220,17 +295,11 @@ const stepAsActor = (
     const decision = step(rest.def, rest.state, invoker, { changes, processTrace: run.trace })
 
     if (decision.kind === "refusal") {
-      const message =
-        decision.reason === "out-of-turn"
-          ? `gtd step ${invoker}: out of turn — "${decision.state}" awaits ${decision.awaits}`
-          : `gtd step ${invoker}: no declared pattern matches the pending changes at "${decision.state}" — declared patterns: ${
-              decision.patterns.length > 0 ? decision.patterns.join(", ") : "(none)"
-            }`
-      return yield* Effect.fail(new Error(message))
+      return yield* Effect.fail(new Error(formatStepRefusal(invoker, decision)))
     }
 
     if (decision.kind === "noop") {
-      return { state: decision.state, subject: null, cost: null }
+      return { state: decision.state, subject: null, cost: null, model: null }
     }
 
     const executable: ExecutableDecision = decision
@@ -243,18 +312,25 @@ const stepAsActor = (
       run,
       vars,
       cost ?? 0,
+      model,
     )
-    const outcome = yield* executeDecision(git, run, executable, context, cost)
+    const outcome = yield* executeDecision(git, run, executable, context, cost, model)
     return {
       state: rest.state,
       subject: outcome.kind === "noop" ? null : outcome.subject,
       cost: cost ?? null,
+      model: model ?? null,
     }
   })
 
 /** Renders `stepAsActor`'s result the same way for both `gtd step` and `gtd run`. */
 const reportStepResult = (
-  result: { readonly state: string; readonly subject: string | null; readonly cost: number | null },
+  result: {
+    readonly state: string
+    readonly subject: string | null
+    readonly cost: number | null
+    readonly model: string | null
+  },
   json: boolean,
   write: (chunk: string) => void,
 ): void => {
@@ -264,6 +340,7 @@ const reportStepResult = (
         state: result.state,
         subject: result.subject,
         ...(result.cost !== null ? { cost: result.cost } : {}),
+        ...(result.model !== null ? { model: result.model } : {}),
       }) + "\n",
     )
   } else {
@@ -275,12 +352,13 @@ const reportStepResult = (
   }
 }
 
-/** `gtd step <actor> [--cost=<n>]`: authenticate as `<actor>` and perform the one resulting transition, recording `--cost` as a `Gtd-Cost:` trailer. */
+/** `gtd step <actor> [--cost=<n>] [--model=<name>]`: authenticate as `<actor>` and perform the one resulting transition, recording `--cost`/`--model` as a `Gtd-Cost:` trailer. */
 const runStepCommand = (
   argv: readonly string[],
   json: boolean,
   write: (chunk: string) => void,
   cost: number | undefined,
+  model: string | undefined,
 ): Effect.Effect<void, Error, ProgramRequirements> =>
   Effect.gen(function* () {
     const args = commandArgs(argv)
@@ -292,7 +370,7 @@ const runStepCommand = (
         new Error(`gtd step: too many arguments — expected one actor, got: ${args.join(", ")}`),
       )
     }
-    const result = yield* stepAsActor(args[0]!, cost)
+    const result = yield* stepAsActor(args[0]!, cost, model)
     reportStepResult(result, json, write)
   })
 
@@ -381,7 +459,25 @@ const computeStatusChanges = (
     return { status: change.status, path: change.path, pattern: matchedRow?.[0] ?? null }
   })
 
-/** `gtd status --json`'s emission — `{state, actor, changes, model?, file?, mode?, cost?}`. */
+/**
+ * True when the per-model breakdown adds information beyond the `Cost:` total:
+ * more than one model, or a single model that carries an actual `--model` tag
+ * (a lone `unspecified` bucket just restates the total, so it's suppressed).
+ */
+const breakdownIsInformative = (byModel: readonly ModelCost[]): boolean =>
+  byModel.length > 1 || (byModel.length === 1 && byModel[0]!.model !== UNATTRIBUTED_MODEL)
+
+/** The plain-text `Cost:` line(s) for `gtd status` — empty when nothing recorded, plus an indented per-model split when informative. */
+const costStatusLines = (cost: number, byModel: readonly ModelCost[]): string[] => {
+  if (cost <= 0) return []
+  const lines = [`Cost: ${cost}`]
+  if (breakdownIsInformative(byModel)) {
+    for (const m of byModel) lines.push(`  ${m.model}: ${m.cost}`)
+  }
+  return lines
+}
+
+/** `gtd status --json`'s emission — `{state, actor, changes, model?, file?, mode?, cost?, costByModel?}`. */
 const writeStatusJson = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
@@ -389,6 +485,7 @@ const writeStatusJson = (
   model: string | undefined,
   file: string | undefined,
   cost: number,
+  costByModel: readonly ModelCost[],
 ): void => {
   write(
     JSON.stringify({
@@ -399,6 +496,7 @@ const writeStatusJson = (
       ...(file !== undefined ? { file } : {}),
       ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
       ...(cost > 0 ? { cost } : {}),
+      ...(cost > 0 ? { costByModel } : {}),
     }) + "\n",
   )
 }
@@ -411,12 +509,13 @@ const writeStatusPlain = (
   model: string | undefined,
   file: string | undefined,
   cost: number,
+  costByModel: readonly ModelCost[],
 ): void => {
   const lines = [`State: ${rest.state}`, `Awaits: ${rest.actor}`]
   if (model !== undefined) lines.push(`Model: ${model}`)
   if (file !== undefined) lines.push(`File: ${file}`)
   if (rest.stateDef.mode !== undefined) lines.push(`Mode: ${rest.stateDef.mode}`)
-  if (cost > 0) lines.push(`Cost: ${cost}`)
+  lines.push(...costStatusLines(cost, costByModel))
   if (statusChanges.length === 0) {
     lines.push("Pending: (clean)")
   } else {
@@ -443,9 +542,25 @@ const runStatusCommand = (
     const file = yield* renderFile(rest.stateDef, context)
     const statusChanges = computeStatusChanges(rest.stateDef.on ?? [], changes)
     if (json) {
-      writeStatusJson(write, rest, statusChanges, model, file, context.processCost)
+      writeStatusJson(
+        write,
+        rest,
+        statusChanges,
+        model,
+        file,
+        context.processCost,
+        context.processCostByModel,
+      )
     } else {
-      writeStatusPlain(write, rest, statusChanges, model, file, context.processCost)
+      writeStatusPlain(
+        write,
+        rest,
+        statusChanges,
+        model,
+        file,
+        context.processCost,
+        context.processCostByModel,
+      )
     }
   })
 
@@ -549,10 +664,11 @@ const dispatchKnownSubcommand = (
   json: boolean,
   write: (chunk: string) => void,
   cost: number | undefined,
+  model: string | undefined,
 ): Effect.Effect<void, Error, ProgramRequirements> => {
   switch (sub) {
     case "step":
-      return runStepCommand(argv, json, write, cost)
+      return runStepCommand(argv, json, write, cost, model)
     case "next":
       return runNextCommand(json, write)
     case "run":
@@ -609,7 +725,13 @@ export function makeProgram(
     const unknownOption = argv
       .slice(2)
       .find(
-        (a) => a.startsWith("--") && a !== "--json" && a !== "--cost" && !a.startsWith(COST_FLAG),
+        (a) =>
+          a.startsWith("--") &&
+          a !== "--json" &&
+          a !== "--cost" &&
+          a !== "--model" &&
+          !a.startsWith(COST_FLAG) &&
+          !a.startsWith(MODEL_FLAG),
       )
     if (unknownOption !== undefined) {
       return yield* Effect.fail(
@@ -617,14 +739,9 @@ export function makeProgram(
       )
     }
 
-    // `--cost` is orthogonal to `--json` but only meaningful to `gtd step`:
-    // it records the just-finished invocation's token cost as a `Gtd-Cost:`
-    // trailer on the turn commit. Reject it on every other command rather
-    // than silently ignoring it (same discipline as `--json` on `format`).
-    const cost = yield* parseCostFlag(argv)
-    if (cost !== undefined && positional !== "step") {
-      return yield* Effect.fail(new Error("gtd: --cost is only valid for `gtd step`"))
-    }
+    // `--cost`/`--model` record the just-finished invocation's token cost and
+    // model as a `Gtd-Cost:` trailer on the turn commit (see `parseStepFlags`).
+    const { cost, model } = yield* parseStepFlags(argv, positional)
 
     if (positional === "format") {
       return yield* runFormatCommand(argv, json)
@@ -644,7 +761,7 @@ export function makeProgram(
     // a refused or rejected invocation must never mutate the repository.
     yield* (yield* ConfigInit).ensure
 
-    yield* dispatchKnownSubcommand(sub, argv, json, write, cost)
+    yield* dispatchKnownSubcommand(sub, argv, json, write, cost, model)
   }).pipe(
     json
       ? Effect.catchAll((error) =>

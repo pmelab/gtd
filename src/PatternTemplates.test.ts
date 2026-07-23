@@ -10,6 +10,7 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   processDiff: "diff --git a/x.ts b/x.ts\n+added\n",
   lastDiff: "diff --git a/y.ts b/y.ts\n+last\n",
   processCost: 0,
+  processCostByModel: [],
   read: (path: string) => {
     if (path.endsWith("missing.md"))
       throw new Error(`ENOENT: no such file or directory, open '${path}'`)
@@ -55,6 +56,19 @@ describe("renderStateTemplate — the full variable set", () => {
       baseContext({ processCost: 8421 }),
     )
     expect(out).toBe("Total tokens: 8421")
+  })
+
+  it("iterates it.processCostByModel — the per-model breakdown (e.g. for a squash commit message)", () => {
+    const out = renderStateTemplate(
+      "<% it.processCostByModel.forEach(function(m){ %><%= m.model %>=<%= m.cost %>;<% }) %>",
+      baseContext({
+        processCostByModel: [
+          { model: "haiku", cost: 300 },
+          { model: "opus", cost: 200 },
+        ],
+      }),
+    )
+    expect(out).toBe("haiku=300;opus=200;")
   })
 
   it("`it.vars` is always a plain object, even when empty — usable via `in` checks", () => {

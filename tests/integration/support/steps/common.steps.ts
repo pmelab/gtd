@@ -98,6 +98,13 @@ When(
   },
 )
 
+When(
+  "I run gtd step {word} with {string} and {string} and {string}",
+  async (world: GtdWorld, actor: string, arg1: string, arg2: string, arg3: string) => {
+    await world.runGtd("step", actor, arg1, arg2, arg3)
+  },
+)
+
 When("I run gtd next", async (world: GtdWorld) => {
   await world.runGtd("next")
 })

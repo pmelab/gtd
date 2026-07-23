@@ -7,8 +7,9 @@ Commands:
   step <actor>     Authenticate as <actor>, match the resolved rest's
                    declared patterns against the pending changes, and commit
                    (or squash) the one resulting transition. Pass
-                   --cost=<n> to record the just-finished invocation's token
-                   cost on the turn commit (summed into it.processCost)
+                   --cost=<n> (optionally --model=<name>) to record the
+                   just-finished invocation's token cost and model on the
+                   turn commit (summed into it.processCost/processCostByModel)
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   run              Execute the resolved rest's emitted script, then step its
@@ -23,6 +24,7 @@ Commands:
 Options:
   --json           Output structured JSON instead of plain text
   --cost=<n>       (gtd step only) record the invocation's token cost
+  --model=<name>   (gtd step only, with --cost) tag that cost's model
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 ```
@@ -35,14 +37,15 @@ without touching the repository. Every other command must be run from the
 history relative to cwd, so it refuses with a clear error if invoked from a
 subdirectory.
 
-`--json` and `--cost=<n>` (the latter only for `gtd step`) are the only long
-options. Any other `--` option (including a typo like `--jsn`) is rejected with
-a usage error rather than silently ignored, so a mistyped flag can never degrade
-a JSON caller to plain-text mode. A bare `--cost` with no value, a non-numeric
-or negative value, or `--cost` on any command other than `gtd step` are all
-usage errors.
+`--json`, `--cost=<n>`, and `--model=<name>` (the latter two only for
+`gtd step`) are the only long options. Any other `--` option (including a typo
+like `--jsn`) is rejected with a usage error rather than silently ignored, so a
+mistyped flag can never degrade a JSON caller to plain-text mode. A bare
+`--cost`/`--model` with no value, a non-numeric or negative `--cost`, an empty
+`--model`, `--model` without `--cost`, or either flag on any command other than
+`gtd step` are all usage errors.
 
-## `gtd step <actor> [--cost=<n>]`
+## `gtd step <actor> [--cost=<n>] [--model=<name>]`
 
 Authenticates `<actor>` against the resolved rest and performs the ONE resulting
 transition. Unlike v2, there is no fixpoint chain to drive: the pattern
@@ -52,11 +55,14 @@ authors at most one commit (a normal turn) or performs one squash
 of several. A caller that wants several transitions issues several invocations.
 
 `--cost=<n>` records the token cost of the invocation that produced the pending
-changes (a non-negative number) as a `Gtd-Cost: <n>` trailer on the turn commit
-— persisted in the git log, summed across the process into `it.processCost` (see
-[Configuration: Token cost](configuration.md#token-cost)). On a squash it is
-folded into the process total the `commit:` template renders rather than written
-as a trailer. It is orthogonal to `--json`.
+changes (a non-negative number), and the optional `--model=<name>` tags it with
+the model that ran, as a `Gtd-Cost: <n> <model>` trailer on the turn commit —
+persisted in the git log, summed across the process into `it.processCost` and
+grouped by model into `it.processCostByModel` (see
+[Configuration: Token cost](configuration.md#token-cost)). `--model` requires
+`--cost`. On a squash they are folded into the process total/breakdown the
+`commit:` template renders rather than written as a trailer. Both are orthogonal
+to `--json`.
 
 - **Out-of-turn refusal** — `<actor>` isn't the resolved state's declared actor:
   exit non-zero, zero commits.
@@ -82,12 +88,17 @@ or, at a no-op:
 nothing to do at "idle"
 ```
 
-`--json` emits `{state, subject}` — `subject` is `null` at a no-op — plus a
-`cost` key echoing the recorded `--cost` when one was passed (omitted
-otherwise):
+`--json` emits `{state, subject}` — `subject` is `null` at a no-op — plus
+`cost`/`model` keys echoing what `--cost`/`--model` recorded (each omitted when
+not passed):
 
 ```json
-{ "state": "grilling", "subject": "gtd(human): grilling", "cost": 1450 }
+{
+  "state": "grilling",
+  "subject": "gtd(human): grilling",
+  "cost": 1450,
+  "model": "claude-opus-4-8"
+}
 ```
 
 ## `gtd next [--json]`
@@ -173,15 +184,16 @@ after `Awaits:` when the resolved state declares a `model:` hint, and
 `File: <value>`/`Mode: <value>` lines appear after that (in that order) when
 declared — each independently, only when set. A `Cost: <n>` line appears after
 those when the current process has accumulated any `Gtd-Cost:` (see
-[`gtd step --cost`](#gtd-step-actor---costn)), omitted when the running total is
-`0`.
+[`gtd step --cost`](#gtd-step-actor---costn-model-name)), omitted when the
+running total is `0`; when the breakdown adds information (more than one model,
+or a single tagged model), indented `  <model>: <cost>` lines follow it.
 
 `--json` emits
-`{state, actor, changes: [{status, path, pattern}], model?, file?, mode?, cost?}`
-— `pattern` is `null` when no declared row matches that change; `model`/`file`/
-`mode` are present only when the resolved state declares them, and `cost` only
-when the running process total is above `0` (all omitted entirely, never `null`,
-otherwise):
+`{state, actor, changes: [{status, path, pattern}], model?, file?, mode?, cost?, costByModel?}`
+— `pattern` is `null` when no declared row matches that change;
+`model`/`file`/`mode` are present only when the resolved state declares them,
+and `cost`/`costByModel` (the `[{model, cost}]` breakdown) only when the running
+process total is above `0` (all omitted entirely, never `null`, otherwise):
 
 ```json
 {

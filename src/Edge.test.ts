@@ -8,7 +8,10 @@ import {
   renderFile,
   renderModel,
   resolveVars,
-  sumCostTrailers,
+  costByModel,
+  parseCostTrailers,
+  totalCostOf,
+  UNATTRIBUTED_MODEL,
   withCostTrailer,
 } from "./Edge.js"
 import type { TemplateContext } from "./PatternTemplates.js"
@@ -65,7 +68,7 @@ describe("computeProcessRun", () => {
       startHash: "",
       startParentHash: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
       trace: [],
-      totalCost: 0,
+      costEntries: [],
     })
   })
 
@@ -84,7 +87,7 @@ describe("computeProcessRun", () => {
       startHash: "h1",
       startParentHash: "h0",
       trace: ["grilling", "building"],
-      totalCost: 0,
+      costEntries: [],
     })
   })
 
@@ -108,7 +111,7 @@ describe("computeProcessRun", () => {
       commitHistory: () => Effect.succeed(history),
     })
     const result = await run(computeProcessRun(git, def))
-    expect(result).toEqual({ startHash: "h0", startParentHash: "h0", trace: [], totalCost: 0 })
+    expect(result).toEqual({ startHash: "h0", startParentHash: "h0", trace: [], costEntries: [] })
   })
 
   it("(b) a commit entering the initial state mid-history is ALSO a process boundary, excluded from the newer process's trace — [boundary, …cycle1…, gtd(human): idle, gtd(human): grilling, gtd(agent): building]", async () => {
@@ -128,7 +131,7 @@ describe("computeProcessRun", () => {
       startHash: "h3",
       startParentHash: "h2",
       trace: ["grilling", "building"],
-      totalCost: 0,
+      costEntries: [],
     })
   })
 
@@ -143,7 +146,7 @@ describe("computeProcessRun", () => {
       commitHistory: () => Effect.succeed(history),
     })
     const result = await run(computeProcessRun(git, def))
-    expect(result).toEqual({ startHash: "h2", startParentHash: "h2", trace: [], totalCost: 0 })
+    expect(result).toEqual({ startHash: "h2", startParentHash: "h2", trace: [], costEntries: [] })
   })
 
   it("(d) retry counting resets across an idle boundary — a state entered 3x before the idle entry counts 0 after", async () => {
@@ -165,24 +168,34 @@ describe("computeProcessRun", () => {
     expect(result.trace.filter((state) => state === "fixing")).toHaveLength(0)
   })
 
-  it("sums the `Gtd-Cost:` trailers of the process's turn commits into totalCost, ignoring the boundary's", async () => {
+  it("collects the process's turn-commit `Gtd-Cost:` entries (with models), ignoring the boundary's", async () => {
     const history = [
-      // Boundary commit's trailer is EXCLUDED from the current process's total.
-      { hash: "h0", message: "chore: init\n\nGtd-Cost: 999", removedErrors: false, touched: [] },
+      // Boundary commit's trailer is EXCLUDED from the current process's entries.
+      {
+        hash: "h0",
+        message: "chore: init\n\nGtd-Cost: 999 opus",
+        removedErrors: false,
+        touched: [],
+      },
       {
         hash: "h1",
-        message: "gtd(human): grilling\n\nGtd-Cost: 120",
+        message: "gtd(human): grilling\n\nGtd-Cost: 120 opus",
         removedErrors: false,
         touched: [],
       },
       {
         hash: "h2",
-        message: "gtd(agent): building\n\nGtd-Cost: 300",
+        message: "gtd(agent): building\n\nGtd-Cost: 300 haiku",
         removedErrors: false,
         touched: [],
       },
-      // A turn with no trailer contributes 0.
-      { hash: "h3", message: "gtd(agent): checking", removedErrors: false, touched: [] },
+      // A turn with a model-less trailer buckets under UNATTRIBUTED_MODEL.
+      {
+        hash: "h3",
+        message: "gtd(agent): checking\n\nGtd-Cost: 50",
+        removedErrors: false,
+        touched: [],
+      },
     ]
     const git = stubGit({
       hasCommits: () => Effect.succeed(true),
@@ -190,7 +203,11 @@ describe("computeProcessRun", () => {
     })
     const result = await run(computeProcessRun(git, def))
     expect(result.trace).toEqual(["grilling", "building", "checking"])
-    expect(result.totalCost).toBe(420)
+    expect(result.costEntries).toEqual([
+      { cost: 120, model: "opus" },
+      { cost: 300, model: "haiku" },
+      { cost: 50, model: UNATTRIBUTED_MODEL },
+    ])
   })
 })
 
@@ -224,6 +241,7 @@ const context = (overrides: Partial<TemplateContext> = {}): TemplateContext => (
   processDiff: "",
   lastDiff: "",
   processCost: 0,
+  processCostByModel: [],
   read: () => {
     throw new Error("no file registered")
   },
@@ -238,7 +256,7 @@ describe("executeDecision", () => {
     const outcome = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "p", trace: ["grilling"], totalCost: 0 },
+        { startHash: "s", startParentHash: "p", trace: ["grilling"], costEntries: [] },
         {
           kind: "commit",
           subject: "gtd(human): grilling-answer",
@@ -259,7 +277,7 @@ describe("executeDecision", () => {
     const outcome = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "p", trace: ["grilling"], totalCost: 0 },
+        { startHash: "s", startParentHash: "p", trace: ["grilling"], costEntries: [] },
         {
           kind: "commit",
           subject: "gtd(agent): building",
@@ -269,12 +287,15 @@ describe("executeDecision", () => {
         },
         context(),
         1234,
+        "claude-opus-4-8",
       ),
     )
     // The reported subject is still the bare subject line...
     expect(outcome).toEqual({ kind: "commit", subject: "gtd(agent): building" })
-    // ...while the committed message carries the trailer after a blank line.
-    expect(commitAllWithPrefix).toHaveBeenCalledWith("gtd(agent): building\n\nGtd-Cost: 1234")
+    // ...while the committed message carries the cost + model trailer after a blank line.
+    expect(commitAllWithPrefix).toHaveBeenCalledWith(
+      "gtd(agent): building\n\nGtd-Cost: 1234 claude-opus-4-8",
+    )
   })
 
   it("a squash decision renders, soft-resets, commits as-is, and discards the rest", async () => {
@@ -285,7 +306,7 @@ describe("executeDecision", () => {
     const outcome = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "parent-hash", trace: ["squashing"], totalCost: 0 },
+        { startHash: "s", startParentHash: "parent-hash", trace: ["squashing"], costEntries: [] },
         { kind: "squash", state: "done", template: "feat: <%= it.state %>" },
         context({ state: "done" }),
       ),
@@ -301,7 +322,7 @@ describe("executeDecision", () => {
     const decision = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "parent-hash", trace: [], totalCost: 0 },
+        { startHash: "s", startParentHash: "parent-hash", trace: [], costEntries: [] },
         { kind: "squash", state: "done", template: '<%~ it.read("missing.md") %>' },
         context(),
       ),
@@ -318,7 +339,7 @@ describe("executeDecision", () => {
     const outcome = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "p", trace: [], totalCost: 0 },
+        { startHash: "s", startParentHash: "p", trace: [], costEntries: [] },
         { kind: "noop", state: "idle" },
         context(),
       ),
@@ -329,41 +350,74 @@ describe("executeDecision", () => {
 
 describe("withCostTrailer", () => {
   it("returns the subject unchanged when no cost is supplied", () => {
-    expect(withCostTrailer("gtd(agent): building", undefined)).toBe("gtd(agent): building")
+    expect(withCostTrailer("gtd(agent): building", undefined, undefined)).toBe(
+      "gtd(agent): building",
+    )
   })
 
   it("appends a `Gtd-Cost:` trailer after a blank line, leaving the subject as the first line", () => {
-    const message = withCostTrailer("gtd(agent): building", 42)
+    const message = withCostTrailer("gtd(agent): building", 42, undefined)
     expect(message).toBe("gtd(agent): building\n\nGtd-Cost: 42")
     expect(message.split("\n")[0]).toBe("gtd(agent): building")
   })
 
+  it("appends the model after the cost when one is supplied", () => {
+    expect(withCostTrailer("gtd(agent): building", 42, "claude-opus-4-8")).toBe(
+      "gtd(agent): building\n\nGtd-Cost: 42 claude-opus-4-8",
+    )
+  })
+
   it("records a zero cost verbatim (an explicit 0 is not the same as absent)", () => {
-    expect(withCostTrailer("gtd(check): checking", 0)).toBe("gtd(check): checking\n\nGtd-Cost: 0")
+    expect(withCostTrailer("gtd(check): checking", 0, undefined)).toBe(
+      "gtd(check): checking\n\nGtd-Cost: 0",
+    )
   })
 })
 
-describe("sumCostTrailers", () => {
-  it("sums one trailer per message, treating a message without one as 0", () => {
+describe("parseCostTrailers", () => {
+  it("parses cost + model, defaulting a model-less entry to UNATTRIBUTED_MODEL", () => {
     expect(
-      sumCostTrailers([
-        "gtd(human): grilling\n\nGtd-Cost: 120",
-        "gtd(agent): building\n\nGtd-Cost: 300",
-        "gtd(agent): checking", // no trailer → 0
+      parseCostTrailers([
+        "gtd(human): grilling\n\nGtd-Cost: 120 opus",
+        "gtd(agent): building\n\nGtd-Cost: 300", // no model
+        "gtd(agent): checking", // no trailer at all
       ]),
-    ).toBe(420)
-  })
-
-  it("is 0 over an empty list", () => {
-    expect(sumCostTrailers([])).toBe(0)
+    ).toEqual([
+      { cost: 120, model: "opus" },
+      { cost: 300, model: UNATTRIBUTED_MODEL },
+    ])
   })
 
   it("accepts decimal costs", () => {
-    expect(sumCostTrailers(["x\n\nGtd-Cost: 1.5", "y\n\nGtd-Cost: 2.25"])).toBe(3.75)
+    expect(parseCostTrailers(["x\n\nGtd-Cost: 1.5 opus"])).toEqual([{ cost: 1.5, model: "opus" }])
   })
 
-  it("ignores a `Gtd-Cost:`-looking line that is not a bare number", () => {
-    expect(sumCostTrailers(["x\n\nGtd-Cost: not-a-number", "y\n\nGtd-Cost: 10"])).toBe(10)
+  it("ignores a `Gtd-Cost:`-looking line whose value is not a bare number", () => {
+    expect(parseCostTrailers(["x\n\nGtd-Cost: not-a-number", "y\n\nGtd-Cost: 10"])).toEqual([
+      { cost: 10, model: UNATTRIBUTED_MODEL },
+    ])
+  })
+})
+
+describe("totalCostOf / costByModel", () => {
+  const entries = [
+    { cost: 120, model: "opus" },
+    { cost: 300, model: "haiku" },
+    { cost: 80, model: "opus" },
+    { cost: 50, model: UNATTRIBUTED_MODEL },
+  ]
+
+  it("totalCostOf sums every entry (0 over an empty list)", () => {
+    expect(totalCostOf(entries)).toBe(550)
+    expect(totalCostOf([])).toBe(0)
+  })
+
+  it("costByModel groups by model, highest-cost first", () => {
+    expect(costByModel(entries)).toEqual([
+      { model: "haiku", cost: 300 },
+      { model: "opus", cost: 200 },
+      { model: UNATTRIBUTED_MODEL, cost: 50 },
+    ])
   })
 })
 
