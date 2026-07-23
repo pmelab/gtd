@@ -15,6 +15,7 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
     return `contents of ${path}`
   },
   vars: { greeting: "hi" },
+  edges: [],
   ...overrides,
 })
 
@@ -54,6 +55,40 @@ describe("renderStateTemplate — the full variable set", () => {
       baseContext({ vars: {} }),
     )
     expect(out).toBe("greeting=none")
+  })
+
+  it("renders a human-gate route list from `it.edges`, skipping edges without a describe", () => {
+    const out = renderStateTemplate(
+      [
+        "What each change does next:",
+        "<% it.edges.forEach(function (e) { if (e.describe) { %>",
+        '<%~ "- " + e.describe + "\\n" %>',
+        "<% } }) %>",
+      ].join("\n"),
+      baseContext({
+        edges: [
+          { pattern: "C", target: "building", describe: "Change nothing to accept and build." },
+          { pattern: "* **", target: "grilling", describe: "Edit the plan to grill again." },
+          { pattern: "M .gtd/X.md", target: "elsewhere" },
+        ],
+      }),
+    )
+    expect(out).toBe(
+      "What each change does next:\n- Change nothing to accept and build.\n- Edit the plan to grill again.\n",
+    )
+  })
+
+  it("the route list collapses to just its heading when no edge carries a describe", () => {
+    const out = renderStateTemplate(
+      [
+        "Heading:",
+        "<% it.edges.forEach(function (e) { if (e.describe) { %>",
+        '<%~ "- " + e.describe + "\\n" %>',
+        "<% } }) %>",
+      ].join("\n"),
+      baseContext({ edges: [{ pattern: "* **", target: "x" }] }),
+    )
+    expect(out).toBe("Heading:\n")
   })
 })
 

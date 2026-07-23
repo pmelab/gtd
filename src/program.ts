@@ -1,6 +1,6 @@
 import { createRequire } from "node:module"
 import { FileSystem } from "@effect/platform"
-import { Effect } from "effect"
+import { Effect, Either } from "effect"
 import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
@@ -17,10 +17,12 @@ import {
   renderRest,
   resolveRest,
   resolveVars,
+  toTemplateEdges,
   type ExecutableDecision,
   type ProcessRun,
   type ResolvedRest,
 } from "./Edge.js"
+import { closeReviewWindow, openReviewWindow } from "./ReviewWindow.js"
 import { formatFile } from "./Format.js"
 import { startLspServer } from "./Lsp.js"
 import { renderMermaid } from "./Mermaid.js"
@@ -164,6 +166,7 @@ const resolveRestContext = (
       rest.actor,
       run,
       vars,
+      rest.stateDef.on,
     )
     return { rest, run, context }
   })
@@ -209,13 +212,15 @@ const stepAsActor = (
 
     const executable: ExecutableDecision = decision
     const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const renderedState = decision.kind === "squash" ? decision.state : rest.state
     const context = yield* buildTemplateContext(
       git,
       worktree.read,
-      decision.kind === "squash" ? decision.state : rest.state,
+      renderedState,
       invoker,
       run,
       vars,
+      rest.def.states[renderedState]?.on,
     )
     const outcome = yield* executeDecision(git, run, executable, context)
     return { state: rest.state, subject: outcome.kind === "noop" ? null : outcome.subject }
@@ -278,6 +283,7 @@ const runNextCommand = (
           ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
           ...(rendered.file !== undefined ? { file: rendered.file } : {}),
           ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
+          ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
         }) + "\n",
       )
     } else {
@@ -353,6 +359,7 @@ const writeStatusJson = (
   memory: string | undefined,
   file: string | undefined,
 ): void => {
+  const edges = toTemplateEdges(rest.stateDef.on)
   write(
     JSON.stringify({
       state: rest.state,
@@ -362,6 +369,7 @@ const writeStatusJson = (
       ...(memory !== undefined ? { memory } : {}),
       ...(file !== undefined ? { file } : {}),
       ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
+      ...(edges.length > 0 ? { edges } : {}),
     }) + "\n",
   )
 }
@@ -587,12 +595,26 @@ export function makeProgram(
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
     yield* assertRunningFromRepoRoot(git, fs)
+    // Restore the real HEAD before anything reads or mutates workflow state:
+    // while a review checkout window is open (see src/ReviewWindow.ts), HEAD is
+    // rewound to the review base, so the pure machine would otherwise resolve
+    // against the wrong commit. Keyed on the ref alone — a no-op when no window
+    // is open.
+    yield* closeReviewWindow
     // Auto-init runs here and ONLY here: past the version/help short-circuit,
     // the format branch, the known-subcommand guard, and the repo-root guard —
     // a refused or rejected invocation must never mutate the repository.
     yield* (yield* ConfigInit).ensure
 
-    yield* dispatchKnownSubcommand(sub, argv, json, write)
+    // Re-arm the window after the subcommand — on success AND on refusal/error,
+    // and after read-only commands too (every command opts into window
+    // management), so the editor's diff view stays consistent no matter which
+    // command the loop last ran. The subcommand's own error takes priority; a
+    // re-arm failure only surfaces when the subcommand itself succeeded.
+    const outcome = yield* Effect.either(dispatchKnownSubcommand(sub, argv, json, write))
+    const rearm = yield* Effect.either(openReviewWindow)
+    if (Either.isLeft(outcome)) return yield* Effect.fail(outcome.left)
+    if (Either.isLeft(rearm)) return yield* Effect.fail(rearm.left)
   }).pipe(
     json
       ? Effect.catchAll((error) =>

@@ -49,8 +49,14 @@ upgrading.
   tiering — a workflow author is free to build any of that shape back with
   states of their own, but gtd no longer bakes it in.
 - **The review checkout window.** v2 rewound HEAD/index to the review base while
-  a human review rested, so editors would show the diff directly. Deleted in v3
-  (may return later as an explicit state property — not in scope now).
+  a human review rested, so editors would show the diff directly. Dropped in the
+  v3.0 rewrite, then RE-INTRODUCED as the explicit state property it was always
+  meant to become: a state declaring `reviewWindow: true` opens the window while
+  the machine rests there (base = the process start, or a state marked
+  `reviewBase: true`). The bundled default enables it on `await-review`. Unlike
+  v2's hardwired gate, it is pure workflow DATA and the engine stays oblivious —
+  see [STATES.md §11](../STATES.md) and the `file:`/`mode:` neighbours in
+  [configuration.md](configuration.md).
 - **`forceApprove`, content-inspection verdicts.** FEEDBACK.md emptiness,
   checkbox-only REVIEW.md diffs, and doc-structure validation are gone as ENGINE
   mechanisms — verdicts are now expressed purely by which file a turn writes or

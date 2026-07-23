@@ -24,6 +24,8 @@ const failingGitLayer = Layer.succeed(GitService, {
   lastCommitSubject: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
   resolveRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  readRefOption: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  isAncestor: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   topLevel: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitHistory: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   diffHead: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
@@ -35,6 +37,13 @@ const failingGitLayer = Layer.succeed(GitService, {
   softResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitAsIs: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   discardPending: () =>
+    Effect.fail(new Error("GitService must not be called for --version/--help")),
+  updateRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  deleteRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  mixedResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  restoreStagedFrom: () =>
+    Effect.fail(new Error("GitService must not be called for --version/--help")),
+  addIntentToAdd: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
 })
 

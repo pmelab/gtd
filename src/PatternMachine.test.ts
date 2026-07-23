@@ -4,6 +4,8 @@ import {
   contentKindOf,
   initialStateOf,
   isCommitState,
+  isReviewBaseState,
+  isReviewWindowState,
   matchesPattern,
   parsePattern,
   parseStateSubject,
@@ -105,6 +107,38 @@ describe("isCommitState", () => {
     expect(isCommitState({ commit: "x" })).toBe(true)
     expect(isCommitState({ prompt: "x" })).toBe(false)
     expect(isCommitState({})).toBe(false)
+  })
+})
+
+describe("isReviewWindowState / isReviewBaseState", () => {
+  const def: WorkflowDefinition = {
+    states: {
+      idle: {
+        actor: "human",
+        message: "x",
+        initial: true,
+        reviewBase: true,
+        on: [["* *", "gate"]],
+      },
+      gate: { actor: "human", message: "review", reviewWindow: true, on: [["C", "idle"]] },
+      plain: { actor: "agent", prompt: "x", on: [["* *", "idle"]] },
+    },
+  }
+
+  it("reports the reviewWindow flag by state name", () => {
+    expect(isReviewWindowState(def, "gate")).toBe(true)
+    expect(isReviewWindowState(def, "plain")).toBe(false)
+    expect(isReviewWindowState(def, "idle")).toBe(false)
+  })
+
+  it("reports the reviewBase flag by state name", () => {
+    expect(isReviewBaseState(def, "idle")).toBe(true)
+    expect(isReviewBaseState(def, "gate")).toBe(false)
+  })
+
+  it("is false for an unknown state name", () => {
+    expect(isReviewWindowState(def, "ghost")).toBe(false)
+    expect(isReviewBaseState(def, "ghost")).toBe(false)
   })
 })
 
@@ -906,6 +940,42 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain('state "b": a commit state cannot declare "mode"')
+  })
+
+  it("accepts a non-commit state declaring `reviewWindow`/`reviewBase`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          initial: true,
+          reviewBase: true,
+          on: [["* *", "b"]],
+        },
+        b: { actor: "h", message: "review", reviewWindow: true, on: [["C", "a"]] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects a commit state that declares `reviewWindow`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { commit: "chore: b", reviewWindow: true },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "reviewWindow"')
+  })
+
+  it("rejects a commit state that declares `reviewBase`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { commit: "chore: b", reviewBase: true },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "reviewBase"')
   })
 
   it("aggregates a bad `file`/`mode` alongside other unrelated findings", () => {
