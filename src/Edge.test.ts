@@ -6,11 +6,13 @@ import {
   executeDecision,
   pendingChanges,
   renderFile,
+  renderMemory,
   renderModel,
   resolveVars,
   costByModel,
   parseCostTrailers,
   totalCostOf,
+  toTemplateEdges,
   UNATTRIBUTED_MODEL,
   withCostTrailer,
 } from "./Edge.js"
@@ -36,6 +38,8 @@ const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
   hasCommits: notImplemented("hasCommits"),
   diffRef: notImplemented("diffRef"),
   resolveRef: notImplemented("resolveRef"),
+  readRefOption: notImplemented("readRefOption"),
+  isAncestor: notImplemented("isAncestor"),
   topLevel: notImplemented("topLevel"),
   commitHistory: notImplemented("commitHistory"),
   commitDiff: notImplemented("commitDiff"),
@@ -44,6 +48,11 @@ const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
   softResetTo: notImplemented("softResetTo"),
   commitAsIs: notImplemented("commitAsIs"),
   discardPending: notImplemented("discardPending"),
+  updateRef: notImplemented("updateRef"),
+  deleteRef: notImplemented("deleteRef"),
+  mixedResetTo: notImplemented("mixedResetTo"),
+  restoreStagedFrom: notImplemented("restoreStagedFrom"),
+  addIntentToAdd: notImplemented("addIntentToAdd"),
   ...overrides,
 })
 
@@ -246,6 +255,7 @@ const context = (overrides: Partial<TemplateContext> = {}): TemplateContext => (
     throw new Error("no file registered")
   },
   vars: {},
+  edges: [],
   ...overrides,
 })
 
@@ -466,6 +476,29 @@ describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)"
   })
 })
 
+describe("toTemplateEdges — OnEdge tuples to the `{ pattern, target, describe? }` templates see", () => {
+  it("maps a two-element edge with no describe key, and a three-element edge with one", () => {
+    expect(
+      toTemplateEdges([
+        ["C", "building", "Change nothing to accept and build."],
+        ["* **", "grilling"],
+      ]),
+    ).toEqual([
+      { pattern: "C", target: "building", describe: "Change nothing to accept and build." },
+      { pattern: "* **", target: "grilling" },
+    ])
+  })
+
+  it("returns an empty list for a state with no `on` (a commit state)", () => {
+    expect(toTemplateEdges(undefined)).toEqual([])
+  })
+
+  it("omits the describe key entirely (never `undefined`) when an edge carries none", () => {
+    const [edge] = toTemplateEdges([["* **", "next"]])
+    expect("describe" in edge!).toBe(false)
+  })
+})
+
 describe("renderModel", () => {
   const stateDef = (model?: string): StateDef =>
     model !== undefined ? { actor: "agent", prompt: "x", model } : { actor: "agent", prompt: "x" }
@@ -494,6 +527,44 @@ describe("renderModel", () => {
 
   it("a model render failure propagates as a thrown/rejected error, same as a content render failure", async () => {
     const outcome = await run1(renderModel(stateDef("<%= it.vars.nope.deeper %>"), context())).then(
+      () => "resolved" as const,
+      (e: Error) => e,
+    )
+    expect(outcome).not.toBe("resolved")
+    expect(outcome).toBeInstanceOf(Error)
+  })
+})
+
+describe("renderMemory", () => {
+  const stateDef = (memory?: string): StateDef =>
+    memory !== undefined ? { actor: "agent", prompt: "x", memory } : { actor: "agent", prompt: "x" }
+
+  const run1 = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
+
+  it("a state with no `memory:` renders to `undefined`", async () => {
+    const result = await run1(renderMemory(stateDef(), context()))
+    expect(result).toBeUndefined()
+  })
+
+  it("a plain label with no Eta tags passes through unchanged", async () => {
+    const result = await run1(renderMemory(stateDef("plan"), context()))
+    expect(result).toBe("plan")
+  })
+
+  it("a templated `memory:` resolves against the same `it.vars` the content sees", async () => {
+    const result = await run1(
+      renderMemory(
+        stateDef("<%= it.vars.planScope %>"),
+        context({ vars: { planScope: "grilling" } }),
+      ),
+    )
+    expect(result).toBe("grilling")
+  })
+
+  it("a memory render failure propagates as a thrown/rejected error, same as a content render failure", async () => {
+    const outcome = await run1(
+      renderMemory(stateDef("<%= it.vars.nope.deeper %>"), context()),
+    ).then(
       () => "resolved" as const,
       (e: Error) => e,
     )

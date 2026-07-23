@@ -190,6 +190,35 @@ states:
       ["C", "c"],
     ])
   })
+
+  it("compiles the { to, describe } object form, carrying describe as the edge's third element, while the string form stays a two-element edge", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          gate: {
+            actor: "human",
+            message: "choose",
+            initial: true,
+            on: {
+              C: { to: "accept", describe: "Change nothing to accept and proceed." },
+              "* **": "revise",
+            },
+          },
+          accept: { commit: "chore: accept" },
+          revise: {
+            actor: "agent",
+            prompt: "revise",
+            on: { "* **": "gate" },
+          },
+        },
+      },
+      "/config-dir",
+    )
+    expect(definition.states["gate"]!.on).toEqual([
+      ["C", "accept", "Change nothing to accept and proceed."],
+      ["* **", "revise"],
+    ])
+  })
 })
 
 // ── File references ──────────────────────────────────────────────────────────
@@ -343,6 +372,49 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     ).toThrowError(/state "a": "initial" must be a boolean/)
   })
 
+  it("rejects a non-boolean reviewWindow/reviewBase", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        { states: { a: { actor: "human", message: "hi", initial: true, reviewWindow: "yes" } } },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "reviewWindow" must be a boolean/)
+    expect(() =>
+      compileWorkflowConfig(
+        { states: { a: { actor: "human", message: "hi", initial: true, reviewBase: 1 } } },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "reviewBase" must be a boolean/)
+  })
+
+  it("compiles reviewWindow/reviewBase booleans onto the StateDef (false omitted)", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          a: {
+            actor: "human",
+            message: "hi",
+            initial: true,
+            reviewBase: true,
+            on: { "* *": "b" },
+          },
+          b: {
+            actor: "human",
+            message: "review",
+            reviewWindow: true,
+            reviewBase: false,
+            on: { C: "a" },
+          },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states.a!.reviewBase).toBe(true)
+    expect(definition.states.b!.reviewWindow).toBe(true)
+    // `false` compiles away — never lands on the StateDef.
+    expect("reviewBase" in definition.states.b!).toBe(false)
+  })
+
   it("rejects zero content keys and more than one content key", () => {
     expect(() =>
       compileWorkflowConfig({ states: { a: { actor: "human", initial: true } } }, "/dir"),
@@ -387,7 +459,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     ).toThrowError(/state "a": "on" must be a mapping of pattern -> target state/)
   })
 
-  it("rejects a non-string `on` target", () => {
+  it("rejects an `on` value that is neither a target string nor a { to, describe } object", () => {
     expect(() =>
       compileWorkflowConfig(
         {
@@ -397,7 +469,60 @@ describe("compileWorkflowConfig — config-shape validation", () => {
         },
         "/dir",
       ),
-    ).toThrowError(/state "a": "on" target for pattern "\* \*" must be a string/)
+    ).toThrowError(
+      /state "a": "on" entry for pattern "\* \*" must be a target state name \(string\) or a \{ to, describe \} object/,
+    )
+  })
+
+  it('rejects an object `on` entry whose "to" is not a string', () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          states: {
+            a: { actor: "human", message: "hi", initial: true, on: { "* *": { to: 1 } } },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "on.\* \*.to" must be a target state name \(string\)/)
+  })
+
+  it('rejects an object `on` entry whose "describe" is not a string', () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          states: {
+            a: {
+              actor: "human",
+              message: "hi",
+              initial: true,
+              on: { "* *": { to: "b", describe: 5 } },
+            },
+            b: { commit: "chore: b" },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "on.\* \*.describe" must be a string/)
+  })
+
+  it("rejects an unknown key inside an object `on` entry", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          states: {
+            a: {
+              actor: "human",
+              message: "hi",
+              initial: true,
+              on: { "* *": { to: "b", explain: "nope" } },
+            },
+            b: { commit: "chore: b" },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "on" entry for pattern "\* \*" has unknown key\(s\) explain/)
   })
 
   it("compiles a `model` string through onto the state", () => {
@@ -470,6 +595,80 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       expect(message).toContain('state "a": "model" must be a string')
+      expect(message).toContain('state "a": "on" target "nowhere" is not a defined state')
+    }
+  })
+
+  it("compiles a `memory` string through onto the state", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          working: {
+            actor: "agent",
+            memory: "plan",
+            prompt: "do the thing",
+            initial: true,
+            on: { "* *": "done" },
+          },
+          done: { commit: "chore: done" },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states["working"]!.memory).toBe("plan")
+  })
+
+  it("omits `memory` entirely when the state declares none", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          working: {
+            actor: "agent",
+            prompt: "do the thing",
+            initial: true,
+            on: { "* *": "done" },
+          },
+          done: { commit: "chore: done" },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states["working"]).not.toHaveProperty("memory")
+  })
+
+  it("rejects a non-string `memory` as a config-shape error", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          states: {
+            a: { actor: "human", message: "hi", initial: true, memory: 42 },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "memory" must be a string/)
+  })
+
+  it("aggregates a bad `memory` alongside an unrelated config-shape error", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          states: {
+            a: {
+              actor: "human",
+              message: "hi",
+              initial: true,
+              memory: 42,
+              on: { "* **": "nowhere" },
+            },
+          },
+        },
+        "/dir",
+      )
+      throw new Error("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain('state "a": "memory" must be a string')
       expect(message).toContain('state "a": "on" target "nowhere" is not a defined state')
     }
   })

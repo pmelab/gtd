@@ -1,7 +1,7 @@
 import { Command, CommandExecutor } from "@effect/platform"
 import { readFileSync, existsSync } from "node:fs"
 import { join } from "node:path"
-import { Context, Effect, Layer, Stream } from "effect"
+import { Context, Effect, Layer, Option, Stream } from "effect"
 import { renderDiff } from "./Diff.js"
 import { Cwd } from "./Cwd.js"
 
@@ -22,6 +22,10 @@ export interface GitReaderOperations {
    */
   readonly diffRef: (ref: string, exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
+  /** `git rev-parse --verify --quiet <ref>` — the ref's hash if it resolves, `Option.none` if it doesn't exist (never fails). Used to detect an open review checkout window (`refs/gtd/review-head`). */
+  readonly readRefOption: (ref: string) => Effect.Effect<Option.Option<string>, Error>
+  /** `git merge-base --is-ancestor <a> <b>` — true iff `a` is an ancestor of `b`. Never fails: a non-zero exit (or error) reports `false`. Guards the review window's close against a HEAD that has moved off the reviewed branch. */
+  readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
   /** `git rev-parse --show-toplevel` — the working-tree root; fails outside a repository. */
   readonly topLevel: () => Effect.Effect<string, Error>
   /**
@@ -106,6 +110,29 @@ export interface GitWriterOperations {
    * lands the squash commit.
    */
   readonly discardPending: () => Effect.Effect<void, Error>
+  /** `git update-ref <ref> <hash>` — point a repo-local ref (e.g. `refs/gtd/review-head`) at a commit. */
+  readonly updateRef: (ref: string, hash: string) => Effect.Effect<void, Error>
+  /** `git update-ref -d <ref>` — idempotent: deleting a missing ref is a no-op. */
+  readonly deleteRef: (ref: string) => Effect.Effect<void, Error>
+  /** `git reset --mixed <ref>` — HEAD and index move to `ref`, the working tree is untouched (so committed work re-surfaces as pending changes). The open/close primitive of the review checkout window. */
+  readonly mixedResetTo: (ref: string) => Effect.Effect<void, Error>
+  /**
+   * `git restore --staged --source=<source> -- <paths…>` — set the index
+   * entries under each path to their state at `source` (including removals),
+   * leaving HEAD and the working tree untouched. Tolerant when no path matches.
+   * Pins `.gtd/` plumbing back to the real head while the review window is open
+   * so it stays out of the surfaced diff.
+   */
+  readonly restoreStagedFrom: (
+    source: string,
+    paths: ReadonlyArray<string>,
+  ) => Effect.Effect<void, Error>
+  /**
+   * `git add --intent-to-add .` — register untracked files in the index with
+   * an empty placeholder so they render as additions (with content hunks) in
+   * `git diff` and editor SCM views, without staging their content.
+   */
+  readonly addIntentToAdd: () => Effect.Effect<void, Error>
 }
 
 export interface GitOperations extends GitReaderOperations, GitWriterOperations {}
@@ -413,6 +440,19 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         ),
       ),
 
+    readRefOption: (ref: string) =>
+      exec("git", "rev-parse", "--verify", "--quiet", ref).pipe(
+        Effect.map((s) => Option.some(s.trim())),
+        Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+      ),
+
+    isAncestor: (a: string, b: string) =>
+      run(root, "git", "merge-base", "--is-ancestor", a, b).pipe(
+        Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+        Effect.map(() => true),
+        Effect.catchAll(() => Effect.succeed(false)),
+      ),
+
     topLevel: () => exec("git", "rev-parse", "--show-toplevel").pipe(Effect.map((s) => s.trim())),
 
     commitHistory: (base?: string) => {
@@ -490,6 +530,24 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         yield* exec("git", "add", "-A")
         yield* exec("git", "reset", "--hard", "HEAD")
       }).pipe(Effect.asVoid),
+
+    updateRef: (ref: string, hash: string) =>
+      exec("git", "update-ref", ref, hash).pipe(Effect.asVoid),
+
+    deleteRef: (ref: string) => exec("git", "update-ref", "-d", ref).pipe(Effect.asVoid),
+
+    mixedResetTo: (ref: string) => exec("git", "reset", "--mixed", ref).pipe(Effect.asVoid),
+
+    restoreStagedFrom: (source: string, paths: ReadonlyArray<string>) =>
+      paths.length === 0
+        ? Effect.void
+        : exec("git", "restore", "--staged", `--source=${source}`, "--", ...paths).pipe(
+            // Tolerant: a path that never existed at `source` (or in the index)
+            // makes `git restore` complain — the pin is best-effort plumbing.
+            Effect.catchAll(() => Effect.void),
+          ),
+
+    addIntentToAdd: () => exec("git", "add", "--intent-to-add", ".").pipe(Effect.asVoid),
   }
 }
 

@@ -1,6 +1,6 @@
 import { createRequire } from "node:module"
 import { FileSystem } from "@effect/platform"
-import { Effect } from "effect"
+import { Effect, Either } from "effect"
 import { ConfigInit, ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
@@ -12,16 +12,19 @@ import {
   executeDecision,
   pendingChanges,
   renderFile,
+  renderMemory,
   renderModel,
   renderRest,
   resolveRest,
   resolveVars,
+  toTemplateEdges,
   UNATTRIBUTED_MODEL,
   type ExecutableDecision,
   type ModelCost,
   type ProcessRun,
   type ResolvedRest,
 } from "./Edge.js"
+import { closeReviewWindow, openReviewWindow } from "./ReviewWindow.js"
 import { formatFile } from "./Format.js"
 import { startLspServer } from "./Lsp.js"
 import { renderMermaid } from "./Mermaid.js"
@@ -250,6 +253,7 @@ const resolveRestContext = (
       rest.actor,
       run,
       vars,
+      rest.stateDef.on,
     )
     return { rest, run, context }
   })
@@ -304,13 +308,15 @@ const stepAsActor = (
 
     const executable: ExecutableDecision = decision
     const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const renderedState = decision.kind === "squash" ? decision.state : rest.state
     const context = yield* buildTemplateContext(
       git,
       worktree.read,
-      decision.kind === "squash" ? decision.state : rest.state,
+      renderedState,
       invoker,
       run,
       vars,
+      rest.def.states[renderedState]?.on,
       cost ?? 0,
       model,
     )
@@ -391,8 +397,10 @@ const runNextCommand = (
           kind: rendered.kind,
           content: rendered.content,
           ...(rendered.model !== undefined ? { model: rendered.model } : {}),
+          ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
           ...(rendered.file !== undefined ? { file: rendered.file } : {}),
           ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
+          ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
         }) + "\n",
       )
     } else {
@@ -477,42 +485,48 @@ const costStatusLines = (cost: number, byModel: readonly ModelCost[]): string[] 
   return lines
 }
 
-/** `gtd status --json`'s emission — `{state, actor, changes, model?, file?, mode?, cost?, costByModel?}`. */
+/** `gtd status --json`'s emission — `{state, actor, changes, model?, memory?, file?, mode?, cost?, costByModel?, edges?}`. */
 const writeStatusJson = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
   statusChanges: readonly StatusChange[],
   model: string | undefined,
+  memory: string | undefined,
   file: string | undefined,
   cost: number,
   costByModel: readonly ModelCost[],
 ): void => {
+  const edges = toTemplateEdges(rest.stateDef.on)
   write(
     JSON.stringify({
       state: rest.state,
       actor: rest.actor,
       changes: statusChanges,
       ...(model !== undefined ? { model } : {}),
+      ...(memory !== undefined ? { memory } : {}),
       ...(file !== undefined ? { file } : {}),
       ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
       ...(cost > 0 ? { cost } : {}),
       ...(cost > 0 ? { costByModel } : {}),
+      ...(edges.length > 0 ? { edges } : {}),
     }) + "\n",
   )
 }
 
-/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Model:`/`File:`/`Mode:`/`Cost:`/`Pending:` lines. */
+/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Model:`/`Memory:`/`File:`/`Mode:`/`Cost:`/`Pending:` lines. */
 const writeStatusPlain = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
   statusChanges: readonly StatusChange[],
   model: string | undefined,
+  memory: string | undefined,
   file: string | undefined,
   cost: number,
   costByModel: readonly ModelCost[],
 ): void => {
   const lines = [`State: ${rest.state}`, `Awaits: ${rest.actor}`]
   if (model !== undefined) lines.push(`Model: ${model}`)
+  if (memory !== undefined) lines.push(`Memory: ${memory}`)
   if (file !== undefined) lines.push(`File: ${file}`)
   if (rest.stateDef.mode !== undefined) lines.push(`Mode: ${rest.stateDef.mode}`)
   lines.push(...costStatusLines(cost, costByModel))
@@ -539,6 +553,7 @@ const runStatusCommand = (
     const { rest, context } = yield* resolveRestContext(git)
     const changes = yield* pendingChanges(git)
     const model = yield* renderModel(rest.stateDef, context)
+    const memory = yield* renderMemory(rest.stateDef, context)
     const file = yield* renderFile(rest.stateDef, context)
     const statusChanges = computeStatusChanges(rest.stateDef.on ?? [], changes)
     if (json) {
@@ -547,6 +562,7 @@ const runStatusCommand = (
         rest,
         statusChanges,
         model,
+        memory,
         file,
         context.processCost,
         context.processCostByModel,
@@ -557,6 +573,7 @@ const runStatusCommand = (
         rest,
         statusChanges,
         model,
+        memory,
         file,
         context.processCost,
         context.processCostByModel,
@@ -756,12 +773,28 @@ export function makeProgram(
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
     yield* assertRunningFromRepoRoot(git, fs)
+    // Restore the real HEAD before anything reads or mutates workflow state:
+    // while a review checkout window is open (see src/ReviewWindow.ts), HEAD is
+    // rewound to the review base, so the pure machine would otherwise resolve
+    // against the wrong commit. Keyed on the ref alone — a no-op when no window
+    // is open.
+    yield* closeReviewWindow
     // Auto-init runs here and ONLY here: past the version/help short-circuit,
     // the format branch, the known-subcommand guard, and the repo-root guard —
     // a refused or rejected invocation must never mutate the repository.
     yield* (yield* ConfigInit).ensure
 
-    yield* dispatchKnownSubcommand(sub, argv, json, write, cost, model)
+    // Re-arm the window after the subcommand — on success AND on refusal/error,
+    // and after read-only commands too (every command opts into window
+    // management), so the editor's diff view stays consistent no matter which
+    // command the loop last ran. The subcommand's own error takes priority; a
+    // re-arm failure only surfaces when the subcommand itself succeeded.
+    const outcome = yield* Effect.either(
+      dispatchKnownSubcommand(sub, argv, json, write, cost, model),
+    )
+    const rearm = yield* Effect.either(openReviewWindow)
+    if (Either.isLeft(outcome)) return yield* Effect.fail(outcome.left)
+    if (Either.isLeft(rearm)) return yield* Effect.fail(rearm.left)
   }).pipe(
     json
       ? Effect.catchAll((error) =>

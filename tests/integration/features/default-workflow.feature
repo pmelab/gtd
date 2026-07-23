@@ -151,7 +151,14 @@ Feature: The bundled default workflow — full cycle journeys
     # review-validating (valid, nothing to clean up): a clean step moves to await-review
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): await-review"
+    # await-review declares `reviewWindow: true` (STATES.md §11): landing here
+    # opens the review checkout window, rewinding raw HEAD to the review base.
+    # `gtd status` closes the window before reading, so it still resolves the
+    # true rest — the window then re-arms on its way out.
+    And the git ref "refs/gtd/review-head" exists
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "State: await-review"
 
     # await-review: partial-tick feedback — the reviewer adds a note without
     # ticking the box, routing to the decider (not the catch-all)
@@ -224,7 +231,12 @@ Feature: The bundled default workflow — full cycle journeys
     And the last commit subject is "gtd(agent): review-validating"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): await-review"
+    # await-review opens the review checkout window (see above) — resolve the
+    # true rest via `gtd status` rather than raw HEAD.
+    And the git ref "refs/gtd/review-head" exists
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "State: await-review"
 
     # await-review: tick every box — the decider sees no unticked pointer
     # left and approves, removing REVIEW.md and resting the cycle at idle
@@ -348,7 +360,12 @@ Feature: The bundled default workflow — full cycle journeys
     Given the file ".gtd/FORMAT.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): await-review"
+    # await-review opens the review checkout window (reviewWindow: true) — assert
+    # the resolved state via `gtd status`, which closes the window before reading.
+    And the git ref "refs/gtd/review-head" exists
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "State: await-review"
 
   Scenario: deleting REVIEW.md outright at await-review is the power-user approve shortcut, bypassing review-deciding
     Given a test project
@@ -366,6 +383,23 @@ Feature: The bundled default workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(human): idle"
     And ".gtd/REVIEW.md" does not exist
+
+  Scenario: at await-review, gtd next surfaces which change routes where — the human gate's route list, rendered from its `on` edge descriptions
+    Given a test project
+    And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Chunk
+
+      - [ ] ./src/thing.ts#1
+      """
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "What each change does next (then run `gtd step human`):"
+    And stdout contains "- Delete `.gtd/REVIEW.md` outright to approve the whole cycle"
+    And stdout contains "- Change only code, leaving `.gtd/REVIEW.md` untouched"
 
   Scenario: a code-only edit at await-review (REVIEW.md untouched) is feedback straight to grilling
     Given a test project
@@ -463,3 +497,43 @@ Feature: The bundled default workflow — full cycle journeys
     When I run gtd step check
     Then it succeeds
     And the last commit subject is "gtd(check): fixing"
+
+  Scenario: the bundled default's four agent states emit their memory scope labels
+    # The scope labels are what lets a memory-aware driver retain memory within
+    # a loop (same label across laps) and clear it at a phase boundary (a
+    # differently-labelled state). grilling=plan, building=build, fixing=fix,
+    # reviewing=review — see src/workflows/default.yaml. HEAD is set directly to
+    # each agent state to read back the emitted `gtd next --json` "memory" key.
+    Given a test project
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing.
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"grilling\""
+    And stdout contains "\"memory\":\"plan\""
+    Given a commit "gtd(human): building" that adds "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"building\""
+    And stdout contains "\"memory\":\"build\""
+    Given a commit "gtd(human): fixing" that adds ".gtd/FEEDBACK.md" with:
+      """
+      a failing test
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"fixing\""
+    And stdout contains "\"memory\":\"fix\""
+    Given a commit "gtd(human): reviewing" that adds "src/thing2.ts" with:
+      """
+      export const thing2 = 2
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"reviewing\""
+    And stdout contains "\"memory\":\"review\""

@@ -313,6 +313,7 @@ export const buildFileModeMap = (
           )
         },
         vars,
+        edges: [],
       })
     } catch (e) {
       warnings.push(
@@ -453,6 +454,7 @@ const resolveSteeringFile = (
       rest.actor,
       run,
       vars,
+      rest.stateDef.on,
     )
     const file = yield* renderFile(rest.stateDef, context)
     return { state: rest.state, file }

@@ -29,12 +29,14 @@ import {
  *     actor: <string>    # forbidden on a commit state, required otherwise
  *     script: <string>   # exactly one of script/prompt/message/commit
  *     on:                # a mapping, DECLARATION ORDER PRESERVED
- *       "<pattern>": <targetState>
+ *       "<pattern>": <targetState>                    # short form
+ *       "<pattern>": { to: <targetState>, describe: <sentence> }  # with a human-readable route description
  *     initial: true       # exactly one state across the whole workflow
  *     retry:
  *       max: <number>
  *       otherwise: <targetState>
  *     model: <string>     # optional, opaque harness hint — never on a commit state
+ *     memory: <string>    # optional, opaque memory-scope label — never on a commit state
  *     file: <string>      # optional, an Eta template naming the state's steering file — never on a commit state
  *     mode: qa | review   # optional, requires "file" — never on a commit state
  * ```
@@ -136,8 +138,11 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "initial",
   "retry",
   "model",
+  "memory",
   "file",
   "mode",
+  "reviewWindow",
+  "reviewBase",
 ])
 
 const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["vars", "states"])
@@ -189,7 +194,51 @@ const resolveContent = (
 
 // ── Per-state field compilers ────────────────────────────────────────────────
 
-/** The `on` mapping: pattern -> target, preserving declaration order as `OnEdge` tuples. */
+const KNOWN_EDGE_KEYS: ReadonlySet<string> = new Set(["to", "describe"])
+
+/**
+ * Compile one `on` row's value into an `OnEdge` (or `undefined`, pushing a
+ * finding, when the value is malformed). The value is EITHER a target-state
+ * name (a string) OR a `{ to: <target>, describe: <sentence> }` object — the
+ * object form attaches an optional human-readable `describe` a `message:`
+ * template can surface at a rest (see `PatternMachine.OnEdge`).
+ */
+const compileOnEdge = (
+  pattern: string,
+  value: unknown,
+  name: string,
+  errors: string[],
+): OnEdge | undefined => {
+  if (typeof value === "string") return [pattern, value]
+  if (!isPlainObject(value)) {
+    errors.push(
+      `state "${name}": "on" entry for pattern "${pattern}" must be a target state name (string) or a { to, describe } object`,
+    )
+    return undefined
+  }
+  const unknownKeys = Object.keys(value).filter((k) => !KNOWN_EDGE_KEYS.has(k))
+  if (unknownKeys.length > 0) {
+    errors.push(
+      `state "${name}": "on" entry for pattern "${pattern}" has unknown key(s) ${unknownKeys.join(", ")}`,
+    )
+  }
+  const { to, describe } = value
+  if (typeof to !== "string") {
+    errors.push(`state "${name}": "on.${pattern}.to" must be a target state name (string)`)
+    return undefined
+  }
+  if (describe !== undefined && typeof describe !== "string") {
+    errors.push(`state "${name}": "on.${pattern}.describe" must be a string`)
+    return undefined
+  }
+  return describe !== undefined ? [pattern, to, describe] : [pattern, to]
+}
+
+/**
+ * The `on` mapping: pattern -> edge, preserving declaration order as `OnEdge`
+ * tuples. Each row's value is compiled by `compileOnEdge` (a target string or
+ * a `{ to, describe }` object).
+ */
 const compileOn = (raw: unknown, name: string, errors: string[]): readonly OnEdge[] | undefined => {
   if (raw === undefined) return undefined
   if (!isPlainObject(raw)) {
@@ -197,12 +246,9 @@ const compileOn = (raw: unknown, name: string, errors: string[]): readonly OnEdg
     return undefined
   }
   const edges: OnEdge[] = []
-  for (const [pattern, target] of Object.entries(raw)) {
-    if (typeof target !== "string") {
-      errors.push(`state "${name}": "on" target for pattern "${pattern}" must be a string`)
-      continue
-    }
-    edges.push([pattern, target])
+  for (const [pattern, value] of Object.entries(raw)) {
+    const edge = compileOnEdge(pattern, value, name, errors)
+    if (edge !== undefined) edges.push(edge)
   }
   return edges
 }
@@ -280,6 +326,20 @@ const compileModel = (
   return raw.model
 }
 
+/** The `memory` field: an opaque memory-scope label (Eta template), or undefined (either absent or invalid — the type mismatch is its own error). Never interpreted or validated beyond "is it a string" — see `PatternMachine.StateDef.memory`. */
+const compileMemory = (
+  raw: Record<string, unknown>,
+  name: string,
+  errors: string[],
+): string | undefined => {
+  if (raw.memory === undefined) return undefined
+  if (typeof raw.memory !== "string") {
+    errors.push(`state "${name}": "memory" must be a string`)
+    return undefined
+  }
+  return raw.memory
+}
+
 /** The `file` field: an Eta template string naming the state's steering file, or undefined (either absent or invalid — the type mismatch is its own error). Vocabulary/shape rules (non-empty, forbidden on a commit state) are `validateDefinition`'s concern, not this compiler's — see `PatternMachine.StateDef.file`. */
 const compileFile = (
   raw: Record<string, unknown>,
@@ -313,13 +373,27 @@ const compileInitial = (
   raw: Record<string, unknown>,
   name: string,
   errors: string[],
+): true | undefined => compileBooleanFlag(raw, "initial", name, errors)
+
+/**
+ * A boolean state flag (`initial`/`reviewWindow`/`reviewBase`): `true` only
+ * when the raw value is the literal `true`; a non-boolean is a config error;
+ * `false` (or absent) compiles away to `undefined` so it never lands in the
+ * `StateDef` — `false` and "unset" mean the same thing for every such flag.
+ */
+const compileBooleanFlag = (
+  raw: Record<string, unknown>,
+  key: string,
+  name: string,
+  errors: string[],
 ): true | undefined => {
-  if (raw.initial === undefined) return undefined
-  if (raw.initial !== true && raw.initial !== false) {
-    errors.push(`state "${name}": "initial" must be a boolean`)
+  const value = raw[key]
+  if (value === undefined) return undefined
+  if (value !== true && value !== false) {
+    errors.push(`state "${name}": "${key}" must be a boolean`)
     return undefined
   }
-  return raw.initial === true ? true : undefined
+  return value === true ? true : undefined
 }
 
 /** One state's compiled parts, assembled into a `StateDef` (only present fields carried over — `exactOptionalPropertyTypes`). */
@@ -330,8 +404,11 @@ interface StateParts {
   readonly initial: true | undefined
   readonly retry: RetryDef | undefined
   readonly model: string | undefined
+  readonly memory: string | undefined
   readonly file: string | undefined
   readonly mode: StateMode | undefined
+  readonly reviewWindow: true | undefined
+  readonly reviewBase: true | undefined
 }
 
 const assembleContentFields = (
@@ -370,8 +447,11 @@ const assembleStateDef = (parts: StateParts): StateDef => ({
     initial: parts.initial,
     retry: parts.retry,
     model: parts.model,
+    memory: parts.memory,
     file: parts.file,
     mode: parts.mode,
+    reviewWindow: parts.reviewWindow,
+    reviewBase: parts.reviewBase,
   }),
   ...assembleContentFields(parts.content),
 })
@@ -400,8 +480,11 @@ const compileState = (
     initial: compileInitial(raw, name, errors),
     retry: compileRetry(raw.retry, name, errors),
     model: compileModel(raw, name, errors),
+    memory: compileMemory(raw, name, errors),
     file: compileFile(raw, name, errors),
     mode: compileMode(raw, name, errors),
+    reviewWindow: compileBooleanFlag(raw, "reviewWindow", name, errors),
+    reviewBase: compileBooleanFlag(raw, "reviewBase", name, errors),
   })
 }
 

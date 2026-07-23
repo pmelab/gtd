@@ -232,3 +232,35 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       """
     When I run gtd next
     Then it fails
+
+  Scenario: a state's "memory:" resolves an "it.vars" reference in "gtd next --json"
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        vars:
+          planScope: plan
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            memory: "<%= it.vars.planScope %>"
+            prompt: "do the work"
+            on:
+              "* **": done
+          done:
+            commit: "chore: done"
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"working\""
+    And stdout contains "\"memory\":\"plan\""

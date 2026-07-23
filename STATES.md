@@ -21,21 +21,30 @@ See [docs/configuration.md](docs/configuration.md) for the full `.gtdrc`
 
 A workflow is a set of named **states**. Each state declares:
 
-| Property                                      | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `actor`                                       | A plain string: who acts here. No closed vocabulary, no "kinds" — every actor just makes changes in the working tree. `gtd step <actor>` authenticates against it. **Commit states carry no `actor`** — gtd itself performs them.                                                                                                                                                                                                                                                                                                                                                    |
-| `script` \| `prompt` \| `message` \| `commit` | Exactly one — the state's content kind (see §2). All four are Eta templates, inline or a `./`-relative file reference auto-inlined at config load (see [Configuration](docs/configuration.md)).                                                                                                                                                                                                                                                                                                                                                                                      |
-| `on`                                          | An ordered map of change patterns → next state (see §3). Evaluated at step time against the pending diff; **first match wins**. Absent on a commit state (a commit state has no outgoing edges — the process ends there).                                                                                                                                                                                                                                                                                                                                                            |
-| `initial: true`                               | Exactly one state across the whole workflow: where an unrecognized HEAD resolves (see §5). Must not be a commit state.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `retry`                                       | Optional `{ max, otherwise }` — redirects a transition into this state to `otherwise` once this state has already been entered `max` times within the current process (see §7).                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `model`                                       | Optional, opaque string — a harness hint (e.g. `smart`, `fast`, or a concrete model id) emitted alongside the state's content for the driving loop to map onto its agent harness. **Rendered as an Eta template through the same `it.vars`-carrying context as content** (a plain string with no Eta tags passes through unchanged) — see [Configuration](docs/configuration.md#model--the-opaque-harness-hint-template-rendered). gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state** (never at rest, emits nothing). |
-| `file`                                        | Optional — THE steering file this state is about: the file a human/editor should look at while the machine rests here. An **Eta template**, rendered exactly like `model` (must render non-empty). **Forbidden on a commit state.** Multiple states may share one `file:`. gtd itself never reads a path out of this string — only `gtd lsp` (`src/Lsp.ts`) interprets it, to map rendered paths to `mode` — see [Configuration](docs/configuration.md#filemode--the-steering-file-association).                                                                                     |
-| `mode`                                        | Optional, requires `file:`. The associated file's FORMAT, from a closed vocabulary (`qa` \| `review`) the LSP dispatches document symbols/code actions/diagnostics on. An unknown value is a load error. Like `model`, this is opaque emitted data — the ENGINE never branches on it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                               |
+| Property                                      | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `actor`                                       | A plain string: who acts here. No closed vocabulary, no "kinds" — every actor just makes changes in the working tree. `gtd step <actor>` authenticates against it. **Commit states carry no `actor`** — gtd itself performs them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `script` \| `prompt` \| `message` \| `commit` | Exactly one — the state's content kind (see §2). All four are Eta templates, inline or a `./`-relative file reference auto-inlined at config load (see [Configuration](docs/configuration.md)).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `on`                                          | An ordered map of change patterns → next state (see §3). Evaluated at step time against the pending diff; **first match wins**. A row's value is either the target state name or a `{ to, describe }` object carrying an optional human-readable `describe` sentence (see §3). Absent on a commit state (a commit state has no outgoing edges — the process ends there).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `initial: true`                               | Exactly one state across the whole workflow: where an unrecognized HEAD resolves (see §5). Must not be a commit state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `retry`                                       | Optional `{ max, otherwise }` — redirects a transition into this state to `otherwise` once this state has already been entered `max` times within the current process (see §7).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `model`                                       | Optional, opaque string — a harness hint (e.g. `smart`, `fast`, or a concrete model id) emitted alongside the state's content for the driving loop to map onto its agent harness. **Rendered as an Eta template through the same `it.vars`-carrying context as content** (a plain string with no Eta tags passes through unchanged) — see [Configuration](docs/configuration.md#model--the-opaque-harness-hint-template-rendered). gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state** (never at rest, emits nothing).                                                                                                                                                                                                                                                                                                   |
+| `memory`                                      | Optional, opaque string — a **memory-scope label** emitted alongside the state's content for a memory-aware driving loop to compare, not act on literally: consecutive agent turns emitting the **same** label share a memory scope (the driver retains the agent's memory across them); a change in value — or the first agent turn — is where it starts fresh. This lets a loop that keeps re-entering one state (a grilling or fix loop) retain memory across its laps, while crossing to a differently-labelled state at a phase boundary clears it. **Rendered as an Eta template**, exactly like `model`; gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state.** See [Configuration](docs/configuration.md#memory--the-memory-scope-label-template-rendered) and the loop driver contract in `skills/loop/SKILL.md`. |
+| `file`                                        | Optional — THE steering file this state is about: the file a human/editor should look at while the machine rests here. An **Eta template**, rendered exactly like `model` (must render non-empty). **Forbidden on a commit state.** Multiple states may share one `file:`. gtd itself never reads a path out of this string — only `gtd lsp` (`src/Lsp.ts`) interprets it, to map rendered paths to `mode` — see [Configuration](docs/configuration.md#filemode--the-steering-file-association).                                                                                                                                                                                                                                                                                                                                                                                       |
+| `mode`                                        | Optional, requires `file:`. The associated file's FORMAT, from a closed vocabulary (`qa` \| `review`) the LSP dispatches document symbols/code actions/diagnostics on. An unknown value is a load error. Like `model`, this is opaque emitted data — the ENGINE never branches on it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `reviewWindow: true`                          | Optional boolean. While the machine RESTS at this state, gtd opens a **review checkout window** — HEAD and the index are rewound to the review base with the working tree untouched, so the whole `base..HEAD` diff surfaces as ordinary uncommitted changes in the editor's git integration; it closes automatically once the machine rests anywhere else (see §11). The pure engine never observes it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `reviewBase: true`                            | Optional boolean. Marks the state whose most-recent in-process commit anchors the review window's diff base (`base..HEAD`); absent any such state, the base is the process start (§11). Like `reviewWindow`, history-derived edge data the engine never reads. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
-**Emission:** `gtd next --json`/`gtd status --json` gain optional `file`
-(rendered) and `mode` (verbatim) keys, omitted — never `null` — when unset,
-exactly like `model`; plain `gtd status` prints `File:`/`Mode:` lines (after
-`Model:`) when set.
+**Emission:** `gtd next --json`/`gtd status --json` gain optional `memory`
+(rendered), `file` (rendered) and `mode` (verbatim) keys, omitted — never `null`
+— when unset, exactly like `model`; plain `gtd status` prints
+`Memory:`/`File:`/`Mode:` lines (after `Model:`) when set. Both also emit an
+`edges` array — the resting state's `on` edges as
+`{ pattern, target, describe? }` (the same list a `message:` template sees as
+`it.edges`, see §3) — omitted only when the state has no `on` (a commit state);
+a per-edge `describe` key is likewise omitted when that edge declares none.
+Plain-text output carries none of these structured keys (JSON-only, exactly like
+`model`/`memory`/`file`/`mode`).
 
 A state is either a **rest** (has an `actor` — `gtd` halts there and awaits that
 actor's next step) or a **commit state** (has `commit:` instead of an
@@ -85,6 +94,21 @@ changes.
 **Declaration order, first match wins.** `on` rows are evaluated top to bottom
 (a YAML mapping preserves key order); the first row whose pattern fires against
 the pending diff decides the target.
+
+**Row value: a target, or a `{ to, describe }` object.** A row's value is
+normally just the target state name. It may instead be an object
+`{ to: <target>, describe: <sentence> }`, where `describe` is a human-readable
+sentence explaining what making that kind of change does next — e.g.
+`describe: "Change nothing to accept the current state and proceed."`. The
+`describe` is **inert to the engine** — it is not part of matching, not
+Eta-rendered (exactly like the pattern key itself), and never affects a
+decision. It exists only to be surfaced: a state's own edges are handed to that
+state's content template as `it.edges` (an array of
+`{ pattern, target, describe? }`), so a human gate's `message:` can render a
+"what each change does next" list straight from the routing it documents — one
+source of truth, no prose that can drift from the `on` map.
+`gtd next --json`/`gtd status --json` emit the same `edges` array (see §1). The
+bundled default uses this at every human gate (see §10).
 
 > **Documented discrepancy:** an early design note called `"* *"` "the catch-all
 > for any dirty tree". Per the single-segment rule above that is only true when
@@ -248,6 +272,7 @@ workflow with:
   state,
 - a `retry.otherwise` naming an undefined state, or a `retry.max` that isn't a
   non-negative integer,
+- `reviewWindow`/`reviewBase` declared on a commit state (never at rest),
 - a state unreachable from the initial state by walking `on` targets and
   `retry.otherwise` redirects (checked only once the initial-state rule itself
   passes — with zero or several initials there is no well-defined start to walk
@@ -270,25 +295,34 @@ checkbox review format — that map the functionality the deleted v2 LSP server
 (`src/Lsp.ts`) used to provide over those same two files (see
 [docs/design/steering-file-loops.md](docs/design/steering-file-loops.md)):
 
-| State               | Actor | Content | `on`                                                                                                                              | Retry              | Model   | File                | Mode     |
-| ------------------- | ----- | ------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | ------------------- | -------- |
-| `idle` (initial)    | human | message | `* **` → `grilling`                                                                                                               | —                  | —       | —                   | —        |
-| `grilling`          | agent | prompt  | `* **` → `todo-validating`                                                                                                        | —                  | `smart` | `vars.todoFile`     | `qa`     |
-| `todo-validating`   | check | script  | `A .gtd/FORMAT.md` → `grilling`; `M .gtd/FORMAT.md` → `grilling`; `D .gtd/FORMAT.md` → `grilling-answer`; `C` → `grilling-answer` | —                  | —       | `vars.todoFile`     | `qa`     |
-| `grilling-answer`   | human | message | `C` → `building`; `* **` → `grilling`                                                                                             | —                  | —       | `vars.todoFile`     | `qa`     |
-| `building`          | agent | prompt  | `* **` → `checking`                                                                                                               | —                  | —       | `vars.todoFile`     | `qa`     |
-| `checking`          | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`           | —                  | —       | —                   | —        |
-| `fixing`            | agent | prompt  | `* **` → `checking`                                                                                                               | max 3 → `escalate` | —       | `vars.feedbackFile` | —        |
-| `escalate`          | human | message | `* **` → `checking`                                                                                                               | —                  | —       | `vars.feedbackFile` | —        |
-| `reviewing`         | agent | prompt  | `* **` → `review-validating`                                                                                                      | —                  | `smart` | `vars.reviewFile`   | `review` |
-| `review-validating` | check | script  | `A .gtd/FORMAT.md` → `reviewing`; `M .gtd/FORMAT.md` → `reviewing`; `D .gtd/FORMAT.md` → `await-review`; `C` → `await-review`     | —                  | —       | `vars.reviewFile`   | `review` |
-| `await-review`      | human | message | `D .gtd/REVIEW.md` → `idle`; `M .gtd/REVIEW.md` → `review-deciding`; `* **` → `grilling`                                          | —                  | —       | `vars.reviewFile`   | `review` |
-| `review-deciding`   | check | script  | `A .gtd/TODO.md` → `grilling`; `M .gtd/TODO.md` → `grilling`; `D .gtd/REVIEW.md` → `idle`; `C` → `await-review`                   | —                  | —       | `vars.reviewFile`   | `review` |
+| State               | Actor | Content | `on`                                                                                                                              | Retry              | Model   | Memory   | File                | Mode     |
+| ------------------- | ----- | ------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | -------- | ------------------- | -------- |
+| `idle` (initial)    | human | message | `* **` → `grilling`                                                                                                               | —                  | —       | —        | —                   | —        |
+| `grilling`          | agent | prompt  | `* **` → `todo-validating`                                                                                                        | —                  | `smart` | `plan`   | `vars.todoFile`     | `qa`     |
+| `todo-validating`   | check | script  | `A .gtd/FORMAT.md` → `grilling`; `M .gtd/FORMAT.md` → `grilling`; `D .gtd/FORMAT.md` → `grilling-answer`; `C` → `grilling-answer` | —                  | —       | —        | `vars.todoFile`     | `qa`     |
+| `grilling-answer`   | human | message | `C` → `building`; `* **` → `grilling`                                                                                             | —                  | —       | —        | `vars.todoFile`     | `qa`     |
+| `building`          | agent | prompt  | `* **` → `checking`                                                                                                               | —                  | —       | `build`  | `vars.todoFile`     | `qa`     |
+| `checking`          | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`           | —                  | —       | —        | —                   | —        |
+| `fixing`            | agent | prompt  | `* **` → `checking`                                                                                                               | max 3 → `escalate` | —       | `fix`    | `vars.feedbackFile` | —        |
+| `escalate`          | human | message | `* **` → `checking`                                                                                                               | —                  | —       | —        | `vars.feedbackFile` | —        |
+| `reviewing`         | agent | prompt  | `* **` → `review-validating`                                                                                                      | —                  | `smart` | `review` | `vars.reviewFile`   | `review` |
+| `review-validating` | check | script  | `A .gtd/FORMAT.md` → `reviewing`; `M .gtd/FORMAT.md` → `reviewing`; `D .gtd/FORMAT.md` → `await-review`; `C` → `await-review`     | —                  | —       | —        | `vars.reviewFile`   | `review` |
+| `await-review`      | human | message | `D .gtd/REVIEW.md` → `idle`; `M .gtd/REVIEW.md` → `review-deciding`; `* **` → `grilling`                                          | —                  | —       | —        | `vars.reviewFile`   | `review` |
+| `review-deciding`   | check | script  | `A .gtd/TODO.md` → `grilling`; `M .gtd/TODO.md` → `grilling`; `D .gtd/REVIEW.md` → `idle`; `C` → `await-review`                   | —                  | —       | —        | `vars.reviewFile`   | `review` |
 
-`File` names the workflow's own `vars:` entry the state's `file:` renders
+The four agent states' `Memory` labels (`plan`/`build`/`fix`/`review`) scope
+which turns a memory-aware driver keeps memory across: the `grilling` and
+`fixing` loops re-enter one state, so their laps share a label and retain
+memory; each phase boundary crosses to a differently-labelled state and clears
+it. `File` names the workflow's own `vars:` entry the state's `file:` renders
 (`todoFile: .gtd/TODO.md`, `reviewFile: .gtd/REVIEW.md`,
 `feedbackFile: .gtd/FEEDBACK.md` — see below); `fixing`/`escalate` declare
 `file:` alone (`.gtd/FEEDBACK.md` is plain text, no LSP format).
+
+`await-review` additionally declares **`reviewWindow: true`**: while the cycle
+rests there for human review, gtd opens a review checkout window over the whole
+cycle diff (no `reviewBase` state is declared, so the base is the cycle's
+process boundary). See §11.
 
 There is no squash — the cycle ends at human approval, an empty
 `gtd(human): idle` turn commit that rests the machine back at its own initial
@@ -389,6 +423,26 @@ both declare `model: smart`, an opaque hint `gtd next`/`gtd status` `--json`
 emit verbatim for the driving loop to map onto its harness. Every other state
 leaves `model` unset, so the harness's own default applies.
 
+The four agent states also declare a `memory:` scope label — `grilling: plan`,
+`building: build`, `fixing: fix`, `reviewing: review` — another opaque hint the
+`--json` commands emit verbatim. A memory-aware driver keeps an agent's memory
+across consecutive agent turns that share a label and starts fresh when it
+changes: the `grilling` loop (grilling ↔ todo-validating ↔ grilling-answer) and
+the `fixing` loop (fixing ↔ checking) each re-enter one agent state, so every
+lap carries the same label and the agent retains what it has already learned;
+crossing into the next phase — `building` after planning, `reviewing` after the
+fix loop — lands on a differently-labelled state, which is where the driver
+clears memory for a fresh start. gtd itself never reads the label (see §1).
+
+Every human gate (`idle`, `grilling-answer`, `escalate`, `await-review`)
+declares a `describe` on each of its `on` edges (see §3) and closes its
+`message:` with a "what each change does next" list rendered from `it.edges` —
+so the message tells the human, at that gate, which change routes to which next
+state (e.g. `await-review`: delete `.gtd/REVIEW.md` to approve → `idle`; tick a
+box → `review-deciding`; edit only code → `grilling`). The list is generated
+from the same `on` edges the engine routes on, so it can never drift from the
+routing it describes.
+
 The default's `vars:` also declares `todoFile`/`reviewFile`/`feedbackFile` (the
 three filenames above, in one place), which every `file:` and every
 prompt/script that names those files reads as `<%~ it.vars.todoFile %>` etc —
@@ -404,3 +458,51 @@ desyncing the machine. `gtd lsp` (§3 of
 reads this same `file:`/`mode:` pair to dispatch document symbols/code
 actions/diagnostics, config-driven rather than hardcoded to `TODO.md`/
 `REVIEW.md`.
+
+## 11. The review checkout window
+
+A state may declare **`reviewWindow: true`** (§1). While the machine RESTS at
+such a state, gtd surfaces the reviewable diff directly in the editor's git
+integration — no custom UI, just ordinary working-tree changes an SCM panel,
+gutters, per-file diff, and discard-hunk already understand.
+
+**Mechanism.** The whole cycle's work is already committed by the time review
+begins, so an editor would otherwise show a clean tree. gtd temporarily rewinds
+HEAD and the index to the review base (`git reset --mixed <base>`) with the
+working tree untouched, so the entire `base..HEAD` diff re-appears as
+uncommitted changes. The real head is preserved under `refs/gtd/review-head`
+(the base under `refs/gtd/review-base`) so nothing is lost.
+
+**The base.** By default it is the process start (the same boundary
+`computeProcessRun` uses — see §7), so the window shows the whole current cycle.
+A workflow can narrow it by marking an earlier state **`reviewBase: true`**: the
+most-recent in-process commit that entered such a state becomes the base, so
+only work committed after that milestone surfaces (planning-doc churn before it
+stays committed and out of view).
+
+**Open / close lifecycle.** The pure engine (§5–§8) never observes an open
+window — it is opened and closed entirely at the edge (`src/ReviewWindow.ts`),
+bracketing every state subcommand (`step`/`next`/`run`/`status`):
+
+- **Close first, always.** Before anything reads or mutates state, gtd restores
+  the real head if a window is open (keyed solely on `refs/gtd/review-head`
+  existing). This is why the machine resolves the true rest, not the rewound
+  base — and why a reviewer's own edits, made while the window was open, land as
+  the resting state's ordinary pending changes and are captured by its `on`
+  patterns like any other diff (in the bundled default, a code edit at
+  `await-review` routes to `grilling` as feedback; deleting `.gtd/REVIEW.md`
+  approves).
+- **Re-arm last.** After the subcommand finishes — on success, on refusal, and
+  after read-only commands too — gtd re-opens the window if the resolved rest
+  declares `reviewWindow: true`. Every command participates, so the editor's
+  diff view stays consistent no matter which one the driving loop last ran.
+
+Both steps are idempotent under re-entry, so a crash at any point is recovered
+by the next invocation's close. The close fails loudly (leaving the refs in
+place) only if HEAD has moved off the reviewed branch — a `--mixed` reset there
+would rewrite the wrong branch's tip; the error message spells out the manual
+recovery.
+
+`.gtd/` workflow plumbing (the review doc, plan/feedback files) is pinned back
+to the real head's index while the window is open, so the editor's unstaged view
+shows only the actual code changes.

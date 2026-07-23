@@ -8,13 +8,14 @@ import {
   resolveState,
   type ChangeStatus,
   type ContentKind,
+  type OnEdge,
   type PendingChange,
   type StateDef,
   type StateName,
   type StepDecision,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
-import { renderStateTemplate, type TemplateContext } from "./PatternTemplates.js"
+import { renderStateTemplate, type TemplateContext, type TemplateEdge } from "./PatternTemplates.js"
 
 /**
  * The v3 Effect edge (see `docs/design/pattern-machine-plan.md`, "Phase 3:
@@ -253,10 +254,17 @@ export const resolveVars = (
 
 // ── Template context ─────────────────────────────────────────────────────────
 
+/** Map a state's raw `on` edges to the `{ pattern, target, describe? }` shape templates see as `it.edges`. `undefined` (a commit state, no `on`) yields an empty list. */
+export const toTemplateEdges = (edges: readonly OnEdge[] | undefined): readonly TemplateEdge[] =>
+  (edges ?? []).map(([pattern, target, describe]) =>
+    describe !== undefined ? { pattern, target, describe } : { pattern, target },
+  )
+
 /**
  * Build the `PatternTemplates.TemplateContext` for rendering `state`'s content
  * at the resolved rest. `vars` is the already-merged three-layer map (see
- * `resolveVars`). `currentCost`/`currentModel` are the in-flight step's own
+ * `resolveVars`); `edges` is the resting state's own `on` edges (see
+ * `toTemplateEdges`). `currentCost`/`currentModel` are the in-flight step's own
  * `--cost`/`--model` (folded into the process's committed cost entries so a
  * `commit:` squash template sees the whole-process total AND per-model
  * breakdown including the squashing step) — `0`/absent for the pure emitters
@@ -269,6 +277,7 @@ export const buildTemplateContext = (
   actor: string,
   run: ProcessRun,
   vars: Record<string, string>,
+  edges: readonly OnEdge[] | undefined,
   currentCost = 0,
   currentModel?: string,
 ): Effect.Effect<TemplateContext, Error> =>
@@ -308,6 +317,7 @@ export const buildTemplateContext = (
       processCostByModel: costByModel(allCostEntries),
       read,
       vars,
+      edges: toTemplateEdges(edges),
     }
   })
 
@@ -320,10 +330,14 @@ export interface RenderedRest {
   readonly content: string
   /** The resolved rest's `model` hint, verbatim — omitted (not `undefined`-valued) when the state declares none, so `--json` callers can `key in obj`/`??`-check its absence. */
   readonly model?: string
+  /** The resolved rest's `memory` scope label, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
+  readonly memory?: string
   /** The resolved rest's `file:` steering file, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
   readonly file?: string
   /** The resolved rest's `mode:` hint, verbatim (a closed literal — never Eta-rendered) — omitted when the state declares none. */
   readonly mode?: StateDef["mode"]
+  /** The resolved rest's `on` edges as `{ pattern, target, describe? }` — the same list templates see as `it.edges` (see `toTemplateEdges`). Always present (an empty array at a commit state); `gtd next --json` emits it so a driver has the routing (and its human-readable `describe`s) alongside the rendered content. */
+  readonly edges: readonly TemplateEdge[]
 }
 
 /**
@@ -347,6 +361,24 @@ export const renderModel = (
   })
 
 /**
+ * Render a state's declared `memory:` scope label (if any) through the SAME
+ * template context as its content/`model` — see `renderModel`'s doc comment;
+ * a plain label (e.g. `"plan"`) passes through unchanged, while
+ * `memory: "<%= it.vars.planScope %>"` resolves against the merged `it.vars`.
+ * The render-failure semantics are identical (propagates as a thrown/rejected
+ * error, same call site as `gtd next`/`gtd status`).
+ */
+export const renderMemory = (
+  stateDef: StateDef,
+  context: TemplateContext,
+): Effect.Effect<string | undefined, Error> =>
+  Effect.try({
+    try: () =>
+      stateDef.memory !== undefined ? renderStateTemplate(stateDef.memory, context) : undefined,
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/**
  * Render a state's declared `file:` steering-file template (if any) through
  * the SAME template context as its content/`model` — see `renderModel`'s doc
  * comment; the render-failure semantics are identical (propagates as a
@@ -362,7 +394,7 @@ export const renderFile = (
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
-/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state) plus its `model:`/`file:` hints, if declared (see `renderModel`/`renderFile`). `mode:` is a closed literal, never Eta-rendered — passed through verbatim. */
+/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state) plus its `model:`/`memory:`/`file:` hints, if declared (see `renderModel`/`renderMemory`/`renderFile`). `mode:` is a closed literal, never Eta-rendered — passed through verbatim. */
 export const renderRest = (
   rest: ResolvedRest,
   context: TemplateContext,
@@ -381,6 +413,7 @@ export const renderRest = (
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
     const model = yield* renderModel(rest.stateDef, context)
+    const memory = yield* renderMemory(rest.stateDef, context)
     const file = yield* renderFile(rest.stateDef, context)
     return {
       state: rest.state,
@@ -388,8 +421,10 @@ export const renderRest = (
       kind,
       content,
       ...(model !== undefined ? { model } : {}),
+      ...(memory !== undefined ? { memory } : {}),
       ...(file !== undefined ? { file } : {}),
       ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
+      edges: toTemplateEdges(rest.stateDef.on),
     }
   })
 

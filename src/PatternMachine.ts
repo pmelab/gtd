@@ -40,14 +40,22 @@ export interface RetryDef {
 }
 
 /**
- * One `on` row: a raw pattern string paired with its target state. Kept as
- * an ordered PAIR (not an object key) so declaration order survives
- * regardless of how a definition is built — object key order is an
- * incidental JS guarantee that a config compiler (YAML, merged definitions)
- * could easily break by rebuilding an object; a tuple array cannot silently
- * reorder or dedupe two rows that happen to share a pattern string.
+ * One `on` row: a raw pattern string paired with its target state, plus an
+ * OPTIONAL human-readable `describe` — a plain sentence a `message:` template
+ * can surface at a rest to tell a human which change routes where (see
+ * `PatternTemplates.TemplateContext.edges`). Kept as an ordered TUPLE (not an
+ * object key) so declaration order survives regardless of how a definition is
+ * built — object key order is an incidental JS guarantee that a config
+ * compiler (YAML, merged definitions) could easily break by rebuilding an
+ * object; a tuple array cannot silently reorder or dedupe two rows that happen
+ * to share a pattern string.
+ *
+ * `describe` is INERT to the engine — `step`/`resolveState`/`matchesPattern`
+ * never read it (it is not Eta-rendered either, exactly like the pattern key
+ * itself; see STATES.md §3). It exists only to be emitted verbatim so the
+ * driving loop / a `message:` template can present it to a human.
  */
-export type OnEdge = readonly [pattern: string, target: StateName]
+export type OnEdge = readonly [pattern: string, target: StateName, describe?: string]
 
 /**
  * One state's declaration. Exactly one of `script`/`prompt`/`message`/
@@ -76,6 +84,25 @@ export interface StateDef {
    */
   readonly model?: string
   /**
+   * An OPAQUE memory-scope label — gtd never interprets this string, it only
+   * passes it through verbatim (`gtd next --json`/`gtd status --json`) so a
+   * memory-aware driving loop can decide when an agent turn continues from the
+   * previous turn's memory and when it starts fresh. The contract is a
+   * comparison, not a command: two agent turns emitting the SAME `memory`
+   * value belong to the same memory scope (the driver retains memory across
+   * them), and a change in value — or the first agent turn — is where the
+   * driver starts fresh. This makes a loop that keeps re-entering one state
+   * (e.g. a grilling or fix loop) retain memory across its laps, while a phase
+   * boundary that moves to a differently-labelled state clears it. Unset means
+   * "use the harness's default". Rendered as an Eta template through the same
+   * `it.vars`-carrying context as `model`/content (a plain string with no Eta
+   * tags passes through unchanged). Plays no role in engine decisions — `step`
+   * and `resolveState` never read it. Forbidden on a commit state (never at
+   * rest, emits nothing — see `validateDefinition`), same rule family as
+   * `model`.
+   */
+  readonly memory?: string
+  /**
    * Optional — THE steering file this state is about: the file a human/
    * editor should look at while the machine rests here. An Eta template
    * (rendered through the same `it.vars`-carrying context as content and
@@ -94,6 +121,29 @@ export interface StateDef {
    * `validateDefinition`).
    */
   readonly mode?: StateMode
+  /**
+   * Optional. When `true`, gtd opens a "review checkout window" while a
+   * process RESTS at this state: HEAD and the index are temporarily rewound to
+   * the review base (see `reviewBase`) with the working tree untouched, so the
+   * whole `base..HEAD` diff surfaces as ordinary uncommitted changes in any
+   * editor's standard git integration. The window is closed (HEAD/index
+   * restored) the moment the process rests anywhere else. This module's PURE
+   * functions never read it — `resolveState`/`step` are oblivious; the window
+   * is opened/closed entirely at the edge (`src/ReviewWindow.ts`), keyed on
+   * this flag of the resolved rest. Forbidden on a commit state (never at
+   * rest — see `validateDefinition`).
+   */
+  readonly reviewWindow?: boolean
+  /**
+   * Optional. Marks a state whose most-recent in-process turn commit is the
+   * BASE of the review window's diff (`base..HEAD`) — everything committed
+   * after entering this state surfaces as pending while the window is open.
+   * When no in-process commit entered a `reviewBase` state, the window falls
+   * back to the process start (see `src/ReviewWindow.ts`). Like `reviewWindow`
+   * the ENGINE never reads it — it is history-derived edge data. Forbidden on
+   * a commit state (see `validateDefinition`).
+   */
+  readonly reviewBase?: boolean
 }
 
 /** The closed vocabulary `mode:` may declare — see `StateDef.mode`. */
@@ -115,6 +165,14 @@ export const contentKindOf = (state: StateDef): ContentKind | undefined => {
 
 /** True when a state is a commit (final, squash) state. */
 export const isCommitState = (state: StateDef): boolean => state.commit !== undefined
+
+/** True when a rest at `state` should open the review checkout window (see `StateDef.reviewWindow`). Safe for an unknown state name (returns `false`). */
+export const isReviewWindowState = (def: WorkflowDefinition, state: StateName): boolean =>
+  def.states[state]?.reviewWindow === true
+
+/** True when `state` anchors the review window's diff base (see `StateDef.reviewBase`). Safe for an unknown state name (returns `false`). */
+export const isReviewBaseState = (def: WorkflowDefinition, state: StateName): boolean =>
+  def.states[state]?.reviewBase === true
 
 // ── Commit-subject grammar ───────────────────────────────────────────────────
 
@@ -562,6 +620,18 @@ const validateModel = (name: string, state: StateDef): string[] => {
   return errors
 }
 
+/** `memory`, when present, must be a non-empty string; forbidden on a commit state — same rule family as `model` (`validateModel`): a commit state is never at rest, so no agent turn there could carry or continue a memory scope. */
+const validateMemory = (name: string, state: StateDef): string[] => {
+  const errors: string[] = []
+  if (state.memory !== undefined && state.memory === "") {
+    errors.push(`state "${name}": "memory" must be a non-empty string`)
+  }
+  if (isCommitState(state) && state.memory !== undefined) {
+    errors.push(`state "${name}": a commit state cannot declare "memory"`)
+  }
+  return errors
+}
+
 const STATE_MODES: ReadonlySet<string> = new Set<StateMode>(["qa", "review"])
 
 /**
@@ -598,6 +668,24 @@ const validateMode = (name: string, state: StateDef): string[] => {
   }
   if (isCommitState(state)) {
     errors.push(`state "${name}": a commit state cannot declare "mode"`)
+  }
+  return errors
+}
+
+/**
+ * `reviewWindow`/`reviewBase`, when present, are booleans (the compiler
+ * enforces the type) — forbidden on a commit state, same rule family as
+ * `model`/`file`/`mode`: a commit state is never at rest, so no window ever
+ * opens or anchors there.
+ */
+const validateReviewWindow = (name: string, state: StateDef): string[] => {
+  if (!isCommitState(state)) return []
+  const errors: string[] = []
+  if (state.reviewWindow !== undefined) {
+    errors.push(`state "${name}": a commit state cannot declare "reviewWindow"`)
+  }
+  if (state.reviewBase !== undefined) {
+    errors.push(`state "${name}": a commit state cannot declare "reviewBase"`)
   }
   return errors
 }
@@ -683,8 +771,10 @@ const validateState = (
     ...validateOnEdges(name, state, names),
     ...validateRetry(name, state, names),
     ...validateModel(name, state),
+    ...validateMemory(name, state),
     ...validateFile(name, state),
     ...validateMode(name, state),
+    ...validateReviewWindow(name, state),
   ]
 }
 
@@ -699,11 +789,14 @@ const validateState = (
  * states carry an `actor`; every `on` pattern parses and every `on` target
  * and `retry.otherwise` names a defined state; `retry.max` is a
  * non-negative integer; `model`, when present, is a non-empty string and is
- * never declared on a commit state; `file`, when present, is a non-empty
+ * never declared on a commit state; `memory`, when present, is a non-empty
+ * string and is never declared on a commit state (same rule family as
+ * `model`); `file`, when present, is a non-empty
  * string and is never declared on a commit state; `mode`, when present, is
  * one of the closed vocabulary (`qa`/`review`), requires a sibling `file`,
- * and is never declared on a commit state; every state is reachable from the
- * initial state by walking `on` targets and `retry.otherwise` redirects
+ * and is never declared on a commit state; `reviewWindow`/`reviewBase`, when
+ * present, are never declared on a commit state; every state is reachable from
+ * the initial state by walking `on` targets and `retry.otherwise` redirects
  * (checked only when the initial-state rule itself passed — see
  * `validateReachability`).
  */

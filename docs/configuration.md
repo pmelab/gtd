@@ -54,12 +54,14 @@ workflow:
       message: <string>
       commit: <string>
       on: # a mapping, DECLARATION ORDER PRESERVED
-        "<pattern>": <targetState>
+        "<pattern>": <targetState> # short form
+        "<pattern>": { to: <targetState>, describe: <sentence> } # with a human-readable route description
       initial: true # exactly one state across the whole workflow
       retry:
         max: <number>
         otherwise: <targetState>
       model: <string> # optional, opaque harness hint — forbidden on a commit state
+      memory: <string> # optional, opaque memory-scope label — forbidden on a commit state
       file: <string> # optional, an Eta template naming the state's steering file — forbidden on a commit state
       mode: qa | review # optional, requires "file" — forbidden on a commit state
 ```
@@ -89,6 +91,51 @@ workflow:
 A `vars:` key sibling to `states:` inside `workflow:` declares the workflow's
 own defaults for `it.vars` — see ["Variables"](#variables) below for the full
 three-layer picture.
+
+### `on:` values — a target, or a `{ to, describe }` route description
+
+An `on` row's value is normally the target state name. It may instead be an
+object `{ to: <target>, describe: <sentence> }`, attaching a human-readable
+`describe` — a plain sentence explaining what making that kind of change does
+next. `describe` is **inert to the engine**: it plays no part in matching, is
+never Eta-rendered (exactly like the pattern key itself — see the "Known
+limitation" note below), and never affects a decision. It exists only to be
+surfaced. A state's own edges are handed to its content template as `it.edges`
+(an array of `{ pattern, target, describe? }`, in declaration order), so a human
+gate's `message:` can render a "what each change does next" list from the same
+routing the engine uses — one source of truth:
+
+```yaml
+workflow:
+  states:
+    await-review:
+      actor: human
+      message: |
+        Review the diff, then run `gtd step human`.
+
+        What each change does next:
+        <% it.edges.forEach(function (e) { if (e.describe) { %>
+        <%~ "- " + e.describe + "\n" %>
+        <% } }) %>
+      on:
+        "D .gtd/REVIEW.md":
+          to: idle
+          describe:
+            "Delete `.gtd/REVIEW.md` to approve the whole cycle and rest at
+            idle."
+        "* **":
+          to: grilling
+          describe:
+            "Change any source file to leave feedback and start another round."
+```
+
+The `<%~ "- " + e.describe + "\n" %>` idiom keeps each bullet's own newline: Eta
+strips the template's line breaks around `<% %>` control tags (its `autoTrim`
+default), not text inside an interpolation. Edges without a `describe` are
+skipped by the `if (e.describe)` guard. `gtd next --json` and
+`gtd status --json` also emit the `edges` array; both omit it when the state has
+no `on` (a commit state), and omit a per-edge `describe` when that edge declares
+none.
 
 ### `model:` — the opaque harness hint, template-rendered
 
@@ -120,6 +167,61 @@ committed.
 `gtd next --json` and `gtd status --json` include a `"model"` key (the RENDERED
 value) only when the resolved state declares one — it is **omitted entirely**,
 never emitted as `null`, when unset.
+
+### `memory:` — the memory-scope label, template-rendered
+
+A state may declare `memory: <string>` — an OPAQUE label gtd never interprets;
+it is passed through so a memory-aware driving loop can decide when an agent
+turn continues from the previous turn's memory and when it starts fresh. The
+contract is a **comparison, not a command**: two agent turns that emit the SAME
+`memory` value belong to the same memory scope (the driver retains the agent's
+memory across them), and a change in value — or the very first agent turn — is
+where the driver starts fresh. Unset means "use the harness's default."
+Forbidden on a commit state (never at rest):
+
+```yaml
+workflow:
+  states:
+    grilling:
+      actor: agent
+      memory: plan
+      prompt: develop the plan; ask open questions
+      on:
+        "* **": grilling-answer
+    grilling-answer:
+      actor: human
+      message: answer the open questions
+      on:
+        "C": building
+        "* **": grilling
+    building:
+      actor: agent
+      memory: build # a different scope — implementation starts fresh
+      prompt: implement the settled plan
+      on:
+        "* **": done
+    done:
+      commit: "feat: done"
+```
+
+Because `grilling` re-enters itself around the answer loop, every lap emits
+`memory: plan` and the planner keeps its accumulated exploration; the move to
+`building` emits a different label (`build`), which is where the driver clears
+memory for a fresh implementation turn. A loop of same-labelled turns retains; a
+differently-labelled state at a phase boundary clears. This is exactly how the
+bundled default scopes its four agent states (`plan`/`build`/`fix`/`review` —
+see [STATES.md §10](../STATES.md#10-the-bundled-default-workflow)), and how the
+loop driver reads it is spelled out in `skills/loop/SKILL.md`.
+
+Like `model`, `memory:` is rendered as an Eta template through the same context
+as the state's content — a plain label (`plan`) passes through unchanged, while
+`memory: "<%= it.vars.planScope %>"` resolves against the merged `it.vars`. A
+render failure behaves exactly like a content render failure:
+`gtd next`/`gtd status` error out, nothing committed.
+`gtd next --json`/`gtd status --json` include a `"memory"` key (the RENDERED
+value) only when the resolved state declares one — **omitted entirely**, never
+`null`, when unset. Plain `gtd status` prints a `Memory:` line (right after
+`Model:`, when present).
 
 ### `file:`/`mode:` — the steering-file association
 
@@ -172,10 +274,53 @@ change to that path MEANS keeps matching the old literal path. The vars are a
 DRY mechanism inside templates and the state↔file association, not a rename
 switch. (Making pattern keys var-aware at compile time is possible future work.)
 
+### `reviewWindow:`/`reviewBase:` — the review checkout window
+
+A state may declare `reviewWindow: true`. While the machine RESTS there, gtd
+opens a **review checkout window**: it rewinds HEAD and the index to the review
+base (`git reset --mixed`) with the working tree untouched, so the whole
+`base..HEAD` diff surfaces as ordinary uncommitted changes in the editor's git
+integration (SCM panel, gutters, per-file diff, discard-hunk). The window closes
+automatically on the next invocation, once the machine rests anywhere else — and
+a reviewer's own edits, made while it was open, become the resting state's
+ordinary pending changes, captured by its `on` patterns like any other diff.
+Forbidden on a commit state (never at rest).
+
+The diff base defaults to the current process's start. To narrow it, mark an
+earlier state `reviewBase: true`: the most-recent in-process commit that entered
+such a state becomes the base, so only work committed after that milestone
+surfaces.
+
+```yaml
+workflow:
+  states:
+    # …
+    building:
+      actor: agent
+      reviewBase: true # the diff shown at review starts here…
+      prompt: implement the plan
+      on:
+        "* **": review
+    review:
+      actor: human
+      reviewWindow: true # …and is surfaced while resting here
+      message: review the diff in your editor, then `gtd step human`
+      on:
+        "C": done
+        "* **": building
+```
+
+The bundled default enables `reviewWindow: true` on `await-review` (no
+`reviewBase` state, so the base is the whole cycle). The pure engine never
+observes an open window — it is opened/closed entirely at the edge; the real
+head is preserved under `refs/gtd/review-head` (the base under
+`refs/gtd/review-base`) for the window's lifetime. See
+[STATES.md §11](../STATES.md) for the full lifecycle.
+
 ### Template variables
 
-Every `script`/`prompt`/`message`/`commit`/`model` template is rendered as an
-Eta template (`it.<name>`) with:
+Every `script`/`prompt`/`message`/`commit`/`model`/`memory`/`file` template is
+rendered as an Eta template (`it.<name>`) with:
 
 | Variable             | Meaning                                                                                                                                                                                                                                                                                                                                    |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -240,9 +385,9 @@ the driver records) or the model name — it only records, sums, and groups them
 
 ## Variables
 
-Every template — `script`/`prompt`/`message`/`commit`, and now `model` — sees
-`it.vars`: a flat `Record<string, string>` assembled from three layers, **later
-wins**:
+Every template — `script`/`prompt`/`message`/`commit`, and `model`/`memory`/
+`file` — sees `it.vars`: a flat `Record<string, string>` assembled from three
+layers, **later wins**:
 
 1. **The workflow's own `vars:` key** (sibling to `states:`, shown above) — the
    workflow author's declared defaults. The bundled default workflow declares
