@@ -819,6 +819,50 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
   })
 
+  it("accepts a state declaring a valid `memory`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, memory: "plan", on: [] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects an empty-string `memory`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, memory: "", on: [] },
+      },
+    })
+    expect(errors).toContain('state "a": "memory" must be a non-empty string')
+  })
+
+  it("rejects a commit state that declares a `memory`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { commit: "chore: b", memory: "plan" },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "memory"')
+  })
+
+  it("aggregates a bad `memory` alongside other unrelated findings", () => {
+    const errors = validateDefinition({
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          initial: true,
+          memory: "",
+          on: [["* *", "ghost"]],
+        },
+      },
+    })
+    expect(errors).toContain('state "a": "memory" must be a non-empty string')
+    expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
+  })
+
   it("accepts a state declaring a valid `file` alone (no `mode`)", () => {
     const errors = validateDefinition({
       states: {

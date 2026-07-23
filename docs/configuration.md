@@ -61,6 +61,7 @@ workflow:
         max: <number>
         otherwise: <targetState>
       model: <string> # optional, opaque harness hint — forbidden on a commit state
+      memory: <string> # optional, opaque memory-scope label — forbidden on a commit state
       file: <string> # optional, an Eta template naming the state's steering file — forbidden on a commit state
       mode: qa | review # optional, requires "file" — forbidden on a commit state
 ```
@@ -167,6 +168,61 @@ committed.
 value) only when the resolved state declares one — it is **omitted entirely**,
 never emitted as `null`, when unset.
 
+### `memory:` — the memory-scope label, template-rendered
+
+A state may declare `memory: <string>` — an OPAQUE label gtd never interprets;
+it is passed through so a memory-aware driving loop can decide when an agent
+turn continues from the previous turn's memory and when it starts fresh. The
+contract is a **comparison, not a command**: two agent turns that emit the SAME
+`memory` value belong to the same memory scope (the driver retains the agent's
+memory across them), and a change in value — or the very first agent turn — is
+where the driver starts fresh. Unset means "use the harness's default."
+Forbidden on a commit state (never at rest):
+
+```yaml
+workflow:
+  states:
+    grilling:
+      actor: agent
+      memory: plan
+      prompt: develop the plan; ask open questions
+      on:
+        "* **": grilling-answer
+    grilling-answer:
+      actor: human
+      message: answer the open questions
+      on:
+        "C": building
+        "* **": grilling
+    building:
+      actor: agent
+      memory: build # a different scope — implementation starts fresh
+      prompt: implement the settled plan
+      on:
+        "* **": done
+    done:
+      commit: "feat: done"
+```
+
+Because `grilling` re-enters itself around the answer loop, every lap emits
+`memory: plan` and the planner keeps its accumulated exploration; the move to
+`building` emits a different label (`build`), which is where the driver clears
+memory for a fresh implementation turn. A loop of same-labelled turns retains; a
+differently-labelled state at a phase boundary clears. This is exactly how the
+bundled default scopes its four agent states (`plan`/`build`/`fix`/`review` —
+see [STATES.md §10](../STATES.md#10-the-bundled-default-workflow)), and how the
+loop driver reads it is spelled out in `skills/loop/SKILL.md`.
+
+Like `model`, `memory:` is rendered as an Eta template through the same context
+as the state's content — a plain label (`plan`) passes through unchanged, while
+`memory: "<%= it.vars.planScope %>"` resolves against the merged `it.vars`. A
+render failure behaves exactly like a content render failure:
+`gtd next`/`gtd status` error out, nothing committed.
+`gtd next --json`/`gtd status --json` include a `"memory"` key (the RENDERED
+value) only when the resolved state declares one — **omitted entirely**, never
+`null`, when unset. Plain `gtd status` prints a `Memory:` line (right after
+`Model:`, when present).
+
 ### `file:`/`mode:` — the steering-file association
 
 A state may additionally declare `file:` — an Eta template naming THE steering
@@ -263,8 +319,8 @@ head is preserved under `refs/gtd/review-head` (the base under
 
 ### Template variables
 
-Every `script`/`prompt`/`message`/`commit`/`model` template is rendered as an
-Eta template (`it.<name>`) with:
+Every `script`/`prompt`/`message`/`commit`/`model`/`memory`/`file` template is
+rendered as an Eta template (`it.<name>`) with:
 
 | Variable         | Meaning                                                                                                                                                                                                                                 |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -280,9 +336,9 @@ Eta template (`it.<name>`) with:
 
 ## Variables
 
-Every template — `script`/`prompt`/`message`/`commit`, and now `model` — sees
-`it.vars`: a flat `Record<string, string>` assembled from three layers, **later
-wins**:
+Every template — `script`/`prompt`/`message`/`commit`, and `model`/`memory`/
+`file` — sees `it.vars`: a flat `Record<string, string>` assembled from three
+layers, **later wins**:
 
 1. **The workflow's own `vars:` key** (sibling to `states:`, shown above) — the
    workflow author's declared defaults. The bundled default workflow declares

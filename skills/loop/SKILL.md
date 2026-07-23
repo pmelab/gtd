@@ -31,7 +31,9 @@ Repeat this cycle until it halts:
    optional `"model"` — an opaque string the workflow author chose (e.g.
    `"smart"`), present only when the state declares one. If present, map it to
    your harness's own model selection; if absent, use your default. gtd never
-   interprets this string itself. **`kind` is the dispatch key**:
+   interprets this string itself. There is also an optional `"memory"` — the
+   agent-memory scope; see "Agent memory scope" below for how to act on it.
+   **`kind` is the dispatch key**:
    - `"message"` (a human rest): halt — see "Halting on a human gate" below.
    - `"script"` (a check rest): `content` is an executable wrapper shell script.
      Run `gtd run` — it executes that emitted script verbatim and steps the
@@ -45,6 +47,32 @@ Repeat this cycle until it halts:
      `gtd step <actor>` yourself — the harness does). Once you're done acting,
      run `gtd step <actor>` (the `actor` from this same JSON object) to capture
      your turn, then go back to step 1.
+
+## Agent memory scope
+
+Some `"prompt"` beats carry an optional `"memory"` key — an opaque scope label
+the workflow author chose (e.g. `"plan"`, `"build"`, `"fix"`). gtd never
+interprets it; it is a signal to YOU, the driver, about whether this agent turn
+should continue from the previous agent turn's memory or start fresh. The rule
+is a comparison, not a command:
+
+- Track the `"memory"` value of the **last `"prompt"` beat you ran** (script and
+  message beats have no agent memory — they never change what you're tracking).
+- When a new `"prompt"` beat's `"memory"` **equals** the tracked value, this
+  turn is in the same memory scope: continue the SAME agent session/context, so
+  the agent still remembers what it did on the previous turn.
+- When it **differs** — or this is the first agent turn, or either side has no
+  `"memory"` key — start the turn with **fresh** agent memory (a new
+  session/context), then update the tracked value.
+
+This is what makes a loop retain memory while a phase boundary clears it: a loop
+that keeps re-entering one state (the default workflow's grilling loop, or its
+fix loop) emits the same label every lap, so the agent accumulates context
+across the loop; moving to the next phase's differently-labelled state resets
+it. If your harness runs the whole loop in one long-lived context and cannot
+start a fresh agent session per turn, treat a scope change as a cue to drop the
+prior turn's working notes rather than carry them forward. A beat with no
+`"memory"` key places no constraint — use your harness's default.
 
 ## Halting on a human gate
 

@@ -86,9 +86,9 @@ process in the same step that entered it — see
 [STATES.md §5](../STATES.md#5-resolution)).
 
 Plain mode prints the rendered content verbatim (with exactly one trailing
-newline) — never the `model`/`file`/`mode`/`edges` structured keys, which are
-JSON-only. `--json` emits
-`{state, actor, kind, content, model?, file?, mode?, edges?}`:
+newline) — never the `model`/`memory`/`file`/`mode`/`edges` structured keys,
+which are JSON-only. `--json` emits
+`{state, actor, kind, content, model?, memory?, file?, mode?, edges?}`:
 
 ```json
 {
@@ -109,6 +109,12 @@ JSON-only. `--json` emits
   [Configuration](configuration.md#model--the-opaque-harness-hint-template-rendered)),
   present only when the state declares one; **omitted entirely** (never `null`)
   when unset.
+- `memory` — the state's opaque `memory:` scope label, RENDERED the same way
+  (see
+  [Configuration](configuration.md#memory--the-memory-scope-label-template-rendered)).
+  A memory-aware driver retains an agent's memory across consecutive agent turns
+  sharing this label and starts fresh when it changes. Present only when the
+  state declares one; **omitted entirely** (never `null`) when unset.
 - `file` — the state's declared steering file, RENDERED the same way; `mode` —
   its format, verbatim (`"qa"` | `"review"`) (see
   [Configuration](configuration.md#filemode--the-steering-file-association)).
@@ -147,12 +153,12 @@ Pure, read-only dry-run reporter — the same resolution `gtd next` performs, bu
 reporting the resolved state/actor and, for every pending change, which declared
 `on` pattern (if any) matches it — no mutation, and no CONTENT rendering (the
 `script`/`prompt`/`message`/`commit` template is never rendered here, unlike
-`gtd next`). It DOES render the resolved state's `model:`/`file:` hints (if
-declared) through the same `it.vars`-carrying template context `gtd next` uses —
-see
+`gtd next`). It DOES render the resolved state's `model:`/`memory:`/`file:`
+hints (if declared) through the same `it.vars`-carrying template context
+`gtd next` uses — see
 [Configuration](configuration.md#model--the-opaque-harness-hint-template-rendered)
-— so a templated `model:`/`file:` failing to render fails `gtd status` too,
-exactly like it would fail `gtd next`.
+— so a templated `model:`/`memory:`/`file:` failing to render fails `gtd status`
+too, exactly like it would fail `gtd next`.
 
 ```
 State: working
@@ -164,16 +170,16 @@ Pending:
 
 or, on a clean tree: `Pending: (clean)`. A `Model: <value>` line appears right
 after `Awaits:` when the resolved state declares a `model:` hint, and
-`File: <value>`/`Mode: <value>` lines appear after that (in that order) when
-declared — each independently, only when set.
+`Memory: <value>`/`File: <value>`/`Mode: <value>` lines appear after that (in
+that order) when declared — each independently, only when set.
 
 `--json` emits
-`{state, actor, changes: [{status, path, pattern}], model?, file?, mode?, edges?}`
-— `pattern` is `null` when no declared row matches that change; `model`/`file`/
-`mode` are present only when the resolved state declares them (omitted entirely,
-never `null`, otherwise); `edges` is the resting state's `on` edges as
-`[{ pattern, target, describe? }]` (same as `gtd next --json`), omitted when the
-state has no `on`:
+`{state, actor, changes: [{status, path, pattern}], model?, memory?, file?, mode?, edges?}`
+— `pattern` is `null` when no declared row matches that change;
+`model`/`memory`/`file`/`mode` are present only when the resolved state declares
+them (omitted entirely, never `null`, otherwise); `edges` is the resting state's
+`on` edges as `[{ pattern, target, describe? }]` (same as `gtd next --json`),
+omitted when the state has no `on`:
 
 ```json
 {

@@ -227,6 +227,8 @@ export interface RenderedRest {
   readonly content: string
   /** The resolved rest's `model` hint, verbatim — omitted (not `undefined`-valued) when the state declares none, so `--json` callers can `key in obj`/`??`-check its absence. */
   readonly model?: string
+  /** The resolved rest's `memory` scope label, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
+  readonly memory?: string
   /** The resolved rest's `file:` steering file, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
   readonly file?: string
   /** The resolved rest's `mode:` hint, verbatim (a closed literal — never Eta-rendered) — omitted when the state declares none. */
@@ -256,6 +258,24 @@ export const renderModel = (
   })
 
 /**
+ * Render a state's declared `memory:` scope label (if any) through the SAME
+ * template context as its content/`model` — see `renderModel`'s doc comment;
+ * a plain label (e.g. `"plan"`) passes through unchanged, while
+ * `memory: "<%= it.vars.planScope %>"` resolves against the merged `it.vars`.
+ * The render-failure semantics are identical (propagates as a thrown/rejected
+ * error, same call site as `gtd next`/`gtd status`).
+ */
+export const renderMemory = (
+  stateDef: StateDef,
+  context: TemplateContext,
+): Effect.Effect<string | undefined, Error> =>
+  Effect.try({
+    try: () =>
+      stateDef.memory !== undefined ? renderStateTemplate(stateDef.memory, context) : undefined,
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/**
  * Render a state's declared `file:` steering-file template (if any) through
  * the SAME template context as its content/`model` — see `renderModel`'s doc
  * comment; the render-failure semantics are identical (propagates as a
@@ -271,7 +291,7 @@ export const renderFile = (
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
-/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state) plus its `model:`/`file:` hints, if declared (see `renderModel`/`renderFile`). `mode:` is a closed literal, never Eta-rendered — passed through verbatim. */
+/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state) plus its `model:`/`memory:`/`file:` hints, if declared (see `renderModel`/`renderMemory`/`renderFile`). `mode:` is a closed literal, never Eta-rendered — passed through verbatim. */
 export const renderRest = (
   rest: ResolvedRest,
   context: TemplateContext,
@@ -290,6 +310,7 @@ export const renderRest = (
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
     const model = yield* renderModel(rest.stateDef, context)
+    const memory = yield* renderMemory(rest.stateDef, context)
     const file = yield* renderFile(rest.stateDef, context)
     return {
       state: rest.state,
@@ -297,6 +318,7 @@ export const renderRest = (
       kind,
       content,
       ...(model !== undefined ? { model } : {}),
+      ...(memory !== undefined ? { memory } : {}),
       ...(file !== undefined ? { file } : {}),
       ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
       edges: toTemplateEdges(rest.stateDef.on),

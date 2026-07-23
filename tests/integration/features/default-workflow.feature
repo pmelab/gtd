@@ -497,3 +497,43 @@ Feature: The bundled default workflow — full cycle journeys
     When I run gtd step check
     Then it succeeds
     And the last commit subject is "gtd(check): fixing"
+
+  Scenario: the bundled default's four agent states emit their memory scope labels
+    # The scope labels are what lets a memory-aware driver retain memory within
+    # a loop (same label across laps) and clear it at a phase boundary (a
+    # differently-labelled state). grilling=plan, building=build, fixing=fix,
+    # reviewing=review — see src/workflows/default.yaml. HEAD is set directly to
+    # each agent state to read back the emitted `gtd next --json` "memory" key.
+    Given a test project
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing.
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"grilling\""
+    And stdout contains "\"memory\":\"plan\""
+    Given a commit "gtd(human): building" that adds "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"building\""
+    And stdout contains "\"memory\":\"build\""
+    Given a commit "gtd(human): fixing" that adds ".gtd/FEEDBACK.md" with:
+      """
+      a failing test
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"fixing\""
+    And stdout contains "\"memory\":\"fix\""
+    Given a commit "gtd(human): reviewing" that adds "src/thing2.ts" with:
+      """
+      export const thing2 = 2
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"reviewing\""
+    And stdout contains "\"memory\":\"review\""

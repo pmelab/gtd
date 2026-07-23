@@ -84,6 +84,25 @@ export interface StateDef {
    */
   readonly model?: string
   /**
+   * An OPAQUE memory-scope label — gtd never interprets this string, it only
+   * passes it through verbatim (`gtd next --json`/`gtd status --json`) so a
+   * memory-aware driving loop can decide when an agent turn continues from the
+   * previous turn's memory and when it starts fresh. The contract is a
+   * comparison, not a command: two agent turns emitting the SAME `memory`
+   * value belong to the same memory scope (the driver retains memory across
+   * them), and a change in value — or the first agent turn — is where the
+   * driver starts fresh. This makes a loop that keeps re-entering one state
+   * (e.g. a grilling or fix loop) retain memory across its laps, while a phase
+   * boundary that moves to a differently-labelled state clears it. Unset means
+   * "use the harness's default". Rendered as an Eta template through the same
+   * `it.vars`-carrying context as `model`/content (a plain string with no Eta
+   * tags passes through unchanged). Plays no role in engine decisions — `step`
+   * and `resolveState` never read it. Forbidden on a commit state (never at
+   * rest, emits nothing — see `validateDefinition`), same rule family as
+   * `model`.
+   */
+  readonly memory?: string
+  /**
    * Optional — THE steering file this state is about: the file a human/
    * editor should look at while the machine rests here. An Eta template
    * (rendered through the same `it.vars`-carrying context as content and
@@ -601,6 +620,18 @@ const validateModel = (name: string, state: StateDef): string[] => {
   return errors
 }
 
+/** `memory`, when present, must be a non-empty string; forbidden on a commit state — same rule family as `model` (`validateModel`): a commit state is never at rest, so no agent turn there could carry or continue a memory scope. */
+const validateMemory = (name: string, state: StateDef): string[] => {
+  const errors: string[] = []
+  if (state.memory !== undefined && state.memory === "") {
+    errors.push(`state "${name}": "memory" must be a non-empty string`)
+  }
+  if (isCommitState(state) && state.memory !== undefined) {
+    errors.push(`state "${name}": a commit state cannot declare "memory"`)
+  }
+  return errors
+}
+
 const STATE_MODES: ReadonlySet<string> = new Set<StateMode>(["qa", "review"])
 
 /**
@@ -740,6 +771,7 @@ const validateState = (
     ...validateOnEdges(name, state, names),
     ...validateRetry(name, state, names),
     ...validateModel(name, state),
+    ...validateMemory(name, state),
     ...validateFile(name, state),
     ...validateMode(name, state),
     ...validateReviewWindow(name, state),
@@ -757,7 +789,9 @@ const validateState = (
  * states carry an `actor`; every `on` pattern parses and every `on` target
  * and `retry.otherwise` names a defined state; `retry.max` is a
  * non-negative integer; `model`, when present, is a non-empty string and is
- * never declared on a commit state; `file`, when present, is a non-empty
+ * never declared on a commit state; `memory`, when present, is a non-empty
+ * string and is never declared on a commit state (same rule family as
+ * `model`); `file`, when present, is a non-empty
  * string and is never declared on a commit state; `mode`, when present, is
  * one of the closed vocabulary (`qa`/`review`), requires a sibling `file`,
  * and is never declared on a commit state; `reviewWindow`/`reviewBase`, when
