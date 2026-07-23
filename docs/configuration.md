@@ -177,17 +177,55 @@ switch. (Making pattern keys var-aware at compile time is possible future work.)
 Every `script`/`prompt`/`message`/`commit`/`model` template is rendered as an
 Eta template (`it.<name>`) with:
 
-| Variable         | Meaning                                                                                                                                                                                                                                 |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `startCommit`    | The hash the current process started from (before its first turn).                                                                                                                                                                      |
-| `currentCommit`  | HEAD's hash at render time.                                                                                                                                                                                                             |
-| `previousCommit` | The hash before the last transition (HEAD's parent, in-process).                                                                                                                                                                        |
-| `state`          | The state whose content is being rendered.                                                                                                                                                                                              |
-| `actor`          | The actor this render is for.                                                                                                                                                                                                           |
-| `processDiff`    | `startCommit..HEAD` plus the pending working-tree diff.                                                                                                                                                                                 |
-| `lastDiff`       | The diff of the last transition alone.                                                                                                                                                                                                  |
-| `read(path)`     | Reads a working-tree file (pending contents, not HEAD's) by repo-relative path. Throws for a missing/unreadable path — for a `commit:` template, that throw refuses the step (see [STATES.md §8](../STATES.md#8-the-squash-lifecycle)). |
-| `vars`           | The merged three-layer variable map, always a flat `Record<string, string>` — see ["Variables"](#variables) below.                                                                                                                      |
+| Variable         | Meaning                                                                                                                                                                                                                                                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `startCommit`    | The hash the current process started from (before its first turn).                                                                                                                                                                                                                                                                   |
+| `currentCommit`  | HEAD's hash at render time.                                                                                                                                                                                                                                                                                                          |
+| `previousCommit` | The hash before the last transition (HEAD's parent, in-process).                                                                                                                                                                                                                                                                     |
+| `state`          | The state whose content is being rendered.                                                                                                                                                                                                                                                                                           |
+| `actor`          | The actor this render is for.                                                                                                                                                                                                                                                                                                        |
+| `processDiff`    | `startCommit..HEAD` plus the pending working-tree diff.                                                                                                                                                                                                                                                                              |
+| `lastDiff`       | The diff of the last transition alone.                                                                                                                                                                                                                                                                                               |
+| `processCost`    | The accumulated token cost of the current process — the sum of every `Gtd-Cost:` trailer recorded by `gtd step <actor> --cost=<n>` across its turn commits, plus the in-flight step's own `--cost` (so a `commit:` squash template sees the whole-process total). A number, `0` when none recorded. See ["Token cost"](#token-cost). |
+| `read(path)`     | Reads a working-tree file (pending contents, not HEAD's) by repo-relative path. Throws for a missing/unreadable path — for a `commit:` template, that throw refuses the step (see [STATES.md §8](../STATES.md#8-the-squash-lifecycle)).                                                                                              |
+| `vars`           | The merged three-layer variable map, always a flat `Record<string, string>` — see ["Variables"](#variables) below.                                                                                                                                                                                                                   |
+
+### Token cost
+
+A loop driver that knows how many tokens the invocation it just drove cost can
+record it with `gtd step <actor> --cost=<n>` (a non-negative number). gtd
+appends it to that turn's commit as a `Gtd-Cost: <n>` trailer — a blank line
+then the trailer, below the untouched `gtd(<actor>): <state>` subject — so the
+per-turn cost is persisted in the git log:
+
+```
+gtd(agent): reviewing
+
+Gtd-Cost: 1450
+```
+
+`gtd status` shows the process's running total (a `Cost:` line / a `cost` key,
+omitted when nothing has been recorded), and `gtd step --json` echoes the number
+it recorded (`{ "state": …, "subject": …, "cost": 1450 }`).
+
+Every template sees the running total as `it.processCost` (the table above): the
+sum of the current process's turn-commit trailers, plus the in-flight step's own
+`--cost`. Its intended use is a `commit:` squash template, which renders against
+the pending tree as the process collapses — so the whole feature's total
+(including the squashing step itself) lands in the squash message even though
+the intermediate per-turn trailers are discarded with the turns they rode on:
+
+```yaml
+done:
+  commit: |
+    feat: ship it
+
+    Total token cost: <%= it.processCost %>
+```
+
+`--cost` is accepted only by `gtd step` (a usage error on any other command),
+and gtd never interprets the number's unit — tokens, cents, whatever the driver
+records — it only sums and reports it.
 
 ## Variables
 

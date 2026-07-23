@@ -73,12 +73,16 @@ export interface GitReaderOperations {
 
 export interface GitWriterOperations {
   /**
-   * `git add -A` then `git commit --allow-empty -m "<prefix>"`. `--allow-empty`
-   * is load-bearing: the machine emits `commitPending` with a fixed prefix even
+   * `git add -A` then `git commit --allow-empty -m "<message>"`. `--allow-empty`
+   * is load-bearing: the machine emits `commitPending` with a fixed subject even
    * on a clean tree (e.g. `gtd: grilled`), and the uncommitted-FEEDBACK Fixing
    * path can net an empty commit — neither must throw "nothing to commit".
+   * `message` is normally the bare `gtd(<actor>): <state>` subject, but may
+   * carry a trailing body (a blank line then a `Gtd-Cost: <n>` trailer when
+   * `gtd step --cost=<n>` recorded one) — `-m` preserves embedded newlines
+   * verbatim, and the subject line is untouched.
    */
-  readonly commitAllWithPrefix: (prefix: string) => Effect.Effect<void, Error>
+  readonly commitAllWithPrefix: (message: string) => Effect.Effect<void, Error>
   readonly softResetTo: (ref: string) => Effect.Effect<void, Error>
   /**
    * `git commit --allow-empty -m <message>` — commits whatever is CURRENTLY

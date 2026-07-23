@@ -9,6 +9,7 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   actor: "agent",
   processDiff: "diff --git a/x.ts b/x.ts\n+added\n",
   lastDiff: "diff --git a/y.ts b/y.ts\n+last\n",
+  processCost: 0,
   read: (path: string) => {
     if (path.endsWith("missing.md"))
       throw new Error(`ENOENT: no such file or directory, open '${path}'`)
@@ -46,6 +47,14 @@ describe("renderStateTemplate — the full variable set", () => {
   it("renders the merged `it.vars` map by name", () => {
     const out = renderStateTemplate("greeting=<%= it.vars.greeting %>", baseContext())
     expect(out).toBe("greeting=hi")
+  })
+
+  it("renders it.processCost — the accumulated token cost (e.g. for a squash commit message)", () => {
+    const out = renderStateTemplate(
+      "Total tokens: <%= it.processCost %>",
+      baseContext({ processCost: 8421 }),
+    )
+    expect(out).toBe("Total tokens: 8421")
   })
 
   it("`it.vars` is always a plain object, even when empty — usable via `in` checks", () => {

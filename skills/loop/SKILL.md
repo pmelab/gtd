@@ -44,7 +44,11 @@ Repeat this cycle until it halts:
      Execute exactly what it says (the prompt itself says not to run
      `gtd step <actor>` yourself — the harness does). Once you're done acting,
      run `gtd step <actor>` (the `actor` from this same JSON object) to capture
-     your turn, then go back to step 1.
+     your turn, then go back to step 1. If your harness reports the token cost
+     of that agent invocation, pass it as `gtd step <actor> --cost=<n>` — gtd
+     records it on the turn commit and sums it across the process into
+     `it.processCost` (e.g. for a squash commit message). Omit `--cost` when you
+     don't have a number; it is always optional.
 
 ## Halting on a human gate
 
