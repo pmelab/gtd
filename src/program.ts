@@ -22,6 +22,7 @@ import {
 } from "./Edge.js"
 import { formatFile } from "./Format.js"
 import { startLspServer } from "./Lsp.js"
+import { renderMermaid } from "./Mermaid.js"
 import {
   matchesPattern,
   parsePattern,
@@ -46,6 +47,8 @@ Commands:
                    actor (the built-in script driver)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
+  mermaid          Print the active workflow's shape as Mermaid
+                   stateDiagram-v2 source (no mutation)
   format <file>    Format a markdown file in place
   lsp              Start the LSP server for .gtd/ steering files (stdio)
 
@@ -403,7 +406,31 @@ const runStatusCommand = (
     }
   })
 
-const KNOWN_SUBCOMMANDS = ["step", "next", "run", "status"] as const
+/**
+ * `gtd mermaid`: pure emitter of the active workflow's SHAPE (not the
+ * resolved rest) as Mermaid `stateDiagram-v2` source — see `src/Mermaid.ts`.
+ * Needs only `ConfigService` (no HEAD resolution, no rendering), but is
+ * dispatched alongside `next`/`status` since it still depends on the active
+ * `.gtdrc` — unlike `format`/`lsp`, which need neither git nor config — so it
+ * goes through the same repository-root guard and auto-init. Rejects
+ * `--json`: there is no structured shape to emit beyond the Mermaid source
+ * itself.
+ */
+const runMermaidCommand = (
+  argv: readonly string[],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, ProgramRequirements> =>
+  Effect.gen(function* () {
+    if (json) {
+      return yield* Effect.fail(new Error("gtd mermaid does not accept --json"))
+    }
+    yield* rejectExtraArgs("mermaid", argv)
+    const config = yield* ConfigService
+    write(renderMermaid(config.workflow))
+  })
+
+const KNOWN_SUBCOMMANDS = ["step", "next", "run", "status", "mermaid"] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
 /**
@@ -488,6 +515,8 @@ const dispatchKnownSubcommand = (
       return runRunCommand(argv, json, write)
     case "status":
       return runStatusCommand(argv, json, write)
+    case "mermaid":
+      return runMermaidCommand(argv, json, write)
   }
 }
 

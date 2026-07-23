@@ -1,9 +1,9 @@
 @inmem
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
-  gtd v3 exposes `step <actor>`, `next`, `run`, `status`, `format`, and `lsp`
-  as its subcommands. Bare `gtd` (no subcommand) is a usage error. `--help`
-  and `--version` short-circuit before any repo-state work and exit 0
+  gtd v3 exposes `step <actor>`, `next`, `run`, `status`, `mermaid`, `format`,
+  and `lsp` as its subcommands. Bare `gtd` (no subcommand) is a usage error.
+  `--help` and `--version` short-circuit before any repo-state work and exit 0
   everywhere, including outside a workflow state.
 
   Scenario: Bare gtd fails with usage help and authors nothing
