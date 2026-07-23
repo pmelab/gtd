@@ -384,6 +384,23 @@ Feature: The bundled default workflow — full cycle journeys
     And the last commit subject is "gtd(human): idle"
     And ".gtd/REVIEW.md" does not exist
 
+  Scenario: at await-review, gtd next surfaces which change routes where — the human gate's route list, rendered from its `on` edge descriptions
+    Given a test project
+    And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Chunk
+
+      - [ ] ./src/thing.ts#1
+      """
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "What each change does next (then run `gtd step human`):"
+    And stdout contains "- Delete `.gtd/REVIEW.md` outright to approve the whole cycle"
+    And stdout contains "- Change only code, leaving `.gtd/REVIEW.md` untouched"
+
   Scenario: a code-only edit at await-review (REVIEW.md untouched) is feedback straight to grilling
     Given a test project
     And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:

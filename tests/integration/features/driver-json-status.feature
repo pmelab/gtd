@@ -1,9 +1,11 @@
 @inmem
 Feature: Driver protocol — gtd next --json content kinds, gtd status pattern matches
 
-  Pins the `gtd next --json` contract (`{state, actor, kind, content}`, see
-  docs/design/pattern-machine-plan.md §3) for the `script` and `prompt` kinds
-  — smoke.feature already pins the `message` kind at `idle` — and `gtd
+  Pins the `gtd next --json` contract (`{state, actor, kind, content, edges}`,
+  see docs/design/pattern-machine-plan.md §3) for the `script` and `prompt`
+  kinds — smoke.feature already pins the `message` kind at `idle` — the
+  `edges` list (the resting state's `on` edges as `{pattern, target,
+  describe?}`, also what a `message:` template sees as `it.edges`), and `gtd
   status`'s pattern-match reporting (plain text and `--json`), which shows
   which declared `on` pattern (if any) each pending change matches.
 
@@ -289,3 +291,73 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout does not contain "\"file\""
     And stdout does not contain "\"mode\""
+
+  Scenario: a human gate's message renders its `on` edge descriptions as a route list, and gtd next --json carries the same edges
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          gate:
+            actor: human
+            initial: true
+            message: |
+              Decide what to do next.
+
+              What each change does next (then run `gtd step human`):
+              <% it.edges.forEach(function (e) { if (e.describe) { %>
+              <%~ "- " + e.describe + "\n" %>
+              <% } }) %>
+            on:
+              "C":
+                to: accept
+                describe: "Change nothing to accept the current state and proceed."
+              "* **":
+                to: revise
+                describe: "Change any source file to leave feedback and start another round."
+          accept:
+            commit: "chore: accept"
+          revise:
+            actor: agent
+            prompt: "revise"
+            on:
+              "* **": gate
+      """
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "What each change does next (then run `gtd step human`):"
+    And stdout contains "- Change nothing to accept the current state and proceed."
+    And stdout contains "- Change any source file to leave feedback and start another round."
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"pattern\":\"C\""
+    And stdout contains "\"target\":\"accept\""
+    And stdout contains "\"describe\":\"Change nothing to accept the current state and proceed.\""
+    And stdout contains "\"target\":\"revise\""
+
+  Scenario: a string-form `on` edge emits an edge with no describe, and gtd next --json omits "edges" for a commit-only-target state with none
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "go"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "..."
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"edges\":[{\"pattern\":\"* **\",\"target\":\"idle\"}]"
+    And stdout does not contain "\"describe\""

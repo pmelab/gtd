@@ -125,13 +125,31 @@ states:
   idle:
     actor: human
     initial: true
+    # Every human-gate `message:` below closes with the SAME rendered block —
+    # a "What each change does next" list built from `it.edges`, the resting
+    # state's own `on` edges (see PatternTemplates.TemplateContext.edges). Each
+    # edge's human-readable route lives in its `describe:` (the single source
+    # of truth), so the list can never drift from the routing it documents.
+    # The block skips edges without a `describe`, and each `<%~ ... "\n" %>`
+    # keeps the bullet's own newline (Eta's autoTrim strips the template's own
+    # line breaks around `<% %>` tags, not text inside an interpolation).
     message: |
       No active gtd cycle.
 
-      To start one: write `.gtd/TODO.md` with a short sketch of what you want
-      built — a few sentences is enough — then run `gtd step human`.
+      To start one, write `.gtd/TODO.md` with a short sketch of what you want
+      built — a few sentences is enough.
+
+      What each change does next (then run `gtd step human`):
+      <% it.edges.forEach(function (e) { if (e.describe) { %>
+      <%~ "- " + e.describe + "\n" %>
+      <% } }) %>
     on:
-      "* **": grilling
+      "* **":
+        to: grilling
+        describe: >-
+          Save your sketch to `.gtd/TODO.md` (any working-tree change) to start
+          the cycle — the agent reads it, explores the codebase, and develops it
+          into a concrete implementation plan (**grilling**).
 
   grilling:
     actor: agent
@@ -262,17 +280,24 @@ states:
     message: |
       `<%= it.vars.todoFile %>` holds the plan under development, with any
       open questions under `## Open Questions` — each carrying a suggested
-      default.
+      default. Answer a question by editing its entry in place: replace its
+      `Suggested default: ...` line with `Answer: ...`, or add further detail.
 
-      To answer a question, edit its entry in place (replace
-      `Suggested default: ...` with `Answer: ...`, or add further detail),
-      then run `gtd step human`.
-
-      To accept all suggested defaults as-is and move on to implementation,
-      run `gtd step human` with no edits.
+      What each change does next (then run `gtd step human`):
+      <% it.edges.forEach(function (e) { if (e.describe) { %>
+      <%~ "- " + e.describe + "\n" %>
+      <% } }) %>
     on:
-      "C": building
-      "* **": grilling
+      "C":
+        to: building
+        describe: >-
+          Change nothing to accept every suggested default as-is and move on to
+          implementation (**building**).
+      "* **":
+        to: grilling
+        describe: >-
+          Edit the plan — answer a question, add detail, or raise a new one — to
+          send it back for another round of grilling (**grilling**).
 
   building:
     actor: agent
@@ -363,11 +388,16 @@ states:
       The agent could not get the check to pass after repeated attempts.
       `<%= it.vars.feedbackFile %>` holds the last failing output.
 
-      Investigate and fix it yourself (editing code and/or
-      `<%= it.vars.feedbackFile %>`), then run `gtd step human` to try the
-      check again.
+      What each change does next (then run `gtd step human`):
+      <% it.edges.forEach(function (e) { if (e.describe) { %>
+      <%~ "- " + e.describe + "\n" %>
+      <% } }) %>
     on:
-      "* **": checking
+      "* **":
+        to: checking
+        describe: >-
+          Fix the failure yourself — edit the code and/or `.gtd/FEEDBACK.md` —
+          to re-run the check (**checking**).
 
   reviewing:
     actor: agent
@@ -517,26 +547,31 @@ states:
     reviewWindow: true
     message: |
       `<%= it.vars.reviewFile %>` holds the review record for the completed
-      cycle — tick a pointer's `- [ ]` box to `- [x]` to approve that item;
-      add notes, untick, or edit code for feedback.
+      cycle — one `- [ ]` checkbox per reviewable item, grouped into chunks.
 
-      To approve: tick every box, then run `gtd step human`.
-
-      To approve the whole cycle without ticking every box individually:
-      delete `<%= it.vars.reviewFile %>` and run `gtd step human`.
-
-      To request changes: edit `<%= it.vars.reviewFile %>`
-      (ticking/unticking boxes, adding notes) and/or the code, then run
-      `gtd step human` — any edit to `<%= it.vars.reviewFile %>` sends the
-      cycle to a deterministic check that either closes the cycle out (every
-      box ticked) or extracts the still-unticked items into a fresh
-      `<%= it.vars.todoFile %>` and routes back through grilling with that
-      feedback. Code-only edits (leaving `<%= it.vars.reviewFile %>`
-      untouched) go straight back to grilling.
+      What each change does next (then run `gtd step human`):
+      <% it.edges.forEach(function (e) { if (e.describe) { %>
+      <%~ "- " + e.describe + "\n" %>
+      <% } }) %>
     on:
-      "D .gtd/REVIEW.md": idle
-      "M .gtd/REVIEW.md": review-deciding
-      "* **": grilling
+      "D .gtd/REVIEW.md":
+        to: idle
+        describe: >-
+          Delete `.gtd/REVIEW.md` outright to approve the whole cycle at once
+          and rest back at the start (**idle**).
+      "M .gtd/REVIEW.md":
+        to: review-deciding
+        describe: >-
+          Edit `.gtd/REVIEW.md` — tick a `- [ ]` box to `- [x]` to approve that
+          item, or add notes — to hand it to a deterministic check
+          (**review-deciding**) that closes the cycle out when every box is
+          ticked, or extracts the still-unticked items into a fresh
+          `.gtd/TODO.md` and loops back through **grilling** with that feedback.
+      "* **":
+        to: grilling
+        describe: >-
+          Change only code, leaving `.gtd/REVIEW.md` untouched, to send that as
+          feedback straight back to **grilling**.
 
   review-deciding:
     actor: check

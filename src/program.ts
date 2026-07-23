@@ -16,6 +16,7 @@ import {
   renderRest,
   resolveRest,
   resolveVars,
+  toTemplateEdges,
   type ExecutableDecision,
   type ProcessRun,
   type ResolvedRest,
@@ -164,6 +165,7 @@ const resolveRestContext = (
       rest.actor,
       run,
       vars,
+      rest.stateDef.on,
     )
     return { rest, run, context }
   })
@@ -209,13 +211,15 @@ const stepAsActor = (
 
     const executable: ExecutableDecision = decision
     const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const renderedState = decision.kind === "squash" ? decision.state : rest.state
     const context = yield* buildTemplateContext(
       git,
       worktree.read,
-      decision.kind === "squash" ? decision.state : rest.state,
+      renderedState,
       invoker,
       run,
       vars,
+      rest.def.states[renderedState]?.on,
     )
     const outcome = yield* executeDecision(git, run, executable, context)
     return { state: rest.state, subject: outcome.kind === "noop" ? null : outcome.subject }
@@ -277,6 +281,7 @@ const runNextCommand = (
           ...(rendered.model !== undefined ? { model: rendered.model } : {}),
           ...(rendered.file !== undefined ? { file: rendered.file } : {}),
           ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
+          ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
         }) + "\n",
       )
     } else {
@@ -351,6 +356,7 @@ const writeStatusJson = (
   model: string | undefined,
   file: string | undefined,
 ): void => {
+  const edges = toTemplateEdges(rest.stateDef.on)
   write(
     JSON.stringify({
       state: rest.state,
@@ -359,6 +365,7 @@ const writeStatusJson = (
       ...(model !== undefined ? { model } : {}),
       ...(file !== undefined ? { file } : {}),
       ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
+      ...(edges.length > 0 ? { edges } : {}),
     }) + "\n",
   )
 }

@@ -86,8 +86,9 @@ process in the same step that entered it — see
 [STATES.md §5](../STATES.md#5-resolution)).
 
 Plain mode prints the rendered content verbatim (with exactly one trailing
-newline) — never the `model`/`file`/`mode` hints, which are JSON-only. `--json`
-emits `{state, actor, kind, content, model?, file?, mode?}`:
+newline) — never the `model`/`file`/`mode`/`edges` structured keys, which are
+JSON-only. `--json` emits
+`{state, actor, kind, content, model?, file?, mode?, edges?}`:
 
 ```json
 {
@@ -113,6 +114,14 @@ emits `{state, actor, kind, content, model?, file?, mode?}`:
   [Configuration](configuration.md#filemode--the-steering-file-association)).
   Both present only when the state declares them; **omitted entirely** (never
   `null`) otherwise.
+- `edges` — the resting state's `on` edges as `[{ pattern, target, describe? }]`
+  (declaration order) — the same list the content template sees as `it.edges`
+  (see
+  [Configuration](configuration.md#on-values--a-target-or-a--to-describe--route-description)).
+  A driver relaying a human gate's message has the routing (and each edge's
+  human-readable `describe`) alongside the rendered text. **Omitted entirely**
+  when the state has no `on` (a commit state); a per-edge `describe` is likewise
+  omitted when that edge declares none.
 
 ## `gtd run`
 
@@ -159,10 +168,12 @@ after `Awaits:` when the resolved state declares a `model:` hint, and
 declared — each independently, only when set.
 
 `--json` emits
-`{state, actor, changes: [{status, path, pattern}], model?, file?, mode?}` —
-`pattern` is `null` when no declared row matches that change; `model`/`file`/
+`{state, actor, changes: [{status, path, pattern}], model?, file?, mode?, edges?}`
+— `pattern` is `null` when no declared row matches that change; `model`/`file`/
 `mode` are present only when the resolved state declares them (omitted entirely,
-never `null`, otherwise):
+never `null`, otherwise); `edges` is the resting state's `on` edges as
+`[{ pattern, target, describe? }]` (same as `gtd next --json`), omitted when the
+state has no `on`:
 
 ```json
 {

@@ -54,7 +54,8 @@ workflow:
       message: <string>
       commit: <string>
       on: # a mapping, DECLARATION ORDER PRESERVED
-        "<pattern>": <targetState>
+        "<pattern>": <targetState> # short form
+        "<pattern>": { to: <targetState>, describe: <sentence> } # with a human-readable route description
       initial: true # exactly one state across the whole workflow
       retry:
         max: <number>
@@ -89,6 +90,51 @@ workflow:
 A `vars:` key sibling to `states:` inside `workflow:` declares the workflow's
 own defaults for `it.vars` — see ["Variables"](#variables) below for the full
 three-layer picture.
+
+### `on:` values — a target, or a `{ to, describe }` route description
+
+An `on` row's value is normally the target state name. It may instead be an
+object `{ to: <target>, describe: <sentence> }`, attaching a human-readable
+`describe` — a plain sentence explaining what making that kind of change does
+next. `describe` is **inert to the engine**: it plays no part in matching, is
+never Eta-rendered (exactly like the pattern key itself — see the "Known
+limitation" note below), and never affects a decision. It exists only to be
+surfaced. A state's own edges are handed to its content template as `it.edges`
+(an array of `{ pattern, target, describe? }`, in declaration order), so a human
+gate's `message:` can render a "what each change does next" list from the same
+routing the engine uses — one source of truth:
+
+```yaml
+workflow:
+  states:
+    await-review:
+      actor: human
+      message: |
+        Review the diff, then run `gtd step human`.
+
+        What each change does next:
+        <% it.edges.forEach(function (e) { if (e.describe) { %>
+        <%~ "- " + e.describe + "\n" %>
+        <% } }) %>
+      on:
+        "D .gtd/REVIEW.md":
+          to: idle
+          describe:
+            "Delete `.gtd/REVIEW.md` to approve the whole cycle and rest at
+            idle."
+        "* **":
+          to: grilling
+          describe:
+            "Change any source file to leave feedback and start another round."
+```
+
+The `<%~ "- " + e.describe + "\n" %>` idiom keeps each bullet's own newline: Eta
+strips the template's line breaks around `<% %>` control tags (its `autoTrim`
+default), not text inside an interpolation. Edges without a `describe` are
+skipped by the `if (e.describe)` guard. `gtd next --json` and
+`gtd status --json` also emit the `edges` array; both omit it when the state has
+no `on` (a commit state), and omit a per-edge `describe` when that edge declares
+none.
 
 ### `model:` — the opaque harness hint, template-rendered
 
