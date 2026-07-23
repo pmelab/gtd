@@ -911,6 +911,81 @@ describe("validateDefinition", () => {
       true,
     )
   })
+
+  it("rejects a state unreachable from the initial state", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "done"]] },
+        orphan: { actor: "h", message: "never entered", on: [["* *", "done"]] },
+        done: { commit: "chore: done" },
+      },
+    })
+    expect(errors).toEqual([
+      'state "orphan" is unreachable from initial state "a" (no "on" target or "retry.otherwise" leads to it)',
+    ])
+  })
+
+  it("counts a `retry.otherwise` redirect as a reachability edge", () => {
+    // "escalate" is entered ONLY via checking's retry redirect — it must not
+    // be reported as unreachable (retryWorkflow's shape, minimized).
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "checking"]] },
+        checking: {
+          actor: "check",
+          script: "t",
+          retry: { max: 1, otherwise: "escalate" },
+          on: [["* *", "checking"]],
+        },
+        escalate: { actor: "h", message: "stuck", on: [["* *", "checking"]] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("reports a whole disconnected cluster as unreachable, not just its entry", () => {
+    // b and c reach each other but nothing reaches the pair from "a".
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "a"]] },
+        b: { actor: "h", message: "b", on: [["* *", "c"]] },
+        c: { actor: "h", message: "c", on: [["* *", "b"]] },
+      },
+    })
+    expect(errors).toContain(
+      'state "b" is unreachable from initial state "a" (no "on" target or "retry.otherwise" leads to it)',
+    )
+    expect(errors).toContain(
+      'state "c" is unreachable from initial state "a" (no "on" target or "retry.otherwise" leads to it)',
+    )
+  })
+
+  it("skips the reachability walk when the initial-state rule already failed", () => {
+    // Two initials: every state would look "unreachable" from an undefined
+    // start — the reachability check must stay silent rather than bury the
+    // real finding.
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [] },
+        b: { actor: "h", message: "y", initial: true, on: [] },
+      },
+    })
+    expect(errors.some((e) => e.includes("exactly one initial state"))).toBe(true)
+    expect(errors.some((e) => e.includes("unreachable"))).toBe(false)
+  })
+
+  it("does not double-report an undefined `on` target as also unreachable", () => {
+    // "ghost" is not a defined state: that is validateOnEdges's finding; the
+    // reachability walk skips undefined targets rather than crashing, and
+    // reports nothing extra for a definition whose defined states are all
+    // reachable.
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "ghost"]] },
+      },
+    })
+    expect(errors).toEqual(['state "a": "on" target "ghost" is not a defined state'])
+  })
 })
 
 // ── δ-purity property: decision depends only on (state def, invoker, payload) ─

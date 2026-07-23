@@ -1,8 +1,14 @@
 # Research: static validation of workflow definitions
 
-> Status: RESEARCH — no implementation yet. Surveys common algorithms and
-> patterns for validating state-machine configurations at load time, maps them
-> onto gtd's v3 pattern machine, and recommends a tiered check set.
+> Status: PARTIALLY IMPLEMENTED. Scope decision: a workflow is bound to a
+> project and edited as a project-wide change (never mid-process), so the
+> mid-flight/backward-compat concerns in §6 don't apply, and no warning channel
+> is needed — implemented checks are plain errors. Landed: the full `workflow:`
+> typing in `schema.json` (§6.1, via `jsonSchema` annotations in
+> `src/ConfigSchema.ts`) and the unreachable-state error (§3.1, as
+> `validateReachability` in `src/PatternMachine.ts` — invalid `on`/
+> `retry.otherwise` targets were already errors). Everything else in this
+> document is deliberately on hold.
 
 ## 1. What is validated today (baseline)
 

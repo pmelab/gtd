@@ -261,6 +261,21 @@ workflow config:
   - state "idle": "on" target "nowhere" is not a defined state
 ```
 
+`validateDefinition`'s findings include the **semantic graph checks**: every
+`on` target and `retry.otherwise` must name a defined state, and every state
+must be **reachable** from the initial state by walking `on` targets and
+`retry.otherwise` redirects — an unreachable state (typically a typo'd rename or
+a leftover) is a load error like any other, since a workflow is bound to a
+project and edited as a project-wide change.
+
+Many of these problems never reach gtd at all if your editor validates against
+the published schema: `schema.json` fully types the `workflow:` key (state
+shape, content kinds, `on`/`retry` structure, the `mode` vocabulary), so a
+yaml-language-server-style editor flags unknown keys and wrong types as you
+type. The rules JSON Schema cannot express — exactly one content kind, exactly
+one `initial: true`, targets naming defined states, reachability — remain the
+compiler's job at load time.
+
 Other load failures:
 
 - **Parse errors** (malformed YAML/JSON) — message includes the offending
