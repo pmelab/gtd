@@ -74,8 +74,25 @@ const stateJsonSchema = {
     on: {
       type: "object",
       description:
-        'Ordered map of change pattern -> target state. Patterns: "C" (clean tree) or "<A|M|D|*> <glob>" over the pending diff; first declared match wins. Every target must name a defined state, and every non-initial state must be reachable through these edges (or a retry.otherwise).',
-      additionalProperties: { type: "string" },
+        'Ordered map of change pattern -> target state. Patterns: "C" (clean tree) or "<A|M|D|*> <glob>" over the pending diff; first declared match wins. Every target must name a defined state, and every non-initial state must be reachable through these edges (or a retry.otherwise). A value is either the target state name (string) or a { to, describe } object whose describe is a human-readable sentence templates can surface as it.edges (e.g. in a human gate\'s message).',
+      additionalProperties: {
+        oneOf: [
+          { type: "string", description: "The target state name." },
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["to"],
+            properties: {
+              to: { type: "string", description: "The target state name." },
+              describe: {
+                type: "string",
+                description:
+                  "Human-readable sentence describing where this change routes; surfaced verbatim (never Eta-rendered) to templates as it.edges[].describe.",
+              },
+            },
+          },
+        ],
+      },
     },
     initial: {
       type: "boolean",

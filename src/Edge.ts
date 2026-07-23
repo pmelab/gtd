@@ -8,13 +8,14 @@ import {
   resolveState,
   type ChangeStatus,
   type ContentKind,
+  type OnEdge,
   type PendingChange,
   type StateDef,
   type StateName,
   type StepDecision,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
-import { renderStateTemplate, type TemplateContext } from "./PatternTemplates.js"
+import { renderStateTemplate, type TemplateContext, type TemplateEdge } from "./PatternTemplates.js"
 
 /**
  * The v3 Effect edge (see `docs/design/pattern-machine-plan.md`, "Phase 3:
@@ -170,7 +171,13 @@ export const resolveVars = (
 
 // ── Template context ─────────────────────────────────────────────────────────
 
-/** Build the `PatternTemplates.TemplateContext` for rendering `state`'s content at the resolved rest. `vars` is the already-merged three-layer map (see `resolveVars`). */
+/** Map a state's raw `on` edges to the `{ pattern, target, describe? }` shape templates see as `it.edges`. `undefined` (a commit state, no `on`) yields an empty list. */
+export const toTemplateEdges = (edges: readonly OnEdge[] | undefined): readonly TemplateEdge[] =>
+  (edges ?? []).map(([pattern, target, describe]) =>
+    describe !== undefined ? { pattern, target, describe } : { pattern, target },
+  )
+
+/** Build the `PatternTemplates.TemplateContext` for rendering `state`'s content at the resolved rest. `vars` is the already-merged three-layer map (see `resolveVars`); `edges` is the resting state's own `on` edges (see `toTemplateEdges`). */
 export const buildTemplateContext = (
   git: GitOperations,
   read: (path: string) => string,
@@ -178,6 +185,7 @@ export const buildTemplateContext = (
   actor: string,
   run: ProcessRun,
   vars: Record<string, string>,
+  edges: readonly OnEdge[] | undefined,
 ): Effect.Effect<TemplateContext, Error> =>
   Effect.gen(function* () {
     const hasCommits = yield* git.hasCommits()
@@ -206,6 +214,7 @@ export const buildTemplateContext = (
       lastDiff,
       read,
       vars,
+      edges: toTemplateEdges(edges),
     }
   })
 
@@ -222,6 +231,8 @@ export interface RenderedRest {
   readonly file?: string
   /** The resolved rest's `mode:` hint, verbatim (a closed literal — never Eta-rendered) — omitted when the state declares none. */
   readonly mode?: StateDef["mode"]
+  /** The resolved rest's `on` edges as `{ pattern, target, describe? }` — the same list templates see as `it.edges` (see `toTemplateEdges`). Always present (an empty array at a commit state); `gtd next --json` emits it so a driver has the routing (and its human-readable `describe`s) alongside the rendered content. */
+  readonly edges: readonly TemplateEdge[]
 }
 
 /**
@@ -288,6 +299,7 @@ export const renderRest = (
       ...(model !== undefined ? { model } : {}),
       ...(file !== undefined ? { file } : {}),
       ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
+      edges: toTemplateEdges(rest.stateDef.on),
     }
   })
 

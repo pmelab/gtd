@@ -25,7 +25,7 @@ A workflow is a set of named **states**. Each state declares:
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `actor`                                       | A plain string: who acts here. No closed vocabulary, no "kinds" — every actor just makes changes in the working tree. `gtd step <actor>` authenticates against it. **Commit states carry no `actor`** — gtd itself performs them.                                                                                                                                                                                                                                                                                                                                                    |
 | `script` \| `prompt` \| `message` \| `commit` | Exactly one — the state's content kind (see §2). All four are Eta templates, inline or a `./`-relative file reference auto-inlined at config load (see [Configuration](docs/configuration.md)).                                                                                                                                                                                                                                                                                                                                                                                      |
-| `on`                                          | An ordered map of change patterns → next state (see §3). Evaluated at step time against the pending diff; **first match wins**. Absent on a commit state (a commit state has no outgoing edges — the process ends there).                                                                                                                                                                                                                                                                                                                                                            |
+| `on`                                          | An ordered map of change patterns → next state (see §3). Evaluated at step time against the pending diff; **first match wins**. A row's value is either the target state name or a `{ to, describe }` object carrying an optional human-readable `describe` sentence (see §3). Absent on a commit state (a commit state has no outgoing edges — the process ends there).                                                                                                                                                                                                             |
 | `initial: true`                               | Exactly one state across the whole workflow: where an unrecognized HEAD resolves (see §5). Must not be a commit state.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `retry`                                       | Optional `{ max, otherwise }` — redirects a transition into this state to `otherwise` once this state has already been entered `max` times within the current process (see §7).                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `model`                                       | Optional, opaque string — a harness hint (e.g. `smart`, `fast`, or a concrete model id) emitted alongside the state's content for the driving loop to map onto its agent harness. **Rendered as an Eta template through the same `it.vars`-carrying context as content** (a plain string with no Eta tags passes through unchanged) — see [Configuration](docs/configuration.md#model--the-opaque-harness-hint-template-rendered). gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state** (never at rest, emits nothing). |
@@ -35,7 +35,12 @@ A workflow is a set of named **states**. Each state declares:
 **Emission:** `gtd next --json`/`gtd status --json` gain optional `file`
 (rendered) and `mode` (verbatim) keys, omitted — never `null` — when unset,
 exactly like `model`; plain `gtd status` prints `File:`/`Mode:` lines (after
-`Model:`) when set.
+`Model:`) when set. Both also emit an `edges` array — the resting state's `on`
+edges as `{ pattern, target, describe? }` (the same list a `message:` template
+sees as `it.edges`, see §3) — omitted only when the state has no `on` (a commit
+state); a per-edge `describe` key is likewise omitted when that edge declares
+none. Plain-text output carries none of these structured keys (JSON-only,
+exactly like `model`/`file`/`mode`).
 
 A state is either a **rest** (has an `actor` — `gtd` halts there and awaits that
 actor's next step) or a **commit state** (has `commit:` instead of an
@@ -85,6 +90,21 @@ changes.
 **Declaration order, first match wins.** `on` rows are evaluated top to bottom
 (a YAML mapping preserves key order); the first row whose pattern fires against
 the pending diff decides the target.
+
+**Row value: a target, or a `{ to, describe }` object.** A row's value is
+normally just the target state name. It may instead be an object
+`{ to: <target>, describe: <sentence> }`, where `describe` is a human-readable
+sentence explaining what making that kind of change does next — e.g.
+`describe: "Change nothing to accept the current state and proceed."`. The
+`describe` is **inert to the engine** — it is not part of matching, not
+Eta-rendered (exactly like the pattern key itself), and never affects a
+decision. It exists only to be surfaced: a state's own edges are handed to that
+state's content template as `it.edges` (an array of
+`{ pattern, target, describe? }`), so a human gate's `message:` can render a
+"what each change does next" list straight from the routing it documents — one
+source of truth, no prose that can drift from the `on` map.
+`gtd next --json`/`gtd status --json` emit the same `edges` array (see §1). The
+bundled default uses this at every human gate (see §10).
 
 > **Documented discrepancy:** an early design note called `"* *"` "the catch-all
 > for any dirty tree". Per the single-segment rule above that is only true when
@@ -374,6 +394,15 @@ diffs never reach back across it.
 both declare `model: smart`, an opaque hint `gtd next`/`gtd status` `--json`
 emit verbatim for the driving loop to map onto its harness. Every other state
 leaves `model` unset, so the harness's own default applies.
+
+Every human gate (`idle`, `grilling-answer`, `escalate`, `await-review`)
+declares a `describe` on each of its `on` edges (see §3) and closes its
+`message:` with a "what each change does next" list rendered from `it.edges` —
+so the message tells the human, at that gate, which change routes to which next
+state (e.g. `await-review`: delete `.gtd/REVIEW.md` to approve → `idle`; tick a
+box → `review-deciding`; edit only code → `grilling`). The list is generated
+from the same `on` edges the engine routes on, so it can never drift from the
+routing it describes.
 
 The default's `vars:` also declares `todoFile`/`reviewFile`/`feedbackFile` (the
 three filenames above, in one place), which every `file:` and every

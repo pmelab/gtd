@@ -8,6 +8,7 @@ import {
   renderFile,
   renderModel,
   resolveVars,
+  toTemplateEdges,
 } from "./Edge.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 import type { StateDef, WorkflowDefinition } from "./PatternMachine.js"
@@ -194,6 +195,7 @@ const context = (overrides: Partial<TemplateContext> = {}): TemplateContext => (
     throw new Error("no file registered")
   },
   vars: {},
+  edges: [],
   ...overrides,
 })
 
@@ -311,6 +313,29 @@ describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)"
     expect(
       resolveVars({}, {}, { PATH: "/usr/bin", GTD_VAR_kept: "yes", GTD_VAR_unset: undefined }),
     ).toEqual({ kept: "yes" })
+  })
+})
+
+describe("toTemplateEdges — OnEdge tuples to the `{ pattern, target, describe? }` templates see", () => {
+  it("maps a two-element edge with no describe key, and a three-element edge with one", () => {
+    expect(
+      toTemplateEdges([
+        ["C", "building", "Change nothing to accept and build."],
+        ["* **", "grilling"],
+      ]),
+    ).toEqual([
+      { pattern: "C", target: "building", describe: "Change nothing to accept and build." },
+      { pattern: "* **", target: "grilling" },
+    ])
+  })
+
+  it("returns an empty list for a state with no `on` (a commit state)", () => {
+    expect(toTemplateEdges(undefined)).toEqual([])
+  })
+
+  it("omits the describe key entirely (never `undefined`) when an edge carries none", () => {
+    const [edge] = toTemplateEdges([["* **", "next"]])
+    expect("describe" in edge!).toBe(false)
   })
 })
 

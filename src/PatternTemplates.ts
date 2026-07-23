@@ -19,6 +19,20 @@ import { Eta } from "eta"
  */
 
 /**
+ * One resolved `on` edge, as a `message:`/`prompt:` template sees it in
+ * `it.edges`: the raw pattern, its target state, and the optional
+ * human-readable `describe` sentence the workflow author attached (see
+ * `PatternMachine.OnEdge`). All three are LITERAL strings — none is
+ * Eta-rendered (the pattern key never was; `describe` follows the same rule),
+ * so a template renders `describe` verbatim, typically with `<%~ %>`.
+ */
+export interface TemplateEdge {
+  readonly pattern: string
+  readonly target: string
+  readonly describe?: string
+}
+
+/**
  * The full variable set a `script`/`prompt`/`message`/`commit` template may
  * reference as `it.<name>` (Eta's default view-model name). All fields are
  * caller-supplied — see the module docstring.
@@ -53,6 +67,16 @@ export interface TemplateContext {
    * unless a workflow/config/env layer populates it.
    */
   readonly vars: Record<string, string>
+  /**
+   * The resting state's own `on` edges, in declaration order — each a
+   * `{ pattern, target, describe? }` (see `TemplateEdge`). Lets a `message:`
+   * template surface, at a human gate, which change routes to which next
+   * state (e.g. iterating the edges that carry a `describe`). Empty for a
+   * commit state (no `on`); populated but typically unused for `script`/
+   * `prompt` states. Injected by the caller (`src/Edge.ts`) — like every
+   * other field, this module never derives it.
+   */
+  readonly edges: readonly TemplateEdge[]
 }
 
 // One shared Eta instance, `renderString`-only (no named template registry —

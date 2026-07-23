@@ -40,14 +40,22 @@ export interface RetryDef {
 }
 
 /**
- * One `on` row: a raw pattern string paired with its target state. Kept as
- * an ordered PAIR (not an object key) so declaration order survives
- * regardless of how a definition is built — object key order is an
- * incidental JS guarantee that a config compiler (YAML, merged definitions)
- * could easily break by rebuilding an object; a tuple array cannot silently
- * reorder or dedupe two rows that happen to share a pattern string.
+ * One `on` row: a raw pattern string paired with its target state, plus an
+ * OPTIONAL human-readable `describe` — a plain sentence a `message:` template
+ * can surface at a rest to tell a human which change routes where (see
+ * `PatternTemplates.TemplateContext.edges`). Kept as an ordered TUPLE (not an
+ * object key) so declaration order survives regardless of how a definition is
+ * built — object key order is an incidental JS guarantee that a config
+ * compiler (YAML, merged definitions) could easily break by rebuilding an
+ * object; a tuple array cannot silently reorder or dedupe two rows that happen
+ * to share a pattern string.
+ *
+ * `describe` is INERT to the engine — `step`/`resolveState`/`matchesPattern`
+ * never read it (it is not Eta-rendered either, exactly like the pattern key
+ * itself; see STATES.md §3). It exists only to be emitted verbatim so the
+ * driving loop / a `message:` template can present it to a human.
  */
-export type OnEdge = readonly [pattern: string, target: StateName]
+export type OnEdge = readonly [pattern: string, target: StateName, describe?: string]
 
 /**
  * One state's declaration. Exactly one of `script`/`prompt`/`message`/
