@@ -165,6 +165,68 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
     And stdout contains "AGENT MEMORY=fix RESUME=1"
     And stdout contains "--- Your turn (idle) ---"
 
+  Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed
+    # `planning` declares file:/mode: (.gtd/PLAN.md as `qa`), so its output has
+    # a checkable format. The stub writes a MALFORMED plan first (an open
+    # question with no "Suggested default:"/"Answer:" line); the loop runs
+    # `gtd validate`, it fails, and the loop re-prompts the SAME turn with the
+    # findings (prompt now contains "does not pass"), on which the stub writes a
+    # valid plan — only then does the loop step, squashing to done and halting.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": planning
+          planning:
+            actor: agent
+            file: .gtd/PLAN.md
+            mode: qa
+            prompt: "Write .gtd/PLAN.md with the plan."
+            on:
+              "* **": done
+          done:
+            commit: "chore: planned"
+      """
+    And a commit "gtd(agent): planning" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      mkdir -p .gtd
+      case "$GTD_LOOP_PROMPT" in
+        *"does not pass"*)
+          echo "AGENT: fixing the plan"
+          cat > .gtd/PLAN.md <<'PLAN'
+      Plan: build the calculator. No open questions.
+      PLAN
+          ;;
+        *)
+          echo "AGENT: first draft"
+          cat > .gtd/PLAN.md <<'PLAN'
+      Plan: build the calculator.
+
+      ## Open Questions
+
+      ### Should it support floats?
+
+      Dunno.
+      PLAN
+          ;;
+      esac
+      """
+    When I run gtd-loop
+    Then it succeeds
+    And stdout contains "AGENT: first draft"
+    And stdout contains "AGENT: fixing the plan"
+    And the git log contains "chore: planned"
+
   Scenario: Stops instead of spinning when the agent's turn makes no progress
     Given a test project
     And a gtd config file at ".gtdrc" with:

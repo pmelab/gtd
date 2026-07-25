@@ -22,12 +22,15 @@ import {
   type ExecutableDecision,
   type ModelCost,
   type ProcessRun,
+  type RenderedRest,
   type ResolvedRest,
 } from "./Edge.js"
 import { closeReviewWindow, openReviewWindow } from "./ReviewWindow.js"
 import { formatFile } from "./Format.js"
 import { startLspServer } from "./Lsp.js"
 import { renderMermaid } from "./Mermaid.js"
+import { parseOpenQuestions } from "./OpenQuestions.js"
+import { parseReviewDoc } from "./ReviewDoc.js"
 import {
   matchesPattern,
   parsePattern,
@@ -56,6 +59,10 @@ Commands:
                    actor (the built-in script driver)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
+  validate         Validate the steering file the resolved rest declares
+                   (its file:/mode:) against that mode's format; exits
+                   non-zero with findings when the file violates it (no
+                   mutation)
   mermaid          Print the active workflow's shape as Mermaid
                    stateDiagram-v2 source (no mutation)
   format <file>    Format a markdown file in place
@@ -380,7 +387,46 @@ const runStepCommand = (
     reportStepResult(result, json, write)
   })
 
+/**
+ * The self-validation instruction gtd APPENDS to a `prompt` rest that declares
+ * both `file:` and `mode:` — i.e. a state whose actor hands over a steering
+ * file `gtd validate` can check. Appended ONLY to plain `gtd next` output (for
+ * a human or a simple driver who reads the prompt and hands it to an agent, so
+ * the agent self-validates); withheld from `gtd next --json`, where the driving
+ * loop instead runs `gtd validate` after the turn and re-prompts on findings
+ * (see `bin/gtd-loop` / `skills/loop/SKILL.md`). gtd itself never validates at
+ * step time — this is emitted guidance, not engine enforcement.
+ */
+const selfValidateInstruction = (file: string): string =>
+  `\nBefore finishing your turn, run \`gtd validate\` and fix every violation it ` +
+  `reports in ${file} until it exits cleanly. Do not finish while it still ` +
+  `reports violations.\n`
+
+/** True when a rendered rest is a `prompt` turn that hands over a validatable steering file (`file:`+`mode:` both declared). */
+const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
+  rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
+
 /** `gtd next [--json]`: pure emitter of the resolved rest's rendered content (no mutation). */
+/** `gtd next --json`'s single-line object — omitting each optional key (never `null`-valued) when its source is unset, exactly like `gtd status --json`. */
+const nextJsonOutput = (rendered: RenderedRest): string =>
+  JSON.stringify({
+    state: rendered.state,
+    actor: rendered.actor,
+    kind: rendered.kind,
+    content: rendered.content,
+    ...(rendered.model !== undefined ? { model: rendered.model } : {}),
+    ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
+    ...(rendered.file !== undefined ? { file: rendered.file } : {}),
+    ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
+    ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
+  }) + "\n"
+
+/** `gtd next`'s plain-text output: the rendered content (newline-terminated), plus the self-validation instruction when the rest is a validatable prompt (see `emitsValidatablePrompt`). */
+const nextPlainOutput = (rendered: RenderedRest): string => {
+  const base = rendered.content.endsWith("\n") ? rendered.content : rendered.content + "\n"
+  return emitsValidatablePrompt(rendered) ? base + selfValidateInstruction(rendered.file!) : base
+}
+
 const runNextCommand = (
   json: boolean,
   write: (chunk: string) => void,
@@ -389,23 +435,65 @@ const runNextCommand = (
     const git = yield* GitService
     const { rest, context } = yield* resolveRestContext(git)
     const rendered = yield* renderRest(rest, context)
-    if (json) {
-      write(
-        JSON.stringify({
-          state: rendered.state,
-          actor: rendered.actor,
-          kind: rendered.kind,
-          content: rendered.content,
-          ...(rendered.model !== undefined ? { model: rendered.model } : {}),
-          ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
-          ...(rendered.file !== undefined ? { file: rendered.file } : {}),
-          ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
-          ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
-        }) + "\n",
-      )
-    } else {
-      write(rendered.content.endsWith("\n") ? rendered.content : rendered.content + "\n")
+    write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered))
+  })
+
+/** Read a working-tree file, treating a missing path as empty content — so `gtd validate` is a pure function of the parser over the file (a missing `qa` file is trivially valid; a missing `review` file fails the parser, both correct). */
+const readWorktreeOrEmpty = (read: (path: string) => string, path: string): string => {
+  try {
+    return read(path)
+  } catch {
+    return ""
+  }
+}
+
+/** The parser findings for the resolved rest's steering file, dispatched on its `mode:`. */
+const validationErrorsFor = (mode: "qa" | "review", content: string): readonly string[] =>
+  mode === "qa" ? parseOpenQuestions(content).errors : parseReviewDoc(content).errors
+
+/**
+ * `gtd validate [--json]`: validate the steering file the resolved rest
+ * declares (`file:` rendered, `mode:` selecting the parser) against that
+ * format, over its WORKING-TREE contents. A state with no `file:`/`mode:` has
+ * nothing to validate (exit 0). A clean parse exits 0; violations FAIL the
+ * Effect with the findings (one per line), so the process exits non-zero — the
+ * signal a producing agent (or the driver) loops on until the file is valid.
+ * Reuses the canonical `OpenQuestions`/`ReviewDoc` parsers (the same the LSP
+ * publishes), so there is one source of truth per format and no bash port.
+ */
+const runValidateCommand = (
+  argv: readonly string[],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, ProgramRequirements> =>
+  Effect.gen(function* () {
+    yield* rejectExtraArgs("validate", argv)
+    const git = yield* GitService
+    const worktree = yield* WorktreeReader
+    const { rest, context } = yield* resolveRestContext(git)
+    const file = yield* renderFile(rest.stateDef, context)
+    const mode = rest.stateDef.mode
+    if (file === undefined || mode === undefined) {
+      if (json) {
+        write(JSON.stringify({ state: rest.state, valid: true, errors: [] }) + "\n")
+      } else {
+        write(`nothing to validate at "${rest.state}"\n`)
+      }
+      return
     }
+    const content = readWorktreeOrEmpty(worktree.read, file)
+    const errors = validationErrorsFor(mode, content)
+    if (errors.length === 0) {
+      if (json) {
+        write(JSON.stringify({ state: rest.state, file, mode, valid: true, errors: [] }) + "\n")
+      } else {
+        write(`${file}: valid\n`)
+      }
+      return
+    }
+    return yield* Effect.fail(
+      new Error(`${file} is not valid:\n${errors.map((e) => `  - ${e}`).join("\n")}`),
+    )
   })
 
 /**
@@ -605,7 +693,7 @@ const runMermaidCommand = (
     write(renderMermaid(config.workflow))
   })
 
-const KNOWN_SUBCOMMANDS = ["step", "next", "run", "status", "mermaid"] as const
+const KNOWN_SUBCOMMANDS = ["step", "next", "run", "status", "validate", "mermaid"] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
 /**
@@ -692,6 +780,8 @@ const dispatchKnownSubcommand = (
       return runRunCommand(argv, json, write)
     case "status":
       return runStatusCommand(argv, json, write)
+    case "validate":
+      return runValidateCommand(argv, json, write)
     case "mermaid":
       return runMermaidCommand(argv, json, write)
   }

@@ -29,7 +29,7 @@ const escapeLabel = (text: string): string => text.replace(/"/g, "'").replace(/\
 
 /**
  * A Mermaid-safe node id for one state name: every non-word character folds
- * to `_` (state names may carry hyphens — `todo-validating`,
+ * to `_` (state names may carry hyphens — `grilling-answer`,
  * `review-deciding` — which Mermaid's bare identifier grammar doesn't
  * guarantee), and a leading digit gets an `s_` prefix (Mermaid ids can't
  * start with one). The exact original name still reaches the diagram via

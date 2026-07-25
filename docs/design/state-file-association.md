@@ -45,14 +45,14 @@ vars:
   feedbackFile: .gtd/FEEDBACK.md
 ```
 
-Per-state mapping (12 states):
+Per-state mapping (10 states):
 
-| States                                                              | `file:`                       | `mode:`                   |
-| ------------------------------------------------------------------- | ----------------------------- | ------------------------- |
-| `grilling`, `todo-validating`, `grilling-answer`, `building`        | `<%= it.vars.todoFile %>`     | `qa`                      |
-| `reviewing`, `review-validating`, `await-review`, `review-deciding` | `<%= it.vars.reviewFile %>`   | `review`                  |
-| `fixing`, `escalate`                                                | `<%= it.vars.feedbackFile %>` | — (plain text, no format) |
-| `idle`, `checking`                                                  | —                             | —                         |
+| States                                         | `file:`                       | `mode:`                   |
+| ---------------------------------------------- | ----------------------------- | ------------------------- |
+| `grilling`, `grilling-answer`, `building`      | `<%= it.vars.todoFile %>`     | `qa`                      |
+| `reviewing`, `await-review`, `review-deciding` | `<%= it.vars.reviewFile %>`   | `review`                  |
+| `fixing`, `escalate`                           | `<%= it.vars.feedbackFile %>` | — (plain text, no format) |
+| `idle`, `checking`                             | —                             | —                         |
 
 Prompts and scripts that already name these files switch to the vars
 (`<%~ it.vars.todoFile %>` etc.) so each filename has ONE source of truth in
@@ -109,4 +109,5 @@ The advanced example (`docs/examples/advanced-workflow.md`) gains the same
 - Eta-rendering of `on` pattern keys (the rename-switch story) — future work,
   noted in §2.
 - New LSP modes beyond `qa`/`review` — the vocabulary can grow with new formats;
-  adding one means: parser (spec), validator recipe, LSP dispatch arm, docs.
+  adding one means: parser (spec), a `gtd validate` dispatch arm for the mode,
+  LSP dispatch arm, docs.

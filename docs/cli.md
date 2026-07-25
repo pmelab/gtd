@@ -16,6 +16,10 @@ Commands:
                    actor (the built-in script driver)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
+  validate         Validate the steering file the resolved rest declares
+                   (its file:/mode:) against that mode's format; exits
+                   non-zero with findings when the file violates it (no
+                   mutation)
   mermaid          Print the active workflow's shape as Mermaid
                    stateDiagram-v2 source (no mutation)
   format <file>    Format a markdown file in place
@@ -226,6 +230,33 @@ when the state has no `on` (all omitted entirely, never `null`, otherwise):
 
 `gtd status` takes no arguments — extra positional args are rejected.
 
+## `gtd validate [--json]`
+
+Validate the steering file the resolved rest declares. It resolves the current
+state exactly like `gtd status`, renders that state's `file:`, reads its
+**working-tree** contents, and runs the parser its `mode:` selects — `qa` →
+`src/OpenQuestions.ts`, `review` → `src/ReviewDoc.ts` (the same pure parsers the
+LSP publishes as diagnostics, so there is one source of truth per format). It
+mutates nothing.
+
+- A well-formed file exits `0` (`<file>: valid`, or `{"valid":true, ...}` with
+  `--json`).
+- Violations exit **non-zero** with the findings, one per line — the signal a
+  producing agent, or the driving loop, loops on until the file is well-formed.
+- A state that declares no `file:`/`mode:` has nothing to validate and exits `0`
+  (`nothing to validate at "<state>"`).
+- A missing file is read as empty content, so `gtd validate` fails **iff** the
+  file exists and violates its format (an absent `qa` file is trivially valid;
+  an absent `review` file fails the parser).
+
+This is how the bundled default keeps its steering files well-formed without an
+in-machine validation state: the producing agent (`grilling`, `reviewing`)
+self-validates before finishing. Plain `gtd next` appends a "run `gtd validate`
+and fix all violations" instruction to a `prompt` rest that declares
+`file:`+`mode:`; `gtd next --json` withholds it and the driving loop runs
+`gtd validate` after the turn instead (see `bin/gtd-loop` /
+[STATES.md §12](../STATES.md)). `gtd validate` takes no arguments.
+
 ## `gtd mermaid`
 
 Pure emitter of the active workflow's **shape** — not the resolved rest — as
@@ -260,7 +291,7 @@ Mermaid-aware renderer (GitHub, GitLab, VS Code, Obsidian, the
 
 State names are aliased to Mermaid-safe identifiers (non-word characters fold to
 `_`; a digit-led name gets an `s_` prefix) via a `state "<name>" as <alias>`
-declaration up front, so a hyphenated name like `todo-validating` still displays
+declaration up front, so a hyphenated name like `grilling-answer` still displays
 with its exact declared spelling. Rejects `--json` (exit 1,
 `gtd mermaid does not accept --json`) — there is no structured shape to emit
 beyond the Mermaid source itself — and takes no arguments (extra positional args
@@ -288,10 +319,9 @@ Errors (all exit 1, message on stderr):
 Starts an LSP server over stdio for `.gtd/` steering files — document symbols
 for a `qa`-mode file's open questions and a `review`-mode file's review
 chunks/hunks, code actions to check/uncheck a hunk or a whole chunk, and
-diagnostics publishing the same parser findings the bundled workflow's
-`.gtd/FORMAT.md` validators produce (see `src/OpenQuestions.ts` /
-`src/ReviewDoc.ts` and
-[STATES.md §10](../STATES.md#10-the-bundled-default-workflow)).
+diagnostics publishing the same parser findings `gtd validate` reports (see
+`src/OpenQuestions.ts` / `src/ReviewDoc.ts` and
+[STATES.md §12](../STATES.md#12-steering-file-validation-gtd-validate)).
 
 **Config-driven** (see
 [docs/design/state-file-association.md](design/state-file-association.md)): the
