@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — default workflow hops, gtd next --json, cu
   its own dedicated feature files — see refusals.feature,
   default-workflow.feature, retry.feature, squash.feature.
 
-  Scenario: the default workflow's happy path advances idle -> grilling -> todo-validating -> grilling-answer -> building -> checking
+  Scenario: the default workflow's happy path advances idle -> grilling -> grilling-answer -> building -> checking
     Given a test project
     And a file ".gtd/TODO.md" with:
       """
@@ -26,10 +26,7 @@ Feature: v3 pattern-machine smoke — default workflow hops, gtd next --json, cu
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): todo-validating"
-    When I run gtd step check
-    Then it succeeds
-    And the last commit subject is "gtd(check): grilling-answer"
+    And the last commit subject is "gtd(agent): grilling-answer"
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): building"

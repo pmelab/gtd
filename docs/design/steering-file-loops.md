@@ -1,5 +1,16 @@
 # Plan: steering-file validation loops in the default workflow
 
+> SUPERSEDED (§2–§4): the in-machine validation-loop states this plan added —
+> `todo-validating` and `review-validating` — and their `.gtd/FORMAT.md`
+> steering file have all been DELETED. Deterministic format-checking now lives
+> in the `gtd validate` command (which runs the same pure `parseOpenQuestions` /
+> `parseReviewDoc` parsers the state's `mode:` selects) plus producing-agent
+> self-validation, rather than in bash-port `check`/`script` states. The default
+> workflow is now 10 states, not 12. See
+> [docs/design/steering-file-validation-command.md](steering-file-validation-command.md)
+> and [STATES.md §12](../STATES.md). §1 (the file formats) and §5 (the LSP
+> resurrection) below remain valid and current.
+
 > Status: §2–§4 (the two validation loops in the default workflow) AND §5 (the
 > LSP resurrection) both LANDED 2026-07-22. Goal: the bundled default workflow
 > completely maps the functionality the deleted v2 LSP server (`src/Lsp.ts`,

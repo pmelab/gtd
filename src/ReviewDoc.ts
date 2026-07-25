@@ -21,17 +21,15 @@
  * line), the `<!-- base: <hash> -->` comment, and at least one `##` chunk
  * with a non-empty title and at least one `- [ ]` / `- [x]` file pointer.
  *
- * **Executable spec ↔ bash validator contract:** this module is the
- * EXECUTABLE SPEC of that format — its own unit tests (`ReviewDoc.test.ts`)
- * are the format's spec tests. `src/workflows/default.yaml`'s
- * `review-validating` state independently re-implements the SAME rules as a
- * pragmatic bash/awk port (mechanics-only, not a full markdown parser) — see
- * that state's script for the sibling half of this contract. There is no
- * shared code path between the two on purpose: the engine (`PatternMachine`/
- * `Edge`/the bundled workflow) stays git/filesystem/Effect-dependency-free of
- * this module, and this module (and the LSP built on it, `src/Lsp.ts`) stays
- * independent of any particular workflow's shape. Keep both in sync by hand
- * when the format changes.
+ * **The format's single source of truth.** This module is the EXECUTABLE SPEC
+ * of that format — its own unit tests (`ReviewDoc.test.ts`) are the format's
+ * spec tests. Both consumers of the format run THIS parser, so there is no
+ * second implementation to keep in sync: the `gtd validate` CLI command
+ * (`src/program.ts`) parses the resolved state's `review`-mode file and exits
+ * non-zero with the `errors` below, and the LSP (`src/Lsp.ts`) publishes the
+ * same `errors` as live diagnostics. The engine (`PatternMachine`/`Edge`/the
+ * bundled workflow) itself stays git/filesystem/Effect-dependency-free of this
+ * module, and this module stays independent of any particular workflow's shape.
  *
  * No git, no filesystem, no Effect — trivially unit-testable and safe to call
  * from both the LSP's protocol edge (`src/Lsp.ts`) and any other IO layer that
@@ -164,9 +162,8 @@ const parseChangesets = (
  * Parses the review structure out of `content` (the raw text of
  * `.gtd/REVIEW.md`). Total and side-effect-free: always returns a result,
  * never throws. `errors` is non-empty exactly when the document violates the
- * required structure — the caller decides what to do with that (the machine
- * refuses the agent's turn capture; the `gtd changesets` CLI command just
- * reports it alongside whatever parsed).
+ * required structure — the caller decides what to do with that (`gtd validate`
+ * exits non-zero with them; the LSP publishes them as diagnostics).
  */
 export const parseReviewDoc = (content: string): ReviewDoc => {
   const lines = content.split(/\r?\n/)

@@ -45,9 +45,10 @@ Repeat this cycle until it halts:
    - `"prompt"` (an agent rest): treat `content` as your next instructions.
      Execute exactly what it says (the prompt itself says not to run
      `gtd step <actor>` yourself — the harness does). Once you're done acting,
-     run `gtd step <actor>` (the `actor` from this same JSON object) to capture
-     your turn, then go back to step 1. If your harness reports the token cost
-     of that agent invocation, pass it as
+     run the **self-validation gate** (see "Self-validation" below), then run
+     `gtd step <actor>` (the `actor` from this same JSON object) to capture your
+     turn, then go back to step 1. If your harness reports the token cost of
+     that agent invocation, pass it as
      `gtd step <actor> --cost=<n> [--model=<name>]` — gtd records the cost (and
      the model it ran on) on the turn commit and aggregates it across the
      process into `it.processCost`/`it.processCostByModel` (e.g. for a squash
@@ -79,6 +80,33 @@ it. If your harness runs the whole loop in one long-lived context and cannot
 start a fresh agent session per turn, treat a scope change as a cue to drop the
 prior turn's working notes rather than carry them forward. A beat with no
 `"memory"` key places no constraint — use your harness's default.
+
+## Self-validation
+
+Some producing states declare a steering file with a checkable format (the
+default workflow's `grilling` writes `.gtd/TODO.md`, `reviewing` writes
+`.gtd/REVIEW.md`). Those states appear in `gtd next --json` with both a `"file"`
+and a `"mode"` key. So the human/check rest that acts on such a file is only
+ever handed a well-formed one, run the self-validation gate after every
+`"prompt"` turn, before `gtd step <actor>`:
+
+1. Run `gtd validate`. It is pure and mutates nothing. It validates the resolved
+   state's `file:` against its `mode:` and exits **0** when there is nothing to
+   validate or the file is well-formed, **non-zero** (printing the findings)
+   when the file violates its format.
+2. If it exits 0, proceed to `gtd step <actor>` as usual.
+3. If it exits non-zero, the agent's output is malformed: re-prompt the SAME
+   agent turn (continue its memory/session) with the original `content` plus the
+   `gtd validate` findings and an instruction to fix them, then run
+   `gtd validate` again. Repeat until it passes (cap the attempts — if it still
+   fails after a few rounds, halt and escalate to the user rather than stepping
+   with a malformed file).
+
+`gtd validate` is safe to run after any `"prompt"` turn — it is a no-op (exit 0)
+whenever the resolved state has no `file:`/`mode:`, so you do not need to
+inspect the JSON to decide whether to run it. (`gtd next` WITHOUT `--json` bakes
+this same instruction into the printed prompt text instead, for a human driving
+the loop by hand — but as the `--json` driver, you own the gate.)
 
 ## Halting on a human gate
 

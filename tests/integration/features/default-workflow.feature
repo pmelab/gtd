@@ -2,24 +2,27 @@
 Feature: The bundled default workflow — full cycle journeys
 
   Comprehensive coverage of `src/workflows/default.yaml` (see its own header
-  comment for the state list) beyond smoke.feature's minimal hops: the two
-  steering-file validation loops (TODO.md open questions, REVIEW.md
-  checkboxes — see docs/design/steering-file-loops.md), a check/fix round,
-  the fix-retry-escalate path once `fixing`'s cap (max 3) is reached, both
-  review outcomes (tick-all approve and partial-tick feedback), the
-  delete-shortcut approve, and the process-boundary rule that keeps a fresh
-  cycle's retry budget from pooling with a previous, already-approved one.
-  Both `check`-actor validators (`todo-validating`/`review-validating`/
-  `review-deciding`) are simulated by writing their verdict files directly
-  (`.gtd/FORMAT.md`, `.gtd/REVIEW.md`, `.gtd/TODO.md`) and running
-  `gtd step check` — @inmem never executes the scripts themselves.
+  comment for the state list) beyond smoke.feature's minimal hops: the
+  grilling/answer planning loop, a check/fix round, the fix-retry-escalate
+  path once `fixing`'s cap (max 3) is reached, both review outcomes (tick-all
+  approve and partial-tick feedback), the delete-shortcut approve, and the
+  process-boundary rule that keeps a fresh cycle's retry budget from pooling
+  with a previous, already-approved one.
+
+  Steering-file formats (TODO.md open questions, REVIEW.md checkboxes) are no
+  longer validated by an in-machine state — the producing agent self-validates
+  via `gtd validate` (covered in validate.feature), so `grilling` hands
+  straight to `grilling-answer` and `reviewing` straight to `await-review`.
+  The remaining `check`-actor state here (`review-deciding`) is simulated by
+  writing its verdict files directly (`.gtd/REVIEW.md`, `.gtd/TODO.md`) and
+  running `gtd step check` — @inmem never executes the scripts themselves.
 
   The cycle ends at human approval, resting back at `idle` — there is no
   squash. Every commit the cycle authored stays in history; whether/how to
   squash them is entirely up to the human (see docs/examples/advanced-workflow.md
   for a workflow that adds a squash finale back on top of this one).
 
-  Scenario: the full cycle advances idle through an await-review approval, including a malformed-TODO lap, a check/fix round, a malformed-REVIEW lap, and a partial-tick feedback lap, and rests at idle with no squash
+  Scenario: the full cycle advances idle through an await-review approval, including a check/fix round and a partial-tick feedback lap, and rests at idle with no squash
     Given a test project
     And a file ".gtd/TODO.md" with:
       """
@@ -29,34 +32,9 @@ Feature: The bundled default workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(human): grilling"
 
-    # grilling: develops the sketch into a plan, but leaves an open question
-    # without a "Suggested default:"/"Answer:" line — a malformed draft
+    # grilling: develops the sketch into a plan (self-validated before the
+    # turn ends — see validate.feature) and hands straight to grilling-answer
     Given ".gtd/TODO.md" is modified to:
-      """
-      Build a thing. Implementation plan: add src/thing.ts exporting `thing`.
-
-      ## Open Questions
-
-      ### Should thing export a default too?
-
-      Not sure yet.
-      """
-    When I run gtd step agent
-    Then it succeeds
-    And the last commit subject is "gtd(agent): todo-validating"
-
-    # todo-validating (malformed): simulate the validator finding that draft's error
-    Given a file ".gtd/FORMAT.md" with:
-      """
-      .gtd/TODO.md:5: open question "Should thing export a default too?" is missing a "Suggested default: ..." or "Answer: ..." line
-      """
-    When I run gtd step check
-    Then it succeeds
-    And the last commit subject is "gtd(check): grilling"
-
-    # grilling: fixes the finding
-    Given the file ".gtd/FORMAT.md" is deleted
-    And ".gtd/TODO.md" is modified to:
       """
       Build a thing. Implementation plan: add src/thing.ts exporting `thing`.
 
@@ -68,12 +46,7 @@ Feature: The bundled default workflow — full cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): todo-validating"
-
-    # todo-validating (valid, nothing to clean up): a clean step moves to grilling-answer
-    When I run gtd step check
-    Then it succeeds
-    And the last commit subject is "gtd(check): grilling-answer"
+    And the last commit subject is "gtd(agent): grilling-answer"
 
     # grilling-answer: accept the suggested default with a clean step
     When I run gtd step human
@@ -110,32 +83,9 @@ Feature: The bundled default workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(check): reviewing"
 
-    # reviewing: writes REVIEW.md, but without the required header line —
-    # a malformed draft
+    # reviewing: writes REVIEW.md (self-validated before the turn ends) and
+    # hands straight to await-review
     Given a file ".gtd/REVIEW.md" with:
-      """
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add thing.ts
-
-      - [ ] ./src/thing.ts#1 — new export
-      """
-    When I run gtd step agent
-    Then it succeeds
-    And the last commit subject is "gtd(agent): review-validating"
-
-    # review-validating (malformed): simulate the validator finding that draft's error
-    Given a file ".gtd/FORMAT.md" with:
-      """
-      .gtd/REVIEW.md:1: missing or malformed "# Review: <hash>" header as first line
-      """
-    When I run gtd step check
-    Then it succeeds
-    And the last commit subject is "gtd(check): reviewing"
-
-    # reviewing: fixes the finding
-    Given the file ".gtd/FORMAT.md" is deleted
-    And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -145,11 +95,6 @@ Feature: The bundled default workflow — full cycle journeys
       - [ ] ./src/thing.ts#1 — new export
       """
     When I run gtd step agent
-    Then it succeeds
-    And the last commit subject is "gtd(agent): review-validating"
-
-    # review-validating (valid, nothing to clean up): a clean step moves to await-review
-    When I run gtd step check
     Then it succeeds
     # await-review declares `reviewWindow: true` (STATES.md §11): landing here
     # opens the review checkout window, rewinding raw HEAD to the review base.
@@ -189,8 +134,8 @@ Feature: The bundled default workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(check): grilling"
 
-    # second lap: grilling -> todo-validating -> grilling-answer -> building
-    # -> checking (green) -> reviewing -> review-validating -> await-review
+    # second lap: grilling -> grilling-answer -> building -> checking (green)
+    # -> reviewing -> await-review
     Given ".gtd/TODO.md" is modified to:
       """
       Add a doc comment to thing.ts. Plan: add a one-line comment above the
@@ -198,10 +143,7 @@ Feature: The bundled default workflow — full cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): todo-validating"
-    When I run gtd step check
-    Then it succeeds
-    And the last commit subject is "gtd(check): grilling-answer"
+    And the last commit subject is "gtd(agent): grilling-answer"
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): building"
@@ -227,9 +169,6 @@ Feature: The bundled default workflow — full cycle journeys
       - [ ] ./src/thing.ts#1 — doc comment added
       """
     When I run gtd step agent
-    Then it succeeds
-    And the last commit subject is "gtd(agent): review-validating"
-    When I run gtd step check
     Then it succeeds
     # await-review opens the review checkout window (see above) — resolve the
     # true rest via `gtd status` rather than raw HEAD.
@@ -260,7 +199,6 @@ Feature: The bundled default workflow — full cycle journeys
     And the git status is clean
     And ".gtd/TODO.md" does not exist
     And ".gtd/FEEDBACK.md" does not exist
-    And ".gtd/FORMAT.md" does not exist
     And ".gtd/REVIEW.md" does not exist
     And "src/thing.ts" exists
 
@@ -317,55 +255,6 @@ Feature: The bundled default workflow — full cycle journeys
     When I run gtd step check
     Then it succeeds
     And the last commit subject is "gtd(check): escalate"
-
-  Scenario: a malformed TODO.md draft bounces back to grilling and a valid one that had a stale FORMAT.md to clean up proceeds to grilling-answer
-    Given a test project
-    And a commit "gtd(agent): todo-validating" that adds ".gtd/TODO.md" with:
-      """
-      Build a thing.
-      """
-    And a file ".gtd/FORMAT.md" with:
-      """
-      .gtd/TODO.md:1: open question "X" is missing a "Suggested default: ..." or "Answer: ..." line
-      """
-    When I run gtd step check
-    Then it succeeds
-    And the last commit subject is "gtd(check): grilling"
-    Given a commit "gtd(agent): todo-validating" that adds "src/note.md" with:
-      """
-      the draft is fixed, FORMAT.md still lingers from the last round
-      """
-    Given the file ".gtd/FORMAT.md" is deleted
-    When I run gtd step check
-    Then it succeeds
-    And the last commit subject is "gtd(check): grilling-answer"
-
-  Scenario: a malformed REVIEW.md draft bounces back to reviewing and a valid one that had a stale FORMAT.md to clean up proceeds to await-review
-    Given a test project
-    And a commit "gtd(agent): review-validating" that adds ".gtd/REVIEW.md" with:
-      """
-      Nothing to review.
-      """
-    And a file ".gtd/FORMAT.md" with:
-      """
-      .gtd/REVIEW.md:1: missing or malformed "# Review: <hash>" header as first line
-      """
-    When I run gtd step check
-    Then it succeeds
-    And the last commit subject is "gtd(check): reviewing"
-    Given a commit "gtd(agent): review-validating" that adds "src/note2.md" with:
-      """
-      the draft is fixed, FORMAT.md still lingers from the last round
-      """
-    Given the file ".gtd/FORMAT.md" is deleted
-    When I run gtd step check
-    Then it succeeds
-    # await-review opens the review checkout window (reviewWindow: true) — assert
-    # the resolved state via `gtd status`, which closes the window before reading.
-    And the git ref "refs/gtd/review-head" exists
-    When I run gtd status
-    Then it succeeds
-    And stdout contains "State: await-review"
 
   Scenario: deleting REVIEW.md outright at await-review is the power-user approve shortcut, bypassing review-deciding
     Given a test project
@@ -476,10 +365,7 @@ Feature: The bundled default workflow — full cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): todo-validating"
-    When I run gtd step check
-    Then it succeeds
-    And the last commit subject is "gtd(check): grilling-answer"
+    And the last commit subject is "gtd(agent): grilling-answer"
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): building"

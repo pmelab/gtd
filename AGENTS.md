@@ -40,10 +40,11 @@ so it never needs its own logic. After editing the YAML, update:
 - **STATES.md §10** — the bundled-default table and walkthrough
 - **e2e feature files** that assert on the default workflow's shape
   (`tests/integration/features/default-workflow.feature`, `gtd-loop.feature`,
-  `driver-run.feature`, `smoke.feature`)
+  `driver-run.feature`, `smoke.feature`, `mermaid.feature`, `validate.feature`)
 - **`skills/loop/SKILL.md`** only if the change affects the driver contract
-  itself (dispatch on `kind`, stall detection) — not the default workflow's own
-  states, which the skill never names
+  itself (dispatch on `kind`, stall detection, the `gtd validate` gate after a
+  producing agent turn) — not the default workflow's own states, which the skill
+  never names
 
 A genuinely new engine capability (a new content kind, a new `on` pattern
 grammar, a new state property) is a different, much rarer kind of change — that

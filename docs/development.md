@@ -62,12 +62,14 @@ git/`.gtdrc` dependency at all and serves whatever content the editor hands it
 over the LSP protocol, exactly like any other document.
 
 `src/OpenQuestions.ts` and `src/ReviewDoc.ts` are the pure parsers behind both
-the LSP and the bundled default workflow's own bash validators
-(`todo-validating`/`review-validating` in `src/workflows/default.yaml`) — see
-[docs/design/steering-file-loops.md](design/steering-file-loops.md) for the
-"executable spec ↔ bash validator" contract linking the two independent
-implementations, and each module's own doc comment for the format it defines.
-Their unit tests are that format's spec tests.
+the LSP and the `gtd validate` command, which resolves the current state, reads
+its `file:`, and runs the parser its `mode:` selects (`qa` →
+`parseOpenQuestions`, `review` → `parseReviewDoc`) — ONE source of truth per
+format, no bash port and no dual-implementation contract to keep in sync. See
+[docs/design/steering-file-validation-command.md](design/steering-file-validation-command.md)
+and [STATES.md §12](../STATES.md) for the command, and each module's own doc
+comment for the format it defines. Their unit tests are that format's spec
+tests.
 
 ## Mutation testing
 

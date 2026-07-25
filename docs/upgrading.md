@@ -61,15 +61,18 @@ upgrading.
   checkbox-only REVIEW.md diffs, and doc-structure validation are gone as ENGINE
   mechanisms — verdicts are now expressed purely by which file a turn writes or
   deletes, matched by an ordinary `on` pattern. The bundled default workflow's
-  own two validation loops (`todo-validating`/`review-validating`/
-  `review-deciding` — see
-  [docs/design/steering-file-loops.md](design/steering-file-loops.md)) rebuild
-  checkbox-review and doc-structure verdicts as ordinary WORKFLOW data
-  (`script`-content states + `on` patterns), not an engine hook: `D REVIEW.md` =
-  approve, `M REVIEW.md` = route to the deterministic decider, in the bundled
-  default.
-- **`gtd questions` / `gtd changesets` / `gtd review <target>`.** Gone; the v3
-  command surface is `step` / `next` / `run` / `status` / `format` / `lsp` (see
+  own checkbox-review verdict (`review-deciding`) is ordinary WORKFLOW data (an
+  `on` pattern), not an engine hook: `D REVIEW.md` = approve, `M REVIEW.md` =
+  route to the deterministic decider, in the bundled default. Deterministic
+  format-checking of the steering files is likewise no longer a pair of
+  in-machine `check`/`script` states — the old `todo-validating`/
+  `review-validating` states and their `.gtd/FORMAT.md` steering file are gone,
+  replaced by the `gtd validate` command plus producing-agent self-validation
+  (see
+  [docs/design/steering-file-validation-command.md](design/steering-file-validation-command.md)
+  and [STATES.md §12](../STATES.md)).
+- **`gtd review <target>`.** Gone; the v3 command surface is `step` / `next` /
+  `run` / `status` / `format` / `validate` / `lsp` (see
   [CLI reference](cli.md)).
 - **Model tiers, the decision log.** No `models` config key, no `Gtd-Decisions`
   trailer scan, no grilling/architecting "prior decisions" context assembled

@@ -51,7 +51,7 @@ Each of these passes today's validation:
    `retry: {max: 3, otherwise: escalate}`; delete that key and the machine
    validates clean but can ping-pong forever with no human in the loop.
 5. **Shadowed `on` row** — `on` is first-match-wins, so
-   `{"* **": a, "A .gtd/FORMAT.md": b}` never routes to `b`: the catch-all
+   `{"* **": a, "A .gtd/FEEDBACK.md": b}` never routes to `b`: the catch-all
    subsumes the specific row. Dead rows are silent today.
 6. **`retry.otherwise` cycle / self-reference** — `applyRetry` terminates at
    runtime via its `visited` guard, but the guard's "accept the repeated target
@@ -400,7 +400,7 @@ the definition) — they fit `PatternMachine.step`'s purity discipline.
 - **Self-explaining refusals.** A no-match refusal already lists the state's
   declared patterns; for a user debugging their own machine, also list the
   pending changes that failed to match (status + path, first N). "Your tree has
-  `M src/x.ts` but this state only matches `A .gtd/FORMAT.md`" turns the most
+  `M src/x.ts` but this state only matches `A .gtd/FEEDBACK.md`" turns the most
   common custom-workflow dead end from a mystery into a diff-vs-pattern
   diagnosis the user can act on immediately.
 

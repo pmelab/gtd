@@ -2,10 +2,10 @@
  * LSP server for `.gtd/` steering files — document symbols for a `qa`-mode
  * file's open questions and a `review`-mode file's review chunks/hunks, code
  * actions to check/uncheck a hunk or a whole chunk, and diagnostics publishing
- * the same parsers' `errors` the bundled workflow's `.gtd/FORMAT.md`
- * validators produce (see `src/OpenQuestions.ts` / `src/ReviewDoc.ts`'s
- * module docs for the "executable spec ↔ bash validator" contract this server
- * rides on top of).
+ * the same parsers' `errors` the `gtd validate` CLI command reports (see
+ * `src/OpenQuestions.ts` / `src/ReviewDoc.ts`'s module docs — those parsers
+ * are each format's single source of truth, shared by this server and the
+ * command).
  *
  * CONFIG-DRIVEN (see `docs/design/state-file-association.md` §3): the server
  * locates the active gtd config the SAME way the CLI does (`ConfigService`'s
@@ -107,7 +107,7 @@ export const questionSymbols = (content: string): DocumentSymbol[] => {
   })
 }
 
-/** Diagnostics for `.gtd/TODO.md` — the same findings the workflow's `todo-validating` script would write to `.gtd/FORMAT.md`, published live over LSP instead. Whole-document range: `OpenQuestionsDoc.errors` carries no per-line position. */
+/** Diagnostics for `.gtd/TODO.md` — the same findings `gtd validate` reports for a `qa`-mode file, published live over LSP instead. Whole-document range: `OpenQuestionsDoc.errors` carries no per-line position. */
 export const questionDiagnostics = (content: string): Diagnostic[] => {
   const { errors } = parseOpenQuestions(content)
   const lines = content.split(/\r?\n/)
@@ -150,7 +150,7 @@ export const reviewSymbols = (content: string): DocumentSymbol[] => {
   })
 }
 
-/** Diagnostics for `.gtd/REVIEW.md` — the same findings the workflow's `review-validating` script would write to `.gtd/FORMAT.md`, published live over LSP instead. Whole-document range: `ReviewDoc.errors` carries no per-line position. */
+/** Diagnostics for `.gtd/REVIEW.md` — the same findings `gtd validate` reports for a `review`-mode file, published live over LSP instead. Whole-document range: `ReviewDoc.errors` carries no per-line position. */
 export const reviewDiagnostics = (content: string): Diagnostic[] => {
   const { errors } = parseReviewDoc(content)
   const lines = content.split(/\r?\n/)

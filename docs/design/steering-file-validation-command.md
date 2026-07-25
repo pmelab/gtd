@@ -1,10 +1,27 @@
-# Plan: replace the steering-file validation _states_ with a `gtd validate` command
+# Replacing the steering-file validation _states_ with a `gtd validate` command
 
-> Status: PLAN — not yet implemented. Hand this to an implementing agent.
-> Supersedes the two validation-loop states landed in
-> [steering-file-loops.md](steering-file-loops.md) §2–§4 (`todo-validating`,
-> `review-validating`). Everything else that doc describes (the file formats,
-> the LSP resurrection in §5) stays.
+> Status: IMPLEMENTED. The authoritative reference is now
+> [STATES.md §12](../../STATES.md) (the model) and §10 (the 10-state bundled
+> default); this doc is the design record. Supersedes the two validation-loop
+> states in [steering-file-loops.md](steering-file-loops.md) §2–§4
+> (`todo-validating`, `review-validating`); everything else that doc describes
+> (the file formats §1, the LSP resurrection §5) stays.
+>
+> **As built — two decisions differ from the first draft of this plan:**
+>
+> 1. **No new state property.** A state is treated as "must hand over a valid
+>    file" purely by declaring both `file:` and `mode:` — there is no
+>    `validate:` flag and no `PatternMachine`/`PatternConfig`/`schema.json`
+>    change. This is the "Alternative considered" from §2.3, chosen for zero
+>    engine surface.
+> 2. **`gtd next --json` is unchanged.** It emits no new field (it already
+>    carries `file`/`mode`); the driver simply runs `gtd validate` after every
+>    agent turn (a no-op, exit 0, when the state has nothing to validate). Only
+>    plain `gtd next` changed — it appends the self-validation instruction to a
+>    `prompt` rest that declares `file:`+`mode:`.
+>
+> The sections below are the original plan; read §2.3 and §3.2 through those two
+> decisions.
 
 ## 1. Motivation
 
