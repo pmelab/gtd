@@ -232,30 +232,40 @@ when the state has no `on` (all omitted entirely, never `null`, otherwise):
 
 ## `gtd validate [--json]`
 
-Validate the steering file the resolved rest declares. It resolves the current
-state exactly like `gtd status`, renders that state's `file:`, reads its
-**working-tree** contents, and runs the parser its `mode:` selects — `qa` →
-`src/OpenQuestions.ts`, `review` → `src/ReviewDoc.ts` (the same pure parsers the
-LSP publishes as diagnostics, so there is one source of truth per format). It
-mutates nothing.
+Format **and** validate the steering file the resolved rest declares. It
+resolves the current state exactly like `gtd status`, renders that state's
+`file:`, **formats that file in place** (the same markdown formatter as
+`gtd format`), then runs the parser its `mode:` selects over the formatted
+contents — `qa` → `src/OpenQuestions.ts`, `review` → `src/ReviewDoc.ts` (the
+same pure parsers the LSP publishes as diagnostics, so there is one source of
+truth per format).
 
 - A well-formed file exits `0` (`<file>: valid`, or `{"valid":true, ...}` with
-  `--json`).
+  `--json`) — and is left formatted.
 - Violations exit **non-zero** with the findings, one per line — the signal a
   producing agent, or the driving loop, loops on until the file is well-formed.
-- A state that declares no `file:`/`mode:` has nothing to validate and exits `0`
-  (`nothing to validate at "<state>"`).
-- A missing file is read as empty content, so `gtd validate` fails **iff** the
-  file exists and violates its format (an absent `qa` file is trivially valid;
-  an absent `review` file fails the parser).
+- A state that declares no `file:`/`mode:`, or whose file is **absent** (e.g.
+  `building` deleted `.gtd/TODO.md`, or a human deleted `.gtd/REVIEW.md` to
+  approve), has nothing to validate and exits `0`
+  (`nothing to validate at "<state>"`). Nothing is formatted in that case.
 
-This is how the bundled default keeps its steering files well-formed without an
-in-machine validation state: the producing agent (`grilling`, `reviewing`)
-self-validates before finishing. Plain `gtd next` appends a "run `gtd validate`
-and fix all violations" instruction to a `prompt` rest that declares
-`file:`+`mode:`; `gtd next --json` withholds it and the driving loop runs
-`gtd validate` after the turn instead (see `bin/gtd-loop` /
-[STATES.md §12](../STATES.md)). `gtd validate` takes no arguments.
+This is how the bundled default keeps its steering files tidy and well-formed
+without an in-machine validation state — and the check runs whoever last touched
+the file, agent or human:
+
+- **The producing agent self-validates.** Plain `gtd next` appends a "run
+  `gtd validate` and fix all violations" instruction to a `prompt` rest that
+  declares `file:`+`mode:`; `gtd next --json` withholds it and the driving loop
+  runs `gtd validate` after the turn instead (see `bin/gtd-loop` /
+  [STATES.md §12](../STATES.md#12-steering-file-validation-gtd-validate)).
+- **`gtd step` enforces the same gate.** Capturing a turn out of a state that
+  declares `file:`+`mode:` formats that file in place and validates it first,
+  and **refuses the step** (committing nothing) when it is invalid — so a
+  human's edit at a gate (answering at `grilling-answer`, reviewing at
+  `await-review`) is formatted and checked exactly like an agent's draft, and a
+  malformed steering file is never committed.
+
+`gtd validate` takes no arguments.
 
 ## `gtd mermaid`
 

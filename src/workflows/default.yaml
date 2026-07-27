@@ -72,15 +72,18 @@
 # `file:`/`mode:` pair (TODO.md as `qa`, REVIEW.md as `review`), so their
 # output has a checkable format. src/OpenQuestions.ts and src/ReviewDoc.ts are
 # those two formats' EXECUTABLE SPECS (their unit tests are the format spec
-# tests), and `gtd validate` runs the SAME parser over the resolved state's
-# rendered `file:`, exiting non-zero with findings when it violates the format.
-# There is no in-machine validation state and no bash port to keep in sync —
-# the producing agent self-validates before finishing: plain `gtd next`
-# appends the "run `gtd validate` and fix all violations" instruction, and
-# under `--json` the driving loop runs `gtd validate` after the turn and
-# re-prompts on any findings (see skills/loop/SKILL.md), so a human gate is
-# only ever handed a well-formed file. The same parsers back the LSP's live
-# diagnostics (src/Lsp.ts).
+# tests), and `gtd validate` FORMATS the resolved state's rendered `file:` in
+# place then runs the SAME parser over it, exiting non-zero with findings when
+# it violates the format. There is no in-machine validation state and no bash
+# port to keep in sync — the producing agent self-validates before finishing
+# (plain `gtd next` appends the "run `gtd validate` and fix all violations"
+# instruction; under `--json` the driving loop runs it after the turn and
+# re-prompts on findings — see skills/loop/SKILL.md), AND `gtd step` runs the
+# same format-and-validate gate on capture, refusing a turn whose steering file
+# is invalid. So the check runs after a human edits too — at the human gates
+# `grilling-answer` (TODO.md) and `await-review` (REVIEW.md) — and a human gate
+# is only ever handed a tidy, well-formed file. The same parsers back the LSP's
+# live diagnostics (src/Lsp.ts).
 #
 # `grilling` and `reviewing` both declare `model: smart` — an opaque harness
 # hint (see the comment at `grilling` below) for their heavier one-shot

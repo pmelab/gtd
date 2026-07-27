@@ -513,21 +513,32 @@ A state that declares both `file:` and `mode:` has an output whose format is
 checkable: `mode` names the format (`qa` → `src/OpenQuestions.ts`, `review` →
 `src/ReviewDoc.ts`), and those pure parsers are each format's single source of
 truth (their unit tests are the format's spec tests; the same parsers back the
-LSP's live diagnostics, `src/Lsp.ts`). Validation is **not** part of the engine
-or the step decision — it is a separate command plus emitted guidance.
+LSP's live diagnostics, `src/Lsp.ts`). The **pure engine** never validates — it
+stays an edge concern (like the review checkout window, §11): a command, a
+capture-time gate, and emitted guidance, none of which the `step` decision sees.
 
 **`gtd validate`** resolves the current rest exactly like `gtd status`, renders
-that state's `file:`, reads its working-tree contents, and runs the parser its
-`mode:` selects. A clean parse exits 0; violations exit non-zero with the
-findings (one per line). A state with no `file:`/`mode:` has nothing to validate
-and exits 0. A missing file is read as empty content, so it is a pure function
-of the parser over the file: `gtd validate` fails **iff** the file exists and
-violates its format. It mutates nothing.
+that state's `file:`, **formats it in place** (the same markdown formatter as
+`gtd format`), then runs the parser its `mode:` selects over the formatted
+contents. A clean parse exits 0; violations exit non-zero with the findings (one
+per line). A state with no `file:`/`mode:`, or whose file is **absent**, has
+nothing to validate and exits 0 (and formats nothing) — so `building` deleting
+`.gtd/TODO.md`, and an `await-review` delete-to-approve, both pass cleanly.
 
-**Self-validation is emitted, not enforced.** So a human gate is only ever
-handed a well-formed file, the producing agent validates its own output before
-finishing — and how that instruction reaches the agent depends on the output
-mode of `gtd next`, so the two driving styles compose:
+**`gtd step` enforces the same gate.** Capturing a normal commit out of a state
+that declares `file:`+`mode:` runs the very same format-and-validate on that
+file first (`enforceSteeringGate` in `src/program.ts`) and **refuses the step**,
+committing nothing, when it is invalid. This is what makes the check run whoever
+last touched the file — an agent's fresh draft AND a human's edit at a gate
+(answering at `grilling-answer`, reviewing at `await-review`) are formatted and
+validated identically, and a malformed steering file is never committed. A
+squash skips the gate (the file is discarded); a deletion/absent file is a no-op
+(so delete-to-approve still works).
+
+**Self-validation before the gate.** So the gate rarely has to refuse, the
+producing agent validates its own output before stepping — and how that reaches
+the agent depends on the output mode of `gtd next`, so the driving styles
+compose:
 
 - **`gtd next` (plain text):** for a `prompt` rest that declares
   `file:`+`mode:`, gtd appends a "run `gtd validate` and fix every violation"
@@ -541,7 +552,9 @@ mode of `gtd next`, so the two driving styles compose:
   validate means the loop can run it after every agent turn unconditionally.
 
 In the bundled default (§10) this covers `grilling` (TODO.md/`qa`) and
-`reviewing` (REVIEW.md/`review`) — the two states that author a steering file a
-human then acts on. It replaced the old in-machine `todo-validating`/
-`review-validating` states and their `.gtd/FORMAT.md` bounce loop (see
+`reviewing` (REVIEW.md/`review`) — the states that author a steering file — and,
+through the `gtd step` gate, the human gates `grilling-answer` and
+`await-review` that edit those same files. It replaced the old in-machine
+`todo-validating`/`review-validating` states and their `.gtd/FORMAT.md` bounce
+loop (see
 [docs/design/steering-file-validation-command.md](docs/design/steering-file-validation-command.md)).
