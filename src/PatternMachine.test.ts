@@ -10,6 +10,7 @@ import {
   parsePattern,
   parseStateSubject,
   resolveState,
+  reviewEntryStateOf,
   stateSubject,
   step,
   validateDefinition,
@@ -139,6 +140,30 @@ describe("isReviewWindowState / isReviewBaseState", () => {
   it("is false for an unknown state name", () => {
     expect(isReviewWindowState(def, "ghost")).toBe(false)
     expect(isReviewBaseState(def, "ghost")).toBe(false)
+  })
+})
+
+describe("reviewEntryStateOf", () => {
+  it("returns the one state name declaring `reviewEntry: true`", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "x", initial: true, on: [["* *", "review"]] },
+        review: {
+          actor: "agent",
+          prompt: "review",
+          reviewEntry: true,
+          on: [["* *", "idle"]],
+        },
+      },
+    }
+    expect(reviewEntryStateOf(def)).toBe("review")
+  })
+
+  it("is undefined when no state declares `reviewEntry`", () => {
+    const def: WorkflowDefinition = {
+      states: { idle: { actor: "human", message: "x", initial: true } },
+    }
+    expect(reviewEntryStateOf(def)).toBeUndefined()
   })
 })
 
@@ -1022,6 +1047,47 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain('state "b": a commit state cannot declare "reviewBase"')
+  })
+
+  it("accepts a non-commit, non-initial state declaring `reviewEntry`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { actor: "h", message: "review", reviewEntry: true, on: [["C", "a"]] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects a commit state that declares `reviewEntry`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { commit: "chore: b", reviewEntry: true },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "reviewEntry"')
+  })
+
+  it("rejects the initial state declaring `reviewEntry`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, reviewEntry: true, on: [["* *", "b"]] },
+        b: { actor: "h", message: "y", on: [["C", "a"]] },
+      },
+    })
+    expect(errors).toContain('state "a": the initial state cannot declare "reviewEntry"')
+  })
+
+  it("rejects more than one state declaring `reviewEntry`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { actor: "h", message: "y", reviewEntry: true, on: [["* *", "c"]] },
+        c: { actor: "h", message: "z", reviewEntry: true, on: [["C", "a"]] },
+      },
+    })
+    expect(errors).toContain('at most one state may declare "reviewEntry" (found 2: b, c)')
   })
 
   it("aggregates a bad `file`/`mode` alongside other unrelated findings", () => {

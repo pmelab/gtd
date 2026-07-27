@@ -17,6 +17,8 @@ import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
 import { defaultWorkflowDefinition } from "./workflows/default.js"
 import { makeProgram } from "./program.js"
+import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
+import { inMemoryLayers } from "../tests/integration/support/inmem/layers.js"
 
 // GitService whose every method fails — proves the flag handler never calls git.
 const failingGitLayer = Layer.succeed(GitService, {
@@ -214,6 +216,140 @@ describe("the retired `gtd format` subcommand", () => {
   it("is absent from the help text", async () => {
     const { output } = await runFlag("--help")
     expect(output).not.toContain("format <file>")
+  })
+})
+
+describe("gtd review <commitish> — subcommand guards", () => {
+  // Unlike the flag-only tests above, `gtd review`'s guards need a real
+  // (in-memory) repo to resolve against — a plain "must not be called"
+  // stub can't tell a clean-tree-at-idle rest from a dirty/mid-process one.
+  // Mirrors the precedent in src/Git.test.ts (InMemRepo + inMemoryLayers, no
+  // subprocess). Full happy-path coverage (the entered state, the review
+  // checkout window opening downstream, feedback laps, …) lives in
+  // tests/integration/features/review-entry.feature.
+
+  const seededRepo = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gitignore", "node_modules\n")
+    repo.writeFile("README.md", "# test project\n")
+    repo.commitAllWithPrefix("chore: initial commit")
+    return repo
+  }
+
+  const runReview = async (
+    repo: InMemRepo,
+    ...args: string[]
+  ): Promise<{ output: string; exit: Exit.Exit<void, Error> }> => {
+    let output = ""
+    const write = (chunk: string) => {
+      output += chunk
+    }
+    const argv = ["node", "gtd.js", "review", ...args]
+    const exit = await Effect.runPromiseExit(
+      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+    )
+    return { output, exit }
+  }
+
+  it("is a known subcommand — appears in --help", async () => {
+    const { output } = await runFlag("--help")
+    expect(output).toContain("review <commitish>")
+  })
+
+  it("missing <commitish> argument is a usage error, nothing committed", async () => {
+    const repo = seededRepo()
+    const before = repo.commitHistory().length
+    const { exit } = await runReview(repo)
+    expect(Exit.isSuccess(exit)).toBe(false)
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("more than one positional argument is a usage error", async () => {
+    const repo = seededRepo()
+    const base = repo.commitHistory()[0]!.hash
+    const { exit } = await runReview(repo, base, "extra")
+    expect(Exit.isSuccess(exit)).toBe(false)
+  })
+
+  it("a dirty working tree refuses, nothing committed", async () => {
+    const repo = seededRepo()
+    const base = repo.commitHistory()[0]!.hash
+    repo.writeFile("scratch.txt", "uncommitted\n")
+    const before = repo.commitHistory().length
+    const { exit } = await runReview(repo, base)
+    expect(Exit.isSuccess(exit)).toBe(false)
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("a process already underway (not resting at the initial state) refuses", async () => {
+    const repo = seededRepo()
+    const base = repo.commitHistory()[0]!.hash
+    repo.writeFile(".gtd/TODO.md", "sketch\n")
+    repo.commitAllWithPrefix("gtd(human): grilling")
+    const before = repo.commitHistory().length
+    const { exit } = await runReview(repo, base)
+    expect(Exit.isSuccess(exit)).toBe(false)
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("<commitish> equal to HEAD refuses — nothing to review", async () => {
+    const repo = seededRepo()
+    const head = repo.commitHistory()[0]!.hash
+    const before = repo.commitHistory().length
+    const { exit } = await runReview(repo, head)
+    expect(Exit.isSuccess(exit)).toBe(false)
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("a workflow declaring no reviewEntry state fails with a clear usage error", async () => {
+    const repo = seededRepo()
+    // A minimal custom workflow with no `reviewEntry:` anywhere, COMMITTED
+    // (not left pending) so the clean-tree guard passes and this test
+    // exercises the reviewEntry guard specifically.
+    repo.writeFile(
+      ".gtdrc.yaml",
+      [
+        "workflow:",
+        "  states:",
+        "    idle:",
+        "      actor: human",
+        "      initial: true",
+        "      message: hi",
+        "      on:",
+        '        "* **": working',
+        "    working:",
+        "      actor: agent",
+        "      prompt: go",
+        "      on:",
+        '        "* **": idle',
+        "",
+      ].join("\n"),
+    )
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const base = repo.commitHistory()[0]!.hash
+    const { exit } = await runReview(repo, base)
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain("declares no review entry state")
+    }
+  })
+
+  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the bundled default's review-entry state (reviewing)", async () => {
+    const repo = seededRepo()
+    const base = repo.commitHistory()[0]!.hash
+    // A colleague's PR branch: ordinary commits on top of the base, no gtd
+    // process of its own.
+    repo.writeFile("src/calc.ts", "export const add = (a: number, b: number) => a + b\n")
+    repo.commitAllWithPrefix("feat: add calculator")
+    const before = repo.commitHistory().length
+
+    const { output, exit } = await runReview(repo, base)
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(output).toContain("committed: gtd(human): reviewing")
+    expect(repo.commitHistory()).toHaveLength(before + 1)
+    expect(repo.lastCommitSubject()).toBe("gtd(human): reviewing")
+    const message = repo.commitHistory().at(-1)!.message
+    expect(message).toContain(`Gtd-Review-Base: ${base}`)
   })
 })
 

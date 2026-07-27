@@ -15,6 +15,8 @@ import {
   toTemplateEdges,
   UNATTRIBUTED_MODEL,
   withCostTrailer,
+  withReviewBaseTrailer,
+  parseReviewBaseTrailer,
 } from "./Edge.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 import type { StateDef, WorkflowDefinition } from "./PatternMachine.js"
@@ -76,6 +78,7 @@ describe("computeProcessRun", () => {
     expect(result).toEqual({
       startHash: "",
       startParentHash: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+      diffBase: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
       trace: [],
       costEntries: [],
     })
@@ -95,6 +98,7 @@ describe("computeProcessRun", () => {
     expect(result).toEqual({
       startHash: "h1",
       startParentHash: "h0",
+      diffBase: "h0",
       trace: ["grilling", "building"],
       costEntries: [],
     })
@@ -120,7 +124,13 @@ describe("computeProcessRun", () => {
       commitHistory: () => Effect.succeed(history),
     })
     const result = await run(computeProcessRun(git, def))
-    expect(result).toEqual({ startHash: "h0", startParentHash: "h0", trace: [], costEntries: [] })
+    expect(result).toEqual({
+      startHash: "h0",
+      startParentHash: "h0",
+      diffBase: "h0",
+      trace: [],
+      costEntries: [],
+    })
   })
 
   it("(b) a commit entering the initial state mid-history is ALSO a process boundary, excluded from the newer process's trace — [boundary, …cycle1…, gtd(human): idle, gtd(human): grilling, gtd(agent): building]", async () => {
@@ -139,6 +149,7 @@ describe("computeProcessRun", () => {
     expect(result).toEqual({
       startHash: "h3",
       startParentHash: "h2",
+      diffBase: "h2",
       trace: ["grilling", "building"],
       costEntries: [],
     })
@@ -155,7 +166,13 @@ describe("computeProcessRun", () => {
       commitHistory: () => Effect.succeed(history),
     })
     const result = await run(computeProcessRun(git, def))
-    expect(result).toEqual({ startHash: "h2", startParentHash: "h2", trace: [], costEntries: [] })
+    expect(result).toEqual({
+      startHash: "h2",
+      startParentHash: "h2",
+      diffBase: "h2",
+      trace: [],
+      costEntries: [],
+    })
   })
 
   it("(d) retry counting resets across an idle boundary — a state entered 3x before the idle entry counts 0 after", async () => {
@@ -218,6 +235,63 @@ describe("computeProcessRun", () => {
       { cost: 50, model: UNATTRIBUTED_MODEL },
     ])
   })
+
+  it("a `Gtd-Review-Base:` trailer on the process's OLDEST commit overrides `diffBase`, leaving the trace/retry boundary (`startParentHash`) untouched — the `gtd review <commitish>` entry commit", async () => {
+    const history = [
+      // A plain, non-workflow commit — e.g. a colleague's PR branch commit —
+      // is the trace boundary (excluded, like any other boundary commit).
+      { hash: "h0", message: "feat: add calculator", removedErrors: false, touched: [] },
+      {
+        hash: "h1",
+        message: "gtd(human): reviewing\n\nGtd-Review-Base: deadbeef",
+        removedErrors: false,
+        touched: [],
+      },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result.trace).toEqual(["reviewing"])
+    expect(result.startParentHash).toBe("h0")
+    expect(result.diffBase).toBe("deadbeef")
+  })
+
+  it("a `Gtd-Review-Base:` trailer on a LATER turn (not the process's oldest commit) is never consulted for the override", async () => {
+    const history = [
+      { hash: "h0", message: "feat: add calculator", removedErrors: false, touched: [] },
+      { hash: "h1", message: "gtd(human): reviewing", removedErrors: false, touched: [] },
+      // A later turn happens to carry a trailer that LOOKS like the review-base
+      // one — never mistaken for the process's own entry commit.
+      {
+        hash: "h2",
+        message: "gtd(human): await-review\n\nGtd-Review-Base: not-the-real-base",
+        removedErrors: false,
+        touched: [],
+      },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result.diffBase).toBe(result.startParentHash)
+    expect(result.diffBase).toBe("h0")
+  })
+
+  it("with no `Gtd-Review-Base:` trailer, `diffBase` defaults to `startParentHash` (the ordinary case)", async () => {
+    const history = [
+      { hash: "h0", message: "chore: init", removedErrors: false, touched: [] },
+      { hash: "h1", message: "gtd(human): grilling", removedErrors: false, touched: [] },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result.diffBase).toBe(result.startParentHash)
+  })
 })
 
 describe("pendingChanges", () => {
@@ -266,7 +340,13 @@ describe("executeDecision", () => {
     const outcome = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "p", trace: ["grilling"], costEntries: [] },
+        {
+          startHash: "s",
+          startParentHash: "p",
+          diffBase: "p",
+          trace: ["grilling"],
+          costEntries: [],
+        },
         {
           kind: "commit",
           subject: "gtd(human): grilling-answer",
@@ -287,7 +367,13 @@ describe("executeDecision", () => {
     const outcome = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "p", trace: ["grilling"], costEntries: [] },
+        {
+          startHash: "s",
+          startParentHash: "p",
+          diffBase: "p",
+          trace: ["grilling"],
+          costEntries: [],
+        },
         {
           kind: "commit",
           subject: "gtd(agent): building",
@@ -316,7 +402,13 @@ describe("executeDecision", () => {
     const outcome = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "parent-hash", trace: ["squashing"], costEntries: [] },
+        {
+          startHash: "s",
+          startParentHash: "parent-hash",
+          diffBase: "parent-hash",
+          trace: ["squashing"],
+          costEntries: [],
+        },
         { kind: "squash", state: "done", template: "feat: <%= it.state %>" },
         context({ state: "done" }),
       ),
@@ -332,7 +424,13 @@ describe("executeDecision", () => {
     const decision = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "parent-hash", trace: [], costEntries: [] },
+        {
+          startHash: "s",
+          startParentHash: "parent-hash",
+          diffBase: "parent-hash",
+          trace: [],
+          costEntries: [],
+        },
         { kind: "squash", state: "done", template: '<%~ it.read("missing.md") %>' },
         context(),
       ),
@@ -349,7 +447,7 @@ describe("executeDecision", () => {
     const outcome = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "p", trace: [], costEntries: [] },
+        { startHash: "s", startParentHash: "p", diffBase: "p", trace: [], costEntries: [] },
         { kind: "noop", state: "idle" },
         context(),
       ),
@@ -406,6 +504,27 @@ describe("parseCostTrailers", () => {
     expect(parseCostTrailers(["x\n\nGtd-Cost: not-a-number", "y\n\nGtd-Cost: 10"])).toEqual([
       { cost: 10, model: UNATTRIBUTED_MODEL },
     ])
+  })
+})
+
+describe("withReviewBaseTrailer", () => {
+  it("appends a `Gtd-Review-Base:` trailer after a blank line, leaving the subject as the first line", () => {
+    const message = withReviewBaseTrailer("gtd(human): reviewing", "abc123")
+    expect(message).toBe("gtd(human): reviewing\n\nGtd-Review-Base: abc123")
+    expect(message.split("\n")[0]).toBe("gtd(human): reviewing")
+  })
+})
+
+describe("parseReviewBaseTrailer", () => {
+  it("reads the hash back off a message carrying the trailer", () => {
+    expect(parseReviewBaseTrailer("gtd(human): reviewing\n\nGtd-Review-Base: abc123")).toBe(
+      "abc123",
+    )
+  })
+
+  it("is undefined when the message carries no such trailer", () => {
+    expect(parseReviewBaseTrailer("gtd(human): reviewing")).toBeUndefined()
+    expect(parseReviewBaseTrailer("chore: init\n\nGtd-Cost: 10")).toBeUndefined()
   })
 })
 

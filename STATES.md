@@ -34,6 +34,7 @@ A workflow is a set of named **states**. Each state declares:
 | `mode`                                        | Optional, requires `file:`. The associated file's FORMAT: the name of a **steering-file mode** — one of the two built-ins (`qa` \| `review`) or one the workflow declares in `modes:` (a `format:`/`validate:` pair of shell commands — see §12). gtd formats and validates the file with that mode at `gtd validate` and at the `gtd step` capture gate; `gtd lsp` dispatches document symbols/code actions/diagnostics on the built-in names only. A name nothing defines is a load error. Like `model`, this is opaque emitted data — the ENGINE never branches on it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                             |
 | `reviewWindow: true`                          | Optional boolean. While the machine RESTS at this state, gtd opens a **review checkout window** — HEAD and the index are rewound to the review base with the working tree untouched, so the whole `base..HEAD` diff surfaces as ordinary uncommitted changes in the editor's git integration; it closes automatically once the machine rests anywhere else (see §11). The pure engine never observes it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `reviewBase: true`                            | Optional boolean. Marks the state whose most-recent in-process commit anchors the review window's diff base (`base..HEAD`); absent any such state, the base is the process start (§11). Like `reviewWindow`, history-derived edge data the engine never reads. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `reviewEntry: true`                           | Optional boolean. Marks the (at most one) state `gtd review <commitish>` enters to start a BRAND NEW process reviewing `<commitish>..HEAD` — e.g. a colleague's PR branch with no gtd process of its own (§11). The pure engine never reads it either; the mechanism (resolving `<commitish>`, writing the entry commit, recording its hash as a `Gtd-Review-Base:` trailer) lives entirely at the edge. **Forbidden on a commit state and on the initial state.**                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 **Emission:** `gtd next --json`/`gtd status --json` gain optional `memory`
 (rendered), `file` (rendered) and `mode` (verbatim) keys, omitted — never `null`
@@ -226,6 +227,22 @@ starts a fresh one-commit history, a workflow commit entering the initial state
 process with an empty trace right after it, and an unrecognized HEAD starting a
 new process (§5) also begins with an empty trace.
 
+**The diff base vs. the trace boundary.** `computeProcessRun` produces both the
+process's trace boundary (`startParentHash`, above — what bounds `retry`
+counting and the squash reset target, §8) and a separate **diff base**
+(`diffBase`), the commit every rendered process diff (`it.processDiff`) and the
+review checkout window's default base (§11) compare against. The two normally
+coincide. They diverge only when the process's own OLDEST commit — its very
+first turn — carries a `Gtd-Review-Base: <hash>` trailer:
+`gtd review <commitish>` (§11) writes exactly such a commit when it starts a new
+process, recording `<commitish>`'s resolved hash there. `diffBase` then becomes
+that hash instead of the boundary parent, while the trace boundary itself is
+untouched (the entry commit's own parent is a non-workflow commit — e.g. a
+colleague's PR branch commit — so the ordinary boundary rule above already stops
+the trace walk there). This is how one workflow-authored value re-points the
+whole existing diff/review machinery at `<commitish>..HEAD` with no duplicated
+logic.
+
 ## 8. The squash lifecycle
 
 A **commit state** (`commit:` content, no `actor`, no `on`) is final. A
@@ -338,6 +355,13 @@ it. `File` names the workflow's own `vars:` entry the state's `file:` renders
 rests there for human review, gtd opens a review checkout window over the whole
 cycle diff (no `reviewBase` state is declared, so the base is the cycle's
 process boundary). See §11.
+
+`reviewing` additionally declares **`reviewEntry: true`**:
+`gtd review <commitish>` (a clean tree resting at `idle`) starts a brand new
+process there directly, reviewing `<commitish>..HEAD` — e.g. a colleague's PR
+branch — through this exact same `reviewing` → `await-review` → feedback-lap
+machinery, with the `await-review` review checkout window then opening over that
+same range. See §11.
 
 There is no squash — the cycle ends at human approval, an empty
 `gtd(human): idle` turn commit that rests the machine back at its own initial
@@ -481,12 +505,13 @@ working tree untouched, so the entire `base..HEAD` diff re-appears as
 uncommitted changes. The real head is preserved under `refs/gtd/review-head`
 (the base under `refs/gtd/review-base`) so nothing is lost.
 
-**The base.** By default it is the process start (the same boundary
-`computeProcessRun` uses — see §7), so the window shows the whole current cycle.
-A workflow can narrow it by marking an earlier state **`reviewBase: true`**: the
-most-recent in-process commit that entered such a state becomes the base, so
-only work committed after that milestone surfaces (planning-doc churn before it
-stays committed and out of view).
+**The base.** By default it is the process's diff base (`computeProcessRun`'s
+`diffBase` — see §7), so the window shows the whole current cycle — or, for a
+process `gtd review <commitish>` started (below), `<commitish>..HEAD`. A
+workflow can narrow it further by marking an earlier state
+**`reviewBase: true`**: the most-recent in-process commit that entered such a
+state becomes the base, so only work committed after that milestone surfaces
+(planning-doc churn before it stays committed and out of view).
 
 **Open / close lifecycle.** The pure engine (§5–§8) never observes an open
 window — it is opened and closed entirely at the edge (`src/ReviewWindow.ts`),
@@ -510,6 +535,40 @@ by the next invocation's close. The close fails loudly (leaving the refs in
 place) only if HEAD has moved off the reviewed branch — a `--mixed` reset there
 would rewrite the wrong branch's tip; the error message spells out the manual
 recovery.
+
+**The review entry point (`gtd review <commitish>`).** Everything above
+describes a review that a workflow's OWN cycle triggers (`reviewWindow: true`/
+`reviewBase: true`). A state may separately declare **`reviewEntry: true`** (at
+most one, never a commit state, never the initial state — §1/§9): the state
+`gtd review <commitish>` enters to start a BRAND NEW process reviewing someone
+else's work with no gtd process of its own — a colleague's PR branch pushed on
+top of a shared base is the motivating case.
+
+`gtd review <commitish>` requires resting at the workflow's initial state with a
+clean tree (any process already underway, or a dirty tree, refuses), and
+requires the active workflow to declare a `reviewEntry` state (otherwise it is a
+usage error). It then resolves `<commitish>` — it must name an ancestor of HEAD
+other than HEAD itself — and writes ONE ordinary empty turn commit,
+`gtd(human): <review-entry-state>`, carrying the resolved commit's full hash as
+a `Gtd-Review-Base: <hash>` trailer (mirroring how `gtd step --cost` writes its
+own `Gtd-Cost:` trailer — see §6). Nothing else is special about this commit: it
+resolves (§5) exactly like any other `gtd(human): <state>` turn.
+
+`computeProcessRun` (§7) reads that trailer back off the process's own oldest
+commit and uses it as the process's `diffBase` — the ordinary trace-boundary
+rule already stops the trace walk at the entry commit's parent (a non-workflow,
+non-gtd commit), so nothing about retry counting or the squash reset target
+changes. Only the diff base moves. From here on, the ENTIRE existing review flow
+is reused unmodified: the review-entry state's own prompt/message and `on`
+routing run exactly as declared, `it.processDiff` covers `<commitish>..HEAD`,
+and if a downstream state (the bundled default's `await-review`) declares
+`reviewWindow: true`, the checkout window opens over that same range — zero
+duplicated logic, one re-pointed value.
+
+The bundled default declares `reviewEntry: true` on `reviewing` itself (see
+§10): `gtd review <commitish>` hands the agent a `<commitish>..HEAD` diff to
+turn into a `.gtd/REVIEW.md` exactly as it would for an ordinary cycle's
+`checking` → `reviewing` handoff.
 
 `.gtd/` workflow plumbing (the review doc, plan/feedback files) is pinned back
 to the real head's index while the window is open, so the editor's unstaged view

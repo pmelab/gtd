@@ -71,9 +71,16 @@ upgrading.
   (see
   [docs/design/steering-file-validation-command.md](design/steering-file-validation-command.md)
   and [STATES.md §12](../STATES.md)).
-- **`gtd review <target>`.** Gone; the v3 command surface is `step` / `next` /
-  `run` / `status` / `validate` / `mermaid` / `lsp` (see
-  [CLI reference](cli.md)).
+- **`gtd review <target>`.** Gone in the initial v3 rewrite (the command surface
+  was `step` / `next` / `run` / `status` / `validate` / `mermaid` / `lsp`), then
+  RETURNED in this version with different, narrower semantics: it no longer
+  inspects an arbitrary target the way v2 did — it starts a brand NEW review
+  process at a workflow-declared `reviewEntry: true` state, reviewing
+  `<target>..HEAD` (e.g. a colleague's PR branch with no gtd process of its own)
+  by writing one empty entry commit with a `Gtd-Review-Base:` trailer and
+  reusing the workflow's existing review/feedback machinery unmodified — see
+  [STATES.md §11](../STATES.md#11-the-review-checkout-window) and
+  [CLI reference](cli.md#gtd-review-commitish---json).
 - **`gtd format <file>`, and the bundled prettier with it.** gtd no longer
   formats anything on its own: a steering-file mode declares its own `format:`
   SHELL COMMAND, so a project brings whatever formatter it already uses. Adding

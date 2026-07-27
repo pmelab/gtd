@@ -10,6 +10,11 @@ Commands:
                    --cost=<n> (optionally --model=<name>) to record the
                    just-finished invocation's token cost and model on the
                    turn commit (summed into it.processCost/processCostByModel)
+  review <commitish>
+                   Start a NEW review process at the workflow's declared
+                   review-entry state (reviewEntry: true), reviewing
+                   <commitish>..HEAD — e.g. a colleague's PR branch. Requires
+                   a clean tree resting at the workflow's initial state
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   run              Execute the resolved rest's emitted script, then step its
@@ -102,6 +107,49 @@ not passed):
   "model": "claude-opus-4-8"
 }
 ```
+
+## `gtd review <commitish> [--json]`
+
+Starts a BRAND NEW review process at the active workflow's declared
+`reviewEntry: true` state (see
+[STATES.md §11](../STATES.md#11-the-review-checkout-window)), reviewing
+`<commitish>..HEAD` — e.g. a colleague's PR branch pushed on top of a shared
+base, with no gtd process of its own. Reuses the workflow's existing
+review/feedback machinery unmodified; there is no separate review-entry command
+surface to keep in sync.
+
+Requires, in order (any failure is a plain refusal — exit non-zero, nothing
+written):
+
+- the machine currently resting at the workflow's **initial state** (a plain
+  non-gtd branch resolves there via the inert-subject rule — the normal case; a
+  process already underway refuses);
+- a **clean working tree**;
+- the active workflow declaring a **`reviewEntry: true`** state (otherwise:
+  `gtd review: the active workflow declares no review entry state`);
+- `<commitish>` resolving to a commit, being an **ancestor of HEAD**, and
+  **differing from HEAD** (nothing to review otherwise).
+
+On success, writes ONE empty commit, `gtd(human): <review-entry-state>`,
+carrying the resolved commit's full hash as a `Gtd-Review-Base: <hash>` trailer
+(mirroring how `gtd step --cost` writes its own `Gtd-Cost:` trailer). Everything
+downstream that renders a diff — `it.processDiff`, and the review checkout
+window opened by a downstream `reviewWindow: true` state — keys off the
+process's diff base, and this trailer is exactly how that base gets re-pointed
+at `<commitish>..HEAD` (see
+[STATES.md §7](../STATES.md#7-retry)/[§11](../STATES.md#11-the-review-checkout-window)).
+
+Plain-mode output is one line, same shape as `gtd step`:
+
+```
+committed: gtd(human): reviewing
+```
+
+`--json` emits `{state, subject}` — `state` is the entered review-entry state,
+`subject` the bare commit subject (the trailer is not echoed).
+
+Takes exactly one positional argument (`<commitish>`); missing or extra
+arguments are usage errors.
 
 ## `gtd next [--json]`
 
@@ -362,8 +410,8 @@ the plain-text one.
   report, a log file — into the working tree, the tree never goes clean after a
   green run, and the check's `"C"` pattern never fires. Gitignore every path
   your scripts write before wiring gtd into a repo.
-- **Repository root invocation.** Every state subcommand (`step`/`next`/
-  `status`/`mermaid`) must run from the git repository root — the workflow,
-  pending changes, and process history are resolved against the process cwd.
-  `--help`/`--version`, `format`, and `lsp` skip this guard entirely (and any
-  git/`.gtdrc` dependency along with it).
+- **Repository root invocation.** Every state subcommand (`step`/`review`/
+  `next`/`status`/`mermaid`) must run from the git repository root — the
+  workflow, pending changes, and process history are resolved against the
+  process cwd. `--help`/`--version`, `format`, and `lsp` skip this guard
+  entirely (and any git/`.gtdrc` dependency along with it).

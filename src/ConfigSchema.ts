@@ -175,6 +175,11 @@ const stateJsonSchema = {
       description:
         "Marks the state whose most-recent in-process commit anchors the review window's diff base; absent any, the base is the process start. Forbidden on a commit state.",
     },
+    reviewEntry: {
+      type: "boolean",
+      description:
+        "Marks the (at most one) state `gtd review <commitish>` enters to start a brand new process reviewing <commitish>..HEAD. Forbidden on a commit state and on the initial state.",
+    },
   },
 } as const
 

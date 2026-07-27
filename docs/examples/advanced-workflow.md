@@ -23,7 +23,10 @@ Compared to the simplified bundled default, this machine adds:
   `checking`/`fixing` loop, until the queue empties.
 - **Agent-prepared review** — `reviewing` has the agent write `.gtd/REVIEW.md`
   summarizing the full cycle diff for a human to check before `await-review`
-  resolves an approval or feedback.
+  resolves an approval or feedback. `reviewing` also declares
+  `reviewEntry: true`, so `gtd review <commitish>` can start a review process
+  here directly over `<commitish>..HEAD` (e.g. a colleague's PR branch) — see
+  [STATES.md §11](../../STATES.md#11-the-review-checkout-window).
 - **A squash finale** — approval at `await-review` moves to `squashing` (the
   agent authors `.gtd/COMMIT_MSG.md`) and then `done`, a `commit:` state that
   squashes the whole cycle into one commit. The simplified bundled default drops
@@ -333,6 +336,10 @@ workflow:
       file: <%= it.vars.reviewFile %>
       mode: review
       model: smart
+      # A second way in: `gtd review <commitish>` (clean tree, resting at the
+      # initial state) enters here directly over <commitish>..HEAD — see
+      # STATES.md §11.
+      reviewEntry: true
       prompt: |
         You are an autonomous coding agent. `.gtd/` holds this workflow's own
         state — never create, edit, or delete anything under `.gtd/` except

@@ -533,6 +533,30 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect("reviewBase" in definition.states.b!).toBe(false)
   })
 
+  it("rejects a non-boolean reviewEntry", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        { states: { a: { actor: "human", message: "hi", initial: true, reviewEntry: "yes" } } },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "reviewEntry" must be a boolean/)
+  })
+
+  it("compiles a `reviewEntry` boolean onto the StateDef (false omitted)", () => {
+    const shape = (reviewEntry: boolean) => ({
+      states: {
+        a: { actor: "human", message: "hi", initial: true, on: { "* *": "b" } },
+        b: { actor: "human", message: "review", reviewEntry, on: { C: "a" } },
+      },
+    })
+    const { definition: withTrue } = compileWorkflowConfig(shape(true), "/dir")
+    expect(withTrue.states.b!.reviewEntry).toBe(true)
+
+    const { definition: withFalse } = compileWorkflowConfig(shape(false), "/dir")
+    // `false` compiles away — never lands on the StateDef.
+    expect("reviewEntry" in withFalse.states.b!).toBe(false)
+  })
+
   it("rejects zero content keys and more than one content key", () => {
     expect(() =>
       compileWorkflowConfig({ states: { a: { actor: "human", initial: true } } }, "/dir"),

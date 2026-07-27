@@ -101,6 +101,50 @@ export const parseCostTrailers = (messages: readonly string[]): CostEntry[] => {
   return entries
 }
 
+// ── Review-base trailer ──────────────────────────────────────────────────────
+//
+// `gtd review <commitish>` (`src/program.ts`) starts a brand NEW review
+// process by writing an ordinary empty turn commit into the workflow's
+// declared review-entry state (`StateDef.reviewEntry` — see
+// `PatternMachine.reviewEntryStateOf`), carrying the resolved `<commitish>`'s
+// full hash as a `Gtd-Review-Base:` trailer. `computeProcessRun` reads that
+// trailer back off the process's own first (oldest) commit to override the
+// run's DIFF base (`ProcessRun.diffBase`) — everything downstream that
+// renders a diff (`it.processDiff`, the review checkout window's default
+// base) keys off that one value, so re-pointing it makes the whole existing
+// review flow (reviewing → await-review → feedback laps) operate over
+// `<commitish>..HEAD` with no duplicated logic. The process's TRACE/retry
+// boundary (`startParentHash`) is UNCHANGED by this — the entry commit's own
+// parent is a non-workflow commit (a plain PR-branch commit), so the
+// existing boundary rule already stops the trace walk there; only the DIFF
+// base moves.
+
+const REVIEW_BASE_TRAILER_PREFIX = "Gtd-Review-Base: "
+// One `Gtd-Review-Base: <hash>` trailer line — mirrors `COST_TRAILER_RE`'s
+// shape/placement (a blank line, then the trailer, below the untouched
+// subject), but carries a single bare token (the resolved commitish's full
+// hash) rather than a number/model pair.
+const REVIEW_BASE_TRAILER_RE = /^Gtd-Review-Base:[ \t]*(\S+)[ \t]*$/m
+
+/**
+ * Append a `Gtd-Review-Base: <base>` trailer (after a blank line) to a commit
+ * `subject` — the entry commit `gtd review <commitish>` writes to start a new
+ * review process. Mirrors `withCostTrailer`'s placement: the subject (first
+ * line) is untouched, so `parseStateSubject`/`resolveState` read it back
+ * exactly like any other turn commit.
+ */
+export const withReviewBaseTrailer = (subject: string, base: string): string =>
+  `${subject}\n\n${REVIEW_BASE_TRAILER_PREFIX}${base}`
+
+/**
+ * The `Gtd-Review-Base: <hash>` trailer recorded on a `gtd review <commitish>`
+ * entry commit (see `withReviewBaseTrailer`), or `undefined` when `message`
+ * carries none. Read back by `computeProcessRun` — ONLY off the process's
+ * first (oldest) commit — to override the run's diff base.
+ */
+export const parseReviewBaseTrailer = (message: string): string | undefined =>
+  REVIEW_BASE_TRAILER_RE.exec(message)?.[1]
+
 /** The total token cost across the given entries (`0` when none). */
 export const totalCostOf = (entries: readonly CostEntry[]): number =>
   entries.reduce((sum, entry) => sum + entry.cost, 0)
@@ -169,8 +213,19 @@ export const pendingChanges = (
 export interface ProcessRun {
   /** The run's first commit's hash, or HEAD's own hash when the run is empty (no turn has landed yet this process). */
   readonly startHash: string
-  /** The parent of the run's first commit — `EMPTY_TREE` when the run covers the whole history. The squash reset target. */
+  /** The parent of the run's first commit — `EMPTY_TREE` when the run covers the whole history. The squash reset target — this is the process's TRACE/retry boundary, never overridden by a `Gtd-Review-Base:` trailer (see `diffBase`). */
   readonly startParentHash: string
+  /**
+   * The base a rendered process diff (`it.processDiff`) or the review
+   * checkout window's default base compares against: normally identical to
+   * `startParentHash`, but overridden to a `Gtd-Review-Base: <hash>`
+   * trailer's hash when the process's FIRST (oldest) commit carries one (see
+   * `withReviewBaseTrailer`/`parseReviewBaseTrailer` — written by
+   * `gtd review <commitish>`, `src/program.ts`). The trace/retry boundary
+   * itself is untouched by this; only which commit a diff/window compares
+   * against moves.
+   */
+  readonly diffBase: string
   /** State names entered so far this process, oldest→newest (empty when no turn has landed yet). */
   readonly trace: readonly StateName[]
   /** Every `Gtd-Cost:` entry recorded on the process's turn commits — summed into `it.processCost` and grouped into `it.processCostByModel` (empty when none were recorded). */
@@ -203,7 +258,13 @@ export const computeProcessRun = (
   Effect.gen(function* () {
     const hasCommits = yield* git.hasCommits()
     if (!hasCommits)
-      return { startHash: "", startParentHash: EMPTY_TREE, trace: [], costEntries: [] }
+      return {
+        startHash: "",
+        startParentHash: EMPTY_TREE,
+        diffBase: EMPTY_TREE,
+        trace: [],
+        costEntries: [],
+      }
 
     const initialState = initialStateOf(def)
     const history = yield* git.commitHistory() // oldest -> newest, full first-parent history
@@ -220,7 +281,13 @@ export const computeProcessRun = (
     const startParentHash = i >= 0 ? history[i]!.hash : EMPTY_TREE
     const startHash =
       startIdx < history.length ? history[startIdx]!.hash : history[history.length - 1]!.hash
-    return { startHash, startParentHash, trace, costEntries }
+    // Only the process's OLDEST commit (its entry commit, when `gtd review`
+    // started this process) is ever consulted for the override — a later
+    // turn's message is never mistaken for it.
+    const reviewBaseOverride =
+      processCommits.length > 0 ? parseReviewBaseTrailer(processCommits[0]!.message) : undefined
+    const diffBase = reviewBaseOverride ?? startParentHash
+    return { startHash, startParentHash, diffBase, trace, costEntries }
   })
 
 // ── Variables (`it.vars`) ────────────────────────────────────────────────────
@@ -290,7 +357,7 @@ export const buildTemplateContext = (
           .pipe(Effect.catchAll(() => Effect.succeed(run.startParentHash)))
       : ""
     const committedDiff = yield* git
-      .diffRef(run.startParentHash)
+      .diffRef(run.diffBase)
       .pipe(Effect.catchAll(() => Effect.succeed("")))
     const pendingDiff = yield* git.diffHead().pipe(Effect.catchAll(() => Effect.succeed("")))
     const processDiff = [committedDiff, pendingDiff].filter((d) => d.trim().length > 0).join("\n\n")
@@ -306,7 +373,7 @@ export const buildTemplateContext = (
         : []
     const allCostEntries = [...run.costEntries, ...stepEntry]
     return {
-      startCommit: run.startHash,
+      startCommit: run.diffBase,
       currentCommit,
       previousCommit,
       state,

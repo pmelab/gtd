@@ -19,6 +19,7 @@ import {
   resolveVars,
   toTemplateEdges,
   UNATTRIBUTED_MODEL,
+  withReviewBaseTrailer,
   type ExecutableDecision,
   type ModelCost,
   type ProcessRun,
@@ -34,8 +35,11 @@ import {
   unknownModeMessage,
 } from "./SteeringMode.js"
 import {
+  initialStateOf,
   matchesPattern,
   parsePattern,
+  reviewEntryStateOf,
+  stateSubject,
   step,
   type OnEdge,
   type PendingChange,
@@ -55,6 +59,11 @@ Commands:
                    --cost=<n> (optionally --model=<name>) to record the
                    just-finished invocation's token cost and model on the
                    turn commit (summed into it.processCost/processCostByModel)
+  review <commitish>
+                   Start a NEW review process at the workflow's declared
+                   review-entry state (reviewEntry: true), reviewing
+                   <commitish>..HEAD — e.g. a colleague's PR branch. Requires
+                   a clean tree resting at the workflow's initial state
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   status           Print the resolved rest's state/actor and which declared
@@ -367,6 +376,96 @@ const runStepCommand = (
     }
     const result = yield* stepAsActor(args[0]!, cost, model)
     reportStepResult(result, json, write)
+  })
+
+/**
+ * `gtd review <commitish>`: start a brand NEW review process at the active
+ * workflow's declared `reviewEntry: true` state (see
+ * `PatternMachine.reviewEntryStateOf`), reviewing `<commitish>..HEAD` — e.g. a
+ * colleague's PR branch pushed on top of a shared base, with no gtd process of
+ * its own. Writes an ordinary EMPTY turn commit
+ * (`gtd(human): <review-entry-state>`) carrying the resolved `<commitish>`'s
+ * full hash as a `Gtd-Review-Base:` trailer (`withReviewBaseTrailer`) —
+ * `computeProcessRun` reads that trailer back off this same commit (its
+ * process's own oldest) to override the new process's diff base, so the
+ * ENTIRE existing review flow (reviewing → await-review → feedback laps, the
+ * `await-review` review checkout window) operates over `<commitish>..HEAD`
+ * with zero duplicated logic — see `src/Edge.ts`/`src/ReviewWindow.ts`.
+ *
+ * Any failure below is a plain refusal: nothing is written.
+ *
+ * a. The machine must currently rest at the workflow's INITIAL state — a
+ *    plain non-gtd branch (the normal case) resolves there via the
+ *    inert-subject rule (STATES.md §5); a process already underway refuses.
+ * b. The working tree must be clean.
+ * c. The active workflow must declare a `reviewEntry: true` state.
+ * d. `<commitish>` must resolve to a commit, be an ancestor of HEAD, and
+ *    differ from HEAD (nothing to review otherwise).
+ */
+const runReviewCommand = (
+  argv: readonly string[],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, ProgramRequirements> =>
+  Effect.gen(function* () {
+    const args = commandArgs(argv)
+    if (args.length === 0) {
+      return yield* Effect.fail(new Error("gtd review: missing <commitish> argument"))
+    }
+    if (args.length > 1) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd review: too many arguments — expected one <commitish>, got: ${args.join(", ")}`,
+        ),
+      )
+    }
+    const commitish = args[0]!
+
+    const git = yield* GitService
+    const rest = yield* resolveRest()
+    if (rest.state !== initialStateOf(rest.def)) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd review: a process is already underway (resting at "${rest.state}") — finish or abandon it before starting a review`,
+        ),
+      )
+    }
+
+    const changes = yield* pendingChanges(git)
+    if (changes.length > 0) {
+      return yield* Effect.fail(
+        new Error("gtd review: the working tree must be clean before starting a review"),
+      )
+    }
+
+    const entryState = reviewEntryStateOf(rest.def)
+    if (entryState === undefined) {
+      return yield* Effect.fail(
+        new Error("gtd review: the active workflow declares no review entry state"),
+      )
+    }
+
+    const resolvedBase = yield* git
+      .resolveRef(commitish)
+      .pipe(
+        Effect.mapError(() => new Error(`gtd review: "${commitish}" does not resolve to a commit`)),
+      )
+    const headHash = yield* git.resolveRef("HEAD")
+    if (resolvedBase === headHash) {
+      return yield* Effect.fail(new Error(`gtd review: "${commitish}" is HEAD — nothing to review`))
+    }
+    const isBaseAncestor = yield* git.isAncestor(resolvedBase, "HEAD")
+    if (!isBaseAncestor) {
+      return yield* Effect.fail(new Error(`gtd review: "${commitish}" is not an ancestor of HEAD`))
+    }
+
+    const subject = stateSubject("human", entryState)
+    yield* git.commitAsIs(withReviewBaseTrailer(subject, resolvedBase))
+    if (json) {
+      write(JSON.stringify({ state: entryState, subject }) + "\n")
+    } else {
+      write(`committed: ${subject}\n`)
+    }
   })
 
 /**
@@ -713,7 +812,7 @@ const runMermaidCommand = (
     write(renderMermaid(config.workflow))
   })
 
-const KNOWN_SUBCOMMANDS = ["step", "next", "status", "validate", "mermaid"] as const
+const KNOWN_SUBCOMMANDS = ["step", "review", "next", "status", "validate", "mermaid"] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
 /**
@@ -794,6 +893,8 @@ const dispatchKnownSubcommand = (
   switch (sub) {
     case "step":
       return runStepCommand(argv, json, write, cost, model)
+    case "review":
+      return runReviewCommand(argv, json, write)
     case "next":
       return runNextCommand(json, write)
     case "status":
