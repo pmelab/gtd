@@ -101,6 +101,13 @@ describe("--version short-circuit", () => {
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(vOutput).toBe(versionOutput)
   })
+
+  it("the `version` subcommand works the same as --version", async () => {
+    const { output: versionOutput } = await runFlag("--version")
+    const { output: subOutput, exit } = await runFlag("version")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(subOutput).toBe(versionOutput)
+  })
 })
 
 describe("--help short-circuit", () => {
@@ -137,6 +144,18 @@ describe("--help short-circuit", () => {
     const { output: hOutput, exit } = await runFlag("-h")
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(hOutput).toBe(helpOutput)
+  })
+
+  it("the `help` subcommand works the same as --help", async () => {
+    const { output: helpOutput } = await runFlag("--help")
+    const { output: subOutput, exit } = await runFlag("help")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(subOutput).toBe(helpOutput)
+  })
+
+  it("help output lists the version subcommand", async () => {
+    const { output } = await runFlag("--help")
+    expect(output).toContain("version")
   })
 })
 
