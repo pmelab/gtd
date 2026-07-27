@@ -179,3 +179,12 @@ running `gtd step check` — `@inmem` scenarios never execute scripts; only
   distinguish "nothing happened" (clean, no `C` row) from "something happened
   that nothing recognizes" (dirty, no row fires) when writing a new state's `on`
   map
+- **Steering-file gate (edge, not engine):** capturing a commit out of a state
+  that declares `file:`+`mode:` first formats that file in place and validates
+  it against its `mode:` (`gtd validate`'s shared logic — `enforceSteeringGate`
+  in `src/program.ts`), and REFUSES the step when it is invalid, so a malformed
+  steering file is never committed (an agent's draft or a human's gate edit
+  alike). It is a no-op when the file is absent (a deletion) or the state
+  declares no `file:`/`mode:`, and a squash skips it. The pure engine
+  (`PatternMachine.step`) never sees this — like the review window, it lives at
+  the edge. See STATES.md §12

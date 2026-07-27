@@ -20,8 +20,24 @@
 >    plain `gtd next` changed — it appends the self-validation instruction to a
 >    `prompt` rest that declares `file:`+`mode:`.
 >
-> The sections below are the original plan; read §2.3 and §3.2 through those two
-> decisions.
+> **Follow-up refinement (also built):**
+>
+> 3. **`gtd validate` also formats**, and the check runs after a human edits
+>    too. `gtd validate` now formats the steering file in place (the
+>    `gtd format` markdown formatter) before parsing it. And `gtd step` runs the
+>    SAME format-and-validate as a capture gate (`enforceSteeringGate` in
+>    `src/program.ts`): committing a turn out of a state that declares
+>    `file:`+`mode:` formats+validates that file and REFUSES the step when it is
+>    invalid. That makes the check apply to a human's edit at a gate
+>    (`grilling-answer`, `await-review`) exactly as to an agent's draft, and a
+>    malformed steering file is never committed. An absent file (a deletion —
+>    `building`'s TODO.md, an `await-review` delete-to-approve) is a no-op, so
+>    those flows still pass. `gtd validate`'s earlier "missing file read as
+>    empty" behavior is dropped in favor of "absent → nothing to validate".
+>
+> The sections below are the original plan; read §2.1–§3.2 through these
+> decisions (esp.: validate formats and is enforced at `gtd step`, and an absent
+> file is a no-op rather than parsed-as-empty).
 
 ## 1. Motivation
 

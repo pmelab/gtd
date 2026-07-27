@@ -37,6 +37,7 @@ import {
   step,
   type OnEdge,
   type PendingChange,
+  type StateDef,
   type StepRefusal,
 } from "./PatternMachine.js"
 import type { TemplateContext } from "./PatternTemplates.js"
@@ -327,6 +328,12 @@ const stepAsActor = (
       cost ?? 0,
       model,
     )
+    // Steering-file gate: before capturing a normal turn, format the rest
+    // state's steering file in place and validate it — so whoever just acted
+    // (a producing agent OR a human editing at a gate) hands the next rest a
+    // tidy, well-formed file. Invalid content refuses the step (see the helper,
+    // which no-ops for a squash and when there is nothing to validate).
+    yield* enforceSteeringGate(worktree.read, invoker, rest, context, decision.kind)
     const outcome = yield* executeDecision(git, run, executable, context, cost, model)
     return {
       state: rest.state,
@@ -390,17 +397,19 @@ const runStepCommand = (
 /**
  * The self-validation instruction gtd APPENDS to a `prompt` rest that declares
  * both `file:` and `mode:` — i.e. a state whose actor hands over a steering
- * file `gtd validate` can check. Appended ONLY to plain `gtd next` output (for
- * a human or a simple driver who reads the prompt and hands it to an agent, so
- * the agent self-validates); withheld from `gtd next --json`, where the driving
- * loop instead runs `gtd validate` after the turn and re-prompts on findings
- * (see `bin/gtd-loop` / `skills/loop/SKILL.md`). gtd itself never validates at
- * step time — this is emitted guidance, not engine enforcement.
+ * file `gtd validate` formats and checks. Appended ONLY to plain `gtd next`
+ * output (for a human or a simple driver who reads the prompt and hands it to
+ * an agent, so the agent self-validates); withheld from `gtd next --json`,
+ * where the driving loop instead runs `gtd validate` after the turn and
+ * re-prompts on findings (see `bin/gtd-loop` / `skills/loop/SKILL.md`). This is
+ * advisory: `gtd step` runs the same format-and-validate gate and REFUSES a
+ * turn whose steering file is invalid (see `stepAsActor`), so a malformed file
+ * is never captured whether or not this instruction was followed.
  */
 const selfValidateInstruction = (file: string): string =>
-  `\nBefore finishing your turn, run \`gtd validate\` and fix every violation it ` +
-  `reports in ${file} until it exits cleanly. Do not finish while it still ` +
-  `reports violations.\n`
+  `\nBefore finishing your turn, run \`gtd validate\` — it formats and checks ` +
+  `${file} — and fix every violation it reports until it exits cleanly. Do not ` +
+  `finish while it still reports violations.\n`
 
 /** True when a rendered rest is a `prompt` turn that hands over a validatable steering file (`file:`+`mode:` both declared). */
 const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
@@ -438,28 +447,87 @@ const runNextCommand = (
     write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered))
   })
 
-/** Read a working-tree file, treating a missing path as empty content — so `gtd validate` is a pure function of the parser over the file (a missing `qa` file is trivially valid; a missing `review` file fails the parser, both correct). */
-const readWorktreeOrEmpty = (read: (path: string) => string, path: string): string => {
-  try {
-    return read(path)
-  } catch {
-    return ""
-  }
-}
-
-/** The parser findings for the resolved rest's steering file, dispatched on its `mode:`. */
+/** The parser findings for a steering file's content, dispatched on its `mode:`. */
 const validationErrorsFor = (mode: "qa" | "review", content: string): readonly string[] =>
   mode === "qa" ? parseOpenQuestions(content).errors : parseReviewDoc(content).errors
 
+const MARKDOWN_STEERING_RE = /\.(?:md|markdown)$/i
+
+/** Format the resolved state's steering file (in place) then validate it. */
+interface SteeringCheck {
+  /** The rendered `file:` path, or `undefined` when the state declares no `file:`/`mode:`. */
+  readonly file: string | undefined
+  /** True when a steering file was actually present and got formatted + validated (false when the state declares none, or the file is absent — a deletion). */
+  readonly present: boolean
+  /** The parser findings (empty when `present` is false). */
+  readonly errors: readonly string[]
+}
+
 /**
- * `gtd validate [--json]`: validate the steering file the resolved rest
- * declares (`file:` rendered, `mode:` selecting the parser) against that
- * format, over its WORKING-TREE contents. A state with no `file:`/`mode:` has
- * nothing to validate (exit 0). A clean parse exits 0; violations FAIL the
- * Effect with the findings (one per line), so the process exits non-zero — the
- * signal a producing agent (or the driver) loops on until the file is valid.
- * Reuses the canonical `OpenQuestions`/`ReviewDoc` parsers (the same the LSP
- * publishes), so there is one source of truth per format and no bash port.
+ * Format the resolved rest's steering file in place, then validate its
+ * formatted contents. When the state declares both `file:` and `mode:` and
+ * that file exists in the working tree, it is formatted (markdown only) and
+ * parsed against the `mode:` format. `present` is false — and nothing is
+ * formatted or validated — when the state declares no steering file, or the
+ * file is absent (e.g. `building` deleted `.gtd/TODO.md`, or a human deleted
+ * `.gtd/REVIEW.md` to approve), so those flows pass cleanly. Shared by
+ * `gtd validate` and the `gtd step` capture gate, so both format and check the
+ * SAME way — an agent's fresh draft and a human's edit are treated alike.
+ */
+const formatAndCheckSteeringFile = (
+  worktreeRead: (path: string) => string,
+  stateDef: StateDef,
+  context: TemplateContext,
+): Effect.Effect<SteeringCheck, Error, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const file = yield* renderFile(stateDef, context)
+    const mode = stateDef.mode
+    if (file === undefined || mode === undefined) return { file, present: false, errors: [] }
+    const fs = yield* FileSystem.FileSystem
+    if (!(yield* fs.exists(file))) return { file, present: false, errors: [] }
+    if (MARKDOWN_STEERING_RE.test(file)) yield* formatFile(file)
+    return { file, present: true, errors: validationErrorsFor(mode, worktreeRead(file)) }
+  })
+
+/**
+ * The `gtd step` capture gate: format + validate the rest state's steering file
+ * (see `formatAndCheckSteeringFile`) and FAIL with the findings when it is
+ * invalid, so a malformed steering file — an agent's draft or a human's edit —
+ * is never committed. A no-op when there is nothing to validate.
+ */
+const enforceSteeringGate = (
+  worktreeRead: (path: string) => string,
+  invoker: string,
+  rest: ResolvedRest,
+  context: TemplateContext,
+  kind: ExecutableDecision["kind"],
+): Effect.Effect<void, Error, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    // Only a normal commit captures the rest state's steering file; a squash
+    // discards it, and a no-op writes nothing.
+    if (kind !== "commit") return
+    const gate = yield* formatAndCheckSteeringFile(worktreeRead, rest.stateDef, context)
+    if (gate.errors.length > 0) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd step ${invoker}: ${gate.file} is not valid at "${rest.state}" — fix these before stepping:\n${gate.errors
+            .map((e) => `  - ${e}`)
+            .join("\n")}`,
+        ),
+      )
+    }
+  })
+
+/**
+ * `gtd validate [--json]`: format (in place) then validate the steering file
+ * the resolved rest declares (`file:` rendered, `mode:` selecting the parser),
+ * over its WORKING-TREE contents. A state with no `file:`/`mode:`, or an absent
+ * file, has nothing to validate (exit 0). A clean parse exits 0; violations
+ * FAIL the Effect with the findings (one per line), so the process exits
+ * non-zero — the signal a producing agent (or the driver) loops on until the
+ * file is valid. Reuses the canonical `OpenQuestions`/`ReviewDoc` parsers (the
+ * same the LSP publishes), so there is one source of truth per format and no
+ * bash port.
  */
 const runValidateCommand = (
   argv: readonly string[],
@@ -471,21 +539,27 @@ const runValidateCommand = (
     const git = yield* GitService
     const worktree = yield* WorktreeReader
     const { rest, context } = yield* resolveRestContext(git)
-    const file = yield* renderFile(rest.stateDef, context)
-    const mode = rest.stateDef.mode
-    if (file === undefined || mode === undefined) {
-      if (json) {
-        write(JSON.stringify({ state: rest.state, valid: true, errors: [] }) + "\n")
-      } else {
-        write(`nothing to validate at "${rest.state}"\n`)
-      }
+    const { file, present, errors } = yield* formatAndCheckSteeringFile(
+      worktree.read,
+      rest.stateDef,
+      context,
+    )
+    if (!present) {
+      if (json) write(JSON.stringify({ state: rest.state, valid: true, errors: [] }) + "\n")
+      else write(`nothing to validate at "${rest.state}"\n`)
       return
     }
-    const content = readWorktreeOrEmpty(worktree.read, file)
-    const errors = validationErrorsFor(mode, content)
     if (errors.length === 0) {
       if (json) {
-        write(JSON.stringify({ state: rest.state, file, mode, valid: true, errors: [] }) + "\n")
+        write(
+          JSON.stringify({
+            state: rest.state,
+            file,
+            mode: rest.stateDef.mode,
+            valid: true,
+            errors: [],
+          }) + "\n",
+        )
       } else {
         write(`${file}: valid\n`)
       }

@@ -6,7 +6,7 @@ import { execSync, execFile as execFileCb } from "node:child_process"
 import { promisify } from "node:util"
 
 const execFile = promisify(execFileCb)
-import { existsSync, unlinkSync } from "node:fs"
+import { existsSync, readFileSync, unlinkSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { makeProgram } from "../../../src/program.js"
 import { inMemoryLayers } from "./inmem/layers.js"
@@ -119,6 +119,17 @@ export class GtdWorld extends QuickPickleWorld {
       return false
     }
     return existsSync(join(this.repoDir, path))
+  }
+
+  /** The working-tree contents of `path` (empty string when absent). Mirrors `repoFileExists`'s tier split. */
+  readRepoFile(path: string): string {
+    if (this.repo !== undefined) {
+      const worktree = (this.repo as unknown as { worktree: Map<string, string> })["worktree"]
+      return worktree.get(path) ?? ""
+    }
+    return existsSync(join(this.repoDir, path))
+      ? readFileSync(join(this.repoDir, path), "utf8")
+      : ""
   }
 
   gitLog(): string {

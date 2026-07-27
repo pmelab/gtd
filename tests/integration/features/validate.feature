@@ -104,7 +104,8 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "run `gtd validate` and fix every violation"
+    And stdout contains "run `gtd validate`"
+    And stdout contains "fix every violation"
 
   Scenario: `gtd next --json` withholds the instruction — the driving loop owns the validate-and-retry step
     Given a test project
@@ -116,3 +117,56 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it succeeds
     And stdout contains "\"state\":\"grilling\""
     And stdout does not contain "gtd validate"
+
+  Scenario: gtd validate also formats the steering file in place
+    # The committed TODO.md has a single long prose line; `gtd validate` rewraps
+    # it to the 80-column prose width, leaving the file modified in the working
+    # tree — the evaluation step does the formatting too, not only the check.
+    Given a test project
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing. This is a deliberately long single prose line that clearly exceeds the eighty character print width, so the formatter has to rewrap it into several lines.
+      """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And the git status contains ".gtd/TODO.md"
+
+  Scenario: the step gate runs format + validate after a human edits the steering file — a malformed edit is refused
+    # A human answers at grilling-answer but leaves an open question without a
+    # "Suggested default:"/"Answer:" line. Stepping runs the same gate the
+    # producing agent gets, so the malformed edit is refused and nothing is
+    # committed — the evaluation happens after a human edit too.
+    Given a test project
+    And a commit "gtd(human): grilling-answer" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing. Plan: do it.
+      """
+    Given ".gtd/TODO.md" is modified to:
+      """
+      Build a thing. Plan: do it.
+
+      ## Open Questions
+
+      ### Did the human break the format?
+
+      This line is neither a Suggested default nor an Answer.
+      """
+    When I run gtd step human
+    Then it fails
+    And stderr contains "is not valid"
+    And the last commit subject is "gtd(human): grilling-answer"
+
+  Scenario: the step gate captures a human's valid edit (routing it back to grilling)
+    Given a test project
+    And a commit "gtd(human): grilling-answer" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing.
+      """
+    Given ".gtd/TODO.md" is modified to:
+      """
+      Build a thing. Plan: add src/thing.ts exporting `thing`, with a named
+      export only.
+      """
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): grilling"
