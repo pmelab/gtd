@@ -152,6 +152,21 @@ export interface StateDef {
    * a commit state (see `validateDefinition`).
    */
   readonly reviewBase?: boolean
+  /**
+   * Optional. Marks the state `gtd review <commitish>` (`src/program.ts`)
+   * enters to start a brand NEW process reviewing `<commitish>..HEAD` (e.g. a
+   * colleague's PR branch) — reusing whatever `on`/`reviewWindow`/`reviewBase`
+   * machinery that state and its downstream states already declare, with zero
+   * duplicated logic. At most one state may declare it; forbidden on a commit
+   * state (never at rest — see `validateDefinition`) and on the initial state
+   * (a review entry is a DELIBERATE, distinct starting point from the
+   * workflow's ordinary "no active cycle" rest, so the two must stay
+   * distinguishable). This module's PURE functions never read it — the
+   * mechanism (writing the entry commit, resolving `<commitish>`, recording
+   * its hash as a `Gtd-Review-Base:` trailer) lives entirely at the edge
+   * (`src/Edge.ts`/`src/program.ts`); see `reviewEntryStateOf`.
+   */
+  readonly reviewEntry?: boolean
 }
 
 /**
@@ -244,6 +259,14 @@ export const isReviewWindowState = (def: WorkflowDefinition, state: StateName): 
 /** True when `state` anchors the review window's diff base (see `StateDef.reviewBase`). Safe for an unknown state name (returns `false`). */
 export const isReviewBaseState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.reviewBase === true
+
+/** The workflow's declared review-entry state name (see `StateDef.reviewEntry`) — `gtd review <commitish>` (`src/program.ts`) enters this state to start a new review process. `undefined` when no state declares one; `validateDefinition` guarantees at most one does, so the first (only) match wins. */
+export const reviewEntryStateOf = (def: WorkflowDefinition): StateName | undefined => {
+  for (const [name, state] of Object.entries(def.states)) {
+    if (state.reviewEntry === true) return name
+  }
+  return undefined
+}
 
 // ── Commit-subject grammar ───────────────────────────────────────────────────
 
@@ -787,6 +810,42 @@ const validateReviewWindow = (name: string, state: StateDef): string[] => {
   return errors
 }
 
+/**
+ * `reviewEntry`, when present, is forbidden on a commit state (never at
+ * rest — same rule family as `reviewWindow`/`reviewBase`) and on the initial
+ * state: a review entry is a deliberate, distinct starting point from the
+ * workflow's ordinary "no active cycle" rest (`gtd review` itself REQUIRES
+ * resting at the initial state before it will act — see `src/program.ts` —
+ * so the two must stay distinguishable rather than collapsing into one).
+ * The at-most-one-state rule is checked separately, over the whole
+ * definition (see `validateReviewEntryUniqueness`), since it isn't a
+ * per-state finding.
+ */
+const validateReviewEntry = (name: string, state: StateDef): string[] => {
+  if (state.reviewEntry === undefined) return []
+  const errors: string[] = []
+  if (isCommitState(state)) {
+    errors.push(`state "${name}": a commit state cannot declare "reviewEntry"`)
+  }
+  if (state.initial === true) {
+    errors.push(`state "${name}": the initial state cannot declare "reviewEntry"`)
+  }
+  return errors
+}
+
+/** At most one state may declare `reviewEntry: true` — `gtd review <commitish>` (`src/program.ts`) needs a single, unambiguous state name to enter (see `reviewEntryStateOf`). */
+const validateReviewEntryUniqueness = (
+  def: WorkflowDefinition,
+  names: readonly string[],
+): string[] => {
+  const entryNames = names.filter((name) => def.states[name]!.reviewEntry === true)
+  return entryNames.length > 1
+    ? [
+        `at most one state may declare "reviewEntry" (found ${entryNames.length}: ${entryNames.join(", ")})`,
+      ]
+    : []
+}
+
 /** Every `on` row parses, and its target names a defined state. */
 const validateOnEdges = (name: string, state: StateDef, names: readonly string[]): string[] => {
   const errors: string[] = []
@@ -872,6 +931,7 @@ const validateState = (
     ...validateFile(name, state),
     ...validateMode(def, name, state),
     ...validateReviewWindow(name, state),
+    ...validateReviewEntry(name, state),
   ]
 }
 
@@ -894,9 +954,11 @@ const validateState = (
  * `knownModes`), requires a sibling `file`, and is never declared on a commit
  * state; every `modes:` entry declares at least one non-blank
  * `format`/`validate` command; `reviewWindow`/`reviewBase`, when
- * present, are never declared on a commit state; every state is reachable from
- * the initial state by walking `on` targets and `retry.otherwise` redirects
- * (checked only when the initial-state rule itself passed — see
+ * present, are never declared on a commit state; `reviewEntry`, when present,
+ * is never declared on a commit state or the initial state, and at most one
+ * state across the whole workflow may declare it; every state is reachable
+ * from the initial state by walking `on` targets and `retry.otherwise`
+ * redirects (checked only when the initial-state rule itself passed — see
  * `validateReachability`).
  */
 export const validateDefinition = (def: WorkflowDefinition): readonly string[] => {
@@ -908,6 +970,7 @@ export const validateDefinition = (def: WorkflowDefinition): readonly string[] =
     ...initialErrors,
     ...validateModes(def),
     ...names.flatMap((name) => validateState(def, name, names)),
+    ...validateReviewEntryUniqueness(def, names),
     ...(initialErrors.length === 0 ? validateReachability(def, names) : []),
   ]
 }

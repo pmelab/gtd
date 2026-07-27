@@ -418,6 +418,43 @@ head is preserved under `refs/gtd/review-head` (the base under
 `refs/gtd/review-base`) for the window's lifetime. See
 [STATES.md §11](../STATES.md) for the full lifecycle.
 
+### `reviewEntry:` — the review entry point (`gtd review <commitish>`)
+
+A state may separately declare `reviewEntry: true` (at most one across the whole
+workflow; forbidden on a commit state and on the initial state). It marks the
+state [`gtd review <commitish>`](cli.md#gtd-review-commitish---json) enters to
+start a BRAND NEW process reviewing `<commitish>..HEAD` — e.g. a colleague's PR
+branch with no gtd process of its own — reusing whatever `on`/
+`reviewWindow`/`reviewBase` machinery that state and its downstream states
+already declare, with zero duplicated logic.
+
+```yaml
+workflow:
+  states:
+    # …
+    review:
+      actor: agent
+      reviewEntry: true # `gtd review <commitish>` starts a new process here
+      prompt: summarize <%~ it.processDiff %> for a human to check
+      on:
+        "* **": await-review
+```
+
+`gtd review <commitish>` requires resting at the workflow's initial state with a
+clean tree, and requires the active workflow to declare a `reviewEntry` state.
+It resolves `<commitish>` (which must name an ancestor of HEAD other than HEAD
+itself) and writes one empty `gtd(human): <review-entry-state>` turn commit
+carrying the resolved hash as a `Gtd-Review-Base:` trailer — read back by
+`computeProcessRun` to override the new process's diff base (`it.startCommit`
+and `it.processDiff` then cover `<commitish>..HEAD`, and a downstream
+`reviewWindow: true` state's checkout window opens over that same range). The
+process's `retry`/squash trace boundary is untouched: the entry commit's own
+parent is a non-workflow commit, so the ordinary boundary rule already stops
+there. See [STATES.md §11](../STATES.md#11-the-review-checkout-window) for the
+full mechanism.
+
+The bundled default enables `reviewEntry: true` on `reviewing` itself.
+
 ### Template variables
 
 Every `script`/`prompt`/`message`/`commit`/`model`/`memory`/`file` template is
@@ -425,7 +462,7 @@ rendered as an Eta template (`it.<name>`) with:
 
 | Variable             | Meaning                                                                                                                                                                                                                                                                                                                                    |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `startCommit`        | The hash the current process started from (before its first turn).                                                                                                                                                                                                                                                                         |
+| `startCommit`        | The current process's diff base — normally the process start, but re-pointed to `<commitish>`'s hash for a process `gtd review <commitish>` started (see ["`reviewEntry:`"](#reviewentry--the-review-entry-point-gtd-review-commitish)).                                                                                                   |
 | `currentCommit`      | HEAD's hash at render time.                                                                                                                                                                                                                                                                                                                |
 | `previousCommit`     | The hash before the last transition (HEAD's parent, in-process).                                                                                                                                                                                                                                                                           |
 | `state`              | The state whose content is being rendered.                                                                                                                                                                                                                                                                                                 |

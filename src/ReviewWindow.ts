@@ -123,10 +123,12 @@ export const closeReviewWindow: Effect.Effect<{ readonly closed: boolean }, Erro
  * subcommand.
  *
  * The base is the most-recent in-process `reviewBase` commit
- * (`reviewBaseHash`) or, absent any such state, the process start
- * (`startParentHash`). When that resolves to the empty tree (a process with no
- * prior commit) or to HEAD itself (an empty process), there is nothing to
- * surface and the window stays closed.
+ * (`reviewBaseHash`) or, absent any such state, the process's diff base
+ * (`run.diffBase` — the process start, `startParentHash`, unless a
+ * `gtd review <commitish>` entry commit overrode it via a `Gtd-Review-Base:`
+ * trailer, see `computeProcessRun`). When that resolves to the empty tree (a
+ * process with no prior commit) or to HEAD itself (an empty process), there
+ * is nothing to surface and the window stays closed.
  *
  * Ordering is crash-safe: base ref → head ref → mixed reset → `.gtd/` index
  * pin → intent-to-add. A crash before the head-ref write leaves only a stale
@@ -151,7 +153,7 @@ export const openReviewWindow: Effect.Effect<
 
   const run = yield* computeProcessRun(git, def)
   const explicitBase = yield* reviewBaseHash(git, def, run)
-  const base = explicitBase ?? run.startParentHash
+  const base = explicitBase ?? run.diffBase
   const headHash = yield* git.resolveRef("HEAD")
   // No real base commit to rewind to (whole-history process), or an empty
   // process with nothing committed yet — nothing to surface, so stay closed.

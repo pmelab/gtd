@@ -73,6 +73,33 @@ Given(
   },
 )
 
+// Bookmarks the CURRENT commit under a name a later step can reference as a
+// `<commitish>` (e.g. `gtd review <name>`) — a repo-local ref, exactly like
+// `git branch <name>` (real git) or a plain named ref (in-memory). Composable
+// with everything else here: scenarios build normal history around the mark
+// with the ordinary commit-builder steps, then refer back to it by name
+// regardless of how far HEAD has since moved.
+Given("I mark the current commit as {string}", (world: GtdWorld, name: string) => {
+  if (world.tier === "inmem") {
+    world.repo!.updateRef(name, "HEAD")
+  } else {
+    execFileSync("git", ["branch", name], { cwd: world.repoDir, stdio: "pipe" })
+  }
+})
+
+// `git reset --hard <name>` — moves HEAD, the index, AND the worktree back to
+// a previously-marked commit (see the step above), so the NEXT commit-builder
+// step starts a sibling history off that same point rather than continuing
+// the current tip. Used to build two diverging branches off one shared base
+// (e.g. to prove a commit on one is NOT an ancestor of the other).
+Given("I hard-reset to {string}", (world: GtdWorld, name: string) => {
+  if (world.tier === "inmem") {
+    world.repo!.hardResetTo(name)
+  } else {
+    execFileSync("git", ["reset", "--hard", name], { cwd: world.repoDir, stdio: "pipe" })
+  }
+})
+
 // ── Invocation ───────────────────────────────────────────────────────────────
 
 When("I run gtd", async (world: GtdWorld) => {
@@ -195,6 +222,22 @@ Then("the git log contains {string}", (world: GtdWorld, subject: string) => {
 Then("the last commit body contains {string}", (world: GtdWorld, text: string) => {
   const body = world.lastCommitBody()
   assert.ok(body.includes(text), `Expected last commit body to contain "${text}". Got:\n${body}`)
+})
+
+// Resolves `name` (a mark from "I mark the current commit as ..." — or any
+// other commitish) to a hash and checks it appears in the last commit's body —
+// e.g. the `Gtd-Review-Base: <hash>` trailer `gtd review <name>` writes.
+Then("the last commit body contains the hash of {string}", (world: GtdWorld, name: string) => {
+  const hash =
+    world.tier === "inmem"
+      ? world.repo!.resolveRef(name)
+      : execFileSync("git", ["rev-parse", name], { cwd: world.repoDir, encoding: "utf-8" }).trim()
+  assert.ok(hash, `Expected "${name}" to resolve to a commit hash`)
+  const body = world.lastCommitBody()
+  assert.ok(
+    body.includes(hash!),
+    `Expected last commit body to contain the hash of "${name}" (${hash}). Got:\n${body}`,
+  )
 })
 
 Then("the last commit body does not contain {string}", (world: GtdWorld, text: string) => {

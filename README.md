@@ -56,7 +56,7 @@ schema stub on first run (see [Configuration](docs/configuration.md#auto-init)).
 gtd is a small **pattern machine**: named states, each awaiting one actor and
 carrying one piece of content (a script, a prompt, a message, or a squash commit
 template), with an ordered set of change-patterns routing to the next state.
-Three commands drive it:
+Four commands drive it:
 
 - **`gtd step <actor>`** — authenticate as `<actor>` and perform the one
   transition the pending changes match.
@@ -64,6 +64,9 @@ Three commands drive it:
   should do, without mutating anything.
 - **`gtd status`** — a dry-run report of the resolved state and which pattern
   each pending change matches.
+- **`gtd review <commitish>`** — start a brand new review process reviewing
+  `<commitish>..HEAD` (e.g. a colleague's PR branch), reusing the workflow's
+  existing review/feedback machinery over that diff.
 
 The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
 `"message"` means it's a human's move (stop and hand off); `"script"` means the
@@ -78,13 +81,15 @@ implementation plan — asking any open question it can't settle itself via a
 deterministic `.gtd/TODO.md` format, validated before it ever reaches you —
 builds it, runs your tests (looping on failures), and hands you a
 `.gtd/REVIEW.md` checkbox review of the cycle's diff: tick a box to approve that
-item, or edit/untick for feedback. Approving rests the cycle back at idle, with
-every turn commit still sitting in history for you to squash however you like
-(or not at all; gtd makes no assumption) — see
-[STATES.md](STATES.md#10-the-bundled-default-workflow) for the full shape. A
-heavier machine — two-phase Q&A planning, an architecture phase, task
-decomposition, a per-task build loop, and a squash finale — is preserved as a
-copy-paste `.gtdrc` example at
+item, or edit/untick for feedback. The same review flow also has a direct entry
+point — `gtd review <commitish>` starts a brand new process reviewing
+`<commitish>..HEAD` with no cycle of its own, e.g. a colleague's PR branch.
+Approving rests the cycle back at idle, with every turn commit still sitting in
+history for you to squash however you like (or not at all; gtd makes no
+assumption) — see [STATES.md](STATES.md#10-the-bundled-default-workflow) for the
+full shape. A heavier machine — two-phase Q&A planning, an architecture phase,
+task decomposition, a per-task build loop, and a squash finale — is preserved as
+a copy-paste `.gtdrc` example at
 [docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md). The
 workflow itself is just `.gtdrc` config — swap it for your own (see
 [Configuration](docs/configuration.md)).

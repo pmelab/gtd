@@ -39,7 +39,13 @@
 #   checking (green) -> reviewing (agent, prompt): writes .gtd/REVIEW.md in
 #     the checkbox review format, grouping the cycle's full diff into
 #     reviewable chunks; its `file:`/`mode:` (REVIEW.md/`review`) makes that
-#     format checkable, so it self-validates before finishing.
+#     format checkable, so it self-validates before finishing. `reviewing`
+#     ALSO declares `reviewEntry: true` — a second way in: `gtd review
+#     <commitish>` (a clean tree resting at idle) writes an empty
+#     `gtd(human): reviewing` entry commit carrying <commitish>'s hash as a
+#     `Gtd-Review-Base:` trailer, starting a brand new process that reviews
+#     <commitish>..HEAD (e.g. a colleague's PR branch) through this exact same
+#     reviewing/await-review/feedback-lap machinery.
 #   reviewing -> await-review (human, message): tick a pointer's `- [
 #     ]` to `- [x]` to approve that item; deleting .gtd/REVIEW.md outright is
 #     the power-user approve-everything shortcut; anything else pending
@@ -352,6 +358,12 @@ states:
     # diff (inlined into its prompt) with a fresh perspective, not the
     # builder's or fixer's working memory.
     memory: review
+    # `gtd review <commitish>` (a plain non-gtd branch, e.g. a colleague's PR)
+    # enters here directly, recording the resolved base as a `Gtd-Review-Base:`
+    # trailer on its empty entry commit — everything below then reuses the
+    # existing reviewing/await-review/feedback-lap machinery unmodified over
+    # <commitish>..HEAD (see STATES.md §11).
+    reviewEntry: true
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except

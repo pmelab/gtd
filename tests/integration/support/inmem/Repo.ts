@@ -277,6 +277,24 @@ export class InMemRepo {
     // worktree and index unchanged
   }
 
+  /**
+   * `git reset --hard <ref>` — move HEAD, the index, AND the worktree to
+   * `ref`'s commit. Test-SETUP only (no production `GitOperations`
+   * counterpart, unlike `softResetTo`/`mixedResetTo`): used by a scenario to
+   * simulate checking out a DIFFERENT point in history — e.g. to build two
+   * diverging tips off one shared base, so one of them is provably NOT an
+   * ancestor of the other (`gtd review <commitish>`'s ancestor guard).
+   */
+  hardResetTo(ref: string): void {
+    const hash = this.resolveRef(ref)
+    if (!hash) throw new Error(`Cannot resolve ref: ${ref}`)
+    this.head = hash
+    this.branches.set(this.currentBranch, hash)
+    const tree = this.getCommit(hash)?.files ?? new Map()
+    this.index = new Map(tree)
+    this.worktree = new Map(tree)
+  }
+
   /** Internal helper: `discardPending()` uses this after staging the worktree. */
   resetHard(): void {
     const headTree = this.headTree()

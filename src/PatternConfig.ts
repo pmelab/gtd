@@ -239,6 +239,7 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "mode",
   "reviewWindow",
   "reviewBase",
+  "reviewEntry",
 ])
 
 const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["vars", "states", "modes"])
@@ -472,7 +473,7 @@ const compileInitial = (
 ): true | undefined => compileBooleanFlag(raw, "initial", name, errors)
 
 /**
- * A boolean state flag (`initial`/`reviewWindow`/`reviewBase`): `true` only
+ * A boolean state flag (`initial`/`reviewWindow`/`reviewBase`/`reviewEntry`): `true` only
  * when the raw value is the literal `true`; a non-boolean is a config error;
  * `false` (or absent) compiles away to `undefined` so it never lands in the
  * `StateDef` — `false` and "unset" mean the same thing for every such flag.
@@ -505,6 +506,7 @@ interface StateParts {
   readonly mode: StateMode | undefined
   readonly reviewWindow: true | undefined
   readonly reviewBase: true | undefined
+  readonly reviewEntry: true | undefined
 }
 
 const assembleContentFields = (
@@ -548,6 +550,7 @@ const assembleStateDef = (parts: StateParts): StateDef => ({
     mode: parts.mode,
     reviewWindow: parts.reviewWindow,
     reviewBase: parts.reviewBase,
+    reviewEntry: parts.reviewEntry,
   }),
   ...assembleContentFields(parts.content),
 })
@@ -581,6 +584,7 @@ const compileState = (
     mode: compileMode(raw, name, errors),
     reviewWindow: compileBooleanFlag(raw, "reviewWindow", name, errors),
     reviewBase: compileBooleanFlag(raw, "reviewBase", name, errors),
+    reviewEntry: compileBooleanFlag(raw, "reviewEntry", name, errors),
   })
 }
 
