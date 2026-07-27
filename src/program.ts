@@ -1,11 +1,12 @@
 import { createRequire } from "node:module"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect, Either } from "effect"
 import { configPresentAt, ConfigService } from "./Config.js"
 import {
   isWorkflowTemplateName,
-  renderInitConfig,
+  PROMPTS_DIR,
+  renderInitScaffold,
   WORKFLOW_TEMPLATE_NAMES,
 } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
@@ -60,9 +61,11 @@ const HELP_TEXT = `Usage: gtd [command] [options]
 
 Commands:
   init <workflow>  Scaffold a .gtdrc.json for this repo with the chosen
-                   bundled workflow inline (one of: simple, advanced). Run
-                   once per repo; refuses if a gtd config already exists.
-                   Leaves the file uncommitted for you to review and commit
+                   bundled workflow (one of: simple, advanced); its agent
+                   prompts are written as editable Markdown under gtd-prompts/
+                   and referenced from the config. Run once per repo; refuses
+                   if a gtd config already exists. Leaves the files uncommitted
+                   for you to review and commit
   step <actor>     Authenticate as <actor>, match the resolved rest's
                    declared patterns against the pending changes, and commit
                    (or squash) the one resulting transition. Pass
@@ -237,9 +240,12 @@ const initWorkflowChoices = (): string => `choose one of: ${WORKFLOW_TEMPLATE_NA
  * the ONE command that must run with no workflow configured yet: it needs no
  * `ConfigService` (which would throw the "no workflow" error pre-init) and no
  * review window. It still runs the repo-root guard (it writes `.gtdrc.json` at
- * the root) and refuses to clobber an existing config. The file is left
- * UNCOMMITTED, so the message warns to commit it before the first `gtd step`
- * (an uncommitted config is a pending change the initial state's `* **` edge
+ * the root) and refuses to clobber an existing config. It also writes each
+ * agent state's prompt as a standalone `gtd-prompts/<state>.md` file the config
+ * references via `./` (see `renderInitScaffold`), so prompts are editable
+ * Markdown rather than JSON-escaped strings. Everything is left UNCOMMITTED, so
+ * the message warns to commit it all before the first `gtd step` (an
+ * uncommitted config/prompt is a pending change the initial state's `* **` edge
  * would otherwise capture).
  */
 const runInitCommand = (
@@ -272,17 +278,33 @@ const runInitCommand = (
         new Error("gtd init: a gtd config already exists — remove it before re-initializing"),
       )
     }
+    const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
+    const scaffold = renderInitScaffold(name)
     yield* fs
-      .writeFileString(join(root, ".gtdrc.json"), renderInitConfig(name))
-      .pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
+      .writeFileString(join(root, ".gtdrc.json"), scaffold.config)
+      .pipe(Effect.mapError(toError))
+    for (const prompt of scaffold.prompts) {
+      const full = join(root, prompt.path)
+      yield* fs.makeDirectory(dirname(full), { recursive: true }).pipe(Effect.mapError(toError))
+      yield* fs.writeFileString(full, prompt.content).pipe(Effect.mapError(toError))
+    }
     if (json) {
-      write(JSON.stringify({ written: ".gtdrc.json", workflow: name }) + "\n")
-    } else {
       write(
-        `Wrote .gtdrc.json with the "${name}" workflow.\n\n` +
-          `Review and commit it before starting: an uncommitted .gtdrc.json counts as a\n` +
-          `pending change, so the initial state would capture it on the first step. Once\n` +
-          `committed, run \`gtd step human\` to begin.\n`,
+        JSON.stringify({
+          written: ".gtdrc.json",
+          workflow: name,
+          prompts: scaffold.prompts.map((p) => p.path),
+        }) + "\n",
+      )
+    } else {
+      const promptCount = scaffold.prompts.length
+      write(
+        `Wrote .gtdrc.json with the "${name}" workflow, and its ${promptCount} agent ` +
+          `prompt${promptCount === 1 ? "" : "s"} as editable Markdown under ${PROMPTS_DIR}/ ` +
+          `(referenced from the config).\n\n` +
+          `Review and commit them before starting: an uncommitted .gtdrc.json (or prompt\n` +
+          `file) counts as a pending change, so the initial state would capture it on the\n` +
+          `first step. Once committed, run \`gtd step human\` to begin.\n`,
       )
     }
   })

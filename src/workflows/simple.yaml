@@ -12,12 +12,18 @@
 # Every content string below is INLINE (no `./`-relative file references):
 # the bundled templates ship inside a single-file build
 # (`dist/gtd.bundle.mjs`), so their content must already be resolved at BUILD
-# time rather than read from disk at RUNTIME — the same reason
-# `src/prompts/*.md` are imported through tsdown's `.md`-as-text loader
-# instead of read via `fs` at runtime. `simple.yaml` itself is imported the
-# same way (tsdown/vitest both treat `.yaml` as text — see
+# time rather than read from disk at RUNTIME. `simple.yaml` itself is imported
+# as raw text (tsdown/vitest both treat `.yaml` as text — see
 # tsdown.config.ts / tests/vitest.rawMd.ts), so this file never needs a
 # sibling prompts/ directory to exist on disk once installed.
+#
+# `gtd init simple` DERIVES the scaffolded `.gtdrc.json` from this inline
+# source (src/workflows/templates.ts `renderInitScaffold`): each agent state's
+# `prompt:` below is written out as an editable `gtd-prompts/<state>.md` file
+# and the config value is rewritten to a `./gtd-prompts/<state>.md` reference
+# `compileWorkflowConfig` inlines back at load time. Human `message:`/check
+# `script:` bodies stay inline in the config. This YAML stays fully inline
+# regardless — the split happens only at scaffold time, on real disk.
 #
 # States, in cycle order — 10 states, no squash:
 #   idle (initial, human, message)

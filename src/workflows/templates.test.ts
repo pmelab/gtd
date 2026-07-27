@@ -3,10 +3,20 @@ import { validateDefinition } from "../PatternMachine.js"
 import {
   compileTemplate,
   isWorkflowTemplateName,
+  PROMPTS_DIR,
   renderInitConfig,
+  renderInitScaffold,
   SCHEMA_URL,
   WORKFLOW_TEMPLATE_NAMES,
 } from "./templates.js"
+
+/** Shape of a scaffolded config's `workflow.states` after prompt extraction. */
+type ScaffoldStates = Record<
+  string,
+  { prompt?: string; message?: string; script?: string; commit?: string }
+>
+const scaffoldStates = (config: string): ScaffoldStates =>
+  (JSON.parse(config) as { workflow: { states: ScaffoldStates } }).workflow.states
 
 describe("bundled workflow templates", () => {
   it("ships exactly the `simple` and `advanced` templates", () => {
@@ -30,6 +40,57 @@ describe("bundled workflow templates", () => {
       // The rendered config round-trips through the compiler exactly like a
       // hand-authored `.gtdrc` `workflow:` value.
       expect(rendered.endsWith("\n")).toBe(true)
+    })
+  }
+
+  for (const name of WORKFLOW_TEMPLATE_NAMES) {
+    describe(`renderInitScaffold for "${name}"`, () => {
+      it("extracts every agent prompt to a gtd-prompts/<state>.md file and references it from the config", () => {
+        const { config, prompts } = renderInitScaffold(name)
+        const states = scaffoldStates(config)
+        // The inline reference form the template test above already validates
+        // is the source of truth for which states carry a `prompt:`.
+        const inlineStates = scaffoldStates(renderInitConfig(name))
+        const promptStates = Object.entries(inlineStates)
+          .filter(([, s]) => typeof s.prompt === "string")
+          .map(([stateName]) => stateName)
+
+        expect(promptStates.length).toBeGreaterThan(0)
+        expect(prompts.map((p) => p.path).sort()).toEqual(
+          promptStates.map((s) => `${PROMPTS_DIR}/${s}.md`).sort(),
+        )
+        for (const stateName of promptStates) {
+          const path = `${PROMPTS_DIR}/${stateName}.md`
+          // Config value is rewritten to a `./`-relative file reference…
+          expect(states[stateName]!.prompt).toBe(`./${path}`)
+          // …and the extracted file's content is the inline prompt verbatim.
+          const file = prompts.find((p) => p.path === path)
+          expect(file?.content).toBe(inlineStates[stateName]!.prompt)
+        }
+      })
+
+      it("leaves human messages and check scripts inline in the config", () => {
+        const states = scaffoldStates(renderInitScaffold(name).config)
+        for (const state of Object.values(states)) {
+          expect(state.message?.startsWith("./")).not.toBe(true)
+          expect(state.script?.startsWith("./")).not.toBe(true)
+          expect(state.commit?.startsWith("./")).not.toBe(true)
+        }
+        // Every non-prompt content value is still present verbatim (not a ref).
+        const inline = scaffoldStates(renderInitConfig(name))
+        for (const [stateName, s] of Object.entries(inline)) {
+          if (s.message !== undefined) expect(states[stateName]!.message).toBe(s.message)
+          if (s.script !== undefined) expect(states[stateName]!.script).toBe(s.script)
+          if (s.commit !== undefined) expect(states[stateName]!.commit).toBe(s.commit)
+        }
+      })
+
+      it("keeps the $schema key first and ends with a newline", () => {
+        const { config } = renderInitScaffold(name)
+        const parsed = JSON.parse(config) as { $schema: string }
+        expect(parsed.$schema).toBe(SCHEMA_URL)
+        expect(config.endsWith("\n")).toBe(true)
+      })
     })
   }
 
