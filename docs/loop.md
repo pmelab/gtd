@@ -28,8 +28,11 @@ A loop is a simple cycle:
 2. Repeat until a `"message"` rest halts the loop, or a zero-commit script step
    at idle settles it (the green terminal signal).
 
-A human acts by editing files (e.g. writing/editing `.gtd/TODO.md`, fixing code)
-and then running `gtd step human` to capture the edit as their turn.
+A human acts by editing files (e.g. writing/editing `.gtd/TODO.md`, fixing
+code); `gtd step human` captures the edit as their turn. A driver can run that
+capture for the human as its opening move (see below), so re-launching the loop
+is the only thing the human ever does — at a gate they edit and re-run, and the
+loop picks their change up.
 
 ```bash
 gtd next --json   # ask who's up and what they should do
@@ -46,7 +49,9 @@ A minimal bash implementation of the pinned protocol, driving an agent CLI (e.g.
 `claude -p`) against `gtd next --json` output. This is the authoritative
 reference for what a loop driver must do; keep any other implementation
 (including `skills/loop/SKILL.md`) consistent with it rather than editing both
-independently. `bin/gtd-loop` is this exact script, packaged as the `gtd-loop`
+independently. Both open with the same move — capture the human's pending edit
+when the machine rests at a `"message"` gate — so `gtd-loop` is the only command
+a human runs. `bin/gtd-loop` is this exact script, packaged as the `gtd-loop`
 binary, with four additions: it stops with a diagnostic if the same `"prompt"`
 state/content repeat with no progress (see `skills/loop/SKILL.md`'s "Stall
 detection"); it lets `GTD_LOOP_AGENT_CMD` swap in any coding agent CLI in place
@@ -60,6 +65,17 @@ same-scope turns and starting fresh when the scope changes.
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Opening move: if the machine rests at a human gate, capture the human's
+# pending edit first, so re-launching the loop is the ONLY thing a human does
+# (they never run `gtd step human` by hand). Peek with the pure `gtd next
+# --json` and step only at a `"message"` rest — at an agent/check rest
+# `gtd step human` would refuse out-of-turn, and a mid-cycle restart must just
+# resume driving. A clean gate is a no-op; a genuine refusal (malformed steering
+# file, unrecognized edit) stops the loop instead of being driven past.
+if [[ "$(gtd next --json | jq -r .kind)" == "message" ]]; then
+  gtd step human >/dev/null
+fi
 
 while true; do
   next_json="$(gtd next --json)"
