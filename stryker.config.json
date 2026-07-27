@@ -8,9 +8,9 @@
     "src/PatternTemplates.ts",
     "src/Edge.ts",
     "src/Config.ts",
-    "src/Format.ts",
     "src/OpenQuestions.ts",
     "src/ReviewDoc.ts",
+    "src/SteeringMode.ts",
     "src/Lsp.ts"
   ],
   "checkers": ["typescript"],

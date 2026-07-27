@@ -15,7 +15,12 @@ import {
   type GitOperations,
 } from "../../../../src/Git.js"
 import { ConfigInit, ConfigService, type ConfigOperations } from "../../../../src/Config.js"
-import { compileVarsMap, compileWorkflowConfig } from "../../../../src/PatternConfig.js"
+import {
+  compileModesMap,
+  compileVarsMap,
+  compileWorkflowConfig,
+  mergeModes,
+} from "../../../../src/PatternConfig.js"
 import {
   defaultWorkflowDefinition,
   defaultWorkflowVars,
@@ -388,6 +393,16 @@ const compileRcVars = (raw: unknown): Record<string, string> => {
   return vars
 }
 
+/** Mirrors the real `Config.ts`'s `compileRcModes`: the top-level `.gtdrc` `modes:` key, through the SAME `compileModesMap`, layered over the active workflow's own modes. */
+const compileRcModes = (raw: unknown) => {
+  const errors: string[] = []
+  const modes = compileModesMap(raw, errors)
+  if (errors.length > 0) {
+    throw new Error(`gtd config:\n${errors.map((e) => `  - ${e}`).join("\n")}`)
+  }
+  return modes
+}
+
 /**
  * Mirrors the real `ConfigService.Live`'s `toOperations`: an absent
  * `workflow:` key compiles to the bundled default; a present one is compiled
@@ -401,10 +416,21 @@ const compileRcVars = (raw: unknown): Record<string, string> => {
  */
 const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
   const rcVars = compileRcVars(raw["vars"])
+  const rcModes = compileRcModes(raw["modes"])
   if (raw["workflow"] === undefined) {
-    return { workflow: defaultWorkflowDefinition, workflowVars: defaultWorkflowVars, rcVars }
+    const modes = mergeModes(defaultWorkflowDefinition.modes, rcModes)
+    return {
+      workflow:
+        modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition,
+      workflowVars: defaultWorkflowVars,
+      rcVars,
+    }
   }
-  const { definition, vars: workflowVars } = compileWorkflowConfig(raw["workflow"], "/repo")
+  const { definition, vars: workflowVars } = compileWorkflowConfig(
+    raw["workflow"],
+    "/repo",
+    rcModes,
+  )
   return { workflow: definition, workflowVars, rcVars }
 }
 

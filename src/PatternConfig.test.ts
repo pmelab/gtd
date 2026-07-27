@@ -184,6 +184,41 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
     ).toThrowError(/mode "adr": must declare at least one of "format"\/"validate"/)
   })
 
+  it("layers the `rcModes` argument over the workflow's own `modes:`, per half", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        ...draftCheckRevise,
+        modes: { adr: { format: "workflow-fmt", validate: "adr-lint <%= it.file %>" } },
+      },
+      "/config-dir",
+      { adr: { format: "project-fmt <%= it.file %>" }, spec: { validate: "spec-lint" } },
+    )
+    expect(definition.modes).toEqual({
+      adr: { format: "project-fmt <%= it.file %>", validate: "adr-lint <%= it.file %>" },
+      spec: { validate: "spec-lint" },
+    })
+  })
+
+  it("accepts a state whose `mode:` is declared only by `rcModes`", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          a: {
+            actor: "agent",
+            prompt: "write the ADR",
+            initial: true,
+            file: "docs/adr/0001.md",
+            mode: "adr",
+            on: { "* *": "a" },
+          },
+        },
+      },
+      "/config-dir",
+      { adr: { validate: "adr-lint <%= it.file %>" } },
+    )
+    expect(definition.modes).toEqual({ adr: { validate: "adr-lint <%= it.file %>" } })
+  })
+
   it("accepts a state whose `mode:` names a declared mode", () => {
     const { definition } = compileWorkflowConfig(
       {

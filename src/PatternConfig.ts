@@ -61,6 +61,18 @@ import {
  * `.gtdrc` document, so the top-level `vars:` layer is entirely
  * `ConfigService`'s concern (`src/Config.ts`), not this module's.
  *
+ * ## `modes:` — the steering-file modes a state's `mode:` may name
+ *
+ * A sibling `modes:` key INSIDE the `workflow:` value declares this workflow's
+ * own steering-file modes (see `PatternMachine.ModeDef`), each a `format:`
+ * and/or `validate:` SHELL COMMAND. Like `vars:`, it has a second layer this
+ * compiler does not read for itself: the top-level `.gtdrc` `modes:` key, which
+ * `ConfigService` compiles through this module's `compileModesMap` and hands
+ * back in as `rcModes`, merged per half by `mergeModes`. gtd's own `qa`/
+ * `review` remain available under the whole thing as VALIDATORS
+ * (`PatternMachine.BuiltInMode`) — resolution of the merged map against them is
+ * the edge's job (`src/SteeringMode.ts`), not this compiler's.
+ *
  * ## File references
  *
  * A content value (`script`/`prompt`/`message`/`commit`) is a FILE REFERENCE
@@ -152,7 +164,10 @@ const MODE_COMMAND_KEYS = ["format", "validate"] as const
  * reading. Commands are Eta templates, rendered at the edge with `it.file`
  * bound to the rendered steering-file path (`src/SteeringMode.ts`).
  */
-const compileModesMap = (raw: unknown, errors: string[]): Record<string, ModeDef> | undefined => {
+export const compileModesMap = (
+  raw: unknown,
+  errors: string[],
+): Record<string, ModeDef> | undefined => {
   if (raw === undefined) return undefined
   if (!isPlainObject(raw)) {
     errors.push(
@@ -187,6 +202,26 @@ const compileModesMap = (raw: unknown, errors: string[]): Record<string, ModeDef
     modes[name] = commands
   }
   return modes
+}
+
+/**
+ * Layer one `modes:` map over another, PER HALF: an override entry's
+ * `format:`/`validate:` wins, and a half it leaves out keeps the base's. This
+ * is how the top-level `.gtdrc` `modes:` key plugs a formatter into a mode the
+ * workflow (or gtd itself) already validates — `{ qa: { format: "..." } }` adds
+ * formatting to `qa` without touching its validation. Both arguments may be
+ * `undefined` (an absent key); the result is `undefined` only when both are.
+ */
+export const mergeModes = (
+  base: Readonly<Record<string, ModeDef>> | undefined,
+  override: Readonly<Record<string, ModeDef>> | undefined,
+): Record<string, ModeDef> | undefined => {
+  if (base === undefined && override === undefined) return undefined
+  const merged: Record<string, ModeDef> = { ...base }
+  for (const [name, entry] of Object.entries(override ?? {})) {
+    merged[name] = { ...merged[name], ...entry }
+  }
+  return merged
 }
 
 const CONTENT_KEYS = ["script", "prompt", "message", "commit"] as const
@@ -554,12 +589,19 @@ const compileState = (
 /**
  * Compile the raw, decoded `workflow:` YAML value into a `WorkflowDefinition`
  * plus the workflow's own compiled `vars:` map. `configDir` is the config
- * file's own directory, used to resolve `./`/`../` file references. Throws a single
+ * file's own directory, used to resolve `./`/`../` file references. `rcModes`
+ * is the already-compiled top-level `.gtdrc` `modes:` key (`src/Config.ts`),
+ * layered over the workflow's own `modes:` per half BEFORE validation — so a
+ * state may name a mode either layer declares. Throws a single
  * `Error` (message: `"workflow config:\n  - ..."`, one line per finding) on
  * ANY config-shape problem or `validateDefinition` finding — never partially
  * succeeds.
  */
-export const compileWorkflowConfig = (raw: unknown, configDir: string): CompiledWorkflowConfig => {
+export const compileWorkflowConfig = (
+  raw: unknown,
+  configDir: string,
+  rcModes?: Readonly<Record<string, ModeDef>>,
+): CompiledWorkflowConfig => {
   if (!isPlainObject(raw)) {
     throw new Error(`workflow config: must be an object, got ${describeType(raw)}`)
   }
@@ -572,7 +614,7 @@ export const compileWorkflowConfig = (raw: unknown, configDir: string): Compiled
   }
 
   const vars = compileVarsMap(raw.vars, errors)
-  const modes = compileModesMap(raw.modes, errors)
+  const modes = mergeModes(compileModesMap(raw.modes, errors), rcModes)
 
   const rawStates = raw.states
   if (!isPlainObject(rawStates) || Object.keys(rawStates).length === 0) {

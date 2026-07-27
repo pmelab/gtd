@@ -66,6 +66,7 @@
     "lint-staged": "^17.0.8",
     "oxfmt": "^0.59.0",
     "oxlint": "^1.74.0",
+    "prettier": "^3.8.1",
     "quickpickle": "1.11.2",
     "semantic-release": "^25.0.5",
     "tsdown": "^0.22.8",
@@ -82,7 +83,6 @@
     "diff": "^9.0.0",
     "effect": "^3.19.15",
     "eta": "^4.6.0",
-    "prettier": "^3.8.1",
     "vscode-languageserver": "^10.1.0",
     "vscode-languageserver-textdocument": "^1.0.13"
   }

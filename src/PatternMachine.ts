@@ -169,10 +169,14 @@ export type StateMode = string
  * `PatternTemplates.ModeCommandContext`), and both are entirely EDGE concerns:
  * the pure engine never renders or executes either (`src/SteeringMode.ts`
  * does, for `gtd validate` and the `gtd step` capture gate). At least one of
- * the two must be declared; a missing one means "that half is a no-op".
+ * the two must be declared; the halves resolve INDEPENDENTLY, so declaring one
+ * leaves the other at whatever the layer beneath provides (a built-in
+ * validator, or nothing at all).
  *
  * - `format` runs FIRST and is expected to rewrite the file in place. A
- *   non-zero exit is a hard error (the tooling is broken, not the file).
+ *   non-zero exit is a hard error (the tooling is broken, not the file). gtd
+ *   ships NO formatter of its own — a project brings its own (`prettier`,
+ *   `dprint`, a script) by declaring it here.
  * - `validate` runs SECOND: exit 0 means valid; a non-zero exit means invalid,
  *   and its output (stdout then stderr) carries the findings, one per line.
  */
@@ -182,12 +186,13 @@ export interface ModeDef {
 }
 
 /**
- * The two mode names gtd implements ITSELF, in process: `qa`
- * (`src/OpenQuestions.ts`) and `review` (`src/ReviewDoc.ts`), each formatting
- * with the markdown formatter behind `gtd format` and validating with its pure
- * parser — the same parsers the LSP publishes as live diagnostics. Available in
- * every workflow without being declared; a `modes:` entry that reuses one of
- * these names REPLACES it wholesale (both halves).
+ * The two mode names gtd VALIDATES itself, in process: `qa`
+ * (`src/OpenQuestions.ts`) and `review` (`src/ReviewDoc.ts`) — the pure parsers
+ * the LSP also publishes as live diagnostics, which is why they stay in process
+ * rather than becoming shell-outs. Available in every workflow without being
+ * declared, and they bring VALIDATION ONLY: a built-in mode formats nothing
+ * until some `modes:` layer gives it a `format:` command. A `modes:` entry
+ * naming one of these overrides only the half it declares.
  */
 export type BuiltInMode = "qa" | "review"
 
@@ -209,10 +214,13 @@ export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
 export interface WorkflowDefinition {
   readonly states: Readonly<Record<StateName, StateDef>>
   /**
-   * The steering-file modes this workflow declares — mode name -> its
-   * format/validate commands (see `ModeDef`). Merged OVER `BUILT_IN_MODES`, so
-   * reusing `qa`/`review` here replaces that built-in for the whole workflow.
-   * Absent (or empty) means "the built-ins only".
+   * The steering-file modes available to this workflow's states — mode name ->
+   * its format/validate commands (see `ModeDef`). Already the MERGE of the
+   * workflow's own `modes:` and the top-level `.gtdrc` `modes:` layer over it
+   * (`PatternConfig.mergeModes`, per half), so the engine sees one flat map.
+   * Layered over `BUILT_IN_MODES` rather than replacing them: a `qa` entry
+   * declaring only `format:` keeps gtd's built-in `qa` validation. Absent (or
+   * empty) means "the built-in validators only, no formatting".
    */
   readonly modes?: Readonly<Record<StateMode, ModeDef>>
 }

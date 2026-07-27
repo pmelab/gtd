@@ -2,15 +2,20 @@
 Feature: Pluggable steering-file modes — a mode is a format command plus a validate command
 
   A state's `mode:` names a steering-file MODE (see STATES.md §12 and
-  docs/design/pluggable-steering-modes.md). Two names are built in — `qa`
-  (src/OpenQuestions.ts) and `review` (src/ReviewDoc.ts), formatting with gtd's
-  markdown formatter and validating with gtd's own parsers. Every other mode is
-  workflow DATA: a `modes:` entry declaring a `format:` and/or `validate:` shell
-  command, rendered as an Eta template with `it.file` bound to the rendered
-  steering-file path and run via bash. `format` rewrites the file in place;
-  `validate` exits 0 for valid, non-zero with its output as the findings.
+  docs/design/pluggable-steering-modes.md): a `format:` and/or `validate:` shell
+  command, declared in a `modes:` map — either inside `workflow:` or as the
+  top-level `.gtdrc` `modes:` layer over it. Each command is an Eta template
+  with `it.file` bound to the rendered steering-file path, run via bash;
+  `format` rewrites the file in place, `validate` exits 0 for valid and
+  non-zero with its output as the findings.
 
-  Both halves run wherever the built-ins run: `gtd validate`, and the `gtd step`
+  The two halves resolve INDEPENDENTLY. Under them sit gtd's two BUILT-IN
+  VALIDATORS, `qa` (src/OpenQuestions.ts) and `review` (src/ReviewDoc.ts) —
+  available unnamed in every workflow, and kept if a `modes:` entry declares
+  only a `format:`. gtd ships NO formatter, so a mode formats nothing until a
+  project plugs one in.
+
+  Both halves run wherever the gate runs: `gtd validate`, and the `gtd step`
   capture gate that refuses to commit an invalid steering file. Real subprocess
   execution, so this feature runs `@live`.
 
@@ -260,7 +265,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     And stderr contains "adr-fmt: cannot parse docs/adr.md"
     And the last commit subject is "gtd(human): drafting"
 
-  Scenario: a modes: entry named after a built-in replaces it for the whole workflow
+  Scenario: a modes: entry named after a built-in overrides only the half it declares
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -289,7 +294,8 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       # gtd's own open-questions parser accepts this file (no "## Open
       # Questions" section at all is trivially valid to it) — the workflow's
-      # own command does not, which is how we can tell it replaced the built-in.
+      # own command does not, which is how we can tell the declared `validate:`
+      # displaced the built-in parser.
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       Build a thing. Plan: add src/thing.ts.
@@ -297,6 +303,104 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "my house rule"
+
+  Scenario: declaring only a format: for a built-in mode KEEPS gtd's own validation
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          qa:
+            format: "sed -i 's/^Answer:/Suggested default:/' <%= it.file %>"
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start"
+            on:
+              "* **": grilling
+          grilling:
+            actor: agent
+            prompt: "Draft the plan."
+            file: .gtd/TODO.md
+            mode: qa
+            on:
+              "* **": idle
+      """
+      # The mode declares a formatter and no validator, so gtd's open-questions
+      # parser still runs — and still rejects a question with no
+      # "Suggested default:"/"Answer:" line.
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing.
+
+      ## Open Questions
+
+      ### Which way?
+
+      Neither a default nor an answer.
+      """
+    When I run gtd with args "validate"
+    Then it fails
+    And stderr contains "is missing a \"Suggested default: ...\" or \"Answer: ...\" line"
+
+  Scenario: a top-level modes: key plugs a formatter into the BUNDLED default workflow
+    # No `workflow:` key at all — the bundled default's `grilling` state already
+    # declares `file: .gtd/TODO.md` + `mode: qa`. The project brings its own
+    # formatter for that mode without re-declaring a single state, and gtd's own
+    # qa validation still runs underneath it.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      modes:
+        qa:
+          format: "sed -i 's/  */ /g' <%= it.file %>"
+      """
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing.    Plan: add src/thing.ts.
+      """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains ".gtd/TODO.md: valid"
+    And ".gtd/TODO.md" contains "Build a thing. Plan: add src/thing.ts."
+
+  Scenario: a top-level modes: entry layers over the workflow's own, half by half
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      modes:
+        adr:
+          format: "sed -i 's/^status: draft$/status: accepted/' <%= it.file %>"
+      workflow:
+        modes:
+          adr:
+            validate: "grep -q '^status: accepted$' <%= it.file %>"
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start a decision record"
+            on:
+              "* **": drafting
+          drafting:
+            actor: agent
+            prompt: "Write the ADR."
+            file: docs/adr.md
+            mode: adr
+            on:
+              "* **": idle
+      """
+      # The workflow declares `adr`'s validator; the project's own top-level
+      # `modes:` adds the formatter. Validation passes only because both halves
+      # survived the merge and ran in order.
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      status: draft
+      """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains "docs/adr.md: valid"
 
   Scenario: a custom mode declaring only format: formats the file and has nothing to validate
     Given a test project

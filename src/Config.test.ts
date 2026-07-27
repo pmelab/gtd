@@ -145,6 +145,87 @@ describe("ConfigService", () => {
     expect(cfg.rcVars).toEqual({ greeting: "child", onlyAncestor: "yes" })
   })
 
+  it("layers a top-level `modes:` key over the BUNDLED default's modes, per half", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`modes:`, `  qa:`, `    format: "npx prettier --write <%= it.file %>"`, ``].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    // The bundled default is otherwise untouched, and `qa` gains a formatter
+    // while keeping gtd's built-in validation (resolved in src/SteeringMode.ts).
+    expect(cfg.workflow.states["grilling"]).toBeDefined()
+    expect(cfg.workflow.modes).toEqual({ qa: { format: "npx prettier --write <%= it.file %>" } })
+  })
+
+  it("layers a top-level `modes:` key over a CUSTOM workflow's own modes, half by half", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [
+        `modes:`,
+        `  adr:`,
+        `    format: "adr-fmt <%= it.file %>"`,
+        `workflow:`,
+        `  modes:`,
+        `    adr:`,
+        `      format: "never-used"`,
+        `      validate: "adr-lint <%= it.file %>"`,
+        `  states:`,
+        `    idle:`,
+        `      actor: human`,
+        `      initial: true`,
+        `      message: "hi"`,
+        `      file: docs/adr.md`,
+        `      mode: adr`,
+        `      on: {}`,
+        ``,
+      ].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.workflow.modes).toEqual({
+      adr: { format: "adr-fmt <%= it.file %>", validate: "adr-lint <%= it.file %>" },
+    })
+  })
+
+  it("lets a top-level `modes:` key define the mode a custom workflow's state names", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [
+        `modes:`,
+        `  adr:`,
+        `    validate: "adr-lint <%= it.file %>"`,
+        `workflow:`,
+        `  states:`,
+        `    idle:`,
+        `      actor: human`,
+        `      initial: true`,
+        `      message: "hi"`,
+        `      file: docs/adr.md`,
+        `      mode: adr`,
+        `      on: {}`,
+        ``,
+      ].join("\n"),
+    )
+
+    // Without the rc layer reaching `validateDefinition`, "adr" would be an
+    // unknown mode and this would throw at load time.
+    const cfg = await getConfig()
+
+    expect(cfg.workflow.states["idle"]?.mode).toBe("adr")
+  })
+
+  it("rejects a malformed top-level `modes:` entry, aggregated into one error", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`modes:`, `  adr:`, `    lint: "adr-lint"`, ``].join("\n"),
+    )
+
+    await expect(getConfig()).rejects.toThrow(/mode "adr": unknown key\(s\) lint/)
+  })
+
   it("rejects a non-scalar top-level `vars` entry, aggregated into one error", async () => {
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
