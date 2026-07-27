@@ -540,7 +540,12 @@ layers, **later wins**:
    workflow author's declared defaults. The `simple` template declares
    `vars: { testCommand: "npm test" }`, read by `checking`'s script as
    `<%~ it.vars.testCommand %>` (see
-   [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)).
+   [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)). Both
+   bundled templates also declare two model-tier vars — `plannerModel` (default
+   `smart`) and `coderModel` (default `base`) — that every agent state's
+   `model:` resolves through (`model: <%= it.vars.plannerModel %>`), so
+   repointing one var here (or via layer 2/3 below) changes every state on that
+   tier at once.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow. Subject
    to the same cwd→home deep merge as everything else in `.gtdrc` (innermost

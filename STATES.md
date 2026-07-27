@@ -335,9 +335,9 @@ and §12):
 | `idle` (initial)  | human | message | `* **` → `grilling`                                                                                                     | —                  | —       | —        | —                   | —        |
 | `grilling`        | agent | prompt  | `* **` → `grilling-answer`                                                                                              | —                  | `smart` | `plan`   | `vars.todoFile`     | `qa`     |
 | `grilling-answer` | human | message | `C` → `building`; `* **` → `grilling`                                                                                   | —                  | —       | —        | `vars.todoFile`     | `qa`     |
-| `building`        | agent | prompt  | `* **` → `checking`                                                                                                     | —                  | —       | `build`  | `vars.todoFile`     | `qa`     |
+| `building`        | agent | prompt  | `* **` → `checking`                                                                                                     | —                  | `base`  | `build`  | `vars.todoFile`     | `qa`     |
 | `checking`        | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing` | —                  | —       | —        | —                   | —        |
-| `fixing`          | agent | prompt  | `* **` → `checking`                                                                                                     | max 3 → `escalate` | —       | `fix`    | `vars.feedbackFile` | —        |
+| `fixing`          | agent | prompt  | `* **` → `checking`                                                                                                     | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile` | —        |
 | `escalate`        | human | message | `* **` → `checking`                                                                                                     | —                  | —       | —        | `vars.feedbackFile` | —        |
 | `reviewing`       | agent | prompt  | `* **` → `await-review`                                                                                                 | —                  | `smart` | `review` | `vars.reviewFile`   | `review` |
 | `await-review`    | human | message | `D .gtd/REVIEW.md` → `idle`; `M .gtd/REVIEW.md` → `review-deciding`; `* **` → `grilling`                                | —                  | —       | —        | `vars.reviewFile`   | `review` |
@@ -428,12 +428,12 @@ process's retry trace unaffected by counting rules other than "how many times
 has `fixing` itself been entered").
 
 **Review — REVIEW.md checkboxes.** A green `checking` run moves to `reviewing`
-(agent, `model: smart`), which writes `.gtd/REVIEW.md` grouping the cycle's full
-diff into reviewable chunks, in the exact checkbox-pointer format
-`src/ReviewDoc.ts`'s parser defines (header `# Review: <short-hash>`, a
-`<!-- base: <hash> -->` comment, `##` chunks each with
-`- [ ] ./path#line — note` pointers). Like `grilling`, `reviewing` declares a
-`file:`/`mode:` pair (`.gtd/REVIEW.md`/`review`), so it self-validates that
+(agent, `model: vars.plannerModel`, default `smart`), which writes
+`.gtd/REVIEW.md` grouping the cycle's full diff into reviewable chunks, in the
+exact checkbox-pointer format `src/ReviewDoc.ts`'s parser defines (header
+`# Review: <short-hash>`, a `<!-- base: <hash> -->` comment, `##` chunks each
+with `- [ ] ./path#line — note` pointers). Like `grilling`, `reviewing` declares
+a `file:`/`mode:` pair (`.gtd/REVIEW.md`/`review`), so it self-validates that
 format with `gtd validate` before finishing (see §12) and its turn steps
 straight to `await-review`. At `await-review`, a human ticks a pointer's `- [ ]`
 to `- [x]` to approve that item; deleting `.gtd/REVIEW.md` outright is the
@@ -457,10 +457,15 @@ idle-entering commit that closes the cycle is also this workflow's only process
 boundary besides an unrecognized HEAD (§7): the NEXT cycle's `retry` counts,
 `startCommit`, and diffs never reach back across it.
 
-`grilling` and `reviewing` — the heavier one-shot planning/reviewing turns —
-both declare `model: smart`, an opaque hint `gtd next`/`gtd status` `--json`
-emit verbatim for the driving loop to map onto its harness. Every other state
-leaves `model` unset, so the harness's own default applies.
+Every agent state draws its `model` from one of two `vars` tiers rather than a
+hardcoded string, so the tiers repoint in one place (the template's `vars:`, a
+top-level `.gtdrc` `vars:` key, or a `GTD_VAR_` override): `plannerModel`
+(default `smart`) for the heavier one-shot planning/reviewing turns (`grilling`,
+`reviewing`), `coderModel` (default `base`) for the coding turns (`building`,
+`fixing`). Both are opaque hints `gtd next`/`gtd status` `--json` emit verbatim
+(the resolved value, e.g. `smart`/`base`) for the driving loop to map onto its
+harness. The check/human states declare no `model`, so the harness default
+applies there.
 
 The four agent states also declare a `memory:` scope label — `grilling: plan`,
 `building: build`, `fixing: fix`, `reviewing: review` — another opaque hint the

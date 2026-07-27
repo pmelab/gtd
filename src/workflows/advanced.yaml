@@ -25,6 +25,12 @@ vars:
   architectureFile: .gtd/ARCHITECTURE.md
   reviewFile: .gtd/REVIEW.md
   feedbackFile: .gtd/FEEDBACK.md
+  # The two model tiers every agent state draws from (see the model comment at
+  # `grilling` below). Both are opaque harness hints — repoint them here (or
+  # via a top-level `.gtdrc` `vars:` key / a `GTD_VAR_plannerModel` env var) to
+  # change every state on that tier at once.
+  plannerModel: smart
+  coderModel: base
 
 states:
   idle:
@@ -44,11 +50,13 @@ states:
     mode: qa
     # `model` is an opaque harness hint — gtd never interprets this string, it
     # only passes it through to `gtd next --json`/`gtd status --json` so the
-    # driving loop can map it onto whatever models its agent harness
-    # provides. "smart" here just names the harness-chosen tier for the
-    # heavier planning/reviewing turns; states without a `model` use the
-    # harness's default.
-    model: smart
+    # driving loop can map it onto whatever models its agent harness provides.
+    # Every agent state draws its tier from a `vars` model entry (see `vars:`
+    # above) so the tiers repoint in one place: `plannerModel` (default
+    # "smart") names the heavier tier for the one-shot planning/architecting/
+    # reviewing turns, `coderModel` (default "base") the tier for the
+    # decompose/build/fix/squash turns.
+    model: <%= it.vars.plannerModel %>
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state (plans, task specs, review records) — never create, edit, or
@@ -97,7 +105,7 @@ states:
     actor: agent
     file: <%= it.vars.architectureFile %>
     mode: qa
-    model: smart
+    model: <%= it.vars.plannerModel %>
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except
@@ -143,6 +151,7 @@ states:
 
   decompose:
     actor: agent
+    model: <%= it.vars.coderModel %>
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except the
@@ -191,6 +200,7 @@ states:
 
   building:
     actor: agent
+    model: <%= it.vars.coderModel %>
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create or edit anything under `.gtd/` except deleting the
@@ -245,6 +255,7 @@ states:
   fixing:
     actor: agent
     file: <%= it.vars.feedbackFile %>
+    model: <%= it.vars.coderModel %>
     retry:
       max: 3
       otherwise: escalate
@@ -280,7 +291,7 @@ states:
     actor: agent
     file: <%= it.vars.reviewFile %>
     mode: review
-    model: smart
+    model: <%= it.vars.plannerModel %>
     # A direct entry point: `gtd review <commitish>` starts a fresh review
     # process here over `<commitish>..HEAD` (e.g. a colleague's PR branch).
     reviewEntry: true
@@ -329,6 +340,7 @@ states:
 
   squashing:
     actor: agent
+    model: <%= it.vars.coderModel %>
     prompt: |
       You are an autonomous coding agent. The cycle is approved and done.
       `.gtd/` holds this workflow's own state — never create, edit, or delete
