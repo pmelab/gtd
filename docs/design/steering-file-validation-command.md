@@ -332,9 +332,8 @@ to the driver protocol — `dispatch on kind` + the new validate gate).
   `a commit "gtd(<actor>): <state>" that adds …`:
   - `grilling` + a valid `.gtd/TODO.md` → `gtd validate` succeeds, stdout
     "valid".
-  - `grilling` + a malformed `.gtd/TODO.md` (an `### ` question with no
-    `Suggested default:`/`Answer:` line) → `gtd validate` fails, stderr carries
-    the finding.
+  - `grilling` + a malformed `.gtd/TODO.md` (a bare `###` question heading with
+    no question text) → `gtd validate` fails, stderr carries the finding.
   - `reviewing` + a malformed `.gtd/REVIEW.md` (missing `# Review:` header) →
     fails with the finding; a valid one → succeeds.
   - a state with a `file:` but no `mode:` (e.g. `fixing`) → succeeds with

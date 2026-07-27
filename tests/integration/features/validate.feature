@@ -29,7 +29,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       ### Should thing export a default too?
 
-      Suggested default: no, named export only.
+      No, named export only.
       """
     When I run gtd with args "validate"
     Then it succeeds
@@ -44,14 +44,14 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       ## Open Questions
 
-      ### Should thing export a default too?
+      ###
 
-      Not sure yet.
+      A question heading with no question text.
       """
     When I run gtd with args "validate"
     Then it fails
     And stderr contains ".gtd/TODO.md is not valid"
-    And stderr contains "is missing a \"Suggested default: ...\" or \"Answer: ...\" line"
+    And stderr contains "has no question text"
 
   Scenario: --json reports the valid verdict structurally
     Given a test project
@@ -144,10 +144,10 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And the git status is clean
 
   Scenario: the step gate runs format + validate after a human edits the steering file — a malformed edit is refused
-    # A human answers at grilling-answer but leaves an open question without a
-    # "Suggested default:"/"Answer:" line. Stepping runs the same gate the
-    # producing agent gets, so the malformed edit is refused and nothing is
-    # committed — the evaluation happens after a human edit too.
+    # A human answers at grilling-answer but leaves a `### ` question heading
+    # with no question text. Stepping runs the same gate the producing agent
+    # gets, so the malformed edit is refused and nothing is committed — the
+    # evaluation happens after a human edit too.
     Given a test project
     And the "simple" workflow
     And a commit "gtd(human): grilling-answer" that adds ".gtd/TODO.md" with:
@@ -160,9 +160,9 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       ## Open Questions
 
-      ### Did the human break the format?
+      ###
 
-      This line is neither a Suggested default nor an Answer.
+      The human deleted the question text.
       """
     When I run gtd step human
     Then it fails

@@ -35,7 +35,7 @@ by hand first. So:
    human gate), run `gtd step human` to commit whatever the human left pending,
    then continue into the loop below from the resulting state. A clean gate is a
    harmless no-op; a human edit is captured as their turn (e.g. accepting a
-   plan's suggested defaults with no edit advances past `grilling-answer`).
+   plan's suggested answers with no edit advances past `grilling-answer`).
 3. If the peek reports any other `kind`, do **not** step human — the machine is
    mid-cycle at an agent/check rest (a restart after a crash, say), where
    `gtd step human` would refuse out-of-turn. Just enter the loop and resume

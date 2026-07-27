@@ -271,10 +271,10 @@ workflow:
 **steering-file mode**. Two names are BUILT IN, each carrying a VALIDATOR gtd
 implements itself:
 
-| `mode`   | Format                                                                                                                       |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `qa`     | The open-questions format (`## Open Questions`, one `###` sub-heading per question, `Suggested default: ...`/`Answer: ...`). |
-| `review` | The checkbox review format (`# Review: <hash>` header, `<!-- base: <hash> -->` comment, `##` chunks, `- [ ]` pointers).      |
+| `mode`   | Format                                                                                                                                                                                                  |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qa`     | The open-questions format (`## Open Questions` near the top and `## Answered Questions` at the bottom, one `###` sub-heading per question with a free-form body; status is positional, no marker line). |
+| `review` | The checkbox review format (`# Review: <hash>` header, `<!-- base: <hash> -->` comment, `##` chunks, `- [ ]` pointers).                                                                                 |
 
 Any other name must be declared in a `modes:` map (next section) — as must a
 `format:` command for these two, since gtd ships no formatter. A `mode:` naming

@@ -82,9 +82,18 @@ states:
       the next phase (`.gtd/ARCHITECTURE.md`).
 
       For every remaining open question, add it under a `## Open Questions`
-      heading, one `### <question>` sub-heading each, with a
-      `Suggested default: <answer>` line the human can accept as-is. Omit the
-      section entirely once there are none.
+      heading near the top, one `### <question>` sub-heading each, its body
+      your suggested answer in plain prose (always suggest one — the human
+      accepts it by leaving it untouched, or overrides it by editing it). Omit
+      the section entirely once there are none.
+
+      If `.gtd/TODO.md` already carries a `## Open Questions` section from a
+      previous lap, the human has now responded to that whole batch: fold every
+      one of those questions into the plan — the human's edit where they gave
+      one, your own suggestion where they left it untouched (an untouched
+      suggestion IS acceptance) — and MOVE each resolved `### <question>` block
+      down into a `## Answered Questions` section at the bottom. Raise any
+      genuinely new questions under `## Open Questions` at the top.
 
       Leave `.gtd/TODO.md` uncommitted and finish your turn — do not commit,
       and do not run `gtd step agent` yourself; the harness does that.
@@ -98,13 +107,14 @@ states:
     message: |
       `<%= it.vars.todoFile %>` holds the plan under development, with any
       open questions under `## Open Questions` — each carrying a suggested
-      default.
+      answer.
 
-      To answer a question, edit its entry in place (replace
-      `Suggested default: ...` with `Answer: ...`, or annotate further), then
-      run `gtd step human`.
+      To answer a question, edit its body in place, then run
+      `gtd step human`; leave a suggestion untouched to accept it as-is. On the
+      next lap the agent folds every answered question into the plan and moves
+      it down to `## Answered Questions`.
 
-      To accept all suggested defaults as-is and move on to technical
+      To accept all suggested answers as-is and move on to technical
       architecting, run `gtd step human` with no edits.
     on:
       "C": architecting
@@ -130,8 +140,11 @@ states:
 
       For every remaining open question, add it under a `## Open Questions`
       heading the same way as the grilling phase (one `### <question>`
-      sub-heading, a `Suggested default: <answer>` line). Omit the section
-      once there are none.
+      sub-heading, its body your suggested answer in plain prose). Omit the
+      section once there are none. On a return lap, fold the whole answered
+      batch into the plan and move each resolved `### <question>` block down
+      into a `## Answered Questions` section at the bottom, exactly as grilling
+      does.
 
       Once `<%= it.vars.architectureFile %>` is written, delete
       `<%= it.vars.todoFile %>` — its content has been folded in and it must
@@ -149,10 +162,10 @@ states:
       `<%= it.vars.architectureFile %>` holds the technical plan under
       development, with any open questions under `## Open Questions`.
 
-      To answer a question, edit its entry in place, then run
-      `gtd step human`.
+      To answer a question, edit its body in place, then run `gtd step human`;
+      leave a suggestion untouched to accept it as-is.
 
-      To accept all suggested defaults as-is and move on to decomposing the
+      To accept all suggested answers as-is and move on to decomposing the
       work, run `gtd step human` with no edits.
     on:
       "C": decompose

@@ -105,7 +105,7 @@ describe("resolveSteeringMode", () => {
 
 describe("validateSteeringFile — built-in modes", () => {
   it("`qa` reports the open-questions parser's findings", async () => {
-    const content = "Plan.\n\n## Open Questions\n\n### Which way?\n\nNot an answer line.\n"
+    const content = "Plan.\n\n## Open Questions\n\n###\n\nno question text.\n"
     const errors = await Effect.runPromise(
       validateSteeringFile(
         { mode: "qa", validate: { kind: "builtin", mode: "qa" } },
@@ -115,7 +115,7 @@ describe("validateSteeringFile — built-in modes", () => {
         tmpDir,
       ),
     )
-    expect(errors.join("\n")).toContain('"Suggested default: ..."')
+    expect(errors.join("\n")).toContain("has no question text")
   })
 
   it("`review` reports the review-doc parser's findings", async () => {

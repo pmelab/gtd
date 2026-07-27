@@ -226,11 +226,11 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
 
   Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed
     # `planning` declares file:/mode: (.gtd/PLAN.md as `qa`), so its output has
-    # a checkable format. The stub writes a MALFORMED plan first (an open
-    # question with no "Suggested default:"/"Answer:" line); the loop runs
-    # `gtd validate`, it fails, and the loop re-prompts the SAME turn with the
-    # findings (prompt now contains "does not pass"), on which the stub writes a
-    # valid plan — only then does the loop step, squashing to done and halting.
+    # a checkable format. The stub writes a MALFORMED plan first (a bare `###`
+    # question heading with no question text); the loop runs `gtd validate`, it
+    # fails, and the loop re-prompts the SAME turn with the findings (prompt now
+    # contains "does not pass"), on which the stub writes a valid plan — only
+    # then does the loop step, squashing to done and halting.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -273,9 +273,9 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
 
       ## Open Questions
 
-      ### Should it support floats?
+      ###
 
-      Dunno.
+      Forgot to write the question.
       PLAN
           ;;
       esac

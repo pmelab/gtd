@@ -33,9 +33,11 @@
 #     under a `## Open Questions` heading rather than guessing silently. Its
 #     `file:`/`mode:` (TODO.md/`qa`) makes the plan's format checkable — it
 #     self-validates before finishing (see "Steering-file validation" below).
-#   grilling -> grilling-answer (human, message): tick off suggested
-#     defaults by replacing them with `Answer:` lines; a clean step accepts
-#     every remaining default -> building; any edit loops back to grilling.
+#   grilling -> grilling-answer (human, message): answer a question by
+#     editing its body in place, or leave a suggestion untouched to accept it;
+#     a clean step accepts every remaining suggestion -> building; any edit
+#     loops back to grilling (which folds the whole answered batch into the
+#     plan and moves it down to `## Answered Questions`).
 #   grilling-answer -> building (agent, prompt): implements the plan in
 #     .gtd/TODO.md directly (no task decomposition, no per-task queue) and
 #     deletes .gtd/TODO.md once the work is complete and verified.
@@ -217,15 +219,20 @@ states:
       develop it into a concrete implementation plan.
 
       For every question you cannot settle yourself, add it under a
-      `## Open Questions` heading, one `### <question>` sub-heading each,
-      whose body's FIRST non-blank line is exactly
-      `Suggested default: <your answer>` — the human can accept it as-is or
-      override it. Omit the section entirely once there are no open
-      questions. If `<%= it.vars.todoFile %>` already carries
-      `## Open Questions` entries from a previous lap, fold any
-      `Answer: <text>` line into the plan; every remaining entry's body must
-      still start with either `Suggested default: ...` or `Answer: ...` —
-      never anything else.
+      `## Open Questions` heading near the top, one `### <question>`
+      sub-heading each, its body your suggested answer in plain prose (always
+      suggest one — the human accepts it by leaving it untouched, or overrides
+      it by editing it). Omit the section entirely once there are no open
+      questions.
+
+      If `<%= it.vars.todoFile %>` already carries a `## Open Questions`
+      section from a previous lap, the human has now responded to that whole
+      batch: fold every one of those questions into the plan — using the
+      human's edit where they gave one, your own suggested answer where they
+      left it untouched (an untouched suggestion IS acceptance) — and MOVE each
+      resolved `### <question>` block down into a `## Answered Questions`
+      section at the very bottom, keeping it as a record. Raise any genuinely
+      new questions this lap under `## Open Questions` at the top.
 
       Leave `<%= it.vars.todoFile %>` uncommitted and finish your turn — do
       not commit, and do not run `gtd step agent` yourself; the harness does
@@ -240,8 +247,10 @@ states:
     message: |
       `<%= it.vars.todoFile %>` holds the plan under development, with any
       open questions under `## Open Questions` — each carrying a suggested
-      default. Answer a question by editing its entry in place: replace its
-      `Suggested default: ...` line with `Answer: ...`, or add further detail.
+      answer. Answer a question by editing its body in place; leave a
+      suggestion untouched to accept it as-is. On the next lap the agent folds
+      every answered question into the plan and moves it down to
+      `## Answered Questions`.
 
       What each change does next (then run `gtd step human`):
       <% it.edges.forEach(function (e) { if (e.describe) { %>
@@ -251,7 +260,7 @@ states:
       "C":
         to: building
         describe: >-
-          Change nothing to accept every suggested default as-is and move on to
+          Change nothing to accept every suggested answer as-is and move on to
           implementation (**building**).
       "* **":
         to: grilling
