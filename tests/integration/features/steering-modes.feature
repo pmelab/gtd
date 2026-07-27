@@ -311,7 +311,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       workflow:
         modes:
           qa:
-            format: "sed 's/^Answer:/Suggested default:/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
+            format: "sed -i.bak 's/[[:space:]]*$//' <%= it.file %> && rm -f <%= it.file %>.bak"
         states:
           idle:
             actor: human
@@ -328,21 +328,21 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
               "* **": idle
       """
       # The mode declares a formatter and no validator, so gtd's open-questions
-      # parser still runs — and still rejects a question with no
-      # "Suggested default:"/"Answer:" line.
+      # parser still runs — and still rejects an `### ` question heading with
+      # no question text.
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       Build a thing.
 
       ## Open Questions
 
-      ### Which way?
+      ###
 
-      Neither a default nor an answer.
+      No question text on the heading.
       """
     When I run gtd with args "validate"
     Then it fails
-    And stderr contains "is missing a \"Suggested default: ...\" or \"Answer: ...\" line"
+    And stderr contains "has no question text"
 
   Scenario: a top-level modes: key plugs a formatter into a workflow without re-declaring its modes
     # The top-level `modes:` layer sits BESIDE `workflow:` — the workflow's

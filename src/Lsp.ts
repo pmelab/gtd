@@ -96,7 +96,7 @@ const spanRange = (lines: readonly string[], startLine: number, endLine: number)
 })
 
 const statusMarker = (status: OpenQuestion["status"]): string =>
-  status === "answered" ? "[answered]" : "[suggested]"
+  status === "answered" ? "[answered]" : "[open]"
 
 /** Document symbols for `.gtd/TODO.md`'s open questions. */
 export const questionSymbols = (content: string): DocumentSymbol[] => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { parseOpenQuestions } from "./OpenQuestions.js"
 
 describe("parseOpenQuestions", () => {
-  it("returns zero questions and zero errors when there is no Open Questions section", () => {
+  it("returns zero questions and zero errors when there is no questions section", () => {
     expect(parseOpenQuestions("# Plan\n\nBuild a calculator.\n")).toEqual({
       questions: [],
       errors: [],
@@ -16,7 +16,7 @@ describe("parseOpenQuestions", () => {
     })
   })
 
-  it("parses a single well-formed suggested-default question", () => {
+  it("parses a single open question with a free-form body", () => {
     const content = [
       "# Plan",
       "",
@@ -26,14 +26,14 @@ describe("parseOpenQuestions", () => {
       "",
       "### Which operations?",
       "",
-      "Suggested default: add and subtract.",
+      "add and subtract.",
       "",
     ].join("\n")
     expect(parseOpenQuestions(content)).toEqual({
       questions: [
         {
           question: "Which operations?",
-          status: "suggested",
+          status: "open",
           text: "add and subtract.",
           headingLine: 6,
         },
@@ -42,13 +42,13 @@ describe("parseOpenQuestions", () => {
     })
   })
 
-  it("parses an answered question", () => {
+  it("marks questions under ## Answered Questions as answered", () => {
     const content = [
-      "## Open Questions",
+      "## Answered Questions",
       "",
       "### Which operations?",
       "",
-      "Answer: add, subtract, and multiply.",
+      "add, subtract, and multiply.",
       "",
     ].join("\n")
     expect(parseOpenQuestions(content)).toEqual({
@@ -64,42 +64,102 @@ describe("parseOpenQuestions", () => {
     })
   })
 
-  it("parses multiple questions in one section", () => {
+  it("no longer requires a Suggested default:/Answer: marker line", () => {
     const content = [
       "## Open Questions",
       "",
       "### Which operations?",
       "",
-      "Suggested default: add and subtract.",
+      "Not sure yet — leaning towards add and subtract.",
       "",
-      "### What is the target platform?",
+    ].join("\n")
+    expect(parseOpenQuestions(content)).toEqual({
+      questions: [
+        {
+          question: "Which operations?",
+          status: "open",
+          text: "Not sure yet — leaning towards add and subtract.",
+          headingLine: 2,
+        },
+      ],
+      errors: [],
+    })
+  })
+
+  it("accepts an open question with an empty body", () => {
+    const content = ["## Open Questions", "", "### Which operations?", ""].join("\n")
+    expect(parseOpenQuestions(content)).toEqual({
+      questions: [
+        {
+          question: "Which operations?",
+          status: "open",
+          text: "",
+          headingLine: 2,
+        },
+      ],
+      errors: [],
+    })
+  })
+
+  it("parses both sections and returns questions in document order", () => {
+    const content = [
+      "## Open Questions",
       "",
-      "Answer: web only.",
+      "### Still deciding the platform?",
+      "",
+      "web only, for now.",
+      "",
+      "## Answered Questions",
+      "",
+      "### Which operations?",
+      "",
+      "add, subtract, and multiply.",
       "",
     ].join("\n")
     expect(parseOpenQuestions(content).questions).toEqual([
       {
-        question: "Which operations?",
-        status: "suggested",
-        text: "add and subtract.",
+        question: "Still deciding the platform?",
+        status: "open",
+        text: "web only, for now.",
         headingLine: 2,
       },
       {
-        question: "What is the target platform?",
+        question: "Which operations?",
         status: "answered",
-        text: "web only.",
-        headingLine: 6,
+        text: "add, subtract, and multiply.",
+        headingLine: 8,
       },
     ])
   })
 
-  it("stops the Open Questions section at the next H2 heading", () => {
+  it("sorts by document order even when Answered appears above Open", () => {
+    const content = [
+      "## Answered Questions",
+      "",
+      "### Already settled?",
+      "",
+      "yes.",
+      "",
+      "## Open Questions",
+      "",
+      "### Still open?",
+      "",
+      "maybe.",
+      "",
+    ].join("\n")
+    expect(parseOpenQuestions(content).questions).toEqual([
+      { question: "Already settled?", status: "answered", text: "yes.", headingLine: 2 },
+      { question: "Still open?", status: "open", text: "maybe.", headingLine: 8 },
+    ])
+  })
+
+  it("stops a questions section at the next H2 heading", () => {
     const content = [
       "## Open Questions",
       "",
       "### Which operations?",
       "",
-      "Suggested default: add and subtract.",
+      "add and subtract.",
       "",
       "## Implementation Notes",
       "",
@@ -112,7 +172,7 @@ describe("parseOpenQuestions", () => {
       questions: [
         {
           question: "Which operations?",
-          status: "suggested",
+          status: "open",
           text: "add and subtract.",
           headingLine: 2,
         },
@@ -121,81 +181,30 @@ describe("parseOpenQuestions", () => {
     })
   })
 
-  it("errors when a question has no Suggested default:/Answer: line", () => {
-    const content = [
-      "## Open Questions",
-      "",
-      "### Which operations?",
-      "",
-      "Not sure yet.",
-      "",
-    ].join("\n")
+  it("errors on a bare `###` heading with no question text", () => {
+    const content = ["## Open Questions", "", "###", "", "some body.", ""].join("\n")
     const result = parseOpenQuestions(content)
     expect(result.questions).toEqual([])
     expect(result.errors).toEqual([
-      'Open question "Which operations?" is missing a "Suggested default: ..." or "Answer: ..." line',
+      "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
     ])
   })
 
-  it("errors when a question has an empty response line", () => {
+  it("keeps well-formed questions while collecting the empty-heading error", () => {
     const content = [
       "## Open Questions",
       "",
-      "### Which operations?",
+      "###",
       "",
-      "Suggested default:",
+      "### Real question?",
+      "",
+      "an answer.",
       "",
     ].join("\n")
     const result = parseOpenQuestions(content)
-    expect(result.questions).toEqual([])
+    expect(result.questions).toEqual([
+      { question: "Real question?", status: "open", text: "an answer.", headingLine: 4 },
+    ])
     expect(result.errors).toHaveLength(1)
-  })
-
-  it("errors when a question has no body at all before the next heading", () => {
-    const content = [
-      "## Open Questions",
-      "",
-      "### Which operations?",
-      "### What is the target platform?",
-      "",
-      "Answer: web only.",
-      "",
-    ].join("\n")
-    const result = parseOpenQuestions(content)
-    expect(result.errors).toEqual([
-      'Open question "Which operations?" is missing a "Suggested default: ..." or "Answer: ..." line',
-    ])
-    expect(result.questions).toEqual([
-      {
-        question: "What is the target platform?",
-        status: "answered",
-        text: "web only.",
-        headingLine: 3,
-      },
-    ])
-  })
-
-  it("collects one error per malformed question and keeps well-formed ones", () => {
-    const content = [
-      "## Open Questions",
-      "",
-      "### First?",
-      "",
-      "no marker here",
-      "",
-      "### Second?",
-      "",
-      "Suggested default: yes.",
-      "",
-      "### Third?",
-      "",
-      "also no marker",
-      "",
-    ].join("\n")
-    const result = parseOpenQuestions(content)
-    expect(result.questions).toEqual([
-      { question: "Second?", status: "suggested", text: "yes.", headingLine: 6 },
-    ])
-    expect(result.errors).toHaveLength(2)
   })
 })

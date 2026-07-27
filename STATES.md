@@ -399,17 +399,20 @@ lands `gtd(human): grilling`.
 
 **Planning — TODO.md open questions.** `grilling` reads `.gtd/TODO.md`, explores
 the codebase, and develops it into a concrete implementation plan; anything it
-can't settle itself goes under a `## Open Questions` heading, one
-`### <question>` sub-heading per question, whose body's first non-blank line is
-`Suggested default: <answer>` (`src/OpenQuestions.ts`'s parser is this format's
-executable spec — see §12). Because `grilling` declares `file: .gtd/TODO.md` and
-`mode: qa`, its output is checkable: before finishing it self-validates with
-`gtd validate` (see §12), so its turn steps straight to `grilling-answer` with a
-well-formed plan. At `grilling-answer`, a human answers a question by replacing
-its `Suggested default: ...` line with `Answer: ...` in place; a **clean** step
-(`C`, every default accepted as-is) moves to `building`, while any edit (an
-answer, a new question, code) loops back through `grilling`, which folds answers
-in, possibly asks follow-ups, and re-validates.
+can't settle itself goes under a `## Open Questions` heading near the top, one
+`### <question>` sub-heading per question, its body a suggested answer in plain
+prose (`src/OpenQuestions.ts`'s parser is this format's executable spec — status
+is POSITIONAL, there is no `Suggested default:`/`Answer:` marker; see §12).
+Because `grilling` declares `file: .gtd/TODO.md` and `mode: qa`, its output is
+checkable: before finishing it self-validates with `gtd validate` (see §12), so
+its turn steps straight to `grilling-answer` with a well-formed plan. At
+`grilling-answer`, a human answers a question by editing its body in place, or
+leaves a suggestion untouched to accept it; a **clean** step (`C`, every
+suggestion accepted as-is) moves to `building`, while any edit (an answer, a new
+question, code) loops back through `grilling`, which folds the whole answered
+batch into the plan — moving each resolved `### <question>` block down into a
+`## Answered Questions` section at the bottom — possibly asks follow-ups, and
+re-validates.
 
 `building` implements the plan in `.gtd/TODO.md` directly — no task
 decomposition, no per-task queue — using TDD discipline (one test, then the

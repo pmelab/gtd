@@ -189,10 +189,10 @@ ship in a single-file build); a user's own `.gtdrc` may use `./` refs.
 `file:` names THE file a human/editor should look at while resting here; `mode:`
 (requires `file:`) names its FORMAT for validation:
 
-- Built-in modes: **`qa`** (open-questions format, `## Open Questions` +
-  `Suggested default:`/`Answer:` lines) and **`review`** (checkbox review
-  format). gtd parses these in-process for `gtd validate`, the `gtd step`
-  capture gate, and `gtd lsp` diagnostics.
+- Built-in modes: **`qa`** (open-questions format, `## Open Questions` /
+  `## Answered Questions` sections with free-form `###` question bodies) and
+  **`review`** (checkbox review format). gtd parses these in-process for
+  `gtd validate`, the `gtd step` capture gate, and `gtd lsp` diagnostics.
 - Custom modes: declare a `modes:` entry with a `format:` and/or `validate:`
   shell command (each an Eta template over the state context plus `it.file`, run
   via `bash -c`; exit 0 = valid). A state's `mode:` may then name it.

@@ -29,13 +29,20 @@ bounce):
 
 **`.gtd/TODO.md` open questions** (`OpenQuestions.ts`):
 
-- Free-form prose, plus an OPTIONAL `## Open Questions` section (absent = zero
-  questions, valid).
-- Every `###` sub-heading directly under that section is one question; its
-  body's FIRST non-blank line must be `Suggested default: <text>` (agent's
-  unanswered default) or `Answer: <text>` (human's answer / folded-in) —
-  anything else is a format error.
-- The section ends at the next level-1/2 heading or EOF.
+- Free-form prose, plus an OPTIONAL `## Open Questions` section (near the top)
+  and an OPTIONAL `## Answered Questions` section (at the bottom) — either
+  absent = zero questions of that status, valid.
+- Every `###` sub-heading directly under one of those sections is one question;
+  its STATUS is POSITIONAL (under `## Open Questions` → open, under
+  `## Answered Questions` → answered). The body is free-form (the agent's
+  suggested answer for an open one, the settled resolution for an answered one)
+  — there is no `Suggested default:`/`Answer:` marker line. The only structural
+  error is a `###` heading with no question text.
+- A question is answered/accepted by MOVING its `###` block down into
+  `## Answered Questions` (the agent does this on the next `grilling` lap; a
+  human leaving a suggestion untouched IS acceptance). Nothing enforces the move
+  or the section order — that is the producing agent's prompt contract.
+- Each section ends at the next level-1/2 heading or EOF.
 
 **`.gtd/REVIEW.md`** (`ReviewDoc.ts`):
 
@@ -72,10 +79,11 @@ Current 7 states, plus the two loops. `smart` on `grilling` and `reviewing`.
 - `todo-validating` (deterministic script): parse-check TODO.md against §1's
   rules. Malformed → write findings to `.gtd/FORMAT.md` (one line each) → back
   to `grilling`. Valid → `rm -f .gtd/FORMAT.md` → `grilling-answer`.
-- `grilling-answer` (human): answer by replacing `Suggested default:` with
-  `Answer:` in place; accept all remaining defaults with a clean step (`C` →
-  `building`); any edit loops back to `grilling` (the agent folds answers in,
-  possibly asks follow-ups, and re-validates).
+- `grilling-answer` (human): answer by editing a question's body in place, or
+  leave a suggestion untouched to accept it; accept all remaining suggestions
+  with a clean step (`C` → `building`); any edit loops back to `grilling` (the
+  agent folds the whole answered batch into the plan, moving each resolved block
+  down to `## Answered Questions`, possibly asks follow-ups, and re-validates).
 
 **Loop 2 — REVIEW.md checkboxes (maps the LSP's review chunks/check actions):**
 
@@ -110,12 +118,11 @@ REVIEW.md by the approval, TODO.md by `building`.
 
 Same discipline as `checking`/the old `picking`: mechanics-only bash, verdict =
 file op, semantics = the `on` map. Grep/awk ports of the parser rules
-(pragmatic, not a full markdown parser): e.g. a question block whose first
-non-blank body line matches neither `^Answer:` nor `^Suggested default:` is a
-finding; a pointer line failing the `- [(x| )] ./path(#N)?( — note)?` shape is a
-finding; `- [ ]` presence is the review-deciding branch condition. Findings go
-into `.gtd/FORMAT.md` verbatim (file + line + rule), so the fixing agent gets
-actionable input.
+(pragmatic, not a full markdown parser): e.g. a `###` question heading with no
+question text is a finding; a pointer line failing the
+`- [(x| )] ./path(#N)?( — note)?` shape is a finding; `- [ ]` presence is the
+review-deciding branch condition. Findings go into `.gtd/FORMAT.md` verbatim
+(file + line + rule), so the fixing agent gets actionable input.
 
 ## 4. Change chart
 
@@ -143,7 +150,7 @@ what is workflow-agnostic — the FILE FORMATS, not any particular state machine
 - **New `src/Lsp.ts`** (recover from history, then STRIP the v2-model
   dependencies — Events/Machine/ReviewWindow/STATE_FILE are gone): keyed on FILE
   NAME, not state. For `.gtd/TODO.md`: document symbols for open questions
-  ([suggested]/[answered]). For `.gtd/REVIEW.md`: chunk/hunk symbols and the
+  ([open]/[answered]). For `.gtd/REVIEW.md`: chunk/hunk symbols and the
   check/uncheck code actions (hunk and whole-chunk). BOTH files: publish the
   parsers' `errors` as diagnostics — the same findings the workflow's
   `.gtd/FORMAT.md` validators produce, live in the editor. The v2

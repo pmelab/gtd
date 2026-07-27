@@ -22,11 +22,13 @@ const questionsDoc = [
   "",
   "### Which operations?",
   "",
-  "Suggested default: add and subtract.",
+  "add and subtract.",
+  "",
+  "## Answered Questions",
   "",
   "### What is the target platform?",
   "",
-  "Answer: web only.",
+  "web only.",
   "",
 ].join("\n")
 
@@ -46,14 +48,14 @@ const reviewDoc = [
 ].join("\n")
 
 describe("questionSymbols", () => {
-  it("maps each open question to a symbol carrying its status and heading position", () => {
+  it("maps each question to a symbol carrying its section-derived status and heading position", () => {
     const symbols = questionSymbols(questionsDoc)
     expect(symbols.map((s) => s.name)).toEqual([
-      "[suggested] Which operations?",
+      "[open] Which operations?",
       "[answered] What is the target platform?",
     ])
     expect(symbols[0]?.selectionRange.start.line).toBe(4)
-    expect(symbols[1]?.selectionRange.start.line).toBe(8)
+    expect(symbols[1]?.selectionRange.start.line).toBe(10)
   })
 
   it("returns no symbols when there is no Open Questions section", () => {
@@ -67,18 +69,11 @@ describe("questionDiagnostics", () => {
   })
 
   it("publishes one diagnostic per malformed question, matching parseOpenQuestions's own errors", () => {
-    const malformed = [
-      "## Open Questions",
-      "",
-      "### Which operations?",
-      "",
-      "Not sure yet.",
-      "",
-    ].join("\n")
+    const malformed = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")
     const diagnostics = questionDiagnostics(malformed)
     expect(diagnostics).toHaveLength(1)
     expect(diagnostics[0]?.message).toBe(
-      'Open question "Which operations?" is missing a "Suggested default: ..." or "Answer: ..." line',
+      "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
     )
     expect(diagnostics[0]?.source).toBe("gtd")
   })

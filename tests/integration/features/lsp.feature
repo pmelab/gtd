@@ -35,10 +35,10 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
       ### Which operations?
 
-      Suggested default: add and subtract.
+      add and subtract.
       """
     Then the LSP response has no error
-    And the LSP response result contains a symbol named "[suggested] Which operations?"
+    And the LSP response result contains a symbol named "[open] Which operations?"
 
   Scenario: documentSymbol is served for a CUSTOM-named qa file mapped via a real .gtdrc (config-driven dispatch)
     Given a test project
@@ -71,10 +71,10 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
       ### Which operations?
 
-      Suggested default: add and subtract.
+      add and subtract.
       """
     Then the LSP response has no error
-    And the LSP response result contains a symbol named "[suggested] Which operations?"
+    And the LSP response result contains a symbol named "[open] Which operations?"
 
   Scenario: gtd.openSteeringFile resolves the current state's steering file and asks the client to show it
     Given a test project

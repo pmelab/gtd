@@ -44,13 +44,13 @@ Feature: The bundled simple workflow — full cycle journeys
 
       ### Should thing export a default too?
 
-      Suggested default: no, named export only.
+      No, named export only.
       """
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): grilling-answer"
 
-    # grilling-answer: accept the suggested default with a clean step
+    # grilling-answer: accept the suggested answer with a clean step
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): building"
