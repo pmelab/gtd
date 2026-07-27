@@ -45,6 +45,12 @@ interprets.
 
 ## The `workflow:` key
 
+> Authoring or editing a workflow with a coding agent?
+> `skills/authoring/SKILL.md` is the agent-facing contract for producing a valid
+> `workflow:` — the state model, pattern grammar, load-time rules, and how to
+> verify a change compiles. This section is the exhaustive schema reference
+> behind it.
+
 The `workflow:` key is the **only** definition source — there is no `extends`,
 no merge-over-a-built-in. The bundled templates `gtd init` scaffolds are
 themselves YAML assets (`src/workflows/simple.yaml`,
