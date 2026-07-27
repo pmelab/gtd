@@ -107,8 +107,8 @@ a project plugs its own into a mode's `format:`).
   `reviewWindow: true` and on `refs/gtd/review-head` existence) and
   `reviewBaseHash` (the `reviewBase`-state diff-base derivation). Pure engine is
   oblivious; `program.ts` calls it, it calls `GitService`/`Edge.ts`.
-- **`src/program.ts`** — CLI dispatch (`step`/`next`/`run`/`status`/`format`).
-  Calls `Edge.ts` for everything IO-shaped; calls `PatternMachine.ts`'s pure
+- **`src/program.ts`** — CLI dispatch (`step`/`next`/`status`/`format`). Calls
+  `Edge.ts` for everything IO-shaped; calls `PatternMachine.ts`'s pure
   `step`/`matchesPattern`/`parsePattern` directly where no IO is needed (e.g.
   `gtd status`'s per-change pattern report).
 - **`src/workflows/default.{yaml,ts}`** — the bundled default workflow, compiled
@@ -155,17 +155,19 @@ NEVER executes anything itself. The command lives INLINE in that state's own
 `script:` content (no BLESSED `testCommand` config key — see `docs/upgrading.md`
 — though the bundled default's script does read its own `vars.testCommand`,
 workflow-authored data like any other `it.vars` entry, not a name the engine
-special-cases). `gtd next` renders and prints the script; `gtd run` executes the
-rendered script verbatim via `bash` (one of only two places gtd spawns a
-subprocess at all — the other is a steering-file mode's own `format:`/
-`validate:` command, see `src/SteeringMode.ts`), then runs `gtd step <actor>`
-for that state's own actor to capture the outcome from whatever the script left
-in the tree (e.g. an `on` pattern matching `A .gtd/FEEDBACK.md` vs `C`).
-Mechanics belong in the script; which `on` pattern the resulting diff matches is
-the only thing that decides the outcome — there is no separate capture-rule
-layer to keep in sync. In e2e, simulate a check's outcome by writing the output
-file (e.g. `Given a file "FEEDBACK.md" with:`) and running `gtd step check` —
-`@inmem` scenarios never execute scripts; only `@live` scenarios use `gtd run`.
+special-cases). `gtd next` renders and prints the script; the DRIVER
+(`bin/gtd-loop`, or any loop harness) executes that rendered `content` verbatim
+via `bash` — gtd itself never runs a workflow script (the only place gtd spawns
+a subprocess at all is a steering-file mode's own `format:`/`validate:` command,
+see `src/SteeringMode.ts`). The driver then runs `gtd step <actor>` for that
+state's own actor to capture the outcome from whatever the script left in the
+tree (e.g. an `on` pattern matching `A .gtd/FEEDBACK.md` vs `C`). Mechanics
+belong in the script; which `on` pattern the resulting diff matches is the only
+thing that decides the outcome — there is no separate capture-rule layer to keep
+in sync. In e2e, simulate a check's outcome by writing the output file (e.g.
+`Given a file "FEEDBACK.md" with:`) and running `gtd step check` — `@inmem`
+scenarios never execute scripts; only `@live` scenarios (the `bin/gtd-loop`
+driver in `gtd-loop.feature`) actually run them.
 
 ## CLI Design
 

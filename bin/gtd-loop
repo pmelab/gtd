@@ -4,9 +4,10 @@ set -euo pipefail
 # Drives the v3 pattern-machine loop (see docs/loop.md): each iteration asks
 # `gtd next --json` who's up and what they should do, dispatching on `kind`:
 #   - "message" (a human rest)  -> halt, tell the user what gtd is waiting on.
-#   - "script"  (a check rest) -> `gtd run` executes it and steps the check
-#     actor in one command; zero new commits = green with nothing owed (the
-#     terminal signal at idle).
+#   - "script"  (a check rest) -> execute `content` (the emitted wrapper
+#     script) verbatim via bash — exit code deliberately ignored, the outcome
+#     lives in the tree — then `gtd step <actor>` to capture it; zero new
+#     commits = green with nothing owed (the terminal signal at idle).
 #   - "prompt"  (an agent rest) -> feed `content` to the agent, run the
 #     self-validation gate (`gtd validate`, re-prompting on findings — see the
 #     gate's own comment below), then `gtd step <actor>` ourselves — the
@@ -86,7 +87,12 @@ while true; do
 
   if [[ "$kind" == "script" ]]; then
     head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
-    gtd run
+    # Execute the emitted wrapper verbatim; its exit code is deliberately
+    # ignored (`|| true` under `set -e`) — the script encodes its outcome in
+    # the tree, and `gtd step` captures whatever it left there via the state's
+    # own `on` patterns.
+    bash -c "$content" || true
+    gtd step "$actor" >/dev/null
     head_after="$(git rev-parse HEAD 2>/dev/null || echo none)"
     if [[ "$head_before" == "$head_after" ]]; then
       echo "--- Settled ($state: check passed, nothing to do) ---"

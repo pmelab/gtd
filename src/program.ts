@@ -57,8 +57,6 @@ Commands:
                    turn commit (summed into it.processCost/processCostByModel)
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
-  run              Execute the resolved rest's emitted script, then step its
-                   actor (the built-in script driver)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   validate         Format and validate the steering file the resolved rest
@@ -213,7 +211,7 @@ const runLspCommand = (argv: readonly string[], json: boolean): Effect.Effect<vo
 /**
  * Resolve HEAD's rest, the current process run, and the template context for
  * rendering that rest's OWN state/actor — the common prefix shared by `gtd
- * next`, `gtd run`, and `gtd status` (each fetches `git` itself first, since
+ * next` and `gtd status` (each fetches `git` itself first, since
  * `gtd status` also needs it for `pendingChanges`; `stepAsActor`'s squash
  * path renders a DIFFERENT state, so it builds its own context inline
  * instead of sharing this helper).
@@ -254,8 +252,7 @@ const formatStepRefusal = (invoker: string, refusal: StepRefusal): string =>
 
 /**
  * Authenticate `invoker` against the resolved rest and perform the one
- * resulting transition (commit or squash), shared by `gtd step` and
- * `gtd run` (which steps the script's own actor after executing it).
+ * resulting transition (commit or squash) for `gtd step`.
  * Refusals fail the Effect with a formatted message; a no-op returns
  * `subject: null` rather than failing (exit zero, per the plan's "clean
  * no-op exits zero").
@@ -321,7 +318,7 @@ const stepAsActor = (
     }
   })
 
-/** Renders `stepAsActor`'s result the same way for both `gtd step` and `gtd run`. */
+/** Renders `stepAsActor`'s result for `gtd step`. */
 const reportStepResult = (
   result: {
     readonly state: string
@@ -558,45 +555,6 @@ const runValidateCommand = (
     )
   })
 
-/**
- * `gtd run`: the built-in driver for a `script`-content rest. Renders the
- * resolved rest exactly like `gtd next`, executes its content verbatim via
- * `bash` (the ONLY place gtd spawns a subprocess), then steps that state's
- * own actor to capture the outcome. Refuses when the resolved rest isn't a
- * script (nothing to run).
- */
-const runRunCommand = (
-  argv: readonly string[],
-  json: boolean,
-  write: (chunk: string) => void,
-): Effect.Effect<void, Error, ProgramRequirements> =>
-  Effect.gen(function* () {
-    yield* rejectExtraArgs("run", argv)
-    const git = yield* GitService
-    const { rest, context } = yield* resolveRestContext(git)
-    const rendered = yield* renderRest(rest, context)
-    if (rendered.kind !== "script") {
-      return yield* Effect.fail(
-        new Error(
-          `gtd run: "${rest.state}" awaits a ${rendered.kind} from "${rest.actor}" — nothing scripted to run`,
-        ),
-      )
-    }
-    yield* Effect.try({
-      try: () => {
-        // Sequential, foreground, exit code deliberately ignored: the script
-        // encodes the outcome in the tree (e.g. writing a findings file),
-        // never in its exit status — the workflow's own `on` patterns decide
-        // what that means at capture time (`stepAsActor`, right after).
-        const { spawnSync } = _require("node:child_process") as typeof import("node:child_process")
-        spawnSync("bash", ["-c", rendered.content], { cwd: process.cwd(), stdio: "inherit" })
-      },
-      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-    })
-    const result = yield* stepAsActor(rest.actor)
-    reportStepResult(result, json, write)
-  })
-
 /** One pending change's status/path plus whichever declared `on` pattern (if any) matches it, for `gtd status`. */
 interface StatusChange {
   readonly status: string
@@ -755,7 +713,7 @@ const runMermaidCommand = (
     write(renderMermaid(config.workflow))
   })
 
-const KNOWN_SUBCOMMANDS = ["step", "next", "run", "status", "validate", "mermaid"] as const
+const KNOWN_SUBCOMMANDS = ["step", "next", "status", "validate", "mermaid"] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
 /**
@@ -838,8 +796,6 @@ const dispatchKnownSubcommand = (
       return runStepCommand(argv, json, write, cost, model)
     case "next":
       return runNextCommand(json, write)
-    case "run":
-      return runRunCommand(argv, json, write)
     case "status":
       return runStatusCommand(argv, json, write)
     case "validate":

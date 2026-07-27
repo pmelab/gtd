@@ -110,7 +110,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       workflow:
         modes:
           adr:
-            format: "sed -i 's/^status: draft$/status: accepted/' <%= it.file %>"
+            format: "sed 's/^status: draft$/status: accepted/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
             validate: "grep -q '^status: accepted$' <%= it.file %>"
         states:
           idle:
@@ -311,7 +311,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       workflow:
         modes:
           qa:
-            format: "sed -i 's/^Answer:/Suggested default:/' <%= it.file %>"
+            format: "sed 's/^Answer:/Suggested default:/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
         states:
           idle:
             actor: human
@@ -354,7 +354,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         qa:
-          format: "sed -i 's/  */ /g' <%= it.file %>"
+          format: "sed 's/  */ /g' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
       """
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
@@ -371,7 +371,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
       modes:
         adr:
-          format: "sed -i 's/^status: draft$/status: accepted/' <%= it.file %>"
+          format: "sed 's/^status: draft$/status: accepted/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
       workflow:
         modes:
           adr:
@@ -409,7 +409,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       workflow:
         modes:
           adr:
-            format: "sed -i 's/draft/DRAFT/' <%= it.file %>" # no validate: — that half is a no-op
+            format: "sed 's/draft/DRAFT/' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>" # no validate: — that half is a no-op
         states:
           idle:
             actor: human

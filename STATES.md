@@ -62,10 +62,10 @@ names.
 Exactly one of these four per state:
 
 - **`script`** — an executable the DRIVER runs. `gtd next` emits it rendered;
-  `gtd run` executes it verbatim via `bash` and then steps that state's own
-  actor. gtd never executes anything on its own initiative (the only other place
-  it spawns a subprocess at all is a steering-file mode's own `format:`/
-  `validate:` command — §12).
+  the driver executes that `content` verbatim via `bash` and then runs
+  `gtd step <actor>` for that state's own actor to capture the outcome. gtd
+  never executes a workflow script itself (the only place it spawns a subprocess
+  at all is a steering-file mode's own `format:`/`validate:` command — §12).
 - **`prompt`** — instructions for an agent. `gtd next` prints it; the agent
   acts, then runs `gtd step <actor>` itself.
 - **`message`** — text for a human. Drivers halt here; a human acts by editing
@@ -381,7 +381,7 @@ decomposition, no per-task queue — using TDD discipline (one test, then the
 implementation that passes it, then the next), and deletes `.gtd/TODO.md` once
 the work is complete and verified before stepping to `checking`.
 
-`checking` is a `script` state: `gtd run` executes its inline test-running
+`checking` is a `script` state: the driver executes its inline test-running
 wrapper (`<%~ it.vars.testCommand %>`, defaulting to `npm test` — this
 workflow's own declared `vars:`, overridable via a top-level `.gtdrc` `vars:`
 key or a `GTD_VAR_testCommand` environment variable; see
@@ -490,7 +490,7 @@ stays committed and out of view).
 
 **Open / close lifecycle.** The pure engine (§5–§8) never observes an open
 window — it is opened and closed entirely at the edge (`src/ReviewWindow.ts`),
-bracketing every state subcommand (`step`/`next`/`run`/`status`):
+bracketing every state subcommand (`step`/`next`/`status`):
 
 - **Close first, always.** Before anything reads or mutates state, gtd restores
   the real head if a window is open (keyed solely on `refs/gtd/review-head`

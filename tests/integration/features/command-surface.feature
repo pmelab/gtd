@@ -1,7 +1,7 @@
 @inmem
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
-  gtd v3 exposes `step <actor>`, `next`, `run`, `status`, `mermaid`, `format`,
+  gtd v3 exposes `step <actor>`, `next`, `status`, `mermaid`, `format`,
   and `lsp` as its subcommands. Bare `gtd` (no subcommand) is a usage error.
   `--help` and `--version` short-circuit before any repo-state work and exit 0
   everywhere, including outside a workflow state.
@@ -17,6 +17,11 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
   Scenario: An unknown subcommand fails
     Given a test project
     When I run gtd with args "bogus-subcommand"
+    Then it fails
+
+  Scenario: The removed `run` subcommand is now unknown
+    Given a test project
+    When I run gtd with args "run"
     Then it fails
 
   Scenario: --help prints the command list

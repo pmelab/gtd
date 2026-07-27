@@ -56,22 +56,22 @@ schema stub on first run (see [Configuration](docs/configuration.md#auto-init)).
 gtd is a small **pattern machine**: named states, each awaiting one actor and
 carrying one piece of content (a script, a prompt, a message, or a squash commit
 template), with an ordered set of change-patterns routing to the next state.
-Four commands drive it:
+Three commands drive it:
 
 - **`gtd step <actor>`** — authenticate as `<actor>` and perform the one
   transition the pending changes match.
 - **`gtd next [--json]`** — print whichever actor is awaited and what they
   should do, without mutating anything.
-- **`gtd run`** — execute the awaited script (the only place gtd itself spawns a
-  subprocess), then step its actor.
 - **`gtd status`** — a dry-run report of the resolved state and which pattern
   each pending change matches.
 
 The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
-`"message"` means it's a human's move (stop and hand off); `"script"` means
-`gtd run` it; `"prompt"` means feed `content` to your agent, then run
-`gtd step <actor>` once it's done. See [STATES.md](STATES.md) for the model and
-[Driving the loop](docs/loop.md) for the full protocol.
+`"message"` means it's a human's move (stop and hand off); `"script"` means the
+driver runs `content` itself, then steps its actor; `"prompt"` means feed
+`content` to your agent, then run `gtd step <actor>` once it's done. gtd itself
+never executes anything — the driver owns running scripts. See
+[STATES.md](STATES.md) for the model and [Driving the loop](docs/loop.md) for
+the full protocol.
 
 Along the way, the bundled default workflow develops your sketch into an
 implementation plan — asking any open question it can't settle itself via a

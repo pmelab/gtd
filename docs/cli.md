@@ -158,23 +158,15 @@ which are JSON-only. `--json` emits
   when the state has no `on` (a commit state); a per-edge `describe` is likewise
   omitted when that edge declares none.
 
-## `gtd run`
+## Running `script` rests (no `gtd` subcommand)
 
-The built-in driver for a `script`-content rest — the **only** place gtd itself
-spawns a subprocess. Renders the resolved rest exactly like `gtd next`, executes
-its content verbatim via `bash -c` (foreground, inherited stdio, exit code
-deliberately ignored — a check script encodes its outcome in the tree, e.g.
-writing a findings file, never in its exit status), then runs `gtd step <actor>`
-for that state's own actor to capture the outcome in one command. Refuses (exit
-non-zero, no execution, no step) when the resolved rest isn't a script:
-
-```
-gtd run: "<state>" awaits a <kind> from "<actor>" — nothing scripted to run
-```
-
-Reports the same `{state, subject}` (or `committed: …` / `nothing to do at "…"`)
-as `gtd step` for the capturing step it performs. Takes no arguments — extra
-positional args are rejected.
+There is no `gtd` subcommand that executes a workflow script — gtd never runs a
+workflow script itself. When `gtd next` resolves to a `script`-content rest, the
+**driver** (`bin/gtd-loop`, or any loop harness) executes the emitted `content`
+verbatim via `bash -c` — foreground, inherited stdio, exit code deliberately
+ignored (a check script encodes its outcome in the tree, e.g. writing a findings
+file, never in its exit status) — then runs `gtd step <actor>` for that state's
+own actor to capture the outcome. See [Driving the loop](loop.md).
 
 ## `gtd status [--json]`
 
@@ -370,7 +362,7 @@ the plain-text one.
   report, a log file — into the working tree, the tree never goes clean after a
   green run, and the check's `"C"` pattern never fires. Gitignore every path
   your scripts write before wiring gtd into a repo.
-- **Repository root invocation.** Every state subcommand (`step`/`next`/`run`/
+- **Repository root invocation.** Every state subcommand (`step`/`next`/
   `status`/`mermaid`) must run from the git repository root — the workflow,
   pending changes, and process history are resolved against the process cwd.
   `--help`/`--version`, `format`, and `lsp` skip this guard entirely (and any
