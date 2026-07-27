@@ -668,10 +668,11 @@ chosen bundled template's whole workflow inline under a `workflow:` key, plus a
 
 The file is written **uncommitted** — review it, then commit it before your
 first `gtd step` (an uncommitted `.gtdrc.json` is a pending change the initial
-state's `* **` edge would otherwise capture). `gtd init` refuses if any gtd
-config already exists (remove it first to re-init), requires the repository
-root, and is one of the two commands (with `gtd lsp`) that run with no workflow
-configured. A state command run before `gtd init` fails with:
+state's `* **` edge would otherwise capture). `gtd init` refuses if the repo
+root already has its OWN gtd config (remove it first to re-init; a
+global/ancestor config such as `~/.gtdrc` does not count), requires the
+repository root, and is one of the two commands (with `gtd lsp`) that run with
+no workflow configured. A state command run before `gtd init` fails with:
 
 ```
 gtd: no workflow configured — run `gtd init <simple|advanced>` to create .gtdrc.json

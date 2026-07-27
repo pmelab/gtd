@@ -13,13 +13,8 @@ function writeFile(dir: string, path: string, content: string) {
   writeFileSync(full, content)
 }
 
-/**
- * Bare-bones git repo with one initial commit. Tests build on top using the
- * `Given …` steps.
- */
-export function createTestProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), "gtd-test-"))
-
+/** Initialise `dir` as a bare-bones git repo with one initial commit. */
+function initGitRepo(dir: string): void {
   git(dir, "init", "-q")
   git(dir, "config", "user.name", "Test")
   git(dir, "config", "user.email", "test@test.com")
@@ -30,6 +25,31 @@ export function createTestProject(): string {
 
   git(dir, "add", "-A")
   git(dir, "commit", "-q", "-m", "chore: initial commit")
+}
 
+/**
+ * Bare-bones git repo with one initial commit. Tests build on top using the
+ * `Given …` steps.
+ */
+export function createTestProject(): string {
+  const dir = mkdtempSync(join(tmpdir(), "gtd-test-"))
+  initGitRepo(dir)
   return dir
+}
+
+/**
+ * Like `createTestProject`, but the repo lives one level DOWN inside a fresh
+ * outer directory carrying its own `.gtdrc.json` — modelling a global/ancestor
+ * gtd config (e.g. `~/.gtdrc`) sitting above a repo. Returns both dirs so the
+ * caller drives gtd from `repo` and cleans up `outer`. The ancestor config is a
+ * non-empty object (so cosmiconfig counts it as present) that `gtd init` must
+ * ignore, since it scaffolds the repo's OWN config, not the ancestor's.
+ */
+export function createTestProjectUnderConfiguredAncestor(): { outer: string; repo: string } {
+  const outer = mkdtempSync(join(tmpdir(), "gtd-ancestor-"))
+  writeFileSync(join(outer, ".gtdrc.json"), '{"vars":{"fromAncestor":"1"}}\n')
+  const repo = join(outer, "repo")
+  mkdirSync(repo, { recursive: true })
+  initGitRepo(repo)
+  return { outer, repo }
 }

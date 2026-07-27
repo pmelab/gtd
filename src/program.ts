@@ -2,7 +2,7 @@ import { createRequire } from "node:module"
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect, Either } from "effect"
-import { anyConfigPresent, ConfigService } from "./Config.js"
+import { configPresentAt, ConfigService } from "./Config.js"
 import {
   isWorkflowTemplateName,
   renderInitConfig,
@@ -267,7 +267,7 @@ const runInitCommand = (
     const fs = yield* FileSystem.FileSystem
     yield* assertRunningFromRepoRoot(git, fs)
     const { root } = yield* Cwd
-    if (yield* anyConfigPresent(root)) {
+    if (yield* configPresentAt(root)) {
       return yield* Effect.fail(
         new Error("gtd init: a gtd config already exists — remove it before re-initializing"),
       )

@@ -4,6 +4,24 @@ import { writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
 import { isWorkflowTemplateName, renderInitConfig } from "../../../../src/workflows/templates.js"
+import { createTestProjectUnderConfiguredAncestor } from "../../helpers/project-setup.js"
+
+// A test project whose PARENT directory already carries a `.gtdrc.json` —
+// modelling a global/ancestor config (e.g. `~/.gtdrc`) above the repo. @live
+// only, because the guard under test (`gtd init`'s `configPresentAt`) reads the
+// real filesystem via cosmiconfig; the point is that an ancestor config must
+// NOT count as "this repo already has a config".
+Given(
+  "a test project nested under a directory that already has a gtd config",
+  (world: GtdWorld) => {
+    if (world.tier !== "live") {
+      throw new Error("this step models a real ancestor config and requires an @live scenario")
+    }
+    const { outer, repo } = createTestProjectUnderConfiguredAncestor()
+    world.repoDir = repo
+    world.extraCleanupDir = outer
+  },
+)
 
 // Writes a gtd config file inside the test repo and commits it. `pathOrDir` is
 // resolved relative to repoDir. A trailing "/" (or ".") means "write `.gtdrc`

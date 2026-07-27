@@ -73,7 +73,8 @@ fails with `gtd: no workflow configured — run \`gtd init <simple|advanced>\` �
 
 The file is written **uncommitted**; review and commit it before your first
 `gtd step` (an uncommitted `.gtdrc.json` is a pending change the initial state
-would otherwise capture). `gtd init` refuses if any gtd config already exists,
+would otherwise capture). `gtd init` refuses if the repo root already has its
+own gtd config (a global/ancestor config, e.g. `~/.gtdrc`, does not count),
 requires the repository root, and — with `gtd lsp` — is one of the two commands
 that run with no workflow configured. `--json` prints
 `{"written":".gtdrc.json","workflow":"<name>"}`. See

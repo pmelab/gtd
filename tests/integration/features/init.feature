@@ -54,6 +54,16 @@ Feature: gtd init — scaffold a .gtdrc.json from a bundled workflow template
     Then it fails
     And stderr contains "already exists"
 
+  # Regression: an ancestor/global config (e.g. ~/.gtdrc) must not block init —
+  # the guard checks only the repo root, not the whole cwd→home walk.
+  Scenario: gtd init succeeds when only an ancestor directory carries a gtd config
+    Given a test project nested under a directory that already has a gtd config
+    When I run gtd with args "init simple"
+    Then it succeeds
+    And stdout contains "Wrote .gtdrc.json"
+    And ".gtdrc.json" exists
+    And ".gtdrc.json" contains "\"workflow\""
+
   Scenario: a state command with no workflow configured fails with the init hint
     Given a test project
     When I run gtd status
