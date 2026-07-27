@@ -17,7 +17,8 @@ bundled default workflow applies (see
 
 v3's `.gtdrc` has exactly two blessed top-level keys:
 
-- **`workflow`** (object, optional) — the whole machine definition, compiled by
+- **`workflow`** (object, optional) — the whole machine definition (its states,
+  plus its own `vars:` defaults and `modes:`), compiled by
   `src/PatternConfig.ts`. Absent = the bundled default workflow. See
   ["The `workflow:` key" below](#the-workflow-key) for its schema.
 - **`vars`** (object, optional) — a flat `name -> scalar` map, one layer of the
@@ -46,6 +47,10 @@ compiled through the exact same compiler (`src/workflows/default.yaml` →
 workflow:
   vars: # optional — the workflow's own declared `it.vars` defaults (see "Variables" below)
     anyKey: anyScalarValue
+  modes: # optional — steering-file modes a state's `mode:` may name (see "modes:" below)
+    <name>:
+      format: <shell command> # at least one of format/validate
+      validate: <shell command>
   states:
     <name>:
       actor: <string> # forbidden on a commit state, required otherwise
@@ -63,7 +68,7 @@ workflow:
       model: <string> # optional, opaque harness hint — forbidden on a commit state
       memory: <string> # optional, opaque memory-scope label — forbidden on a commit state
       file: <string> # optional, an Eta template naming the state's steering file — forbidden on a commit state
-      mode: qa | review # optional, requires "file" — forbidden on a commit state
+      mode: <modeName> # optional, requires "file" — a built-in (qa/review) or a `modes:` entry; forbidden on a commit state
 ```
 
 See [STATES.md](../STATES.md#1-the-model) for what each field means to the
@@ -245,20 +250,26 @@ workflow:
         "* **": done
 ```
 
-`mode:` requires a sibling `file:` and names the file's FORMAT, from a closed,
-documented vocabulary:
+`mode:` requires a sibling `file:` and names the file's FORMAT — a
+**steering-file mode**. Two names are BUILT IN, implemented by gtd itself:
 
 | `mode`   | Format                                                                                                                       |
 | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `qa`     | The open-questions format (`## Open Questions`, one `###` sub-heading per question, `Suggested default: ...`/`Answer: ...`). |
 | `review` | The checkbox review format (`# Review: <hash>` header, `<!-- base: <hash> -->` comment, `##` chunks, `- [ ]` pointers).      |
 
-An unknown `mode` value is a load error naming the allowed values (typos must
-not silently disable editor support) — like `model`, the ENGINE never branches
-on `mode`; only `gtd lsp` (see
-[docs/design/state-file-association.md](design/state-file-association.md))
-interprets it, to decide which document symbols/code actions/diagnostics a file
-gets.
+Any other name must be declared in the workflow's `modes:` map (next section). A
+`mode:` naming neither a built-in nor a declared mode is a load error listing
+both sets (typos must not silently disable the format gate or editor support).
+
+What a mode buys the state: before capturing a turn out of it, `gtd step`
+formats that file in place and validates it, refusing the step when it is
+invalid (`gtd validate` runs the same check on demand — see
+[STATES.md §12](../STATES.md) and [docs/cli.md](cli.md#gtd-validate)). The
+ENGINE itself never branches on `mode`; the edge does, and `gtd lsp` (see
+[docs/design/state-file-association.md](design/state-file-association.md)) reads
+it to decide which document symbols/code actions/diagnostics a file gets — for
+the built-in names only.
 
 `gtd next --json`/`gtd status --json` gain `"file"` (the RENDERED path) and
 `"mode"` (verbatim) keys, each **omitted entirely** (never `null`) when the
@@ -273,6 +284,62 @@ reading/writing that path) follows the var, but the `on` map that decides what a
 change to that path MEANS keeps matching the old literal path. The vars are a
 DRY mechanism inside templates and the state↔file association, not a rename
 switch. (Making pattern keys var-aware at compile time is possible future work.)
+
+### `modes:` — pluggable steering-file modes
+
+A mode is a pair of SHELL COMMANDS over one file: `format:` rewrites it in
+place, `validate:` decides whether it is well-formed. Declare them beside
+`states:`, and point any state's `mode:` at the name:
+
+```yaml
+workflow:
+  modes:
+    adr:
+      format: "npx prettier --write <%= it.file %>"
+      validate: "./scripts/check-adr.sh <%= it.file %>"
+  states:
+    drafting:
+      actor: agent
+      prompt: "Write the ADR."
+      file: docs/adr/0001.md
+      mode: adr
+      on:
+        "* **": reviewing
+    # ...
+```
+
+The contract:
+
+- **`it.file`** is the already-rendered `file:` path. A command is an Eta
+  template over the same context every other template sees (so `it.vars` works
+  too) plus that one extra key. A `./`-prefixed command is a COMMAND, never a
+  `./`-relative file reference the way a content string is.
+- **`validate:` exits 0 for valid.** A non-zero exit means invalid, and its
+  output (stdout then stderr) becomes the findings, one per line — that is what
+  `gtd validate` prints and what the `gtd step` gate refuses with. A failing
+  command that prints nothing still refuses, with a synthesized finding.
+- **`format:` rewrites the file in place** and runs FIRST, so validation always
+  judges the formatted file. A non-zero exit is a HARD error (broken tooling,
+  not a malformed file): nothing is validated and nothing is committed.
+- **At least one of the two is required**; a missing half is a no-op. A mode
+  with only `validate:` never reformats anything; a mode with only `format:` has
+  nothing that can fail.
+- Commands run via `bash -c` from the repository root — the only place besides a
+  `script:` state's `gtd run` where gtd spawns a subprocess. A `.gtdrc` is
+  project code: only add commands you would run yourself.
+- **Declaring `qa` or `review` REPLACES that built-in** for the whole workflow,
+  both halves. Use it to keep the bundled default's shape with your own house
+  rules; declare both keys if you want both halves.
+
+**Known limitation — no live editor support for a custom mode.** `gtd lsp`
+publishes diagnostics, document symbols and code actions for the built-in
+`qa`/`review` formats only (gtd never runs a mode command per keystroke over an
+unsaved buffer). A custom-mode file is still formatted and validated by
+`gtd validate` and the `gtd step` capture gate.
+
+There is no top-level `.gtdrc` `modes:` key: unlike `vars:`, modes are not a
+tuning layer over the bundled default — a mode exists to serve a state's
+`mode:`, so it travels with the workflow that declares that state.
 
 ### `reviewWindow:`/`reviewBase:` — the review checkout window
 
@@ -464,7 +531,7 @@ project and edited as a project-wide change.
 
 Many of these problems never reach gtd at all if your editor validates against
 the published schema: `schema.json` fully types the `workflow:` key (state
-shape, content kinds, `on`/`retry` structure, the `mode` vocabulary), so a
+shape, content kinds, `on`/`retry` structure, the `modes:` map), so a
 yaml-language-server-style editor flags unknown keys and wrong types as you
 type. The rules JSON Schema cannot express — exactly one content kind, exactly
 one `initial: true`, targets naming defined states, reachability — remain the

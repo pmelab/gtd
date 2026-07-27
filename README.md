@@ -103,7 +103,11 @@ chunks, symbols over a `qa`-mode file's open questions, diagnostics for both
 (live as you edit), and a `gtd.openSteeringFile` command that jumps to the
 current state's steering file. Config-driven via each state's `file:`/`mode:`
 (see [CLI reference](docs/cli.md#gtd-lsp)) — falls back to basename dispatch
-(`TODO.md`/`REVIEW.md`) with no config in sight.
+(`TODO.md`/`REVIEW.md`) with no config in sight. Those two formats are gtd's
+built-in steering-file MODES; a workflow can declare its own (a format command
+plus a validate command — see
+[Configuration](docs/configuration.md#modes--pluggable-steering-file-modes)),
+enforced by `gtd validate` and the `gtd step` gate.
 
 ## Documentation
 

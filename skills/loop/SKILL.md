@@ -90,10 +90,11 @@ and a `"mode"` key. So the human/check rest that acts on such a file is only
 ever handed a well-formed one, run the self-validation gate after every
 `"prompt"` turn, before `gtd step <actor>`:
 
-1. Run `gtd validate`. It **formats** the resolved state's `file:` in place
-   (markdown) and validates it against its `mode:`, exiting **0** when there is
-   nothing to validate or the file is well-formed, **non-zero** (printing the
-   findings) when it violates its format.
+1. Run `gtd validate`. It **formats** the resolved state's `file:` in place and
+   validates it, both per its `mode:` (gtd's own `qa`/`review` implementation,
+   or the workflow's declared mode commands — same contract either way), exiting
+   **0** when there is nothing to validate or the file is well-formed,
+   **non-zero** (printing the findings) when it violates its format.
 2. If it exits 0, proceed to `gtd step <actor>` as usual.
 3. If it exits non-zero, the agent's output is malformed: re-prompt the SAME
    agent turn (continue its memory/session) with the original `content` plus the

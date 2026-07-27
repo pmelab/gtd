@@ -21,6 +21,14 @@
  * dispatch (`TODO.md` → `qa`, `REVIEW.md` → `review`), so the server still
  * works standalone with no `.gtdrc` in sight.
  *
+ * KNOWN LIMITATION — this server understands only the two BUILT-IN modes
+ * (`qa`/`review`, whose parsers it owns). A workflow-declared mode (a `modes:`
+ * entry, whose validation is a shell command — see `src/SteeringMode.ts`)
+ * dispatches to no symbols, no code actions, and an empty diagnostic list: gtd
+ * never runs a mode's command per keystroke over an unsaved buffer. Such a
+ * file is still formatted and validated by `gtd validate` and the `gtd step`
+ * capture gate, just not live in the editor.
+ *
  * `gtd.openSteeringFile` (an `executeCommand`) resolves the CURRENT state
  * exactly like the CLI (`resolveRest`/`computeProcessRun`/
  * `buildTemplateContext` — the same `src/Edge.ts` helpers `gtd status`/`gtd
@@ -31,7 +39,7 @@
  * Split like the rest of the codebase: pure helpers below (symbol/edit/
  * diagnostic building, the path→mode map, the command's resolution outcome —
  * unit-testable, no protocol/IO), the `vscode-languageserver` wiring at the
- * bottom (the IO edge, including the git/config Effect layers `resolveMode`/
+ * bottom (the IO edge, including the git/config Effect layers `loadModeMap`/
  * `resolveSteeringFile` run against).
  */
 
@@ -378,7 +386,7 @@ export const steeringFileOutcome = (
 
 // ── Protocol adapter ─────────────────────────────────────────────────────────
 
-/** Diagnostics for one document, dispatching on its resolved `mode` — the same dispatch `onDocumentSymbol`/`onCodeAction` below use. No mode (an unrecognized path, config or no) publishes an empty list, clearing any diagnostics a client is still showing for it. */
+/** Diagnostics for one document, dispatching on its resolved `mode` — the same dispatch `onDocumentSymbol`/`onCodeAction` below use. No mode (an unrecognized path, config or no) — or a workflow-declared mode this server has no parser for (see the module docstring's limitation) — publishes an empty list, clearing any diagnostics a client is still showing for it. */
 const diagnosticsForMode = (mode: StateMode | undefined, content: string): Diagnostic[] => {
   switch (mode) {
     case "qa":

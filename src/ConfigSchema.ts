@@ -41,6 +41,31 @@ const varsJsonSchema = {
   additionalProperties: { type: ["string", "number", "boolean"] },
 } as const
 
+/** The `modes:` shape (inside `workflow:`): mode name -> its format/validate shell commands (`compileModesMap`). */
+const modesJsonSchema = {
+  type: "object",
+  description:
+    "Steering-file modes a state's mode: may name. Each entry declares at least one of format/validate: shell commands (Eta templates seeing it.file = the rendered steering-file path) gtd runs via bash. format rewrites the file in place; validate exits 0 when valid, non-zero with findings on stdout/stderr otherwise. Reusing a built-in name (qa/review) replaces that built-in wholesale.",
+  additionalProperties: {
+    type: "object",
+    description: "One mode: at least one of format/validate.",
+    additionalProperties: false,
+    minProperties: 1,
+    properties: {
+      format: {
+        type: "string",
+        description:
+          "Shell command that rewrites the steering file in place before validation (Eta template; it.file is the file path). A non-zero exit is a hard error.",
+      },
+      validate: {
+        type: "string",
+        description:
+          "Shell command that validates the steering file (Eta template; it.file is the file path). Exit 0 = valid; non-zero = invalid, with its output reported as the findings.",
+      },
+    },
+  },
+} as const
+
 /** One state's shape — mirrors `PatternConfig.ts`'s `KNOWN_STATE_KEYS` and per-field compilers. */
 const stateJsonSchema = {
   type: "object",
@@ -134,9 +159,8 @@ const stateJsonSchema = {
     },
     mode: {
       type: "string",
-      enum: ["qa", "review"],
       description:
-        "The steering file's format, dispatched on by the LSP. Requires a sibling `file:`. Forbidden on a commit state.",
+        "The steering file's format: the name of a built-in mode (qa/review) or of a `modes:` entry. gtd formats and validates the file with that mode before capturing a turn out of this state, and the LSP dispatches live diagnostics on the built-in names. Requires a sibling `file:`. Forbidden on a commit state.",
     },
     reviewWindow: {
       type: "boolean",
@@ -155,11 +179,12 @@ const stateJsonSchema = {
 const workflowJsonSchema = {
   type: "object",
   description:
-    "The whole machine definition: named states (plus the workflow's own vars: defaults). Compiled and validated by gtd at load time; content strings starting with ./ or ../ are file references inlined from the config file's directory.",
+    "The whole machine definition: named states (plus the workflow's own vars: defaults and modes: steering-file modes). Compiled and validated by gtd at load time; content strings starting with ./ or ../ are file references inlined from the config file's directory (a modes: command never is — it is a shell command).",
   additionalProperties: false,
   required: ["states"],
   properties: {
     vars: varsJsonSchema,
+    modes: modesJsonSchema,
     states: {
       type: "object",
       description: "The workflow's named states. At least one; exactly one with initial: true.",

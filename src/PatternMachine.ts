@@ -12,7 +12,10 @@
  * `commit`, all opaque strings — template rendering is NOT this module's
  * job), an ordered `on` map of change-patterns to next states (absent on
  * commit states), optionally `initial: true` (exactly one state must carry
- * it), and an optional `retry` cap.
+ * it), and an optional `retry` cap. A definition may also declare `modes:` —
+ * named pairs of format/validate shell commands a state's `mode:` can point
+ * at (see `ModeDef`); they are inert data here too, rendered and executed
+ * only at the edge (`src/SteeringMode.ts`).
  *
  * This module is intentionally pure — no git, no filesystem, no Effect, no
  * IO of any kind. It mirrors the purity discipline documented at the top of
@@ -114,10 +117,15 @@ export interface StateDef {
    */
   readonly file?: string
   /**
-   * Optional, requires `file:`. The associated file's FORMAT, from a closed
-   * vocabulary the LSP dispatches on (`qa` | `review`) — like `model`, this
-   * is opaque, emitted data: the ENGINE never branches on it, `step` and
-   * `resolveState` never read it. Forbidden on a commit state (see
+   * Optional, requires `file:`. The associated file's FORMAT — the NAME of a
+   * mode, either one of the two built-ins (`qa` | `review`, see
+   * `BUILT_IN_MODES`) or one the workflow declares in `modes:` (see
+   * `ModeDef`). Like `model`, this is opaque, emitted data: the ENGINE never
+   * branches on it, `step` and `resolveState` never read it — the edge
+   * (`src/SteeringMode.ts`) resolves it to a format/validate pair, and the LSP
+   * dispatches its live diagnostics on the built-in names. The only rule
+   * `validateDefinition` enforces is that the name RESOLVES (a typo must not
+   * silently disable the gate). Forbidden on a commit state (see
    * `validateDefinition`).
    */
   readonly mode?: StateMode
@@ -146,12 +154,67 @@ export interface StateDef {
   readonly reviewBase?: boolean
 }
 
-/** The closed vocabulary `mode:` may declare — see `StateDef.mode`. */
-export type StateMode = "qa" | "review"
+/**
+ * The NAME of a steering-file mode — see `StateDef.mode`. NOT a closed
+ * vocabulary: the valid set derives from the active definition
+ * (`BUILT_IN_MODES` plus whatever `modes:` declares — see `knownModes`),
+ * exactly the way `declaredActors` derives the commit grammar's actor set.
+ */
+export type StateMode = string
 
-/** A workflow: named states. Exactly one must declare `initial: true`. */
+/**
+ * One steering-file mode: the two SHELL COMMANDS that format and validate a
+ * file of this format. Both are Eta templates rendered with the state's usual
+ * template context plus `it.file` (the rendered steering-file path — see
+ * `PatternTemplates.ModeCommandContext`), and both are entirely EDGE concerns:
+ * the pure engine never renders or executes either (`src/SteeringMode.ts`
+ * does, for `gtd validate` and the `gtd step` capture gate). At least one of
+ * the two must be declared; a missing one means "that half is a no-op".
+ *
+ * - `format` runs FIRST and is expected to rewrite the file in place. A
+ *   non-zero exit is a hard error (the tooling is broken, not the file).
+ * - `validate` runs SECOND: exit 0 means valid; a non-zero exit means invalid,
+ *   and its output (stdout then stderr) carries the findings, one per line.
+ */
+export interface ModeDef {
+  readonly format?: string
+  readonly validate?: string
+}
+
+/**
+ * The two mode names gtd implements ITSELF, in process: `qa`
+ * (`src/OpenQuestions.ts`) and `review` (`src/ReviewDoc.ts`), each formatting
+ * with the markdown formatter behind `gtd format` and validating with its pure
+ * parser — the same parsers the LSP publishes as live diagnostics. Available in
+ * every workflow without being declared; a `modes:` entry that reuses one of
+ * these names REPLACES it wholesale (both halves).
+ */
+export type BuiltInMode = "qa" | "review"
+
+const BUILT_IN_MODES: readonly BuiltInMode[] = ["qa", "review"]
+
+/** True when `mode` names one of gtd's own in-process implementations (see `BUILT_IN_MODES`) — the edge's dispatch, and a type guard so it can pick the parser. */
+export const isBuiltInMode = (mode: StateMode): mode is BuiltInMode =>
+  (BUILT_IN_MODES as readonly StateMode[]).includes(mode)
+
+/** The mode names the definition declares in `modes:` (empty when it declares none). */
+const declaredModes = (def: WorkflowDefinition): readonly StateMode[] =>
+  Object.keys(def.modes ?? {})
+
+/** Every mode name a state's `mode:` may legally name under `def`: the built-ins plus the declared ones (a declared name shadowing a built-in appears once). */
+export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
+  Array.from(new Set([...BUILT_IN_MODES, ...declaredModes(def)]))
+
+/** A workflow: named states, plus the optional steering-file `modes:` they may name. Exactly one state must declare `initial: true`. */
 export interface WorkflowDefinition {
   readonly states: Readonly<Record<StateName, StateDef>>
+  /**
+   * The steering-file modes this workflow declares — mode name -> its
+   * format/validate commands (see `ModeDef`). Merged OVER `BUILT_IN_MODES`, so
+   * reusing `qa`/`review` here replaces that built-in for the whole workflow.
+   * Absent (or empty) means "the built-ins only".
+   */
+  readonly modes?: Readonly<Record<StateMode, ModeDef>>
 }
 
 /** Which content kind a state declares, or `undefined` if none (a validation error). */
@@ -632,7 +695,29 @@ const validateMemory = (name: string, state: StateDef): string[] => {
   return errors
 }
 
-const STATE_MODES: ReadonlySet<string> = new Set<StateMode>(["qa", "review"])
+/**
+ * The `modes:` map itself: every declared mode must carry at least one of
+ * `format`/`validate`, and neither may be blank (a whitespace-only shell
+ * command would run and "succeed", silently disabling the gate). The compiler
+ * (`src/PatternConfig.ts`) enforces the TYPES; these are the semantic rules,
+ * collected alongside every other finding.
+ */
+const validateModes = (def: WorkflowDefinition): string[] => {
+  const errors: string[] = []
+  for (const [mode, commands] of Object.entries(def.modes ?? {})) {
+    if (mode === "") errors.push(`"modes" declares a mode with an empty name`)
+    for (const key of ["format", "validate"] as const) {
+      const command = commands[key]
+      if (command !== undefined && command.trim() === "") {
+        errors.push(`mode "${mode}": "${key}" must be a non-empty shell command`)
+      }
+    }
+    if (commands.format === undefined && commands.validate === undefined) {
+      errors.push(`mode "${mode}": must declare at least one of "format"/"validate"`)
+    }
+  }
+  return errors
+}
 
 /**
  * `file`, when present, must be a non-empty string; forbidden on a commit
@@ -651,16 +736,20 @@ const validateFile = (name: string, state: StateDef): string[] => {
 }
 
 /**
- * `mode`, when present, must be one of the closed vocabulary and requires a
- * sibling `file:`; forbidden on a commit state — same rule family as `model`/
- * `file`.
+ * `mode`, when present, must NAME a mode this definition knows — a built-in or
+ * a `modes:` entry (`knownModes`) — and requires a sibling `file:`; forbidden
+ * on a commit state — same rule family as `model`/`file`. The name check is
+ * load-time on purpose: a typo'd mode would otherwise silently disable both the
+ * capture gate and the LSP's diagnostics for that file.
  */
-const validateMode = (name: string, state: StateDef): string[] => {
+const validateMode = (def: WorkflowDefinition, name: string, state: StateDef): string[] => {
   if (state.mode === undefined) return []
   const errors: string[] = []
-  if (!STATE_MODES.has(state.mode)) {
+  if (!knownModes(def).includes(state.mode)) {
     errors.push(
-      `state "${name}": "mode" must be one of ${Array.from(STATE_MODES).join(", ")} (got "${state.mode}")`,
+      `state "${name}": "mode" must name a built-in mode (${BUILT_IN_MODES.join(", ")}) or one declared in "modes" (${
+        declaredModes(def).length > 0 ? declaredModes(def).join(", ") : "none declared"
+      }) (got "${state.mode}")`,
     )
   }
   if (state.file === undefined) {
@@ -773,7 +862,7 @@ const validateState = (
     ...validateModel(name, state),
     ...validateMemory(name, state),
     ...validateFile(name, state),
-    ...validateMode(name, state),
+    ...validateMode(def, name, state),
     ...validateReviewWindow(name, state),
   ]
 }
@@ -792,9 +881,11 @@ const validateState = (
  * never declared on a commit state; `memory`, when present, is a non-empty
  * string and is never declared on a commit state (same rule family as
  * `model`); `file`, when present, is a non-empty
- * string and is never declared on a commit state; `mode`, when present, is
- * one of the closed vocabulary (`qa`/`review`), requires a sibling `file`,
- * and is never declared on a commit state; `reviewWindow`/`reviewBase`, when
+ * string and is never declared on a commit state; `mode`, when present, names
+ * a mode the definition knows (a built-in or a `modes:` entry — see
+ * `knownModes`), requires a sibling `file`, and is never declared on a commit
+ * state; every `modes:` entry declares at least one non-blank
+ * `format`/`validate` command; `reviewWindow`/`reviewBase`, when
  * present, are never declared on a commit state; every state is reachable from
  * the initial state by walking `on` targets and `retry.otherwise` redirects
  * (checked only when the initial-state rule itself passed — see
@@ -807,6 +898,7 @@ export const validateDefinition = (def: WorkflowDefinition): readonly string[] =
   const initialErrors = validateInitial(def, names)
   return [
     ...initialErrors,
+    ...validateModes(def),
     ...names.flatMap((name) => validateState(def, name, names)),
     ...(initialErrors.length === 0 ? validateReachability(def, names) : []),
   ]
