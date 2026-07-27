@@ -62,15 +62,15 @@ slots into.
 | `grilling-answer`     | human | message | `C` → `architecting`; `* **` → `grilling`                                         | —                  | —       | `vars.todoFile`         | `qa`     |
 | `architecting`        | agent | prompt  | `* **` → `architecting-answer`                                                    | —                  | `smart` | `vars.architectureFile` | `qa`     |
 | `architecting-answer` | human | message | `C` → `decompose`; `* **` → `architecting`                                        | —                  | —       | `vars.architectureFile` | `qa`     |
-| `decompose`           | agent | prompt  | `* .gtd/tasks/**` → `picking`                                                     | —                  | —       | —                       | —        |
+| `decompose`           | agent | prompt  | `* .gtd/tasks/**` → `picking`                                                     | —                  | `base`  | —                       | —        |
 | `picking`             | check | script  | `D .gtd/NEXT.md` → `reviewing`; `* .gtd/NEXT.md` → `building`; `C` → `reviewing`  | —                  | —       | —                       | —        |
-| `building`            | agent | prompt  | `* **` → `checking`                                                               | —                  | —       | —                       | —        |
+| `building`            | agent | prompt  | `* **` → `checking`                                                               | —                  | `base`  | —                       | —        |
 | `checking`            | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `C` → `picking` | —                  | —       | —                       | —        |
-| `fixing`              | agent | prompt  | `* **` → `checking`                                                               | max 3 → `escalate` | —       | `vars.feedbackFile`     | —        |
+| `fixing`              | agent | prompt  | `* **` → `checking`                                                               | max 3 → `escalate` | `base`  | `vars.feedbackFile`     | —        |
 | `escalate`            | human | message | `* **` → `checking`                                                               | —                  | —       | `vars.feedbackFile`     | —        |
 | `reviewing`           | agent | prompt  | `* .gtd/REVIEW.md` → `await-review`                                               | —                  | `smart` | `vars.reviewFile`       | `review` |
 | `await-review`        | human | message | `D .gtd/REVIEW.md` → `squashing`; `* **` → `grilling`                             | —                  | —       | `vars.reviewFile`       | `review` |
-| `squashing`           | agent | prompt  | `A .gtd/COMMIT_MSG.md` → `done`; `M .gtd/COMMIT_MSG.md` → `done`                  | —                  | —       | —                       | —        |
+| `squashing`           | agent | prompt  | `A .gtd/COMMIT_MSG.md` → `done`; `M .gtd/COMMIT_MSG.md` → `done`                  | —                  | `base`  | —                       | —        |
 | `done`                | —     | commit  | (final — squashes the whole cycle, message read from `.gtd/COMMIT_MSG.md`)        | —                  | —       |
 
 ## The `.gtdrc` recipe
@@ -83,6 +83,11 @@ workflow:
     architectureFile: .gtd/ARCHITECTURE.md
     reviewFile: .gtd/REVIEW.md
     feedbackFile: .gtd/FEEDBACK.md
+    # The two model tiers every agent state draws from — opaque harness hints,
+    # repointed here (or via a top-level .gtdrc `vars:` / `GTD_VAR_` override)
+    # to change every state on that tier at once.
+    plannerModel: smart
+    coderModel: base
 
   states:
     idle:
@@ -102,11 +107,12 @@ workflow:
       mode: qa
       # `model` is an opaque harness hint — gtd never interprets this string, it
       # only passes it through to `gtd next --json`/`gtd status --json` so the
-      # driving loop can map it onto whatever models its agent harness
-      # provides. "smart" here just names the harness-chosen tier for the
-      # heavier planning/reviewing turns; states without a `model` use the
-      # harness's default.
-      model: smart
+      # driving loop can map it onto whatever models its agent harness provides.
+      # Every agent state draws its tier from a `vars` model entry (see `vars:`
+      # above): `plannerModel` (default "smart") for the one-shot planning/
+      # architecting/reviewing turns, `coderModel` (default "base") for the
+      # decompose/build/fix/squash turns.
+      model: <%= it.vars.plannerModel %>
       prompt: |
         You are an autonomous coding agent. `.gtd/` holds this workflow's own
         state (plans, task specs, review records) — never create, edit, or
@@ -155,7 +161,7 @@ workflow:
       actor: agent
       file: <%= it.vars.architectureFile %>
       mode: qa
-      model: smart
+      model: <%= it.vars.plannerModel %>
       prompt: |
         You are an autonomous coding agent. `.gtd/` holds this workflow's own
         state — never create, edit, or delete anything under `.gtd/` except
@@ -201,6 +207,7 @@ workflow:
 
     decompose:
       actor: agent
+      model: <%= it.vars.coderModel %>
       prompt: |
         You are an autonomous coding agent. `.gtd/` holds this workflow's own
         state — never create, edit, or delete anything under `.gtd/` except the
@@ -249,6 +256,7 @@ workflow:
 
     building:
       actor: agent
+      model: <%= it.vars.coderModel %>
       prompt: |
         You are an autonomous coding agent. `.gtd/` holds this workflow's own
         state — never create or edit anything under `.gtd/` except deleting the
@@ -303,6 +311,7 @@ workflow:
     fixing:
       actor: agent
       file: <%= it.vars.feedbackFile %>
+      model: <%= it.vars.coderModel %>
       retry:
         max: 3
         otherwise: escalate
@@ -338,7 +347,7 @@ workflow:
       actor: agent
       file: <%= it.vars.reviewFile %>
       mode: review
-      model: smart
+      model: <%= it.vars.plannerModel %>
       # A second way in: `gtd review <commitish>` (clean tree, resting at the
       # initial state) enters here directly over <commitish>..HEAD — see
       # STATES.md §11.
@@ -388,6 +397,7 @@ workflow:
 
     squashing:
       actor: agent
+      model: <%= it.vars.coderModel %>
       prompt: |
         You are an autonomous coding agent. The cycle is approved and done.
         `.gtd/` holds this workflow's own state — never create, edit, or delete

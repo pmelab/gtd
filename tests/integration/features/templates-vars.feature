@@ -286,3 +286,40 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"memory\":\"plan\""
+
+  Scenario: the simple template resolves a planner-tier state's model from "vars.plannerModel"
+    Given a test project
+    And the "simple" workflow
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      a sketch
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"grilling\""
+    And stdout contains "\"model\":\"smart\""
+
+  Scenario: the simple template resolves a coder-tier state's model from "vars.coderModel"
+    Given a test project
+    And the "simple" workflow
+    And a commit "gtd(agent): building" that adds ".gtd/TODO.md" with:
+      """
+      the plan
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"building\""
+    And stdout contains "\"model\":\"base\""
+
+  Scenario: a "GTD_VAR_plannerModel" override repoints every planner-tier state at once
+    Given a test project
+    And the "simple" workflow
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      a sketch
+      """
+    And an environment variable "GTD_VAR_plannerModel" set to "opus"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"model\":\"opus\""
+    And stdout does not contain "\"model\":\"smart\""

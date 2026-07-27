@@ -104,7 +104,11 @@ machine — two-phase Q&A planning, an architecture phase, task decomposition, a
 per-task build loop, and a squash finale — walked through at
 [docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md). Either
 way the workflow is just `.gtdrc` config — edit it or write your own (see
-[Configuration](docs/configuration.md)).
+[Configuration](docs/configuration.md)). Both templates route every agent
+state's model through two `vars` tiers — `plannerModel` (heavier planning and
+review) and `coderModel` (the coding turns) — so you can repoint the models
+globally in one place (a `vars:` edit or a `GTD_VAR_plannerModel` override)
+instead of per state.
 
 `gtd-loop`, installed alongside `gtd`, is a ready-to-run driver for the whole
 protocol — point it at a repo and it runs the loop until it's your turn. See

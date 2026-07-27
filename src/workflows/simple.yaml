@@ -94,9 +94,12 @@
 # is only ever handed a tidy, well-formed file. The same parsers back the LSP's
 # live diagnostics (src/Lsp.ts).
 #
-# `grilling` and `reviewing` both declare `model: smart` — an opaque harness
-# hint (see the comment at `grilling` below) for their heavier one-shot
-# planning/reviewing turns. Every other state is unset (harness default).
+# Every agent state draws its `model` from a `vars` tier entry (see `vars:`
+# below and the comment at `grilling`) rather than a hardcoded string, so both
+# tiers repoint in one place: `plannerModel` (default "smart") for the heavier
+# one-shot planning/reviewing turns (`grilling`, `reviewing`), `coderModel`
+# (default "base") for the coding turns (`building`, `fixing`). Both are opaque
+# hints the driving loop maps onto its harness.
 #
 # The four agent states each declare a `memory:` scope label (`plan`,
 # `build`, `fix`, `review` — see the comment at `grilling` below) — another
@@ -139,6 +142,12 @@ vars:
   todoFile: .gtd/TODO.md
   reviewFile: .gtd/REVIEW.md
   feedbackFile: .gtd/FEEDBACK.md
+  # The two model tiers every agent state draws from (see the model comment at
+  # `grilling` below). Both are opaque harness hints — repoint them here (or
+  # via a top-level `.gtdrc` `vars:` key / a `GTD_VAR_plannerModel` env var) to
+  # change every state on that tier at once.
+  plannerModel: smart
+  coderModel: base
 
 states:
   idle:
@@ -176,11 +185,12 @@ states:
     mode: qa
     # `model` is an opaque harness hint — gtd never interprets this string, it
     # only passes it through to `gtd next --json`/`gtd status --json` so the
-    # driving loop can map it onto whatever models its agent harness
-    # provides. "smart" here just names the harness-chosen tier for the
-    # heavier planning turn; states without a `model` use the harness's
-    # default.
-    model: smart
+    # driving loop can map it onto whatever models its agent harness provides.
+    # Every agent state draws its tier from a `vars` model entry (see `vars:`
+    # above) so the tiers repoint in one place: `plannerModel` (default
+    # "smart") names the heavier tier for the one-shot planning/reviewing
+    # turns, `coderModel` (default "base") the tier for the coding turns.
+    model: <%= it.vars.plannerModel %>
     # `memory` is an opaque memory-scope label — gtd never interprets it, it
     # only passes it through to `gtd next --json`/`gtd status --json` so a
     # memory-aware driving loop can decide when an agent turn continues from
@@ -247,6 +257,7 @@ states:
     actor: agent
     file: <%= it.vars.todoFile %>
     mode: qa
+    model: <%= it.vars.coderModel %>
     # A distinct memory scope from `plan`: implementation starts fresh, with
     # the plan already settled in `.gtd/TODO.md` (which this prompt reads
     # below) rather than carried in the planner's working memory.
@@ -311,6 +322,7 @@ states:
   fixing:
     actor: agent
     file: <%= it.vars.feedbackFile %>
+    model: <%= it.vars.coderModel %>
     # Its own memory scope: the fix loop re-enters `fixing` around `checking`
     # (up to the retry cap), so labelling every attempt `fix` lets the agent
     # remember what it already tried across the loop; a green check moves on
@@ -356,7 +368,7 @@ states:
     actor: agent
     file: <%= it.vars.reviewFile %>
     mode: review
-    model: smart
+    model: <%= it.vars.plannerModel %>
     # A distinct memory scope again: the reviewer looks at the cycle's full
     # diff (inlined into its prompt) with a fresh perspective, not the
     # builder's or fixer's working memory.
