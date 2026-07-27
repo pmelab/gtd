@@ -23,6 +23,8 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   repoDir!: string
+  /** An extra directory (an ancestor of `repoDir`) the After hook must also remove — set when a scenario nests the repo under a purpose-built parent. */
+  extraCleanupDir: string | undefined = undefined
   /** In-memory repo for the `inmem` tier. When set, file/git ops use this instead of repoDir. */
   repo: InMemRepo | undefined = undefined
   /** Which execution tier is active for this scenario. Set by the Before hook. */

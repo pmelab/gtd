@@ -27,12 +27,15 @@ After(async (world: GtdWorld) => {
     return
   }
 
-  // Live tier: remove the temp repo dir.
+  // Live tier: remove the temp repo dir (and any purpose-built ancestor dir).
   if (world.repoDir) {
     if (process.env["KEEP_TEST_REPO"] === "1") {
       process.stderr.write(`Test repo preserved at: ${world.repoDir}\n`)
     } else {
       rmSync(world.repoDir, { recursive: true, force: true })
+      if (world.extraCleanupDir) {
+        rmSync(world.extraCleanupDir, { recursive: true, force: true })
+      }
     }
   }
 })

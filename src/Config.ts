@@ -99,6 +99,23 @@ const SEARCH_PLACES = [
 ]
 
 /**
+ * The shared cosmiconfig explorer used by every config lookup. `searchStrategy:
+ * 'none'` makes `.search(dir)` inspect only that single directory (no internal
+ * walking), so callers drive the cwd→home walk themselves via `walkUp`.
+ */
+const makeExplorer = () =>
+  cosmiconfig("gtd", {
+    searchPlaces: SEARCH_PLACES,
+    searchStrategy: "none",
+    loaders: {
+      noExt: yamlLoader, // .gtdrc (extensionless) — YAML is a JSON superset
+      ".json": jsonLoader,
+      ".yaml": yamlLoader,
+      ".yml": yamlLoader,
+    },
+  })
+
+/**
  * Load and deep-merge every config level from cwd up the directory chain.
  * Innermost (cwd) wins. Returns the merged plain object (undecoded).
  */
@@ -108,18 +125,7 @@ const loadMerged = (root: string): Effect.Effect<Record<string, unknown>, Error>
       const home = homedir()
       const chain = walkUp(root, home)
 
-      // `searchStrategy: 'none'` makes `.search(dir)` inspect only that single
-      // directory (no internal walking), so we collect every level deterministically.
-      const explorer = cosmiconfig("gtd", {
-        searchPlaces: SEARCH_PLACES,
-        searchStrategy: "none",
-        loaders: {
-          noExt: yamlLoader, // .gtdrc (extensionless) — YAML is a JSON superset
-          ".json": jsonLoader,
-          ".yaml": yamlLoader,
-          ".yml": yamlLoader,
-        },
-      })
+      const explorer = makeExplorer()
 
       // Collect outermost→innermost so merging in order makes innermost win.
       const levels: Array<Record<string, unknown>> = []
@@ -142,33 +148,16 @@ const loadMerged = (root: string): Effect.Effect<Record<string, unknown>, Error>
   })
 
 /**
- * Reuses the same `walkUp` + `searchStrategy: "none"` cosmiconfig explorer as
- * `loadMerged` to detect whether ANY level of the cwd→root walk carries a gtd
- * config. Returns `true` on the first non-empty `search(dir)` result. Exported
- * so `gtd init` (src/program.ts) can refuse to overwrite an existing config.
+ * Detect whether a gtd config lives at THIS single directory — no `walkUp`, so
+ * a global `~/.gtdrc` or an ancestor project's config does NOT count. Exported
+ * so `gtd init` (src/program.ts) refuses only when it would overwrite the
+ * repo's OWN config, not when a global default layer merely exists upstream.
  */
-export const anyConfigPresent = (root: string): Effect.Effect<boolean, Error> =>
+export const configPresentAt = (dir: string): Effect.Effect<boolean, Error> =>
   Effect.tryPromise({
     try: async () => {
-      const home = homedir()
-      const chain = walkUp(root, home)
-
-      const explorer = cosmiconfig("gtd", {
-        searchPlaces: SEARCH_PLACES,
-        searchStrategy: "none",
-        loaders: {
-          noExt: yamlLoader,
-          ".json": jsonLoader,
-          ".yaml": yamlLoader,
-          ".yml": yamlLoader,
-        },
-      })
-
-      for (const dir of chain) {
-        const result = await explorer.search(dir)
-        if (result && !result.isEmpty) return true
-      }
-      return false
+      const result = await makeExplorer().search(dir)
+      return Boolean(result && !result.isEmpty)
     },
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
