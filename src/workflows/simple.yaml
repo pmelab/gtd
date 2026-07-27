@@ -1,17 +1,20 @@
-# The bundled default gtd workflow (v3 "pattern machine" — see
-# docs/design/pattern-machine-plan.md, and
-# docs/design/steering-file-validation-command.md for the `gtd validate`
-# self-validation model that replaced the old in-machine validation loops).
+# The "simple" gtd workflow template — written verbatim into `.gtdrc.json`
+# (nested under a `workflow:` key) by `gtd init simple`. gtd ships no default
+# workflow: a repo picks one of the bundled templates with `gtd init`, and a
+# state command run with no workflow configured fails (see src/Config.ts).
+# See STATES.md §10 for the walkthrough and docs/examples/advanced-workflow.md
+# for the fuller `advanced` template.
+#
 # Compiled through the exact same `compileWorkflowConfig` a user's `.gtdrc`
 # `workflow:` key goes through — no privileged code path
-# (src/workflows/default.ts does the compiling).
+# (src/workflows/templates.ts does the compiling).
 #
 # Every content string below is INLINE (no `./`-relative file references):
-# the bundled default ships inside a single-file build
-# (`dist/gtd.bundle.mjs`), so its content must already be resolved at BUILD
+# the bundled templates ship inside a single-file build
+# (`dist/gtd.bundle.mjs`), so their content must already be resolved at BUILD
 # time rather than read from disk at RUNTIME — the same reason
 # `src/prompts/*.md` are imported through tsdown's `.md`-as-text loader
-# instead of read via `fs` at runtime. `default.yaml` itself is imported the
+# instead of read via `fs` at runtime. `simple.yaml` itself is imported the
 # same way (tsdown/vitest both treat `.yaml` as text — see
 # tsdown.config.ts / tests/vitest.rawMd.ts), so this file never needs a
 # sibling prompts/ directory to exist on disk once installed.

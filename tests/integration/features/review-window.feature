@@ -12,13 +12,15 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
   own edits are captured by the resting state's own `on` patterns like any
   other pending change.
 
-  The bundled default declares `reviewWindow: true` on `await-review`. Each
-  scenario builds a cycle that rests there: `chore: initial commit` is the
-  process boundary (the diff base), two `building` commits carry the reviewable
-  code, and a final `await-review` commit carries the committed review doc.
+  The bundled `simple` workflow declares `reviewWindow: true` on
+  `await-review`. Each scenario builds a cycle that rests there: the
+  `chore: init gtd workflow` config commit is the process boundary (the diff
+  base), two `building` commits carry the reviewable code, and a final
+  `await-review` commit carries the committed review doc.
 
   Background:
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(agent): building" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -43,7 +45,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the git ref "refs/gtd/review-head" exists
     And the git ref "refs/gtd/review-base" exists
     # HEAD rests at the review base: the cycle's process boundary.
-    And the last commit subject is "chore: initial commit"
+    And the last commit subject is "chore: init gtd workflow"
     # The whole package diff is visible as uncommitted changes…
     And the git status contains "src/calc.ts"
     And the git status contains "src/other.ts"
@@ -57,7 +59,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     # `gtd status` closed the window, resolved the true rest, then re-armed it:
     And stdout contains "State: await-review"
     And the git ref "refs/gtd/review-head" exists
-    And the last commit subject is "chore: initial commit"
+    And the last commit subject is "chore: init gtd workflow"
 
   Scenario: Deleting the review doc approves — the window closes and leaves no trace
     Given I run gtd next
@@ -87,4 +89,4 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     When I run gtd status
     Then it succeeds
     And the git ref "refs/gtd/review-head" exists
-    And the last commit subject is "chore: initial commit"
+    And the last commit subject is "chore: init gtd workflow"

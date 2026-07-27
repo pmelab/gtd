@@ -212,7 +212,7 @@ export const compileModesMap = (
  * formatting to `qa` without touching its validation. Both arguments may be
  * `undefined` (an absent key); the result is `undefined` only when both are.
  */
-export const mergeModes = (
+const mergeModes = (
   base: Readonly<Record<string, ModeDef>> | undefined,
   override: Readonly<Record<string, ModeDef>> | undefined,
 ): Record<string, ModeDef> | undefined => {

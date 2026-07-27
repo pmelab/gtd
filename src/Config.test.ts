@@ -1,26 +1,16 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
-import { execFileSync } from "node:child_process"
+import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
-import { ConfigInit, ConfigService } from "./Config.js"
+import { ConfigService, NO_WORKFLOW_MESSAGE } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 
-// ConfigService.Live only loads/validates; the auto-init stub write+commit
-// lives in ConfigInit. NodeContext.layer satisfies FileSystem + CommandExecutor.
+// ConfigService.Live only loads/validates the config — it never writes.
+// NodeContext.layer satisfies FileSystem + CommandExecutor.
 const layer = (dir: string) =>
   Layer.provide(ConfigService.Live, Layer.merge(Cwd.layer(dir), NodeContext.layer))
-
-const ensureInit = (dir: string = projectDir) =>
-  Effect.runPromise(
-    Effect.flatMap(ConfigInit, (init) => init.ensure).pipe(
-      Effect.provide(
-        Layer.provide(ConfigInit.Live, Layer.merge(Cwd.layer(dir), NodeContext.layer)),
-      ),
-    ),
-  )
 
 const run = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string = projectDir) =>
   Effect.runPromise(eff.pipe(Effect.provide(layer(dir))))
@@ -30,7 +20,7 @@ const runExit = <A>(eff: Effect.Effect<A, Error, ConfigService>, dir: string = p
 
 const getConfig = (dir?: string) =>
   run(
-    Effect.flatMap(ConfigService, (c) => Effect.succeed(c)),
+    Effect.flatMap(ConfigService, (c) => c.load),
     dir,
   )
 
@@ -38,14 +28,6 @@ let projectDir: string
 
 beforeEach(() => {
   projectDir = mkdtempSync(join(tmpdir(), "gtd-config-"))
-  // Auto-init writes AND commits `.gtdrc.json`, so the temp dir must be a git
-  // repo with a usable identity. Keep the identity repo-local (no global git
-  // mutation).
-  const git = (...args: Array<string>) =>
-    execFileSync("git", args, { cwd: projectDir, stdio: "ignore" })
-  git("init")
-  git("config", "user.name", "gtd-test")
-  git("config", "user.email", "gtd-test@example.com")
 })
 
 afterEach(() => {
@@ -65,18 +47,24 @@ const minimalWorkflowYaml = (idleMessage: string) =>
   ].join("\n")
 
 describe("ConfigService", () => {
-  it("with no config anywhere: the bundled default workflow is active", async () => {
-    const cfg = await getConfig()
+  it("with no config anywhere: fails with the `gtd init` hint (there is no default)", async () => {
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
 
-    expect(cfg.workflow.states["idle"]?.initial).toBe(true)
-    expect(cfg.workflow.states["grilling"]).toBeDefined()
-    expect(cfg.workflowVars).toEqual({
-      testCommand: "npm test",
-      todoFile: ".gtd/TODO.md",
-      reviewFile: ".gtd/REVIEW.md",
-      feedbackFile: ".gtd/FEEDBACK.md",
-    })
-    expect(cfg.rcVars).toEqual({})
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain(NO_WORKFLOW_MESSAGE)
+    }
+  })
+
+  it("a config with a top-level `vars:` but no `workflow:` still fails with the init hint", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  testCommand: "npm test"\n`)
+
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain(NO_WORKFLOW_MESSAGE)
+    }
   })
 
   it("reads a custom `workflow:` from a single .gtdrc.yaml in cwd", async () => {
@@ -122,7 +110,16 @@ describe("ConfigService", () => {
   it("reads a top-level `vars:` key into `rcVars`, coercing scalars to strings", async () => {
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
-      [`vars:`, `  greeting: hi`, `  attempts: 3`, `  strict: true`, ``].join("\n"),
+      [
+        `workflow:`,
+        `  states:`,
+        `    idle: { actor: human, initial: true, message: "x", on: {} }`,
+        `vars:`,
+        `  greeting: hi`,
+        `  attempts: 3`,
+        `  strict: true`,
+        ``,
+      ].join("\n"),
     )
 
     const cfg = await getConfig()
@@ -136,27 +133,21 @@ describe("ConfigService", () => {
 
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
-      [`vars:`, `  greeting: ancestor`, `  onlyAncestor: yes`, ``].join("\n"),
+      [
+        `workflow:`,
+        `  states:`,
+        `    idle: { actor: human, initial: true, message: "x", on: {} }`,
+        `vars:`,
+        `  greeting: ancestor`,
+        `  onlyAncestor: yes`,
+        ``,
+      ].join("\n"),
     )
     writeFileSync(join(child, ".gtdrc.yaml"), [`vars:`, `  greeting: child`, ``].join("\n"))
 
     const cfg = await getConfig(child)
 
     expect(cfg.rcVars).toEqual({ greeting: "child", onlyAncestor: "yes" })
-  })
-
-  it("layers a top-level `modes:` key over the BUNDLED default's modes, per half", async () => {
-    writeFileSync(
-      join(projectDir, ".gtdrc.yaml"),
-      [`modes:`, `  qa:`, `    format: "npx prettier --write <%= it.file %>"`, ``].join("\n"),
-    )
-
-    const cfg = await getConfig()
-
-    // The bundled default is otherwise untouched, and `qa` gains a formatter
-    // while keeping gtd's built-in validation (resolved in src/SteeringMode.ts).
-    expect(cfg.workflow.states["grilling"]).toBeDefined()
-    expect(cfg.workflow.modes).toEqual({ qa: { format: "npx prettier --write <%= it.file %>" } })
   })
 
   it("layers a top-level `modes:` key over a CUSTOM workflow's own modes, half by half", async () => {
@@ -220,7 +211,15 @@ describe("ConfigService", () => {
   it("rejects a malformed top-level `modes:` entry, aggregated into one error", async () => {
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
-      [`modes:`, `  adr:`, `    lint: "adr-lint"`, ``].join("\n"),
+      [
+        `modes:`,
+        `  adr:`,
+        `    lint: "adr-lint"`,
+        `workflow:`,
+        `  states:`,
+        `    idle: { actor: human, initial: true, message: "x", on: {} }`,
+        ``,
+      ].join("\n"),
     )
 
     await expect(getConfig()).rejects.toThrow(/mode "adr": unknown key\(s\) lint/)
@@ -232,7 +231,7 @@ describe("ConfigService", () => {
       [`vars:`, `  bad:`, `    nested: true`, ``].join("\n"),
     )
 
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
@@ -244,7 +243,7 @@ describe("ConfigService", () => {
   it("rejects an unknown top-level key as an excess property", async () => {
     writeFileSync(join(projectDir, ".gtdrc.yaml"), `testCommand: "npm test"\n`)
 
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
@@ -260,21 +259,12 @@ describe("ConfigService", () => {
       ),
     )
 
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
       expect(String(exit.cause)).toMatch(/initial state|must declare an actor/i)
     }
-  })
-
-  it("auto-init: with no config, creates and commits `.gtdrc.json` at the root with the $schema URL", async () => {
-    await ensureInit()
-
-    const rcPath = join(projectDir, ".gtdrc.json")
-    expect(existsSync(rcPath)).toBe(true)
-    const written = JSON.parse(readFileSync(rcPath, "utf8"))
-    expect(written.$schema).toBe("https://raw.githubusercontent.com/pmelab/gtd/main/schema.json")
   })
 
   it("strip: a config carrying $schema decodes without an excess-property error", async () => {
@@ -288,7 +278,7 @@ describe("ConfigService", () => {
       }),
     )
 
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
 
     expect(Exit.isSuccess(exit)).toBe(true)
     if (Exit.isSuccess(exit)) {
@@ -296,56 +286,12 @@ describe("ConfigService", () => {
     }
   })
 
-  it("idempotency: loading twice succeeds without an `Invalid gtd config` error on excess $schema", async () => {
-    // Auto-init the stub first, then load twice.
-    await ensureInit()
-    const first = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-    expect(Exit.isSuccess(first)).toBe(true)
+  it("loading config never writes a file (ConfigService.Live is read-only)", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), minimalWorkflowYaml("x"))
 
-    // The `.gtdrc.json` stub now exists and carries $schema; a second load must
-    // decode it cleanly rather than fail on the excess property.
-    const second = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
-    expect(Exit.isSuccess(second)).toBe(true)
-    if (Exit.isFailure(second)) {
-      expect(String(second.cause)).not.toMatch(/Invalid gtd config/)
-    }
-  })
-
-  it("loading config does NOT create a stub — only ConfigInit.ensure does", async () => {
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => Effect.succeed(c)))
+    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
 
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(existsSync(join(projectDir, ".gtdrc.json"))).toBe(false)
-  })
-
-  it("ensure commits the stub with a path-scoped add and the chore message", async () => {
-    await ensureInit()
-
-    const subject = execFileSync("git", ["log", "-1", "--pretty=%s"], { cwd: projectDir })
-      .toString()
-      .trim()
-    expect(subject).toBe("chore: add .gtdrc.json")
-
-    // Only the stub was staged/committed — path-scoped add, not `git add -A`.
-    const committedFiles = execFileSync(
-      "git",
-      ["show", "--name-only", "--pretty=format:", "HEAD"],
-      { cwd: projectDir },
-    )
-      .toString()
-      .trim()
-    expect(committedFiles).toBe(".gtdrc.json")
-  })
-
-  it("ensure does not write or commit a stub when a config already exists", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  testCommand: "existing"\n`)
-
-    await ensureInit()
-
-    expect(existsSync(join(projectDir, ".gtdrc.json"))).toBe(false)
-    // No commit was created (fresh repo has no HEAD).
-    expect(() =>
-      execFileSync("git", ["rev-parse", "HEAD"], { cwd: projectDir, stdio: "ignore" }),
-    ).toThrow()
   })
 })

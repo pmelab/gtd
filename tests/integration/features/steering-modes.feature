@@ -344,17 +344,32 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it fails
     And stderr contains "is missing a \"Suggested default: ...\" or \"Answer: ...\" line"
 
-  Scenario: a top-level modes: key plugs a formatter into the BUNDLED default workflow
-    # No `workflow:` key at all — the bundled default's `grilling` state already
-    # declares `file: .gtd/TODO.md` + `mode: qa`. The project brings its own
-    # formatter for that mode without re-declaring a single state, and gtd's own
-    # qa validation still runs underneath it.
+  Scenario: a top-level modes: key plugs a formatter into a workflow without re-declaring its modes
+    # The top-level `modes:` layer sits BESIDE `workflow:` — the workflow's
+    # `grilling` state declares `file: .gtd/TODO.md` + `mode: qa` but no `modes:`
+    # of its own, so the project brings its own formatter for that mode via the
+    # top-level key, and gtd's own built-in qa validation still runs underneath.
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       modes:
         qa:
           format: "sed 's/  */ /g' <%= it.file %> > <%= it.file %>.tmp && mv <%= it.file %>.tmp <%= it.file %>"
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start"
+            on:
+              "* **": grilling
+          grilling:
+            actor: agent
+            file: .gtd/TODO.md
+            mode: qa
+            prompt: "plan"
+            on:
+              "* **": idle
       """
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """

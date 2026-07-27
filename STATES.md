@@ -10,8 +10,8 @@ edge (`src/Edge.ts`, called from `src/program.ts`).
 This document is the design reference for the v3 engine: the state model, the
 pattern grammar, the commit-subject grammar and its attribution rule,
 resolution, step semantics (refusals/no-op/commit/squash), retry, the squash
-lifecycle, validation, and the bundled default workflow. Where this document and
-the code disagree, the code (`src/PatternMachine.ts`, `src/PatternConfig.ts`,
+lifecycle, validation, and the `simple` template. Where this document and the
+code disagree, the code (`src/PatternMachine.ts`, `src/PatternConfig.ts`,
 `src/Edge.ts`) wins.
 
 See [docs/configuration.md](docs/configuration.md) for the full `.gtdrc`
@@ -117,7 +117,7 @@ state's content template as `it.edges` (an array of
 "what each change does next" list straight from the routing it documents — one
 source of truth, no prose that can drift from the `on` map.
 `gtd next --json`/`gtd status --json` emit the same `edges` array (see §1). The
-bundled default uses this at every human gate (see §10).
+`simple` template uses this at every human gate (see §10).
 
 > **Documented discrepancy:** an early design note called `"* *"` "the catch-all
 > for any dirty tree". Per the single-segment rule above that is only true when
@@ -207,9 +207,9 @@ entered within the current **process** (the contiguous run of
 **process boundary**, i.e. whichever comes first walking back from HEAD: a
 non-matching commit (an old squash result, legacy/pre-v3 history, the repo's own
 root), or a workflow commit that **enters the workflow's own initial state** —
-e.g. the bundled default's `gtd(human): idle`, the empty approval turn that ends
-a cycle with no squash. Either boundary kind is EXCLUDED from the process itself
-— it belongs to the finished cycle, like an old squash commit did — see
+e.g. the `simple` template's `gtd(human): idle`, the empty approval turn that
+ends a cycle with no squash. Either boundary kind is EXCLUDED from the process
+itself — it belongs to the finished cycle, like an old squash commit did — see
 `computeProcessRun` in `src/Edge.ts`). Once a transition's raw target has
 already been entered `max` times in the current process's trace, the transition
 is redirected to `otherwise` instead — decided **at write time**, so the
@@ -309,17 +309,24 @@ A bad config fails loudly — one thrown error naming every finding — before
 anything touches the repository. See
 [Configuration: validation and errors](docs/configuration.md#validation-and-errors).
 
-## 10. The bundled default workflow
+## 10. The bundled workflow templates
 
-The workflow gtd ships with when `.gtdrc` has no `workflow:` key
-(`src/workflows/default.yaml`, compiled through the exact same compiler a custom
-`workflow:` key goes through — no privileged code path). 10 states. Its two
-steering files still have checkable formats — `.gtd/TODO.md`'s open-questions
-format and `.gtd/REVIEW.md`'s checkbox review format — but validation is no
-longer a state in the machine: the producing agent (`grilling`, `reviewing`)
-self-validates its output with `gtd validate` before finishing, so the machine
-holds no `todo-validating`/`review-validating` states and no `.gtd/FORMAT.md`
-(see
+gtd ships **no** default workflow — a repo scaffolds one with
+`gtd init <simple|advanced>` (see
+[Configuration](docs/configuration.md#gtd-init)), which writes the chosen
+bundled template inline into `.gtdrc.json`. This section walks through the
+**`simple`** template (`src/workflows/simple.yaml`); the **`advanced`** template
+(`src/workflows/advanced.yaml`) is the fuller machine walked through at
+[docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md). Both
+compile through the exact same compiler a custom `workflow:` key goes through —
+no privileged code path.
+
+The `simple` template has 10 states. Its two steering files have checkable
+formats — `.gtd/TODO.md`'s open-questions format and `.gtd/REVIEW.md`'s checkbox
+review format — but validation is not a state in the machine: the producing
+agent (`grilling`, `reviewing`) self-validates its output with `gtd validate`
+before finishing, so the machine holds no `todo-validating`/`review-validating`
+states and no `.gtd/FORMAT.md` (see
 [docs/design/steering-file-validation-command.md](docs/design/steering-file-validation-command.md)
 and §12):
 
@@ -368,17 +375,17 @@ There is no squash — the cycle ends at human approval, an empty
 state (a **process boundary**, see §7). The cycle's turn commits stay in history
 exactly as authored; whether/how to squash them (an interactive rebase, an
 amend, a PR's squash-merge) is entirely the human's business, and gtd makes no
-assumption about it. The squash-flavored finale this default used to end on — a
+assumption about it. The squash-flavored finale the `simple` template omits — a
 `squashing` prompt state authoring `.gtd/COMMIT_MSG.md` plus a `done` commit
-state — is still an engine capability (§8), just not part of the bundled default
-anymore; it lives on in the fuller machine below.
+state — is still an engine capability (§8); it lives on in the `advanced`
+template.
 
-A fuller machine — two-phase Q&A planning, an architecture phase, task
-decomposition, the deterministic `picking` queue arbiter with a per-task
-build/check loop, agent-prepared `.gtd/REVIEW.md` review, and that squash finale
-(`squashing` + `done`) — is preserved as a copy-paste-ready example at
-[docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md) rather
-than shipped as the bundled default.
+The **`advanced`** template (`gtd init advanced`, `src/workflows/advanced.yaml`)
+adds two-phase Q&A planning, an architecture phase, task decomposition, the
+deterministic `picking` queue arbiter with a per-task build/check loop,
+agent-prepared `.gtd/REVIEW.md` review, and that squash finale (`squashing` +
+`done`). It is walked through in full at
+[docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md).
 
 ### Walkthrough
 
@@ -522,7 +529,7 @@ bracketing every state subcommand (`step`/`next`/`status`):
   existing). This is why the machine resolves the true rest, not the rewound
   base — and why a reviewer's own edits, made while the window was open, land as
   the resting state's ordinary pending changes and are captured by its `on`
-  patterns like any other diff (in the bundled default, a code edit at
+  patterns like any other diff (in the `simple` template, a code edit at
   `await-review` routes to `grilling` as feedback; deleting `.gtd/REVIEW.md`
   approves).
 - **Re-arm last.** After the subcommand finishes — on success, on refusal, and
@@ -672,7 +679,7 @@ compose:
   `skills/loop/SKILL.md`). `gtd validate` being a no-op when there is nothing to
   validate means the loop can run it after every agent turn unconditionally.
 
-In the bundled default (§10) this covers `grilling` (TODO.md/`qa`) and
+In the `simple` template (§10) this covers `grilling` (TODO.md/`qa`) and
 `reviewing` (REVIEW.md/`review`) — the states that author a steering file — and,
 through the `gtd step` gate, the human gates `grilling-answer` and
 `await-review` that edit those same files. It replaced the old in-machine

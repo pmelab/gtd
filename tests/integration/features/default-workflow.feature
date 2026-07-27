@@ -1,8 +1,9 @@
 @inmem
-Feature: The bundled default workflow — full cycle journeys
+Feature: The bundled simple workflow — full cycle journeys
 
-  Comprehensive coverage of `src/workflows/default.yaml` (see its own header
-  comment for the state list) beyond smoke.feature's minimal hops: the
+  Comprehensive coverage of `src/workflows/simple.yaml` (the `simple` template
+  `gtd init simple` scaffolds — see its own header comment for the state list)
+  beyond smoke.feature's minimal hops: the
   grilling/answer planning loop, a check/fix round, the fix-retry-escalate
   path once `fixing`'s cap (max 3) is reached, both review outcomes (tick-all
   approve and partial-tick feedback), the delete-shortcut approve, and the
@@ -24,6 +25,7 @@ Feature: The bundled default workflow — full cycle journeys
 
   Scenario: the full cycle advances idle through an await-review approval, including a check/fix round and a partial-tick feedback lap, and rests at idle with no squash
     Given a test project
+    And the "simple" workflow
     And a file ".gtd/TODO.md" with:
       """
       Build a thing.
@@ -204,6 +206,7 @@ Feature: The bundled default workflow — full cycle journeys
 
   Scenario: a green check run that also cleans up leftover feedback moves on to reviewing with no residue (D .gtd/FEEDBACK.md)
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(agent): building" that adds "src/thing.ts" with:
       """
       export const thing = 1
@@ -220,6 +223,7 @@ Feature: The bundled default workflow — full cycle journeys
 
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(agent): checking" that adds ".gtd/FEEDBACK.md" with:
       """
       attempt 1 failed
@@ -258,6 +262,7 @@ Feature: The bundled default workflow — full cycle journeys
 
   Scenario: deleting REVIEW.md outright at await-review is the power-user approve shortcut, bypassing review-deciding
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -275,6 +280,7 @@ Feature: The bundled default workflow — full cycle journeys
 
   Scenario: at await-review, gtd next surfaces which change routes where — the human gate's route list, rendered from its `on` edge descriptions
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -292,6 +298,7 @@ Feature: The bundled default workflow — full cycle journeys
 
   Scenario: a code-only edit at await-review (REVIEW.md untouched) is feedback straight to grilling
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -311,6 +318,7 @@ Feature: The bundled default workflow — full cycle journeys
 
   Scenario: an approved cycle's idle-entering commit is a process boundary — a fresh cycle's fixing retry budget doesn't pool with a previous cycle's
     Given a test project
+    And the "simple" workflow
     # cycle 1: already spent its whole fixing retry budget (3 entries) before
     # ending at an approved, idle-resting boundary.
     And a commit "gtd(agent): checking" that adds ".gtd/FEEDBACK.md" with:
@@ -388,9 +396,10 @@ Feature: The bundled default workflow — full cycle journeys
     # The scope labels are what lets a memory-aware driver retain memory within
     # a loop (same label across laps) and clear it at a phase boundary (a
     # differently-labelled state). grilling=plan, building=build, fixing=fix,
-    # reviewing=review — see src/workflows/default.yaml. HEAD is set directly to
+    # reviewing=review — see src/workflows/simple.yaml. HEAD is set directly to
     # each agent state to read back the emitted `gtd next --json` "memory" key.
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       Build a thing.

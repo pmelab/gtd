@@ -135,8 +135,9 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     Then it succeeds
     And stdout contains "Brand new: hello"
 
-  Scenario: the bundled default workflow's "checking" script renders "npm test" from its own declared default
+  Scenario: the simple workflow's "checking" script renders "npm test" from its own declared default
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(agent): checking" that adds "src/thing.ts" with:
       """
       export const thing = 1
@@ -145,10 +146,30 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     Then it succeeds
     And stdout contains "npm test > .gtd/.check-output"
 
-  Scenario: the bundled default workflow's "checking" script renders the overridden testCommand
+  Scenario: a top-level "vars:" overrides the workflow's own testCommand default
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
+      workflow:
+        vars:
+          testCommand: npm test
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start"
+            on:
+              "* **": building
+          building:
+            actor: agent
+            prompt: "build"
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: "<%~ it.vars.testCommand %> > .gtd/.check-output 2>&1"
+            on:
+              "C": idle
       vars:
         testCommand: echo overridden
       """
@@ -161,8 +182,9 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     And stdout contains "echo overridden"
     And stdout does not contain "npm test >"
 
-  Scenario: a "GTD_VAR_testCommand" environment variable overrides the bundled default's own testCommand
+  Scenario: a "GTD_VAR_testCommand" environment variable overrides the simple workflow's own testCommand
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(agent): checking" that adds "src/thing.ts" with:
       """
       export const thing = 1

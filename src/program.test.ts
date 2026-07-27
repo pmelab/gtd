@@ -10,12 +10,12 @@
 import { NodeContext } from "@effect/platform-node"
 import { Effect, Exit, Layer } from "effect"
 import { describe, expect, it } from "vitest"
-import { ConfigInit, ConfigService } from "./Config.js"
+import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
-import { defaultWorkflowDefinition } from "./workflows/default.js"
+import { compileTemplate, renderInitConfig } from "./workflows/templates.js"
 import { makeProgram } from "./program.js"
 import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
 import { inMemoryLayers } from "../tests/integration/support/inmem/layers.js"
@@ -49,11 +49,13 @@ const failingGitLayer = Layer.succeed(GitService, {
     Effect.fail(new Error("GitService must not be called for --version/--help")),
 })
 
-// Minimal stub ConfigService — satisfies the type but never called for flags.
+// Minimal stub ConfigService — satisfies the type but never loaded for flags.
 const stubConfigLayer = Layer.succeed(ConfigService, {
-  workflow: defaultWorkflowDefinition,
-  workflowVars: {},
-  rcVars: {},
+  load: Effect.succeed({
+    workflow: compileTemplate("simple").definition,
+    workflowVars: {},
+    rcVars: {},
+  }),
 })
 
 // Minimal stub WorktreeReader — never called for flags.
@@ -67,7 +69,6 @@ const testLayers = failingGitLayer.pipe(
   Layer.provideMerge(NodeContext.layer),
   Layer.provideMerge(stubConfigLayer),
   Layer.provideMerge(stubWorktreeReaderLayer),
-  Layer.provideMerge(ConfigInit.Noop),
   Layer.provideMerge(Cwd.layer("")),
   Layer.provideMerge(EnvVars.layer({})),
 )
@@ -107,6 +108,7 @@ describe("--help short-circuit", () => {
     const { output, exit } = await runFlag("--help")
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(output).toContain("Usage")
+    expect(output).toContain("init <workflow>")
     expect(output).toContain("step")
     expect(output).toContain("step <actor>")
     expect(output).toContain("next")
@@ -334,9 +336,14 @@ describe("gtd review <commitish> — subcommand guards", () => {
     }
   })
 
-  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the bundled default's review-entry state (reviewing)", async () => {
+  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the simple template's review-entry state (reviewing)", async () => {
     const repo = seededRepo()
-    const base = repo.commitHistory()[0]!.hash
+    // gtd ships no default workflow: scaffold the `simple` template (whose
+    // `reviewing` state declares `reviewEntry: true`) and commit it, exactly as
+    // `gtd init simple` + a commit would.
+    repo.writeFile(".gtdrc.json", renderInitConfig("simple"))
+    repo.commitAllWithPrefix("chore: init gtd workflow")
+    const base = repo.commitHistory().at(-1)!.hash
     // A colleague's PR branch: ordinary commits on top of the base, no gtd
     // process of its own.
     repo.writeFile("src/calc.ts", "export const add = (a: number, b: number) => a + b\n")

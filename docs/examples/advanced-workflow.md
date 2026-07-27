@@ -1,15 +1,17 @@
-# Example: the full grilling → architecting → decompose → picking → review machine
+# The `advanced` template: the full grilling → architecting → decompose → picking → review machine
 
-This is the fuller machine gtd shipped as its bundled default before the bundled
-default was drastically simplified (see
-[STATES.md §10](../../STATES.md#10-the-bundled-default-workflow) for what ships
-today — including the two steering-file validation loops the current default
-carries over `.gtd/TODO.md` and `.gtd/REVIEW.md`, which this example's own
-`grilling`/`reviewing` phases predate and don't validate). It is preserved here
-as a copy-paste-ready `.gtdrc` recipe for anyone who wants the heavier shape
-back.
+This walks through the **`advanced`** bundled workflow template — the fuller
+machine `gtd init advanced` scaffolds (`src/workflows/advanced.yaml`). The other
+bundled template, **`simple`** (`gtd init simple`), is the smaller 10-state
+machine walked through in
+[STATES.md §10](../../STATES.md#10-the-bundled-workflow-templates) — including
+the two steering-file validation loops it carries over `.gtd/TODO.md` and
+`.gtd/REVIEW.md`, which this machine's own `grilling`/`reviewing` phases predate
+and don't validate. `gtd init advanced` writes the block below directly, so you
+normally don't paste it by hand; it's reproduced here as the annotated
+reference.
 
-Compared to the simplified bundled default, this machine adds:
+Compared to the `simple` template, this machine adds:
 
 - **Two-phase human-in-the-loop planning with Q&A loops** — `grilling` ⇄
   `grilling-answer` develops a product-level plan from `.gtd/TODO.md` one open
@@ -29,9 +31,9 @@ Compared to the simplified bundled default, this machine adds:
   [STATES.md §11](../../STATES.md#11-the-review-checkout-window).
 - **A squash finale** — approval at `await-review` moves to `squashing` (the
   agent authors `.gtd/COMMIT_MSG.md`) and then `done`, a `commit:` state that
-  squashes the whole cycle into one commit. The simplified bundled default drops
-  this: it rests at `idle` on approval instead and leaves every turn commit in
-  history for the human to squash (or not) however they choose.
+  squashes the whole cycle into one commit. The `simple` template drops this: it
+  rests at `idle` on approval instead and leaves every turn commit in history
+  for the human to squash (or not) however they choose.
 
 This example also carries `file:`/`mode:` annotations on every state that rests
 on a steering file (see the state table below and
@@ -44,11 +46,12 @@ actions/diagnostics off those declarations rather than a hardcoded basename:
 `review`-format (`vars.reviewFile`), and `fixing`/`escalate` declare `file:`
 alone (`vars.feedbackFile` is plain text, no LSP format).
 
-Paste the block below under a top-level `workflow:` key in your own `.gtdrc` (or
-`.gtdrc.yaml`) — it's the complete definition, unmodified in content from the
-version this example is frozen from, only re-indented to nest under `workflow:`.
-See [Configuration](../configuration.md) for the `.gtdrc` schema this slots
-into.
+Running `gtd init advanced` writes this whole definition into `.gtdrc.json`
+under a `workflow:` key for you. The block below is the same definition in YAML
+form (the source is `src/workflows/advanced.yaml`), nested under `workflow:` —
+paste it into your own `.gtdrc`/`.gtdrc.yaml` if you'd rather hand-author or
+tweak it. See [Configuration](../configuration.md) for the `.gtdrc` schema this
+slots into.
 
 ## State table
 
@@ -225,7 +228,7 @@ workflow:
       actor: check
       script: |
         #!/usr/bin/env bash
-        # gtd check turn (the queue arbiter) — the driver (`gtd run`) executes
+        # gtd check turn (the queue arbiter) — the loop driver executes
         # this verbatim, then steps the check actor. Mechanics only: take the
         # first task file (by name) under .gtd/tasks/ into .gtd/NEXT.md, or
         # remove .gtd/NEXT.md when the queue is empty. What NEXT.md's
@@ -268,7 +271,7 @@ workflow:
       actor: check
       script: |
         #!/usr/bin/env bash
-        # gtd check turn — the driver (`gtd run`) executes this verbatim, then
+        # gtd check turn — the loop driver executes this verbatim, then
         # steps the check actor. Mechanics only: run the test suite and record a
         # red run's output as .gtd/FEEDBACK.md. What that output MEANS (another
         # fix round vs escalation) is decided by the workflow's own `on`/`retry`
@@ -436,8 +439,8 @@ event) accepts the current phase's draft and moves on; any other pending change
 loops back for another round. `picking` is a `script` state whose only job is to
 inspect `.gtd/tasks/` (a tree property patterns can't see directly) and turn it
 into a diff patterns CAN see — see the walkthrough in
-[STATES.md §10](../../STATES.md#10-the-bundled-default-workflow) (the version of
-that section frozen alongside this example) for the full state-by-state
+[STATES.md §10](../../STATES.md#10-the-bundled-workflow-templates) (the version
+of that section frozen alongside this example) for the full state-by-state
 narrative, including the `on`-declaration-order subtlety at `picking` and the
 `fixing` retry-cap pooling caveat.
 

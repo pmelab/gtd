@@ -1,18 +1,19 @@
 @inmem
-Feature: v3 pattern-machine smoke — default workflow hops, gtd next --json, custom squash
+Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, custom squash
 
   Minimal smoke coverage for the v3 CLI (`gtd step <actor>` / `gtd next` /
   `gtd status`, see src/Edge.ts and
   docs/design/pattern-machine-plan.md). Proves the rewritten edge/CLI wiring
-  end to end: a couple of default-workflow hops, the `gtd next --json`
-  contract, and a custom `.gtdrc` `workflow:` squashing through a `commit:`
-  state. Comprehensive coverage (every default-workflow state,
-  retry/escalation, the full check/fix/review cycle, both refusal shapes) has
-  its own dedicated feature files — see refusals.feature,
-  default-workflow.feature, retry.feature, squash.feature.
+  end to end: a couple of `simple`-workflow hops (scaffolded by `gtd init
+  simple`), the `gtd next --json` contract, and a custom `.gtdrc` `workflow:`
+  squashing through a `commit:` state. Comprehensive coverage (every
+  simple-workflow state, retry/escalation, the full check/fix/review cycle,
+  both refusal shapes) has its own dedicated feature files — see
+  refusals.feature, default-workflow.feature, retry.feature, squash.feature.
 
-  Scenario: the default workflow's happy path advances idle -> grilling -> grilling-answer -> building -> checking
+  Scenario: the simple workflow's happy path advances idle -> grilling -> grilling-answer -> building -> checking
     Given a test project
+    And the "simple" workflow
     And a file ".gtd/TODO.md" with:
       """
       Build a thing.
@@ -40,6 +41,7 @@ Feature: v3 pattern-machine smoke — default workflow hops, gtd next --json, cu
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project
+    And the "simple" workflow
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"idle\""

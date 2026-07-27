@@ -1,25 +1,18 @@
 import { homedir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname } from "node:path"
 import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
-import { Command, CommandExecutor, FileSystem } from "@effect/platform"
-import {
-  compileModesMap,
-  compileVarsMap,
-  compileWorkflowConfig,
-  mergeModes,
-} from "./PatternConfig.js"
-import { parseStateSubject, type ModeDef, type WorkflowDefinition } from "./PatternMachine.js"
-import { defaultWorkflowDefinition, defaultWorkflowVars } from "./workflows/default.js"
+import { compileModesMap, compileVarsMap, compileWorkflowConfig } from "./PatternConfig.js"
+import { type ModeDef, type WorkflowDefinition } from "./PatternMachine.js"
 import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
 import { ConfigSchema, type DecodedConfig } from "./ConfigSchema.js"
 
 export interface ConfigOperations {
-  /** The active workflow definition — the bundled default, or the `.gtdrc` `workflow:` key compiled through `compileWorkflowConfig`. */
+  /** The active workflow definition — the `.gtdrc` `workflow:` key compiled through `compileWorkflowConfig`. gtd ships no default: a repo scaffolds one with `gtd init <simple|advanced>`, and config with no `workflow:` key fails (see `toOperations`). */
   readonly workflow: WorkflowDefinition
-  /** The active workflow's own declared `vars:` defaults (layer 1 of the merged `it.vars` — see `src/Edge.ts`'s `resolveVars`). `defaultWorkflowVars` for the bundled default. */
+  /** The active workflow's own declared `vars:` defaults (layer 1 of the merged `it.vars` — see `src/Edge.ts`'s `resolveVars`). */
   readonly workflowVars: Record<string, string>
   /** The top-level `.gtdrc` `vars:` key (layer 2), already cwd→home deep-merged like any other config key. `{}` when absent. */
   readonly rcVars: Record<string, string>
@@ -148,16 +141,13 @@ const loadMerged = (root: string): Effect.Effect<Record<string, unknown>, Error>
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
-const SCHEMA_URL = "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json"
-
-const SCHEMA_STUB = `${JSON.stringify({ $schema: SCHEMA_URL }, null, 2)}\n`
-
 /**
  * Reuses the same `walkUp` + `searchStrategy: "none"` cosmiconfig explorer as
  * `loadMerged` to detect whether ANY level of the cwd→root walk carries a gtd
- * config. Returns `true` on the first non-empty `search(dir)` result.
+ * config. Returns `true` on the first non-empty `search(dir)` result. Exported
+ * so `gtd init` (src/program.ts) can refuse to overwrite an existing config.
  */
-const anyConfigPresent = (root: string): Effect.Effect<boolean, Error> =>
+export const anyConfigPresent = (root: string): Effect.Effect<boolean, Error> =>
   Effect.tryPromise({
     try: async () => {
       const home = homedir()
@@ -218,29 +208,28 @@ const compileRcVars = (raw: unknown): Record<string, string> => {
 }
 
 /**
- * Compile the decoded config's `workflow:` key (or the bundled default, when
- * absent) plus its top-level `vars:`/`modes:` keys into `ConfigOperations`. `root` is
- * used as the workflow compiler's `configDir` — the directory a custom
- * workflow's `./`-relative content references resolve against. Throws (via
- * `compileWorkflowConfig`/`compileRcVars`) on any invalid custom
- * workflow/vars; the bundled default's workflow half never throws here (it
- * is pre-compiled and validated once at module load, see
- * `./workflows/default.ts`).
+ * The error every config-reading command fails with when no `workflow:` key is
+ * configured anywhere in the cwd→home chain. gtd ships no default workflow, so
+ * there is nothing to fall back to — the user must scaffold one with
+ * `gtd init`. Exported so the CLI layer and tests can assert on it verbatim.
+ */
+export const NO_WORKFLOW_MESSAGE =
+  "gtd: no workflow configured — run `gtd init <simple|advanced>` to create .gtdrc.json"
+
+/**
+ * Compile the decoded config's `workflow:` key plus its top-level
+ * `vars:`/`modes:` keys into `ConfigOperations`. `root` is used as the
+ * workflow compiler's `configDir` — the directory a custom workflow's
+ * `./`-relative content references resolve against. Throws `NO_WORKFLOW_MESSAGE`
+ * when no `workflow:` key is present (there is no bundled default to fall back
+ * to — see `gtd init`), or (via `compileWorkflowConfig`/`compileRcVars`) on any
+ * invalid workflow/vars.
  */
 const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations => {
   const rcVars = compileRcVars(decoded.vars)
   const rcModes = compileRcModes(decoded.modes)
   if (decoded.workflow === undefined) {
-    // The bundled default is pre-compiled and pre-validated; layering the rc
-    // `modes:` over it can only ADD mode names (never invalidate a `mode:`
-    // reference), so it needs no re-validation.
-    const modes = mergeModes(defaultWorkflowDefinition.modes, rcModes)
-    return {
-      workflow:
-        modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition,
-      workflowVars: defaultWorkflowVars,
-      rcVars,
-    }
+    throw new Error(NO_WORKFLOW_MESSAGE)
   }
   const { definition, vars: workflowVars } = compileWorkflowConfig(decoded.workflow, root, rcModes)
   return { workflow: definition, workflowVars, rcVars }
@@ -255,89 +244,40 @@ const formatSchemaError = (e: ParseError): string => {
 }
 
 /**
- * Auto-init as an explicit capability, separate from config LOADING: the stub
- * write mutates the repository (a file write plus a commit or amend), so it
- * must only ever run for a state command that has already passed the
- * repo-root guard — never at layer-construction time, where it would fire for
- * `--version`/`--help`, `format`, bare/unknown commands, and root-guard
- * refusals alike (and from a subdirectory would drop the stub into the wrong
- * directory). `makeProgram` calls `ensure` right after the repo-root guard;
- * the in-memory test world provides `ConfigInit.Noop`.
+ * The service interface. Config loading is exposed as a DEFERRED effect
+ * (`load`) rather than an already-loaded `ConfigOperations` value: the layer
+ * is provided to the whole program (see `main.ts`), which builds it eagerly,
+ * so if it loaded (and validated a workflow) at BUILD time, the "no workflow
+ * configured" failure would break `gtd init` and `gtd lsp` too — the two
+ * commands that must run with no workflow configured yet. Deferring to `load`
+ * means the failure surfaces only when a command actually reads the config.
  */
-export class ConfigInit extends Context.Tag("ConfigInit")<
-  ConfigInit,
-  { readonly ensure: Effect.Effect<void, Error> }
->() {
-  static Noop = Layer.succeed(ConfigInit, { ensure: Effect.void })
-
-  static Live = Layer.effect(
-    ConfigInit,
-    Effect.gen(function* () {
-      const { root } = yield* Cwd
-      const executor = yield* CommandExecutor.CommandExecutor
-      const fs = yield* FileSystem.FileSystem
-
-      const ensureBody = Effect.gen(function* () {
-        const present = yield* anyConfigPresent(root)
-        if (present) return
-
-        const git = (...args: Array<string>) =>
-          executor.exitCode(Command.make("git", ...args).pipe(Command.workingDirectory(root)))
-        const writeStub = fs
-          .writeFileString(join(root, ".gtdrc.json"), SCHEMA_STUB)
-          .pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
-
-        // A repo with no commits yet has no HEAD to stack on or amend into —
-        // commit the stub as the first commit.
-        const headSubject = yield* Command.make("git", "log", "-1", "--pretty=%s")
-          .pipe(Command.workingDirectory(root), Command.string)
-          .pipe(Effect.map((s) => s.trim()))
-          .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
-
-        yield* writeStub
-        yield* git("add", ".gtdrc.json")
-        // A repo that's already mid-workflow (any `gtd(actor): state` HEAD)
-        // must not gain a NEW boundary commit on top: the machine owns the
-        // commit history here, and stacking a fresh `chore:` commit would
-        // produce an unrecognized boundary HEAD that resolves back to the
-        // workflow's initial state. Instead, amend the stub INTO the
-        // existing HEAD commit — HEAD's subject (and therefore what
-        // `resolveState` classifies) is unchanged, only its tree gains
-        // `.gtdrc.json`.
-        if (headSubject !== undefined && parseStateSubject(headSubject) !== undefined) {
-          yield* git("commit", "--amend", "--no-edit")
-        } else {
-          yield* git("commit", "-m", "chore: add .gtdrc.json")
-        }
-      })
-
-      const ensure: Effect.Effect<void, Error> = ensureBody.pipe(
-        Effect.provideService(CommandExecutor.CommandExecutor, executor),
-        Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))),
-      )
-
-      return { ensure }
-    }),
-  )
+interface ConfigServiceOperations {
+  readonly load: Effect.Effect<ConfigOperations, Error>
 }
 
-export class ConfigService extends Context.Tag("ConfigService")<ConfigService, ConfigOperations>() {
+export class ConfigService extends Context.Tag("ConfigService")<
+  ConfigService,
+  ConfigServiceOperations
+>() {
   static Live = Layer.effect(
     ConfigService,
     Effect.gen(function* () {
       const { root } = yield* Cwd
-
-      const merged = yield* loadMerged(root)
-      const { $schema: _schema, ...cleaned } = merged
-      const decoded = yield* Schema.decodeUnknown(ConfigSchema)(cleaned, {
-        onExcessProperty: "error",
+      const load: Effect.Effect<ConfigOperations, Error> = Effect.gen(function* () {
+        const merged = yield* loadMerged(root)
+        const { $schema: _schema, ...cleaned } = merged
+        const decoded = yield* Schema.decodeUnknown(ConfigSchema)(cleaned, {
+          onExcessProperty: "error",
+        })
+          .pipe(Effect.mapError(formatSchemaError))
+          .pipe(Effect.mapError((msg) => new Error(msg)))
+        return yield* Effect.try({
+          try: () => toOperations(decoded, root),
+          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        })
       })
-        .pipe(Effect.mapError(formatSchemaError))
-        .pipe(Effect.mapError((msg) => new Error(msg)))
-      return yield* Effect.try({
-        try: () => toOperations(decoded, root),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      })
+      return { load }
     }),
   )
 }

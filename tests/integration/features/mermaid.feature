@@ -8,8 +8,9 @@ Feature: gtd mermaid — the active workflow's shape as Mermaid stateDiagram-v2 
   depends only on the compiled `WorkflowDefinition`, not on the current
   process/branch state.
 
-  Scenario: the bundled default workflow renders every state, the initial marker, and a commit-state finality edge
+  Scenario: the bundled simple template renders every state, the initial marker, and a commit-state finality edge
     Given a test project
+    And the "simple" workflow
     When I run gtd with args "mermaid"
     Then it succeeds
     And stdout contains "stateDiagram-v2"
@@ -78,6 +79,7 @@ Feature: gtd mermaid — the active workflow's shape as Mermaid stateDiagram-v2 
 
   Scenario: gtd mermaid authors nothing, regardless of the repo's current state
     Given a test project
+    And the "simple" workflow
     And a file ".gtd/TODO.md" with:
       """
       Build a thing.

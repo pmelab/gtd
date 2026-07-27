@@ -176,7 +176,7 @@ export interface ResolvedRest {
 export const resolveRest = (): Effect.Effect<ResolvedRest, Error, GitService | ConfigService> =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const config = yield* ConfigService
+    const config = yield* (yield* ConfigService).load
     const def = config.workflow
     const hasCommits = yield* git.hasCommits()
     const headSubject = hasCommits ? yield* git.lastCommitSubject() : ""

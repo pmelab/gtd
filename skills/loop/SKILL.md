@@ -75,7 +75,7 @@ is a comparison, not a command:
   session/context), then update the tracked value.
 
 This is what makes a loop retain memory while a phase boundary clears it: a loop
-that keeps re-entering one state (the default workflow's grilling loop, or its
+that keeps re-entering one state (the `simple` workflow's grilling loop, or its
 fix loop) emits the same label every lap, so the agent accumulates context
 across the loop; moving to the next phase's differently-labelled state resets
 it. If your harness runs the whole loop in one long-lived context and cannot
@@ -86,7 +86,7 @@ prior turn's working notes rather than carry them forward. A beat with no
 ## Self-validation
 
 Some producing states declare a steering file with a checkable format (the
-default workflow's `grilling` writes `.gtd/TODO.md`, `reviewing` writes
+`simple` workflow's `grilling` writes `.gtd/TODO.md`, `reviewing` writes
 `.gtd/REVIEW.md`). Those states appear in `gtd next --json` with both a `"file"`
 and a `"mode"` key. So the human/check rest that acts on such a file is only
 ever handed a well-formed one, run the self-validation gate after every
@@ -136,7 +136,7 @@ indefinitely.
   Each loop iteration does at most one thing.
 - Red checks are not errors: the script exits however it likes (its exit code is
   ignored) and the check's own `gtd step` turn commits the findings file the
-  workflow declares (the default workflow's `checking` state writes
+  workflow declares (the `simple` workflow's `checking` state writes
   `.gtd/FEEDBACK.md`); the fix round follows as your next `"prompt"` beat.
 - `gtd next --json` never mutates the working tree; it is safe to call as often
   as needed to inspect state.

@@ -1,10 +1,11 @@
 # Configuration
 
-gtd reads an optional `.gtdrc` config file via
-[cosmiconfig](https://github.com/cosmiconfig/cosmiconfig). With no config, the
-bundled default workflow applies (see
-[STATES.md](../STATES.md#10-the-bundled-default-workflow)). Supported filenames
-(searched in this order):
+gtd reads a required `.gtdrc` config file via
+[cosmiconfig](https://github.com/cosmiconfig/cosmiconfig). gtd ships **no**
+default workflow: scaffold one for the repo with [`gtd init`](#gtd-init) (once),
+which writes a `.gtdrc.json` carrying a bundled workflow template inline. A
+state command run with no `workflow:` configured fails, pointing you at
+`gtd init`. Supported filenames (searched in this order):
 
 - `.gtdrc`
 - `.gtdrc.json`
@@ -17,16 +18,17 @@ bundled default workflow applies (see
 
 v3's `.gtdrc` has exactly three blessed top-level keys:
 
-- **`workflow`** (object, optional) — the whole machine definition (its states,
-  plus its own `vars:` defaults and `modes:`), compiled by
-  `src/PatternConfig.ts`. Absent = the bundled default workflow. See
+- **`workflow`** (object, **required**) — the whole machine definition (its
+  states, plus its own `vars:` defaults and `modes:`), compiled by
+  `src/PatternConfig.ts`. Absent = a hard error pointing at
+  [`gtd init`](#gtd-init); there is no bundled default. See
   ["The `workflow:` key" below](#the-workflow-key) for its schema.
 - **`vars`** (object, optional) — a flat `name -> scalar` map, one layer of the
   merged `it.vars` every template sees — see ["Variables"](#variables) below.
 - **`modes`** (object, optional) — steering-file modes (`format:`/`validate:`
   shell commands), layered over the active workflow's own `modes:` and gtd's
   built-in validators, so a project can plug its formatter or linter into the
-  BUNDLED default without re-declaring a workflow. See
+  configured workflow without re-declaring that mode on the workflow itself. See
   ["`modes:`"](#modes--pluggable-steering-file-modes) below.
 - **`$schema`** (string, optional) — stripped before validation, so it never
   counts as an unknown key. Point it at the published schema for editor-backed
@@ -37,16 +39,18 @@ Any other top-level key is **rejected** (`onExcessProperty: "error"`) — v3 has
 no `testCommand`, `fixAttemptCap`, `reviewThreshold`, `agenticReview`, `squash`,
 `learning`, `decisionLog`, or `models` keys; all of that machinery is gone (see
 [Upgrading](upgrading.md)). The engine blesses no VARIABLE NAMES either —
-`testCommand` (the bundled default workflow's own var, see
-["Variables"](#variables)) is workflow-authored data like any other `it.vars`
-entry, not a special key gtd interprets.
+`testCommand` (the bundled templates' own var, see ["Variables"](#variables)) is
+workflow-authored data like any other `it.vars` entry, not a special key gtd
+interprets.
 
 ## The `workflow:` key
 
 The `workflow:` key is the **only** definition source — there is no `extends`,
-no merge-over-a-built-in; the bundled default workflow is itself a YAML asset
-compiled through the exact same compiler (`src/workflows/default.yaml` →
-`compileWorkflowConfig`). Its shape:
+no merge-over-a-built-in. The bundled templates `gtd init` scaffolds are
+themselves YAML assets (`src/workflows/simple.yaml`,
+`src/workflows/advanced.yaml`) compiled through the exact same compiler
+(`compileWorkflowConfig`); `gtd init` just writes one of them, inline, under
+this key. Its shape:
 
 ```yaml
 workflow:
@@ -219,9 +223,9 @@ Because `grilling` re-enters itself around the answer loop, every lap emits
 `building` emits a different label (`build`), which is where the driver clears
 memory for a fresh implementation turn. A loop of same-labelled turns retains; a
 differently-labelled state at a phase boundary clears. This is exactly how the
-bundled default scopes its four agent states (`plan`/`build`/`fix`/`review` —
-see [STATES.md §10](../STATES.md#10-the-bundled-default-workflow)), and how the
-loop driver reads it is spelled out in `skills/loop/SKILL.md`.
+`simple` template scopes its four agent states (`plan`/`build`/`fix`/`review` —
+see [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)), and how
+the loop driver reads it is spelled out in `skills/loop/SKILL.md`.
 
 Like `model`, `memory:` is rendered as an Eta template through the same context
 as the state's content — a plain label (`plan`) passes through unchanged, while
@@ -239,7 +243,8 @@ A state may additionally declare `file:` — an Eta template naming THE steering
 file this state is about: the file a human/editor should look at while the
 machine rests here (rendered through the same `it.vars`-carrying context as
 content/`model`; must render non-empty). Forbidden on a commit state (never at
-rest). Multiple states may share one `file:` (and, in the bundled default, do):
+rest). Multiple states may share one `file:` (and, in the `simple` template,
+do):
 
 ```yaml
 workflow:
@@ -357,16 +362,20 @@ So for a state declaring `mode: qa`:
 | both                             | its `format:` | its `validate:`             |
 
 That is what makes the built-in modes extensible rather than all-or-nothing —
-and the top-level key means a project on the BUNDLED default workflow can plug
-in its formatter without copying a single state:
+and the top-level key means a project can plug its formatter into whichever
+workflow it scaffolded (`gtd init simple`/`advanced`) without re-declaring a
+`modes:` block on the workflow itself. Add it alongside the `workflow:` key in
+your `.gtdrc.json`:
 
-```yaml
-# .gtdrc — keep the bundled default workflow, add your own markdown formatter
-modes:
-  qa:
-    format: "npx prettier --write <%= it.file %>"
-  review:
-    format: "npx prettier --write <%= it.file %>"
+```jsonc
+// .gtdrc.json — the workflow from `gtd init`, plus your own markdown formatter
+{
+  "workflow": { "...": "..." },
+  "modes": {
+    "qa": { "format": "npx prettier --write <%= it.file %>" },
+    "review": { "format": "npx prettier --write <%= it.file %>" },
+  },
+}
 ```
 
 **Known limitation — no live editor support for a custom mode.** `gtd lsp`
@@ -411,7 +420,7 @@ workflow:
         "* **": building
 ```
 
-The bundled default enables `reviewWindow: true` on `await-review` (no
+The `simple` template enables `reviewWindow: true` on `await-review` (no
 `reviewBase` state, so the base is the whole cycle). The pure engine never
 observes an open window — it is opened/closed entirely at the edge; the real
 head is preserved under `refs/gtd/review-head` (the base under
@@ -528,10 +537,10 @@ Every template — `script`/`prompt`/`message`/`commit`, and `model`/`memory`/
 layers, **later wins**:
 
 1. **The workflow's own `vars:` key** (sibling to `states:`, shown above) — the
-   workflow author's declared defaults. The bundled default workflow declares
+   workflow author's declared defaults. The `simple` template declares
    `vars: { testCommand: "npm test" }`, read by `checking`'s script as
    `<%~ it.vars.testCommand %>` (see
-   [STATES.md §10](../STATES.md#10-the-bundled-default-workflow)).
+   [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)).
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow. Subject
    to the same cwd→home deep merge as everything else in `.gtdrc` (innermost
@@ -549,7 +558,7 @@ alongside every other config-shape finding (see
 already strings.
 
 ```yaml
-# .gtdrc — overriding the bundled default's testCommand
+# .gtdrc — overriding the `simple` template's testCommand
 vars:
   testCommand: npm run test:ci
 ```
@@ -635,19 +644,38 @@ finds along the way. All found levels are **deep-merged**, with the **innermost
 directory cascades to every checkout beneath it, while any individual checkout
 can still override with its own `.gtdrc`.
 
-## Auto-init
+## `gtd init`
 
-On every **state command** (`step`, `next`, `run`, `status`) that has passed the
-repo-root guard, if the cwd→root walk finds **no** config anywhere, gtd creates
-and commits a starter `.gtdrc.json` at the repository root containing only a
-`$schema` link. Auto-init never runs for `--version`/`--help`, `format`,
-bare/unknown commands, or an invocation refused by the repo-root guard — those
-perform no repository mutation of any kind. On a repo with no commits yet, or
-whose HEAD isn't a `gtd(actor): state` commit, the stub is committed as its own
-`chore: add .gtdrc.json`. If HEAD is already a `gtd(actor): state` commit
-(mid-process), the stub is instead **amended into HEAD** — stacking a fresh
-boundary commit there would produce an unrecognized HEAD that resolves back to
-the workflow's initial state.
+gtd ships **no** default workflow, so a repo must scaffold one before any state
+command works:
+
+```bash
+gtd init simple      # or: gtd init advanced
+```
+
+`gtd init <workflow>` writes a `.gtdrc.json` at the repository root with the
+chosen bundled template's whole workflow inline under a `workflow:` key, plus a
+`$schema` link (so editors pick up completion/validation). The two templates:
+
+- **`simple`** — the 10-state machine walked through in
+  [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates): idle →
+  grilling ⇄ grilling-answer → building → checking ⇄ fixing (→ escalate) →
+  reviewing → await-review, resting back at idle on approval (no squash).
+- **`advanced`** — the fuller machine (two-phase Q&A planning, an architecture
+  phase, task decomposition, a per-task build queue, and a squash finale),
+  walked through at
+  [docs/examples/advanced-workflow.md](examples/advanced-workflow.md).
+
+The file is written **uncommitted** — review it, then commit it before your
+first `gtd step` (an uncommitted `.gtdrc.json` is a pending change the initial
+state's `* **` edge would otherwise capture). `gtd init` refuses if any gtd
+config already exists (remove it first to re-init), requires the repository
+root, and is one of the two commands (with `gtd lsp`) that run with no workflow
+configured. A state command run before `gtd init` fails with:
+
+```
+gtd: no workflow configured — run `gtd init <simple|advanced>` to create .gtdrc.json
+```
 
 ## A complete example
 
@@ -720,8 +748,8 @@ agent-encoded verdict") for the worked example.
 
 ## A fuller example: two-phase planning, task decomposition, agent-prepared review
 
-The bundled default above is deliberately small. For a heavier machine — Q&A
-planning loops, an architecture phase, task decomposition, the deterministic
-per-task `picking` arbiter, and agent-prepared `.gtd/REVIEW.md` review — see
-[docs/examples/advanced-workflow.md](examples/advanced-workflow.md), a
-copy-paste-ready `.gtdrc` recipe.
+The example above is deliberately small (it is close to the `simple` template).
+For a heavier machine — Q&A planning loops, an architecture phase, task
+decomposition, the deterministic per-task `picking` arbiter, and agent-prepared
+`.gtd/REVIEW.md` review — run `gtd init advanced`, walked through at
+[docs/examples/advanced-workflow.md](examples/advanced-workflow.md).

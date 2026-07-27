@@ -4,6 +4,10 @@
 Usage: gtd [command] [options]
 
 Commands:
+  init <workflow>  Scaffold a .gtdrc.json for this repo with the chosen
+                   bundled workflow inline (one of: simple, advanced). Run
+                   once per repo; refuses if a gtd config already exists.
+                   Leaves the file uncommitted for you to review and commit
   step <actor>     Authenticate as <actor>, match the resolved rest's
                    declared patterns against the pending changes, and commit
                    (or squash) the one resulting transition. Pass
@@ -17,8 +21,6 @@ Commands:
                    a clean tree resting at the workflow's initial state
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
-  run              Execute the resolved rest's emitted script, then step its
-                   actor (the built-in script driver)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   validate         Format and validate the steering file the resolved rest
@@ -51,6 +53,28 @@ mistyped flag can never degrade a JSON caller to plain-text mode. A bare
 `--cost`/`--model` with no value, a non-numeric or negative `--cost`, an empty
 `--model`, `--model` without `--cost`, or either flag on any command other than
 `gtd step` are all usage errors.
+
+## `gtd init <workflow>`
+
+Scaffolds a `.gtdrc.json` at the repository root with one of the bundled
+workflow templates inline under a `workflow:` key, plus a `$schema` link.
+`<workflow>` is required and must be `simple` or `advanced` (a missing or
+unknown name is a usage error listing both). gtd ships **no** default workflow,
+so this is the one-time setup step for a repo; a state command run before it
+fails with `gtd: no workflow configured — run \`gtd init <simple|advanced>\` …`.
+
+- `simple` — the 10-state machine (see
+  [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)).
+- `advanced` — the fuller machine (see
+  [advanced-workflow.md](examples/advanced-workflow.md)).
+
+The file is written **uncommitted**; review and commit it before your first
+`gtd step` (an uncommitted `.gtdrc.json` is a pending change the initial state
+would otherwise capture). `gtd init` refuses if any gtd config already exists,
+requires the repository root, and — with `gtd lsp` — is one of the two commands
+that run with no workflow configured. `--json` prints
+`{"written":".gtdrc.json","workflow":"<name>"}`. See
+[Configuration](configuration.md#gtd-init).
 
 ## `gtd step <actor> [--cost=<n>] [--model=<name>]`
 
@@ -295,9 +319,9 @@ Then:
   approve), has nothing to validate and exits `0`
   (`nothing to validate at "<state>"`). Nothing is formatted in that case.
 
-This is how the bundled default keeps its steering files well-formed without an
-in-machine validation state — and the check runs whoever last touched the file,
-agent or human:
+This is how the `simple` template keeps its steering files well-formed without
+an in-machine validation state — and the check runs whoever last touched the
+file, agent or human:
 
 - **The producing agent self-validates.** Plain `gtd next` appends a "run
   `gtd validate` and fix all violations" instruction to a `prompt` rest that
@@ -378,8 +402,9 @@ with no `.gtdrc` in sight. Also registers an `executeCommand`,
 naming the state instead — bind it to an editor keybinding for a "jump to the
 active steering file" command.
 
-Dispatched before the repository-root guard and auto-init — the server needs no
-git/workflow state of its own. Rejects `--json` (exit 1,
+Dispatched before the repository-root guard and the config-reading path — the
+server needs no git/workflow state of its own (like `gtd init`, it runs with no
+workflow configured). Rejects `--json` (exit 1,
 `gtd lsp does not accept --json`) and extra positional arguments — it's a
 long-running server, not a state command. Runs until the client disconnects (the
 LSP `exit` notification), then exits cleanly.

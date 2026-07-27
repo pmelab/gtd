@@ -66,7 +66,11 @@ const run = <A>(eff: Effect.Effect<A, Error, GitService | ConfigService>): Promi
   Effect.runPromise(
     eff.pipe(
       Effect.provide(GitService.Live),
-      Effect.provide(Layer.succeed(ConfigService, { workflow: def, workflowVars: {}, rcVars: {} })),
+      Effect.provide(
+        Layer.succeed(ConfigService, {
+          load: Effect.succeed({ workflow: def, workflowVars: {}, rcVars: {} }),
+        }),
+      ),
       Effect.provide(Cwd.layer(repoDir)),
       Effect.provide(NodeContext.layer),
     ),
