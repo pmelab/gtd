@@ -18,6 +18,15 @@
 # disk at RUNTIME. `advanced.yaml` is imported as raw text (tsdown's `.yaml`
 # text loader / the vitest rawMd transform), so this module never touches the
 # filesystem.
+#
+# `gtd init advanced` DERIVES the scaffolded `.gtdrc.json` from this inline
+# source (src/workflows/templates.ts `renderInitScaffold`): each agent state's
+# `prompt:` below is written out as an editable `gtd-prompts/<state>.md` file
+# and the config value is rewritten to a `./gtd-prompts/<state>.md` reference
+# `compileWorkflowConfig` inlines back at load time. Human `message:`/check
+# `script:` bodies and the `done` `commit:` template stay inline in the config.
+# This YAML stays fully inline regardless — the split happens only at scaffold
+# time, on real disk.
 
 vars:
   testCommand: npm test

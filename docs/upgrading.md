@@ -129,7 +129,8 @@ upgrading each repo must scaffold one **once**:
 gtd init simple      # or: gtd init advanced
 ```
 
-`gtd init simple` writes a `.gtdrc.json` with the `simple` template inline: a
+`gtd init simple` writes a `.gtdrc.json` for the `simple` template (its agent
+prompts extracted to editable `gtd-prompts/*.md` files the config references): a
 single-shot `grilling` plan, direct `building`, a `checking`/`fixing` loop, and
 a direct-diff `await-review` that rests the cycle back at `idle` on approval —
 no squash; every turn commit stays in history for you to squash however you
@@ -139,10 +140,10 @@ like, or not at all (see
 ⇄ architecting-answer / decompose / picking / reviewing machine — including a
 squash finale — walked through at
 [docs/examples/advanced-workflow.md](examples/advanced-workflow.md). Review and
-commit the generated `.gtdrc.json`, then continue from a settled `idle`
-boundary. **Note:** a repo relying on earlier gtd's auto-created `.gtdrc.json`
-`$schema` stub (which carried no `workflow:`) will now fail until you `gtd init`
-— the stub alone is no longer enough.
+commit the generated `.gtdrc.json` (and its `gtd-prompts/` directory), then
+continue from a settled `idle` boundary. **Note:** a repo relying on earlier
+gtd's auto-created `.gtdrc.json` `$schema` stub (which carried no `workflow:`)
+will now fail until you `gtd init` — the stub alone is no longer enough.
 
 A repo that customized v2's `workflow:` key (actors, gates, guard vocabulary,
 ladders) needs to rewrite it from scratch in the v3 schema — see

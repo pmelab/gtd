@@ -3,9 +3,10 @@
 gtd reads a required `.gtdrc` config file via
 [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig). gtd ships **no**
 default workflow: scaffold one for the repo with [`gtd init`](#gtd-init) (once),
-which writes a `.gtdrc.json` carrying a bundled workflow template inline. A
-state command run with no `workflow:` configured fails, pointing you at
-`gtd init`. Supported filenames (searched in this order):
+which writes a `.gtdrc.json` for a bundled workflow template (with its agent
+prompts as editable Markdown under `gtd-prompts/`). A state command run with no
+`workflow:` configured fails, pointing you at `gtd init`. Supported filenames
+(searched in this order):
 
 - `.gtdrc`
 - `.gtdrc.json`
@@ -659,8 +660,15 @@ gtd init simple      # or: gtd init advanced
 ```
 
 `gtd init <workflow>` writes a `.gtdrc.json` at the repository root with the
-chosen bundled template's whole workflow inline under a `workflow:` key, plus a
-`$schema` link (so editors pick up completion/validation). The two templates:
+chosen bundled template's workflow under a `workflow:` key, plus a `$schema`
+link (so editors pick up completion/validation). Each **agent state's prompt**
+is written as a standalone Markdown file under `gtd-prompts/<state>.md` and the
+config references it via a `./gtd-prompts/<state>.md`
+[file reference](#content-values-inline-or-a-file-reference) — gtd inlines it at
+load time, so a prompt is editable Markdown and editing it changes the workflow
+with no config edit. Human `message:` blocks and check `script:` bodies stay
+inline in the config (they are workflow mechanics, not prompts). The two
+templates:
 
 - **`simple`** — the 10-state machine walked through in
   [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates): idle →
@@ -671,13 +679,14 @@ chosen bundled template's whole workflow inline under a `workflow:` key, plus a
   walked through at
   [docs/examples/advanced-workflow.md](examples/advanced-workflow.md).
 
-The file is written **uncommitted** — review it, then commit it before your
-first `gtd step` (an uncommitted `.gtdrc.json` is a pending change the initial
-state's `* **` edge would otherwise capture). `gtd init` refuses if the repo
-root already has its OWN gtd config (remove it first to re-init; a
-global/ancestor config such as `~/.gtdrc` does not count), requires the
-repository root, and is one of the two commands (with `gtd lsp`) that run with
-no workflow configured. A state command run before `gtd init` fails with:
+The files are written **uncommitted** — review them, then commit `.gtdrc.json`
+and `gtd-prompts/` before your first `gtd step` (an uncommitted file is a
+pending change the initial state's `* **` edge would otherwise capture).
+`gtd init` refuses if the repo root already has its OWN gtd config (remove it
+first to re-init; a global/ancestor config such as `~/.gtdrc` does not count),
+requires the repository root, and is one of the two commands (with `gtd lsp`)
+that run with no workflow configured. A state command run before `gtd init`
+fails with:
 
 ```
 gtd: no workflow configured — run `gtd init <simple|advanced>` to create .gtdrc.json

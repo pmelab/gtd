@@ -314,9 +314,13 @@ anything touches the repository. See
 gtd ships **no** default workflow — a repo scaffolds one with
 `gtd init <simple|advanced>` (see
 [Configuration](docs/configuration.md#gtd-init)), which writes the chosen
-bundled template inline into `.gtdrc.json`. This section walks through the
-**`simple`** template (`src/workflows/simple.yaml`); the **`advanced`** template
-(`src/workflows/advanced.yaml`) is the fuller machine walked through at
+bundled template into `.gtdrc.json` — each agent state's `prompt:` extracted to
+an editable `gtd-prompts/<state>.md` file the config references via `./`
+([auto-inlined at load](docs/configuration.md#content-values-inline-or-a-file-reference)),
+with human `message:`/check `script:` bodies left inline. This section walks
+through the **`simple`** template (`src/workflows/simple.yaml`); the
+**`advanced`** template (`src/workflows/advanced.yaml`) is the fuller machine
+walked through at
 [docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md). Both
 compile through the exact same compiler a custom `workflow:` key goes through —
 no privileged code path.

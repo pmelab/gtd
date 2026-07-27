@@ -5,9 +5,11 @@ Usage: gtd [command] [options]
 
 Commands:
   init <workflow>  Scaffold a .gtdrc.json for this repo with the chosen
-                   bundled workflow inline (one of: simple, advanced). Run
-                   once per repo; refuses if a gtd config already exists.
-                   Leaves the file uncommitted for you to review and commit
+                   bundled workflow (one of: simple, advanced); its agent
+                   prompts are written as editable Markdown under gtd-prompts/
+                   and referenced from the config. Run once per repo; refuses
+                   if a gtd config already exists. Leaves the files uncommitted
+                   for you to review and commit
   step <actor>     Authenticate as <actor>, match the resolved rest's
                    declared patterns against the pending changes, and commit
                    (or squash) the one resulting transition. Pass

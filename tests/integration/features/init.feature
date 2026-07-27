@@ -14,6 +14,7 @@ Feature: gtd init — scaffold a .gtdrc.json from a bundled workflow template
     When I run gtd with args "init simple"
     Then it succeeds
     And stdout contains "Wrote .gtdrc.json"
+    And stdout contains "gtd-prompts/"
     And stdout contains "commit"
     And ".gtdrc.json" exists
     And ".gtdrc.json" contains "\"$schema\""
@@ -21,6 +22,44 @@ Feature: gtd init — scaffold a .gtdrc.json from a bundled workflow template
     And ".gtdrc.json" contains "review-deciding"
     # Left uncommitted — HEAD is still the project's own initial commit.
     And the last commit subject is "chore: initial commit"
+
+  # Each agent state's prompt is extracted to gtd-prompts/<state>.md and the
+  # config references it via a ./ file reference; human messages and check
+  # scripts stay inline in the config.
+  Scenario: gtd init simple extracts agent prompts to gtd-prompts/ and references them
+    Given a test project
+    When I run gtd with args "init simple"
+    Then it succeeds
+    And "gtd-prompts/grilling.md" exists
+    And "gtd-prompts/grilling.md" contains "autonomous coding agent"
+    And "gtd-prompts/building.md" exists
+    And "gtd-prompts/fixing.md" exists
+    And "gtd-prompts/reviewing.md" exists
+    And ".gtdrc.json" contains "./gtd-prompts/grilling.md"
+    # idle is a human message, checking is a script — both stay inline.
+    And "gtd-prompts/idle.md" does not exist
+    And "gtd-prompts/checking.md" does not exist
+    And ".gtdrc.json" contains "No active gtd cycle"
+
+  # The extracted files are LIVE: gtd inlines them at load time, so editing a
+  # prompt file changes the workflow with no config edit.
+  Scenario: the workflow resolves an edited prompt file at runtime
+    Given a test project
+    When I run gtd with args "init simple"
+    Then it succeeds
+    Given "gtd-prompts/grilling.md" is modified to:
+      """
+      SENTINEL edited grilling prompt body
+      """
+    And the working tree is committed
+    And a file ".gtd/TODO.md" with:
+      """
+      build a small widget
+      """
+    When I run gtd step human
+    Then it succeeds
+    When I run gtd next
+    Then stdout contains "SENTINEL edited grilling prompt body"
 
   Scenario: gtd init advanced writes the fuller machine (architecting, decompose, squash finale)
     Given a test project
@@ -30,6 +69,10 @@ Feature: gtd init — scaffold a .gtdrc.json from a bundled workflow template
     And ".gtdrc.json" contains "architecting"
     And ".gtdrc.json" contains "decompose"
     And ".gtdrc.json" contains "squashing"
+    And "gtd-prompts/architecting.md" exists
+    And "gtd-prompts/decompose.md" exists
+    And "gtd-prompts/squashing.md" exists
+    And ".gtdrc.json" contains "./gtd-prompts/grilling.md"
 
   Scenario: gtd init with no workflow argument is a usage error listing the choices
     Given a test project

@@ -73,6 +73,23 @@ Given(
   },
 )
 
+// Commits everything currently in the working tree under one chore commit —
+// the "I've reviewed the scaffold, now commit it" move a human makes after
+// `gtd init`, so the machine starts from a clean tree at the initial state.
+// Composable with any preceding file edits (e.g. editing an extracted
+// `gtd-prompts/*.md` before committing).
+Given("the working tree is committed", (world: GtdWorld) => {
+  if (world.tier === "inmem") {
+    world.repo!.commitAllWithPrefix("chore: commit working tree")
+  } else {
+    execFileSync("git", ["add", "-A"], { cwd: world.repoDir, stdio: "pipe" })
+    execFileSync("git", ["commit", "-q", "-m", "chore: commit working tree"], {
+      cwd: world.repoDir,
+      stdio: "pipe",
+    })
+  }
+})
+
 // Bookmarks the CURRENT commit under a name a later step can reference as a
 // `<commitish>` (e.g. `gtd review <name>`) — a repo-local ref, exactly like
 // `git branch <name>` (real git) or a plain named ref (in-memory). Composable

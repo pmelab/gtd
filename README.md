@@ -54,10 +54,12 @@ Then scaffold a workflow for the repo — run once:
 gtd init simple      # or: gtd init advanced
 ```
 
-This writes a `.gtdrc.json` with the chosen workflow inline (review and commit
-it). gtd ships **no** default workflow: a state command run before `gtd init`
-fails, pointing you back here. See
-[Configuration](docs/configuration.md#gtd-init) for the two templates.
+This writes a `.gtdrc.json` for the chosen workflow, with each agent state's
+prompt saved as an editable Markdown file under `gtd-prompts/` and referenced
+from the config (review and commit both). Edit a prompt by editing its
+`gtd-prompts/*.md` file — no config edit needed. gtd ships **no** default
+workflow: a state command run before `gtd init` fails, pointing you back here.
+See [Configuration](docs/configuration.md#gtd-init) for the two templates.
 
 ## How it works
 
