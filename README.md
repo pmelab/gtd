@@ -113,7 +113,10 @@ globally in one place (a `vars:` edit or a `GTD_VAR_plannerModel` override)
 instead of per state.
 
 `gtd-loop`, installed alongside `gtd`, is a ready-to-run driver for the whole
-protocol — point it at a repo and it runs the loop until it's your turn. See
+protocol — point it at a repo and it runs the loop until it's your turn. It is
+the only command you run: at a gate you edit files (answer a plan question, tick
+a review box, fix code) and re-launch it, and it captures your edit as its
+opening move before driving on — so you never run `gtd step human` by hand. See
 [Driving the loop](docs/loop.md).
 
 Before wiring gtd into a repo, note the

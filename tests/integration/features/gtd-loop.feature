@@ -62,6 +62,65 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
     And the git log contains "chore: calculator done"
     And "src/calc.ts" exists
 
+  Scenario: Captures the human's pending edit at the opening gate, so the human only runs gtd-loop
+    # The machine rests at the initial human gate `idle` (no gtd commit — the
+    # test project's "chore: initial commit" resolves to the initial state) with
+    # an uncommitted NOTE.md sketch. The human never runs `gtd step human`: the
+    # loop's opening move captures the sketch (idle's `* **` -> working), then
+    # drives working -> checking -> done. Without that opening capture the loop
+    # would just print the idle message and exit, so src/calc.ts is the proof it
+    # advanced past the gate on its own.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": done
+          done:
+            commit: "chore: calculator done"
+      """
+    And a file "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run gtd-loop
+    Then it succeeds
+    And "src/calc.ts" exists
+    And the git log contains "chore: calculator done"
+
   Scenario: Settles instead of looping forever when a script rest makes no progress
     Given a test project
     And a gtd config file at ".gtdrc" with:

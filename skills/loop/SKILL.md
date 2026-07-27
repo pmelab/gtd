@@ -22,6 +22,28 @@ has no default command and it is a usage error. Only `gtd next --json` and
   upgraded, re-copy this file from the new version's `skills/loop/SKILL.md` so
   the loop text stays in sync with the CLI it drives.
 
+## Opening move: capture the human's pending edit
+
+Before the first `gtd next --json` beat, make one capturing move so that
+re-launching the loop is the only thing a human ever does. A human acts at a
+gate by editing files (answering a plan question, ticking a review box, fixing
+code) and re-running the loop — they should never have to run `gtd step human`
+by hand first. So:
+
+1. Peek once with `gtd next --json` (it never mutates anything).
+2. **Only if** that peek reports `"kind":"message"` (the machine rests at a
+   human gate), run `gtd step human` to commit whatever the human left pending,
+   then continue into the loop below from the resulting state. A clean gate is a
+   harmless no-op; a human edit is captured as their turn (e.g. accepting a
+   plan's suggested defaults with no edit advances past `grilling-answer`).
+3. If the peek reports any other `kind`, do **not** step human — the machine is
+   mid-cycle at an agent/check rest (a restart after a crash, say), where
+   `gtd step human` would refuse out-of-turn. Just enter the loop and resume
+   driving.
+
+If that `gtd step human` refuses (a malformed steering file, or an edit no `on`
+pattern accepts), surface the message and stop rather than driving past it.
+
 ## The loop
 
 Repeat this cycle until it halts:

@@ -64,6 +64,35 @@ run_agent_turn() {
     GTD_LOOP_SESSION_ID="$session_id" GTD_LOOP_MEMORY_RESUME="$do_resume" bash -c "$cmd"
 }
 
+# Opening move: capture the human's pending edit so gtd-loop is the ONLY command
+# a human runs. A human acts at a gate by editing files (a plan answer, a review
+# tick, a code fix) and re-launching the loop — they should never have to run
+# `gtd step human` by hand first. So before driving, if the machine currently
+# rests at a human gate, step the human once to commit whatever they left, then
+# fall into the loop below from the resulting state.
+#
+# We peek with the pure, mutation-free `gtd next --json` and step ONLY when it
+# reports a human rest (`kind == "message"`): at an agent/check rest
+# `gtd step human` would refuse out-of-turn (non-zero, aborting under `set -e`),
+# and a mid-cycle restart must simply resume driving, not fail. A clean gate is
+# a harmless no-op; a genuine refusal there (a malformed steering file, or an
+# edit no `on` pattern accepts) is surfaced and stops the loop rather than being
+# driven past.
+if ! peek_json="$(gtd next --json 2>&1)"; then
+  echo "gtd-loop: could not determine the next step:" >&2
+  echo "$peek_json" >&2
+  echo "Run \`gtd status\` to inspect the repo." >&2
+  exit 1
+fi
+if [[ "$(jq -r .kind <<<"$peek_json")" == "message" ]]; then
+  if ! step_out="$(gtd step human 2>&1)"; then
+    echo "gtd-loop: could not capture your changes at the human gate:" >&2
+    echo "$step_out" >&2
+    echo "Fix the reported issue and re-run gtd-loop." >&2
+    exit 1
+  fi
+fi
+
 while true; do
   if ! next_json="$(gtd next --json 2>&1)"; then
     echo "gtd-loop: could not determine the next step:" >&2
