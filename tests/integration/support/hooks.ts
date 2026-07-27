@@ -28,14 +28,10 @@ After(async (world: GtdWorld) => {
   }
 
   // Live tier: remove the temp repo dir (and any purpose-built ancestor dir).
-  if (world.repoDir) {
-    if (process.env["KEEP_TEST_REPO"] === "1") {
-      process.stderr.write(`Test repo preserved at: ${world.repoDir}\n`)
-    } else {
-      rmSync(world.repoDir, { recursive: true, force: true })
-      if (world.extraCleanupDir) {
-        rmSync(world.extraCleanupDir, { recursive: true, force: true })
-      }
-    }
+  const keep = process.env["KEEP_TEST_REPO"] === "1"
+  const dirs = [world.repoDir, world.extraCleanupDir].filter(Boolean) as string[]
+  for (const dir of dirs) {
+    if (keep) process.stderr.write(`Test repo preserved at: ${dir}\n`)
+    else rmSync(dir, { recursive: true, force: true })
   }
 })
