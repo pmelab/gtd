@@ -15,7 +15,7 @@ bundled default workflow applies (see
 
 ## Schema
 
-v3's `.gtdrc` has exactly two blessed top-level keys:
+v3's `.gtdrc` has exactly three blessed top-level keys:
 
 - **`workflow`** (object, optional) — the whole machine definition (its states,
   plus its own `vars:` defaults and `modes:`), compiled by
@@ -23,6 +23,11 @@ v3's `.gtdrc` has exactly two blessed top-level keys:
   ["The `workflow:` key" below](#the-workflow-key) for its schema.
 - **`vars`** (object, optional) — a flat `name -> scalar` map, one layer of the
   merged `it.vars` every template sees — see ["Variables"](#variables) below.
+- **`modes`** (object, optional) — steering-file modes (`format:`/`validate:`
+  shell commands), layered over the active workflow's own `modes:` and gtd's
+  built-in validators, so a project can plug its formatter or linter into the
+  BUNDLED default without re-declaring a workflow. See
+  ["`modes:`"](#modes--pluggable-steering-file-modes) below.
 - **`$schema`** (string, optional) — stripped before validation, so it never
   counts as an unknown key. Point it at the published schema for editor-backed
   autocompletion. A `schema.json` is generated from `src/ConfigSchema.ts` at
@@ -251,16 +256,18 @@ workflow:
 ```
 
 `mode:` requires a sibling `file:` and names the file's FORMAT — a
-**steering-file mode**. Two names are BUILT IN, implemented by gtd itself:
+**steering-file mode**. Two names are BUILT IN, each carrying a VALIDATOR gtd
+implements itself:
 
 | `mode`   | Format                                                                                                                       |
 | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `qa`     | The open-questions format (`## Open Questions`, one `###` sub-heading per question, `Suggested default: ...`/`Answer: ...`). |
 | `review` | The checkbox review format (`# Review: <hash>` header, `<!-- base: <hash> -->` comment, `##` chunks, `- [ ]` pointers).      |
 
-Any other name must be declared in the workflow's `modes:` map (next section). A
-`mode:` naming neither a built-in nor a declared mode is a load error listing
-both sets (typos must not silently disable the format gate or editor support).
+Any other name must be declared in a `modes:` map (next section) — as must a
+`format:` command for these two, since gtd ships no formatter. A `mode:` naming
+neither a built-in nor a declared mode is a load error listing both sets (typos
+must not silently disable the format gate or editor support).
 
 What a mode buys the state: before capturing a turn out of it, `gtd step`
 formats that file in place and validates it, refusing the step when it is
@@ -289,7 +296,8 @@ switch. (Making pattern keys var-aware at compile time is possible future work.)
 
 A mode is a pair of SHELL COMMANDS over one file: `format:` rewrites it in
 place, `validate:` decides whether it is well-formed. Declare them beside
-`states:`, and point any state's `mode:` at the name:
+`states:` (the workflow's own modes) and/or under a top-level `modes:` key (the
+project's layer over them), and point any state's `mode:` at the name:
 
 ```yaml
 workflow:
@@ -321,25 +329,51 @@ The contract:
 - **`format:` rewrites the file in place** and runs FIRST, so validation always
   judges the formatted file. A non-zero exit is a HARD error (broken tooling,
   not a malformed file): nothing is validated and nothing is committed.
-- **At least one of the two is required**; a missing half is a no-op. A mode
-  with only `validate:` never reformats anything; a mode with only `format:` has
-  nothing that can fail.
+- **At least one of the two is required** in any single entry; the half it
+  leaves out falls through to the layer beneath (below), or is a no-op.
 - Commands run via `bash -c` from the repository root — the only place besides a
   `script:` state's `gtd run` where gtd spawns a subprocess. A `.gtdrc` is
   project code: only add commands you would run yourself.
-- **Declaring `qa` or `review` REPLACES that built-in** for the whole workflow,
-  both halves. Use it to keep the bundled default's shape with your own house
-  rules; declare both keys if you want both halves.
+
+#### The layers, half by half
+
+`format:` and `validate:` resolve INDEPENDENTLY, each from the first layer that
+declares it:
+
+1. the top-level `.gtdrc` `modes:` key (the project's own layer, cwd→home
+   deep-merged like any other config key);
+2. the active workflow's own `modes:` map;
+3. for the two built-in NAMES only, gtd's in-process validator — `qa` →
+   `src/OpenQuestions.ts`, `review` → `src/ReviewDoc.ts`. There is no built-in
+   formatter at this layer: **gtd ships no formatter**, so bring your own.
+
+So for a state declaring `mode: qa`:
+
+| `modes: { qa: … }`               | formats with  | validates with              |
+| -------------------------------- | ------------- | --------------------------- |
+| (nothing declared)               | nothing       | gtd's open-questions parser |
+| `format: npx prettier --write …` | that command  | gtd's open-questions parser |
+| `validate: my-linter …`          | nothing       | that command                |
+| both                             | its `format:` | its `validate:`             |
+
+That is what makes the built-in modes extensible rather than all-or-nothing —
+and the top-level key means a project on the BUNDLED default workflow can plug
+in its formatter without copying a single state:
+
+```yaml
+# .gtdrc — keep the bundled default workflow, add your own markdown formatter
+modes:
+  qa:
+    format: "npx prettier --write <%= it.file %>"
+  review:
+    format: "npx prettier --write <%= it.file %>"
+```
 
 **Known limitation — no live editor support for a custom mode.** `gtd lsp`
 publishes diagnostics, document symbols and code actions for the built-in
 `qa`/`review` formats only (gtd never runs a mode command per keystroke over an
-unsaved buffer). A custom-mode file is still formatted and validated by
-`gtd validate` and the `gtd step` capture gate.
-
-There is no top-level `.gtdrc` `modes:` key: unlike `vars:`, modes are not a
-tuning layer over the bundled default — a mode exists to serve a state's
-`mode:`, so it travels with the workflow that declares that state.
+unsaved buffer). A file whose validation is a command is still formatted and
+validated by `gtd validate` and the `gtd step` capture gate.
 
 ### `reviewWindow:`/`reviewBase:` — the review checkout window
 
@@ -543,7 +577,8 @@ Other load failures:
   filename.
 - **Non-object top-level** — a YAML list or `null` at the root is rejected with
   the filename in the message.
-- **Unknown top-level key** — anything besides `workflow`/`vars`/`$schema` emits
+- **Unknown top-level key** — anything besides
+  `workflow`/`vars`/`modes`/`$schema` emits
   `Invalid gtd config: <field>: <reason>`.
 - **A bad top-level `vars:` entry** — an object/array value fails the same way
   as a bad workflow-level `vars:` entry (see ["Variables"](#variables)), one

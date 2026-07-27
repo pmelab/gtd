@@ -17,11 +17,10 @@ Commands:
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   validate         Format and validate the steering file the resolved rest
-                   declares (its file:/mode:) with that mode's commands;
-                   exits non-zero with findings when the file is invalid
+                   declares, with its mode's commands (its file:/mode:);
+                   exits non-zero with the findings when it is invalid
   mermaid          Print the active workflow's shape as Mermaid
                    stateDiagram-v2 source (no mutation)
-  format <file>    Format a markdown file in place
   lsp              Start the LSP server for .gtd/ steering files (stdio)
 
 Options:
@@ -234,20 +233,21 @@ when the state has no `on` (all omitted entirely, never `null`, otherwise):
 
 Format **and** validate the steering file the resolved rest declares. It
 resolves the current state exactly like `gtd status`, renders that state's
-`file:`, **formats that file in place**, then validates it — both per its
-`mode:`:
+`file:`, formats that file in place, then validates it — both per its `mode:`:
 
-- a **built-in** mode (`qa`/`review`) formats with the same markdown formatter
-  as `gtd format` and validates with gtd's own pure parser
-  (`src/OpenQuestions.ts` / `src/ReviewDoc.ts` — the same parsers the LSP
-  publishes as diagnostics, so there is one source of truth per format);
-- any **workflow-declared** mode (a `modes:` entry — see
-  [Configuration](configuration.md#modes--pluggable-steering-file-modes)) runs
-  its own `format:`/`validate:` shell commands, with the command's output as the
-  findings.
+- **formatting** happens only if the mode declares a `format:` shell command
+  (see [Configuration](configuration.md#modes--pluggable-steering-file-modes)) —
+  gtd ships no formatter, so nothing is rewritten until a project plugs one in;
+- **validation** runs the mode's `validate:` command when it declares one (its
+  output becomes the findings), and otherwise, for the built-in `qa`/`review`
+  names, gtd's own pure parser (`src/OpenQuestions.ts` / `src/ReviewDoc.ts` —
+  the same parsers the LSP publishes as diagnostics, so there is one source of
+  truth per format).
+
+Then:
 
 - A well-formed file exits `0` (`<file>: valid`, or `{"valid":true, ...}` with
-  `--json`) — and is left formatted.
+  `--json`) — and is left formatted, if the mode formats at all.
 - Violations exit **non-zero** with the findings, one per line — the signal a
   producing agent, or the driving loop, loops on until the file is well-formed.
 - A state that declares no `file:`/`mode:`, or whose file is **absent** (e.g.
@@ -255,9 +255,9 @@ resolves the current state exactly like `gtd status`, renders that state's
   approve), has nothing to validate and exits `0`
   (`nothing to validate at "<state>"`). Nothing is formatted in that case.
 
-This is how the bundled default keeps its steering files tidy and well-formed
-without an in-machine validation state — and the check runs whoever last touched
-the file, agent or human:
+This is how the bundled default keeps its steering files well-formed without an
+in-machine validation state — and the check runs whoever last touched the file,
+agent or human:
 
 - **The producing agent self-validates.** Plain `gtd next` appends a "run
   `gtd validate` and fix all violations" instruction to a `prompt` rest that
@@ -314,23 +314,6 @@ with its exact declared spelling. Rejects `--json` (exit 1,
 beyond the Mermaid source itself — and takes no arguments (extra positional args
 are rejected).
 
-## `gtd format <file>`
-
-Formats a markdown file in place with a bundled prettier (`parser: "markdown"`,
-`printWidth: 80`, `proseWrap: "always"`), ignoring the host repo's own
-`.prettierrc` so `.gtd/`-tracked files stay consistently formatted regardless of
-the host project's toolchain. Rejects `--json` (exit 1,
-`gtd format does not accept --json`) — it's a plain file operation, not a state
-command.
-
-Errors (all exit 1, message on stderr):
-
-- Missing path: `gtd format: missing file path argument`
-- Extra arguments: `gtd format: too many arguments — expected one path, got: …`
-- Non-markdown file:
-  `gtd format: <file> is not a markdown file (expected .md or .markdown)`
-- File not found: `gtd: skipped formatting <file>: not found`
-
 ## `gtd lsp`
 
 Starts an LSP server over stdio for `.gtd/` steering files — document symbols
@@ -355,10 +338,11 @@ with no `.gtdrc` in sight. Also registers an `executeCommand`,
 naming the state instead — bind it to an editor keybinding for a "jump to the
 active steering file" command.
 
-Dispatched before the repository-root guard and auto-init, like `gtd format`.
-Rejects `--json` (exit 1, `gtd lsp does not accept --json`) and extra positional
-arguments — it's a long-running server, not a state command. Runs until the
-client disconnects (the LSP `exit` notification), then exits cleanly.
+Dispatched before the repository-root guard and auto-init — the server needs no
+git/workflow state of its own. Rejects `--json` (exit 1,
+`gtd lsp does not accept --json`) and extra positional arguments — it's a
+long-running server, not a state command. Runs until the client disconnects (the
+LSP `exit` notification), then exits cleanly.
 
 ## Error envelope
 

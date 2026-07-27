@@ -54,8 +54,10 @@ touches `src/PatternMachine.ts` (types + `validateDefinition`),
 
 A new steering-file FORMAT is neither: `mode:` names a pluggable mode, so a
 workflow declares its own `modes:` entry (a `format:`/`validate:` shell command
-pair) — no gtd change at all. Only the two built-in modes (`qa`/`review`) live
-in code, because `gtd lsp` needs their parsers in process.
+pair) — no gtd change at all. Only the two built-in VALIDATORS (`qa`/`review`)
+live in code, because `gtd lsp` needs their parsers in process; gtd ships no
+formatter at all (there is no `gtd format` subcommand and no bundled prettier —
+a project plugs its own into a mode's `format:`).
 
 ### The Pattern-Machine Module Map
 
@@ -89,14 +91,16 @@ in code, because `gtd lsp` needs their parsers in process.
   or `"squash"` `StepDecision` — the only place a turn is actually written or a
   squash actually performed).
 - **`src/SteeringMode.ts`** — the steering-file MODE edge (see STATES.md §12):
-  `resolveSteeringMode` (a state's `mode:` → gtd's built-in `qa`/`review`
-  implementation, or the workflow's declared `modes:` commands — a declared name
-  shadows a built-in), `formatSteeringFile`/`validateSteeringFile`/
-  `formatAndValidateSteeringFile` (the format-then-validate pair `gtd validate`
-  and the `gtd step` gate share). A declared mode's command is an Eta template
-  over the state context plus `it.file`, run through `bash -c` with its output
-  captured; exit code 0/non-zero IS the verdict. The pure engine carries
-  `modes:` as inert data and only validates its shape.
+  `resolveSteeringMode` (a state's `mode:` → its two halves, each from the first
+  layer that declares it: the `modes:` map's `format:`/`validate:` commands,
+  then — for `validate` only — gtd's built-in `qa`/`review` parser; so declaring
+  just a `format:` for `qa` keeps gtd's validation),
+  `formatSteeringFile`/`validateSteeringFile`/`formatAndValidateSteeringFile`
+  (the format-then-validate pair `gtd validate` and the `gtd step` gate share).
+  A mode command is an Eta template over the state context plus `it.file`, run
+  through `bash -c` with its output captured; exit code 0/non-zero IS the
+  verdict. The pure engine carries `modes:` as inert data and only validates its
+  shape.
 - **`src/ReviewWindow.ts`** — the review checkout window edge (see STATES.md
   §11): `openReviewWindow`/`closeReviewWindow` (the `git reset --mixed`
   open/close bracketing every state subcommand, keyed on the resolved rest's
@@ -199,9 +203,10 @@ file (e.g. `Given a file "FEEDBACK.md" with:`) and running `gtd step check` —
   it per its `mode:` (`gtd validate`'s shared logic — `enforceSteeringGate` in
   `src/program.ts` over `src/SteeringMode.ts`), and REFUSES the step when it is
   invalid, so a malformed steering file is never committed (an agent's draft or
-  a human's gate edit alike). A mode is gtd's own built-in `qa`/`review`
-  implementation or the workflow's declared `format:`/`validate:` commands —
-  same gate either way. It is a no-op when the file is absent (a deletion) or
-  the state declares no `file:`/`mode:`, and a squash skips it. The pure engine
+  a human's gate edit alike). Formatting only happens if some `modes:` layer
+  declared a `format:` command (gtd ships none); validation is that mode's
+  `validate:` command, or gtd's built-in `qa`/`review` parser — same gate either
+  way. It is a no-op when the file is absent (a deletion) or the state declares
+  no `file:`/`mode:`, and a squash skips it. The pure engine
   (`PatternMachine.step`) never sees this — like the review window, it lives at
   the edge. See STATES.md §12

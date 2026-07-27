@@ -111,7 +111,8 @@ describe("--help short-circuit", () => {
     expect(output).toContain("status")
     expect(output).toContain("run")
     expect(output).toContain("mermaid")
-    expect(output).toContain("format")
+    expect(output).toContain("validate")
+    expect(output).toContain("lsp")
     expect(output).toMatch(/\n$/)
   })
 
@@ -200,20 +201,20 @@ describe("unknown command", () => {
   })
 })
 
-describe("gtd format argument validation", () => {
-  it("fails when no file path is given", async () => {
-    const { exit } = await runFlag("format")
+describe("the retired `gtd format` subcommand", () => {
+  // gtd ships no formatter any more: a steering-file mode declares its own
+  // `format:` command (see src/SteeringMode.ts). `format` is therefore just an
+  // unknown subcommand, and must be rejected like any other typo rather than
+  // lingering as an undocumented alias.
+  it("is rejected as an unknown subcommand", async () => {
+    const { output, exit } = await runFlag("format", "some.md")
     expect(Exit.isSuccess(exit)).toBe(false)
+    expect(output).not.toContain("formatted")
   })
 
-  it("fails when --json is combined with format", async () => {
-    const { exit } = await runFlag("format", "some.md", "--json")
-    expect(Exit.isSuccess(exit)).toBe(false)
-  })
-
-  it("fails when more than one path is given", async () => {
-    const { exit } = await runFlag("format", "a.md", "b.md")
-    expect(Exit.isSuccess(exit)).toBe(false)
+  it("is absent from the help text", async () => {
+    const { output } = await runFlag("--help")
+    expect(output).not.toContain("format <file>")
   })
 })
 

@@ -72,8 +72,27 @@ upgrading.
   [docs/design/steering-file-validation-command.md](design/steering-file-validation-command.md)
   and [STATES.md §12](../STATES.md)).
 - **`gtd review <target>`.** Gone; the v3 command surface is `step` / `next` /
-  `run` / `status` / `format` / `validate` / `lsp` (see
+  `run` / `status` / `validate` / `mermaid` / `lsp` (see
   [CLI reference](cli.md)).
+- **`gtd format <file>`, and the bundled prettier with it.** gtd no longer
+  formats anything on its own: a steering-file mode declares its own `format:`
+  SHELL COMMAND, so a project brings whatever formatter it already uses. Adding
+  four lines to `.gtdrc` restores (and improves on) the old auto-formatting for
+  the bundled default workflow:
+
+  ```yaml
+  modes:
+    qa:
+      format: "npx prettier --write <%= it.file %>"
+    review:
+      format: "npx prettier --write <%= it.file %>"
+  ```
+
+  Validation is unaffected — `qa`/`review` remain gtd's own built-in validators.
+  See
+  [docs/design/pluggable-steering-modes.md](design/pluggable-steering-modes.md)
+  and [Configuration](configuration.md#modes--pluggable-steering-file-modes).
+
 - **Model tiers, the decision log.** No `models` config key, no `Gtd-Decisions`
   trailer scan, no grilling/architecting "prior decisions" context assembled
   from history.

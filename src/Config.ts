@@ -4,8 +4,13 @@ import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
 import { Command, CommandExecutor, FileSystem } from "@effect/platform"
-import { compileVarsMap, compileWorkflowConfig } from "./PatternConfig.js"
-import { parseStateSubject, type WorkflowDefinition } from "./PatternMachine.js"
+import {
+  compileModesMap,
+  compileVarsMap,
+  compileWorkflowConfig,
+  mergeModes,
+} from "./PatternConfig.js"
+import { parseStateSubject, type ModeDef, type WorkflowDefinition } from "./PatternMachine.js"
 import { defaultWorkflowDefinition, defaultWorkflowVars } from "./workflows/default.js"
 import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
@@ -179,6 +184,24 @@ const anyConfigPresent = (root: string): Effect.Effect<boolean, Error> =>
   })
 
 /**
+ * Compile the decoded config's top-level `modes:` key — the steering-file modes
+ * a project layers over whatever the active workflow declares (and over gtd's
+ * built-in `qa`/`review` validators), so a project on the BUNDLED default can
+ * plug in its own formatter/validator without re-declaring the whole workflow.
+ * Shares `PatternConfig.ts`'s `compileModesMap` with the workflow-level
+ * `modes:` so both layers validate identically, and throws the same aggregated
+ * error shape as `compileRcVars` on any bad entry.
+ */
+const compileRcModes = (raw: unknown): Record<string, ModeDef> | undefined => {
+  const errors: string[] = []
+  const modes = compileModesMap(raw, errors)
+  if (errors.length > 0) {
+    throw new Error(`gtd config:\n${errors.map((e) => `  - ${e}`).join("\n")}`)
+  }
+  return modes
+}
+
+/**
  * Compile the decoded config's top-level `vars:` key into the `rcVars` layer,
  * sharing `PatternConfig.ts`'s `compileVarsMap` with the workflow's own
  * `vars:` so both layers validate identically (scalar coercion, object/array
@@ -196,7 +219,7 @@ const compileRcVars = (raw: unknown): Record<string, string> => {
 
 /**
  * Compile the decoded config's `workflow:` key (or the bundled default, when
- * absent) plus its top-level `vars:` key into `ConfigOperations`. `root` is
+ * absent) plus its top-level `vars:`/`modes:` keys into `ConfigOperations`. `root` is
  * used as the workflow compiler's `configDir` — the directory a custom
  * workflow's `./`-relative content references resolve against. Throws (via
  * `compileWorkflowConfig`/`compileRcVars`) on any invalid custom
@@ -206,10 +229,20 @@ const compileRcVars = (raw: unknown): Record<string, string> => {
  */
 const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations => {
   const rcVars = compileRcVars(decoded.vars)
+  const rcModes = compileRcModes(decoded.modes)
   if (decoded.workflow === undefined) {
-    return { workflow: defaultWorkflowDefinition, workflowVars: defaultWorkflowVars, rcVars }
+    // The bundled default is pre-compiled and pre-validated; layering the rc
+    // `modes:` over it can only ADD mode names (never invalidate a `mode:`
+    // reference), so it needs no re-validation.
+    const modes = mergeModes(defaultWorkflowDefinition.modes, rcModes)
+    return {
+      workflow:
+        modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition,
+      workflowVars: defaultWorkflowVars,
+      rcVars,
+    }
   }
-  const { definition, vars: workflowVars } = compileWorkflowConfig(decoded.workflow, root)
+  const { definition, vars: workflowVars } = compileWorkflowConfig(decoded.workflow, root, rcModes)
   return { workflow: definition, workflowVars, rcVars }
 }
 

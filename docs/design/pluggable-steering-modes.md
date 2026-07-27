@@ -47,31 +47,46 @@ workflow:
 
 Five decisions:
 
-### 2.1 Modes live in the workflow definition, not in a third `.gtdrc` key
+### 2.1 Modes are workflow data, with a project layer over it
 
 A `modes:` map sits beside `states:` and `vars:` INSIDE `workflow:`, compiling
-onto `WorkflowDefinition.modes`. A mode exists to serve a state's `mode:`, and
-states are workflow data — so a workflow that needs a custom mode carries its
-own. This also keeps the load-time name check (§2.3) a pure function of the
-definition: no cross-key layering to thread through the compiler.
+onto `WorkflowDefinition.modes`: a mode exists to serve a state's `mode:`, and
+states are workflow data, so a workflow that needs a custom mode carries its
+own.
 
-There is deliberately NO top-level `.gtdrc` `modes:` override layer (the way
-`vars:` has one). Adding a mode is inseparable from adding the state that uses
-it, and both live in the same key.
+A top-level `.gtdrc` `modes:` key layers over that, per half (`mergeModes`),
+exactly the way the top-level `vars:` key layers over the workflow's own
+`vars:`. Without it, a project on the BUNDLED default workflow could not plug in
+a formatter at all without copying every state into its `.gtdrc` — and since gtd
+ships no formatter (§2.2), that is precisely the common case. The rc layer is
+merged into the definition BEFORE `validateDefinition` runs
+(`compileWorkflowConfig`'s `rcModes` argument), so a state may name a mode
+either layer declares and the load-time name check (§2.3) stays a pure function
+of one definition.
 
-### 2.2 `qa` and `review` stay built in and in process
+### 2.2 `qa` and `review` stay built in — as VALIDATORS, and only that
 
-The two existing modes are NOT re-expressed as commands. Their parsers are also
-what `gtd lsp` publishes as live diagnostics and what its document symbols and
-code actions are built on — shelling out per keystroke over an unsaved buffer is
-a different (and much worse) design. So gtd keeps them as its `BUILT_IN_MODES`:
-available in every workflow without being declared, formatting with the markdown
-formatter behind `gtd format` and validating with the pure parser.
+The two existing modes' parsers are also what `gtd lsp` publishes as live
+diagnostics and what its document symbols and code actions are built on —
+shelling out per keystroke over an unsaved buffer is a different (and much
+worse) design. So gtd keeps them as its `BUILT_IN_MODES`, available in every
+workflow without being declared.
 
-A `modes:` entry that reuses one of those names REPLACES it wholesale, both
-halves — the obvious reading of "I declared what `qa` means here", and the
-escape hatch for a project that wants gtd's default workflow with its own
-house-rule linter.
+Their FORMATTING half went the other way. gtd used to bundle prettier and expose
+it as a `gtd format <file>` subcommand, which the built-in modes then called;
+both are gone (the subcommand, and prettier as a runtime dependency — the
+single-file bundle drops from ~15 MB to ~10 MB). A project brings its own
+formatter and plugs it into whichever mode should use it. The two built-ins
+therefore VALIDATE and nothing else, until a `modes:` entry gives them a
+`format:`.
+
+Which forces the resolution rule: the halves resolve INDEPENDENTLY, first layer
+wins per half.
+`modes: { qa: { format: "npx prettier --write <%= it.file %>" } }` adds
+formatting to `qa` and keeps gtd's open-questions validation; declaring
+`validate:` instead displaces the parser. (An earlier draft of this design had a
+declared entry REPLACE a built-in wholesale — that cannot express "gtd's
+validation plus my formatter", which is the common case.)
 
 ### 2.3 `mode:` stays load-time-validated, against a definition-derived set
 
@@ -102,19 +117,24 @@ never sees a mode.
 
 ## 3. What changed
 
-| Area                                  | Change                                                                                                                                                                                                |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/PatternMachine.ts`               | `ModeDef`; `WorkflowDefinition.modes`; `StateMode` widened from `"qa" \| "review"` to `string`; `BUILT_IN_MODES`/`isBuiltInMode`/`knownModes`; `validateModes`; `validateMode` now definition-derived |
-| `src/PatternConfig.ts`                | `compileModesMap` (mirroring `compileVarsMap`), `modes` added to `KNOWN_TOP_KEYS`                                                                                                                     |
-| `src/PatternTemplates.ts`             | `ModeCommandContext` (`TemplateContext` + `file`) and `renderModeCommand`                                                                                                                             |
-| `src/SteeringMode.ts` (new)           | `resolveSteeringMode`, `formatSteeringFile`, `validateSteeringFile`, `formatAndValidateSteeringFile`, `unknownModeMessage`                                                                            |
-| `src/program.ts`                      | `formatAndCheckSteeringFile` routes through the resolved mode (was: a hardcoded `qa`/`review` switch plus `formatFile`); `gtd validate` and the capture gate are otherwise unchanged                  |
-| `src/ConfigSchema.ts` / `schema.json` | the `modes:` object; `mode:`'s `enum` dropped                                                                                                                                                         |
-| `src/Lsp.ts`                          | docs only — a custom mode gets no live diagnostics/symbols/code actions (documented limitation)                                                                                                       |
-| `src/workflows/default.yaml`          | unchanged — the bundled default keeps `qa`/`review`, which now resolve to the built-ins                                                                                                               |
+| Area                                    | Change                                                                                                                                                                                             |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/PatternMachine.ts`                 | `ModeDef`; `WorkflowDefinition.modes`; `StateMode` widened from `"qa" \| "review"` to `string`; `BuiltInMode`/`isBuiltInMode`/`knownModes`; `validateModes`; `validateMode` now definition-derived |
+| `src/PatternConfig.ts`                  | `compileModesMap` + `mergeModes` (mirroring `compileVarsMap`), `modes` added to `KNOWN_TOP_KEYS`, `compileWorkflowConfig`'s `rcModes` argument                                                     |
+| `src/Config.ts` / `src/ConfigSchema.ts` | the third blessed top-level key, `modes:` (`compileRcModes`), layered over the compiled workflow (or the bundled default) per half                                                                 |
+| `src/Format.ts`, `gtd format <file>`    | DELETED, and `prettier` dropped from the runtime dependencies — formatting is a mode's own command now                                                                                             |
+| `src/PatternTemplates.ts`               | `ModeCommandContext` (`TemplateContext` + `file`) and `renderModeCommand`                                                                                                                          |
+| `src/SteeringMode.ts` (new)             | `resolveSteeringMode` (per half), `formatSteeringFile`, `validateSteeringFile`, `formatAndValidateSteeringFile`, `unknownModeMessage`                                                              |
+| `src/program.ts`                        | `formatAndCheckSteeringFile` routes through the resolved mode (was: a hardcoded `qa`/`review` switch plus `formatFile`); `gtd validate` and the capture gate are otherwise unchanged               |
+| `src/ConfigSchema.ts` / `schema.json`   | the `modes:` object; `mode:`'s `enum` dropped                                                                                                                                                      |
+| `src/Lsp.ts`                            | docs only — a custom mode gets no live diagnostics/symbols/code actions (documented limitation)                                                                                                    |
+| `src/workflows/default.yaml`            | unchanged — the bundled default keeps `qa`/`review`, which resolve to the built-in validators                                                                                                      |
 
-Behavior for every existing workflow is unchanged: no `modes:` key means the two
-built-ins, implemented exactly as before.
+One behavior change for existing users: steering files are no longer
+auto-formatted, because gtd no longer has a formatter to do it with. Validation
+is untouched. A project that wants the old behavior adds four lines to its
+`.gtdrc` (the `modes: { qa: { format: … } }` snippet in
+[configuration.md](../configuration.md#modes--pluggable-steering-file-modes)).
 
 ## 4. Known limitations
 
@@ -122,6 +142,10 @@ built-ins, implemented exactly as before.
   built-in names only; a workflow-declared mode's file gets no diagnostics, no
   document symbols, no code actions. It is still formatted and validated by
   `gtd validate` and the `gtd step` gate.
+- **Nothing is formatted out of the box.** The bundled default declares no
+  `format:` command, so a fresh install validates but never rewrites. This was
+  the deliberate alternative to shipping an `npx prettier` default, which would
+  make every gate depend on prettier resolving in the user's project.
 - **A command runs on the developer's machine, unsandboxed** — same trust model
   as a `script:` state: a `.gtdrc` is project code.
 - **`gtd next`'s self-validation instruction** is appended for any `prompt` rest

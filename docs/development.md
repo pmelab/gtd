@@ -65,10 +65,10 @@ over the LSP protocol, exactly like any other document.
 the LSP and the `gtd validate` command, which resolves the current state, reads
 its `file:`, and evaluates it per its `mode:` — ONE source of truth per format,
 no bash port and no dual-implementation contract to keep in sync. Mode dispatch
-itself lives in `src/SteeringMode.ts`: the two BUILT-IN modes map to these
-parsers (`qa` → `parseOpenQuestions`, `review` → `parseReviewDoc`) plus the
-markdown formatter, while a workflow-declared mode (a `modes:` entry) runs its
-own `format:`/`validate:` shell commands. See
+itself lives in `src/SteeringMode.ts`, half by half: the two BUILT-IN mode names
+validate with these parsers (`qa` → `parseOpenQuestions`, `review` →
+`parseReviewDoc`), while a `modes:` entry's `format:`/`validate:` shell commands
+take precedence per half — gtd itself ships no formatter. See
 [docs/design/steering-file-validation-command.md](design/steering-file-validation-command.md)
 and
 [docs/design/pluggable-steering-modes.md](design/pluggable-steering-modes.md)

@@ -53,7 +53,9 @@ actor's next step) or a **commit state** (has `commit:` instead of an
 Beyond its states, a workflow may declare two more things of its own:
 **`vars:`** (the lowest-precedence layer of the `it.vars` every template sees —
 see [Configuration](docs/configuration.md#variables)) and **`modes:`** (the
-steering-file modes a state's `mode:` may name — see §12).
+steering-file modes a state's `mode:` may name — see §12). Both have a
+higher-precedence project layer in the top-level `.gtdrc` keys of the same
+names.
 
 ## 2. Content kinds
 
@@ -522,14 +524,9 @@ checkable. A **mode** is nothing but a pair of operations over that one file:
    formatter would have fixed;
 2. **validate** — report findings (none = valid).
 
-Two mode names are **built in**, implemented by gtd itself in process: `qa`
-(`src/OpenQuestions.ts`) and `review` (`src/ReviewDoc.ts`) format with the
-markdown formatter behind `gtd format` and validate with those pure parsers,
-each format's single source of truth (their unit tests are the format's spec
-tests; the same parsers back the LSP's live diagnostics, `src/Lsp.ts`).
-
-Every other mode is **workflow data**: a `modes:` entry (beside `states:`)
-declaring a `format:` and/or `validate:` SHELL COMMAND for that name.
+Both halves are **DATA**: a `modes:` entry (beside `states:`, or as the
+top-level `.gtdrc` `modes:` layer over it) declaring a `format:` and/or
+`validate:` SHELL COMMAND for that mode name.
 
 ```yaml
 workflow:
@@ -550,12 +547,31 @@ Both commands are Eta templates over the resting state's usual context plus
 the repo root. The contract is the shell's own: a `validate:` command exits 0
 for valid, or non-zero with its output (stdout then stderr) as the findings, one
 per line; a `format:` command is expected to rewrite the file in place, and a
-non-zero exit is a hard error (broken tooling, not a malformed file). A missing
-half is simply a no-op, and a `modes:` entry reusing a built-in NAME replaces
-that built-in wholesale — the escape hatch for a project that wants gtd's
-default workflow with its own house rules. A `mode:` naming neither a built-in
-nor a declared mode is a load error (see
-[Configuration](docs/configuration.md#modes--pluggable-steering-file-modes)).
+non-zero exit is a hard error (broken tooling, not a malformed file).
+
+Underneath the declared halves sit gtd's two **BUILT-IN VALIDATORS**: `qa`
+(`src/OpenQuestions.ts`) and `review` (`src/ReviewDoc.ts`), each format's single
+source of truth (their unit tests are the format's spec tests; the same parsers
+back the LSP's live diagnostics, `src/Lsp.ts`). They are available in every
+workflow without being declared — and they are validators ONLY: **gtd ships no
+formatter**, so `qa`/`review` reformat nothing until a project gives them a
+`format:` command.
+
+The two halves resolve **independently**, each from the first layer that
+provides it (`resolveSteeringMode` in `src/SteeringMode.ts`) — so extending a
+built-in is additive rather than all-or-nothing:
+
+| `modes:` entry for `qa`          | format        | validate                    |
+| -------------------------------- | ------------- | --------------------------- |
+| none                             | nothing       | gtd's open-questions parser |
+| `format: npx prettier --write …` | that command  | gtd's open-questions parser |
+| `validate: my-linter …`          | nothing       | that command                |
+| both                             | its `format:` | its `validate:`             |
+
+A `mode:` naming neither a built-in nor a declared mode is a load error (see
+[Configuration](docs/configuration.md#modes--pluggable-steering-file-modes),
+which also covers the top-level `modes:` layer that lets a project plug a
+formatter into the BUNDLED default without re-declaring the workflow).
 
 The **pure engine** never formats or validates anything — it carries `modes:` as
 inert data. Both halves are an edge concern (like the review checkout window,
@@ -563,11 +579,12 @@ inert data. Both halves are an edge concern (like the review checkout window,
 guidance, none of which the `step` decision sees.
 
 **`gtd validate`** resolves the current rest exactly like `gtd status`, renders
-that state's `file:`, **formats it in place**, then validates it — both per its
-`mode:`. Valid exits 0; violations exit non-zero with the findings (one per
-line). A state with no `file:`/`mode:`, or whose file is **absent**, has nothing
-to validate and exits 0 (and formats nothing) — so `building` deleting
-`.gtd/TODO.md`, and an `await-review` delete-to-approve, both pass cleanly.
+that state's `file:`, **formats it in place** (when the mode has a formatter),
+then validates it — both per its `mode:`. Valid exits 0; violations exit
+non-zero with the findings (one per line). A state with no `file:`/`mode:`, or
+whose file is **absent**, has nothing to validate and exits 0 (and formats
+nothing) — so `building` deleting `.gtd/TODO.md`, and an `await-review`
+delete-to-approve, both pass cleanly.
 
 **`gtd step` enforces the same gate.** Capturing a normal commit out of a state
 that declares `file:`+`mode:` runs the very same format-and-validate on that

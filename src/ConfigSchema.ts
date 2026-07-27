@@ -1,14 +1,17 @@
 import { Schema } from "effect"
 
 /**
- * v3's `.gtdrc` config shape: two blessed top-level keys — `workflow:` (the
- * whole machine definition, compiled by `./PatternConfig.js`) and `vars:` (a
+ * v3's `.gtdrc` config shape: three blessed top-level keys — `workflow:` (the
+ * whole machine definition, compiled by `./PatternConfig.js`), `vars:` (a
  * flat `name -> scalar` map, one of the three layers merged into every
  * template's `it.vars` — see `./Config.js`'s `toOperations` and
- * `./Edge.js`'s `resolveVars`). There are no other blessed config keys (see
- * `./Config.js`'s module docstring for why).
+ * `./Edge.js`'s `resolveVars`), and `modes:` (steering-file modes layered over
+ * the active workflow's own `modes:` and gtd's built-in validators, so a
+ * project can plug its formatter into the BUNDLED default without re-declaring
+ * the workflow). There are no other blessed config keys (see `./Config.js`'s
+ * module docstring for why).
  *
- * Both keys decode as `Schema.Unknown`: the shape is validated structurally
+ * All three keys decode as `Schema.Unknown`: the shape is validated structurally
  * by the workflow compiler (`src/PatternConfig.ts`), not by effect/schema —
  * the shape is deep and recursive, and the compiler's errors carry rule
  * coordinates a flat schema error cannot. The `jsonSchema` ANNOTATIONS below
@@ -41,11 +44,11 @@ const varsJsonSchema = {
   additionalProperties: { type: ["string", "number", "boolean"] },
 } as const
 
-/** The `modes:` shape (inside `workflow:`): mode name -> its format/validate shell commands (`compileModesMap`). */
+/** The `modes:` shape (top-level AND inside `workflow:`): mode name -> its format/validate shell commands (`compileModesMap`). */
 const modesJsonSchema = {
   type: "object",
   description:
-    "Steering-file modes a state's mode: may name. Each entry declares at least one of format/validate: shell commands (Eta templates seeing it.file = the rendered steering-file path) gtd runs via bash. format rewrites the file in place; validate exits 0 when valid, non-zero with findings on stdout/stderr otherwise. Reusing a built-in name (qa/review) replaces that built-in wholesale.",
+    "Steering-file modes a state's mode: may name. Each entry declares at least one of format/validate: shell commands (Eta templates seeing it.file = the rendered steering-file path) gtd runs via bash. format rewrites the file in place; validate exits 0 when valid, non-zero with findings on stdout/stderr otherwise. The halves layer independently, so naming a built-in mode (qa/review) and declaring only format: adds formatting while keeping gtd's own validation. gtd ships no formatter — bring your own (prettier, dprint, a script).",
   additionalProperties: {
     type: "object",
     description: "One mode: at least one of format/validate.",
@@ -160,7 +163,7 @@ const stateJsonSchema = {
     mode: {
       type: "string",
       description:
-        "The steering file's format: the name of a built-in mode (qa/review) or of a `modes:` entry. gtd formats and validates the file with that mode before capturing a turn out of this state, and the LSP dispatches live diagnostics on the built-in names. Requires a sibling `file:`. Forbidden on a commit state.",
+        "The steering file's format: the name of a built-in mode (qa/review, validated in-process by gtd) or of a `modes:` entry. gtd formats and validates the file with that mode before capturing a turn out of this state, and the LSP dispatches live diagnostics on the built-in names. Requires a sibling `file:`. Forbidden on a commit state.",
     },
     reviewWindow: {
       type: "boolean",
@@ -197,6 +200,7 @@ const workflowJsonSchema = {
 export const ConfigSchema = Schema.Struct({
   workflow: Schema.optional(Schema.Unknown.annotations({ jsonSchema: workflowJsonSchema })),
   vars: Schema.optional(Schema.Unknown.annotations({ jsonSchema: varsJsonSchema })),
+  modes: Schema.optional(Schema.Unknown.annotations({ jsonSchema: modesJsonSchema })),
 })
 
 export type DecodedConfig = Schema.Schema.Type<typeof ConfigSchema>

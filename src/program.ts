@@ -26,7 +26,6 @@ import {
   type ResolvedRest,
 } from "./Edge.js"
 import { closeReviewWindow, openReviewWindow } from "./ReviewWindow.js"
-import { formatFile } from "./Format.js"
 import { startLspServer } from "./Lsp.js"
 import { renderMermaid } from "./Mermaid.js"
 import {
@@ -62,13 +61,11 @@ Commands:
                    actor (the built-in script driver)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
-  validate         Validate the steering file the resolved rest declares
-                   (its file:/mode:) against that mode's format; exits
-                   non-zero with findings when the file violates it (no
-                   mutation)
+  validate         Format and validate the steering file the resolved rest
+                   declares, with its mode's commands (its file:/mode:);
+                   exits non-zero with the findings when it is invalid
   mermaid          Print the active workflow's shape as Mermaid
                    stateDiagram-v2 source (no mutation)
-  format <file>    Format a markdown file in place
   lsp              Start the LSP server for .gtd/ steering files (stdio)
 
 Options:
@@ -156,7 +153,7 @@ const parseModelFlag = (argv: readonly string[]): Effect.Effect<string | undefin
  * Parse and validate the `--cost`/`--model` step flags together. Both are
  * orthogonal to `--json` but only meaningful to `gtd step` — rejected on any
  * other command rather than silently ignored (same discipline as `--json` on
- * `format`) — and `--model` requires `--cost` (a model tag with no token count
+ * `next`) — and `--model` requires `--cost` (a model tag with no token count
  * records nothing to sum).
  */
 const parseStepFlags = (
@@ -196,32 +193,11 @@ const rejectExtraArgs = (command: string, argv: readonly string[]): Effect.Effec
   return Effect.void
 }
 
-/** `gtd format <file>`: reformat a markdown file in place. Rejects `--json` (not a state command). */
-const runFormatCommand = (
-  argv: readonly string[],
-  json: boolean,
-): Effect.Effect<void, Error, ProgramRequirements> =>
-  Effect.gen(function* () {
-    if (json) {
-      return yield* Effect.fail(new Error("gtd format does not accept --json"))
-    }
-    const args = commandArgs(argv)
-    if (args.length === 0) {
-      return yield* Effect.fail(new Error("gtd format: missing file path argument"))
-    }
-    if (args.length > 1) {
-      return yield* Effect.fail(
-        new Error(`gtd format: too many arguments — expected one path, got: ${args.join(", ")}`),
-      )
-    }
-    yield* formatFile(args[0]!)
-  })
-
 /**
  * `gtd lsp`: start the LSP server for `.gtd/` steering files over stdio.
  * Rejects `--json` (not a state command) and extra positional arguments
- * (takes none). Dispatched alongside `format` — before the known-subcommand
- * guard, the repo-root guard, and auto-init — since the server needs no
+ * (takes none). Dispatched BEFORE the known-subcommand guard, the repo-root
+ * guard, and auto-init — since the server needs no
  * git/config/workflow dependency at all (it's keyed on file name, not
  * workflow state; see `src/Lsp.ts`'s module doc).
  */
@@ -463,9 +439,9 @@ interface SteeringCheck {
  * Format the resolved rest's steering file in place, then validate its
  * formatted contents. When the state declares both `file:` and `mode:` and
  * that file exists in the working tree, the mode's format-then-validate pair
- * runs over it — gtd's own markdown formatter + canonical parser for a built-in
- * `qa`/`review`, or the workflow's declared shell commands for any other mode
- * (see `src/SteeringMode.ts`). `present` is false — and nothing is
+ * runs over it — each half resolved independently from the `modes:` map and
+ * gtd's built-in `qa`/`review` validators beneath it (see
+ * `src/SteeringMode.ts`). `present` is false — and nothing is
  * formatted or validated — when the state declares no steering file, or the
  * file is absent (e.g. `building` deleted `.gtd/TODO.md`, or a human deleted
  * `.gtd/REVIEW.md` to approve), so those flows pass cleanly. Shared by
@@ -531,14 +507,15 @@ const enforceSteeringGate = (
 
 /**
  * `gtd validate [--json]`: format (in place) then validate the steering file
- * the resolved rest declares (`file:` rendered, `mode:` selecting the parser),
- * over its WORKING-TREE contents. A state with no `file:`/`mode:`, or an absent
- * file, has nothing to validate (exit 0). A clean parse exits 0; violations
+ * the resolved rest declares (`file:` rendered, `mode:` selecting how), over
+ * its WORKING-TREE contents. A state with no `file:`/`mode:`, or an absent
+ * file, has nothing to validate (exit 0). A clean verdict exits 0; violations
  * FAIL the Effect with the findings (one per line), so the process exits
  * non-zero — the signal a producing agent (or the driver) loops on until the
- * file is valid. Reuses the canonical `OpenQuestions`/`ReviewDoc` parsers (the
- * same the LSP publishes), so there is one source of truth per format and no
- * bash port.
+ * file is valid. A built-in mode reuses the canonical `OpenQuestions`/
+ * `ReviewDoc` parsers (the same the LSP publishes), so there is one source of
+ * truth per format and no bash port; any `modes:`-declared command runs
+ * instead (or, for `format:`, in addition).
  */
 const runValidateCommand = (
   argv: readonly string[],
@@ -878,7 +855,7 @@ const dispatchKnownSubcommand = (
  * unchanged.
  */
 export interface RunOptions {
-  /** argv array (e.g. `["node", "gtd.js", "format", "file.md"]`). Defaults to `process.argv`. */
+  /** argv array (e.g. `["node", "gtd.js", "step", "agent"]`). Defaults to `process.argv`. */
   argv?: string[]
   /** Sink for stdout output. Defaults to `process.stdout.write.bind(process.stdout)`. */
   write?: (chunk: string) => void
@@ -892,10 +869,10 @@ export interface RunOptions {
  * this with no arguments; the test world supplies an in-memory layer set and
  * captures stdout via the `write` callback.
  *
- * v3 command surface: `step <actor>` / `next` / `run` / `status` (see
- * `src/Edge.ts` and `docs/design/pattern-machine-plan.md` §3), plus `format
- * <file>` (unchanged from v1/v2). Bare `gtd` or an unknown subcommand is a
- * usage error. Shared setup (argv parsing, the repo-root guard) lives here;
+ * v3 command surface: `step <actor>` / `next` / `run` / `status` /
+ * `validate` / `mermaid` (see `src/Edge.ts` and
+ * `docs/design/pattern-machine-plan.md` §3), plus `lsp`. Bare `gtd` or an
+ * unknown subcommand is a usage error. Shared setup (argv parsing, the repo-root guard) lives here;
  * each subcommand's own logic is a named `run*Command` function above.
  */
 export function makeProgram(
@@ -935,10 +912,6 @@ export function makeProgram(
     // model as a `Gtd-Cost:` trailer on the turn commit (see `parseStepFlags`).
     const { cost, model } = yield* parseStepFlags(argv, positional)
 
-    if (positional === "format") {
-      return yield* runFormatCommand(argv, json)
-    }
-
     if (positional === "lsp") {
       return yield* runLspCommand(argv, json)
     }
@@ -955,7 +928,7 @@ export function makeProgram(
     // is open.
     yield* closeReviewWindow
     // Auto-init runs here and ONLY here: past the version/help short-circuit,
-    // the format branch, the known-subcommand guard, and the repo-root guard —
+    // the `lsp` branch, the known-subcommand guard, and the repo-root guard —
     // a refused or rejected invocation must never mutate the repository.
     yield* (yield* ConfigInit).ensure
 

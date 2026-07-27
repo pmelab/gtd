@@ -159,3 +159,16 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
     Then it fails
     And stderr contains "workflow config:"
     And stderr contains "mode \"adr\": unknown key(s) lint"
+
+  Scenario: a malformed top-level "modes:" key fails the same way as a workflow-level one
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      modes:
+        qa:
+          formatt: "npx prettier --write <%= it.file %>"
+      """
+    When I run gtd status
+    Then it fails
+    And stderr contains "gtd config:"
+    And stderr contains "mode \"qa\": unknown key(s) formatt"

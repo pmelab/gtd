@@ -1,14 +1,11 @@
-import { FileSystem } from "@effect/platform"
 import { Effect } from "effect"
 import { spawnSync } from "node:child_process"
-import { formatFile } from "./Format.js"
 import { parseOpenQuestions } from "./OpenQuestions.js"
 import { parseReviewDoc } from "./ReviewDoc.js"
 import {
   isBuiltInMode,
   knownModes,
   type BuiltInMode,
-  type ModeDef,
   type StateMode,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
@@ -25,40 +22,51 @@ import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
  *    just wrote is normalized before anything judges it.
  * 2. **validate** — report findings (zero findings = valid).
  *
- * Two mode names are implemented HERE, in process (`PatternMachine`'s
- * `BUILT_IN_MODES`): `qa` and `review` format with the markdown formatter
- * behind `gtd format` and validate with the canonical pure parsers
- * (`src/OpenQuestions.ts` / `src/ReviewDoc.ts`) — the same parsers `gtd lsp`
- * publishes as live diagnostics, which is why they stay in process rather than
- * becoming shell-outs.
+ * The two halves resolve INDEPENDENTLY, each from the first layer that provides
+ * it:
  *
- * Every OTHER mode is workflow-declared DATA: a `modes:` entry naming a shell
- * command for either half (`PatternMachine.ModeDef`), rendered as an Eta
- * template with `it.file` bound to the rendered steering-file path and executed
- * verbatim via `bash -c`. The contract is the shell's own: for `validate`,
- * exit 0 means valid and a non-zero exit means invalid with its output (stdout
- * then stderr) as the findings; for `format`, a non-zero exit is a hard error
- * (broken tooling, not a malformed file). A `modes:` entry that reuses a
- * built-in name REPLACES it wholesale, so a mode declaring only `validate:`
- * has no formatting step at all.
+ * - **format** — only ever a `modes:` entry's `format:` SHELL COMMAND. gtd
+ *   ships no formatter of its own: a project brings `prettier`, `dprint`, or a
+ *   script of its own and plugs it into whichever mode it wants formatted. No
+ *   command, no formatting.
+ * - **validate** — a `modes:` entry's `validate:` command if declared;
+ *   otherwise, for the two BUILT-IN names (`PatternMachine.BuiltInMode`), gtd's
+ *   own pure parser: `qa` → `src/OpenQuestions.ts`, `review` →
+ *   `src/ReviewDoc.ts`. Those stay in process because `gtd lsp` publishes the
+ *   same parsers as live diagnostics.
  *
- * gtd interprets NOTHING about a command beyond its exit code and output —
- * same discipline as the scripted check actor (`gtd run`), and the second (and
- * last) place gtd spawns a subprocess.
+ * That per-half layering is what makes a built-in mode EXTENSIBLE rather than
+ * all-or-nothing: `modes: { qa: { format: "npx prettier --write <%= it.file %>" } }`
+ * adds formatting to `qa` and keeps gtd's open-questions validation.
+ *
+ * A command is an Eta template rendered with `it.file` bound to the rendered
+ * steering-file path, then executed verbatim via `bash -c`. The contract is the
+ * shell's own: for `validate`, exit 0 means valid and a non-zero exit means
+ * invalid with its output (stdout then stderr) as the findings; for `format`, a
+ * non-zero exit is a hard error (broken tooling, not a malformed file). gtd
+ * interprets NOTHING beyond exit code and output — same discipline as the
+ * scripted check actor (`gtd run`), and the second (and last) place gtd spawns
+ * a subprocess.
  */
 
-/** A state's `mode:` resolved against the active definition: gtd's own in-process implementation, or the workflow's declared commands. */
-export type ResolvedMode =
+/** How a resolved mode validates: a shell command, or gtd's own in-process parser. */
+export type ResolvedValidator =
+  | { readonly kind: "command"; readonly command: string }
   | { readonly kind: "builtin"; readonly mode: BuiltInMode }
-  | {
-      readonly kind: "commands"
-      readonly mode: StateMode
-      readonly commands: ModeDef
-    }
+
+/** A state's `mode:` resolved against the active definition — each half from the first layer that provides it (see the module docstring). */
+export interface ResolvedMode {
+  readonly mode: StateMode
+  /** The `format:` shell command, when some `modes:` layer declared one. Absent = this mode formats nothing. */
+  readonly format?: string
+  /** How to validate, or absent when neither a command nor a built-in parser applies (a declared mode with only a `format:`). */
+  readonly validate?: ResolvedValidator
+}
 
 /**
- * Resolve a `mode:` name: a `modes:` entry wins (so a workflow can replace a
- * built-in), then the two built-ins. `undefined` for a name nothing defines —
+ * Resolve a `mode:` name, half by half: a declared `format:`/`validate:` wins,
+ * and an undeclared `validate:` falls back to the built-in parser of the same
+ * name. `undefined` for a name that is neither declared nor built in —
  * `validateDefinition` rejects that at load time, so the edge only ever sees it
  * as a defensive case.
  */
@@ -67,9 +75,19 @@ export const resolveSteeringMode = (
   mode: StateMode,
 ): ResolvedMode | undefined => {
   const declared = def.modes?.[mode]
-  if (declared !== undefined) return { kind: "commands", mode, commands: declared }
-  if (isBuiltInMode(mode)) return { kind: "builtin", mode }
-  return undefined
+  const builtIn = isBuiltInMode(mode)
+  if (declared === undefined && !builtIn) return undefined
+  const validate: ResolvedValidator | undefined =
+    declared?.validate !== undefined
+      ? { kind: "command", command: declared.validate }
+      : builtIn
+        ? { kind: "builtin", mode }
+        : undefined
+  return {
+    mode,
+    ...(declared?.format !== undefined ? { format: declared.format } : {}),
+    ...(validate !== undefined ? { validate } : {}),
+  }
 }
 
 /** The error message for a `mode:` that resolves to nothing — lists what the active workflow does know. */
@@ -79,9 +97,6 @@ export const unknownModeMessage = (
   mode: StateMode,
 ): string =>
   `state "${state}": mode "${mode}" is not defined by the active workflow (known modes: ${knownModes(def).join(", ")})`
-
-/** Only these extensions get the built-in markdown formatter — a `qa`/`review` steering file that isn't markdown is validated but never rewritten. */
-const MARKDOWN_STEERING_RE = /\.(?:md|markdown)$/i
 
 /** One command run's outcome: its exit status (a signal death reported as `null`) and its combined output (stdout then stderr). */
 interface CommandOutcome {
@@ -115,9 +130,13 @@ const runCommand = (command: string, cwd: string): Effect.Effect<CommandOutcome,
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
+/** How a non-zero exit reads in a message: a status number, or a signal death. */
+const exitText = (status: number | null): string =>
+  status === null ? "a signal" : `status ${status}`
+
 /** Render one command template, turning an Eta failure into a named error rather than executing anything. */
 const renderCommand = (
-  resolved: Extract<ResolvedMode, { kind: "commands" }>,
+  mode: StateMode,
   key: "format" | "validate",
   command: string,
   file: string,
@@ -125,8 +144,7 @@ const renderCommand = (
 ): Effect.Effect<string, Error> =>
   Effect.try({
     try: () => renderModeCommand(command, { ...context, file }),
-    catch: (e) =>
-      new Error(`mode "${resolved.mode}": "${key}" command failed to render — ${errorText(e)}`),
+    catch: (e) => new Error(`mode "${mode}": "${key}" command failed to render — ${errorText(e)}`),
   })
 
 /** The findings a non-zero `validate` exit reports: its output lines, or a synthesized line when it said nothing. */
@@ -136,41 +154,33 @@ const findingsFrom = (mode: StateMode, outcome: CommandOutcome): readonly string
     .map((line) => line.trimEnd())
     .filter((line) => line.length > 0)
   if (lines.length > 0) return lines
-  return [
-    `mode "${mode}": validate command exited with ${
-      outcome.status === null ? "a signal" : `status ${outcome.status}`
-    } and no output`,
-  ]
+  return [`mode "${mode}": validate command exited with ${exitText(outcome.status)} and no output`]
 }
 
 /**
- * Format `file` in place per its mode: the markdown formatter for a built-in
- * (skipped for a non-markdown path), the mode's own `format:` command
- * otherwise. A mode with no `format:` formats nothing. A failing command is a
- * hard error — the file is left exactly as it was, and the caller refuses
- * rather than validating a half-formatted file.
+ * Format `file` in place by running the mode's `format:` command. A mode with
+ * no formatter (every mode, until a `modes:` layer declares one — gtd ships
+ * none) formats nothing. A failing command is a hard error: the file is left
+ * exactly as it was and the caller refuses, rather than validating a
+ * half-formatted file.
  */
 export const formatSteeringFile = (
   resolved: ResolvedMode,
   file: string,
   context: TemplateContext,
   cwd: string,
-): Effect.Effect<void, Error, FileSystem.FileSystem> =>
+): Effect.Effect<void, Error> =>
   Effect.gen(function* () {
-    if (resolved.kind === "builtin") {
-      if (MARKDOWN_STEERING_RE.test(file)) yield* formatFile(file)
-      return
-    }
-    const command = resolved.commands.format
+    const command = resolved.format
     if (command === undefined) return
-    const rendered = yield* renderCommand(resolved, "format", command, file, context)
+    const rendered = yield* renderCommand(resolved.mode, "format", command, file, context)
     const outcome = yield* runCommand(rendered, cwd)
     if (outcome.status !== 0) {
       return yield* Effect.fail(
         new Error(
-          `mode "${resolved.mode}": format command exited with ${
-            outcome.status === null ? "a signal" : `status ${outcome.status}`
-          }${outcome.output.trim().length > 0 ? `:\n${outcome.output.trimEnd()}` : ""}`,
+          `mode "${resolved.mode}": format command exited with ${exitText(outcome.status)}${
+            outcome.output.trim().length > 0 ? `:\n${outcome.output.trimEnd()}` : ""
+          }`,
         ),
       )
     }
@@ -178,10 +188,10 @@ export const formatSteeringFile = (
 
 /**
  * Validate `file` per its mode, returning the findings (empty = valid). A
- * built-in runs its pure parser over `readContent()` (the file's contents AFTER
- * `formatSteeringFile`); a declared mode runs its `validate:` command and reads
- * nothing itself — the command owns how it inspects the file. A mode with no
- * `validate:` reports no findings.
+ * built-in validator runs its pure parser over `readContent()` (the file's
+ * contents AFTER `formatSteeringFile`); a declared `validate:` command runs
+ * instead and reads nothing itself — the command owns how it inspects the file.
+ * A mode with neither reports no findings.
  */
 export const validateSteeringFile = (
   resolved: ResolvedMode,
@@ -191,18 +201,24 @@ export const validateSteeringFile = (
   cwd: string,
 ): Effect.Effect<readonly string[], Error> =>
   Effect.gen(function* () {
-    if (resolved.kind === "builtin") {
+    const validator = resolved.validate
+    if (validator === undefined) return []
+    if (validator.kind === "builtin") {
       const content = yield* Effect.try({
         try: readContent,
         catch: (e) => new Error(`mode "${resolved.mode}": cannot read ${file} — ${errorText(e)}`),
       })
-      return resolved.mode === "qa"
+      return validator.mode === "qa"
         ? parseOpenQuestions(content).errors
         : parseReviewDoc(content).errors
     }
-    const command = resolved.commands.validate
-    if (command === undefined) return []
-    const rendered = yield* renderCommand(resolved, "validate", command, file, context)
+    const rendered = yield* renderCommand(
+      resolved.mode,
+      "validate",
+      validator.command,
+      file,
+      context,
+    )
     const outcome = yield* runCommand(rendered, cwd)
     return outcome.status === 0 ? [] : findingsFrom(resolved.mode, outcome)
   })
@@ -219,7 +235,7 @@ export const formatAndValidateSteeringFile = (
   readContent: () => string,
   context: TemplateContext,
   cwd: string,
-): Effect.Effect<readonly string[], Error, FileSystem.FileSystem> =>
+): Effect.Effect<readonly string[], Error> =>
   Effect.gen(function* () {
     yield* formatSteeringFile(resolved, file, context, cwd)
     return yield* validateSteeringFile(resolved, file, readContent, context, cwd)

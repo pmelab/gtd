@@ -1,5 +1,57 @@
 @live
-Feature: Automatic markdown formatting on commit
+Feature: Markdown formatting is the project's own tool, plugged into a steering-file mode
+
+  gtd ships no formatter (there is no `gtd format` subcommand, and no prettier
+  inside the binary). A project that wants its steering files auto-formatted
+  brings its own tool and declares it as a `format:` command on the mode those
+  files use — a top-level `.gtdrc` `modes:` key is enough, even on the bundled
+  default workflow (see docs/configuration.md's "modes:" section). Formatting
+  runs where validation runs: `gtd validate`, and the `gtd step` capture gate.
+
+  A git `pre-commit` hook remains a perfectly good alternative, and the last
+  scenarios pin that it still works — gtd never fights it.
+
+  Scenario: prettier plugged into the bundled default's qa mode rewraps TODO.md
+    Given a test project
+    And prettier is available in the test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      modes:
+        qa:
+          format: "npx prettier --write <%= it.file %>"
+        review:
+          format: "npx prettier --write <%= it.file %>"
+      """
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      This is a very long line that exceeds eighty characters and should be wrapped by prettier when gtd validates it.
+      """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains ".gtd/TODO.md: valid"
+    And ".gtd/TODO.md" has no lines longer than 80 characters
+
+  Scenario: the step capture gate formats with the same command before committing the turn
+    Given a test project
+    And prettier is available in the test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      modes:
+        qa:
+          format: "npx prettier --write <%= it.file %>"
+      """
+    And a commit "gtd(human): grilling-answer" that adds ".gtd/TODO.md" with:
+      """
+      A plan.
+      """
+    And ".gtd/TODO.md" is modified to:
+      """
+      A plan. This answer line is deliberately far longer than eighty characters so that the formatter has to rewrap it before the turn is captured.
+      """
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): grilling"
+    And ".gtd/TODO.md" has no lines longer than 80 characters
 
   Scenario: Pre-commit hook wraps long lines in TODO.md
     Given a test project
@@ -42,69 +94,6 @@ Feature: Automatic markdown formatting on commit
     And ".gtd/REVIEW.md" is staged
     When I commit with message "review: test formatting"
     Then ".gtd/REVIEW.md" has no lines longer than 80 characters
-
-  Scenario: format subcommand wraps long lines in place
-    Given a test project
-    And prettier is available in the test project
-    And a file ".gtd/TODO.md" with:
-      """
-      This is a very long line that exceeds eighty characters and should be wrapped by the format subcommand when run directly.
-      """
-    When I run gtd with args "format .gtd/TODO.md"
-    Then the exit code is 0
-    And stdout is empty
-    And ".gtd/TODO.md" has no lines longer than 80 characters
-
-  Scenario: format subcommand fails with exit 1 when path argument is missing
-    Given a test project
-    And prettier is available in the test project
-    When I run gtd with args "format"
-    Then the exit code is 1
-    And stderr contains "gtd format: missing file path argument"
-
-  Scenario: format subcommand fails with exit 1 for nonexistent file
-    Given a test project
-    And prettier is available in the test project
-    When I run gtd with args "format does-not-exist.md"
-    Then the exit code is 1
-    And stderr contains "gtd: skipped formatting does-not-exist.md:"
-
-  Scenario: format subcommand rejects non-markdown file with exit 1
-    Given a test project
-    And prettier is available in the test project
-    And a file "notes.txt" with:
-      """
-      This is a plain text file that should not be formatted.
-      """
-    When I run gtd with args "format notes.txt"
-    Then the exit code is 1
-    And stderr contains "notes.txt"
-
-  Scenario: format subcommand accepts .markdown extension
-    Given a test project
-    And prettier is available in the test project
-    And a file "notes.markdown" with:
-      """
-      This is a very long line that exceeds eighty characters and should be wrapped by the format subcommand when run directly.
-      """
-    When I run gtd with args "format notes.markdown"
-    Then the exit code is 0
-    And "notes.markdown" has no lines longer than 80 characters
-
-  Scenario: format subcommand rejects extra trailing arguments
-    Given a test project
-    And prettier is available in the test project
-    And a file ".gtd/TODO.md" with:
-      """
-      Short line.
-      """
-    And a file "extra.md" with:
-      """
-      Another file.
-      """
-    When I run gtd with args "format .gtd/TODO.md extra.md"
-    Then the exit code is 1
-    And stderr contains "gtd format: too many arguments"
 
   Scenario: Pre-commit hook does not modify other markdown files
     Given a test project
