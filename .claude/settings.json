@@ -22,6 +22,9 @@
       "Bash(npx oxlint .)",
       "Bash(npx oxfmt --check .)",
       "Bash(npx oxfmt --check *)",
+      "Bash(gtd next*)",
+      "Bash(gtd status*)",
+      "Bash(npm run build)",
       "mcp__github__actions_list"
     ],
     "deny": ["Bash(npm run test:mutation)", "Bash(npx stryker run)", "Bash(stryker run)"]

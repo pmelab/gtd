@@ -84,7 +84,7 @@ const stateJsonSchema = {
     script: {
       type: "string",
       description:
-        "Content kind: a shell script (Eta template). `gtd run` executes it verbatim via bash, then steps this state's actor.",
+        "Content kind: a shell script (Eta template). The loop driver executes it verbatim via bash, then steps this state's actor.",
     },
     prompt: {
       type: "string",

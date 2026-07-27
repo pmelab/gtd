@@ -44,9 +44,9 @@ import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
  * shell's own: for `validate`, exit 0 means valid and a non-zero exit means
  * invalid with its output (stdout then stderr) as the findings; for `format`, a
  * non-zero exit is a hard error (broken tooling, not a malformed file). gtd
- * interprets NOTHING beyond exit code and output — same discipline as the
- * scripted check actor (`gtd run`), and the second (and last) place gtd spawns
- * a subprocess.
+ * interprets NOTHING beyond exit code and output — the same discipline the loop
+ * driver applies to a scripted check actor, and the ONLY place gtd itself spawns
+ * a subprocess (a workflow script is run by the driver, never by gtd).
  */
 
 /** How a resolved mode validates: a shell command, or gtd's own in-process parser. */
@@ -106,8 +106,9 @@ interface CommandOutcome {
 
 /**
  * Run one rendered mode command through `bash -c` in `cwd`, capturing output
- * instead of inheriting the terminal (unlike `gtd run`'s scripted actor, whose
- * output IS the point): here the output is data — a validate command's findings
+ * instead of inheriting the terminal (unlike a workflow script, which the driver
+ * runs with inherited stdio because its output IS the point): here the output is
+ * data — a validate command's findings
  * are reported to the agent that must fix them. A spawn failure (no `bash`, an
  * unreadable cwd) fails the Effect; a non-zero EXIT is a value, since that is
  * the mode's way of saying "invalid".

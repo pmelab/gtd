@@ -331,9 +331,9 @@ The contract:
   not a malformed file): nothing is validated and nothing is committed.
 - **At least one of the two is required** in any single entry; the half it
   leaves out falls through to the layer beneath (below), or is a no-op.
-- Commands run via `bash -c` from the repository root — the only place besides a
-  `script:` state's `gtd run` where gtd spawns a subprocess. A `.gtdrc` is
-  project code: only add commands you would run yourself.
+- Commands run via `bash -c` from the repository root — the only place gtd
+  itself spawns a subprocess (a `script:` state is run by the loop driver, not
+  by gtd). A `.gtdrc` is project code: only add commands you would run yourself.
 
 #### The layers, half by half
 
@@ -518,8 +518,10 @@ vars:
 ```
 
 ```bash
-# highest precedence — beats both the workflow default and the .gtdrc value above
-GTD_VAR_testCommand="npm run test -- --bail" gtd run
+# highest precedence — beats both the workflow default and the .gtdrc value above.
+# The var is read at render time, so it shows up in the script `gtd next` prints
+# (and in what the loop driver then executes).
+GTD_VAR_testCommand="npm run test -- --bail" gtd next
 ```
 
 A template reads any of it as `it.vars.<name>`:

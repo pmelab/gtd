@@ -2,7 +2,7 @@
 Feature: v3 pattern-machine smoke — default workflow hops, gtd next --json, custom squash
 
   Minimal smoke coverage for the v3 CLI (`gtd step <actor>` / `gtd next` /
-  `gtd run` / `gtd status`, see src/Edge.ts and
+  `gtd status`, see src/Edge.ts and
   docs/design/pattern-machine-plan.md). Proves the rewritten edge/CLI wiring
   end to end: a couple of default-workflow hops, the `gtd next --json`
   contract, and a custom `.gtdrc` `workflow:` squashing through a `commit:`

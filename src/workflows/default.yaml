@@ -263,7 +263,7 @@ states:
     actor: check
     script: |
       #!/usr/bin/env bash
-      # gtd check turn — the driver (`gtd run`) executes this verbatim, then
+      # gtd check turn — the loop driver executes this verbatim, then
       # steps the check actor. Mechanics only: run the test suite and record a
       # red run's output as .gtd/FEEDBACK.md. What that output MEANS (another
       # fix round vs escalation) is decided by the workflow's own `on`/`retry`
@@ -427,7 +427,7 @@ states:
     mode: review
     script: |
       #!/usr/bin/env bash
-      # gtd check turn — the driver (`gtd run`) executes this verbatim, then
+      # gtd check turn — the loop driver executes this verbatim, then
       # steps the check actor. Mechanics only: if .gtd/REVIEW.md still has any
       # unticked "- [ ]" pointer, extract those pointers (with their notes)
       # into a fresh .gtd/TODO.md; either way, remove .gtd/REVIEW.md. What
