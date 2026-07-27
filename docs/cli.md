@@ -29,6 +29,8 @@ Commands:
   mermaid          Print the active workflow's shape as Mermaid
                    stateDiagram-v2 source (no mutation)
   lsp              Start the LSP server for .gtd/ steering files (stdio)
+  version          Print version and exit
+  help             Print this help and exit
 
 Options:
   --json           Output structured JSON instead of plain text
@@ -38,11 +40,12 @@ Options:
   --help, -h       Print this help and exit
 ```
 
-`--version` (`-v`) and `--help` (`-h`) short-circuit before any git or
-repository-state work — they run outside a repo and in any repo state. Bare
-`gtd` (no subcommand) is a usage error: it prints the help text and exits 1
-without touching the repository. Every other command must be run from the
-**repository root** — gtd derives the workflow, pending changes, and process
+`--version` (`-v`) / `gtd version` and `--help` (`-h`) / `gtd help`
+short-circuit before any git or repository-state work — they run outside a repo
+and in any repo state (the bare subcommands are exact equivalents of their flag
+forms). Bare `gtd` (no subcommand) is a usage error: it prints the help text and
+exits 1 without touching the repository. Every other command must be run from
+the **repository root** — gtd derives the workflow, pending changes, and process
 history relative to cwd, so it refuses with a clear error if invoked from a
 subdirectory.
 
@@ -438,5 +441,6 @@ the plain-text one.
 - **Repository root invocation.** Every state subcommand (`step`/`review`/
   `next`/`status`/`mermaid`) must run from the git repository root — the
   workflow, pending changes, and process history are resolved against the
-  process cwd. `--help`/`--version`, `format`, and `lsp` skip this guard
-  entirely (and any git/`.gtdrc` dependency along with it).
+  process cwd. `--help`/`--version` (and the `help`/`version` subcommands),
+  `format`, and `lsp` skip this guard entirely (and any git/`.gtdrc` dependency
+  along with it).

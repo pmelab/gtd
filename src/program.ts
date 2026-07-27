@@ -84,6 +84,8 @@ Commands:
   mermaid          Print the active workflow's shape as Mermaid
                    stateDiagram-v2 source (no mutation)
   lsp              Start the LSP server for .gtd/ steering files (stdio)
+  version          Print version and exit
+  help             Print this help and exit
 
 Options:
   --json           Output structured JSON instead of plain text
@@ -884,20 +886,22 @@ const KNOWN_SUBCOMMANDS = ["step", "review", "next", "status", "validate", "merm
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
 /**
- * `--version`/`-v` or `--help`/`-h`: short-circuits before any git or state
- * work, so it works outside a repo too. Exported so main.ts can run the same
- * check synchronously BEFORE the Effect runtime builds any layer — layer
- * construction must never observe a version/help invocation.
+ * `--version`/`-v`/`version` or `--help`/`-h`/`help`: short-circuits before any
+ * git or state work, so it works outside a repo too. The bare `version`/`help`
+ * subcommands are equivalent to their flag forms. Exported so main.ts can run
+ * the same check synchronously BEFORE the Effect runtime builds any layer —
+ * layer construction must never observe a version/help invocation.
  */
 export const runVersionOrHelp = (
   argv: readonly string[],
   write: (chunk: string) => void,
 ): boolean => {
-  if (argv.includes("--version") || argv.includes("-v")) {
+  const positional = argv.slice(2).find((a) => !a.startsWith("--"))
+  if (argv.includes("--version") || argv.includes("-v") || positional === "version") {
     write(GTD_VERSION + "\n")
     return true
   }
-  if (argv.includes("--help") || argv.includes("-h")) {
+  if (argv.includes("--help") || argv.includes("-h") || positional === "help") {
     write(HELP_TEXT)
     return true
   }

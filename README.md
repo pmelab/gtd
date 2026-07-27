@@ -76,6 +76,10 @@ Four commands drive it:
   `<commitish>..HEAD` (e.g. a colleague's PR branch), reusing the workflow's
   existing review/feedback machinery over that diff.
 
+`gtd version` (or `gtd --version`/`-v`) prints the installed version and exits;
+`gtd help` (or `gtd --help`/`-h`) prints the command list. Both short-circuit
+before any repo work, so they run anywhere.
+
 The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
 `"message"` means it's a human's move (stop and hand off); `"script"` means the
 driver runs `content` itself, then steps its actor; `"prompt"` means feed
