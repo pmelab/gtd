@@ -48,8 +48,16 @@ Or run without installing:
 npx @pmelab/gtd
 ```
 
-No config file, no setup subcommand — `gtd` auto-initializes a `.gtdrc.json`
-schema stub on first run (see [Configuration](docs/configuration.md#auto-init)).
+Then scaffold a workflow for the repo — run once:
+
+```bash
+gtd init simple      # or: gtd init advanced
+```
+
+This writes a `.gtdrc.json` with the chosen workflow inline (review and commit
+it). gtd ships **no** default workflow: a state command run before `gtd init`
+fails, pointing you back here. See
+[Configuration](docs/configuration.md#gtd-init) for the two templates.
 
 ## How it works
 
@@ -76,22 +84,22 @@ never executes anything — the driver owns running scripts. See
 [STATES.md](STATES.md) for the model and [Driving the loop](docs/loop.md) for
 the full protocol.
 
-Along the way, the bundled default workflow develops your sketch into an
-implementation plan — asking any open question it can't settle itself via a
-deterministic `.gtd/TODO.md` format, validated before it ever reaches you —
-builds it, runs your tests (looping on failures), and hands you a
+Along the way, the `simple` workflow (`gtd init simple`) develops your sketch
+into an implementation plan — asking any open question it can't settle itself
+via a deterministic `.gtd/TODO.md` format, validated before it ever reaches you
+— builds it, runs your tests (looping on failures), and hands you a
 `.gtd/REVIEW.md` checkbox review of the cycle's diff: tick a box to approve that
 item, or edit/untick for feedback. The same review flow also has a direct entry
 point — `gtd review <commitish>` starts a brand new process reviewing
 `<commitish>..HEAD` with no cycle of its own, e.g. a colleague's PR branch.
 Approving rests the cycle back at idle, with every turn commit still sitting in
 history for you to squash however you like (or not at all; gtd makes no
-assumption) — see [STATES.md](STATES.md#10-the-bundled-default-workflow) for the
-full shape. A heavier machine — two-phase Q&A planning, an architecture phase,
-task decomposition, a per-task build loop, and a squash finale — is preserved as
-a copy-paste `.gtdrc` example at
-[docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md). The
-workflow itself is just `.gtdrc` config — swap it for your own (see
+assumption) — see [STATES.md](STATES.md#10-the-bundled-workflow-templates) for
+the full shape. The `advanced` template (`gtd init advanced`) is a heavier
+machine — two-phase Q&A planning, an architecture phase, task decomposition, a
+per-task build loop, and a squash finale — walked through at
+[docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md). Either
+way the workflow is just `.gtdrc` config — edit it or write your own (see
 [Configuration](docs/configuration.md)).
 
 `gtd-loop`, installed alongside `gtd`, is a ready-to-run driver for the whole
@@ -119,13 +127,13 @@ Both halves are enforced by `gtd validate` and the `gtd step` gate.
 
 - [STATES.md](STATES.md) — the full pattern-machine specification: the model,
   the pattern grammar, resolution, retry, the squash lifecycle, and the bundled
-  default workflow
+  workflow templates
 - [CLI reference](docs/cli.md) — every command, exit codes, JSON schemas,
   repository requirements
 - [Driving the loop](docs/loop.md) — the reference loop driver, `gtd-loop`,
   custom agents
-- [Configuration](docs/configuration.md) — `.gtdrc` `workflow:` schema, lookup,
-  auto-init
+- [Configuration](docs/configuration.md) — `gtd init`, the `.gtdrc` `workflow:`
+  schema, lookup
 - [Upgrading](docs/upgrading.md) — breaking changes and migration
 - [Development](docs/development.md) — building, testing, releasing
 

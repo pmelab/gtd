@@ -14,17 +14,16 @@ import {
   type GitWriterOperations,
   type GitOperations,
 } from "../../../../src/Git.js"
-import { ConfigInit, ConfigService, type ConfigOperations } from "../../../../src/Config.js"
+import {
+  ConfigService,
+  NO_WORKFLOW_MESSAGE,
+  type ConfigOperations,
+} from "../../../../src/Config.js"
 import {
   compileModesMap,
   compileVarsMap,
   compileWorkflowConfig,
-  mergeModes,
 } from "../../../../src/PatternConfig.js"
-import {
-  defaultWorkflowDefinition,
-  defaultWorkflowVars,
-} from "../../../../src/workflows/default.js"
 import { InMemRepo } from "./Repo.js"
 import { Cwd } from "../../../../src/Cwd.js"
 import { EnvVars } from "../../../../src/EnvVars.js"
@@ -405,26 +404,21 @@ const compileRcModes = (raw: unknown) => {
 
 /**
  * Mirrors the real `ConfigService.Live`'s `toOperations`: an absent
- * `workflow:` key compiles to the bundled default; a present one is compiled
- * through the SAME `compileWorkflowConfig` the real service uses — no
- * bespoke in-memory workflow interpretation. Likewise the top-level `vars:`
- * key goes through the same `compileRcVars` the real service uses.
- * `configDir` is `"/repo"` (this harness's fixed in-memory root, matching
- * `topLevel`/`realPath` above) so a scenario's custom workflow could
- * reference `./`-relative content if it ever needed to (none currently do;
- * every @inmem custom-workflow scenario writes inline content).
+ * `workflow:` key THROWS `NO_WORKFLOW_MESSAGE` (gtd ships no default — a repo
+ * scaffolds one with `gtd init`); a present one is compiled through the SAME
+ * `compileWorkflowConfig` the real service uses — no bespoke in-memory
+ * workflow interpretation. Likewise the top-level `vars:` key goes through the
+ * same `compileRcVars` the real service uses. `configDir` is `"/repo"` (this
+ * harness's fixed in-memory root, matching `topLevel`/`realPath` above) so a
+ * scenario's custom workflow could reference `./`-relative content if it ever
+ * needed to (none currently do; every @inmem custom-workflow scenario writes
+ * inline content).
  */
 const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
   const rcVars = compileRcVars(raw["vars"])
   const rcModes = compileRcModes(raw["modes"])
   if (raw["workflow"] === undefined) {
-    const modes = mergeModes(defaultWorkflowDefinition.modes, rcModes)
-    return {
-      workflow:
-        modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition,
-      workflowVars: defaultWorkflowVars,
-      rcVars,
-    }
+    throw new Error(NO_WORKFLOW_MESSAGE)
   }
   const { definition, vars: workflowVars } = compileWorkflowConfig(
     raw["workflow"],
@@ -437,19 +431,25 @@ const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
 const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> => {
   const worktree = (repo as unknown as { worktree: Map<string, string> })["worktree"]
 
-  const ops = Effect.sync((): ConfigOperations => {
-    for (const name of SEARCH_PLACES) {
-      const content = worktree.get(name)
-      if (content !== undefined) {
-        const raw = parseConfigContent(name, content)
-        return makeConfigOps(raw)
+  // Deferred exactly like the real `ConfigService.Live`: `load` (re)reads the
+  // worktree config on each access and throws `NO_WORKFLOW_MESSAGE` when no
+  // `workflow:` is present, so building the layer never fails and
+  // config-independent commands (`init`) run with no config in the worktree.
+  const load = Effect.try({
+    try: (): ConfigOperations => {
+      for (const name of SEARCH_PLACES) {
+        const content = worktree.get(name)
+        if (content !== undefined) {
+          const raw = parseConfigContent(name, content)
+          return makeConfigOps(raw)
+        }
       }
-    }
-    // No config file found → defaults
-    return makeConfigOps({})
+      return makeConfigOps({})
+    },
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
-  return Layer.effect(ConfigService, ops)
+  return Layer.succeed(ConfigService, { load })
 }
 
 // ---------------------------------------------------------------------------
@@ -478,7 +478,7 @@ export function inMemoryLayers(
   repo: InMemRepo,
   env: Readonly<Record<string, string | undefined>> = {},
 ): Layer.Layer<
-  GitService | FileSystem.FileSystem | ConfigService | ConfigInit | Cwd | WorktreeReader | EnvVars
+  GitService | FileSystem.FileSystem | ConfigService | Cwd | WorktreeReader | EnvVars
 > {
   // Reader + Writer share the same repo instance
   const readerOps = makeGitReaderOps(repo)
@@ -495,7 +495,6 @@ export function inMemoryLayers(
     gitServiceLayer,
     fsLayer,
     configLayer,
-    ConfigInit.Noop,
     Cwd.layer("/repo"),
     makeInMemoryWorktreeReader(repo),
     EnvVars.layer(env),

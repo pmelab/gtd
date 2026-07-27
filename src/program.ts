@@ -1,7 +1,13 @@
 import { createRequire } from "node:module"
+import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect, Either } from "effect"
-import { ConfigInit, ConfigService } from "./Config.js"
+import { anyConfigPresent, ConfigService } from "./Config.js"
+import {
+  isWorkflowTemplateName,
+  renderInitConfig,
+  WORKFLOW_TEMPLATE_NAMES,
+} from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { WorktreeReader } from "./WorktreeReader.js"
@@ -53,6 +59,10 @@ const GTD_VERSION: string = (_require("../package.json") as { version: string })
 const HELP_TEXT = `Usage: gtd [command] [options]
 
 Commands:
+  init <workflow>  Scaffold a .gtdrc.json for this repo with the chosen
+                   bundled workflow inline (one of: simple, advanced). Run
+                   once per repo; refuses if a gtd config already exists.
+                   Leaves the file uncommitted for you to review and commit
   step <actor>     Authenticate as <actor>, match the resolved rest's
                    declared patterns against the pending changes, and commit
                    (or squash) the one resulting transition. Pass
@@ -101,7 +111,6 @@ type ProgramRequirements =
   | GitService
   | FileSystem.FileSystem
   | ConfigService
-  | ConfigInit
   | Cwd
   | WorktreeReader
   | EnvVars
@@ -203,10 +212,9 @@ const rejectExtraArgs = (command: string, argv: readonly string[]): Effect.Effec
 /**
  * `gtd lsp`: start the LSP server for `.gtd/` steering files over stdio.
  * Rejects `--json` (not a state command) and extra positional arguments
- * (takes none). Dispatched BEFORE the known-subcommand guard, the repo-root
- * guard, and auto-init — since the server needs no
- * git/config/workflow dependency at all (it's keyed on file name, not
- * workflow state; see `src/Lsp.ts`'s module doc).
+ * (takes none). Dispatched BEFORE the known-subcommand guard and the repo-root
+ * guard — since the server needs no git/config/workflow dependency at all
+ * (it's keyed on file name, not workflow state; see `src/Lsp.ts`'s module doc).
  */
 const runLspCommand = (argv: readonly string[], json: boolean): Effect.Effect<void, Error> =>
   Effect.gen(function* () {
@@ -215,6 +223,66 @@ const runLspCommand = (argv: readonly string[], json: boolean): Effect.Effect<vo
     }
     yield* rejectExtraArgs("lsp", argv)
     yield* startLspServer()
+  })
+
+/** The `choose one of: ...` suffix shared by every `gtd init` usage error. */
+const initWorkflowChoices = (): string => `choose one of: ${WORKFLOW_TEMPLATE_NAMES.join(", ")}`
+
+/**
+ * `gtd init <workflow>`: scaffold a `.gtdrc.json` carrying one of the bundled
+ * workflow templates inline (`simple`/`advanced`). Dispatched like `lsp` —
+ * BEFORE the closeReviewWindow/dispatch/openReviewWindow block — because it is
+ * the ONE command that must run with no workflow configured yet: it needs no
+ * `ConfigService` (which would throw the "no workflow" error pre-init) and no
+ * review window. It still runs the repo-root guard (it writes `.gtdrc.json` at
+ * the root) and refuses to clobber an existing config. The file is left
+ * UNCOMMITTED, so the message warns to commit it before the first `gtd step`
+ * (an uncommitted config is a pending change the initial state's `* **` edge
+ * would otherwise capture).
+ */
+const runInitCommand = (
+  argv: readonly string[],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | Cwd> =>
+  Effect.gen(function* () {
+    const args = commandArgs(argv)
+    if (args.length === 0) {
+      return yield* Effect.fail(new Error(`gtd init: missing workflow — ${initWorkflowChoices()}`))
+    }
+    if (args.length > 1) {
+      return yield* Effect.fail(
+        new Error(`gtd init: too many arguments — expected one workflow, got: ${args.join(", ")}`),
+      )
+    }
+    const name = args[0]!
+    if (!isWorkflowTemplateName(name)) {
+      return yield* Effect.fail(
+        new Error(`gtd init: unknown workflow '${name}' — ${initWorkflowChoices()}`),
+      )
+    }
+    const git = yield* GitService
+    const fs = yield* FileSystem.FileSystem
+    yield* assertRunningFromRepoRoot(git, fs)
+    const { root } = yield* Cwd
+    if (yield* anyConfigPresent(root)) {
+      return yield* Effect.fail(
+        new Error("gtd init: a gtd config already exists — remove it before re-initializing"),
+      )
+    }
+    yield* fs
+      .writeFileString(join(root, ".gtdrc.json"), renderInitConfig(name))
+      .pipe(Effect.mapError((e) => (e instanceof Error ? e : new Error(String(e)))))
+    if (json) {
+      write(JSON.stringify({ written: ".gtdrc.json", workflow: name }) + "\n")
+    } else {
+      write(
+        `Wrote .gtdrc.json with the "${name}" workflow.\n\n` +
+          `Review and commit it before starting: an uncommitted .gtdrc.json counts as a\n` +
+          `pending change, so the initial state would capture it on the first step. Once\n` +
+          `committed, run \`gtd step human\` to begin.\n`,
+      )
+    }
   })
 
 /**
@@ -233,7 +301,7 @@ const resolveRestContext = (
   GitService | ConfigService | WorktreeReader | EnvVars
 > =>
   Effect.gen(function* () {
-    const config = yield* ConfigService
+    const config = yield* (yield* ConfigService).load
     const worktree = yield* WorktreeReader
     const envVars = yield* EnvVars
     const rest = yield* resolveRest()
@@ -282,7 +350,7 @@ const stepAsActor = (
 > =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const config = yield* ConfigService
+    const config = yield* (yield* ConfigService).load
     const worktree = yield* WorktreeReader
     const envVars = yield* EnvVars
     const rest = yield* resolveRest()
@@ -808,7 +876,7 @@ const runMermaidCommand = (
       return yield* Effect.fail(new Error("gtd mermaid does not accept --json"))
     }
     yield* rejectExtraArgs("mermaid", argv)
-    const config = yield* ConfigService
+    const config = yield* (yield* ConfigService).load
     write(renderMermaid(config.workflow))
   })
 
@@ -922,15 +990,17 @@ export interface RunOptions {
  * Factory that returns the gtd driver Effect with the given I/O options.
  *
  * The returned Effect requires `GitService | FileSystem.FileSystem |
- * ConfigService | ConfigInit | Cwd | WorktreeReader`. Production code calls
+ * ConfigService | Cwd | WorktreeReader | EnvVars`. Production code calls
  * this with no arguments; the test world supplies an in-memory layer set and
  * captures stdout via the `write` callback.
  *
- * v3 command surface: `step <actor>` / `next` / `run` / `status` /
- * `validate` / `mermaid` (see `src/Edge.ts` and
- * `docs/design/pattern-machine-plan.md` §3), plus `lsp`. Bare `gtd` or an
- * unknown subcommand is a usage error. Shared setup (argv parsing, the repo-root guard) lives here;
- * each subcommand's own logic is a named `run*Command` function above.
+ * v3 command surface: `step <actor>` / `next` / `status` / `validate` /
+ * `mermaid` (see `src/Edge.ts` and `docs/design/pattern-machine-plan.md` §3),
+ * plus `lsp` and `init <workflow>` — both dispatched before the config-reading
+ * path since they must work with no workflow configured yet. Bare `gtd` or an
+ * unknown subcommand is a usage error. Shared setup (argv parsing, the
+ * repo-root guard) lives here; each subcommand's own logic is a named
+ * `run*Command` function above.
  */
 export function makeProgram(
   opts: RunOptions = {},
@@ -973,6 +1043,10 @@ export function makeProgram(
       return yield* runLspCommand(argv, json)
     }
 
+    if (positional === "init") {
+      return yield* runInitCommand(argv, json, write)
+    }
+
     const sub = yield* requireKnownSubcommand(positional, json, write)
 
     const git = yield* GitService
@@ -984,10 +1058,6 @@ export function makeProgram(
     // against the wrong commit. Keyed on the ref alone — a no-op when no window
     // is open.
     yield* closeReviewWindow
-    // Auto-init runs here and ONLY here: past the version/help short-circuit,
-    // the `lsp` branch, the known-subcommand guard, and the repo-root guard —
-    // a refused or rejected invocation must never mutate the repository.
-    yield* (yield* ConfigInit).ensure
 
     // Re-arm the window after the subcommand — on success AND on refusal/error,
     // and after read-only commands too (every command opts into window

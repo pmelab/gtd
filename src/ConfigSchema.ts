@@ -30,10 +30,11 @@ import { Schema } from "effect"
  * Kept in its own module, separate from `./Config.js`, so `scripts/generate-
  * schema.ts` (run via `jiti`, a plain TS-via-Babel loader with no bundler-
  * style pluggable per-extension loaders) can import JUST the schema without
- * pulling in `./Config.js`'s chain to `./workflows/default.js` — which
- * imports `default.yaml` as raw text via tsdown's/vitest's `.yaml`-as-text
- * loader, something `jiti` has no equivalent for and doesn't need here: the
- * schema shape never depends on the bundled default workflow's content.
+ * risking a transitive pull into the bundled workflow templates
+ * (`./workflows/templates.js`, which imports `simple.yaml`/`advanced.yaml` as
+ * raw text via tsdown's/vitest's `.yaml`-as-text loader — something `jiti` has
+ * no equivalent for and doesn't need here): the schema shape never depends on
+ * any workflow's content.
  */
 
 /** The `vars:` shape (top-level AND inside `workflow:`): a flat name -> scalar map (`compileVarsMap` coerces every scalar to a string). */

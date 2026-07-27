@@ -20,6 +20,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: a well-formed TODO.md at grilling validates cleanly
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       Build a thing. Plan: add src/thing.ts exporting `thing`.
@@ -36,6 +37,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: a malformed TODO.md at grilling fails with the parser's finding
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       Build a thing.
@@ -53,6 +55,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: --json reports the valid verdict structurally
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       Build a thing. Plan: add src/thing.ts.
@@ -64,6 +67,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: a well-formed REVIEW.md at reviewing validates cleanly
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): reviewing" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -79,6 +83,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: a malformed REVIEW.md at reviewing fails with the parser's finding
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): reviewing" that adds ".gtd/REVIEW.md" with:
       """
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -94,12 +99,14 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: a state with no file:/mode: has nothing to validate
     Given a test project
+    And the "simple" workflow
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
 
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       Build a thing.
@@ -111,6 +118,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: `gtd next --json` withholds the instruction — the driving loop owns the validate-and-retry step
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       Build a thing.
@@ -126,6 +134,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # plugs a `format:` command into the mode (see steering-modes.feature and
     # formatting.feature).
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       Build a thing. This is a deliberately long single prose line that clearly exceeds the eighty character print width, and nothing rewraps it.
@@ -140,6 +149,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # producing agent gets, so the malformed edit is refused and nothing is
     # committed — the evaluation happens after a human edit too.
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): grilling-answer" that adds ".gtd/TODO.md" with:
       """
       Build a thing. Plan: do it.
@@ -161,6 +171,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: the step gate captures a human's valid edit (routing it back to grilling)
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): grilling-answer" that adds ".gtd/TODO.md" with:
       """
       Build a thing.

@@ -421,7 +421,10 @@ const loadModeMap = async (
 ): Promise<ReadonlyMap<string, StateMode>> => {
   try {
     const config = await Effect.runPromise(
-      ConfigService.pipe(Effect.provide(configLayerForRoot(root))),
+      ConfigService.pipe(
+        Effect.flatMap((c) => c.load),
+        Effect.provide(configLayerForRoot(root)),
+      ),
     )
     const vars = resolveVars(config.workflowVars, config.rcVars, process.env)
     const { map, warnings } = buildFileModeMap(config.workflow, vars, root)
@@ -449,7 +452,7 @@ const resolveSteeringFile = (
 ): Effect.Effect<{ readonly state: string; readonly file: string | undefined }, Error> =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const config = yield* ConfigService
+    const config = yield* (yield* ConfigService).load
     const worktree = yield* WorktreeReader
     const envVars = yield* EnvVars
     const rest = yield* resolveRest()

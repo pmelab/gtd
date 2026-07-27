@@ -30,21 +30,29 @@ entirely at the edge in `src/ReviewWindow.ts` and oblivious to the pure engine
 ### Changing the Workflow
 
 There is no engine-side wiring left to trace through when a workflow's shape
-changes — a workflow (bundled default or custom) is DATA, not code. To change
-what the bundled default does, edit `src/workflows/default.yaml` (states,
-`actor`, exactly one content kind, `on` edges, `retry`, `model`, `file`/`mode`,
-`reviewWindow`/`reviewBase`) — `src/workflows/ default.ts` compiles it through
-the same `compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through,
-so it never needs its own logic. After editing the YAML, update:
+changes — a workflow (a bundled template or custom) is DATA, not code. gtd ships
+NO default: a repo scaffolds one with `gtd init <simple|advanced>`, which writes
+a bundled template inline into `.gtdrc.json`; a state command with no
+`workflow:` configured fails (`Config.ts`'s `toOperations` throws
+`NO_WORKFLOW_MESSAGE`). To change what a bundled template does, edit
+`src/workflows/simple.yaml` or `src/workflows/advanced.yaml` (states, `actor`,
+exactly one content kind, `on` edges, `retry`, `model`, `file`/`mode`,
+`reviewWindow`/`reviewBase`) — `src/workflows/templates.ts` compiles/renders
+both through the same `compileWorkflowConfig` a user's `.gtdrc` `workflow:` key
+goes through, so they never need their own logic. After editing a template,
+update:
 
-- **STATES.md §10** — the bundled-default table and walkthrough
-- **e2e feature files** that assert on the default workflow's shape
-  (`tests/integration/features/default-workflow.feature`, `gtd-loop.feature`,
-  `driver-run.feature`, `smoke.feature`, `mermaid.feature`, `validate.feature`)
+- **STATES.md §10** — the `simple`-template table and walkthrough (the
+  `advanced` template is walked through at `docs/examples/advanced-workflow.md`)
+- **e2e feature files** that assert on a bundled template's shape (they set it
+  up with the `Given the "simple" workflow` step —
+  `tests/integration/features/default-workflow.feature`, `gtd-loop.feature`,
+  `driver-json-status.feature`, `smoke.feature`, `mermaid.feature`,
+  `validate.feature`, `init.feature`)
 - **`skills/loop/SKILL.md`** only if the change affects the driver contract
   itself (dispatch on `kind`, stall detection, the `gtd validate` gate after a
-  producing agent turn) — not the default workflow's own states, which the skill
-  never names
+  producing agent turn) — not a template's own states, which the skill never
+  names
 
 A genuinely new engine capability (a new content kind, a new `on` pattern
 grammar, a new state property) is a different, much rarer kind of change — that
@@ -80,16 +88,16 @@ a project plugs its own into a mode's `format:`).
   callback) is injected by the caller: this module never touches git or the
   filesystem.
 - **`src/Edge.ts`** — the Effect edge: `resolveRest` (HEAD → state via
-  `ConfigService.workflow` + `resolveState`), `computeProcessRun` (walks
-  first-parent history for the current process's start/trace, stopping —
-  EXCLUDING the boundary commit itself — at either a non-workflow commit or a
-  workflow commit entering the definition's OWN initial state, e.g. the bundled
-  default's `gtd(human): idle`; a workflow with no `commit:` state, like the
-  bundled default, relies entirely on this initial-entry rule to keep one
-  cycle's `retry` counts/diffs from pooling into the next),
-  `buildTemplateContext`, `renderRest`, `executeDecision` (performs a `"commit"`
-  or `"squash"` `StepDecision` — the only place a turn is actually written or a
-  squash actually performed).
+  `(yield* ConfigService).load`'s `workflow` + `resolveState`),
+  `computeProcessRun` (walks first-parent history for the current process's
+  start/trace, stopping — EXCLUDING the boundary commit itself — at either a
+  non-workflow commit or a workflow commit entering the definition's OWN initial
+  state, e.g. the `simple` template's `gtd(human): idle`; a workflow with no
+  `commit:` state, like the `simple` template, relies entirely on this
+  initial-entry rule to keep one cycle's `retry` counts/diffs from pooling into
+  the next), `buildTemplateContext`, `renderRest`, `executeDecision` (performs a
+  `"commit"` or `"squash"` `StepDecision` — the only place a turn is actually
+  written or a squash actually performed).
 - **`src/SteeringMode.ts`** — the steering-file MODE edge (see STATES.md §12):
   `resolveSteeringMode` (a state's `mode:` → its two halves, each from the first
   layer that declares it: the `modes:` map's `format:`/`validate:` commands,
@@ -107,15 +115,22 @@ a project plugs its own into a mode's `format:`).
   `reviewWindow: true` and on `refs/gtd/review-head` existence) and
   `reviewBaseHash` (the `reviewBase`-state diff-base derivation). Pure engine is
   oblivious; `program.ts` calls it, it calls `GitService`/`Edge.ts`.
-- **`src/program.ts`** — CLI dispatch (`step`/`next`/`status`/`format`). Calls
-  `Edge.ts` for everything IO-shaped; calls `PatternMachine.ts`'s pure
-  `step`/`matchesPattern`/`parsePattern` directly where no IO is needed (e.g.
-  `gtd status`'s per-change pattern report).
-- **`src/workflows/default.{yaml,ts}`** — the bundled default workflow, compiled
-  through the exact same `compileWorkflowConfig` path — no privileged code path.
-  Every content string in `default.yaml` MUST be inline (no `./`-relative file
-  references): it ships inside the single-file `dist/gtd.bundle.mjs` build, so
-  it can't reach out to sibling files on disk at runtime.
+- **`src/program.ts`** — CLI dispatch (`init`/`step`/`next`/`status`/`validate`/
+  `mermaid`; `lsp` and `init` dispatched BEFORE the config-reading path so they
+  run with no workflow configured). `runInitCommand` writes
+  `renderInitConfig(name)` to `.gtdrc.json` (uncommitted), guarded by
+  `anyConfigPresent` + the repo-root check. Calls `Edge.ts` for everything
+  IO-shaped; calls `PatternMachine.ts`'s pure `step`/`matchesPattern`/
+  `parsePattern` directly where no IO is needed (e.g. `gtd status`'s per-change
+  pattern report).
+- **`src/workflows/{simple,advanced}.yaml` + `templates.ts`** — the two bundled
+  workflow templates `gtd init` scaffolds, plus `templates.ts` (the
+  `WORKFLOW_TEMPLATES` map, `renderInitConfig` for the `.gtdrc.json` write, and
+  `compileTemplate` for tests/mermaid) — compiled through the exact same
+  `compileWorkflowConfig` path, no privileged code path. Every content string in
+  the templates MUST be inline (no `./`-relative file references): they ship
+  inside the single-file `dist/gtd.bundle.mjs` build, so they can't reach out to
+  sibling files on disk at runtime.
 
 ### The Configurable Machine (`workflow:` and `vars:` in .gtdrc)
 
@@ -123,8 +138,13 @@ a project plugs its own into a mode's `format:`).
 cwd→home), decodes it against `src/ConfigSchema.ts` (two keys: `workflow` and
 `vars`, both `Schema.Unknown` — the shape is validated structurally by the
 compiler, not by `effect/schema`), and compiles the `workflow:` value through
-`compileWorkflowConfig`, or falls back to `defaultWorkflowDefinition`/
-`defaultWorkflowVars` (`src/workflows/default.ts`) when the key is absent; the
+`compileWorkflowConfig`. There is NO default fallback: an absent `workflow:`
+throws `NO_WORKFLOW_MESSAGE` (pointing at `gtd init`). The load is exposed as a
+DEFERRED effect — `ConfigService` provides `{ load: Effect<ConfigOperations> }`,
+not the ops directly — because the layer is provided to the whole program and
+built eagerly (`main.ts`), so if it loaded/failed at build time the "no
+workflow" error would break `gtd init`/`gtd lsp` too; consumers do
+`yield* (yield* ConfigService).load` (Edge/program/ReviewWindow/Lsp). The
 top-level `vars:` value compiles through the same `compileVarsMap` (see
 `Config.ts`'s `compileRcVars`). There is no module-global registry (no v2-style
 `activeWorkflow()`/`setActiveWorkflow`):
@@ -135,7 +155,7 @@ merges `workflowVars`/`rcVars` with a third layer — every `GTD_VAR_`-prefixed
 entry of an injected `EnvVars` Context tag (mirroring `Cwd`/`WorktreeReader`,
 never `process.env` read directly) — into the flat `Record<string, string>`
 every template sees as `it.vars`. The engine still blesses NO variable NAMES:
-`testCommand` (the bundled default's own `vars:` entry, read by `checking`'s
+`testCommand` (the bundled templates' own `vars:` entry, read by `checking`'s
 script) is workflow-authored data like any other `it.vars` key, not a name gtd
 itself interprets.
 
@@ -150,10 +170,10 @@ needed to keep old history inert.
 ### The Scripted Check Actor (No In-Process Execution)
 
 Checks are just an ordinary actor's turns at a `script`-content state (the
-bundled default's `checking` state, awaited by the `check` actor) — the engine
+bundled templates' `checking` state, awaited by the `check` actor) — the engine
 NEVER executes anything itself. The command lives INLINE in that state's own
 `script:` content (no BLESSED `testCommand` config key — see `docs/upgrading.md`
-— though the bundled default's script does read its own `vars.testCommand`,
+— though the templates' script does read its own `vars.testCommand`,
 workflow-authored data like any other `it.vars` entry, not a name the engine
 special-cases). `gtd next` renders and prints the script; the DRIVER
 (`bin/gtd-loop`, or any loop harness) executes that rendered `content` verbatim

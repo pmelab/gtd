@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { renderMermaid } from "./Mermaid.js"
-import { defaultWorkflowDefinition } from "./workflows/default.js"
+import { compileTemplate } from "./workflows/templates.js"
 import type { WorkflowDefinition } from "./PatternMachine.js"
 
 const simpleWorkflow: WorkflowDefinition = {
@@ -115,9 +115,19 @@ describe("renderMermaid", () => {
     expect(renderMermaid(quoted)).toContain("idle --> idle : A 'weird'.md")
   })
 
-  it("renders the bundled default workflow without throwing, covering every state", () => {
-    const out = renderMermaid(defaultWorkflowDefinition)
-    for (const name of Object.keys(defaultWorkflowDefinition.states)) {
+  it("renders the bundled simple template without throwing, covering every state", () => {
+    const def = compileTemplate("simple").definition
+    const out = renderMermaid(def)
+    for (const name of Object.keys(def.states)) {
+      expect(out).toContain(`"${name}"`)
+    }
+    expect(out).toContain("[*] -->")
+  })
+
+  it("renders the bundled advanced template without throwing, covering every state", () => {
+    const def = compileTemplate("advanced").definition
+    const out = renderMermaid(def)
+    for (const name of Object.keys(def.states)) {
       expect(out).toContain(`"${name}"`)
     }
     expect(out).toContain("[*] -->")

@@ -141,7 +141,7 @@ export const openReviewWindow: Effect.Effect<
   GitService | ConfigService
 > = Effect.gen(function* () {
   const git = yield* GitService
-  const config = yield* ConfigService
+  const config = yield* (yield* ConfigService).load
   const def = config.workflow
 
   const hasCommits = yield* git.hasCommits()

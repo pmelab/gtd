@@ -8,17 +8,19 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
   declare, and a subject naming a commit (final) state all resolve to the
   initial state (`idle`) rather than erroring. The default has no commit
   state of its own since it no longer squashes (see
-  src/workflows/default.yaml), so the last scenario uses a minimal custom
+  src/workflows/simple.yaml), so the last scenario uses a minimal custom
   workflow instead.
 
   Scenario: an ordinary non-gtd HEAD resolves to the initial state
     Given a test project
+    And the "simple" workflow
     When I run gtd status
     Then it succeeds
     And stdout contains "State: idle"
 
   Scenario: an old v1/v2-style "gtd: <label>" subject resolves to the initial state
     Given a test project
+    And the "simple" workflow
     And a commit "gtd: build" that adds ".gtd/TODO.md" with:
       """
       old two-namespace boundary commit
@@ -29,6 +31,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
 
   Scenario: a subject naming a state the workflow doesn't declare resolves to the initial state
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(human): frobnicate" that adds ".gtd/TODO.md" with:
       """
       a plan
@@ -39,6 +42,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
 
   Scenario: a subject naming an actor the workflow doesn't declare resolves to the initial state
     Given a test project
+    And the "simple" workflow
     And a commit "gtd(nobody): grilling" that adds ".gtd/TODO.md" with:
       """
       a plan
@@ -49,7 +53,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
 
   Scenario: a subject naming a commit (final) state resolves to the initial state
     # The bundled default has no commit state of its own since it no longer
-    # squashes (see src/workflows/default.yaml) — a minimal custom workflow
+    # squashes (see src/workflows/simple.yaml) — a minimal custom workflow
     # exercises this resolution rule instead.
     Given a test project
     And a gtd config file at ".gtdrc" with:

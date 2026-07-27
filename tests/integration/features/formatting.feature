@@ -4,14 +4,15 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
   gtd ships no formatter (there is no `gtd format` subcommand, and no prettier
   inside the binary). A project that wants its steering files auto-formatted
   brings its own tool and declares it as a `format:` command on the mode those
-  files use — a top-level `.gtdrc` `modes:` key is enough, even on the bundled
-  default workflow (see docs/configuration.md's "modes:" section). Formatting
-  runs where validation runs: `gtd validate`, and the `gtd step` capture gate.
+  files use — a top-level `.gtdrc` `modes:` key layered over the configured
+  workflow is enough, without re-declaring that mode on the workflow itself
+  (see docs/configuration.md's "modes:" section). Formatting runs where
+  validation runs: `gtd validate`, and the `gtd step` capture gate.
 
   A git `pre-commit` hook remains a perfectly good alternative, and the last
   scenarios pin that it still works — gtd never fights it.
 
-  Scenario: prettier plugged into the bundled default's qa mode rewraps TODO.md
+  Scenario: prettier plugged into the workflow's qa mode via a top-level modes: key rewraps TODO.md
     Given a test project
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
@@ -19,8 +20,29 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       modes:
         qa:
           format: "npx prettier --write <%= it.file %>"
-        review:
-          format: "npx prettier --write <%= it.file %>"
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start"
+            on:
+              "* **": grilling
+          grilling:
+            actor: agent
+            file: .gtd/TODO.md
+            mode: qa
+            prompt: "plan"
+            on:
+              "* **": grilling-answer
+          grilling-answer:
+            actor: human
+            file: .gtd/TODO.md
+            mode: qa
+            message: "answer"
+            on:
+              "C": idle
+              "* **": grilling
       """
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
@@ -39,6 +61,29 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       modes:
         qa:
           format: "npx prettier --write <%= it.file %>"
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start"
+            on:
+              "* **": grilling
+          grilling:
+            actor: agent
+            file: .gtd/TODO.md
+            mode: qa
+            prompt: "plan"
+            on:
+              "* **": grilling-answer
+          grilling-answer:
+            actor: human
+            file: .gtd/TODO.md
+            mode: qa
+            message: "answer"
+            on:
+              "C": idle
+              "* **": grilling
       """
     And a commit "gtd(human): grilling-answer" that adds ".gtd/TODO.md" with:
       """

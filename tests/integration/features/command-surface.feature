@@ -1,10 +1,11 @@
 @inmem
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
-  gtd v3 exposes `step <actor>`, `review <commitish>`, `next`, `status`,
-  `mermaid`, `format`, and `lsp` as its subcommands. Bare `gtd` (no subcommand)
-  is a usage error. `--help` and `--version` short-circuit before any
-  repo-state work and exit 0 everywhere, including outside a workflow state.
+  gtd v3 exposes `init <workflow>`, `step <actor>`, `review <commitish>`,
+  `next`, `status`, `mermaid`, `validate`, and `lsp` as its subcommands. Bare
+  `gtd` (no subcommand) is a usage error. `--help` and `--version` short-circuit
+  before any repo-state work and exit 0 everywhere, including outside a workflow
+  state.
 
   Scenario: Bare gtd fails with usage help and authors nothing
     Given a test project
@@ -28,6 +29,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Given a test project
     When I run gtd with "--help"
     Then it succeeds
+    And stdout contains "init <workflow>"
     And stdout contains "step <actor>"
     And stdout contains "review <commitish>"
     And stdout contains "next"

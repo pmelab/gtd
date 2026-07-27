@@ -15,8 +15,8 @@ design — v1 and v2 subjects alike.** v3's `resolveState`
 subject naming a state and an actor the active workflow currently declares;
 everything else — a v1 `gtd: grilling`, a v2 `gtd(agent): building`, a plain
 `chore: …` commit, anything from a foreign repo — parses as unrecognized and
-lands at the workflow's initial state (`idle` in the bundled default). There is
-no special-casing for "this looks like an old gtd commit": the mechanism is
+lands at the workflow's initial state (`idle` in the `simple` template). There
+is no special-casing for "this looks like an old gtd commit": the mechanism is
 exactly the same one that already made v1 history inert to v2, and v2 history
 inert to a differently-configured workflow — v3 just applies it uniformly to all
 prior history instead of drawing a v1/v2 line.
@@ -41,8 +41,8 @@ upgrading.
   all gone — `workflow:` and `vars:` are the only two blessed keys (see
   [Configuration](configuration.md)). A check's command now lives inline in its
   own `script:` content, reading a workflow-declared `it.vars` entry (the
-  bundled default's `testCommand`, overridable via the top-level `vars:` key or
-  a `GTD_VAR_testCommand` environment variable — see
+  `simple` template's `testCommand`, overridable via the top-level `vars:` key
+  or a `GTD_VAR_testCommand` environment variable — see
   [Configuration's "Variables"](configuration.md#variables)) rather than a
   blessed `testCommand` config key; squashing is a `commit:` state instead of a
   boolean flag; there is no learning phase, no decision log, and no model
@@ -53,17 +53,17 @@ upgrading.
   v3.0 rewrite, then RE-INTRODUCED as the explicit state property it was always
   meant to become: a state declaring `reviewWindow: true` opens the window while
   the machine rests there (base = the process start, or a state marked
-  `reviewBase: true`). The bundled default enables it on `await-review`. Unlike
-  v2's hardwired gate, it is pure workflow DATA and the engine stays oblivious —
-  see [STATES.md §11](../STATES.md) and the `file:`/`mode:` neighbours in
-  [configuration.md](configuration.md).
+  `reviewBase: true`). The `simple` template enables it on `await-review`.
+  Unlike v2's hardwired gate, it is pure workflow DATA and the engine stays
+  oblivious — see [STATES.md §11](../STATES.md) and the `file:`/`mode:`
+  neighbours in [configuration.md](configuration.md).
 - **`forceApprove`, content-inspection verdicts.** FEEDBACK.md emptiness,
   checkbox-only REVIEW.md diffs, and doc-structure validation are gone as ENGINE
   mechanisms — verdicts are now expressed purely by which file a turn writes or
-  deletes, matched by an ordinary `on` pattern. The bundled default workflow's
-  own checkbox-review verdict (`review-deciding`) is ordinary WORKFLOW data (an
-  `on` pattern), not an engine hook: `D REVIEW.md` = approve, `M REVIEW.md` =
-  route to the deterministic decider, in the bundled default. Deterministic
+  deletes, matched by an ordinary `on` pattern. The `simple` template's own
+  checkbox-review verdict (`review-deciding`) is ordinary WORKFLOW data (an `on`
+  pattern), not an engine hook: `D REVIEW.md` = approve, `M REVIEW.md` = route
+  to the deterministic decider, in the `simple` template. Deterministic
   format-checking of the steering files is likewise no longer a pair of
   in-machine `check`/`script` states — the old `todo-validating`/
   `review-validating` states and their `.gtd/FORMAT.md` steering file are gone,
@@ -71,21 +71,23 @@ upgrading.
   (see
   [docs/design/steering-file-validation-command.md](design/steering-file-validation-command.md)
   and [STATES.md §12](../STATES.md)).
-- **`gtd review <target>`.** Gone in the initial v3 rewrite (the command surface
-  was `step` / `next` / `run` / `status` / `validate` / `mermaid` / `lsp`), then
-  RETURNED in this version with different, narrower semantics: it no longer
-  inspects an arbitrary target the way v2 did — it starts a brand NEW review
-  process at a workflow-declared `reviewEntry: true` state, reviewing
-  `<target>..HEAD` (e.g. a colleague's PR branch with no gtd process of its own)
-  by writing one empty entry commit with a `Gtd-Review-Base:` trailer and
-  reusing the workflow's existing review/feedback machinery unmodified — see
+- **`gtd review <target>`.** Gone in the initial v3 rewrite, then RETURNED in
+  this version with different, narrower semantics: it no longer inspects an
+  arbitrary target the way v2 did — it starts a brand NEW review process at a
+  workflow-declared `reviewEntry: true` state, reviewing `<target>..HEAD` (e.g.
+  a colleague's PR branch with no gtd process of its own) by writing one empty
+  entry commit with a `Gtd-Review-Base:` trailer and reusing the workflow's
+  existing review/feedback machinery unmodified — see
   [STATES.md §11](../STATES.md#11-the-review-checkout-window) and
-  [CLI reference](cli.md#gtd-review-commitish---json).
+  [CLI reference](cli.md#gtd-review-commitish---json). The current command
+  surface is `init` / `step` / `next` / `status` / `validate` / `mermaid` /
+  `review` / `lsp`.
+
 - **`gtd format <file>`, and the bundled prettier with it.** gtd no longer
   formats anything on its own: a steering-file mode declares its own `format:`
   SHELL COMMAND, so a project brings whatever formatter it already uses. Adding
   four lines to `.gtdrc` restores (and improves on) the old auto-formatting for
-  the bundled default workflow:
+  the `simple` template:
 
   ```yaml
   modes:
@@ -114,25 +116,33 @@ upgrading.
   itself only understands the two built-ins), the LSP reads that same config the
   CLI does to build its path→mode dispatch, and `gtd.openSteeringFile` resolves
   the current state and shows its `file:`. No mapping declared at all (the
-  bundled default's predecessor shape, or any workflow with no `file:`/`mode:`)
-  falls back to basename dispatch (`TODO.md`/`REVIEW.md`), same as before this
-  addition.
+  `simple` template's predecessor shape, or any workflow with no
+  `file:`/`mode:`) falls back to basename dispatch (`TODO.md`/`REVIEW.md`), same
+  as before this addition.
 
 ## How to adopt
 
-`workflow:` is optional — with no config at all, the bundled default workflow
-applies: a single-shot `grilling` plan, direct `building`, a `checking`/`fixing`
-loop, and a direct-diff `await-review` that rests the cycle back at `idle` on
-approval — no squash; every turn commit stays in history for you to squash
-however you like, or not at all (see
-[STATES.md §10](../STATES.md#10-the-bundled-default-workflow)) — expressed as
-data rather than baked into the engine. The fuller grilling ⇄ grilling-answer /
-architecting ⇄ architecting-answer / decompose / picking / reviewing shape v2
-shipped — including a squash finale — is preserved as a copy-paste `.gtdrc`
-example at [docs/examples/advanced-workflow.md](examples/advanced-workflow.md)
-rather than the bundled default. Nothing to do for a repo that's happy with the
-default shape beyond a normal `npm install -g @pmelab/gtd` upgrade, from a
-settled `idle` boundary.
+`workflow:` is now **required** — gtd ships no default workflow, so after
+upgrading each repo must scaffold one **once**:
+
+```bash
+gtd init simple      # or: gtd init advanced
+```
+
+`gtd init simple` writes a `.gtdrc.json` with the `simple` template inline: a
+single-shot `grilling` plan, direct `building`, a `checking`/`fixing` loop, and
+a direct-diff `await-review` that rests the cycle back at `idle` on approval —
+no squash; every turn commit stays in history for you to squash however you
+like, or not at all (see
+[STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)).
+`gtd init advanced` writes the fuller grilling ⇄ grilling-answer / architecting
+⇄ architecting-answer / decompose / picking / reviewing machine — including a
+squash finale — walked through at
+[docs/examples/advanced-workflow.md](examples/advanced-workflow.md). Review and
+commit the generated `.gtdrc.json`, then continue from a settled `idle`
+boundary. **Note:** a repo relying on earlier gtd's auto-created `.gtdrc.json`
+`$schema` stub (which carried no `workflow:`) will now fail until you `gtd init`
+— the stub alone is no longer enough.
 
 A repo that customized v2's `workflow:` key (actors, gates, guard vocabulary,
 ladders) needs to rewrite it from scratch in the v3 schema — see

@@ -10,6 +10,7 @@ Feature: Refusals — out-of-turn and no-match steps commit nothing
 
   Scenario: out-of-turn refusal names the awaited actor and commits nothing
     Given a test project
+    And the "simple" workflow
     And I record the commit count
     When I run gtd step agent
     Then it fails

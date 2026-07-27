@@ -6,14 +6,15 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
   reviewing `<commitish>..HEAD` — e.g. a colleague's PR branch pushed on top of
   a shared base, with no gtd process of its own — by writing ONE empty
   `gtd(human): <review-entry-state>` commit carrying the resolved base's full
-  hash as a `Gtd-Review-Base:` trailer. Everything downstream (the bundled
-  default's `reviewing` → `await-review` → feedback laps, and the
+  hash as a `Gtd-Review-Base:` trailer. Everything downstream (the `simple`
+  template's `reviewing` → `await-review` → feedback laps, and the
   `await-review` review checkout window) then operates over that diff with no
-  duplicated logic. The bundled default declares `reviewEntry: true` on
+  duplicated logic. The `simple` template declares `reviewEntry: true` on
   `reviewing` itself.
 
   Background:
     Given a test project
+    And the "simple" workflow
     And I mark the current commit as "base"
 
   Scenario: happy path — a colleague's PR branch reviewed from its shared base, resting at reviewing
@@ -138,5 +139,5 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
     And the git ref "refs/gtd/review-head" exists
     # HEAD rests at "base" — the process's diff base — surfacing the whole
     # <commitish>..HEAD diff as ordinary uncommitted changes.
-    And the last commit subject is "chore: initial commit"
+    And the last commit subject is "chore: init gtd workflow"
     And the git status contains "src/calc.ts"
