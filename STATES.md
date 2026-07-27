@@ -31,7 +31,7 @@ A workflow is a set of named **states**. Each state declares:
 | `model`                                       | Optional, opaque string — a harness hint (e.g. `smart`, `fast`, or a concrete model id) emitted alongside the state's content for the driving loop to map onto its agent harness. **Rendered as an Eta template through the same `it.vars`-carrying context as content** (a plain string with no Eta tags passes through unchanged) — see [Configuration](docs/configuration.md#model--the-opaque-harness-hint-template-rendered). gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state** (never at rest, emits nothing).                                                                                                                                                                                                                                                                                                   |
 | `memory`                                      | Optional, opaque string — a **memory-scope label** emitted alongside the state's content for a memory-aware driving loop to compare, not act on literally: consecutive agent turns emitting the **same** label share a memory scope (the driver retains the agent's memory across them); a change in value — or the first agent turn — is where it starts fresh. This lets a loop that keeps re-entering one state (a grilling or fix loop) retain memory across its laps, while crossing to a differently-labelled state at a phase boundary clears it. **Rendered as an Eta template**, exactly like `model`; gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state.** See [Configuration](docs/configuration.md#memory--the-memory-scope-label-template-rendered) and the loop driver contract in `skills/loop/SKILL.md`. |
 | `file`                                        | Optional — THE steering file this state is about: the file a human/editor should look at while the machine rests here. An **Eta template**, rendered exactly like `model` (must render non-empty). **Forbidden on a commit state.** Multiple states may share one `file:`. gtd itself never reads a path out of this string — only `gtd lsp` (`src/Lsp.ts`) interprets it, to map rendered paths to `mode` — see [Configuration](docs/configuration.md#filemode--the-steering-file-association).                                                                                                                                                                                                                                                                                                                                                                                       |
-| `mode`                                        | Optional, requires `file:`. The associated file's FORMAT, from a closed vocabulary (`qa` \| `review`) the LSP dispatches document symbols/code actions/diagnostics on. An unknown value is a load error. Like `model`, this is opaque emitted data — the ENGINE never branches on it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `mode`                                        | Optional, requires `file:`. The associated file's FORMAT: the name of a **steering-file mode** — one of the two built-ins (`qa` \| `review`) or one the workflow declares in `modes:` (a `format:`/`validate:` pair of shell commands — see §12). gtd formats and validates the file with that mode at `gtd validate` and at the `gtd step` capture gate; `gtd lsp` dispatches document symbols/code actions/diagnostics on the built-in names only. A name nothing defines is a load error. Like `model`, this is opaque emitted data — the ENGINE never branches on it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                             |
 | `reviewWindow: true`                          | Optional boolean. While the machine RESTS at this state, gtd opens a **review checkout window** — HEAD and the index are rewound to the review base with the working tree untouched, so the whole `base..HEAD` diff surfaces as ordinary uncommitted changes in the editor's git integration; it closes automatically once the machine rests anywhere else (see §11). The pure engine never observes it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `reviewBase: true`                            | Optional boolean. Marks the state whose most-recent in-process commit anchors the review window's diff base (`base..HEAD`); absent any such state, the base is the process start (§11). Like `reviewWindow`, history-derived edge data the engine never reads. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
@@ -50,14 +50,20 @@ A state is either a **rest** (has an `actor` — `gtd` halts there and awaits th
 actor's next step) or a **commit state** (has `commit:` instead of an
 `actor`/`on` — entering it ends the process in one squash, see §8).
 
+Beyond its states, a workflow may declare two more things of its own:
+**`vars:`** (the lowest-precedence layer of the `it.vars` every template sees —
+see [Configuration](docs/configuration.md#variables)) and **`modes:`** (the
+steering-file modes a state's `mode:` may name — see §12).
+
 ## 2. Content kinds
 
 Exactly one of these four per state:
 
 - **`script`** — an executable the DRIVER runs. `gtd next` emits it rendered;
-  `gtd run` executes it verbatim via `bash` (the only place gtd itself spawns a
-  subprocess) and then steps that state's own actor. gtd never executes anything
-  on its own initiative.
+  `gtd run` executes it verbatim via `bash` and then steps that state's own
+  actor. gtd never executes anything on its own initiative (the only other place
+  it spawns a subprocess at all is a steering-file mode's own `format:`/
+  `validate:` command — §12).
 - **`prompt`** — instructions for an agent. `gtd next` prints it; the agent
   acts, then runs `gtd step <actor>` itself.
 - **`message`** — text for a human. Drivers halt here; a human acts by editing
@@ -507,29 +513,68 @@ recovery.
 to the real head's index while the window is open, so the editor's unstaged view
 shows only the actual code changes.
 
-## 12. Steering-file validation (`gtd validate`)
+## 12. Steering-file modes (`gtd validate`)
 
 A state that declares both `file:` and `mode:` has an output whose format is
-checkable: `mode` names the format (`qa` → `src/OpenQuestions.ts`, `review` →
-`src/ReviewDoc.ts`), and those pure parsers are each format's single source of
-truth (their unit tests are the format's spec tests; the same parsers back the
-LSP's live diagnostics, `src/Lsp.ts`). The **pure engine** never validates — it
-stays an edge concern (like the review checkout window, §11): a command, a
-capture-time gate, and emitted guidance, none of which the `step` decision sees.
+checkable. A **mode** is nothing but a pair of operations over that one file:
+
+1. **format** — rewrite it in place, so nothing is judged in a shape the
+   formatter would have fixed;
+2. **validate** — report findings (none = valid).
+
+Two mode names are **built in**, implemented by gtd itself in process: `qa`
+(`src/OpenQuestions.ts`) and `review` (`src/ReviewDoc.ts`) format with the
+markdown formatter behind `gtd format` and validate with those pure parsers,
+each format's single source of truth (their unit tests are the format's spec
+tests; the same parsers back the LSP's live diagnostics, `src/Lsp.ts`).
+
+Every other mode is **workflow data**: a `modes:` entry (beside `states:`)
+declaring a `format:` and/or `validate:` SHELL COMMAND for that name.
+
+```yaml
+workflow:
+  modes:
+    adr:
+      format: "npx prettier --write <%= it.file %>"
+      validate: "./scripts/check-adr.sh <%= it.file %>"
+  states:
+    drafting:
+      actor: agent
+      prompt: "Write the ADR."
+      file: docs/adr/0001.md
+      mode: adr
+```
+
+Both commands are Eta templates over the resting state's usual context plus
+`it.file` (the rendered steering-file path), executed verbatim via `bash` from
+the repo root. The contract is the shell's own: a `validate:` command exits 0
+for valid, or non-zero with its output (stdout then stderr) as the findings, one
+per line; a `format:` command is expected to rewrite the file in place, and a
+non-zero exit is a hard error (broken tooling, not a malformed file). A missing
+half is simply a no-op, and a `modes:` entry reusing a built-in NAME replaces
+that built-in wholesale — the escape hatch for a project that wants gtd's
+default workflow with its own house rules. A `mode:` naming neither a built-in
+nor a declared mode is a load error (see
+[Configuration](docs/configuration.md#modes--pluggable-steering-file-modes)).
+
+The **pure engine** never formats or validates anything — it carries `modes:` as
+inert data. Both halves are an edge concern (like the review checkout window,
+§11), in `src/SteeringMode.ts`: a command, a capture-time gate, and emitted
+guidance, none of which the `step` decision sees.
 
 **`gtd validate`** resolves the current rest exactly like `gtd status`, renders
-that state's `file:`, **formats it in place** (the same markdown formatter as
-`gtd format`), then runs the parser its `mode:` selects over the formatted
-contents. A clean parse exits 0; violations exit non-zero with the findings (one
-per line). A state with no `file:`/`mode:`, or whose file is **absent**, has
-nothing to validate and exits 0 (and formats nothing) — so `building` deleting
+that state's `file:`, **formats it in place**, then validates it — both per its
+`mode:`. Valid exits 0; violations exit non-zero with the findings (one per
+line). A state with no `file:`/`mode:`, or whose file is **absent**, has nothing
+to validate and exits 0 (and formats nothing) — so `building` deleting
 `.gtd/TODO.md`, and an `await-review` delete-to-approve, both pass cleanly.
 
 **`gtd step` enforces the same gate.** Capturing a normal commit out of a state
 that declares `file:`+`mode:` runs the very same format-and-validate on that
-file first (`enforceSteeringGate` in `src/program.ts`) and **refuses the step**,
-committing nothing, when it is invalid. This is what makes the check run whoever
-last touched the file — an agent's fresh draft AND a human's edit at a gate
+file first (`enforceSteeringGate` in `src/program.ts`, over the same
+`src/SteeringMode.ts` mode resolution) and **refuses the step**, committing
+nothing, when it is invalid. This is what makes the check run whoever last
+touched the file — an agent's fresh draft AND a human's edit at a gate
 (answering at `grilling-answer`, reviewing at `await-review`) are formatted and
 validated identically, and a malformed steering file is never committed. A
 squash skips the gate (the file is discarded); a deletion/absent file is a no-op
@@ -557,4 +602,12 @@ through the `gtd step` gate, the human gates `grilling-answer` and
 `await-review` that edit those same files. It replaced the old in-machine
 `todo-validating`/`review-validating` states and their `.gtd/FORMAT.md` bounce
 loop (see
-[docs/design/steering-file-validation-command.md](docs/design/steering-file-validation-command.md)).
+[docs/design/steering-file-validation-command.md](docs/design/steering-file-validation-command.md));
+modes became pluggable afterwards (see
+[docs/design/pluggable-steering-modes.md](docs/design/pluggable-steering-modes.md)).
+
+**Known limitation — the editor sees only the built-ins.** `gtd lsp` publishes
+diagnostics, document symbols and code actions for `qa`/`review` files only: gtd
+never runs a mode's shell command per keystroke over an unsaved buffer. A
+custom-mode file is still formatted and validated by `gtd validate` and the
+`gtd step` gate.

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { resolve as resolvePath } from "node:path"
 import {
   validateDefinition,
+  type ModeDef,
   type OnEdge,
   type RetryDef,
   type StateDef,
@@ -24,6 +25,10 @@ import {
  * ```yaml
  * vars:                 # optional — the workflow's own declared `it.vars` defaults
  *   anyKey: anyScalarValue
+ * modes:                # optional — steering-file modes a state's `mode:` may name
+ *   <name>:
+ *     format: <shell command>    # at least one of format/validate
+ *     validate: <shell command>
  * states:
  *   <name>:
  *     actor: <string>    # forbidden on a commit state, required otherwise
@@ -38,7 +43,7 @@ import {
  *     model: <string>     # optional, opaque harness hint — never on a commit state
  *     memory: <string>    # optional, opaque memory-scope label — never on a commit state
  *     file: <string>      # optional, an Eta template naming the state's steering file — never on a commit state
- *     mode: qa | review   # optional, requires "file" — never on a commit state
+ *     mode: <modeName>    # optional, requires "file" — a built-in (qa/review) or a `modes:` entry; never on a commit state
  * ```
  *
  * ## `vars:` — one of `it.vars`'s three layers
@@ -128,6 +133,62 @@ export const compileVarsMap = (raw: unknown, errors: string[]): Record<string, s
   return vars
 }
 
+const MODE_COMMAND_KEYS = ["format", "validate"] as const
+
+/**
+ * Compile the `modes:` map — mode name -> `{ format?, validate? }` shell
+ * commands (see `PatternMachine.ModeDef`). An absent key compiles to
+ * `undefined` — the definition then carries no `modes` at all, leaving only the
+ * built-ins. A non-object value, an entry that isn't an object, an
+ * unknown key inside an entry, or a non-string command each push a load error
+ * — the offending value is dropped, never guessed at, and the well-formed
+ * entries still compile. The SEMANTIC rules (at least one command per mode,
+ * neither blank) belong to `validateDefinition`, which sees the assembled
+ * definition.
+ *
+ * A command is NEVER treated as a `./`-relative file reference the way content
+ * strings are (see `resolveContent`): `./scripts/check.sh` is a perfectly good
+ * shell command, so inlining it as template text would break the obvious
+ * reading. Commands are Eta templates, rendered at the edge with `it.file`
+ * bound to the rendered steering-file path (`src/SteeringMode.ts`).
+ */
+const compileModesMap = (raw: unknown, errors: string[]): Record<string, ModeDef> | undefined => {
+  if (raw === undefined) return undefined
+  if (!isPlainObject(raw)) {
+    errors.push(
+      `"modes" must be a mapping of mode name -> { format, validate }, got ${describeType(raw)}`,
+    )
+    return undefined
+  }
+  const modes: Record<string, ModeDef> = {}
+  for (const [name, entry] of Object.entries(raw)) {
+    if (!isPlainObject(entry)) {
+      errors.push(
+        `mode "${name}": must be an object with "format" and/or "validate", got ${describeType(entry)}`,
+      )
+      continue
+    }
+    const unknownKeys = Object.keys(entry).filter(
+      (k) => !(MODE_COMMAND_KEYS as readonly string[]).includes(k),
+    )
+    if (unknownKeys.length > 0) {
+      errors.push(`mode "${name}": unknown key(s) ${unknownKeys.join(", ")}`)
+    }
+    const commands: { format?: string; validate?: string } = {}
+    for (const key of MODE_COMMAND_KEYS) {
+      const command = entry[key]
+      if (command === undefined) continue
+      if (typeof command !== "string") {
+        errors.push(`mode "${name}": "${key}" must be a shell command (string)`)
+        continue
+      }
+      commands[key] = command
+    }
+    modes[name] = commands
+  }
+  return modes
+}
+
 const CONTENT_KEYS = ["script", "prompt", "message", "commit"] as const
 type ContentKey = (typeof CONTENT_KEYS)[number]
 
@@ -145,7 +206,7 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "reviewBase",
 ])
 
-const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["vars", "states"])
+const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["vars", "states", "modes"])
 
 // ── Compilation result ───────────────────────────────────────────────────────
 
@@ -511,6 +572,7 @@ export const compileWorkflowConfig = (raw: unknown, configDir: string): Compiled
   }
 
   const vars = compileVarsMap(raw.vars, errors)
+  const modes = compileModesMap(raw.modes, errors)
 
   const rawStates = raw.states
   if (!isPlainObject(rawStates) || Object.keys(rawStates).length === 0) {
@@ -533,7 +595,7 @@ export const compileWorkflowConfig = (raw: unknown, configDir: string): Compiled
   // `validateDefinition` would otherwise have caught (e.g. a bad `on` target
   // in an unrelated state). De-duplicate identical messages (both passes can
   // independently notice the same problem).
-  const definition: WorkflowDefinition = { states }
+  const definition: WorkflowDefinition = modes !== undefined ? { states, modes } : { states }
   const definitionErrors = validateDefinition(definition)
   const allErrors = Array.from(new Set([...errors, ...definitionErrors]))
   if (allErrors.length > 0) throw new Error(formatErrors(allErrors))

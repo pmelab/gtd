@@ -83,12 +83,14 @@ upgrading.
   command is BACK (see
   [docs/design/state-file-association.md](design/state-file-association.md)) —
   config-driven rather than the v2 hardcoded state→file map: any state may
-  declare a `file:` (an Eta template) and a `mode:` (`qa`/`review`, the file's
-  format), the LSP reads that same config the CLI does to build its path→mode
-  dispatch, and `gtd.openSteeringFile` resolves the current state and shows its
-  `file:`. No mapping declared at all (the bundled default's predecessor shape,
-  or any workflow with no `file:`/`mode:`) falls back to basename dispatch
-  (`TODO.md`/`REVIEW.md`), same as before this addition.
+  declare a `file:` (an Eta template) and a `mode:` (the file's format — the
+  built-in `qa`/`review`, or a workflow-declared `modes:` entry, though the LSP
+  itself only understands the two built-ins), the LSP reads that same config the
+  CLI does to build its path→mode dispatch, and `gtd.openSteeringFile` resolves
+  the current state and shows its `file:`. No mapping declared at all (the
+  bundled default's predecessor shape, or any workflow with no `file:`/`mode:`)
+  falls back to basename dispatch (`TODO.md`/`REVIEW.md`), same as before this
+  addition.
 
 ## How to adopt
 

@@ -174,6 +174,13 @@ Then("stderr contains {string}", (world: GtdWorld, text: string) => {
   )
 })
 
+Then("stderr does not contain {string}", (world: GtdWorld, text: string) => {
+  assert.ok(
+    !world.lastResult.stderr.includes(text),
+    `Expected stderr NOT to contain "${text}". Got:\n${world.lastResult.stderr}`,
+  )
+})
+
 // Post-loop observables. Edge-driven auto states emit no prompt — a single `gtd`
 // run performs the git action(s) and drives the loop forward — so assert the
 // landed commit subject instead of a retired prompt string.

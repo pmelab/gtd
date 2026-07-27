@@ -120,6 +120,89 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
       expect(message).toContain('"vars.bad" must be a string, number, or boolean, got object')
     }
   })
+
+  it("the `modes:` key compiles onto the definition, verbatim commands and all", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        ...draftCheckRevise,
+        modes: {
+          adr: {
+            format: "./scripts/fmt-adr.sh <%= it.file %>",
+            validate: "adr-lint <%= it.file %>",
+          },
+          spec: { validate: "npx ajv -s spec.schema.json -d <%= it.file %>" },
+        },
+      },
+      "/config-dir",
+    )
+    // A `./`-prefixed COMMAND is never inlined as a file reference the way a
+    // content string is — it is a shell command, kept verbatim.
+    expect(definition.modes).toEqual({
+      adr: { format: "./scripts/fmt-adr.sh <%= it.file %>", validate: "adr-lint <%= it.file %>" },
+      spec: { validate: "npx ajv -s spec.schema.json -d <%= it.file %>" },
+    })
+  })
+
+  it("carries no `modes` key at all when none is declared", () => {
+    const { definition } = compileWorkflowConfig(draftCheckRevise, "/config-dir")
+    expect(definition.modes).toBeUndefined()
+  })
+
+  it("rejects a non-object `modes:` value", () => {
+    expect(() =>
+      compileWorkflowConfig({ ...draftCheckRevise, modes: ["nope"] }, "/config-dir"),
+    ).toThrowError(/"modes" must be a mapping of mode name -> \{ format, validate \}, got array/)
+  })
+
+  it("rejects a non-object mode entry, an unknown key inside one, and a non-string command", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          ...draftCheckRevise,
+          modes: {
+            scalar: "adr-lint",
+            extra: { validate: "ok", lint: "nope" },
+            typed: { format: 42 },
+          },
+        },
+        "/config-dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain(
+        'mode "scalar": must be an object with "format" and/or "validate", got string',
+      )
+      expect(message).toContain('mode "extra": unknown key(s) lint')
+      expect(message).toContain('mode "typed": "format" must be a shell command (string)')
+    }
+  })
+
+  it("surfaces a mode declaring no command via `validateDefinition`'s aggregated error", () => {
+    expect(() =>
+      compileWorkflowConfig({ ...draftCheckRevise, modes: { adr: {} } }, "/config-dir"),
+    ).toThrowError(/mode "adr": must declare at least one of "format"\/"validate"/)
+  })
+
+  it("accepts a state whose `mode:` names a declared mode", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        modes: { adr: { validate: "adr-lint <%= it.file %>" } },
+        states: {
+          a: {
+            actor: "agent",
+            prompt: "write the ADR",
+            initial: true,
+            file: "docs/adr/0001.md",
+            mode: "adr",
+            on: { "* *": "a" },
+          },
+        },
+      },
+      "/config-dir",
+    )
+    expect(definition.states["a"]!.mode).toBe("adr")
+  })
 })
 
 // ── `on` declaration-order preservation ──────────────────────────────────────
@@ -745,7 +828,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     ).toThrowError(/state "a": "mode" must be a string/)
   })
 
-  it("surfaces an out-of-vocabulary `mode` string via `validateDefinition`'s aggregated error", () => {
+  it("surfaces an undefined `mode` string via `validateDefinition`'s aggregated error", () => {
     expect(() =>
       compileWorkflowConfig(
         {
@@ -762,7 +845,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
         },
         "/dir",
       ),
-    ).toThrowError(/"mode" must be one of qa, review \(got "yolo"\)/)
+    ).toThrowError(/"mode" must name a built-in mode \(qa, review\).*\(got "yolo"\)/)
   })
 
   it("rejects a malformed `retry` block", () => {

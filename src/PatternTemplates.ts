@@ -117,3 +117,24 @@ const eta = new Eta()
  */
 export const renderStateTemplate = (template: string, context: TemplateContext): string =>
   eta.renderString(template, context)
+
+/**
+ * The context a steering-file mode's `format:`/`validate:` command sees (see
+ * `PatternMachine.ModeDef`): the resting state's full `TemplateContext` PLUS
+ * `it.file` — the already-rendered path of the steering file the command must
+ * act on. `file` is deliberately absent from `TemplateContext` itself: only a
+ * mode command is guaranteed to have one, so no other template can reference
+ * `it.file` and silently render an empty string.
+ */
+export interface ModeCommandContext extends TemplateContext {
+  readonly file: string
+}
+
+/**
+ * Render one mode command template (`format:`/`validate:`) — same Eta instance
+ * and same throw-on-failure discipline as `renderStateTemplate`, over the
+ * wider `ModeCommandContext`. The caller (`src/SteeringMode.ts`) turns a render
+ * failure into a refusal rather than executing a half-rendered command.
+ */
+export const renderModeCommand = (template: string, context: ModeCommandContext): string =>
+  eta.renderString(template, context)

@@ -29,15 +29,17 @@ import { closeReviewWindow, openReviewWindow } from "./ReviewWindow.js"
 import { formatFile } from "./Format.js"
 import { startLspServer } from "./Lsp.js"
 import { renderMermaid } from "./Mermaid.js"
-import { parseOpenQuestions } from "./OpenQuestions.js"
-import { parseReviewDoc } from "./ReviewDoc.js"
+import {
+  formatAndValidateSteeringFile,
+  resolveSteeringMode,
+  unknownModeMessage,
+} from "./SteeringMode.js"
 import {
   matchesPattern,
   parsePattern,
   step,
   type OnEdge,
   type PendingChange,
-  type StateDef,
   type StepRefusal,
 } from "./PatternMachine.js"
 import type { TemplateContext } from "./PatternTemplates.js"
@@ -447,12 +449,6 @@ const runNextCommand = (
     write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered))
   })
 
-/** The parser findings for a steering file's content, dispatched on its `mode:`. */
-const validationErrorsFor = (mode: "qa" | "review", content: string): readonly string[] =>
-  mode === "qa" ? parseOpenQuestions(content).errors : parseReviewDoc(content).errors
-
-const MARKDOWN_STEERING_RE = /\.(?:md|markdown)$/i
-
 /** Format the resolved state's steering file (in place) then validate it. */
 interface SteeringCheck {
   /** The rendered `file:` path, or `undefined` when the state declares no `file:`/`mode:`. */
@@ -466,8 +462,10 @@ interface SteeringCheck {
 /**
  * Format the resolved rest's steering file in place, then validate its
  * formatted contents. When the state declares both `file:` and `mode:` and
- * that file exists in the working tree, it is formatted (markdown only) and
- * parsed against the `mode:` format. `present` is false — and nothing is
+ * that file exists in the working tree, the mode's format-then-validate pair
+ * runs over it — gtd's own markdown formatter + canonical parser for a built-in
+ * `qa`/`review`, or the workflow's declared shell commands for any other mode
+ * (see `src/SteeringMode.ts`). `present` is false — and nothing is
  * formatted or validated — when the state declares no steering file, or the
  * file is absent (e.g. `building` deleted `.gtd/TODO.md`, or a human deleted
  * `.gtd/REVIEW.md` to approve), so those flows pass cleanly. Shared by
@@ -476,17 +474,30 @@ interface SteeringCheck {
  */
 const formatAndCheckSteeringFile = (
   worktreeRead: (path: string) => string,
-  stateDef: StateDef,
+  rest: ResolvedRest,
   context: TemplateContext,
-): Effect.Effect<SteeringCheck, Error, FileSystem.FileSystem> =>
+): Effect.Effect<SteeringCheck, Error, FileSystem.FileSystem | Cwd> =>
   Effect.gen(function* () {
-    const file = yield* renderFile(stateDef, context)
-    const mode = stateDef.mode
+    const file = yield* renderFile(rest.stateDef, context)
+    const mode = rest.stateDef.mode
     if (file === undefined || mode === undefined) return { file, present: false, errors: [] }
     const fs = yield* FileSystem.FileSystem
     if (!(yield* fs.exists(file))) return { file, present: false, errors: [] }
-    if (MARKDOWN_STEERING_RE.test(file)) yield* formatFile(file)
-    return { file, present: true, errors: validationErrorsFor(mode, worktreeRead(file)) }
+    const resolved = resolveSteeringMode(rest.def, mode)
+    if (resolved === undefined) {
+      // `validateDefinition` rejects an unresolvable `mode:` at load time, so
+      // this is a defensive branch, not a reachable config path.
+      return yield* Effect.fail(new Error(unknownModeMessage(rest.def, rest.state, mode)))
+    }
+    const { root } = yield* Cwd
+    const errors = yield* formatAndValidateSteeringFile(
+      resolved,
+      file,
+      () => worktreeRead(file),
+      context,
+      root,
+    )
+    return { file, present: true, errors }
   })
 
 /**
@@ -501,12 +512,12 @@ const enforceSteeringGate = (
   rest: ResolvedRest,
   context: TemplateContext,
   kind: ExecutableDecision["kind"],
-): Effect.Effect<void, Error, FileSystem.FileSystem> =>
+): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd> =>
   Effect.gen(function* () {
     // Only a normal commit captures the rest state's steering file; a squash
     // discards it, and a no-op writes nothing.
     if (kind !== "commit") return
-    const gate = yield* formatAndCheckSteeringFile(worktreeRead, rest.stateDef, context)
+    const gate = yield* formatAndCheckSteeringFile(worktreeRead, rest, context)
     if (gate.errors.length > 0) {
       return yield* Effect.fail(
         new Error(
@@ -541,7 +552,7 @@ const runValidateCommand = (
     const { rest, context } = yield* resolveRestContext(git)
     const { file, present, errors } = yield* formatAndCheckSteeringFile(
       worktree.read,
-      rest.stateDef,
+      rest,
       context,
     )
     if (!present) {

@@ -16,10 +16,9 @@ Commands:
                    actor (the built-in script driver)
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
-  validate         Validate the steering file the resolved rest declares
-                   (its file:/mode:) against that mode's format; exits
-                   non-zero with findings when the file violates it (no
-                   mutation)
+  validate         Format and validate the steering file the resolved rest
+                   declares (its file:/mode:) with that mode's commands;
+                   exits non-zero with findings when the file is invalid
   mermaid          Print the active workflow's shape as Mermaid
                    stateDiagram-v2 source (no mutation)
   format <file>    Format a markdown file in place
@@ -146,7 +145,8 @@ which are JSON-only. `--json` emits
   sharing this label and starts fresh when it changes. Present only when the
   state declares one; **omitted entirely** (never `null`) when unset.
 - `file` — the state's declared steering file, RENDERED the same way; `mode` —
-  its format, verbatim (`"qa"` | `"review"`) (see
+  its format's name, verbatim (a built-in `"qa"`/`"review"`, or a
+  workflow-declared mode) (see
   [Configuration](configuration.md#filemode--the-steering-file-association)).
   Both present only when the state declares them; **omitted entirely** (never
   `null`) otherwise.
@@ -234,11 +234,17 @@ when the state has no `on` (all omitted entirely, never `null`, otherwise):
 
 Format **and** validate the steering file the resolved rest declares. It
 resolves the current state exactly like `gtd status`, renders that state's
-`file:`, **formats that file in place** (the same markdown formatter as
-`gtd format`), then runs the parser its `mode:` selects over the formatted
-contents — `qa` → `src/OpenQuestions.ts`, `review` → `src/ReviewDoc.ts` (the
-same pure parsers the LSP publishes as diagnostics, so there is one source of
-truth per format).
+`file:`, **formats that file in place**, then validates it — both per its
+`mode:`:
+
+- a **built-in** mode (`qa`/`review`) formats with the same markdown formatter
+  as `gtd format` and validates with gtd's own pure parser
+  (`src/OpenQuestions.ts` / `src/ReviewDoc.ts` — the same parsers the LSP
+  publishes as diagnostics, so there is one source of truth per format);
+- any **workflow-declared** mode (a `modes:` entry — see
+  [Configuration](configuration.md#modes--pluggable-steering-file-modes)) runs
+  its own `format:`/`validate:` shell commands, with the command's output as the
+  findings.
 
 - A well-formed file exits `0` (`<file>: valid`, or `{"valid":true, ...}` with
   `--json`) — and is left formatted.
@@ -259,11 +265,12 @@ the file, agent or human:
   runs `gtd validate` after the turn instead (see `bin/gtd-loop` /
   [STATES.md §12](../STATES.md#12-steering-file-validation-gtd-validate)).
 - **`gtd step` enforces the same gate.** Capturing a turn out of a state that
-  declares `file:`+`mode:` formats that file in place and validates it first,
-  and **refuses the step** (committing nothing) when it is invalid — so a
-  human's edit at a gate (answering at `grilling-answer`, reviewing at
-  `await-review`) is formatted and checked exactly like an agent's draft, and a
-  malformed steering file is never committed.
+  declares `file:`+`mode:` formats that file in place and validates it first
+  (with the very same mode commands), and **refuses the step** (committing
+  nothing) when it is invalid — so a human's edit at a gate (answering at
+  `grilling-answer`, reviewing at `await-review`) is formatted and checked
+  exactly like an agent's draft, and a malformed steering file is never
+  committed.
 
 `gtd validate` takes no arguments.
 

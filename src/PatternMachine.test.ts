@@ -907,7 +907,7 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "b": a commit state cannot declare "file"')
   })
 
-  it("rejects a `mode` outside the closed vocabulary, naming the allowed values", () => {
+  it("rejects a `mode` no built-in and no `modes:` entry defines, naming what is available", () => {
     const errors = validateDefinition({
       states: {
         a: {
@@ -920,7 +920,53 @@ describe("validateDefinition", () => {
         },
       },
     })
-    expect(errors).toContain('state "a": "mode" must be one of qa, review (got "yolo")')
+    expect(errors).toContain(
+      'state "a": "mode" must name a built-in mode (qa, review) or one declared in "modes" (none declared) (got "yolo")',
+    )
+  })
+
+  it("accepts a `mode` a `modes:` entry declares, and lists the declared names when another mode is unknown", () => {
+    const accepted = validateDefinition({
+      modes: { adr: { validate: "./scripts/check-adr.sh <%= it.file %>" } },
+      states: {
+        a: { actor: "h", message: "x", initial: true, file: "docs/adr.md", mode: "adr", on: [] },
+      },
+    })
+    expect(accepted).toEqual([])
+
+    const rejected = validateDefinition({
+      modes: { adr: { validate: "check" } },
+      states: {
+        a: { actor: "h", message: "x", initial: true, file: "docs/adr.md", mode: "adrs", on: [] },
+      },
+    })
+    expect(rejected).toContain(
+      'state "a": "mode" must name a built-in mode (qa, review) or one declared in "modes" (adr) (got "adrs")',
+    )
+  })
+
+  it("lets a `modes:` entry shadow a built-in name without complaint", () => {
+    expect(
+      validateDefinition({
+        modes: {
+          qa: { format: "prettier -w <%= it.file %>", validate: "my-linter <%= it.file %>" },
+        },
+        states: {
+          a: { actor: "h", message: "x", initial: true, file: ".gtd/TODO.md", mode: "qa", on: [] },
+        },
+      }),
+    ).toEqual([])
+  })
+
+  it("rejects a `modes:` entry that declares neither command, or a blank one", () => {
+    const errors = validateDefinition({
+      modes: { empty: {}, blank: { validate: "   " } },
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [] },
+      },
+    })
+    expect(errors).toContain('mode "empty": must declare at least one of "format"/"validate"')
+    expect(errors).toContain('mode "blank": "validate" must be a non-empty shell command')
   })
 
   it("rejects a `mode` with no sibling `file`", () => {
@@ -992,7 +1038,9 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain('state "a": "file" must be a non-empty string')
-    expect(errors).toContain('state "a": "mode" must be one of qa, review (got "yolo")')
+    expect(errors).toContain(
+      'state "a": "mode" must name a built-in mode (qa, review) or one declared in "modes" (none declared) (got "yolo")',
+    )
     expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
   })
 

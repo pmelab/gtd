@@ -1,0 +1,331 @@
+@live
+Feature: Pluggable steering-file modes — a mode is a format command plus a validate command
+
+  A state's `mode:` names a steering-file MODE (see STATES.md §12 and
+  docs/design/pluggable-steering-modes.md). Two names are built in — `qa`
+  (src/OpenQuestions.ts) and `review` (src/ReviewDoc.ts), formatting with gtd's
+  markdown formatter and validating with gtd's own parsers. Every other mode is
+  workflow DATA: a `modes:` entry declaring a `format:` and/or `validate:` shell
+  command, rendered as an Eta template with `it.file` bound to the rendered
+  steering-file path and run via bash. `format` rewrites the file in place;
+  `validate` exits 0 for valid, non-zero with its output as the findings.
+
+  Both halves run wherever the built-ins run: `gtd validate`, and the `gtd step`
+  capture gate that refuses to commit an invalid steering file. Real subprocess
+  execution, so this feature runs `@live`.
+
+  Scenario: gtd validate reports a custom mode's validate command as findings and exits non-zero
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            validate: |
+              status=0
+              grep -q '^## Status' <%= it.file %> || {
+                echo "<%= it.file %>: missing a '## Status' section"
+                status=1
+              }
+              grep -q '^## Decision' <%= it.file %> || {
+                echo "<%= it.file %>: missing a '## Decision' section"
+                status=1
+              }
+              exit $status
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start a decision record"
+            on:
+              "* **": drafting
+          drafting:
+            actor: agent
+            prompt: "Write the ADR."
+            file: docs/adr.md
+            mode: adr
+            on:
+              "* **": idle
+      """
+      # The validate command above prints one finding per missing section and
+      # then exits non-zero only when it printed something.
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+
+      ## Status
+
+      Accepted.
+      """
+    When I run gtd with args "validate"
+    Then it fails
+    And stderr contains "docs/adr.md is not valid"
+    And stderr contains "docs/adr.md: missing a '## Decision' section"
+    And stderr does not contain "missing a '## Status' section"
+
+  Scenario: gtd validate exits 0 when the custom mode's validate command is happy
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            validate: "grep -q '^## Decision' <%= it.file %>"
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start a decision record"
+            on:
+              "* **": drafting
+          drafting:
+            actor: agent
+            prompt: "Write the ADR."
+            file: docs/adr.md
+            mode: adr
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+
+      ## Decision
+
+      Adopt it.
+      """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains "docs/adr.md: valid"
+
+  Scenario: the mode's format command rewrites the file in place before validation
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            format: "sed -i 's/^status: draft$/status: accepted/' <%= it.file %>"
+            validate: "grep -q '^status: accepted$' <%= it.file %>"
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start a decision record"
+            on:
+              "* **": drafting
+          drafting:
+            actor: agent
+            prompt: "Write the ADR."
+            file: docs/adr.md
+            mode: adr
+            on:
+              "* **": idle
+      """
+      # The format command promotes "status: draft" to "status: accepted"; the
+      # validate command demands the promoted form. Validation therefore passes
+      # only because formatting ran FIRST, in place.
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+
+      status: draft
+      """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains "docs/adr.md: valid"
+    And the git status contains "docs/adr.md"
+
+  Scenario: the gtd step capture gate refuses a turn whose custom-mode steering file is invalid
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            validate: |
+              grep -q '^## Decision' <%= it.file %> || {
+                echo "<%= it.file %>: an ADR needs a '## Decision' section"
+                exit 1
+              }
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start a decision record"
+            on:
+              "* **": drafting
+          drafting:
+            actor: agent
+            prompt: "Write the ADR."
+            file: docs/adr.md
+            mode: adr
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+      """
+    And a file "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+
+      ## Stauts
+
+      Accepted.
+      """
+    When I run gtd step agent
+    Then it fails
+    And stderr contains "docs/adr.md is not valid at \"drafting\""
+    And stderr contains "an ADR needs a '## Decision' section"
+    And the last commit subject is "gtd(human): drafting"
+
+  Scenario: a valid custom-mode steering file passes the gate and the turn is captured
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            validate: "grep -q '^## Decision' <%= it.file %>"
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start a decision record"
+            on:
+              "* **": drafting
+          drafting:
+            actor: agent
+            prompt: "Write the ADR."
+            file: docs/adr.md
+            mode: adr
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+      """
+    And a file "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+
+      ## Decision
+
+      Adopt it.
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): idle"
+
+  Scenario: a failing format command is a hard error — the file is never judged, nothing is committed
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            format: |
+              echo "adr-fmt: cannot parse <%= it.file %>" >&2
+              exit 3
+            validate: "true"
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start a decision record"
+            on:
+              "* **": drafting
+          drafting:
+            actor: agent
+            prompt: "Write the ADR."
+            file: docs/adr.md
+            mode: adr
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      # ADR 1: use gtd
+      """
+    And a file "docs/adr.md" with:
+      """
+      # ADR 1: use gtd (edited)
+      """
+    When I run gtd step agent
+    Then it fails
+    And stderr contains "format command exited with status 3"
+    And stderr contains "adr-fmt: cannot parse docs/adr.md"
+    And the last commit subject is "gtd(human): drafting"
+
+  Scenario: a modes: entry named after a built-in replaces it for the whole workflow
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          qa:
+            validate: |
+              grep -q '^## Open Questions' <%= it.file %> || {
+                echo "<%= it.file %>: my house rule — every plan lists its open questions"
+                exit 1
+              }
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start"
+            on:
+              "* **": grilling
+          grilling:
+            actor: agent
+            prompt: "Draft the plan."
+            file: .gtd/TODO.md
+            mode: qa
+            on:
+              "* **": idle
+      """
+      # gtd's own open-questions parser accepts this file (no "## Open
+      # Questions" section at all is trivially valid to it) — the workflow's
+      # own command does not, which is how we can tell it replaced the built-in.
+    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing. Plan: add src/thing.ts.
+      """
+    When I run gtd with args "validate"
+    Then it fails
+    And stderr contains "my house rule"
+
+  Scenario: a custom mode declaring only format: formats the file and has nothing to validate
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        modes:
+          adr:
+            format: "sed -i 's/draft/DRAFT/' <%= it.file %>" # no validate: — that half is a no-op
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "start a decision record"
+            on:
+              "* **": drafting
+          drafting:
+            actor: agent
+            prompt: "Write the ADR."
+            file: docs/adr.md
+            mode: adr
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): drafting" that adds "docs/adr.md" with:
+      """
+      status: draft
+      """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains "docs/adr.md: valid"
+    And "docs/adr.md" contains "status: DRAFT"
