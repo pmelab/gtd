@@ -9,24 +9,29 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
   hash as a `Gtd-Review-Base:` trailer. Everything downstream (the `simple`
   template's `reviewing` → `await-review` → feedback laps, and the
   `await-review` review checkout window) then operates over that diff with no
-  duplicated logic. The `simple` template declares `reviewEntry: true` on
-  `reviewing` itself.
+  duplicated logic. The unified template declares `reviewEntry: true` on
+  `review-start-check` — the green-baseline gate that runs the suite and, once
+  green, transitions to `reviewing`.
 
   Background:
     Given a test project
     And the workflow
     And I mark the current commit as "base"
 
-  Scenario: happy path — a colleague's PR branch reviewed from its shared base, resting at reviewing
+  Scenario: happy path — a colleague's PR branch reviewed from its shared base, gated then resting at reviewing
     Given a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
     When I run gtd with args "review base"
     Then it succeeds
-    And the last commit subject is "gtd(human): reviewing"
+    And the last commit subject is "gtd(human): review-start-check"
     And the last commit body contains "Gtd-Review-Base:"
     And the last commit body contains the hash of "base"
+    # The green-baseline gate: a clean tree (tests pass) advances to reviewing.
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): review-start-check → reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "## Full diff under review"

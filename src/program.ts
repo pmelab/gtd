@@ -37,6 +37,7 @@ import {
   unknownModeMessage,
 } from "./SteeringMode.js"
 import {
+  fixEntryStateOf,
   initialStateOf,
   isRequireProgressState,
   isReviewWindowState,
@@ -74,6 +75,10 @@ Commands:
                    review-entry state (reviewEntry: true), reviewing
                    <commitish>..HEAD — e.g. a colleague's PR branch. Requires
                    a clean tree resting at the workflow's initial state
+  fix              Start a NEW process at the workflow's declared fix-entry
+                   state (fixEntry: true) that goes straight into repairing the
+                   current failing tests. Requires a clean tree resting at the
+                   workflow's initial state
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   status           Print the resolved rest's state/actor and which declared
@@ -568,6 +573,65 @@ const runReviewCommand = (
 
     const subject = stateSubject("human", entryState)
     yield* git.commitAsIs(withReviewBaseTrailer(subject, resolvedBase))
+    if (json) {
+      write(JSON.stringify({ state: entryState, subject }) + "\n")
+    } else {
+      write(`committed: ${subject}\n`)
+    }
+  })
+
+/**
+ * `gtd fix`: start a brand NEW process at the active workflow's declared
+ * `fixEntry: true` state (see `PatternMachine.fixEntryStateOf`), which goes
+ * straight into repairing the current failing tests. Mirrors `runReviewCommand`
+ * but simpler — it takes no argument and writes NO `Gtd-Review-Base:` trailer:
+ * the fix process reviews its own fixes from the ordinary process start, so a
+ * plain empty turn commit (`gtd(human): <fix-entry-state>`) is all it needs.
+ * `computeProcessRun` then treats that commit as the process's first turn like
+ * any other, and the shared health/review/squash tail runs unmodified.
+ *
+ * Any failure below is a plain refusal: nothing is written.
+ *
+ * a. The machine must currently rest at the workflow's INITIAL state — a
+ *    dedicated `gtd fix` entry is distinct from the "no active cycle" rest, and
+ *    a process already underway refuses (finish or abandon it first).
+ * b. The working tree must be clean — the fixes belong to their own process.
+ * c. The active workflow must declare a `fixEntry: true` state.
+ */
+const runFixCommand = (
+  argv: readonly string[],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, ProgramRequirements> =>
+  Effect.gen(function* () {
+    yield* rejectExtraArgs("fix", argv)
+
+    const git = yield* GitService
+    const rest = yield* resolveRest()
+    if (rest.state !== initialStateOf(rest.def)) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd fix: a process is already underway (resting at "${rest.state}") — finish or abandon it before starting a fix`,
+        ),
+      )
+    }
+
+    const changes = yield* pendingChanges(git)
+    if (changes.length > 0) {
+      return yield* Effect.fail(
+        new Error("gtd fix: the working tree must be clean before starting a fix"),
+      )
+    }
+
+    const entryState = fixEntryStateOf(rest.def)
+    if (entryState === undefined) {
+      return yield* Effect.fail(
+        new Error("gtd fix: the active workflow declares no fix entry state"),
+      )
+    }
+
+    const subject = stateSubject("human", entryState)
+    yield* git.commitAsIs(subject)
     if (json) {
       write(JSON.stringify({ state: entryState, subject }) + "\n")
     } else {
@@ -1086,7 +1150,15 @@ const runMermaidCommand = (
     write(renderMermaid(config.workflow))
   })
 
-const KNOWN_SUBCOMMANDS = ["step", "review", "next", "status", "validate", "mermaid"] as const
+const KNOWN_SUBCOMMANDS = [
+  "step",
+  "review",
+  "fix",
+  "next",
+  "status",
+  "validate",
+  "mermaid",
+] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
 /**
@@ -1205,6 +1277,8 @@ const dispatchKnownSubcommand = (
       return runStepCommand(argv, json, write, cost, model)
     case "review":
       return runReviewCommand(argv, json, write)
+    case "fix":
+      return runFixCommand(argv, json, write)
     case "next":
       return runNextCommand(json, write)
     case "status":
@@ -1236,8 +1310,9 @@ export interface RunOptions {
  * this with no arguments; the test world supplies an in-memory layer set and
  * captures stdout via the `write` callback.
  *
- * v3 command surface: `step <actor>` / `next` / `status` / `validate` /
- * `mermaid` (see `src/Edge.ts` and `docs/design/pattern-machine-plan.md` §3),
+ * v3 command surface: `step <actor>` / `review <commitish>` / `fix` / `next` /
+ * `status` / `validate` / `mermaid` (see `src/Edge.ts` and
+ * `docs/design/pattern-machine-plan.md` §3),
  * plus `lsp` and `init` — both dispatched before the config-reading
  * path since they must work with no workflow configured yet. Bare `gtd` or an
  * unknown subcommand is a usage error. Shared setup (argv parsing, the

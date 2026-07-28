@@ -13,7 +13,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
   simulated by writing their verdict files directly and running
   `gtd step check` — @inmem never executes the scripts themselves.
 
-  Scenario: idle forks on the entry file — REQUIREMENTS.md starts the advanced flow
+  Scenario: idle forks on the entry file — REQUIREMENTS.md starts the advanced flow gate
     Given a test project
     And the workflow
     And a file ".gtd/REQUIREMENTS.md" with:
@@ -22,9 +22,9 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → adv-grilling"
+    And the last commit subject is "gtd(human): idle → adv-start-check"
 
-  Scenario: idle forks on the entry file — TODO.md (anything else) starts the simple flow
+  Scenario: idle forks on the entry file — TODO.md (anything else) starts the simple flow gate
     Given a test project
     And the workflow
     And a file ".gtd/TODO.md" with:
@@ -33,7 +33,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → grilling"
+    And the last commit subject is "gtd(human): idle → start-check"
 
   Scenario: the advanced flow runs product + technical Q&A, decomposes into a package, builds it, fails and passes the spec-review gate, then closes out to review
     Given a test project
@@ -44,7 +44,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → adv-grilling"
+    And the last commit subject is "gtd(human): idle → adv-start-check"
+
+    # adv-start-check: green baseline gate — a clean tree (tests pass) -> adv-grilling
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): adv-start-check → adv-grilling"
 
     # adv-grilling: develops the product plan in REQUIREMENTS.md
     Given ".gtd/REQUIREMENTS.md" is modified to:

@@ -64,6 +64,12 @@ Feature: gtd init — scaffold a .gtdrc.json from the bundled unified workflow
       """
       SENTINEL edited grilling prompt body
       """
+    # A passing test command so the green-baseline gate (start-check) proceeds
+    # to grilling — the state whose edited prompt this scenario checks.
+    And a file "package.json" with:
+      """
+      { "scripts": { "test": "exit 0" } }
+      """
     And the working tree is committed
     And a file ".gtd/TODO.md" with:
       """
@@ -71,6 +77,10 @@ Feature: gtd init — scaffold a .gtdrc.json from the bundled unified workflow
       """
     When I run gtd step human
     Then it succeeds
+    And the last commit subject is "gtd(human): idle → start-check"
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-check → grilling"
     When I run gtd next
     Then stdout contains "SENTINEL edited grilling prompt body"
 

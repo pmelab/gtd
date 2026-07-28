@@ -361,11 +361,11 @@ describe("gtd review <commitish> — subcommand guards", () => {
     }
   })
 
-  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the unified template's review-entry state (reviewing)", async () => {
+  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the unified template's review-entry state (review-start-check)", async () => {
     const repo = seededRepo()
     // gtd ships no default workflow: scaffold the unified template (whose
-    // `reviewing` state declares `reviewEntry: true`) and commit it, exactly as
-    // `gtd init` + a commit would.
+    // `review-start-check` state declares `reviewEntry: true`) and commit it,
+    // exactly as `gtd init` + a commit would.
     repo.writeFile(".gtdrc.json", renderInitConfig())
     repo.commitAllWithPrefix("chore: init gtd workflow")
     const base = repo.commitHistory().at(-1)!.hash
@@ -377,11 +377,120 @@ describe("gtd review <commitish> — subcommand guards", () => {
 
     const { output, exit } = await runReview(repo, base)
     expect(Exit.isSuccess(exit)).toBe(true)
-    expect(output).toContain("committed: gtd(human): reviewing")
+    expect(output).toContain("committed: gtd(human): review-start-check")
     expect(repo.commitHistory()).toHaveLength(before + 1)
-    expect(repo.lastCommitSubject()).toBe("gtd(human): reviewing")
+    expect(repo.lastCommitSubject()).toBe("gtd(human): review-start-check")
     const message = repo.commitHistory().at(-1)!.message
     expect(message).toContain(`Gtd-Review-Base: ${base}`)
+  })
+})
+
+describe("gtd fix — subcommand guards", () => {
+  // Like `gtd review`, `gtd fix`'s guards need a real (in-memory) repo to
+  // resolve against. Full happy-path coverage (fix-check running the suite,
+  // dropping into the shared fixing loop or no-op'ing back to idle) lives in
+  // tests/integration/features/fix-entry.feature.
+
+  const seededRepo = (): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gitignore", "node_modules\n")
+    repo.writeFile("README.md", "# test project\n")
+    repo.commitAllWithPrefix("chore: initial commit")
+    return repo
+  }
+
+  const runFix = async (
+    repo: InMemRepo,
+    ...args: string[]
+  ): Promise<{ output: string; exit: Exit.Exit<void, Error> }> => {
+    let output = ""
+    const write = (chunk: string) => {
+      output += chunk
+    }
+    const argv = ["node", "gtd.js", "fix", ...args]
+    const exit = await Effect.runPromiseExit(
+      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+    )
+    return { output, exit }
+  }
+
+  it("is a known subcommand — appears in --help", async () => {
+    const { output } = await runFlag("--help")
+    expect(output).toContain("fix ")
+  })
+
+  it("takes no positional argument — extra args are a usage error", async () => {
+    const repo = seededRepo()
+    const before = repo.commitHistory().length
+    const { exit } = await runFix(repo, "extra")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("a dirty working tree refuses, nothing committed", async () => {
+    const repo = seededRepo()
+    // Scaffold the unified template so a fixEntry state exists — this test
+    // exercises the clean-tree guard specifically.
+    repo.writeFile(".gtdrc.json", renderInitConfig())
+    repo.commitAllWithPrefix("chore: init gtd workflow")
+    repo.writeFile("scratch.txt", "uncommitted\n")
+    const before = repo.commitHistory().length
+    const { exit } = await runFix(repo)
+    expect(Exit.isSuccess(exit)).toBe(false)
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("a process already underway (not resting at the initial state) refuses", async () => {
+    const repo = seededRepo()
+    repo.writeFile(".gtdrc.json", renderInitConfig())
+    repo.commitAllWithPrefix("chore: init gtd workflow")
+    repo.writeFile(".gtd/TODO.md", "sketch\n")
+    repo.commitAllWithPrefix("gtd(human): grilling")
+    const before = repo.commitHistory().length
+    const { exit } = await runFix(repo)
+    expect(Exit.isSuccess(exit)).toBe(false)
+    expect(repo.commitHistory()).toHaveLength(before)
+  })
+
+  it("a workflow declaring no fixEntry state fails with a clear usage error", async () => {
+    const repo = seededRepo()
+    repo.writeFile(
+      ".gtdrc.yaml",
+      [
+        "workflow:",
+        "  states:",
+        "    idle:",
+        "      actor: human",
+        "      initial: true",
+        "      message: hi",
+        "      on:",
+        '        "* **": working',
+        "    working:",
+        "      actor: agent",
+        "      prompt: go",
+        "      on:",
+        '        "* **": idle',
+        "",
+      ].join("\n"),
+    )
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    const { exit } = await runFix(repo)
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain("declares no fix entry state")
+    }
+  })
+
+  it("the happy path writes one empty entry commit resting at the unified template's fix-entry state (fix-check)", async () => {
+    const repo = seededRepo()
+    repo.writeFile(".gtdrc.json", renderInitConfig())
+    repo.commitAllWithPrefix("chore: init gtd workflow")
+    const before = repo.commitHistory().length
+    const { output, exit } = await runFix(repo)
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(output).toContain("committed: gtd(human): fix-check")
+    expect(repo.commitHistory()).toHaveLength(before + 1)
+    expect(repo.lastCommitSubject()).toBe("gtd(human): fix-check")
   })
 })
 

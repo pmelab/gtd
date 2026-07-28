@@ -181,6 +181,11 @@ const stateJsonSchema = {
       description:
         "Marks the (at most one) state `gtd review <commitish>` enters to start a brand new process reviewing <commitish>..HEAD. Forbidden on a commit state and on the initial state.",
     },
+    fixEntry: {
+      type: "boolean",
+      description:
+        "Marks the (at most one) state `gtd fix` enters to start a brand new process that goes straight into repairing the current failing tests. Forbidden on a commit state and on the initial state.",
+    },
     requireProgress: {
       type: "boolean",
       description:
