@@ -11,6 +11,7 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   actor: "agent",
   processDiff: "diff --git a/x.ts b/x.ts\n+added\n",
   reviewDiff: "diff --git a/x.ts b/x.ts\n+added\n",
+  retainedDiff: "diff --git a/x.ts b/x.ts\n+added\n",
   lastDiff: "diff --git a/y.ts b/y.ts\n+last\n",
   processCost: 0,
   processCostByModel: [],

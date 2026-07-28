@@ -323,6 +323,7 @@ const context = (overrides: Partial<TemplateContext> = {}): TemplateContext => (
   actor: "agent",
   processDiff: "",
   reviewDiff: "",
+  retainedDiff: "",
   lastDiff: "",
   processCost: 0,
   processCostByModel: [],

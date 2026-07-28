@@ -58,6 +58,20 @@ export interface TemplateContext {
    * review of a cycle) — assembled by `src/Edge.ts`.
    */
   readonly reviewDiff: string
+  /**
+   * The diff a squash would KEEP: `startParentHash..HEAD` plus the pending
+   * working-tree diff — the current process's OWN commits, based at its
+   * trace/retry boundary (`ProcessRun.startParentHash`), which a
+   * `Gtd-Review-Base:` trailer NEVER overrides. Equal to `processDiff` for a
+   * normal cycle (there `diffBase == startParentHash`); for a `gtd review`
+   * process it narrows to just the review's own feedback commits — what the
+   * squash commit actually retains — instead of the whole reviewed changeset.
+   * A squash `commit:` template renders its message from THIS, not
+   * `processDiff`, so the message describes what the commit contains. Empty
+   * when the review made no changes (a clean sign-off). Assembled by
+   * `src/Edge.ts`.
+   */
+  readonly retainedDiff: string
   /** The diff of the last transition alone. */
   readonly lastDiff: string
   /**

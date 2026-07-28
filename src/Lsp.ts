@@ -359,6 +359,7 @@ export const buildFileModeMap = (
         actor: "",
         processDiff: "",
         reviewDiff: "",
+        retainedDiff: "",
         lastDiff: "",
         processCost: 0,
         processCostByModel: [],

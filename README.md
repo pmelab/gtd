@@ -122,7 +122,9 @@ just those changes), and a full sign-off collapses the whole cycle into one
 commit (a **squash finale** whose message an agent drafts). The same review tail
 also has a direct entry point — `gtd review <commitish>` starts a brand new
 process reviewing `<commitish>..HEAD` with no cycle of its own, e.g. a
-colleague's PR branch. See
+colleague's PR branch. Its squash keeps and describes only the fixes made
+_during_ the review (not the reviewed changeset); a clean sign-off with no fixes
+becomes an empty `chore: human review` commit. See
 [STATES.md](STATES.md#10-the-bundled-workflow-template) for the full shape. The
 workflow is just `.gtdrc` config — edit it or write your own (see
 [Configuration](docs/configuration.md)). Every agent state routes its model

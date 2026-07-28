@@ -119,6 +119,45 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
     And stdout contains "src/calc.ts"
     And stdout contains "src/fix.ts"
 
+  Scenario: squashing a review process describes only the review's own fixes (it.retainedDiff), not the reviewed changeset
+    # The squash resets to the process's OWN boundary (startParentHash — the
+    # reviewed commit), so its message must describe only what it keeps: the
+    # fixes made DURING the review, not the whole changeset under review. That
+    # base is never pushed back by the Gtd-Review-Base: trailer the way
+    # it.processDiff's is.
+    Given a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    When I run gtd with args "review base"
+    Then it succeeds
+    # A fix authored during the review, then the human signs off into squashing.
+    Given a commit "gtd(agent): reviewing" that adds "src/fix.ts" with:
+      """
+      export const fixed = true
+      """
+    And an empty commit "gtd(human): reviewing → squashing"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "## Retained diff"
+    And stdout contains "src/fix.ts"
+    And stdout does not contain "src/calc.ts"
+
+  Scenario: a clean review sign-off with no fixes squashes to a "chore: human review" commit
+    Given a commit "feat: add calculator" that adds "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      """
+    When I run gtd with args "review base"
+    Then it succeeds
+    # No fix authored — the human signs off straight into squashing.
+    And an empty commit "gtd(human): reviewing → squashing"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "chore: human review"
+    And stdout does not contain "## Retained diff"
+    And stdout does not contain "src/calc.ts"
+
   Scenario: the review checkout window at await-review spans <commitish>..HEAD
     Given a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
