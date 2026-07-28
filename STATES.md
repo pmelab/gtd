@@ -447,12 +447,23 @@ items (no Q&A), deletes the feedback file, and re-enters `checking` →
 last round (§11).
 
 **The squash finale.** A full sign-off reaches `squashing` (agent), which writes
-`.gtd/COMMIT_MSG.md` with one conventional-commits message for the whole cycle;
-entering the `done` commit state squashes every turn commit since the process
-start into that one commit (with a token-cost trailer, §8) and discards the
-message file. The squash commit carries a NON-workflow subject, so it is the
-process boundary (§7): the next cycle's `retry` counts, `startCommit`, and diffs
-never reach back across it.
+`.gtd/COMMIT_MSG.md` with one conventional-commits message; entering the `done`
+commit state squashes every turn commit since the process start into that one
+commit (with a token-cost trailer, §8) and discards the message file. The squash
+commit carries a NON-workflow subject, so it is the process boundary (§7): the
+next cycle's `retry` counts, `startCommit`, and diffs never reach back across
+it.
+
+The message describes **`it.retainedDiff`, not `it.processDiff`** — the diff the
+squash actually KEEPS, based at the process's own trace boundary
+(`startParentHash`), which a `Gtd-Review-Base:` trailer never overrides (§11).
+For a normal build cycle the two coincide (whole feature). For a
+`gtd review <commitish>` process, `it.processDiff` covers the reviewed
+`<commitish>..HEAD` but the squash only retains the fixes made DURING the
+review; `it.retainedDiff` is exactly those, and the prompt renders it in place
+of the full changeset. When it is empty — a clean sign-off with no fixes — the
+prompt instead instructs a fixed `chore: human review` message, so the squash is
+an empty commit that records the sign-off without restating the reviewed work.
 
 ### Walkthrough — the advanced flow
 
@@ -599,6 +610,11 @@ routing run exactly as declared, `it.processDiff` covers `<commitish>..HEAD`,
 and if a downstream state (the bundled default's `await-review`) declares
 `reviewWindow: true`, the checkout window opens over that same range — zero
 duplicated logic, one re-pointed value.
+
+Because the trailer moves ONLY `diffBase`, not `startParentHash`, the squash
+reset target and thus `it.retainedDiff` stay anchored at the review process's
+own start — so the squash keeps and describes only the fixes made during the
+review, never the reviewed changeset itself (§10, the squash finale).
 
 The bundled default declares `reviewEntry: true` on `reviewing` itself (see
 §10): `gtd review <commitish>` hands the agent a `<commitish>..HEAD` diff to

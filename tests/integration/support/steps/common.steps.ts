@@ -73,6 +73,20 @@ Given(
   },
 )
 
+// A commit that changes NOTHING — subject only, no file touched (like a gtd
+// workflow turn that only advances state). Maps to one `git commit
+// --allow-empty`; composable anywhere the commit-builder steps are.
+Given("an empty commit {string}", (world: GtdWorld, message: string) => {
+  if (world.tier === "inmem") {
+    world.repo!.commitAllWithPrefix(message)
+  } else {
+    execFileSync("git", ["commit", "-q", "--allow-empty", "-m", message], {
+      cwd: world.repoDir,
+      stdio: "pipe",
+    })
+  }
+})
+
 // Commits everything currently in the working tree under one chore commit —
 // the "I've reviewed the scaffold, now commit it" move a human makes after
 // `gtd init`, so the machine starts from a clean tree at the initial state.

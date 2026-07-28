@@ -766,21 +766,32 @@ states:
       anything under `.gtd/` except `<%= it.vars.commitMsgFile %>`, which this
       prompt tells you to write.
 
+      Leave `<%= it.vars.commitMsgFile %>` uncommitted and finish your turn —
+      entering this file squashes everything this process retains into one
+      commit using its content as the message. The diff below is exactly what
+      that commit will contain: `it.retainedDiff`, the changes THIS process
+      made (its trace/retry boundary onward). For a normal build cycle that is
+      the whole feature; for a `gtd review` process it is only the fixes made
+      during the review — NOT the changeset that was under review.
+      <% if (it.retainedDiff.trim()) { %>
+
       Write `<%= it.vars.commitMsgFile %>` with ONE conventional-commits message
-      for the entire cycle (subject line `type(scope): subject`, imperative
+      for the changes below (subject line `type(scope): subject`, imperative
       mood, <= 72 characters; a body explaining the why, trade-offs, and key
       decisions). Plain text, no markdown wrapper.
 
-      Leave `<%= it.vars.commitMsgFile %>` uncommitted and finish your turn —
-      entering this file squashes the whole cycle into one commit using its
-      content as the message.
-      <% if (it.processDiff.trim()) { %>
-
-      ## Full cycle diff
+      ## Retained diff
 
       ```diff
-      <%~ it.processDiff %>
+      <%~ it.retainedDiff %>
       ```
+      <% } else { %>
+
+      This process retained NO changes (a clean review sign-off with no fixes).
+      Write `<%= it.vars.commitMsgFile %>` with exactly this one line and
+      nothing else:
+
+      chore: human review
       <% } %>
     on:
       "A .gtd/COMMIT_MSG.md": done

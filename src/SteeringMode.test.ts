@@ -31,6 +31,7 @@ const context = (vars: Record<string, string> = {}): TemplateContext => ({
   actor: "agent",
   processDiff: "",
   reviewDiff: "",
+  retainedDiff: "",
   lastDiff: "",
   processCost: 0,
   processCostByModel: [],

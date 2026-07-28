@@ -393,6 +393,16 @@ export const buildTemplateContext = (
       committedDiff,
     )
     const reviewDiff = joinDiffs(committedReviewDiff, pendingDiff)
+    // `retainedDiff` is based at the process's trace/retry boundary
+    // (`startParentHash`) — what a squash actually keeps — NOT `diffBase`,
+    // which a `Gtd-Review-Base:` trailer can push back past the review's own
+    // start. They coincide for a normal cycle (`committedDiff` already covers
+    // it); only a `gtd review` process needs the narrower re-diff.
+    const committedRetainedDiff =
+      run.diffBase === run.startParentHash
+        ? committedDiff
+        : yield* git.diffRef(run.startParentHash).pipe(Effect.catchAll(() => Effect.succeed("")))
+    const retainedDiff = joinDiffs(committedRetainedDiff, pendingDiff)
     const lastDiff =
       run.trace.length > 0
         ? yield* git.commitDiff(currentCommit).pipe(Effect.catchAll(() => Effect.succeed("")))
@@ -412,6 +422,7 @@ export const buildTemplateContext = (
       actor,
       processDiff,
       reviewDiff,
+      retainedDiff,
       lastDiff,
       processCost: totalCostOf(allCostEntries),
       processCostByModel: costByModel(allCostEntries),
