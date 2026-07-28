@@ -337,6 +337,26 @@ export const toTemplateEdges = (edges: readonly OnEdge[] | undefined): readonly 
  * breakdown including the squashing step) — `0`/absent for the pure emitters
  * (`gtd next`/`gtd status`), where no step is being performed.
  */
+/** Join a committed diff and the pending working-tree diff, dropping empties. */
+const joinDiffs = (committed: string, pending: string): string =>
+  [committed, pending].filter((d) => d.trim().length > 0).join("\n\n")
+
+/**
+ * The committed half of `it.reviewDiff`: the diff from `reviewDiffBase` (the
+ * previous review round's boundary) when it is a distinct base, else the
+ * already-computed process-wide `committedDiff` (first review — reviewDiff
+ * collapses to processDiff).
+ */
+const committedReviewDiffOf = (
+  git: GitOperations,
+  processDiffBase: string,
+  reviewDiffBase: string | undefined,
+  committedDiff: string,
+): Effect.Effect<string, never> =>
+  reviewDiffBase !== undefined && reviewDiffBase !== processDiffBase
+    ? git.diffRef(reviewDiffBase).pipe(Effect.catchAll(() => Effect.succeed("")))
+    : Effect.succeed(committedDiff)
+
 export const buildTemplateContext = (
   git: GitOperations,
   read: (path: string) => string,
@@ -347,6 +367,7 @@ export const buildTemplateContext = (
   edges: readonly OnEdge[] | undefined,
   currentCost = 0,
   currentModel?: string,
+  reviewDiffBase?: string,
 ): Effect.Effect<TemplateContext, Error> =>
   Effect.gen(function* () {
     const hasCommits = yield* git.hasCommits()
@@ -360,7 +381,18 @@ export const buildTemplateContext = (
       .diffRef(run.diffBase)
       .pipe(Effect.catchAll(() => Effect.succeed("")))
     const pendingDiff = yield* git.diffHead().pipe(Effect.catchAll(() => Effect.succeed("")))
-    const processDiff = [committedDiff, pendingDiff].filter((d) => d.trim().length > 0).join("\n\n")
+    const processDiff = joinDiffs(committedDiff, pendingDiff)
+    // `reviewDiff` narrows the review to changes since the previous review
+    // round: `reviewDiffBase` is the most-recent in-process `reviewBase` commit
+    // (the caller resolves it via `reviewBaseHash`), or `undefined`/the process
+    // start on the first review — where it collapses back to `processDiff`.
+    const committedReviewDiff = yield* committedReviewDiffOf(
+      git,
+      run.diffBase,
+      reviewDiffBase,
+      committedDiff,
+    )
+    const reviewDiff = joinDiffs(committedReviewDiff, pendingDiff)
     const lastDiff =
       run.trace.length > 0
         ? yield* git.commitDiff(currentCommit).pipe(Effect.catchAll(() => Effect.succeed("")))
@@ -379,6 +411,7 @@ export const buildTemplateContext = (
       state,
       actor,
       processDiff,
+      reviewDiff,
       lastDiff,
       processCost: totalCostOf(allCostEntries),
       processCostByModel: costByModel(allCostEntries),

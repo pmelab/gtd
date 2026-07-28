@@ -28,7 +28,7 @@ import {
   type RenderedRest,
   type ResolvedRest,
 } from "./Edge.js"
-import { closeReviewWindow, openReviewWindow } from "./ReviewWindow.js"
+import { closeReviewWindow, openReviewWindow, reviewBaseHash } from "./ReviewWindow.js"
 import { startLspServer } from "./Lsp.js"
 import { renderMermaid } from "./Mermaid.js"
 import {
@@ -106,6 +106,18 @@ export const isEnveloped = (error: unknown): boolean =>
   typeof error === "object" &&
   error !== null &&
   (error as Record<symbol, unknown>)[ENVELOPED] === true
+
+/**
+ * The stderr line for a CLI error (see `main.ts`): a `gtd: ` prefix UNLESS the
+ * message already carries one. Most gtd errors are authored with a
+ * `gtd:`/`gtd <cmd>:` prefix of their own (e.g. `gtd init: …`,
+ * `gtd: no workflow configured …`), so a blind prepend produced a doubled
+ * `gtd: gtd: …`.
+ */
+export const cliErrorLine = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : String(error)
+  return /^gtd[: ]/.test(message) ? message : `gtd: ${message}`
+}
 
 type ProgramRequirements =
   | GitService
@@ -315,6 +327,7 @@ const resolveRestContext = (
     const rest = yield* resolveRest()
     const run = yield* computeProcessRun(git, rest.def)
     const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const reviewBase = yield* reviewBaseHash(git, rest.def, run)
     const context = yield* buildTemplateContext(
       git,
       worktree.read,
@@ -323,6 +336,9 @@ const resolveRestContext = (
       run,
       vars,
       rest.stateDef.on,
+      0,
+      undefined,
+      reviewBase,
     )
     return { rest, run, context }
   })

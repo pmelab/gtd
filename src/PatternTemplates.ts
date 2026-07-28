@@ -48,8 +48,16 @@ export interface TemplateContext {
   readonly state: string
   /** The actor this render is for. */
   readonly actor: string
-  /** `startCommit..HEAD` plus the pending working-tree diff. */
+  /** `startCommit..HEAD` plus the pending working-tree diff — the WHOLE process. */
   readonly processDiff: string
+  /**
+   * Like `processDiff`, but based at the most-recent in-process commit that
+   * entered a `reviewBase: true` state (the previous review round's boundary)
+   * when one exists — so a re-review covers only the changes SINCE the last
+   * review round. Equal to `processDiff` when no such commit exists (the first
+   * review of a cycle) — assembled by `src/Edge.ts`.
+   */
+  readonly reviewDiff: string
   /** The diff of the last transition alone. */
   readonly lastDiff: string
   /**

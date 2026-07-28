@@ -322,6 +322,7 @@ const context = (overrides: Partial<TemplateContext> = {}): TemplateContext => (
   state: "squashing",
   actor: "agent",
   processDiff: "",
+  reviewDiff: "",
   lastDiff: "",
   processCost: 0,
   processCostByModel: [],

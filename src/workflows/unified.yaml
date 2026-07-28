@@ -629,13 +629,16 @@ states:
         path is `./`-relative, with an optional `#line` and an optional
         ` — note`).
 
-      Leave `<%= it.vars.reviewFile %>` uncommitted and finish your turn.
-      <% if (it.processDiff.trim()) { %>
+      The diff below is `it.reviewDiff` — on a feedback round it covers ONLY the
+      changes made since the previous review, so you review just what changed,
+      not items already signed off. Leave `<%= it.vars.reviewFile %>`
+      uncommitted and finish your turn.
+      <% if (it.reviewDiff.trim()) { %>
 
       ## Full diff under review
 
       ```diff
-      <%~ it.processDiff %>
+      <%~ it.reviewDiff %>
       ```
       <% } %>
     on:
