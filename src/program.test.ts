@@ -16,7 +16,12 @@ import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
 import { compileTemplate, renderInitConfig } from "./workflows/templates.js"
-import { classifyReviewSignoff, cliErrorLine, makeProgram } from "./program.js"
+import {
+  classifyFeedbackProgress,
+  classifyReviewSignoff,
+  cliErrorLine,
+  makeProgram,
+} from "./program.js"
 import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
 import { inMemoryLayers } from "../tests/integration/support/inmem/layers.js"
 
@@ -464,5 +469,51 @@ describe("classifyReviewSignoff", () => {
     })
     expect(v.kind).toBe("refuse")
     if (v.kind === "refuse") expect(v.reason).toContain("1 review item(s) still unticked")
+  })
+})
+
+describe("classifyFeedbackProgress", () => {
+  const base = {
+    file: ".gtd/REVIEW_FEEDBACK.md",
+    stateName: "feedback-building",
+    invoker: "agent",
+    deletedContent: "1. ./a.ts#1 — rename the export\n",
+  }
+  const del = { path: ".gtd/REVIEW_FEEDBACK.md", status: "D" } as const
+
+  it("refuses deleting the instructions file with no code change (the original bug)", () => {
+    const v = classifyFeedbackProgress({ ...base, changes: [del] })
+    expect(v.kind).toBe("refuse")
+    if (v.kind === "refuse") expect(v.reason).toContain("without addressing its instructions")
+  })
+
+  it("allows deleting the file when a code change accompanies it (real work done)", () => {
+    const v = classifyFeedbackProgress({
+      ...base,
+      changes: [del, { path: "src/a.ts", status: "M" }],
+    })
+    expect(v).toEqual({ kind: "allow" })
+  })
+
+  it("allows a NOTHING ACTIONABLE sentinel to be deleted with no code change", () => {
+    const v = classifyFeedbackProgress({
+      ...base,
+      changes: [del],
+      deletedContent: "NOTHING ACTIONABLE — the human left only an approving remark.\n",
+    })
+    expect(v).toEqual({ kind: "allow" })
+  })
+
+  it("allows a turn that does not delete the instructions file", () => {
+    const v = classifyFeedbackProgress({ ...base, changes: [{ path: "src/a.ts", status: "M" }] })
+    expect(v).toEqual({ kind: "allow" })
+  })
+
+  it("treats other .gtd/ churn alongside the delete as no code change (still refused)", () => {
+    const v = classifyFeedbackProgress({
+      ...base,
+      changes: [del, { path: ".gtd/REVIEW_RAW.md", status: "D" }],
+    })
+    expect(v.kind).toBe("refuse")
   })
 })

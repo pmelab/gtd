@@ -350,15 +350,25 @@ which decides from the step's content: a **full sign-off** (every box ticked, no
 note in `.gtd/REVIEW.md`, no code edit) is the only path to the **squash
 finale** (`squashing` → `done`), which collapses the whole cycle into one commit
 whose message an agent drafts. **Feedback** — any note in `.gtd/REVIEW.md`
-beyond a tick, OR a hand-edit to code — routes through `review-deciding` into
-`.gtd/REVIEW_FEEDBACK.md` → `feedback-building` → `checking` → `reviewing`,
-which regenerates an **incremental** review (`reviewBase: true` on
-`review-deciding` scopes it to `last-review..HEAD`, i.e. the agent's
-follow-through, not the reviewer's own edit). A code edit counts as the
-reviewer's own fix: `feedback-building` completes the follow-through it implies
-and never reverts their lines. Two dead ends never commit — the **sign-off
-gate** (`src/program.ts`, an edge like the review window) refuses a step that
-leaves a box unticked with no comment, and a deleted `.gtd/REVIEW.md`.
+beyond a tick, OR a hand-edit to code — routes through `review-deciding`, which
+CAPTURES the raw material into `.gtd/REVIEW_RAW.md` (never interpreting it) →
+`feedback-collecting`, an agent that turns that raw material into an explicit
+instruction list in `.gtd/REVIEW_FEEDBACK.md` → `feedback-building`, which
+IMPLEMENTS the list → `checking` → `reviewing`, which regenerates an
+**incremental** review (`reviewBase: true` on `review-deciding` scopes it to
+`last-review..HEAD`, i.e. the agent's follow-through, not the reviewer's own
+edit). A code edit counts as the reviewer's own fix: the instructions tell
+`feedback-building` to complete the follow-through it implies and never revert
+their lines. Feedback must not silently evaporate, so two dead ends never
+commit: `feedback-collecting` declares no edge for "raw consumed, nothing
+written" (a silent no-op matches no pattern → refused by the pure engine), and
+`feedback-building` declares **`requireProgress: true`** so the edge gate
+(`enforceFeedbackProgressGate`, `src/program.ts`) refuses a turn that just
+deletes the instructions file without doing the work — unless it held a
+`NOTHING ACTIONABLE` sentinel (a legitimately non-actionable round). Two more
+dead ends never commit at the gate before them — the **sign-off gate**
+(`src/program.ts`, an edge like the review window) refuses a step that leaves a
+box unticked with no comment, and a deleted `.gtd/REVIEW.md`.
 
 Steering-file formats
 (`.gtd/TODO.md`/`.gtd/REQUIREMENTS.md`/`.gtd/ARCHITECTURE.md` open questions,
@@ -369,21 +379,22 @@ machine: the producing agent self-validates with `gtd validate` before finishing
 **Entry + shared states** (the simple flow and the tail all three entries
 share):
 
-| State               | Actor | Content | `on`                                                                                                           | Retry              | Model   | Memory   | File / Mode                  |
-| ------------------- | ----- | ------- | -------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | -------- | ---------------------------- |
-| `idle` (initial)    | human | message | `* .gtd/REQUIREMENTS.md` → `adv-grilling`; `* **` → `grilling`                                                 | —                  | —       | —        | —                            |
-| `grilling`          | agent | prompt  | `* **` → `grilling-answer`                                                                                     | —                  | `smart` | `plan`   | `vars.todoFile` / `qa`       |
-| `grilling-answer`   | human | message | `C` → `building`; `* **` → `grilling`                                                                          | —                  | —       | —        | `vars.todoFile` / `qa`       |
-| `building`          | agent | prompt  | `* **` → `checking`                                                                                            | —                  | `base`  | `build`  | `vars.todoFile` / `qa`       |
-| `checking`          | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`                     | —                  | —       | —        | —                            |
-| `fixing`            | agent | prompt  | `* **` → `checking`                                                                                            | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile`          |
-| `escalate`          | human | message | `* **` → `checking`                                                                                            | —                  | —       | —        | `vars.feedbackFile`          |
-| `reviewing`         | agent | prompt  | `* **` → `await-review`                                                                                        | —                  | `smart` | `review` | `vars.reviewFile` / `review` |
-| `await-review`      | human | message | `* **` → `review-deciding` (+ edge sign-off gate: refuses a deleted `REVIEW.md` / an unticked-no-comment step) | —                  | —       | —        | `vars.reviewFile` / `review` |
-| `review-deciding`   | check | script  | `A`/`M .gtd/REVIEW_FEEDBACK.md` → `feedback-building`; `D .gtd/REVIEW.md` → `squashing`                        | —                  | —       | —        | `vars.reviewFile` / `review` |
-| `feedback-building` | agent | prompt  | `* **` → `checking`                                                                                            | —                  | `base`  | `build`  | `vars.reviewFeedbackFile`    |
-| `squashing`         | agent | prompt  | `A`/`M .gtd/COMMIT_MSG.md` → `done`                                                                            | —                  | `base`  | `build`  | `vars.commitMsgFile`         |
-| `done`              | —     | commit  | — (commit state: squash ends the process)                                                                      | —                  | —       | —        | —                            |
+| State                 | Actor | Content | `on`                                                                                                           | Retry              | Model   | Memory   | File / Mode                  |
+| --------------------- | ----- | ------- | -------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | -------- | ---------------------------- |
+| `idle` (initial)      | human | message | `* .gtd/REQUIREMENTS.md` → `adv-grilling`; `* **` → `grilling`                                                 | —                  | —       | —        | —                            |
+| `grilling`            | agent | prompt  | `* **` → `grilling-answer`                                                                                     | —                  | `smart` | `plan`   | `vars.todoFile` / `qa`       |
+| `grilling-answer`     | human | message | `C` → `building`; `* **` → `grilling`                                                                          | —                  | —       | —        | `vars.todoFile` / `qa`       |
+| `building`            | agent | prompt  | `* **` → `checking`                                                                                            | —                  | `base`  | `build`  | `vars.todoFile` / `qa`       |
+| `checking`            | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`                     | —                  | —       | —        | —                            |
+| `fixing`              | agent | prompt  | `* **` → `checking`                                                                                            | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile`          |
+| `escalate`            | human | message | `* **` → `checking`                                                                                            | —                  | —       | —        | `vars.feedbackFile`          |
+| `reviewing`           | agent | prompt  | `* **` → `await-review`                                                                                        | —                  | `smart` | `review` | `vars.reviewFile` / `review` |
+| `await-review`        | human | message | `* **` → `review-deciding` (+ edge sign-off gate: refuses a deleted `REVIEW.md` / an unticked-no-comment step) | —                  | —       | —        | `vars.reviewFile` / `review` |
+| `review-deciding`     | check | script  | `A`/`M .gtd/REVIEW_RAW.md` → `feedback-collecting`; `D .gtd/REVIEW.md` → `squashing`                           | —                  | —       | —        | `vars.reviewFile` / `review` |
+| `feedback-collecting` | agent | prompt  | `A`/`M .gtd/REVIEW_FEEDBACK.md` → `feedback-building`                                                          | —                  | `smart` | `review` | `vars.reviewFeedbackFile`    |
+| `feedback-building`   | agent | prompt  | `* **` → `checking` (+ edge `requireProgress` gate: refuses a work-free delete of the instructions file)       | —                  | `base`  | `build`  | `vars.reviewFeedbackFile`    |
+| `squashing`           | agent | prompt  | `A`/`M .gtd/COMMIT_MSG.md` → `done`                                                                            | —                  | `base`  | `build`  | `vars.commitMsgFile`         |
+| `done`                | —     | commit  | — (commit state: squash ends the process)                                                                      | —                  | —       | —        | —                            |
 
 `await-review` declares **`reviewWindow: true`** and `review-deciding`
 **`reviewBase: true`** (§11); `reviewing` declares **`reviewEntry: true`**.
@@ -445,16 +456,39 @@ code edit. Every human step routes to `review-deciding` (`* **`);
 **feedback** round when the human left a comment — a change to `.gtd/REVIEW.md`
 beyond a `[ ]`→`[x]` tick (detected by comparing the reviewer's copy against the
 agent's original, `HEAD^`, with checkbox state normalized away), OR a hand-edit
-to any non-`.gtd/` file this round (its own commit's file list). It then writes
-those into `.gtd/REVIEW_FEEDBACK.md` and removes `.gtd/REVIEW.md` — the
-`A`/`M .gtd/REVIEW_FEEDBACK.md` row is declared **first** so a feedback round
-wins over the sign-off pattern. Otherwise (every box ticked, no note, no code)
-it just removes `.gtd/REVIEW.md` (`D .gtd/REVIEW.md` → `squashing`).
-`feedback-building` implements exactly those items (no Q&A) — completing the
-follow-through any hand-edited code implies and never reverting the reviewer's
-own lines — deletes the feedback file, and re-enters `checking` → `reviewing`,
-which regenerates a review scoped to just the changes since the last round
-(§11).
+to any non-`.gtd/` file this round (its own commit's file list). It CAPTURES
+that raw material verbatim (the reviewer's `.gtd/REVIEW.md` diff and/or their
+committed code diff) into `.gtd/REVIEW_RAW.md` and removes `.gtd/REVIEW.md` —
+the `A`/`M .gtd/REVIEW_RAW.md` row is declared **first** so a feedback round
+wins over the sign-off pattern. `review-deciding` never INTERPRETS the material;
+it is a mechanical `check`. Otherwise (every box ticked, no note, no code) it
+just removes `.gtd/REVIEW.md` (`D .gtd/REVIEW.md` → `squashing`).
+
+`feedback-collecting` (a `smart`-tier agent) reads `.gtd/REVIEW_RAW.md` and
+turns it into an explicit, flat instruction list in `.gtd/REVIEW_FEEDBACK.md`,
+deleting the raw file. It applies three rules: a note added to `.gtd/REVIEW.md`
+is a mandatory instruction (regardless of tick state); every comment the human
+added to code this round is a mandatory instruction, marked for removal once
+addressed; and every non-comment line they hand-edited is an already-committed
+intent whose lines are final (complete only the follow-through, never revert).
+If nothing is actionable (e.g. the human left only an approving remark) it
+writes a single `NOTHING ACTIONABLE — <reason>` line instead of inventing work.
+`feedback-building` then implements exactly those items (no Q&A) — building on
+the reviewer's own lines, removing every comment it consumed — deletes the
+feedback file, and re-enters `checking` → `reviewing`, which regenerates a
+review scoped to just the changes since the last round (§11).
+
+Feedback must not silently evaporate between these two turns — the original bug
+was feedback captured, then deleted on the next turn with no work done — so both
+interior transitions are guarded. `feedback-collecting` declares no edge for a
+silent no-op (delete the raw file, write no instructions): the diff matches no
+`on` pattern, so the pure engine refuses it. `feedback-building` declares
+**`requireProgress: true`**, and the edge gate (`enforceFeedbackProgressGate` in
+`src/program.ts` — invisible to the pure engine, keyed on the resting state's
+flag) refuses a turn whose only pending change is deleting the instructions
+file, exempting a `NOTHING ACTIONABLE` sentinel (a non-actionable round makes no
+code change by design). A genuine build always produces a code or
+comment-removal edit, so only the work-free discard is refused.
 
 Two content-shaped dead ends a file-pattern edge can't tell apart never commit:
 the **sign-off gate** (`enforceReviewSignoffGate` in `src/program.ts` — an edge

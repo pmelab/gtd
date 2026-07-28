@@ -240,6 +240,7 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "reviewWindow",
   "reviewBase",
   "reviewEntry",
+  "requireProgress",
 ])
 
 const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["vars", "states", "modes"])
@@ -564,6 +565,7 @@ interface StateParts {
   readonly reviewWindow: true | undefined
   readonly reviewBase: true | undefined
   readonly reviewEntry: true | undefined
+  readonly requireProgress: true | undefined
 }
 
 const assembleContentFields = (
@@ -608,6 +610,7 @@ const assembleStateDef = (parts: StateParts): StateDef => ({
     reviewWindow: parts.reviewWindow,
     reviewBase: parts.reviewBase,
     reviewEntry: parts.reviewEntry,
+    requireProgress: parts.requireProgress,
   }),
   ...assembleContentFields(parts.content),
 })
@@ -643,6 +646,7 @@ const compileState = (
     reviewWindow: compileBooleanFlag(raw, "reviewWindow", name, errors),
     reviewBase: compileBooleanFlag(raw, "reviewBase", name, errors),
     reviewEntry: compileBooleanFlag(raw, "reviewEntry", name, errors),
+    requireProgress: compileBooleanFlag(raw, "requireProgress", name, errors),
   })
 }
 

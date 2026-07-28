@@ -533,6 +533,25 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect("reviewBase" in definition.states.b!).toBe(false)
   })
 
+  it("compiles a requireProgress boolean onto the StateDef", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          a: { actor: "human", message: "hi", initial: true, on: { "* *": "b" } },
+          b: {
+            actor: "agent",
+            prompt: "p",
+            file: ".gtd/F.md",
+            requireProgress: true,
+            on: { "* **": "a" },
+          },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states.b!.requireProgress).toBe(true)
+  })
+
   it("rejects a non-boolean reviewEntry", () => {
     expect(() =>
       compileWorkflowConfig(

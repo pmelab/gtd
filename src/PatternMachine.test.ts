@@ -1101,6 +1101,36 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "a": the initial state cannot declare "reviewEntry"')
   })
 
+  it("accepts a non-commit state declaring `requireProgress` with a `file`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { actor: "a", prompt: "p", file: ".gtd/F.md", requireProgress: true, on: [["C", "a"]] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects `requireProgress` without a `file`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { actor: "a", prompt: "p", requireProgress: true, on: [["C", "a"]] },
+      },
+    })
+    expect(errors).toContain('state "b": "requireProgress" requires "file"')
+  })
+
+  it("rejects a commit state that declares `requireProgress`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { commit: "chore: b", requireProgress: true },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "requireProgress"')
+  })
+
   it("rejects more than one state declaring `reviewEntry`", () => {
     const errors = validateDefinition({
       states: {

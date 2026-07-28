@@ -116,20 +116,32 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And the last commit subject is "gtd(human): await-review → review-deciding"
 
     # review-deciding: the note is a change to REVIEW.md beyond a tick, so it
-    # writes REVIEW_FEEDBACK.md and removes REVIEW.md — the A/M REVIEW_FEEDBACK.md
-    # row is declared before the D REVIEW.md row so a feedback round wins
-    Given a file ".gtd/REVIEW_FEEDBACK.md" with:
+    # CAPTURES the raw material into REVIEW_RAW.md and removes REVIEW.md — the
+    # A/M REVIEW_RAW.md row is declared before the D REVIEW.md row so a feedback
+    # round wins
+    Given a file ".gtd/REVIEW_RAW.md" with:
       """
-      Review feedback to address, then delete this file.
+      Raw review material captured for classification.
 
-      ## Notes left in the review (ticked items are approved — act on the notes)
+      ## Notes the human added to REVIEW.md this round
 
       - [x] ./src/thing.ts#1 — new export — also add a doc comment
       """
     And the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-deciding → feedback-building"
+    And the last commit subject is "gtd(check): review-deciding → feedback-collecting"
+
+    # feedback-collecting: turns the raw material into an instruction list in
+    # REVIEW_FEEDBACK.md and deletes REVIEW_RAW.md, stepping to feedback-building
+    Given a file ".gtd/REVIEW_FEEDBACK.md" with:
+      """
+      1. ./src/thing.ts#1 — add a doc comment above the new export
+      """
+    And the file ".gtd/REVIEW_RAW.md" is deleted
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): feedback-collecting → feedback-building"
 
     # feedback-building: implements the requested change directly (no Q&A),
     # deletes the feedback file, steps to checking

@@ -140,6 +140,10 @@
               "reviewEntry": {
                 "type": "boolean",
                 "description": "Marks the (at most one) state `gtd review <commitish>` enters to start a brand new process reviewing <commitish>..HEAD. Forbidden on a commit state and on the initial state."
+              },
+              "requireProgress": {
+                "type": "boolean",
+                "description": "When true, a step at this state is refused if its only pending change is deleting the state's own `file:` — a work-free turn that discards its input without addressing it. A `NOTHING ACTIONABLE` sentinel file is exempt (a legitimately non-actionable round makes no code change). Requires a `file:`. Forbidden on a commit state."
               }
             }
           }
