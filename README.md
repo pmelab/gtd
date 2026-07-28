@@ -153,11 +153,12 @@ Before wiring gtd into a repo, note the
 importantly: gitignore everything your scripts write.
 
 Editor integration: `gtd lsp` starts an LSP server over stdio for `.gtd/`
-steering files — symbols and check/uncheck actions over a `review`-mode file's
-chunks, go-to-definition from a `review`-mode hunk line into the file it points
-at (at its `#line`), symbols over a `qa`-mode file's open questions, diagnostics
-for both (live as you edit), and a `gtd.openSteeringFile` command that jumps to
-the current state's steering file. Config-driven via each state's
+steering files — a symbol per `review`-mode chunk that still has an unchecked
+hunk (an outline of the packages left to review) plus check/uncheck actions over
+those chunks, go-to-definition from a `review`-mode hunk line into the file it
+points at (at its `#line`), symbols over a `qa`-mode file's open questions,
+diagnostics for both (live as you edit), and a `gtd.openSteeringFile` command
+that jumps to the current state's steering file. Config-driven via each state's
 `file:`/`mode:` (see [CLI reference](docs/cli.md#gtd-lsp)) — falls back to
 basename dispatch (`TODO.md`/`REVIEW.md`) with no config in sight. Those two
 formats are gtd's built-in steering-file MODES — validators, not formatters: a

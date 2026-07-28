@@ -390,13 +390,14 @@ are rejected).
 ## `gtd lsp`
 
 Starts an LSP server over stdio for `.gtd/` steering files — document symbols
-for a `qa`-mode file's open questions and a `review`-mode file's review
-chunks/hunks, code actions to check/uncheck a hunk or a whole chunk,
-go-to-definition (`textDocument/definition`) from a `review`-mode hunk pointer
-line into the file it points at (at its 1-based `#line`, or the top of the file
-for a bare `./path`; the `./`-relative path resolves against the repo's git
-toplevel), and diagnostics publishing the same parser findings `gtd validate`
-reports (see `src/OpenQuestions.ts` / `src/ReviewDoc.ts` and
+for a `qa`-mode file's open questions and, for a `review`-mode file, one symbol
+per chunk that still has an unchecked hunk (the outline lists only the packages
+left to review, with no hunk children), code actions to check/uncheck a hunk or
+a whole chunk, go-to-definition (`textDocument/definition`) from a `review`-mode
+hunk pointer line into the file it points at (at its 1-based `#line`, or the top
+of the file for a bare `./path`; the `./`-relative path resolves against the
+repo's git toplevel), and diagnostics publishing the same parser findings
+`gtd validate` reports (see `src/OpenQuestions.ts` / `src/ReviewDoc.ts` and
 [STATES.md §12](../STATES.md#12-steering-file-validation-gtd-validate)).
 
 **Config-driven** (see

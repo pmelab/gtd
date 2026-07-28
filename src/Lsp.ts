@@ -80,7 +80,7 @@ import {
 } from "vscode-languageserver/node"
 import { TextDocument } from "vscode-languageserver-textdocument"
 import { parseOpenQuestions, type OpenQuestion } from "./OpenQuestions.js"
-import { parseReviewDoc, type ReviewFile, FILE_POINTER_RE } from "./ReviewDoc.js"
+import { parseReviewDoc, FILE_POINTER_RE } from "./ReviewDoc.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
@@ -141,34 +141,25 @@ export const questionDiagnostics = (content: string): Diagnostic[] => {
   }))
 }
 
-const hunkLabel = (file: ReviewFile): string => {
-  const box = file.checked ? "[x]" : "[ ]"
-  const location = file.line !== undefined ? `${file.path}#${file.line}` : file.path
-  return file.note ? `${box} ${location} — ${file.note}` : `${box} ${location}`
-}
-
-/** Document symbols for `.gtd/REVIEW.md`'s chunks (the user-facing "work packages") and their hunks. */
+/** Document symbols for `.gtd/REVIEW.md`: only the headlines of chunks (the user-facing "work packages") that still carry at least one unchecked hunk — the outline is the list of packages left to review, nothing else. */
 export const reviewSymbols = (content: string): DocumentSymbol[] => {
   const { changesets } = parseReviewDoc(content)
   const lines = content.split(/\r?\n/)
-  return changesets.map((chunk, i) => {
-    const start = chunk.headingLine
-    const end = Math.max(start, (changesets[i + 1]?.headingLine ?? lines.length) - 1)
-    const checkedCount = chunk.files.filter((file) => file.checked).length
-    const children: DocumentSymbol[] = chunk.files.map((file) => ({
-      name: hunkLabel(file),
-      kind: SymbolKind.Boolean,
-      range: lineRange(lines, file.sourceLine),
-      selectionRange: lineRange(lines, file.sourceLine),
-    }))
-    return {
-      name: `${chunk.title} (${checkedCount}/${chunk.files.length})`,
-      kind: SymbolKind.Package,
-      range: spanRange(lines, start, end),
-      selectionRange: lineRange(lines, start),
-      children,
-    }
-  })
+  return changesets
+    .map((chunk, i) => {
+      const start = chunk.headingLine
+      const end = Math.max(start, (changesets[i + 1]?.headingLine ?? lines.length) - 1)
+      const checkedCount = chunk.files.filter((file) => file.checked).length
+      return {
+        name: `${chunk.title} (${checkedCount}/${chunk.files.length})`,
+        kind: SymbolKind.Package,
+        range: spanRange(lines, start, end),
+        selectionRange: lineRange(lines, start),
+        unchecked: checkedCount < chunk.files.length,
+      }
+    })
+    .filter((symbol) => symbol.unchecked)
+    .map(({ unchecked: _unchecked, ...symbol }) => symbol)
 }
 
 /** Diagnostics for `.gtd/REVIEW.md` — the same findings `gtd validate` reports for a `review`-mode file, published live over LSP instead. Whole-document range: `ReviewDoc.errors` carries no per-line position. */
