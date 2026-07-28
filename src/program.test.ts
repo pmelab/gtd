@@ -16,7 +16,7 @@ import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
 import { compileTemplate, renderInitConfig } from "./workflows/templates.js"
-import { cliErrorLine, makeProgram } from "./program.js"
+import { classifyReviewSignoff, cliErrorLine, makeProgram } from "./program.js"
 import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
 import { inMemoryLayers } from "../tests/integration/support/inmem/layers.js"
 
@@ -407,5 +407,62 @@ describe("cliErrorLine", () => {
 
   it("stringifies a non-Error and prefixes it", () => {
     expect(cliErrorLine("boom")).toBe("gtd: boom")
+  })
+})
+
+describe("classifyReviewSignoff", () => {
+  const base = {
+    file: ".gtd/REVIEW.md",
+    stateName: "await-review",
+    invoker: "human",
+    reviewDocDeleted: false,
+    hasCodeChange: false,
+  }
+  const twoUnticked = "## C\n- [ ] ./a.ts#1\n- [ ] ./b.ts#1\n"
+  const allTicked = "## C\n- [x] ./a.ts#1\n- [x] ./b.ts#1\n"
+
+  it("refuses a deleted review doc", () => {
+    const v = classifyReviewSignoff({
+      ...base,
+      reviewDocDeleted: true,
+      original: twoUnticked,
+      current: "",
+    })
+    expect(v.kind).toBe("refuse")
+    if (v.kind === "refuse") expect(v.reason).toContain("was deleted")
+  })
+
+  it("allows a code edit (a comment) even with boxes unticked", () => {
+    const v = classifyReviewSignoff({
+      ...base,
+      hasCodeChange: true,
+      original: twoUnticked,
+      current: twoUnticked,
+    })
+    expect(v).toEqual({ kind: "allow" })
+  })
+
+  it("allows a note — the doc differs beyond a tick — even with a box left unticked", () => {
+    const v = classifyReviewSignoff({
+      ...base,
+      original: twoUnticked,
+      current: "## C\n- [x] ./a.ts#1\n- [ ] ./b.ts#1 — please rename\n",
+    })
+    expect(v).toEqual({ kind: "allow" })
+  })
+
+  it("allows a clean sign-off: every box ticked, no note, no code", () => {
+    const v = classifyReviewSignoff({ ...base, original: twoUnticked, current: allTicked })
+    expect(v).toEqual({ kind: "allow" })
+  })
+
+  it("refuses an unfinished review: only tick-flips, a box still unticked, no comment", () => {
+    const v = classifyReviewSignoff({
+      ...base,
+      original: twoUnticked,
+      current: "## C\n- [x] ./a.ts#1\n- [ ] ./b.ts#1\n",
+    })
+    expect(v.kind).toBe("refuse")
+    if (v.kind === "refuse") expect(v.reason).toContain("1 review item(s) still unticked")
   })
 })
