@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
 import { renderStateTemplate, type TemplateContext } from "./PatternTemplates.js"
+import { compileTemplate } from "./workflows/templates.js"
 
 const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext => ({
   startCommit: "aaa111",
@@ -157,4 +159,32 @@ describe("renderStateTemplate — no filesystem template resolution", () => {
     const out = renderStateTemplate("just <%= it.actor %> text, no includes", baseContext())
     expect(out).toBe("just agent text, no includes")
   })
+})
+
+describe("renderStateTemplate — bundled `script` states render to valid bash", () => {
+  // Regression: Eta's default autoTrim slurps the newline after every
+  // `<%~ %>` tag. A `script` line ending in an interpolation therefore glued
+  // the next line's `else`/`fi` onto it (e.g. `rm -f .gtd/FEEDBACK.mdfi`),
+  // leaving the enclosing `if` unterminated — the driver died with
+  // "syntax error: unexpected end of file" and the check turn never ran. Every
+  // bundled `script` must survive `bash -n` after rendering with real vars.
+  const { definition, vars } = compileTemplate()
+  const scriptStates = Object.entries(definition.states).filter(([, s]) => s.script)
+
+  it("covers every bundled script state (guards against a state being dropped)", () => {
+    expect(scriptStates.map(([name]) => name).sort()).toEqual([
+      "adv-checking",
+      "checking",
+      "closing",
+      "picking",
+      "review-deciding",
+    ])
+  })
+
+  for (const [name, state] of scriptStates) {
+    it(`\`${name}\` renders to syntactically valid bash`, () => {
+      const rendered = renderStateTemplate(state.script!, baseContext({ state: name, vars }))
+      expect(() => execFileSync("bash", ["-n"], { input: rendered })).not.toThrow()
+    })
+  }
 })
