@@ -51,7 +51,9 @@ never needs its own logic. After editing the template, update:
   `unified-advanced-flow.feature` (advanced flow), `gtd-loop.feature`,
   `driver-json-status.feature`, `smoke.feature`, `mermaid.feature`,
   `validate.feature`, `init.feature`, `review-window.feature`,
-  `initial-state-entry.feature`, `templates-vars.feature`)
+  `initial-state-entry.feature`, `templates-vars.feature`, `entry-gate.feature`
+  (the green-baseline gate on every entry), `fix-entry.feature` (`gtd fix`),
+  `review-entry.feature`)
 - **`skills/loop/SKILL.md`** only if the change affects the driver contract
   itself (dispatch on `kind`, stall detection, the `gtd validate` gate after a
   producing agent turn) — not a template's own states, which the skill never

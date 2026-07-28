@@ -21,6 +21,10 @@ Commands:
                    review-entry state (reviewEntry: true), reviewing
                    <commitish>..HEAD — e.g. a colleague's PR branch. Requires
                    a clean tree resting at the workflow's initial state
+  fix              Start a NEW process at the workflow's declared fix-entry
+                   state (fixEntry: true) that goes straight into repairing the
+                   current failing tests. Requires a clean tree resting at the
+                   workflow's initial state
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   status           Print the resolved rest's state/actor and which declared
@@ -69,12 +73,15 @@ default workflow, so this is the one-time setup step for a repo; a state command
 run before it fails with `gtd: no workflow configured — run \`gtd init\` to
 create .gtdrc.json`.
 
-The unified template has three entry points into one shared review/squash tail
-(see [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)): creating
+The unified template has four entry points — each behind a green-baseline gate
+that runs the suite before starting — into one shared review/squash tail (see
+[STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)): creating
 `.gtd/TODO.md` starts the simple flow (grilling → building → checking), creating
 `.gtd/REQUIREMENTS.md` starts the advanced flow (two-phase Q&A planning,
-per-package parallel build, agentic spec-review), and `gtd review <commitish>`
-enters review directly.
+per-package parallel build, agentic spec-review), `gtd review <commitish>`
+enters review directly, and `gtd fix` goes straight into repairing failing
+tests. A red baseline halts at a `*-start-blocked` gate rather than starting new
+work.
 
 The file is written **uncommitted**; review and commit it before your first
 `gtd step` (an uncommitted `.gtdrc.json` is a pending change the initial state
@@ -175,7 +182,7 @@ at `<commitish>..HEAD` (see
 Plain-mode output is one line, same shape as `gtd step`:
 
 ```
-committed: gtd(human): reviewing
+committed: gtd(human): review-start-check
 ```
 
 `--json` emits `{state, subject}` — `state` is the entered review-entry state,
@@ -183,6 +190,43 @@ committed: gtd(human): reviewing
 
 Takes exactly one positional argument (`<commitish>`); missing or extra
 arguments are usage errors.
+
+In the bundled unified template the review-entry state is `review-start-check` —
+a green-baseline gate that runs the suite and, once green, transitions to
+`reviewing`; a red run halts at `review-start-blocked` (see
+[STATES.md §10](../STATES.md#10-the-bundled-workflow-template)).
+
+## `gtd fix [--json]`
+
+Starts a BRAND NEW process at the active workflow's declared `fixEntry: true`
+state (see [STATES.md §10](../STATES.md#10-the-bundled-workflow-template)) that
+goes straight into repairing the current failing tests. It is the standalone
+counterpart to the entry gates: the gates refuse to start new work on a red
+baseline, and `gtd fix` is the dedicated way to get back to green — repair,
+review, and squash a broken baseline into one commit.
+
+Requires, in order (any failure is a plain refusal — exit non-zero, nothing
+written):
+
+- the machine currently resting at the workflow's **initial state** (a process
+  already underway refuses);
+- a **clean working tree**;
+- the active workflow declaring a **`fixEntry: true`** state (otherwise:
+  `gtd fix: the active workflow declares no fix entry state`).
+
+Takes no positional argument (extra arguments are a usage error). Unlike
+`gtd review`, it writes NO `Gtd-Review-Base:` trailer — a fix reviews its own
+fixes from the ordinary process start — so on success it writes just one empty
+commit, `gtd(human): <fix-entry-state>`:
+
+```
+committed: gtd(human): fix-check
+```
+
+`--json` emits `{state, subject}`, same shape as `gtd review`. In the bundled
+unified template the fix-entry state is `fix-check`: a red suite drops into the
+shared `fixing` loop and out through the review + squash tail; a green suite is
+a no-op back to `idle`.
 
 ## `gtd next [--json]`
 

@@ -28,7 +28,12 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → grilling"
+    And the last commit subject is "gtd(human): idle → start-check"
+
+    # start-check: green baseline gate — a clean tree (tests pass) -> grilling
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-check → grilling"
 
     # grilling: develops the sketch into a plan and hands to grilling-answer
     Given ".gtd/TODO.md" is modified to:
@@ -441,7 +446,10 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → grilling"
+    And the last commit subject is "gtd(human): idle → start-check"
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-check → grilling"
     Given ".gtd/TODO.md" is modified to:
       """
       Build a second thing. Plan: add src/thing2.ts exporting `thing2`.

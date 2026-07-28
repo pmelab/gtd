@@ -43,15 +43,21 @@ describe("the bundled unified workflow template", () => {
     expect(states.filter((s) => s.reviewBase === true)).toHaveLength(1)
   })
 
-  it("forks the initial state on the two entry files", () => {
-    // idle routes `.gtd/REQUIREMENTS.md` to the advanced flow and everything
-    // else (e.g. `.gtd/TODO.md`) to the simple flow — the REQUIREMENTS row is
-    // declared first so it wins.
+  it("forks the initial state on the two entry files, each into its green-baseline gate", () => {
+    // idle routes `.gtd/REQUIREMENTS.md` to the advanced flow's start gate and
+    // everything else (e.g. `.gtd/TODO.md`) to the simple flow's start gate —
+    // the REQUIREMENTS row is declared first so it wins. Each gate runs the
+    // suite before proceeding to grilling/adv-grilling.
     const { definition } = compileTemplate()
     const idle = definition.states.idle!
     const targets = (idle.on ?? []).map(([, to]) => to)
-    expect(targets).toContain("adv-grilling")
-    expect(targets).toContain("grilling")
+    expect(targets).toContain("adv-start-check")
+    expect(targets).toContain("start-check")
+    // The gates proceed to the planning states once green.
+    expect((definition.states["start-check"]!.on ?? []).map(([, to]) => to)).toContain("grilling")
+    expect((definition.states["adv-start-check"]!.on ?? []).map(([, to]) => to)).toContain(
+      "adv-grilling",
+    )
   })
 
   it("renders a valid .gtdrc.json with the $schema key first", () => {

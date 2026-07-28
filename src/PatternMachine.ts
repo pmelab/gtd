@@ -168,6 +168,22 @@ export interface StateDef {
    */
   readonly reviewEntry?: boolean
   /**
+   * Optional. Marks the state `gtd fix` (`src/program.ts`) enters to start a
+   * brand NEW process that goes straight into repairing the current failing
+   * tests — a check state that runs the suite, routing a red run into the
+   * shared fix loop and a green run to a no-op terminal. At most one state may
+   * declare it; forbidden on a commit state (never at rest) and on the initial
+   * state (a fix entry is a DELIBERATE starting point, distinct from the
+   * ordinary "no active cycle" rest — `gtd fix` REQUIRES resting at the initial
+   * state before it acts, so the two must stay distinguishable), exactly the
+   * same rule family as `reviewEntry`. This module's PURE functions never read
+   * it — unlike `reviewEntry` it needs no diff-base trailer at all (the fix
+   * process reviews its own fixes from the ordinary process start), so the
+   * whole mechanism is just the entry commit `gtd fix` writes at the edge; see
+   * `fixEntryStateOf`.
+   */
+  readonly fixEntry?: boolean
+  /**
    * Optional. When `true`, a step at this state is REFUSED if its only pending
    * change is deleting the state's own `file:` — a work-free turn that discards
    * its input without addressing it (the "review feedback captured then
@@ -280,6 +296,14 @@ export const isRequireProgressState = (def: WorkflowDefinition, state: StateName
 export const reviewEntryStateOf = (def: WorkflowDefinition): StateName | undefined => {
   for (const [name, state] of Object.entries(def.states)) {
     if (state.reviewEntry === true) return name
+  }
+  return undefined
+}
+
+/** The workflow's declared fix-entry state name (see `StateDef.fixEntry`) — `gtd fix` (`src/program.ts`) enters this state to start a new fix process. `undefined` when no state declares one; `validateDefinition` guarantees at most one does, so the first (only) match wins. */
+export const fixEntryStateOf = (def: WorkflowDefinition): StateName | undefined => {
+  for (const [name, state] of Object.entries(def.states)) {
+    if (state.fixEntry === true) return name
   }
   return undefined
 }
@@ -874,6 +898,25 @@ const validateReviewEntry = (name: string, state: StateDef): string[] => {
 }
 
 /**
+ * `fixEntry`, when present, is forbidden on a commit state and on the initial
+ * state — the same rule family as `reviewEntry` (see `validateReviewEntry`):
+ * `gtd fix` REQUIRES resting at the initial state before it acts, so its entry
+ * target must be a distinct state. The at-most-one-state rule is checked
+ * separately over the whole definition (see `validateFixEntryUniqueness`).
+ */
+const validateFixEntry = (name: string, state: StateDef): string[] => {
+  if (state.fixEntry === undefined) return []
+  const errors: string[] = []
+  if (isCommitState(state)) {
+    errors.push(`state "${name}": a commit state cannot declare "fixEntry"`)
+  }
+  if (state.initial === true) {
+    errors.push(`state "${name}": the initial state cannot declare "fixEntry"`)
+  }
+  return errors
+}
+
+/**
  * `requireProgress`, when present, is forbidden on a commit state (never at
  * rest — same rule family as `reviewWindow`/`reviewBase`) and REQUIRES a
  * `file:`: the edge gate refuses a turn whose sole change is deleting that
@@ -900,6 +943,19 @@ const validateReviewEntryUniqueness = (
   return entryNames.length > 1
     ? [
         `at most one state may declare "reviewEntry" (found ${entryNames.length}: ${entryNames.join(", ")})`,
+      ]
+    : []
+}
+
+/** At most one state may declare `fixEntry: true` — `gtd fix` (`src/program.ts`) needs a single, unambiguous state name to enter (see `fixEntryStateOf`). */
+const validateFixEntryUniqueness = (
+  def: WorkflowDefinition,
+  names: readonly string[],
+): string[] => {
+  const entryNames = names.filter((name) => def.states[name]!.fixEntry === true)
+  return entryNames.length > 1
+    ? [
+        `at most one state may declare "fixEntry" (found ${entryNames.length}: ${entryNames.join(", ")})`,
       ]
     : []
 }
@@ -934,14 +990,18 @@ const validateRetry = (name: string, state: StateDef, names: readonly string[]):
 }
 
 /**
- * Every state is reachable from the initial state by walking `on` targets and
+ * Every state is reachable from an ENTRY ROOT by walking `on` targets and
  * `retry.otherwise` redirects (a redirect ENTERS its `otherwise` state exactly
  * like an `on` match enters its target — see `applyRetry` — so both are real
- * edges). Plain BFS; targets naming undefined states are skipped here (they
- * are `validateOnEdges`/`validateRetry` findings of their own). Only called
- * when `validateInitial` found no problem: with zero or several `initial`
- * states there is no well-defined start to walk from, and reporting every
- * state as unreachable would bury the real finding.
+ * edges). The roots are the initial state PLUS the CLI-command entry states
+ * (`reviewEntry`/`fixEntry`): a command enters those directly, so a state
+ * reachable only from one of them is legitimately reachable, not dead config
+ * (without seeding them, e.g. a `fixEntry` check whose only inbound path is
+ * `gtd fix` would be wrongly flagged). Plain BFS; targets naming undefined
+ * states are skipped here (they are `validateOnEdges`/`validateRetry` findings
+ * of their own). Only called when `validateInitial` found no problem: with zero
+ * or several `initial` states there is no well-defined start to walk from, and
+ * reporting every state as unreachable would bury the real finding.
  *
  * An unreachable state is an ERROR, not a warning: a workflow is bound to a
  * project and edited as a project-wide change, so "kept on purpose for manual
@@ -951,8 +1011,11 @@ const validateRetry = (name: string, state: StateDef, names: readonly string[]):
  */
 const validateReachability = (def: WorkflowDefinition, names: readonly string[]): string[] => {
   const initial = names.find((name) => def.states[name]!.initial === true)!
-  const visited = new Set<StateName>([initial])
-  const queue: StateName[] = [initial]
+  const roots = [initial, reviewEntryStateOf(def), fixEntryStateOf(def)].filter(
+    (name): name is StateName => name !== undefined,
+  )
+  const visited = new Set<StateName>(roots)
+  const queue: StateName[] = [...roots]
   while (queue.length > 0) {
     const state = def.states[queue.shift()!]!
     const targets = (state.on ?? []).map(([, target]) => target)
@@ -968,7 +1031,7 @@ const validateReachability = (def: WorkflowDefinition, names: readonly string[])
     .filter((name) => !visited.has(name))
     .map(
       (name) =>
-        `state "${name}" is unreachable from initial state "${initial}" (no "on" target or "retry.otherwise" leads to it)`,
+        `state "${name}" is unreachable from any entry state (${roots.join(", ")}) (no "on" target or "retry.otherwise" leads to it)`,
     )
 }
 
@@ -990,6 +1053,7 @@ const validateState = (
     ...validateMode(def, name, state),
     ...validateReviewWindow(name, state),
     ...validateReviewEntry(name, state),
+    ...validateFixEntry(name, state),
     ...validateRequireProgress(name, state),
   ]
 }
@@ -1013,11 +1077,12 @@ const validateState = (
  * `knownModes`), requires a sibling `file`, and is never declared on a commit
  * state; every `modes:` entry declares at least one non-blank
  * `format`/`validate` command; `reviewWindow`/`reviewBase`, when
- * present, are never declared on a commit state; `reviewEntry`, when present,
- * is never declared on a commit state or the initial state, and at most one
- * state across the whole workflow may declare it; every state is reachable
- * from the initial state by walking `on` targets and `retry.otherwise`
- * redirects (checked only when the initial-state rule itself passed — see
+ * present, are never declared on a commit state; `reviewEntry`/`fixEntry`, when
+ * present, are never declared on a commit state or the initial state, and at
+ * most one state across the whole workflow may declare each; every state is
+ * reachable from an entry root (the initial state plus any `reviewEntry`/
+ * `fixEntry` state) by walking `on` targets and `retry.otherwise` redirects
+ * (checked only when the initial-state rule itself passed — see
  * `validateReachability`).
  */
 export const validateDefinition = (def: WorkflowDefinition): readonly string[] => {
@@ -1030,6 +1095,7 @@ export const validateDefinition = (def: WorkflowDefinition): readonly string[] =
     ...validateModes(def),
     ...names.flatMap((name) => validateState(def, name, names)),
     ...validateReviewEntryUniqueness(def, names),
+    ...validateFixEntryUniqueness(def, names),
     ...(initialErrors.length === 0 ? validateReachability(def, names) : []),
   ]
 }
