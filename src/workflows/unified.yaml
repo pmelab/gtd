@@ -208,20 +208,39 @@ states:
       state — never create, edit, or delete anything under `.gtd/` except
       `<%= it.vars.requirementsFile %>`, which this prompt tells you to develop.
 
-      `<%= it.vars.requirementsFile %>` holds the product requirements (or
-      feedback from a prior review lap). Read it, explore the codebase, and
-      develop it into a concrete, PRODUCT-level plan in this one turn.
+      `<%= it.vars.requirementsFile %>` holds the product requirements (or the
+      plan you already wrote plus the human's answers on a return lap). Read it,
+      explore the codebase, and develop it into a concrete, PRODUCT-level plan
+      in this one turn.
 
       Scope: product and user-facing decisions only. Leave implementation
       details (file/module structure, data models, tech-stack choices) for the
       next phase (`<%= it.vars.architectureFile %>`).
 
-      For every remaining open question, add it under a `## Open Questions`
-      heading near the top, one `### <question>` sub-heading each, its body your
-      suggested answer in plain prose (always suggest one). Omit the section
-      once there are none. On a return lap, fold the whole answered batch into
-      the plan and move each resolved `### <question>` block down into a
-      `## Answered Questions` section at the bottom.
+      For every open point you cannot settle yourself, add a question under a
+      `## Open Questions` heading near the top: one `### <question>` sub-heading
+      each, followed by a checkbox list of candidate answers — aim for TWO
+      concrete options plus a final free-text slot, ALL left UNTICKED:
+
+          ### <the question>
+
+          - [ ] <first option — a concrete answer, a few words of rationale>
+          - [ ] <second option>
+          - [ ] _your answer_
+
+      Never tick a box yourself — the human ticks exactly one per question. The
+      last `- [ ] _your answer_` line is the human's own-answer slot; write it
+      with the literal `_your answer_` placeholder and leave it for them.
+
+      On a RETURN lap the human has ticked one option per question (or replaced
+      `_your answer_` with their own text). For each answered question: fold the
+      chosen answer into the plan prose, then MOVE the question down into a
+      `## Answered Questions` section as `### <question>` followed by the
+      resolved answer in plain PROSE (drop the checkboxes). Never re-raise a
+      question the human deleted; if the human deleted the whole
+      `## Open Questions` section, treat the plan as accepted and surface no new
+      questions unless something is genuinely still blocking. Omit
+      `## Open Questions` entirely once there are none left.
 
       Leave `<%= it.vars.requirementsFile %>` uncommitted and finish your turn.
     on:
@@ -231,11 +250,14 @@ states:
     actor: human
     file: <%= it.vars.requirementsFile %>
     mode: qa
+    answerGate: true
     message: |
       `<%= it.vars.requirementsFile %>` holds the product plan under
-      development, with any open questions under `## Open Questions` — each
-      carrying a suggested answer. Answer a question by editing its body in
-      place; leave a suggestion untouched to accept it.
+      development. Each question under `## Open Questions` offers a few options
+      plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
+      exactly one box (`- [x]`); for your own answer, replace `_your answer_`
+      with your text and tick that line. Stepping is refused while any question
+      is unanswered.
 
       What each change does next (then run `gtd step human`):
       <% it.edges.forEach(function (e) { if (e.describe) { %>
@@ -245,13 +267,16 @@ states:
       "C":
         to: architecting
         describe: >-
-          Change nothing to accept the product plan and move on to technical
-          architecting (**architecting**).
+          With no open questions left (the agent surfaced none, or you deleted
+          the section and it finalized the plan), change nothing to accept the
+          product plan and move on to technical architecting (**architecting**).
       "* **":
         to: adv-grilling
         describe: >-
-          Edit the product plan — answer a question, add detail, or raise a new
-          one — to send it back for another round (**adv-grilling**).
+          Tick exactly one option per open question (replace `_your answer_` for
+          your own) to send the plan back for the agent to fold your answers in
+          (**adv-grilling**). Delete a question to skip it, or delete the whole
+          `## Open Questions` section to accept the plan as-is.
 
   architecting:
     actor: agent
@@ -271,11 +296,24 @@ states:
       error-handling strategy — the *how*, building on the *what* already
       settled. Do not re-open product-level decisions; treat them as settled.
 
-      For every remaining open question, add it under a `## Open Questions`
-      heading exactly as the grilling phase does (one `### <question>` each, its
-      body your suggested answer). Omit the section once there are none. On a
-      return lap, fold the whole answered batch in and move each resolved block
-      down into a `## Answered Questions` section at the bottom.
+      For every open point you cannot settle yourself, add a question under a
+      `## Open Questions` heading exactly as the grilling phase does: one
+      `### <question>` each, followed by a checkbox list — TWO concrete options
+      plus a final free-text slot, ALL left UNTICKED:
+
+          ### <the question>
+
+          - [ ] <first option>
+          - [ ] <second option>
+          - [ ] _your answer_
+
+      Never tick a box yourself. On a RETURN lap the human has ticked one option
+      per question (or replaced `_your answer_` with their own text): fold each
+      chosen answer into the plan prose, then MOVE the question into a
+      `## Answered Questions` section as `### <question>` + the resolved answer
+      in plain PROSE (drop the checkboxes). Never re-raise a deleted question;
+      treat a deleted `## Open Questions` section as acceptance. Omit
+      `## Open Questions` once there are none left.
 
       Once `<%= it.vars.architectureFile %>` is written, delete
       `<%= it.vars.requirementsFile %>` — its content has been folded in and it
@@ -287,11 +325,14 @@ states:
     actor: human
     file: <%= it.vars.architectureFile %>
     mode: qa
+    answerGate: true
     message: |
       `<%= it.vars.architectureFile %>` holds the technical plan under
-      development, with any open questions under `## Open Questions`. Answer a
-      question by editing its body in place; leave a suggestion untouched to
-      accept it.
+      development. Each question under `## Open Questions` offers a few options
+      plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
+      exactly one box (`- [x]`); for your own answer, replace `_your answer_`
+      with your text and tick that line. Stepping is refused while any question
+      is unanswered.
 
       What each change does next (then run `gtd step human`):
       <% it.edges.forEach(function (e) { if (e.describe) { %>
@@ -301,13 +342,17 @@ states:
       "C":
         to: decompose
         describe: >-
-          Change nothing to accept the technical plan and move on to decomposing
-          the work into packages (**decompose**).
+          With no open questions left (the agent surfaced none, or you deleted
+          the section and it finalized the plan), change nothing to accept the
+          technical plan and move on to decomposing the work into packages
+          (**decompose**).
       "* **":
         to: architecting
         describe: >-
-          Edit the technical plan to send it back for another round
-          (**architecting**).
+          Tick exactly one option per open question (replace `_your answer_` for
+          your own) to send the plan back for the agent to fold your answers in
+          (**architecting**). Delete a question to skip it, or delete the whole
+          `## Open Questions` section to accept the plan as-is.
 
   # ── Advanced flow: decomposition + per-package parallel build loop ─────────
   decompose:

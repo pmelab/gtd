@@ -11,11 +11,20 @@
  * the top) and an OPTIONAL `## Answered Questions` section (at the bottom).
  * Every `###` sub-heading directly under one of those sections is one question;
  * its STATUS is POSITIONAL — a `###` under `## Open Questions` is open, one
- * under `## Answered Questions` is answered. There is no per-line marker: a
- * question's body is free-form (the agent's suggested answer for an open one,
- * the settled resolution for an answered one). The only structural error is a
+ * under `## Answered Questions` is answered. The only structural error is a
  * `###` heading with no question text. Either section may be omitted entirely
  * (omitted = zero questions of that status, not an error).
+ *
+ * An OPEN question's body carries a checkbox list of candidate answers — the
+ * advanced flow's agent writes two options plus a trailing free-text slot
+ * (`- [ ] _your answer_`, see `FREE_TEXT_PLACEHOLDER`), and the human ticks
+ * exactly one. This module parses those options (`OpenQuestion.options`) and
+ * derives whether the question is answered (`OpenQuestion.answered`) — the two
+ * things the answer-completeness gate (`src/program.ts`) and the LSP outline
+ * both read. Base VALIDATION stays loose (the checkbox convention is NOT
+ * required — a plain prose body is still valid); the only reported error is the
+ * empty-`###` one. An ANSWERED question is prose (the agent drops the checkboxes
+ * when it resolves and moves it down), so it carries no options.
  *
  * A question is answered/accepted by MOVING its `###` block from
  * `## Open Questions` down into `## Answered Questions` — the agent does this on
@@ -43,6 +52,28 @@
 
 export type OpenQuestionStatus = "open" | "answered"
 
+/**
+ * The sentinel an UNFILLED free-text option carries in an OPEN question — the
+ * last option line the producing agent renders as `- [ ] _your answer_`. The
+ * human answers by REPLACING it with their own text (and ticking that line).
+ * The parser normalizes a last-option text equal to this sentinel to `""`
+ * (empty), so a ticked-but-unfilled free-text option reads as unanswered (see
+ * `OpenQuestion.answered`). A fixed placeholder token, like `ReviewDoc`'s fixed
+ * `# Review:`/`<!-- base: -->` markers.
+ */
+export const FREE_TEXT_PLACEHOLDER = "_your answer_"
+
+/** One checkbox option under an OPEN question: its ticked state, its text (the free-text placeholder normalized to `""`), and its source line for editor tooling. */
+export interface QuestionOption {
+  readonly checked: boolean
+  /** Text after the `- [ ]`/`- [x]` marker, trimmed. The unfilled free-text placeholder (`FREE_TEXT_PLACEHOLDER`) normalizes to `""`. */
+  readonly text: string
+  /** `true` for the LAST option of the block — the free-text "your answer" slot (identified positionally, not by label). */
+  readonly freeText: boolean
+  /** 0-based line index of this option's own `- [ ]`/`- [x]` line, for editor tooling. */
+  readonly sourceLine: number
+}
+
 export interface OpenQuestion {
   readonly question: string
   readonly status: OpenQuestionStatus
@@ -50,6 +81,22 @@ export interface OpenQuestion {
   readonly text: string
   /** 0-based line index of this question's `###` heading, for editor tooling. */
   readonly headingLine: number
+  /**
+   * The checkbox options parsed from this question's body, in document order.
+   * OPEN questions carry these (the agent authors `- [ ]` options + a trailing
+   * `- [ ] _your answer_`); ANSWERED questions are prose, so this is `[]` for
+   * them. The LAST option is the free-text slot (`freeText: true`).
+   */
+  readonly options: readonly QuestionOption[]
+  /**
+   * `true` when this OPEN question is fully answered: EXACTLY ONE option is
+   * ticked, and if that option is the free-text slot its text is non-empty (not
+   * the unfilled placeholder). Meaningful only for `status === "open"` with at
+   * least one option — the answer-completeness gate (`src/program.ts`) and the
+   * LSP outline both read it. Always `false` for a question with no options and
+   * for an answered question.
+   */
+  readonly answered: boolean
 }
 
 export interface OpenQuestionsDoc {
@@ -118,6 +165,49 @@ const splitQuestionBlocks = (lines: readonly string[], start: number): readonly 
   return blocks
 }
 
+/** A markdown task-list checkbox line: `- [ ]` / `- [x]` / `* [X]`, optional leading indent, optional trailing text. */
+const CHECKBOX_RE = /^\s*[-*]\s*\[([ xX])\]\s?(.*)$/
+
+/**
+ * Extracts the checkbox options from a question block's body, in document
+ * order. The LAST option is the free-text slot (`freeText: true`); its text is
+ * normalized to `""` when it still carries the unfilled `FREE_TEXT_PLACEHOLDER`.
+ * `bodyStart` is the absolute 0-based line index of `body[0]` (the line right
+ * after the `###` heading), so each option carries its true source line.
+ */
+const parseOptions = (body: readonly string[], bodyStart: number): QuestionOption[] => {
+  const raw: { checked: boolean; text: string; sourceLine: number }[] = []
+  body.forEach((line, i) => {
+    const match = CHECKBOX_RE.exec(line)
+    if (!match) return
+    raw.push({
+      checked: match[1] !== " ",
+      text: match[2]!.trim(),
+      sourceLine: bodyStart + i,
+    })
+  })
+  const lastIndex = raw.length - 1
+  return raw.map((option, i) => {
+    const freeText = i === lastIndex
+    const normalized =
+      freeText && option.text.trim().toLowerCase() === FREE_TEXT_PLACEHOLDER ? "" : option.text
+    return { checked: option.checked, text: normalized, freeText, sourceLine: option.sourceLine }
+  })
+}
+
+/**
+ * An OPEN question is answered iff EXACTLY ONE option is ticked and — when that
+ * option is the free-text slot — its (placeholder-normalized) text is non-empty.
+ * Zero ticks (unanswered), two+ ticks (ambiguous), or a ticked-but-empty
+ * free-text slot all read as not answered.
+ */
+const isAnswered = (options: readonly QuestionOption[]): boolean => {
+  const ticked = options.filter((o) => o.checked)
+  if (ticked.length !== 1) return false
+  const chosen = ticked[0]!
+  return !(chosen.freeText && chosen.text.length === 0)
+}
+
 /** Parses one question block into a well-formed `OpenQuestion`, or an error message. */
 const parseQuestionBlock = (
   block: QuestionBlock,
@@ -131,12 +221,17 @@ const parseQuestionBlock = (
   }
 
   const firstNonBlank = block.body.map((line) => line.trim()).find((line) => line.length > 0) ?? ""
+  // Options are meaningful only for OPEN questions — an ANSWERED question is
+  // prose (the agent drops the checkboxes when it resolves and moves it down).
+  const options = status === "open" ? parseOptions(block.body, block.headingLine + 1) : []
 
   return {
     question: block.question,
     status,
     text: firstNonBlank,
     headingLine: block.headingLine,
+    options,
+    answered: status === "open" && options.length > 0 && isAnswered(options),
   }
 }
 

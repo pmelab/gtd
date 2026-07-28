@@ -38,6 +38,7 @@ import {
 } from "./SteeringMode.js"
 import {
   initialStateOf,
+  isAnswerGateState,
   isRequireProgressState,
   isReviewWindowState,
   matchesPattern,
@@ -49,6 +50,7 @@ import {
   type PendingChange,
   type StepRefusal,
 } from "./PatternMachine.js"
+import { parseOpenQuestions } from "./OpenQuestions.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 
 const _require = createRequire(import.meta.url)
@@ -425,6 +427,10 @@ const stepAsActor = (
     // work-free turn that just deletes the instructions file (the "captured
     // then silently discarded" bug), exempting a NOTHING ACTIONABLE sentinel.
     yield* enforceFeedbackProgressGate(invoker, rest, context, changes, decision.kind)
+    // Answer-completeness gate (edge): at an `answerGate` qa state, refuse a
+    // human step while any open question is not answered (exactly one tick each)
+    // — the advanced flow's adv-grilling-answer/architecting-answer gates.
+    yield* enforceAnswerCompletenessGate(worktree.read, invoker, rest, context, decision.kind)
     const outcome = yield* executeDecision(git, run, executable, context, cost, model)
     return {
       state: rest.state,
@@ -871,6 +877,76 @@ const enforceFeedbackProgressGate = (
       invoker,
       changes,
       deletedContent,
+    })
+    if (verdict.kind === "refuse") return yield* Effect.fail(new Error(verdict.reason))
+  })
+
+/** The `mode:` name of gtd's built-in open-questions checkbox format — the only mode the answer-completeness gate below acts on. */
+const QA_MODE = "qa"
+
+/** The verdict of the pure `classifyAnswerCompleteness` — `allow` lets the step commit, `refuse` fails it with `reason`. */
+export type AnswerCompletenessVerdict =
+  | { readonly kind: "allow" }
+  | { readonly kind: "refuse"; readonly reason: string }
+
+/**
+ * The PURE core of the answer-completeness gate (see
+ * `enforceAnswerCompletenessGate`). Parses the working-tree `content` of a
+ * `qa`-mode file and refuses when any OPEN question is not answered — EXACTLY
+ * ONE checkbox ticked, and (for a ticked free-text slot) non-empty text (see
+ * `OpenQuestions.answered`). An open question with NO checkbox options is also
+ * unanswered — a decision can't have been made on it. Zero remaining open
+ * questions (the section was deleted, or the agent surfaced none) allows the
+ * step: that is BOTH the tick-then-loop path and the clean advance / accept-all
+ * escape. Kept separate from the Effect so it is directly unit-tested (see
+ * program.test.ts).
+ */
+export const classifyAnswerCompleteness = (input: {
+  readonly file: string
+  readonly stateName: string
+  readonly invoker: string
+  readonly content: string
+}): AnswerCompletenessVerdict => {
+  const open = parseOpenQuestions(input.content).questions.filter((q) => q.status === "open")
+  const unanswered = open.filter((q) => !q.answered)
+  if (unanswered.length === 0) return { kind: "allow" }
+  const list = unanswered.map((q) => `  - ${q.question}`).join("\n")
+  return {
+    kind: "refuse",
+    reason: `gtd step ${input.invoker}: ${unanswered.length} open question(s) in ${input.file} not answered at "${input.stateName}" — tick exactly one option per question (or delete a question you don't want to answer, or delete the whole "## Open Questions" section to accept the plan as-is):\n${list}`,
+  }
+}
+
+/**
+ * The answer-completeness gate (edge, like the sign-off gate above). At an
+ * `answerGate: true` state with `mode: qa` (the unified template's
+ * `adv-grilling-answer`/`architecting-answer`), a human step is refused unless
+ * every open question in the file is answered — the pure
+ * `classifyAnswerCompleteness` decides over the WORKING-TREE contents. A no-op
+ * when the state is not an answer gate (so the agent's own authoring step, which
+ * writes all-unticked options, is never gated), the mode isn't `qa`, or the
+ * decision is a squash/no-op.
+ */
+const enforceAnswerCompletenessGate = (
+  worktreeRead: (path: string) => string,
+  invoker: string,
+  rest: ResolvedRest,
+  context: TemplateContext,
+  kind: ExecutableDecision["kind"],
+): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | GitService> =>
+  Effect.gen(function* () {
+    if (kind !== "commit") return
+    if (!isAnswerGateState(rest.def, rest.state) || rest.stateDef.mode !== QA_MODE) return
+    const file = yield* renderFile(rest.stateDef, context)
+    if (file === undefined) return
+    const current = yield* Effect.try(() => worktreeRead(file)).pipe(
+      Effect.catchAll(() => Effect.succeed("")),
+    )
+    const verdict = classifyAnswerCompleteness({
+      file,
+      stateName: rest.state,
+      invoker,
+      content: current,
     })
     if (verdict.kind === "refuse") return yield* Effect.fail(new Error(verdict.reason))
   })

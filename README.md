@@ -110,7 +110,10 @@ which steering file you create:
   edit. Editing sends it round again; accepting builds the plan in one turn and
   runs your tests (looping on failures).
 - Create **`.gtd/REQUIREMENTS.md`** to start the **advanced** flow: two-phase
-  product then technical Q&A (`.gtd/REQUIREMENTS.md` → `.gtd/ARCHITECTURE.md`),
+  product then technical Q&A (`.gtd/REQUIREMENTS.md` → `.gtd/ARCHITECTURE.md`) —
+  each open question offers a couple of candidate answers plus a
+  `- [ ] _your answer_` slot, and you tick exactly one per question (the gate
+  won't let a phase advance while any question is unanswered) — then
   decomposition into work **packages** (each a set of independent tasks a single
   build turn fans out to parallel subagents), a per-package test loop, and a
   per-package **agentic review** that verifies the package against its spec.
