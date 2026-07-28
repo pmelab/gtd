@@ -136,43 +136,51 @@ const makeExplorer = () =>
  * `workflow:` is later compiled with `inlineFileRefs: false` (see
  * `toOperations`).
  */
+/**
+ * Normalize one loaded config level: validate it is a plain object, then inline
+ * its `workflow:` file references against its OWN file's directory (collecting
+ * any missing/unreadable reference into `refErrors`). A level with no
+ * `workflow:` key passes through untouched.
+ */
+const inlineLevel = (
+  config: unknown,
+  filepath: string,
+  refErrors: string[],
+): Record<string, unknown> => {
+  if (!isPlainObject(config)) {
+    throw new Error(
+      `${filepath}: config must be a plain object, got ${Array.isArray(config) ? "array" : String(config)}`,
+    )
+  }
+  if (config["workflow"] === undefined) return config
+  return {
+    ...config,
+    workflow: inlineWorkflowFileRefs(config["workflow"], dirname(filepath), refErrors),
+  }
+}
+
+/** Read every config level from cwd up the chain, outermost→innermost, each with its file references already inlined per declaring file. Throws on a malformed level or an aggregated set of bad references. */
+const readConfigLevels = async (root: string): Promise<Array<Record<string, unknown>>> => {
+  const chain = walkUp(root, homedir())
+  const explorer = makeExplorer()
+  const levels: Array<Record<string, unknown>> = []
+  const refErrors: string[] = []
+  // Outermost→innermost so merging in order makes innermost win.
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const result = await explorer.search(chain[i])
+    if (!result || result.isEmpty) continue
+    levels.push(inlineLevel(result.config, result.filepath, refErrors))
+  }
+  if (refErrors.length > 0) {
+    throw new Error(`workflow config:\n${refErrors.map((e) => `  - ${e}`).join("\n")}`)
+  }
+  return levels
+}
+
 const loadMerged = (root: string): Effect.Effect<Record<string, unknown>, Error> =>
   Effect.tryPromise({
     try: async () => {
-      const home = homedir()
-      const chain = walkUp(root, home)
-
-      const explorer = makeExplorer()
-
-      // Collect outermost→innermost so merging in order makes innermost win.
-      const levels: Array<Record<string, unknown>> = []
-      const refErrors: string[] = []
-      for (let i = chain.length - 1; i >= 0; i--) {
-        const dir = chain[i]
-        const result = await explorer.search(dir)
-        if (result && !result.isEmpty) {
-          if (!isPlainObject(result.config)) {
-            throw new Error(
-              `${result.filepath}: config must be a plain object, got ${Array.isArray(result.config) ? "array" : String(result.config)}`,
-            )
-          }
-          const config = result.config
-          if (config["workflow"] === undefined) {
-            levels.push(config)
-          } else {
-            const configDir = dirname(result.filepath)
-            levels.push({
-              ...config,
-              workflow: inlineWorkflowFileRefs(config["workflow"], configDir, refErrors),
-            })
-          }
-        }
-      }
-
-      if (refErrors.length > 0) {
-        throw new Error(`workflow config:\n${refErrors.map((e) => `  - ${e}`).join("\n")}`)
-      }
-
+      const levels = await readConfigLevels(root)
       return levels.reduce<Record<string, unknown>>((acc, level) => deepMerge(acc, level), {})
     },
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
