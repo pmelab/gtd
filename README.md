@@ -57,9 +57,13 @@ gtd init simple      # or: gtd init advanced
 This writes a `.gtdrc.json` for the chosen workflow, with each agent state's
 prompt saved as an editable Markdown file under `gtd-prompts/` and referenced
 from the config (review and commit both). Edit a prompt by editing its
-`gtd-prompts/*.md` file — no config edit needed. gtd ships **no** default
-workflow: a state command run before `gtd init` fails, pointing you back here.
-See [Configuration](docs/configuration.md#gtd-init) for the two templates.
+`gtd-prompts/*.md` file — no config edit needed. It also seeds a top-level
+`modes:` block suggesting **Prettier** as the steering-file formatter
+(`npx prettier --write` for the built-in `qa`/`review` modes — format only, so
+gtd still validates); edit or drop it freely (swap in dprint, a script, or
+delete the key). gtd ships **no** default workflow: a state command run before
+`gtd init` fails, pointing you back here. See
+[Configuration](docs/configuration.md#gtd-init) for the two templates.
 
 ## How it works
 

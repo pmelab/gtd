@@ -20,6 +20,10 @@ Feature: gtd init — scaffold a .gtdrc.json from a bundled workflow template
     And ".gtdrc.json" contains "\"$schema\""
     And ".gtdrc.json" contains "\"workflow\""
     And ".gtdrc.json" contains "review-deciding"
+    # A ready-to-edit top-level `modes:` block seeds a Prettier formatter for the
+    # built-in qa/review steering-file modes (format only — gtd still validates).
+    And ".gtdrc.json" contains "\"modes\""
+    And ".gtdrc.json" contains "npx prettier --write"
     # Left uncommitted — HEAD is still the project's own initial commit.
     And the last commit subject is "chore: initial commit"
 

@@ -118,14 +118,18 @@ a project plugs its own into a mode's `format:`).
 - **`src/program.ts`** — CLI dispatch (`init`/`step`/`next`/`status`/`validate`/
   `mermaid`; `lsp` and `init` dispatched BEFORE the config-reading path so they
   run with no workflow configured). `runInitCommand` writes
-  `renderInitConfig(name)` to `.gtdrc.json` (uncommitted), guarded by
-  `anyConfigPresent` + the repo-root check. Calls `Edge.ts` for everything
-  IO-shaped; calls `PatternMachine.ts`'s pure `step`/`matchesPattern`/
-  `parsePattern` directly where no IO is needed (e.g. `gtd status`'s per-change
-  pattern report).
+  `renderInitScaffold(name)` to `.gtdrc.json` (uncommitted) — the base config
+  plus externalized `gtd-prompts/` files and a seeded top-level `modes:`
+  Prettier suggestion (`MODES_SUGGESTION`) — guarded by `anyConfigPresent` + the
+  repo-root check. Calls `Edge.ts` for everything IO-shaped; calls
+  `PatternMachine.ts`'s pure `step`/`matchesPattern`/ `parsePattern` directly
+  where no IO is needed (e.g. `gtd status`'s per-change pattern report).
 - **`src/workflows/{simple,advanced}.yaml` + `templates.ts`** — the two bundled
   workflow templates `gtd init` scaffolds, plus `templates.ts` (the
-  `WORKFLOW_TEMPLATES` map, `renderInitConfig` for the `.gtdrc.json` write, and
+  `WORKFLOW_TEMPLATES` map, `renderInitScaffold` for the `.gtdrc.json` write —
+  which seeds the top-level `modes:` Prettier suggestion, `MODES_SUGGESTION`;
+  `renderInitConfig` is the hermetic base form reused by the
+  `Given the "…" workflow` test fixture and stays modes-free — and
   `compileTemplate` for tests/mermaid) — compiled through the exact same
   `compileWorkflowConfig` path, no privileged code path. Every content string in
   the templates MUST be inline (no `./`-relative file references): they ship
