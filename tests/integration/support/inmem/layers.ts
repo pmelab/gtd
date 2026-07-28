@@ -111,6 +111,13 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
       : Effect.fail(new Error(`Cannot resolve ref: ${ref}`))
   },
 
+  readFileAtRef: (ref: string, path: string) => {
+    const content = repo.fileAtRef(ref, path)
+    return content !== null
+      ? Effect.succeed(content)
+      : Effect.fail(new Error(`path not found at ${ref}: ${path}`))
+  },
+
   readRefOption: (ref: string) => {
     const hash = repo.resolveRef(ref)
     return Effect.succeed(hash !== null ? Option.some(hash) : Option.none<string>())

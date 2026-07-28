@@ -36,6 +36,7 @@ const notImplemented = (name: string) => () =>
 /** A `GitOperations` stub with every method failing by default — tests override just what they exercise, so an unexpected call fails loudly instead of silently succeeding. */
 const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
   diffHead: notImplemented("diffHead"),
+  readFileAtRef: notImplemented("readFileAtRef"),
   lastCommitSubject: notImplemented("lastCommitSubject"),
   hasCommits: notImplemented("hasCommits"),
   diffRef: notImplemented("diffRef"),

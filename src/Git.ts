@@ -62,6 +62,13 @@ export interface GitReaderOperations {
     exclude?: ReadonlyArray<string>,
   ) => Effect.Effect<string, Error>
   /**
+   * `git show <ref>:<path>` — the verbatim contents of `path` as it stood at
+   * `ref`. Fails when the path does not exist at that ref (callers that expect
+   * an absent file — e.g. the review sign-off gate comparing a reviewer's edit
+   * against the agent's original — handle it with an explicit `catchAll`).
+   */
+  readonly readFileAtRef: (ref: string, path: string) => Effect.Effect<string, Error>
+  /**
    * The pending working-tree changes vs HEAD, as `{path, status}` pairs —
    * tracked modifications (`git diff --name-status HEAD`) unioned with
    * untracked files (reported as `status: "A"`), deduplicated by path. Same
@@ -344,6 +351,8 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
 
         return renderDiff(files)
       }),
+
+    readFileAtRef: (ref: string, path: string) => exec("git", "show", `${ref}:${path}`),
 
     commitDiff: (hash: string, exclude: ReadonlyArray<string> = []) =>
       Effect.gen(function* () {

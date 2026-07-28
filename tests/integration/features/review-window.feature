@@ -61,17 +61,35 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the git ref "refs/gtd/review-head" exists
     And the last commit subject is "chore: init gtd workflow"
 
-  Scenario: Deleting the review doc signs off — the window closes and routes to the squash finale
+  Scenario: Deleting the review doc is refused — the window stays open, nothing commits
     Given I run gtd next
     And the file ".gtd/REVIEW.md" is deleted
     When I run gtd step human
-    Then it succeeds
-    And the last commit subject is "gtd(human): await-review → squashing"
-    And the git ref "refs/gtd/review-head" does not exist
-    And the git ref "refs/gtd/review-base" does not exist
-    And ".gtd/REVIEW.md" does not exist
+    Then it fails
+    And stderr contains "was deleted"
+    # Nothing committed; the window re-arms so the reviewer can restore + tick.
+    And the git ref "refs/gtd/review-head" exists
+    And the last commit subject is "chore: init gtd workflow"
 
-  Scenario: Reviewer code edits close the window and route to a re-test + re-review
+  Scenario: Ticking every box with no comment signs off — the window closes and routes to review-deciding
+    Given I run gtd next
+    And ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [x] ./src/calc.ts#1 — new add function
+      """
+    When I run gtd step human
+    Then it succeeds
+    # Every box ticked, no note, no code edit — a clean sign-off hands to the
+    # deterministic check, which collapses the cycle from there.
+    And the last commit subject is "gtd(human): await-review → review-deciding"
+    And the git ref "refs/gtd/review-head" does not exist
+
+  Scenario: Reviewer code edits are feedback — the window closes and routes to review-deciding
     Given I run gtd next
     And "src/calc.ts" is modified to:
       """
@@ -80,9 +98,9 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
       """
     When I run gtd step human
     Then it succeeds
-    # A code edit with REVIEW.md untouched re-runs the tests on the manual fix
-    # and re-reviews it (checking).
-    And the last commit subject is "gtd(human): await-review → checking"
+    # A code edit is a comment: it routes to the deterministic review check,
+    # which turns it into a build + re-review round.
+    And the last commit subject is "gtd(human): await-review → review-deciding"
     And the git ref "refs/gtd/review-head" does not exist
 
   Scenario: Read-only commands re-arm the window on their way out

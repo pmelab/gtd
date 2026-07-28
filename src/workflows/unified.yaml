@@ -26,18 +26,27 @@
 # A third entry, `gtd review <commitish>`, jumps straight to `reviewing`
 # (reviewEntry) to review a foreign branch through the same shared tail.
 #
-# All three converge at `reviewing` -> `await-review`. From there:
-#   * full sign-off (tick every box, or delete REVIEW.md) -> squashing -> done
-#     (the ONLY path to the finale — the whole cycle collapses into one commit).
-#   * partial sign-off / notes -> review-deciding extracts the unticked items
-#     into REVIEW_FEEDBACK.md -> feedback-building implements them -> checking
-#     -> reviewing regenerates an INCREMENTAL REVIEW.md (review-deciding carries
-#     `reviewBase: true`, so each feedback round's review + checkout window
-#     covers only `last-review..HEAD`) -> await-review, looping until sign-off.
-#   * a code-only human edit (REVIEW.md untouched) -> checking -> reviewing.
+# All three converge at `reviewing` -> `await-review`. Ticking a REVIEW.md box
+# means only "I reviewed this hunk"; a COMMENT (not an unticked box) is what asks
+# for changes. Every human step at `await-review` goes to `review-deciding`,
+# which inspects the step and routes:
+#   * no comment (every box ticked, no REVIEW.md note, no code edit) -> the diff
+#     is a bare REVIEW.md deletion -> squashing -> done (the ONLY path to the
+#     finale — the whole cycle collapses into one commit).
+#   * any comment — a note in REVIEW.md OR a hand-edit to code — ->
+#     review-deciding writes REVIEW_FEEDBACK.md -> feedback-building implements
+#     it (completing any code the human hand-edited, never reverting their
+#     lines) -> checking -> reviewing regenerates an INCREMENTAL REVIEW.md
+#     (review-deciding carries `reviewBase: true`, so each feedback round's
+#     review + checkout window covers only `last-review..HEAD`, i.e. the agent's
+#     follow-through, not the human's own edit) -> await-review, looping until
+#     sign-off.
+# Two dead ends never commit: the sign-off gate (src/program.ts) REFUSES a step
+# that leaves a box unticked with no comment (finish reviewing first) and a
+# deleted REVIEW.md (restore it and tick the boxes).
 #
 # The shared health segment (`checking`/`fixing`/`escalate`) serves the simple
-# build, the feedback loop, and code-only edits — its green edge targets
+# build and the feedback loop — its green edge targets
 # `reviewing`. The advanced per-package loop keeps its OWN health triple
 # (`adv-checking`/`adv-fixing`/`adv-escalate`) because its green edge targets
 # the per-package `spec-review` gate instead.
@@ -668,33 +677,36 @@ states:
     # so a feedback round shows only `last-review..HEAD` — or the process start
     # on the first review) with the working tree untouched, surfacing the diff
     # as ordinary uncommitted changes. It closes on the next invocation.
+    #
+    # Every human step here routes to `review-deciding`, which decides sign-off
+    # vs. feedback from the step's CONTENT (a comment, not a tick). Ticking a box
+    # only records "I reviewed this hunk". Two dead ends can't be told apart by a
+    # file-pattern edge, so the sign-off gate (`enforceReviewSignoffGate` in
+    # src/program.ts) catches them BEFORE the step commits and refuses: an
+    # unfinished review (a box still `- [ ]` with no comment) and a deleted
+    # REVIEW.md.
     reviewWindow: true
     message: |
       `<%= it.vars.reviewFile %>` holds the review record for the cycle — one
-      `- [ ]` checkbox per reviewable item, grouped into chunks.
+      `- [ ]` checkbox per reviewable item, grouped into chunks. Tick a box
+      (`- [x]`) as you review each hunk; ticking only records that you've read
+      it, it is not sign-off.
 
-      What each change does next (then run `gtd step human`):
-      <% it.edges.forEach(function (e) { if (e.describe) { %>
-      <%~ "- " + e.describe + "\n" %>
-      <% } }) %>
+      When you've been through the whole diff, run `gtd step human`:
+
+      - Tick EVERY box and leave no comment — no note in
+        `<%= it.vars.reviewFile %>`, no code edit — to sign off and collapse the
+        cycle into one commit (**squashing**).
+      - Leave a comment to request changes — a note on a
+        `<%= it.vars.reviewFile %>` line, or a direct code edit — to send it to a
+        build + re-review round (**review-deciding** → **feedback-building**). A
+        code edit counts as your own fix: the agent completes the follow-through
+        it implies and never reverts your lines.
+
+      Stepping with a box still unticked and no comment is refused (finish
+      reviewing first); so is deleting `<%= it.vars.reviewFile %>`.
     on:
-      "D .gtd/REVIEW.md":
-        to: squashing
-        describe: >-
-          Delete `.gtd/REVIEW.md` outright to sign off on the whole cycle at
-          once and collapse it into one commit (**squashing**).
-      "M .gtd/REVIEW.md":
-        to: review-deciding
-        describe: >-
-          Edit `.gtd/REVIEW.md` — tick a `- [ ]` box to `- [x]` to sign off that
-          item, or add notes — to hand it to a deterministic check
-          (**review-deciding**) that squashes when every box is ticked, or sends
-          the still-unticked items back for another build+review round.
-      "* **":
-        to: checking
-        describe: >-
-          Change only code, leaving `.gtd/REVIEW.md` untouched, to re-run the
-          tests on your manual fix and re-review it (**checking**).
+      "* **": review-deciding
 
   review-deciding:
     actor: check
@@ -707,26 +719,55 @@ states:
     reviewBase: true
     script: |
       #!/usr/bin/env bash
-      # gtd check turn — if REVIEW.md still has any unticked "- [ ]" pointer,
-      # extract those pointers (with their notes) into REVIEW_FEEDBACK.md;
-      # either way, remove REVIEW.md. What the resulting diff MEANS (feedback
-      # round vs. full sign-off) is decided by this state's own `on` rules. The
-      # A/M REVIEW_FEEDBACK.md rows are declared BEFORE the D REVIEW.md row so a
-      # feedback round — which always also deletes REVIEW.md — is captured as
-      # feedback, not mistaken for a sign-off.
+      # gtd check turn — decide the human's review step from its CONTENT. HEAD is
+      # the human's `await-review -> review-deciding` commit; HEAD^ is the
+      # `reviewing` commit that wrote the agent's original REVIEW.md (the sign-off
+      # gate refuses an incomplete step, so review-deciding is entered exactly
+      # once per round — nothing commits in between). It is FEEDBACK when the
+      # human left a comment: a note in REVIEW.md (any edit beyond a "[ ]"->"[x]"
+      # tick) OR a hand-edit to any non-.gtd/ file this round. Otherwise it is a
+      # clean sign-off. Either way, remove REVIEW.md; what the resulting diff
+      # MEANS is decided by this state's own `on` rules — the A/M
+      # REVIEW_FEEDBACK.md rows are declared BEFORE the D REVIEW.md row so a
+      # feedback round (which also deletes REVIEW.md) is captured as feedback,
+      # not mistaken for a sign-off.
       set +e
       mkdir -p .gtd
-      # Hoist the review paths once, at the TOP: Eta's autoTrim eats the
-      # newline after an interpolation tag, so no tag may be the last token on a
-      # line — it would glue the next line onto it and break the script. Below
-      # this point everything is plain bash.
+      # Hoist the paths once, at the TOP: Eta's autoTrim eats the newline after
+      # an interpolation tag, so no tag may be the last token on a line — it
+      # would glue the next line onto it and break the script. Below this point
+      # everything is plain bash.
       reviewFile="<%~ it.vars.reviewFile %>"
       reviewFeedbackFile="<%~ it.vars.reviewFeedbackFile %>"
-      if grep -qE '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' "$reviewFile" 2>/dev/null; then
+      # Which non-.gtd/ files did the human hand-edit this round?
+      codeFiles=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -v '^\.gtd/')
+      # A note is any REVIEW.md change beyond a checkbox flip: normalize every
+      # "[ ]"/"[x]" to a placeholder, then compare the agent's original (HEAD^)
+      # against the human's version (HEAD).
+      notes=""
+      before=$(git show "HEAD^:$reviewFile" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
+      after=$(git show "HEAD:$reviewFile" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
+      if [ "$before" != "$after" ]; then notes=1; fi
+      if [ -n "$codeFiles" ] || [ -n "$notes" ]; then
         {
-          echo "Feedback from review — address these before continuing:"
-          echo
-          grep -E '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' "$reviewFile"
+          echo "Review feedback to address, then delete this file. The human reviewed the diff and asked for the changes below."
+          echo "Build on their own edits: complete only the follow-through each change implies (callers, tests, types, docs). Treat any lines the human wrote as final — never revert or rewrite them."
+          if [ -n "$notes" ]; then
+            echo
+            echo "## Notes left in the review (ticked items are approved — act on the notes)"
+            echo
+            echo '```diff'
+            git show HEAD --format= -- "$reviewFile"
+            echo '```'
+          fi
+          if [ -n "$codeFiles" ]; then
+            echo
+            echo "## Code the human hand-edited this round — already committed, build on top"
+            echo
+            echo '```diff'
+            git show HEAD --format= -- $codeFiles
+            echo '```'
+          fi
         } > "$reviewFeedbackFile"
       fi
       rm -f "$reviewFile"
@@ -734,7 +775,6 @@ states:
       "A .gtd/REVIEW_FEEDBACK.md": feedback-building
       "M .gtd/REVIEW_FEEDBACK.md": feedback-building
       "D .gtd/REVIEW.md": squashing
-      "C": await-review
 
   feedback-building:
     actor: agent
@@ -750,8 +790,12 @@ states:
       The review feedback to address is: <%~ it.read(it.vars.reviewFeedbackFile) %>
 
       Implement exactly those changes — no Q&A, no re-planning. Use TDD
-      discipline. Delete `<%= it.vars.reviewFeedbackFile %>` once every item is
-      addressed. Leave everything else uncommitted and finish your turn.
+      discipline. When the feedback includes code the human hand-edited this
+      round, that edit is ALREADY committed: treat their lines as final, build ON
+      TOP of them to complete only the follow-through they imply (callers, tests,
+      types, docs), and never revert or rewrite what they changed. Delete
+      `<%= it.vars.reviewFeedbackFile %>` once every item is addressed. Leave
+      everything else uncommitted and finish your turn.
     on:
       "* **": checking
 
