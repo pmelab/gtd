@@ -49,22 +49,22 @@ Or run without installing:
 npx @pmelab/gtd
 ```
 
-Then scaffold a workflow for the repo — run once:
+Then scaffold the workflow for the repo — run once:
 
 ```bash
-gtd init simple      # or: gtd init advanced
+gtd init
 ```
 
-This writes a `.gtdrc.json` for the chosen workflow, with each agent state's
-prompt saved as an editable Markdown file under `gtd-prompts/` and referenced
-from the config (review and commit both). Edit a prompt by editing its
-`gtd-prompts/*.md` file — no config edit needed. It also seeds a top-level
+This writes a `.gtdrc.json` for the bundled unified workflow, with each agent
+state's prompt saved as an editable Markdown file under `gtd-prompts/` and
+referenced from the config (review and commit both). Edit a prompt by editing
+its `gtd-prompts/*.md` file — no config edit needed. It also seeds a top-level
 `modes:` block suggesting **Prettier** as the steering-file formatter
 (`npx prettier --write` for the built-in `qa`/`review` modes — format only, so
 gtd still validates); edit or drop it freely (swap in dprint, a script, or
-delete the key). gtd ships **no** default workflow: a state command run before
-`gtd init` fails, pointing you back here. See
-[Configuration](docs/configuration.md#gtd-init) for the two templates.
+delete the key). `gtd init` takes no argument. gtd ships **no** default
+workflow: a state command run before `gtd init` fails, pointing you back here.
+See [Configuration](docs/configuration.md#gtd-init) for the template.
 
 ## How it works
 
@@ -95,27 +95,35 @@ never executes anything — the driver owns running scripts. See
 [STATES.md](STATES.md) for the model and [Driving the loop](docs/loop.md) for
 the full protocol.
 
-Along the way, the `simple` workflow (`gtd init simple`) develops your sketch
-into an implementation plan — asking any open question it can't settle itself
-via a deterministic `.gtd/TODO.md` format, validated before it ever reaches you
-— builds it, runs your tests (looping on failures), and hands you a
-`.gtd/REVIEW.md` checkbox review of the cycle's diff: tick a box to approve that
-item, or edit/untick for feedback. The same review flow also has a direct entry
-point — `gtd review <commitish>` starts a brand new process reviewing
-`<commitish>..HEAD` with no cycle of its own, e.g. a colleague's PR branch.
-Approving rests the cycle back at idle, with every turn commit still sitting in
-history for you to squash however you like (or not at all; gtd makes no
-assumption) — see [STATES.md](STATES.md#10-the-bundled-workflow-templates) for
-the full shape. The `advanced` template (`gtd init advanced`) is a heavier
-machine — two-phase Q&A planning, an architecture phase, task decomposition, a
-per-task build loop, and a squash finale — walked through at
-[docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md). Either
-way the workflow is just `.gtdrc` config — edit it or write your own (see
-[Configuration](docs/configuration.md)). Both templates route every agent
-state's model through two `vars` tiers — `plannerModel` (heavier planning and
-review) and `coderModel` (the coding turns) — so you can repoint the models
-globally in one place (a `vars:` edit or a `GTD_VAR_plannerModel` override)
-instead of per state.
+The unified workflow has **two entry points into one shared tail**, chosen by
+which steering file you create:
+
+- Create **`.gtd/TODO.md`** with a short sketch to start the **simple** flow: an
+  agent develops your sketch into a plan — asking any open question it can't
+  settle itself via a deterministic `.gtd/TODO.md` format, validated before it
+  ever reaches you — you answer inline, then it builds the plan in one turn and
+  runs your tests (looping on failures).
+- Create **`.gtd/REQUIREMENTS.md`** to start the **advanced** flow: two-phase
+  product then technical Q&A (`.gtd/REQUIREMENTS.md` → `.gtd/ARCHITECTURE.md`),
+  decomposition into work **packages** (each a set of independent tasks a single
+  build turn fans out to parallel subagents), a per-package test loop, and a
+  per-package **agentic review** that verifies the package against its spec.
+
+Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
+checkbox review of the diff — tick a box to sign off an item, edit/untick for
+feedback (which sends only the unaddressed items back to build and re-review
+just those changes), and a full sign-off collapses the whole cycle into one
+commit (a **squash finale** whose message an agent drafts). The same review tail
+also has a direct entry point — `gtd review <commitish>` starts a brand new
+process reviewing `<commitish>..HEAD` with no cycle of its own, e.g. a
+colleague's PR branch. See
+[STATES.md](STATES.md#10-the-bundled-workflow-template) for the full shape. The
+workflow is just `.gtdrc` config — edit it or write your own (see
+[Configuration](docs/configuration.md)). Every agent state routes its model
+through two `vars` tiers — `plannerModel` (heavier planning and review) and
+`coderModel` (the coding turns) — so you can repoint the models globally in one
+place (a `vars:` edit or a `GTD_VAR_plannerModel` override) instead of per
+state.
 
 `gtd-loop`, installed alongside `gtd`, is a ready-to-run driver for the whole
 protocol — point it at a repo and it runs the loop until it's your turn. It is

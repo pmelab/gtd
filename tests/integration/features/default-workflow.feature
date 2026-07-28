@@ -1,31 +1,25 @@
 @inmem
-Feature: The bundled simple workflow — full cycle journeys
+Feature: The bundled unified workflow — simple-flow full-cycle journeys
 
-  Comprehensive coverage of `src/workflows/simple.yaml` (the `simple` template
-  `gtd init simple` scaffolds — see its own header comment for the state list)
-  beyond smoke.feature's minimal hops: the
-  grilling/answer planning loop, a check/fix round, the fix-retry-escalate
-  path once `fixing`'s cap (max 3) is reached, both review outcomes (tick-all
-  approve and partial-tick feedback), the delete-shortcut approve, and the
-  process-boundary rule that keeps a fresh cycle's retry budget from pooling
-  with a previous, already-approved one.
+  Comprehensive coverage of the SIMPLE entry of `src/workflows/unified.yaml`
+  (started by creating `.gtd/TODO.md`) through the SHARED tail: the
+  grilling/answer planning loop, a check/fix round, the fix-retry-escalate path
+  once `fixing`'s cap (max 3) is reached, the human review gate and its
+  `review-deciding` arbiter (partial-tick feedback vs. full sign-off), the
+  delete-shortcut sign-off, and the SQUASH finale (`squashing` → `done`) that
+  every entry point shares — the only path to which is full sign-off.
 
-  Steering-file formats (TODO.md open questions, REVIEW.md checkboxes) are no
-  longer validated by an in-machine state — the producing agent self-validates
-  via `gtd validate` (covered in validate.feature), so `grilling` hands
-  straight to `grilling-answer` and `reviewing` straight to `await-review`.
-  The remaining `check`-actor state here (`review-deciding`) is simulated by
-  writing its verdict files directly (`.gtd/REVIEW.md`, `.gtd/TODO.md`) and
-  running `gtd step check` — @inmem never executes the scripts themselves.
+  Steering-file formats (TODO.md open questions, REVIEW.md checkboxes) are not
+  validated by an in-machine state — the producing agent self-validates via
+  `gtd validate` (covered in validate.feature), so `grilling` hands straight to
+  `grilling-answer` and `reviewing` straight to `await-review`. The remaining
+  `check`-actor states here (`checking`, `review-deciding`) are simulated by
+  writing their verdict files directly and running `gtd step check` — @inmem
+  never executes the scripts themselves.
 
-  The cycle ends at human approval, resting back at `idle` — there is no
-  squash. Every commit the cycle authored stays in history; whether/how to
-  squash them is entirely up to the human (see docs/examples/advanced-workflow.md
-  for a workflow that adds a squash finale back on top of this one).
-
-  Scenario: the full cycle advances idle through an await-review approval, including a check/fix round and a partial-tick feedback lap, and rests at idle with no squash
+  Scenario: the full simple cycle — plan, build, check/fix, review with a feedback lap, then full sign-off into the squash finale
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a file ".gtd/TODO.md" with:
       """
       Build a thing.
@@ -34,8 +28,7 @@ Feature: The bundled simple workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(human): idle → grilling"
 
-    # grilling: develops the sketch into a plan (self-validated before the
-    # turn ends — see validate.feature) and hands straight to grilling-answer
+    # grilling: develops the sketch into a plan and hands to grilling-answer
     Given ".gtd/TODO.md" is modified to:
       """
       Build a thing. Implementation plan: add src/thing.ts exporting `thing`.
@@ -50,7 +43,7 @@ Feature: The bundled simple workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(agent): grilling → grilling-answer"
 
-    # grilling-answer: accept the suggested answer with a clean step
+    # grilling-answer: accept the suggested answer with a clean step -> building
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): grilling-answer → building"
@@ -85,8 +78,7 @@ Feature: The bundled simple workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(check): checking → reviewing"
 
-    # reviewing: writes REVIEW.md (self-validated before the turn ends) and
-    # hands straight to await-review
+    # reviewing: writes REVIEW.md and hands straight to await-review
     Given a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -98,17 +90,15 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    # await-review declares `reviewWindow: true` (STATES.md §11): landing here
-    # opens the review checkout window, rewinding raw HEAD to the review base.
-    # `gtd status` closes the window before reading, so it still resolves the
-    # true rest — the window then re-arms on its way out.
+    # await-review declares `reviewWindow: true` — resolve the true rest via
+    # `gtd status` rather than raw HEAD.
     And the git ref "refs/gtd/review-head" exists
     When I run gtd status
     Then it succeeds
     And stdout contains "State: await-review"
 
-    # await-review: partial-tick feedback — the reviewer adds a note without
-    # ticking the box, routing to the decider (not the catch-all)
+    # await-review: partial-tick feedback — a note without ticking the box
+    # routes to the decider (not the catch-all)
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -122,10 +112,10 @@ Feature: The bundled simple workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(human): await-review → review-deciding"
 
-    # review-deciding: extracts the unticked pointer into a fresh TODO.md,
-    # removes REVIEW.md — the decider always sees both changes, and the
-    # A/M TODO.md row is declared first so feedback wins
-    Given a file ".gtd/TODO.md" with:
+    # review-deciding: extracts the unticked pointer into REVIEW_FEEDBACK.md,
+    # removes REVIEW.md — the A/M REVIEW_FEEDBACK.md row is declared before the
+    # D REVIEW.md row so a feedback round wins
+    Given a file ".gtd/REVIEW_FEEDBACK.md" with:
       """
       Feedback from review — address these before continuing:
 
@@ -134,30 +124,21 @@ Feature: The bundled simple workflow — full cycle journeys
     And the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-deciding → grilling"
+    And the last commit subject is "gtd(check): review-deciding → feedback-building"
 
-    # second lap: grilling -> grilling-answer -> building -> checking (green)
-    # -> reviewing -> await-review
-    Given ".gtd/TODO.md" is modified to:
-      """
-      Add a doc comment to thing.ts. Plan: add a one-line comment above the
-      export.
-      """
-    When I run gtd step agent
-    Then it succeeds
-    And the last commit subject is "gtd(agent): grilling → grilling-answer"
-    When I run gtd step human
-    Then it succeeds
-    And the last commit subject is "gtd(human): grilling-answer → building"
-    Given the file ".gtd/TODO.md" is deleted
-    And a file "src/thing.ts" with:
+    # feedback-building: implements the requested change directly (no Q&A),
+    # deletes the feedback file, steps to checking
+    Given the file ".gtd/REVIEW_FEEDBACK.md" is deleted
+    And "src/thing.ts" is modified to:
       """
       // The thing.
       export const thing = 1
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → checking"
+    And the last commit subject is "gtd(agent): feedback-building → checking"
+
+    # checking (green) -> reviewing regenerates an incremental REVIEW.md
     When I run gtd step check
     Then it succeeds
     And the last commit subject is "gtd(check): checking → reviewing"
@@ -172,16 +153,13 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    # await-review opens the review checkout window (see above) — resolve the
-    # true rest via `gtd status` rather than raw HEAD.
     And the git ref "refs/gtd/review-head" exists
     When I run gtd status
     Then it succeeds
     And stdout contains "State: await-review"
 
-    # await-review: tick every box — the decider sees no unticked pointer
-    # left and approves, removing REVIEW.md and resting the cycle at idle
-    # with NO squash: every turn commit the cycle authored stays in history.
+    # await-review: tick every box — the decider sees no unticked pointer and
+    # removes REVIEW.md, routing to the squash finale
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: def5678
@@ -197,16 +175,28 @@ Feature: The bundled simple workflow — full cycle journeys
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-deciding → idle"
+    And the last commit subject is "gtd(check): review-deciding → squashing"
+
+    # squashing: the agent writes the one-commit message; entering `done`
+    # collapses the whole cycle into a single commit and leaves .gtd empty
+    Given a file ".gtd/COMMIT_MSG.md" with:
+      """
+      feat: add thing with a doc comment
+
+      Implements the thing export and documents it.
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "feat: add thing with a doc comment"
     And the git status is clean
     And ".gtd/TODO.md" does not exist
-    And ".gtd/FEEDBACK.md" does not exist
     And ".gtd/REVIEW.md" does not exist
+    And ".gtd/COMMIT_MSG.md" does not exist
     And "src/thing.ts" exists
 
   Scenario: a green check run that also cleans up leftover feedback moves on to reviewing with no residue (D .gtd/FEEDBACK.md)
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a commit "gtd(agent): building" that adds "src/thing.ts" with:
       """
       export const thing = 1
@@ -223,7 +213,7 @@ Feature: The bundled simple workflow — full cycle journeys
 
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a commit "gtd(agent): checking" that adds ".gtd/FEEDBACK.md" with:
       """
       attempt 1 failed
@@ -260,9 +250,9 @@ Feature: The bundled simple workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(check): checking → escalate"
 
-  Scenario: deleting REVIEW.md outright at await-review is the power-user approve shortcut, bypassing review-deciding
+  Scenario: deleting REVIEW.md outright at await-review is the power-user sign-off shortcut, routing straight to the squash finale
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -275,12 +265,12 @@ Feature: The bundled simple workflow — full cycle journeys
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): await-review → idle"
+    And the last commit subject is "gtd(human): await-review → squashing"
     And ".gtd/REVIEW.md" does not exist
 
   Scenario: at await-review, gtd next surfaces which change routes where — the human gate's route list, rendered from its `on` edge descriptions
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -293,12 +283,12 @@ Feature: The bundled simple workflow — full cycle journeys
     When I run gtd next
     Then it succeeds
     And stdout contains "What each change does next (then run `gtd step human`):"
-    And stdout contains "- Delete `.gtd/REVIEW.md` outright to approve the whole cycle"
+    And stdout contains "- Delete `.gtd/REVIEW.md` outright to sign off on the whole cycle"
     And stdout contains "- Change only code, leaving `.gtd/REVIEW.md` untouched"
 
-  Scenario: a code-only edit at await-review (REVIEW.md untouched) is feedback straight to grilling
+  Scenario: a code-only edit at await-review (REVIEW.md untouched) re-runs the tests on the manual fix (checking)
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -314,13 +304,14 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): await-review → grilling"
+    And the last commit subject is "gtd(human): await-review → checking"
 
-  Scenario: an approved cycle's idle-entering commit is a process boundary — a fresh cycle's fixing retry budget doesn't pool with a previous cycle's
+  Scenario: an approved cycle's squash commit is a process boundary — a fresh cycle's fixing retry budget doesn't pool with a previous cycle's
     Given a test project
-    And the "simple" workflow
+    And the workflow
     # cycle 1: already spent its whole fixing retry budget (3 entries) before
-    # ending at an approved, idle-resting boundary.
+    # ending at a squash commit — a plain (non-gtd) commit subject, which is a
+    # process boundary.
     And a commit "gtd(agent): checking" that adds ".gtd/FEEDBACK.md" with:
       """
       cycle 1 attempt 1 failed
@@ -345,21 +336,13 @@ Feature: The bundled simple workflow — full cycle journeys
       """
       fixed cycle 1 attempt 3
       """
-    And a commit "gtd(agent): checking" that adds "src/cycle1.ts" with:
+    And a commit "feat: cycle 1 complete" that adds "src/cycle1.ts" with:
       """
       export const cycle1 = 1
       """
-    And a commit "gtd(check): reviewing" that adds ".gtd/cycle1-note.md" with:
-      """
-      cycle 1 reviewed clean
-      """
-    And a commit "gtd(human): idle" that adds ".gtd/cycle1-done.md" with:
-      """
-      cycle 1 approved — resting at idle
-      """
-    # cycle 2 starts fresh from idle. If retry counts pooled across the idle
-    # boundary above, this cycle's very FIRST entry into "fixing" would
-    # already see 3 prior visits and redirect straight to "escalate".
+    # cycle 2 starts fresh after the squash boundary. If retry counts pooled
+    # across it, this cycle's very FIRST entry into "fixing" would already see 3
+    # prior visits and redirect straight to "escalate".
     And a file ".gtd/TODO.md" with:
       """
       Build a second thing.
@@ -392,14 +375,13 @@ Feature: The bundled simple workflow — full cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(check): checking → fixing"
 
-  Scenario: the bundled default's four agent states emit their memory scope labels
-    # The scope labels are what lets a memory-aware driver retain memory within
-    # a loop (same label across laps) and clear it at a phase boundary (a
+  Scenario: the simple flow's agent states emit their memory scope labels
+    # The scope labels let a memory-aware driver retain memory within a loop
+    # (same label across laps) and clear it at a phase boundary (a
     # differently-labelled state). grilling=plan, building=build, fixing=fix,
-    # reviewing=review — see src/workflows/simple.yaml. HEAD is set directly to
-    # each agent state to read back the emitted `gtd next --json` "memory" key.
+    # reviewing=review — see src/workflows/unified.yaml.
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       Build a thing.

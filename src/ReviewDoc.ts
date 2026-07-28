@@ -1,7 +1,7 @@
 /**
  * Pure parser/validator for the review structure `.gtd/REVIEW.md` must
- * follow — formalizing the shape the `simple` template's `reviewing` prompt
- * (`src/workflows/simple.yaml`) already tells the agent to write:
+ * follow — formalizing the shape the unified template's `reviewing` prompt
+ * (`src/workflows/unified.yaml`) already tells the agent to write:
  *
  * ```markdown
  * # Review: <short-hash>

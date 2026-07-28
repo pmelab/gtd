@@ -1,7 +1,7 @@
 /**
  * Pure parser/validator for the "open questions" structure `.gtd/TODO.md`
  * follows in the `simple` template's `grilling`/`grilling-answer` loop (see
- * `src/workflows/simple.yaml` and `docs/design/steering-file-loops.md` §1) —
+ * `src/workflows/unified.yaml` and `docs/design/steering-file-loops.md` §1) —
  * and for any custom workflow that reuses the same file/format.
  *
  * Format: free-form prose, plus an OPTIONAL `## Open Questions` section (near

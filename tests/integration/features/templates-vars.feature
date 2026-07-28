@@ -137,7 +137,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
 
   Scenario: the simple workflow's "checking" script renders "npm test" from its own declared default
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a commit "gtd(agent): checking" that adds "src/thing.ts" with:
       """
       export const thing = 1
@@ -184,7 +184,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
 
   Scenario: a "GTD_VAR_testCommand" environment variable overrides the simple workflow's own testCommand
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a commit "gtd(agent): checking" that adds "src/thing.ts" with:
       """
       export const thing = 1
@@ -289,7 +289,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
 
   Scenario: the simple template resolves a planner-tier state's model from "vars.plannerModel"
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       a sketch
@@ -301,7 +301,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
 
   Scenario: the simple template resolves a coder-tier state's model from "vars.coderModel"
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a commit "gtd(agent): building" that adds ".gtd/TODO.md" with:
       """
       the plan
@@ -313,7 +313,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
 
   Scenario: a "GTD_VAR_plannerModel" override repoints every planner-tier state at once
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
       """
       a sketch

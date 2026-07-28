@@ -40,7 +40,7 @@ Any other top-level key is **rejected** (`onExcessProperty: "error"`) — v3 has
 no `testCommand`, `fixAttemptCap`, `reviewThreshold`, `agenticReview`, `squash`,
 `learning`, `decisionLog`, or `models` keys; all of that machinery is gone (see
 [Upgrading](upgrading.md)). The engine blesses no VARIABLE NAMES either —
-`testCommand` (the bundled templates' own var, see ["Variables"](#variables)) is
+`testCommand` (the bundled template's own var, see ["Variables"](#variables)) is
 workflow-authored data like any other `it.vars` entry, not a special key gtd
 interprets.
 
@@ -53,10 +53,9 @@ interprets.
 > behind it.
 
 The `workflow:` key is the **only** definition source — there is no `extends`,
-no merge-over-a-built-in. The bundled templates `gtd init` scaffolds are
-themselves YAML assets (`src/workflows/simple.yaml`,
-`src/workflows/advanced.yaml`) compiled through the exact same compiler
-(`compileWorkflowConfig`); `gtd init` just writes one of them, inline, under
+no merge-over-a-built-in. The bundled template `gtd init` scaffolds is itself a
+YAML asset (`src/workflows/unified.yaml`) compiled through the exact same
+compiler (`compileWorkflowConfig`); `gtd init` just writes it, inline, under
 this key. Its shape:
 
 ```yaml
@@ -230,9 +229,10 @@ Because `grilling` re-enters itself around the answer loop, every lap emits
 `building` emits a different label (`build`), which is where the driver clears
 memory for a fresh implementation turn. A loop of same-labelled turns retains; a
 differently-labelled state at a phase boundary clears. This is exactly how the
-`simple` template scopes its four agent states (`plan`/`build`/`fix`/`review` —
-see [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)), and how
-the loop driver reads it is spelled out in `skills/loop/SKILL.md`.
+unified template scopes its agent states across the four `plan`/`build`/`fix`/
+`review` memory tiers (see
+[STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)), and how the
+loop driver reads it is spelled out in `skills/loop/SKILL.md`.
 
 Like `model`, `memory:` is rendered as an Eta template through the same context
 as the state's content — a plain label (`plan`) passes through unchanged, while
@@ -250,8 +250,7 @@ A state may additionally declare `file:` — an Eta template naming THE steering
 file this state is about: the file a human/editor should look at while the
 machine rests here (rendered through the same `it.vars`-carrying context as
 content/`model`; must render non-empty). Forbidden on a commit state (never at
-rest). Multiple states may share one `file:` (and, in the `simple` template,
-do):
+rest). Multiple states may share one `file:` (and, in the unified template, do):
 
 ```yaml
 workflow:
@@ -369,12 +368,11 @@ So for a state declaring `mode: qa`:
 | both                             | its `format:` | its `validate:`             |
 
 That is what makes the built-in modes extensible rather than all-or-nothing —
-and the top-level key means a project can plug its formatter into whichever
-workflow it scaffolded (`gtd init simple`/`advanced`) without re-declaring a
-`modes:` block on the workflow itself. **`gtd init` seeds exactly this block by
-default** (the Prettier suggestion below), so a fresh repo already formats its
-steering files — edit or drop it to taste. It sits alongside the `workflow:` key
-in your `.gtdrc.json`:
+and the top-level key means a project can plug its formatter into the workflow
+it scaffolded (`gtd init`) without re-declaring a `modes:` block on the workflow
+itself. **`gtd init` seeds exactly this block by default** (the Prettier
+suggestion below), so a fresh repo already formats its steering files — edit or
+drop it to taste. It sits alongside the `workflow:` key in your `.gtdrc.json`:
 
 ```jsonc
 // .gtdrc.json — the workflow from `gtd init`, plus your own markdown formatter
@@ -429,10 +427,11 @@ workflow:
         "* **": building
 ```
 
-The `simple` template enables `reviewWindow: true` on `await-review` (no
-`reviewBase` state, so the base is the whole cycle). The pure engine never
-observes an open window — it is opened/closed entirely at the edge; the real
-head is preserved under `refs/gtd/review-head` (the base under
+The unified template enables `reviewWindow: true` on `await-review` and marks
+`review-deciding` `reviewBase: true`, so the first review covers the whole cycle
+but each subsequent feedback round's window narrows to `last-review..HEAD`. The
+pure engine never observes an open window — it is opened/closed entirely at the
+edge; the real head is preserved under `refs/gtd/review-head` (the base under
 `refs/gtd/review-base`) for the window's lifetime. See
 [STATES.md §11](../STATES.md) for the full lifecycle.
 
@@ -546,15 +545,14 @@ Every template — `script`/`prompt`/`message`/`commit`, and `model`/`memory`/
 layers, **later wins**:
 
 1. **The workflow's own `vars:` key** (sibling to `states:`, shown above) — the
-   workflow author's declared defaults. The `simple` template declares
+   workflow author's declared defaults. The unified template declares
    `vars: { testCommand: "npm test" }`, read by `checking`'s script as
    `<%~ it.vars.testCommand %>` (see
-   [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)). Both
-   bundled templates also declare two model-tier vars — `plannerModel` (default
-   `smart`) and `coderModel` (default `base`) — that every agent state's
-   `model:` resolves through (`model: <%= it.vars.plannerModel %>`), so
-   repointing one var here (or via layer 2/3 below) changes every state on that
-   tier at once.
+   [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)). The bundled
+   template also declares two model-tier vars — `plannerModel` (default `smart`)
+   and `coderModel` (default `base`) — that every agent state's `model:`
+   resolves through (`model: <%= it.vars.plannerModel %>`), so repointing one
+   var here (or via layer 2/3 below) changes every state on that tier at once.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow. Subject
    to the same cwd→home deep merge as everything else in `.gtdrc` (innermost
@@ -572,7 +570,7 @@ alongside every other config-shape finding (see
 already strings.
 
 ```yaml
-# .gtdrc — overriding the `simple` template's testCommand
+# .gtdrc — overriding the unified template's testCommand
 vars:
   testCommand: npm run test:ci
 ```
@@ -664,14 +662,16 @@ gtd ships **no** default workflow, so a repo must scaffold one before any state
 command works:
 
 ```bash
-gtd init simple      # or: gtd init advanced
+gtd init      # takes no argument
 ```
 
-`gtd init <workflow>` writes a `.gtdrc.json` at the repository root with the
-chosen bundled template's workflow under a `workflow:` key, plus a `$schema`
-link (so editors pick up completion/validation). Each **agent state's prompt**
-is written as a standalone Markdown file under `gtd-prompts/<state>.md` and the
-config references it via a `./gtd-prompts/<state>.md`
+`gtd init` writes a `.gtdrc.json` at the repository root with the bundled
+unified template's workflow under a `workflow:` key, plus a `$schema` link (so
+editors pick up completion/validation). It takes **no argument** — passing one
+is a usage error (`gtd init: too many arguments — init takes no argument`). Each
+**agent state's prompt** is written as a standalone Markdown file under
+`gtd-prompts/<state>.md` and the config references it via a
+`./gtd-prompts/<state>.md`
 [file reference](#content-values-inline-or-a-file-reference) — gtd inlines it at
 load time, so a prompt is editable Markdown and editing it changes the workflow
 with no config edit. Human `message:` blocks and check `script:` bodies stay
@@ -679,7 +679,7 @@ inline in the config (they are workflow mechanics, not prompts).
 
 It also seeds a top-level [`modes:`](#modes--pluggable-steering-file-modes)
 block as a ready-to-edit suggestion — a Prettier `format:` for each built-in
-steering-file mode the templates use:
+steering-file mode the template uses:
 
 ```jsonc
 "modes": {
@@ -694,16 +694,22 @@ this is the one default it suggests: a fresh repo auto-formats its steering
 files out of the box, and you edit or drop the block freely (swap Prettier for
 dprint, point at a script, or delete the key).
 
-The two templates:
+The one bundled template has three entry points into a shared review/squash tail
+(all walked through in
+[STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)):
 
-- **`simple`** — the 10-state machine walked through in
-  [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates): idle →
-  grilling ⇄ grilling-answer → building → checking ⇄ fixing (→ escalate) →
-  reviewing → await-review, resting back at idle on approval (no squash).
-- **`advanced`** — the fuller machine (two-phase Q&A planning, an architecture
-  phase, task decomposition, a per-task build queue, and a squash finale),
-  walked through at
-  [docs/examples/advanced-workflow.md](examples/advanced-workflow.md).
+- **the simple flow** — creating `.gtd/TODO.md` starts idle → grilling ⇄
+  grilling-answer → building → checking ⇄ fixing (→ escalate) → reviewing →
+  await-review.
+- **the advanced flow** — creating `.gtd/REQUIREMENTS.md` starts the fuller
+  machine: two-phase Q&A planning (product then architecture), package
+  decomposition, a per-package parallel build queue with an agentic spec-review
+  gate, then the same shared tail.
+- **`gtd review <commitish>`** — enters the shared `reviewing` state directly to
+  review a foreign branch.
+
+Both file-created flows converge on `reviewing` → `await-review`, and a full
+sign-off squashes the whole cycle into one commit.
 
 The files are written **uncommitted** — review them, then commit `.gtdrc.json`
 and `gtd-prompts/` before your first `gtd step` (an uncommitted file is a
@@ -715,7 +721,7 @@ that run with no workflow configured. A state command run before `gtd init`
 fails with:
 
 ```
-gtd: no workflow configured — run `gtd init <simple|advanced>` to create .gtdrc.json
+gtd: no workflow configured — run `gtd init` to create .gtdrc.json
 ```
 
 ## A complete example
@@ -778,19 +784,22 @@ the file.
 
 ## Recipe: a per-task builder loop without a script state
 
-A `picking`-style queue arbiter (see
-[docs/examples/advanced-workflow.md](examples/advanced-workflow.md)) is a
-`script` state that turns a task-queue glob into a diff patterns can see. A
-driver that can't run scripts can get the same per-task loop out of pure
-prompt/`on` declarations instead, at the cost of trusting the agent to honor a
-marker protocol rather than a deterministic `ls`: see
+A `picking`-style queue arbiter (the bundled unified template's advanced flow
+carries one — see
+[STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)) is a `script`
+state that turns a task-queue glob into a diff patterns can see. A driver that
+can't run scripts can get the same per-task loop out of pure prompt/`on`
+declarations instead, at the cost of trusting the agent to honor a marker
+protocol rather than a deterministic `ls`: see
 [docs/design/work-packages.md §3](design/work-packages.md) ("Option B —
 agent-encoded verdict") for the worked example.
 
 ## A fuller example: two-phase planning, task decomposition, agent-prepared review
 
-The example above is deliberately small (it is close to the `simple` template).
-For a heavier machine — Q&A planning loops, an architecture phase, task
-decomposition, the deterministic per-task `picking` arbiter, and agent-prepared
-`.gtd/REVIEW.md` review — run `gtd init advanced`, walked through at
-[docs/examples/advanced-workflow.md](examples/advanced-workflow.md).
+The example above is deliberately small (it is close to the bundled unified
+template's simple flow). For a heavier machine — Q&A planning loops, an
+architecture phase, task decomposition, the deterministic per-task `picking`
+arbiter, and agent-prepared `.gtd/REVIEW.md` review — the unified template's
+**advanced flow** (started by creating `.gtd/REQUIREMENTS.md`) is exactly that,
+walked through in
+[STATES.md §10](../STATES.md#10-the-bundled-workflow-templates).

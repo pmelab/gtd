@@ -14,7 +14,7 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
 
   Background:
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And I mark the current commit as "base"
 
   Scenario: happy path — a colleague's PR branch reviewed from its shared base, resting at reviewing
@@ -29,7 +29,7 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
     And the last commit body contains the hash of "base"
     When I run gtd next
     Then it succeeds
-    And stdout contains "## Full cycle diff"
+    And stdout contains "## Full diff under review"
     And stdout contains "src/calc.ts"
     And stdout contains "add = (a: number, b: number)"
 

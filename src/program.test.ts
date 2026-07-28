@@ -52,7 +52,7 @@ const failingGitLayer = Layer.succeed(GitService, {
 // Minimal stub ConfigService — satisfies the type but never loaded for flags.
 const stubConfigLayer = Layer.succeed(ConfigService, {
   load: Effect.succeed({
-    workflow: compileTemplate("simple").definition,
+    workflow: compileTemplate().definition,
     workflowVars: {},
     rcVars: {},
   }),
@@ -115,7 +115,7 @@ describe("--help short-circuit", () => {
     const { output, exit } = await runFlag("--help")
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(output).toContain("Usage")
-    expect(output).toContain("init <workflow>")
+    expect(output).toContain("init ")
     expect(output).toContain("step")
     expect(output).toContain("step <actor>")
     expect(output).toContain("next")
@@ -355,12 +355,12 @@ describe("gtd review <commitish> — subcommand guards", () => {
     }
   })
 
-  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the simple template's review-entry state (reviewing)", async () => {
+  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the unified template's review-entry state (reviewing)", async () => {
     const repo = seededRepo()
-    // gtd ships no default workflow: scaffold the `simple` template (whose
+    // gtd ships no default workflow: scaffold the unified template (whose
     // `reviewing` state declares `reviewEntry: true`) and commit it, exactly as
-    // `gtd init simple` + a commit would.
-    repo.writeFile(".gtdrc.json", renderInitConfig("simple"))
+    // `gtd init` + a commit would.
+    repo.writeFile(".gtdrc.json", renderInitConfig())
     repo.commitAllWithPrefix("chore: init gtd workflow")
     const base = repo.commitHistory().at(-1)!.hash
     // A colleague's PR branch: ordinary commits on top of the base, no gtd

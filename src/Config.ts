@@ -10,7 +10,7 @@ import { ArrayFormatter, ParseError } from "effect/ParseResult"
 import { ConfigSchema, type DecodedConfig } from "./ConfigSchema.js"
 
 export interface ConfigOperations {
-  /** The active workflow definition — the `.gtdrc` `workflow:` key compiled through `compileWorkflowConfig`. gtd ships no default: a repo scaffolds one with `gtd init <simple|advanced>`, and config with no `workflow:` key fails (see `toOperations`). */
+  /** The active workflow definition — the `.gtdrc` `workflow:` key compiled through `compileWorkflowConfig`. gtd ships no default: a repo scaffolds one with `gtd init`, and config with no `workflow:` key fails (see `toOperations`). */
   readonly workflow: WorkflowDefinition
   /** The active workflow's own declared `vars:` defaults (layer 1 of the merged `it.vars` — see `src/Edge.ts`'s `resolveVars`). */
   readonly workflowVars: Record<string, string>
@@ -203,7 +203,7 @@ const compileRcVars = (raw: unknown): Record<string, string> => {
  * `gtd init`. Exported so the CLI layer and tests can assert on it verbatim.
  */
 export const NO_WORKFLOW_MESSAGE =
-  "gtd: no workflow configured — run `gtd init <simple|advanced>` to create .gtdrc.json"
+  "gtd: no workflow configured — run `gtd init` to create .gtdrc.json"
 
 /**
  * Compile the decoded config's `workflow:` key plus its top-level

@@ -25,20 +25,19 @@ exists.
 
 ## Golden rule: start from a bundled template, edit incrementally
 
-Do **not** write a workflow from a blank page. gtd ships two known-good
-templates. Scaffold one and edit it:
+Do **not** write a workflow from a blank page. gtd ships one known-good
+template. Scaffold it and edit it:
 
 ```bash
-gtd init simple      # 10 states: plan → build → check/fix → review, no squash
-gtd init advanced    # fuller: two-phase planning, task decomposition, squash finale
+gtd init      # the unified template: two file-keyed entry points (simple /
+              # advanced) into one shared review + squash-finale tail
 ```
 
-`gtd init` writes the chosen template inline under the `workflow:` key of a new
+`gtd init` writes the template inline under the `workflow:` key of a new
 `.gtdrc.json` (it refuses if a config already exists). If a `.gtdrc` is already
 present, read its `workflow:` and edit in place instead. When in doubt about a
-construct, read the bundled sources for a working example:
-`src/workflows/simple.yaml` and `src/workflows/advanced.yaml` (heavily
-commented), and `docs/examples/advanced-workflow.md`.
+construct, read the bundled source for a working example:
+`src/workflows/unified.yaml` (heavily commented).
 
 Make one small change, **verify it compiles** (see "Verify" below), then make
 the next. A workflow that fails to compile breaks every `gtd` state command in
@@ -156,7 +155,7 @@ At `gtd step <actor>`, the engine decides:
 An `on` value may be `{ to: <target>, describe: <sentence> }`. `describe` is
 **inert to the engine** (not matched, not rendered) — it exists so a `message:`
 template can list "what each change does next" from `it.edges`, the same routing
-the engine uses. See the human gates in `simple.yaml` for the pattern.
+the engine uses. See the human gates in `unified.yaml` for the pattern.
 
 ## Templates: content is Eta, `on` keys are NOT
 
@@ -219,8 +218,8 @@ well-formed files. It is a no-op when the file is absent.
   the initial state and on commit states.
 - **Squash finale** — a `commit:` state ends the process by squashing the whole
   cycle into one commit using its rendered template as the message (see
-  `advanced.yaml`'s `squashing` → `done`). `simple` has none: it leaves the
-  per-step commits in history for the human to squash however they like.
+  `unified.yaml`'s `squashing` → `done`, reached on a full review sign-off). A
+  workflow can omit it and leave the per-step commits in history instead.
 
 ## Variables
 
@@ -282,7 +281,7 @@ is user-facing.
 
 ## Worked example: add an approval gate before building
 
-Insert a human sign-off between planning and building in the `simple` template.
+Insert a human sign-off between planning and building in the unified template.
 Add a state and re-route the edge into it:
 
 ```yaml

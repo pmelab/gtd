@@ -115,17 +115,8 @@ describe("renderMermaid", () => {
     expect(renderMermaid(quoted)).toContain("idle --> idle : A 'weird'.md")
   })
 
-  it("renders the bundled simple template without throwing, covering every state", () => {
-    const def = compileTemplate("simple").definition
-    const out = renderMermaid(def)
-    for (const name of Object.keys(def.states)) {
-      expect(out).toContain(`"${name}"`)
-    }
-    expect(out).toContain("[*] -->")
-  })
-
-  it("renders the bundled advanced template without throwing, covering every state", () => {
-    const def = compileTemplate("advanced").definition
+  it("renders the bundled unified template without throwing, covering every state", () => {
+    const def = compileTemplate().definition
     const out = renderMermaid(def)
     for (const name of Object.keys(def.states)) {
       expect(out).toContain(`"${name}"`)

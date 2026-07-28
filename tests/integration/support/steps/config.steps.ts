@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process"
 import { writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
-import { isWorkflowTemplateName, renderInitConfig } from "../../../../src/workflows/templates.js"
+import { renderInitConfig } from "../../../../src/workflows/templates.js"
 import { createTestProjectUnderConfiguredAncestor } from "../../helpers/project-setup.js"
 
 // A test project whose PARENT directory already carries a `.gtdrc.json` —
@@ -52,17 +52,14 @@ Given(
   },
 )
 
-// Scaffolds one of the bundled workflow templates into `.gtdrc.json` and
-// commits it — exactly what `gtd init <name>` writes (via the same
-// `renderInitConfig`), minus the "leave it uncommitted" part: committing keeps
-// the working tree clean so the machine starts at the template's initial
-// state. gtd ships no default workflow, so a scenario exercising a bundled
-// workflow's shape names it here rather than relying on any fallback.
-Given("the {string} workflow", (world: GtdWorld, name: string) => {
-  if (!isWorkflowTemplateName(name)) {
-    throw new Error(`unknown bundled workflow template: ${name}`)
-  }
-  const content = renderInitConfig(name)
+// Scaffolds the bundled unified workflow template into `.gtdrc.json` and
+// commits it — exactly what `gtd init` writes (via the same `renderInitConfig`),
+// minus the "leave it uncommitted" part: committing keeps the working tree
+// clean so the machine starts at the template's initial state. gtd ships one
+// template and no default fallback, so a scenario exercising its shape sets it
+// up explicitly here.
+const scaffoldUnifiedWorkflow = (world: GtdWorld): void => {
+  const content = renderInitConfig()
   if (world.tier === "inmem") {
     world.repo!.writeFile(".gtdrc.json", content)
     world.repo!.commitAllWithPrefix("chore: init gtd workflow")
@@ -74,7 +71,9 @@ Given("the {string} workflow", (world: GtdWorld, name: string) => {
       stdio: "pipe",
     })
   }
-})
+}
+
+Given("the workflow", (world: GtdWorld) => scaffoldUnifiedWorkflow(world))
 
 // Sets an environment variable the in-memory tier's `EnvVars` layer exposes —
 // exactly the `GTD_VAR_`-prefixed highest-precedence layer of the merged
