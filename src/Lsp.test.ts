@@ -7,6 +7,7 @@ import {
   toggleHunkEdit,
   toggleChunkEdits,
   reviewCodeActions,
+  hunkDefinitionLocation,
   basenameFallbackMode,
   buildFileModeMap,
   modeForDocument,
@@ -180,6 +181,38 @@ describe("reviewCodeActions", () => {
       end: { line: 5, character: 0 },
     })
     expect(actions[0]?.edit?.changes?.[uri]).toBeDefined()
+  })
+})
+
+describe("hunkDefinitionLocation", () => {
+  const root = "/repo"
+
+  it("jumps to the hunk's file at its 1-based #line, mapped to a 0-based position", () => {
+    // line 6: "- [x] ./src/calc.ts#5 — subtract" → src/calc.ts at 0-based line 4
+    const location = hunkDefinitionLocation(reviewDoc, 6, root)
+    expect(location?.uri).toBe("file:///repo/src/calc.ts")
+    expect(location?.range.start).toEqual({ line: 4, character: 0 })
+    expect(location?.range.end).toEqual({ line: 4, character: 0 })
+  })
+
+  it("lands at the top of the file for a bare ./path with no #line", () => {
+    const doc = [
+      "# Review: abc1234",
+      "<!-- base: abc -->",
+      "",
+      "## C",
+      "",
+      "- [ ] ./src/bare.ts",
+    ].join("\n")
+    const location = hunkDefinitionLocation(doc, 5, root)
+    expect(location?.uri).toBe("file:///repo/src/bare.ts")
+    expect(location?.range.start).toEqual({ line: 0, character: 0 })
+  })
+
+  it("returns undefined when the line is not a hunk pointer (heading, prose, blank)", () => {
+    expect(hunkDefinitionLocation(reviewDoc, 3, root)).toBeUndefined() // "## Add calculator"
+    expect(hunkDefinitionLocation(reviewDoc, 0, root)).toBeUndefined() // "# Review: ..."
+    expect(hunkDefinitionLocation(reviewDoc, 2, root)).toBeUndefined() // blank
   })
 })
 

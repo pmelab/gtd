@@ -11,8 +11,10 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   for a CUSTOM-named `qa` file mapped via a real `.gtdrc` `file:`/`mode:`
   pair, and the `gtd.openSteeringFile` executeCommand resolving a
   hand-authored current state and asking the client to show its steering
-  file (`window/showDocument`). Real subprocess I/O (spawn + stdio JSON-RPC
-  framing), so this runs @live.
+  file (`window/showDocument`). A final scenario proves go-to-definition: a
+  `textDocument/definition` on a `.gtd/REVIEW.md` hunk pointer line returns a
+  `Location` in the referenced file at its `#line` (basename fallback). Real
+  subprocess I/O (spawn + stdio JSON-RPC framing), so this runs @live.
 
   Scenario: the initialize handshake succeeds and advertises symbol/code-action support
     Given a test project
@@ -106,3 +108,22 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     When the LSP client sends a workspace/executeCommand request for "gtd.openSteeringFile"
     Then the LSP response has no error
     And the LSP client received a window/showDocument request for ".gtd/PLAN.md"
+
+  Scenario: initialize advertises definition support and a definition on a hunk line jumps into the file
+    Given a test project
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    And the LSP response result has a "definitionProvider" capability
+    When the LSP client requests a definition at line 6 in ".gtd/REVIEW.md" containing:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add calculator
+
+      - [ ] ./src/calc.ts#1
+      - [x] ./src/calc.ts#5 — subtract
+      """
+    Then the LSP response has no error
+    And the LSP response result points to "src/calc.ts" at line 4

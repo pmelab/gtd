@@ -164,6 +164,41 @@ When(
 )
 
 When(
+  "the LSP client requests a definition at line {int} in {string} containing:",
+  async (world: GtdWorld, line: number, path: string, content: string) => {
+    const client = clients.get(world)!
+    const uri = pathToFileURL(join(world.repoDir, path)).toString()
+    notify(client, "textDocument/didOpen", {
+      textDocument: { uri, languageId: "markdown", version: 1, text: content },
+    })
+    const response = await request(client, "textDocument/definition", {
+      textDocument: { uri },
+      position: { line, character: 0 },
+    })
+    ;(world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse = response
+  },
+)
+
+Then(
+  "the LSP response result points to {string} at line {int}",
+  (world: GtdWorld, path: string, line: number) => {
+    const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+    const result = response.result as
+      | { uri: string; range: { start: { line: number } } }
+      | ReadonlyArray<{ uri: string; range: { start: { line: number } } }>
+    const location = Array.isArray(result) ? result[0] : result
+    assert.ok(location, `Expected a definition Location, got: ${JSON.stringify(response.result)}`)
+    // The server anchors on the git toplevel (symlink-resolved on macOS), so
+    // match the trailing path rather than the exact temp-dir prefix.
+    assert.ok(
+      location.uri.endsWith(`/${path}`),
+      `Expected a Location ending in "/${path}", got: ${location.uri}`,
+    )
+    assert.strictEqual(location.range.start.line, line)
+  },
+)
+
+When(
   "the LSP client sends a workspace\\/executeCommand request for {string}",
   async (world: GtdWorld, command: string) => {
     const client = clients.get(world)!
