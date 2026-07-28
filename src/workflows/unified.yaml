@@ -346,11 +346,16 @@ states:
       # MEANS (another package to build vs. the queue closing out to review) is
       # decided by this state's own `on` rules at capture time — never here.
       set +e
+      # Hoist the NEXT path once, at the TOP: Eta's autoTrim eats the newline
+      # after an interpolation tag, so no tag may be the last token on a line —
+      # it would glue the next line's `else`/`fi` onto it and break the script.
+      # Below this point everything is plain bash.
+      nextFile="<%~ it.vars.nextFile %>"
       next=$(ls <%~ it.vars.packagesDir %>/*.md 2>/dev/null | head -n 1)
       if [ -n "$next" ]; then
-        printf '%s' "$next" > <%~ it.vars.nextFile %>
+        printf '%s' "$next" > "$nextFile"
       else
-        rm -f <%~ it.vars.nextFile %>
+        rm -f "$nextFile"
       fi
     on:
       "D .gtd/NEXT.md": reviewing
@@ -390,18 +395,23 @@ states:
       # green run cleans it up. The `on` rules decide what that means.
       set +e
       mkdir -p .gtd
+      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
+      # newline after an interpolation tag, so no tag may be the last token on
+      # a line — it would glue the next line's `else`/`fi` onto it and break
+      # the script. Below this point everything is plain bash.
+      feedback="<%~ it.vars.feedbackFile %>"
       <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
         if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output <%~ it.vars.feedbackFile %>
+          mv .gtd/.check-output "$feedback"
         else
           rm -f .gtd/.check-output
-          printf 'the test command failed with exit code %s and produced no output.' "$code" > <%~ it.vars.feedbackFile %>
+          printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
       else
         rm -f .gtd/.check-output
-        rm -f <%~ it.vars.feedbackFile %>
+        rm -f "$feedback"
       fi
     on:
       "A .gtd/FEEDBACK.md": adv-fixing
@@ -541,18 +551,23 @@ states:
       # green run cleans it up. The `on` rules decide what that means.
       set +e
       mkdir -p .gtd
+      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
+      # newline after an interpolation tag, so no tag may be the last token on
+      # a line — it would glue the next line's `else`/`fi` onto it and break
+      # the script. Below this point everything is plain bash.
+      feedback="<%~ it.vars.feedbackFile %>"
       <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
         if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output <%~ it.vars.feedbackFile %>
+          mv .gtd/.check-output "$feedback"
         else
           rm -f .gtd/.check-output
-          printf 'the test command failed with exit code %s and produced no output.' "$code" > <%~ it.vars.feedbackFile %>
+          printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
       else
         rm -f .gtd/.check-output
-        rm -f <%~ it.vars.feedbackFile %>
+        rm -f "$feedback"
       fi
     on:
       "A .gtd/FEEDBACK.md": fixing
@@ -701,14 +716,20 @@ states:
       # feedback, not mistaken for a sign-off.
       set +e
       mkdir -p .gtd
-      if grep -qE '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' <%~ it.vars.reviewFile %> 2>/dev/null; then
+      # Hoist the review paths once, at the TOP: Eta's autoTrim eats the
+      # newline after an interpolation tag, so no tag may be the last token on a
+      # line — it would glue the next line onto it and break the script. Below
+      # this point everything is plain bash.
+      reviewFile="<%~ it.vars.reviewFile %>"
+      reviewFeedbackFile="<%~ it.vars.reviewFeedbackFile %>"
+      if grep -qE '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' "$reviewFile" 2>/dev/null; then
         {
           echo "Feedback from review — address these before continuing:"
           echo
-          grep -E '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' <%~ it.vars.reviewFile %>
-        } > <%~ it.vars.reviewFeedbackFile %>
+          grep -E '^[[:space:]]*-[[:space:]]*\[[[:space:]]*\]' "$reviewFile"
+        } > "$reviewFeedbackFile"
       fi
-      rm -f <%~ it.vars.reviewFile %>
+      rm -f "$reviewFile"
     on:
       "A .gtd/REVIEW_FEEDBACK.md": feedback-building
       "M .gtd/REVIEW_FEEDBACK.md": feedback-building
