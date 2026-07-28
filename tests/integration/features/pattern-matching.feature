@@ -37,7 +37,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): added"
+    And the last commit subject is "gtd(human): start → added"
 
   Scenario: an "M" pattern matches only a modified path
     Given a test project
@@ -73,7 +73,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): modified"
+    And the last commit subject is "gtd(human): start → modified"
 
   Scenario: a "D" pattern matches only a deleted path
     Given a test project
@@ -106,7 +106,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     And the file "NOTE.md" is deleted
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): deleted"
+    And the last commit subject is "gtd(human): start → deleted"
 
   Scenario: a "*" status pattern matches any change kind
     Given a test project
@@ -130,7 +130,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): any-change"
+    And the last commit subject is "gtd(human): start → any-change"
 
   Scenario: a single-segment glob does not cross a path separator
     Given a test project
@@ -179,7 +179,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): deep"
+    And the last commit subject is "gtd(human): start → deep"
 
   Scenario: the first matching pattern in declaration order wins
     Given a test project
@@ -207,7 +207,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): first-match"
+    And the last commit subject is "gtd(human): start → first-match"
 
   Scenario: the bare "C" token matches only a clean tree
     Given a test project
@@ -227,7 +227,7 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): settled"
+    And the last commit subject is "gtd(human): start → settled"
 
   Scenario: a clean tree with no declared "C" event is a silent no-op
     Given a test project

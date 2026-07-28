@@ -44,7 +44,7 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
     When I run gtd step agent with "--cost=1450"
     Then it succeeds
-    And the last commit subject is "gtd(agent): reviewing"
+    And the last commit subject is "gtd(agent): building → reviewing"
     And the last commit body contains "Gtd-Cost: 1450"
 
   Scenario: gtd step --json echoes the recorded cost
@@ -75,7 +75,7 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
     When I run gtd step agent with "--cost=1450" and "--json"
     Then it succeeds
-    And stdout contains "\"subject\":\"gtd(agent): idle\""
+    And stdout contains "\"subject\":\"gtd(agent): building → idle\""
     And stdout contains "\"cost\":1450"
 
   Scenario: gtd status shows the running process cost, accumulated across turns
@@ -116,14 +116,14 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
     When I run gtd step agent with "--cost=100"
     Then it succeeds
-    And the last commit subject is "gtd(agent): reviewing"
+    And the last commit subject is "gtd(agent): building → reviewing"
     Given a file "src/b.ts" with:
       """
       export const b = 2
       """
     When I run gtd step agent with "--cost=250"
     Then it succeeds
-    And the last commit subject is "gtd(agent): polishing"
+    And the last commit subject is "gtd(agent): reviewing → polishing"
     When I run gtd status
     Then it succeeds
     And stdout contains "State: polishing"
@@ -195,7 +195,7 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
     When I run gtd step agent with "--cost=100"
     Then it succeeds
-    And the last commit subject is "gtd(agent): finishing"
+    And the last commit subject is "gtd(agent): building → finishing"
     And the last commit body contains "Gtd-Cost: 100"
     Given a file "DONE.md" with:
       """
@@ -258,7 +258,7 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
     When I run gtd step agent with "--cost=1450" and "--model=claude-opus-4-8"
     Then it succeeds
-    And the last commit subject is "gtd(agent): reviewing"
+    And the last commit subject is "gtd(agent): building → reviewing"
     And the last commit body contains "Gtd-Cost: 1450 claude-opus-4-8"
 
   Scenario: gtd step --json echoes both the recorded cost and model
@@ -384,7 +384,7 @@ Feature: Token-cost tracking — gtd step --cost/--model persists per-turn cost,
       """
     When I run gtd step agent with "--cost=100" and "--model=haiku"
     Then it succeeds
-    And the last commit subject is "gtd(agent): finishing"
+    And the last commit subject is "gtd(agent): building → finishing"
     And the last commit body contains "Gtd-Cost: 100 haiku"
     Given a file "DONE.md" with:
       """

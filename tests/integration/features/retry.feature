@@ -48,25 +48,25 @@ Feature: Retry redirection — a state's entry cap redirects at write time
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): checking"
+    And the last commit subject is "gtd(human): start → checking"
     Given a file "FEEDBACK.md" with:
       """
       test failed (attempt 1)
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): fixing"
+    And the last commit subject is "gtd(check): checking → fixing"
     Given the file "FEEDBACK.md" is deleted
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): checking"
+    And the last commit subject is "gtd(agent): fixing → checking"
     Given a file "FEEDBACK.md" with:
       """
       test failed (attempt 2)
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): escalate"
+    And the last commit subject is "gtd(check): checking → escalate"
 
   Scenario: a retry cap of 0 redirects on the very first entry attempt
     Given a test project
@@ -108,11 +108,11 @@ Feature: Retry redirection — a state's entry cap redirects at write time
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): checking"
+    And the last commit subject is "gtd(human): start → checking"
     Given a file "FEEDBACK.md" with:
       """
       test failed
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): escalate"
+    And the last commit subject is "gtd(check): checking → escalate"

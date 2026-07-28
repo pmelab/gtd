@@ -32,7 +32,7 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): grilling"
+    And the last commit subject is "gtd(human): idle → grilling"
 
     # grilling: develops the sketch into a plan (self-validated before the
     # turn ends — see validate.feature) and hands straight to grilling-answer
@@ -48,12 +48,12 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): grilling-answer"
+    And the last commit subject is "gtd(agent): grilling → grilling-answer"
 
     # grilling-answer: accept the suggested answer with a clean step
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): building"
+    And the last commit subject is "gtd(human): grilling-answer → building"
 
     # building: implements the plan directly, deletes TODO.md when done
     Given the file ".gtd/TODO.md" is deleted
@@ -63,7 +63,7 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): checking"
+    And the last commit subject is "gtd(agent): building → checking"
 
     # checking (red): a failing run leaves FEEDBACK.md, sends the cycle to fixing
     Given a file ".gtd/FEEDBACK.md" with:
@@ -72,18 +72,18 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): fixing"
+    And the last commit subject is "gtd(check): checking → fixing"
 
     # fixing: addresses the feedback, deletes it, steps back to checking
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): checking"
+    And the last commit subject is "gtd(agent): fixing → checking"
 
     # checking (green): a clean step moves on to reviewing
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): reviewing"
+    And the last commit subject is "gtd(check): checking → reviewing"
 
     # reviewing: writes REVIEW.md (self-validated before the turn ends) and
     # hands straight to await-review
@@ -120,7 +120,7 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): review-deciding"
+    And the last commit subject is "gtd(human): await-review → review-deciding"
 
     # review-deciding: extracts the unticked pointer into a fresh TODO.md,
     # removes REVIEW.md — the decider always sees both changes, and the
@@ -134,7 +134,7 @@ Feature: The bundled simple workflow — full cycle journeys
     And the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): grilling"
+    And the last commit subject is "gtd(check): review-deciding → grilling"
 
     # second lap: grilling -> grilling-answer -> building -> checking (green)
     # -> reviewing -> await-review
@@ -145,10 +145,10 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): grilling-answer"
+    And the last commit subject is "gtd(agent): grilling → grilling-answer"
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): building"
+    And the last commit subject is "gtd(human): grilling-answer → building"
     Given the file ".gtd/TODO.md" is deleted
     And a file "src/thing.ts" with:
       """
@@ -157,10 +157,10 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): checking"
+    And the last commit subject is "gtd(agent): building → checking"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): reviewing"
+    And the last commit subject is "gtd(check): checking → reviewing"
     Given a file ".gtd/REVIEW.md" with:
       """
       # Review: def5678
@@ -193,11 +193,11 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): review-deciding"
+    And the last commit subject is "gtd(human): await-review → review-deciding"
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): idle"
+    And the last commit subject is "gtd(check): review-deciding → idle"
     And the git status is clean
     And ".gtd/TODO.md" does not exist
     And ".gtd/FEEDBACK.md" does not exist
@@ -218,7 +218,7 @@ Feature: The bundled simple workflow — full cycle journeys
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): reviewing"
+    And the last commit subject is "gtd(check): checking → reviewing"
     And ".gtd/FEEDBACK.md" does not exist
 
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached
@@ -258,7 +258,7 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): escalate"
+    And the last commit subject is "gtd(check): checking → escalate"
 
   Scenario: deleting REVIEW.md outright at await-review is the power-user approve shortcut, bypassing review-deciding
     Given a test project
@@ -275,7 +275,7 @@ Feature: The bundled simple workflow — full cycle journeys
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle"
+    And the last commit subject is "gtd(human): await-review → idle"
     And ".gtd/REVIEW.md" does not exist
 
   Scenario: at await-review, gtd next surfaces which change routes where — the human gate's route list, rendered from its `on` edge descriptions
@@ -314,7 +314,7 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): grilling"
+    And the last commit subject is "gtd(human): await-review → grilling"
 
   Scenario: an approved cycle's idle-entering commit is a process boundary — a fresh cycle's fixing retry budget doesn't pool with a previous cycle's
     Given a test project
@@ -366,31 +366,31 @@ Feature: The bundled simple workflow — full cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): grilling"
+    And the last commit subject is "gtd(human): idle → grilling"
     Given ".gtd/TODO.md" is modified to:
       """
       Build a second thing. Plan: add src/thing2.ts exporting `thing2`.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): grilling-answer"
+    And the last commit subject is "gtd(agent): grilling → grilling-answer"
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): building"
+    And the last commit subject is "gtd(human): grilling-answer → building"
     Given a file "src/thing2.ts" with:
       """
       export const thing2 = 1
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): checking"
+    And the last commit subject is "gtd(agent): building → checking"
     Given a file ".gtd/FEEDBACK.md" with:
       """
       cycle 2 attempt 1 failed
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): fixing"
+    And the last commit subject is "gtd(check): checking → fixing"
 
   Scenario: the bundled default's four agent states emit their memory scope labels
     # The scope labels are what lets a memory-aware driver retain memory within

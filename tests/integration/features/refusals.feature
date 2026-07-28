@@ -45,7 +45,7 @@ Feature: Refusals — out-of-turn and no-match steps commit nothing
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): working"
+    And the last commit subject is "gtd(human): idle → working"
     Given I record the commit count
     And a file "scratch.txt" with:
       """

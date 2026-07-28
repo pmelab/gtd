@@ -75,8 +75,8 @@
 # state) still exists as an ENGINE capability (see STATES.md §8) and is kept
 # as part of the fuller machine at docs/examples/advanced-workflow.md.
 #
-# A `gtd(<actor>): idle` commit — entering the workflow's own initial state —
-# is therefore a PROCESS BOUNDARY (see `computeProcessRun` in src/Edge.ts):
+# A `gtd(<actor>): <from> → idle` commit — entering the workflow's own initial
+# state — is therefore a PROCESS BOUNDARY (see `computeProcessRun` in src/Edge.ts):
 # the next cycle's `retry` counts, `startCommit`, and diffs never reach back
 # across an approved cycle's own idle-entering commit.
 #

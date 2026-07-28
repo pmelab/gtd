@@ -116,7 +116,7 @@ to `--json`.
 Plain-mode output is one line:
 
 ```
-committed: gtd(human): grilling
+committed: gtd(human): idle → grilling
 ```
 
 or, at a no-op:
@@ -131,8 +131,8 @@ not passed):
 
 ```json
 {
-  "state": "grilling",
-  "subject": "gtd(human): grilling",
+  "state": "idle",
+  "subject": "gtd(human): idle → grilling",
   "cost": 1450,
   "model": "claude-opus-4-8"
 }

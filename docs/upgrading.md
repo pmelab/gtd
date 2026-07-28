@@ -11,15 +11,15 @@ ordered map of change-patterns to next states.
 
 **All pre-v3 history is unrecognized and resolves to the initial state, by
 design — v1 and v2 subjects alike.** v3's `resolveState`
-(`src/PatternMachine.ts`) only recognizes its own `gtd(<actor>): <state>`
-subject naming a state and an actor the active workflow currently declares;
-everything else — a v1 `gtd: grilling`, a v2 `gtd(agent): building`, a plain
-`chore: …` commit, anything from a foreign repo — parses as unrecognized and
-lands at the workflow's initial state (`idle` in the `simple` template). There
-is no special-casing for "this looks like an old gtd commit": the mechanism is
-exactly the same one that already made v1 history inert to v2, and v2 history
-inert to a differently-configured workflow — v3 just applies it uniformly to all
-prior history instead of drawing a v1/v2 line.
+(`src/PatternMachine.ts`) only recognizes its own `gtd(<actor>): <from> → <to>`
+subject (or the bare `gtd(<actor>): <to>`) naming a state and an actor the
+active workflow currently declares; everything else — a v1 `gtd: grilling`, a v2
+`gtd(agent): building`, a plain `chore: …` commit, anything from a foreign repo
+— parses as unrecognized and lands at the workflow's initial state (`idle` in
+the `simple` template). There is no special-casing for "this looks like an old
+gtd commit": the mechanism is exactly the same one that already made v1 history
+inert to v2, and v2 history inert to a differently-configured workflow — v3 just
+applies it uniformly to all prior history instead of drawing a v1/v2 line.
 
 **Finish or squash any in-flight cycle first.** A repo mid-cycle on v1 or v2 has
 no v3-shaped commit backing its steering files; upgrading mid-cycle lands cold

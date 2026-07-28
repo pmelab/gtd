@@ -66,7 +66,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     And the file ".gtd/REVIEW.md" is deleted
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle"
+    And the last commit subject is "gtd(human): await-review → idle"
     And the git ref "refs/gtd/review-head" does not exist
     And the git ref "refs/gtd/review-base" does not exist
     And ".gtd/REVIEW.md" does not exist
@@ -81,7 +81,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     When I run gtd step human
     Then it succeeds
     # A code edit with REVIEW.md untouched is feedback straight to grilling.
-    And the last commit subject is "gtd(human): grilling"
+    And the last commit subject is "gtd(human): await-review → grilling"
     And the git ref "refs/gtd/review-head" does not exist
 
   Scenario: Read-only commands re-arm the window on their way out

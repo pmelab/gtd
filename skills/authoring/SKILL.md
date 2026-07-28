@@ -88,8 +88,9 @@ states:
 
 `actor` is a **plain string** — no closed vocabulary. `gtd step <actor>`
 authenticates against it, and it becomes the commit subject
-`gtd(<actor>): <state>`. Common actors: `human`, `agent`, `check`. Invent your
-own freely; the set of valid actors is derived from what your states declare.
+`gtd(<actor>): <from> → <to>`. Common actors: `human`, `agent`, `check`. Invent
+your own freely; the set of valid actors is derived from what your states
+declare.
 
 ### Content kinds — exactly one per state
 
@@ -138,7 +139,8 @@ on:
 At `gtd step <actor>`, the engine decides:
 
 - **Commit** — a pattern fired: everything pending is committed as
-  `gtd(<actor>): <target>` and the machine advances.
+  `gtd(<actor>): <from> → <target>` (the state stepped from, then the matched
+  target) and the machine advances.
 - **No-op** — clean tree AND no `C` row: zero commits, exit 0. This is the
   **default and it is deliberate** — the loop opens each iteration with a step
   before the actor has acted, so a clean step must author nothing unless you
