@@ -20,8 +20,9 @@
 #
 #   * .gtd/REQUIREMENTS.md -> the ADVANCED flow (product + technical Q&A,
 #     package decomposition, per-package parallel build + agentic spec-review).
-#   * anything else (e.g. .gtd/TODO.md) -> the SIMPLE flow (one grilling Q&A
-#     loop, a monolithic build, no decomposition, no agentic review).
+#   * anything else (e.g. .gtd/TODO.md) -> the SIMPLE flow (a plan-iteration
+#     loop — the agent presents a plan, the human accepts or edits it, no
+#     Q&A — a monolithic build, no decomposition, no agentic review).
 #
 # A third entry, `gtd review <commitish>`, jumps straight to `reviewing`
 # (reviewEntry) to review a foreign branch through the same shared tail.
@@ -109,17 +110,16 @@ states:
           Q&A, decomposes the work into packages, and builds each in parallel
           (**adv-grilling**).
       "* **":
-        to: grilling
+        to: planning
         describe: >-
           Save a short sketch to `.gtd/TODO.md` (or any other change) to start
           the SIMPLE flow — the agent reads it, explores the codebase, and
-          develops it into a concrete implementation plan (**grilling**).
+          develops it into a concrete implementation plan (**planning**).
 
-  # ── Simple flow: one Q&A loop, monolithic build ───────────────────────────
-  grilling:
+  # ── Simple flow: plan-iteration loop, monolithic build ────────────────────
+  planning:
     actor: agent
     file: <%= it.vars.todoFile %>
-    mode: qa
     model: <%= it.vars.plannerModel %>
     memory: plan
     prompt: |
@@ -127,39 +127,36 @@ states:
       state — never create, edit, or delete anything under `.gtd/` except
       `<%= it.vars.todoFile %>`, which this prompt tells you to develop.
 
-      `<%= it.vars.todoFile %>` holds a short sketch of what to build (or
-      feedback from a prior review lap). Read it, explore the codebase, and
-      develop it into a concrete implementation plan.
+      `<%= it.vars.todoFile %>` holds a short sketch of what to build — or, on a
+      return lap, the plan you already wrote plus the human's edits and comments
+      on it. Read it, explore the codebase, and develop it into a concrete
+      implementation plan: the files to change, the approach, and the steps to
+      take.
 
-      For every question you cannot settle yourself, add it under a
-      `## Open Questions` heading near the top, one `### <question>`
-      sub-heading each, its body your suggested answer in plain prose (always
-      suggest one — the human accepts it by leaving it untouched, or overrides
-      it by editing it). Omit the section entirely once there are none.
+      Do NOT ask questions and do NOT add an "Open Questions" section — decide
+      every open point yourself and write the plan as a set of concrete
+      decisions. Where a decision is genuinely a judgement call, state the
+      choice you made and, in one line, why. The human iterates on the plan by
+      editing it directly, not by answering questions.
 
-      If `<%= it.vars.todoFile %>` already carries a `## Open Questions`
-      section from a previous lap, the human has now responded to that whole
-      batch: fold every one of those questions into the plan — the human's edit
-      where they gave one, your own suggestion where they left it untouched (an
-      untouched suggestion IS acceptance) — and MOVE each resolved
-      `### <question>` block down into a `## Answered Questions` section at the
-      bottom. Raise any genuinely new questions under `## Open Questions`.
+      On a return lap, `<%= it.vars.todoFile %>` carries the human's edits and
+      inline comments on your previous plan. Fold every edit and comment into a
+      revised, self-contained plan and remove the addressed comments — the plan
+      is always the current, clean proposal, never a diff.
 
       Leave `<%= it.vars.todoFile %>` uncommitted and finish your turn — do
       not commit, and do not run `gtd step agent` yourself; the harness does
       that.
     on:
-      "* **": grilling-answer
+      "* **": plan-review
 
-  grilling-answer:
+  plan-review:
     actor: human
     file: <%= it.vars.todoFile %>
-    mode: qa
     message: |
-      `<%= it.vars.todoFile %>` holds the plan under development, with any
-      open questions under `## Open Questions` — each carrying a suggested
-      answer. Answer a question by editing its body in place; leave a
-      suggestion untouched to accept it.
+      `<%= it.vars.todoFile %>` holds the proposed implementation plan. Read it,
+      then either accept it as-is or edit it — rewrite a step, add a
+      constraint, or drop an inline comment — to send it back for another round.
 
       What each change does next (then run `gtd step human`):
       <% it.edges.forEach(function (e) { if (e.describe) { %>
@@ -169,18 +166,17 @@ states:
       "C":
         to: building
         describe: >-
-          Change nothing to accept every suggested answer as-is and move on to
-          implementation (**building**).
+          Change nothing to accept the plan as-is and move on to implementation
+          (**building**).
       "* **":
-        to: grilling
+        to: planning
         describe: >-
-          Edit the plan — answer a question, add detail, or raise a new one — to
-          send it back for another round of grilling (**grilling**).
+          Edit the plan — rewrite a step, add a constraint, or leave an inline
+          comment — to send it back for another round (**planning**).
 
   building:
     actor: agent
     file: <%= it.vars.todoFile %>
-    mode: qa
     model: <%= it.vars.coderModel %>
     memory: build
     prompt: |

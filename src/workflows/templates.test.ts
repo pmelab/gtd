@@ -51,7 +51,7 @@ describe("the bundled unified workflow template", () => {
     const idle = definition.states.idle!
     const targets = (idle.on ?? []).map(([, to]) => to)
     expect(targets).toContain("adv-grilling")
-    expect(targets).toContain("grilling")
+    expect(targets).toContain("planning")
   })
 
   it("renders a valid .gtdrc.json with the $schema key first", () => {

@@ -1,8 +1,11 @@
 /**
- * Pure parser/validator for the "open questions" structure `.gtd/TODO.md`
- * follows in the `simple` template's `grilling`/`grilling-answer` loop (see
+ * Pure parser/validator for the "open questions" structure the ADVANCED flow's
+ * steering files (`.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md`) follow in the
+ * unified template's `adv-grilling`/`architecting` Q&A loops (see
  * `src/workflows/unified.yaml` and `docs/design/steering-file-loops.md` §1) —
- * and for any custom workflow that reuses the same file/format.
+ * and for any custom workflow that reuses the same file/format. (The SIMPLE
+ * flow's `.gtd/TODO.md` plan loop no longer uses this format — it iterates on a
+ * plan directly, with no `qa` mode.)
  *
  * Format: free-form prose, plus an OPTIONAL `## Open Questions` section (near
  * the top) and an OPTIONAL `## Answered Questions` section (at the bottom).
@@ -16,7 +19,7 @@
  *
  * A question is answered/accepted by MOVING its `###` block from
  * `## Open Questions` down into `## Answered Questions` — the agent does this on
- * the next `grilling` lap (a human leaving a suggestion untouched IS acceptance;
+ * the next `adv-grilling`/`architecting` lap (a human leaving a suggestion untouched IS acceptance;
  * an edit IS the answer — either way the whole batch resolves). Nothing here
  * enforces the move or the section order; that is the producing agent's prompt
  * contract, and this parser only reports the resulting status.
@@ -35,7 +38,7 @@
  *
  * No git, no filesystem, no Effect — trivially unit-testable and safe to call
  * from both the LSP's protocol edge (`src/Lsp.ts`) and any other IO layer that
- * wants to read/validate `.gtd/TODO.md`.
+ * wants to read/validate a `qa`-mode steering file.
  */
 
 export type OpenQuestionStatus = "open" | "answered"

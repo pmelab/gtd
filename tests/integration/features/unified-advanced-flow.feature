@@ -33,7 +33,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → grilling"
+    And the last commit subject is "gtd(human): idle → planning"
 
   Scenario: the advanced flow runs product + technical Q&A, decomposes into a package, builds it, fails and passes the spec-review gate, then closes out to review
     Given a test project

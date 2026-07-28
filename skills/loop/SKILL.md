@@ -34,8 +34,8 @@ by hand first. So:
 2. **Only if** that peek reports `"kind":"message"` (the machine rests at a
    human gate), run `gtd step human` to commit whatever the human left pending,
    then continue into the loop below from the resulting state. A clean gate is a
-   harmless no-op; a human edit is captured as their turn (e.g. accepting a
-   plan's suggested answers with no edit advances past `grilling-answer`).
+   harmless no-op; a human edit is captured as their turn (e.g. accepting a plan
+   with no edit advances past `plan-review`).
 3. If the peek reports any other `kind`, do **not** step human — the machine is
    mid-cycle at an agent/check rest (a restart after a crash, say), where
    `gtd step human` would refuse out-of-turn. Just enter the loop and resume
@@ -97,7 +97,7 @@ is a comparison, not a command:
   session/context), then update the tracked value.
 
 This is what makes a loop retain memory while a phase boundary clears it: a loop
-that keeps re-entering one state (the unified workflow's grilling loop, or its
+that keeps re-entering one state (the unified workflow's planning loop, or its
 fix loop) emits the same label every lap, so the agent accumulates context
 across the loop; moving to the next phase's differently-labelled state resets
 it. If your harness runs the whole loop in one long-lived context and cannot
@@ -108,10 +108,10 @@ prior turn's working notes rather than carry them forward. A beat with no
 ## Self-validation
 
 Some producing states declare a steering file with a checkable format (the
-unified workflow's `grilling` writes `.gtd/TODO.md`, `reviewing` writes
-`.gtd/REVIEW.md`). Those states appear in `gtd next --json` with both a `"file"`
-and a `"mode"` key. So the human/check rest that acts on such a file is only
-ever handed a well-formed one, run the self-validation gate after every
+unified workflow's `adv-grilling` writes `.gtd/REQUIREMENTS.md`, `reviewing`
+writes `.gtd/REVIEW.md`). Those states appear in `gtd next --json` with both a
+`"file"` and a `"mode"` key. So the human/check rest that acts on such a file is
+only ever handed a well-formed one, run the self-validation gate after every
 `"prompt"` turn, before `gtd step <actor>`:
 
 1. Run `gtd validate`. It **formats** the resolved state's `file:` in place (if

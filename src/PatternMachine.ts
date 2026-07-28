@@ -95,7 +95,7 @@ export interface StateDef {
    * value belong to the same memory scope (the driver retains memory across
    * them), and a change in value — or the first agent turn — is where the
    * driver starts fresh. This makes a loop that keeps re-entering one state
-   * (e.g. a grilling or fix loop) retain memory across its laps, while a phase
+   * (e.g. a planning or fix loop) retain memory across its laps, while a phase
    * boundary that moves to a differently-labelled state clears it. Unset means
    * "use the harness's default". Rendered as an Eta template through the same
    * `it.vars`-carrying context as `model`/content (a plain string with no Eta

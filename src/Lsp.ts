@@ -29,8 +29,11 @@
  * declaring state wins a path conflict, logged as a warning. Config is
  * (re)loaded lazily, fresh per request (no watcher, no cache — v1). A path
  * this map doesn't cover (or no config at all) falls back to today's basename
- * dispatch (`TODO.md` → `qa`, `REVIEW.md` → `review`), so the server still
- * works standalone with no `.gtdrc` in sight.
+ * dispatch (`REVIEW.md` → `review`), so the server still works standalone with
+ * no `.gtdrc` in sight. (`.gtd/TODO.md` is NOT dispatched by basename — the
+ * bundled template's simple flow iterates on a free-form plan there, not a
+ * `qa`-format file; a custom workflow that wants qa validation on TODO.md
+ * declares it with `file:`+`mode: qa`, which the config-driven map covers.)
  *
  * KNOWN LIMITATION — this server understands only the two BUILT-IN modes
  * (`qa`/`review`, whose parsers it owns). A workflow-declared mode (a `modes:`
@@ -313,9 +316,8 @@ export const hunkDefinitionLocation = (
 
 // ── Config-driven path→mode dispatch (pure) ─────────────────────────────────
 
-/** The basename dispatch this server has always had — the fallback for any path the active workflow's `file:` map doesn't cover (or when no config resolves at all). */
+/** The basename dispatch this server has always had — the fallback for any path the active workflow's `file:` map doesn't cover (or when no config resolves at all). `TODO.md` is intentionally NOT mapped: the bundled template's simple flow now iterates on a free-form plan there, not a `qa`-format file. */
 export const basenameFallbackMode = (name: string): StateMode | undefined => {
-  if (name === "TODO.md") return "qa"
   if (name === "REVIEW.md") return "review"
   return undefined
 }

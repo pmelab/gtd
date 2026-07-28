@@ -105,9 +105,9 @@ The unified workflow has **two entry points into one shared tail**, chosen by
 which steering file you create:
 
 - Create **`.gtd/TODO.md`** with a short sketch to start the **simple** flow: an
-  agent develops your sketch into a plan — asking any open question it can't
-  settle itself via a deterministic `.gtd/TODO.md` format, validated before it
-  ever reaches you — you answer inline, then it builds the plan in one turn and
+  agent develops your sketch into a concrete plan — deciding open points itself
+  rather than asking questions — and hands it back for you to accept as-is or
+  edit. Editing sends it round again; accepting builds the plan in one turn and
   runs your tests (looping on failures).
 - Create **`.gtd/REQUIREMENTS.md`** to start the **advanced** flow: two-phase
   product then technical Q&A (`.gtd/REQUIREMENTS.md` → `.gtd/ARCHITECTURE.md`),
@@ -159,8 +159,8 @@ at (at its `#line`), symbols over a `qa`-mode file's open questions, diagnostics
 for both (live as you edit), and a `gtd.openSteeringFile` command that jumps to
 the current state's steering file. Config-driven via each state's
 `file:`/`mode:` (see [CLI reference](docs/cli.md#gtd-lsp)) — falls back to
-basename dispatch (`TODO.md`/`REVIEW.md`) with no config in sight. Those two
-formats are gtd's built-in steering-file MODES — validators, not formatters: a
+basename dispatch (`REVIEW.md` → `review`) with no config in sight. `qa` and
+`review` are gtd's built-in steering-file MODES — validators, not formatters: a
 mode's `format:` and `validate:` are shell commands a workflow (or a project's
 `.gtdrc`) declares for itself, so you bring your own formatter and your own
 checkers (see

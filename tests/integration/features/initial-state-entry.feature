@@ -41,7 +41,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
   Scenario: a subject naming an actor the workflow doesn't declare resolves to the initial state
     Given a test project
     And the workflow
-    And a commit "gtd(nobody): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(nobody): planning" that adds ".gtd/TODO.md" with:
       """
       a plan
       """

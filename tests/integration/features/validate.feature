@@ -18,10 +18,15 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   dedicated state, the producing agent self-validates before finishing, so a
   human gate is only ever handed a well-formed file.
 
-  Scenario: a well-formed TODO.md at grilling validates cleanly
+  In the bundled template only the ADVANCED flow uses the `qa` mode
+  (`.gtd/REQUIREMENTS.md` at adv-grilling, `.gtd/ARCHITECTURE.md` at
+  architecting). The SIMPLE flow's `.gtd/TODO.md` iterates on a free-form plan
+  with no `mode:`, so there is nothing to validate at planning/plan-review.
+
+  Scenario: a well-formed REQUIREMENTS.md at adv-grilling validates cleanly
     Given a test project
     And the workflow
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): adv-grilling" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: add src/thing.ts exporting `thing`.
 
@@ -33,12 +38,12 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd with args "validate"
     Then it succeeds
-    And stdout contains ".gtd/TODO.md: valid"
+    And stdout contains ".gtd/REQUIREMENTS.md: valid"
 
-  Scenario: a malformed TODO.md at grilling fails with the parser's finding
+  Scenario: a malformed REQUIREMENTS.md at adv-grilling fails with the parser's finding
     Given a test project
     And the workflow
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): adv-grilling" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
 
@@ -50,13 +55,13 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd with args "validate"
     Then it fails
-    And stderr contains ".gtd/TODO.md is not valid"
+    And stderr contains ".gtd/REQUIREMENTS.md is not valid"
     And stderr contains "has no question text"
 
   Scenario: --json reports the valid verdict structurally
     Given a test project
     And the workflow
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): adv-grilling" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: add src/thing.ts.
       """
@@ -104,10 +109,23 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
 
+  Scenario: the simple flow's TODO.md declares no mode — nothing to validate at planning
+    # The SIMPLE flow iterates on a free-form plan; planning declares `file:`
+    # but no `mode:`, so validate has nothing to check.
+    Given a test project
+    And the workflow
+    And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing. Plan: add src/thing.ts exporting `thing`.
+      """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains "nothing to validate at \"planning\""
+
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
     Given a test project
     And the workflow
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): adv-grilling" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
@@ -119,13 +137,13 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   Scenario: `gtd next --json` withholds the instruction — the driving loop owns the validate-and-retry step
     Given a test project
     And the workflow
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): adv-grilling" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"grilling\""
+    And stdout contains "\"state\":\"adv-grilling\""
     And stdout does not contain "gtd validate"
 
   Scenario: gtd validate leaves the file untouched when the mode declares no formatter
@@ -135,7 +153,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # formatting.feature).
     Given a test project
     And the workflow
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): adv-grilling" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. This is a deliberately long single prose line that clearly exceeds the eighty character print width, and nothing rewraps it.
       """
@@ -144,17 +162,17 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     And the git status is clean
 
   Scenario: the step gate runs format + validate after a human edits the steering file — a malformed edit is refused
-    # A human answers at grilling-answer but leaves a `### ` question heading
+    # A human answers at adv-grilling-answer but leaves a `### ` question heading
     # with no question text. Stepping runs the same gate the producing agent
     # gets, so the malformed edit is refused and nothing is committed — the
     # evaluation happens after a human edit too.
     Given a test project
     And the workflow
-    And a commit "gtd(human): grilling-answer" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): adv-grilling-answer" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: do it.
       """
-    Given ".gtd/TODO.md" is modified to:
+    Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a thing. Plan: do it.
 
@@ -167,20 +185,20 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     When I run gtd step human
     Then it fails
     And stderr contains "is not valid"
-    And the last commit subject is "gtd(human): grilling-answer"
+    And the last commit subject is "gtd(human): adv-grilling-answer"
 
-  Scenario: the step gate captures a human's valid edit (routing it back to grilling)
+  Scenario: the step gate captures a human's valid edit (routing it back to adv-grilling)
     Given a test project
     And the workflow
-    And a commit "gtd(human): grilling-answer" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): adv-grilling-answer" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
       """
-    Given ".gtd/TODO.md" is modified to:
+    Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a thing. Plan: add src/thing.ts exporting `thing`, with a named
       export only.
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): grilling-answer → grilling"
+    And the last commit subject is "gtd(human): adv-grilling-answer → adv-grilling"

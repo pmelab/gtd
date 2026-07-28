@@ -217,9 +217,9 @@ describe("hunkDefinitionLocation", () => {
 })
 
 describe("basenameFallbackMode", () => {
-  it("maps TODO.md to qa and REVIEW.md to review, and anything else to undefined", () => {
-    expect(basenameFallbackMode("TODO.md")).toBe("qa")
+  it("maps REVIEW.md to review, and anything else (including TODO.md) to undefined", () => {
     expect(basenameFallbackMode("REVIEW.md")).toBe("review")
+    expect(basenameFallbackMode("TODO.md")).toBeUndefined()
     expect(basenameFallbackMode("NOTES.md")).toBeUndefined()
   })
 })
@@ -303,8 +303,8 @@ describe("modeForDocument", () => {
 
   it("falls back to basename dispatch for a path the map doesn't cover", () => {
     const map = new Map()
-    expect(modeForDocument("file:///repo/.gtd/TODO.md", map)).toBe("qa")
     expect(modeForDocument("file:///repo/.gtd/REVIEW.md", map)).toBe("review")
+    expect(modeForDocument("file:///repo/.gtd/TODO.md", map)).toBeUndefined()
     expect(modeForDocument("file:///repo/NOTES.md", map)).toBeUndefined()
   })
 })

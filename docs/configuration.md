@@ -156,7 +156,7 @@ workflow:
             "Delete `.gtd/REVIEW.md` to approve the whole cycle and rest at
             idle."
         "* **":
-          to: grilling
+          to: planning
           describe:
             "Change any source file to leave feedback and start another round."
 ```
@@ -214,18 +214,18 @@ Forbidden on a commit state (never at rest):
 ```yaml
 workflow:
   states:
-    grilling:
+    planning:
       actor: agent
       memory: plan
-      prompt: develop the plan; ask open questions
+      prompt: develop the sketch into a concrete plan
       on:
-        "* **": grilling-answer
-    grilling-answer:
+        "* **": plan-review
+    plan-review:
       actor: human
-      message: answer the open questions
+      message: accept the plan, or edit it to iterate
       on:
         "C": building
-        "* **": grilling
+        "* **": planning
     building:
       actor: agent
       memory: build # a different scope — implementation starts fresh
@@ -236,7 +236,7 @@ workflow:
       commit: "feat: done"
 ```
 
-Because `grilling` re-enters itself around the answer loop, every lap emits
+Because `planning` re-enters itself around the review loop, every lap emits
 `memory: plan` and the planner keeps its accumulated exploration; the move to
 `building` emits a different label (`build`), which is where the driver clears
 memory for a fresh implementation turn. A loop of same-labelled turns retains; a
@@ -720,8 +720,8 @@ The one bundled template has three entry points into a shared review/squash tail
 (all walked through in
 [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)):
 
-- **the simple flow** — creating `.gtd/TODO.md` starts idle → grilling ⇄
-  grilling-answer → building → checking ⇄ fixing (→ escalate) → reviewing →
+- **the simple flow** — creating `.gtd/TODO.md` starts idle → planning ⇄
+  plan-review → building → checking ⇄ fixing (→ escalate) → reviewing →
   await-review.
 - **the advanced flow** — creating `.gtd/REQUIREMENTS.md` starts the fuller
   machine: two-phase Q&A planning (product then architecture), package

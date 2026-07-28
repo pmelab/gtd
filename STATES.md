@@ -29,7 +29,7 @@ A workflow is a set of named **states**. Each state declares:
 | `initial: true`                               | Exactly one state across the whole workflow: where an unrecognized HEAD resolves (see §5). Must not be a commit state.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `retry`                                       | Optional `{ max, otherwise }` — redirects a transition into this state to `otherwise` once this state has already been entered `max` times within the current process (see §7).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `model`                                       | Optional, opaque string — a harness hint (e.g. `smart`, `fast`, or a concrete model id) emitted alongside the state's content for the driving loop to map onto its agent harness. **Rendered as an Eta template through the same `it.vars`-carrying context as content** (a plain string with no Eta tags passes through unchanged) — see [Configuration](docs/configuration.md#model--the-opaque-harness-hint-template-rendered). gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state** (never at rest, emits nothing).                                                                                                                                                                                                                                                                                                   |
-| `memory`                                      | Optional, opaque string — a **memory-scope label** emitted alongside the state's content for a memory-aware driving loop to compare, not act on literally: consecutive agent turns emitting the **same** label share a memory scope (the driver retains the agent's memory across them); a change in value — or the first agent turn — is where it starts fresh. This lets a loop that keeps re-entering one state (a grilling or fix loop) retain memory across its laps, while crossing to a differently-labelled state at a phase boundary clears it. **Rendered as an Eta template**, exactly like `model`; gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state.** See [Configuration](docs/configuration.md#memory--the-memory-scope-label-template-rendered) and the loop driver contract in `skills/loop/SKILL.md`. |
+| `memory`                                      | Optional, opaque string — a **memory-scope label** emitted alongside the state's content for a memory-aware driving loop to compare, not act on literally: consecutive agent turns emitting the **same** label share a memory scope (the driver retains the agent's memory across them); a change in value — or the first agent turn — is where it starts fresh. This lets a loop that keeps re-entering one state (a planning or fix loop) retain memory across its laps, while crossing to a differently-labelled state at a phase boundary clears it. **Rendered as an Eta template**, exactly like `model`; gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state.** See [Configuration](docs/configuration.md#memory--the-memory-scope-label-template-rendered) and the loop driver contract in `skills/loop/SKILL.md`. |
 | `file`                                        | Optional — THE steering file this state is about: the file a human/editor should look at while the machine rests here. An **Eta template**, rendered exactly like `model` (must render non-empty). **Forbidden on a commit state.** Multiple states may share one `file:`. gtd itself never reads a path out of this string — only `gtd lsp` (`src/Lsp.ts`) interprets it, to map rendered paths to `mode` — see [Configuration](docs/configuration.md#filemode--the-steering-file-association).                                                                                                                                                                                                                                                                                                                                                                                       |
 | `mode`                                        | Optional, requires `file:`. The associated file's FORMAT: the name of a **steering-file mode** — one of the two built-ins (`qa` \| `review`) or one the workflow declares in `modes:` (a `format:`/`validate:` pair of shell commands — see §12). gtd formats and validates the file with that mode at `gtd validate` and at the `gtd step` capture gate; `gtd lsp` dispatches document symbols/code actions/diagnostics on the built-in names only. A name nothing defines is a load error. Like `model`, this is opaque emitted data — the ENGINE never branches on it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                             |
 | `reviewWindow: true`                          | Optional boolean. While the machine RESTS at this state, gtd opens a **review checkout window** — HEAD and the index are rewound to the review base with the working tree untouched, so the whole `base..HEAD` diff surfaces as ordinary uncommitted changes in the editor's git integration; it closes automatically once the machine rests anywhere else (see §11). The pure engine never observes it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -336,8 +336,10 @@ The **unified** template is one machine with **two file-keyed entry points into
 one shared tail**. The initial `idle` state forks on which steering file a human
 creates:
 
-- **`.gtd/TODO.md`** (or any other change) → the **simple flow**: one grilling
-  Q&A loop, a monolithic `building` turn, no decomposition, no agentic review.
+- **`.gtd/TODO.md`** (or any other change) → the **simple flow**: a
+  `planning`/`plan-review` iteration loop (the agent presents a plan, the human
+  accepts or edits it — no Q&A, no `qa` mode), a monolithic `building` turn, no
+  decomposition, no agentic review.
 - **`.gtd/REQUIREMENTS.md`** → the **advanced flow**: two-phase product then
   technical Q&A, package decomposition, a per-package parallel build, and a
   per-package agentic `spec-review` gate.
@@ -370,21 +372,21 @@ dead ends never commit at the gate before them — the **sign-off gate**
 (`src/program.ts`, an edge like the review window) refuses a step that leaves a
 box unticked with no comment, and a deleted `.gtd/REVIEW.md`.
 
-Steering-file formats
-(`.gtd/TODO.md`/`.gtd/REQUIREMENTS.md`/`.gtd/ARCHITECTURE.md` open questions,
-`.gtd/REVIEW.md` checkboxes) are checkable but validation is not a state in the
-machine: the producing agent self-validates with `gtd validate` before finishing
-(see §12).
+Steering-file formats (`.gtd/REQUIREMENTS.md`/`.gtd/ARCHITECTURE.md` open
+questions — the advanced flow only, `.gtd/REVIEW.md` checkboxes) are checkable
+but validation is not a state in the machine: the producing agent self-validates
+with `gtd validate` before finishing (see §12). The simple flow's `.gtd/TODO.md`
+is a free-form plan with no `mode:`, so there is nothing to validate there.
 
 **Entry + shared states** (the simple flow and the tail all three entries
 share):
 
 | State                 | Actor | Content | `on`                                                                                                           | Retry              | Model   | Memory   | File / Mode                  |
 | --------------------- | ----- | ------- | -------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | -------- | ---------------------------- |
-| `idle` (initial)      | human | message | `* .gtd/REQUIREMENTS.md` → `adv-grilling`; `* **` → `grilling`                                                 | —                  | —       | —        | —                            |
-| `grilling`            | agent | prompt  | `* **` → `grilling-answer`                                                                                     | —                  | `smart` | `plan`   | `vars.todoFile` / `qa`       |
-| `grilling-answer`     | human | message | `C` → `building`; `* **` → `grilling`                                                                          | —                  | —       | —        | `vars.todoFile` / `qa`       |
-| `building`            | agent | prompt  | `* **` → `checking`                                                                                            | —                  | `base`  | `build`  | `vars.todoFile` / `qa`       |
+| `idle` (initial)      | human | message | `* .gtd/REQUIREMENTS.md` → `adv-grilling`; `* **` → `planning`                                                 | —                  | —       | —        | —                            |
+| `planning`            | agent | prompt  | `* **` → `plan-review`                                                                                         | —                  | `smart` | `plan`   | `vars.todoFile`              |
+| `plan-review`         | human | message | `C` → `building`; `* **` → `planning`                                                                          | —                  | —       | —        | `vars.todoFile`              |
+| `building`            | agent | prompt  | `* **` → `checking`                                                                                            | —                  | `base`  | `build`  | `vars.todoFile`              |
 | `checking`            | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`                     | —                  | —       | —        | —                            |
 | `fixing`              | agent | prompt  | `* **` → `checking`                                                                                            | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile`          |
 | `escalate`            | human | message | `* **` → `checking`                                                                                            | —                  | —       | —        | `vars.feedbackFile`          |
@@ -421,18 +423,18 @@ share):
 
 A human writes `.gtd/TODO.md` (a short sketch) and runs `gtd step human` at
 `idle`: the `REQUIREMENTS.md` row doesn't match, so the catch-all `"* **"` lands
-`gtd(human): idle → grilling`.
+`gtd(human): idle → planning`.
 
-**Planning — TODO.md open questions.** `grilling` reads `.gtd/TODO.md`, explores
-the codebase, and develops it into a concrete plan; anything it can't settle
-goes under a `## Open Questions` heading, one `### <question>` each with a
-suggested answer in plain prose (`src/OpenQuestions.ts`'s parser is this
-format's executable spec; see §12). It declares `file: .gtd/TODO.md`/`mode: qa`,
-so it self-validates with `gtd validate` before finishing and steps to
-`grilling-answer`. There a human answers by editing in place, or leaves a
-suggestion untouched to accept it; a **clean** step (`C`) moves to `building`,
-any edit loops back through `grilling` (which folds the answered batch down into
-a `## Answered Questions` section).
+**Planning — iterate on a plan, no Q&A.** `planning` reads `.gtd/TODO.md`,
+explores the codebase, and develops it into a concrete implementation plan — the
+files to change, the approach, the steps — deciding every open point itself
+rather than asking questions. It declares `file: .gtd/TODO.md` but **no
+`mode:`** (the plan is free-form prose, not the `qa` open-questions format), so
+there is nothing to validate; it steps to `plan-review`. There a human either
+accepts the plan with a **clean** step (`C` → `building`) or edits it — rewrites
+a step, adds a constraint, drops an inline comment — which loops back through
+`planning` (`* **`), where the agent folds every edit and comment into a
+revised, self-contained plan.
 
 `building` implements the plan in one turn — no decomposition — using TDD
 discipline, deletes `.gtd/TODO.md`, and steps to `checking`.
@@ -762,8 +764,8 @@ file first (`enforceSteeringGate` in `src/program.ts`, over the same
 `src/SteeringMode.ts` mode resolution) and **refuses the step**, committing
 nothing, when it is invalid. This is what makes the check run whoever last
 touched the file — an agent's fresh draft AND a human's edit at a gate
-(answering at `grilling-answer`, reviewing at `await-review`) are formatted and
-validated identically, and a malformed steering file is never committed. A
+(answering at `adv-grilling-answer`, reviewing at `await-review`) are formatted
+and validated identically, and a malformed steering file is never committed. A
 squash skips the gate (the file is discarded); a deletion/absent file is a no-op
 (so delete-to-approve still works).
 
@@ -783,11 +785,12 @@ compose:
   `skills/loop/SKILL.md`). `gtd validate` being a no-op when there is nothing to
   validate means the loop can run it after every agent turn unconditionally.
 
-In the unified template (§10) this covers `grilling`/`adv-grilling`
-(TODO.md/REQUIREMENTS.md/`qa`), `architecting` (ARCHITECTURE.md/`qa`) and
-`reviewing` (REVIEW.md/`review`) — the states that author a steering file — and,
-through the `gtd step` gate, the human gates `grilling-answer` and
-`await-review` that edit those same files. It replaced the old in-machine
+In the unified template (§10) this covers `adv-grilling` (REQUIREMENTS.md/`qa`),
+`architecting` (ARCHITECTURE.md/`qa`) and `reviewing` (REVIEW.md/`review`) — the
+states that author a steering file — and, through the `gtd step` gate, the human
+gates `adv-grilling-answer`, `architecting-answer` and `await-review` that edit
+those same files. (The simple flow's `planning` authors `.gtd/TODO.md` with no
+`mode:`, so it is not gated here.) It replaced the old in-machine
 `todo-validating`/`review-validating` states and their `.gtd/FORMAT.md` bounce
 loop (see
 [docs/design/steering-file-validation-command.md](docs/design/steering-file-validation-command.md));

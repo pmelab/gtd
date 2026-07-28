@@ -312,7 +312,7 @@ describe("gtd review <commitish> — subcommand guards", () => {
     const repo = seededRepo()
     const base = repo.commitHistory()[0]!.hash
     repo.writeFile(".gtd/TODO.md", "sketch\n")
-    repo.commitAllWithPrefix("gtd(human): grilling")
+    repo.commitAllWithPrefix("gtd(human): planning")
     const before = repo.commitHistory().length
     const { exit } = await runReview(repo, base)
     expect(Exit.isSuccess(exit)).toBe(false)
