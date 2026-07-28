@@ -393,6 +393,10 @@ workflow:
       actor: human
       file: <%= it.vars.reviewFile %>
       mode: review
+      # Opens the review checkout window: HEAD/index are rewound to the cycle
+      # start so the whole diff shows as uncommitted changes in the editor
+      # (see STATES.md §11). Closes automatically once the cycle rests elsewhere.
+      reviewWindow: true
       message: |
         `<%= it.vars.reviewFile %>` holds the review record for the completed
         cycle.

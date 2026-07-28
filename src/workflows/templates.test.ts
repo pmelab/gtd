@@ -32,6 +32,19 @@ describe("bundled workflow templates", () => {
       expect(initial).toHaveLength(1)
     })
 
+    it(`declares the review checkout window on the "${name}" template's review gate`, () => {
+      // Every bundled template runs a cycle to a human review gate, so it must
+      // declare exactly one `reviewWindow: true` state (the gate that opens the
+      // editor's checkout window) and exactly one `reviewEntry: true` state (the
+      // `gtd review <commitish>` entry point). A template silently dropping
+      // either leaves `gtd init` users with a review gate that never rewinds
+      // HEAD — see src/ReviewWindow.ts / STATES.md §11.
+      const { definition } = compileTemplate(name)
+      const states = Object.values(definition.states)
+      expect(states.filter((s) => s.reviewWindow === true)).toHaveLength(1)
+      expect(states.filter((s) => s.reviewEntry === true)).toHaveLength(1)
+    })
+
     it(`renders a valid .gtdrc.json for "${name}" with the $schema key first`, () => {
       const rendered = renderInitConfig(name)
       const parsed = JSON.parse(rendered) as { $schema: string; workflow: unknown }
