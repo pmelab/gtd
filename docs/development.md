@@ -31,18 +31,16 @@ registry to keep in sync: a workflow's content strings are either inline in its
 YAML/`.gtdrc` or a `./`-relative file reference auto-inlined at config load
 (`src/PatternConfig.ts`) — see
 [Configuration](configuration.md#content-values-inline-or-a-file-reference). The
-bundled workflow templates (`src/workflows/simple.yaml`,
-`src/workflows/advanced.yaml`) `gtd init` scaffolds are imported as raw text via
-tsdown's `.yaml`-as-text loader (`tsdown.config.ts`) and compiled through the
-same path a `.gtdrc` `workflow:` key goes through (`src/workflows/templates.ts`)
-— no privileged code path.
+bundled workflow template (`src/workflows/unified.yaml`) `gtd init` scaffolds is
+imported as raw text via tsdown's `.yaml`-as-text loader (`tsdown.config.ts`)
+and compiled through the same path a `.gtdrc` `workflow:` key goes through
+(`src/workflows/templates.ts`) — no privileged code path.
 
 `npm run dev` runs `src/main.ts` directly via Node's native TypeScript
 type-stripping (requires Node 22.6+). It registers `dev/hooks.mjs`, which
 resolves `./Foo.js` specifiers to the on-disk `./Foo.ts` and imports `*.yaml`
 files as raw text, mirroring tsdown's `.yaml`-as-text loader — this is what lets
-`src/workflows/simple.yaml` and `src/workflows/advanced.yaml` resolve when
-running from source.
+`src/workflows/unified.yaml` resolve when running from source.
 
 The decision core is pure and IO-free: the pattern machine's shape (states,
 patterns, retry) is a plain-data `WorkflowDefinition` (`src/PatternMachine.ts`),

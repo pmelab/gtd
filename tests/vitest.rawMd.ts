@@ -4,7 +4,7 @@ import { type Plugin } from "vitest/config"
 // Mirrors tsdown.config.ts's `loader: { ".md": "text", ".yaml": "text" }` —
 // both extensions must resolve identically in the vitest world (unit + e2e
 // tests) as in the built bundle: the bundled workflow templates
-// (src/workflows/simple.yaml, src/workflows/advanced.yaml) are imported as raw
+// (src/workflows/unified.yaml) are imported as raw
 // text the same way src/prompts/*.md already are.
 export const rawMd = (): Plugin => ({
   name: "raw-md",

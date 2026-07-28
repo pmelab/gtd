@@ -306,8 +306,8 @@ sub-millisecond — safe to run on every invocation, exactly like today's
 - **The bundled default must stay finding-free** — findings 7 and 10 are
   calibrated against it (`fixing`'s cap bounds the check loop; the literal
   `.gtd/...` patterns match the declared default vars). Any new check must be
-  validated against `default.yaml` and `docs/examples/advanced-workflow.md`
-  before landing.
+  validated against the bundled unified template (`src/workflows/unified.yaml`,
+  covering both its simple and advanced flows) before landing.
 - **Warning channel is the only architectural change** — everything else slots
   into the existing collect-and-merge flow in `compileWorkflowConfig`.
 

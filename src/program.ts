@@ -3,12 +3,7 @@ import { dirname, join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect, Either } from "effect"
 import { configPresentAt, ConfigService } from "./Config.js"
-import {
-  isWorkflowTemplateName,
-  PROMPTS_DIR,
-  renderInitScaffold,
-  WORKFLOW_TEMPLATE_NAMES,
-} from "./workflows/templates.js"
+import { PROMPTS_DIR, renderInitScaffold } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { WorktreeReader } from "./WorktreeReader.js"
@@ -60,12 +55,12 @@ const GTD_VERSION: string = (_require("../package.json") as { version: string })
 const HELP_TEXT = `Usage: gtd [command] [options]
 
 Commands:
-  init <workflow>  Scaffold a .gtdrc.json for this repo with the chosen
-                   bundled workflow (one of: simple, advanced); its agent
-                   prompts are written as editable Markdown under gtd-prompts/
-                   and referenced from the config. Run once per repo; refuses
-                   if a gtd config already exists. Leaves the files uncommitted
-                   for you to review and commit
+  init             Scaffold a .gtdrc.json for this repo with the bundled
+                   unified workflow; its agent prompts are written as editable
+                   Markdown under gtd-prompts/ and referenced from the config.
+                   Takes no argument. Run once per repo; refuses if a gtd
+                   config already exists. Leaves the files uncommitted for you
+                   to review and commit
   step <actor>     Authenticate as <actor>, match the resolved rest's
                    declared patterns against the pending changes, and commit
                    (or squash) the one resulting transition. Pass
@@ -230,14 +225,12 @@ const runLspCommand = (argv: readonly string[], json: boolean): Effect.Effect<vo
     yield* startLspServer()
   })
 
-/** The `choose one of: ...` suffix shared by every `gtd init` usage error. */
-const initWorkflowChoices = (): string => `choose one of: ${WORKFLOW_TEMPLATE_NAMES.join(", ")}`
-
 /**
- * `gtd init <workflow>`: scaffold a `.gtdrc.json` carrying one of the bundled
- * workflow templates inline (`simple`/`advanced`). Dispatched like `lsp` —
- * BEFORE the closeReviewWindow/dispatch/openReviewWindow block — because it is
- * the ONE command that must run with no workflow configured yet: it needs no
+ * `gtd init`: scaffold a `.gtdrc.json` carrying the bundled unified workflow
+ * template inline. Takes NO argument — gtd ships a single template and no
+ * longer offers a choice. Dispatched like `lsp` — BEFORE the
+ * closeReviewWindow/dispatch/openReviewWindow block — because it is the ONE
+ * command that must run with no workflow configured yet: it needs no
  * `ConfigService` (which would throw the "no workflow" error pre-init) and no
  * review window. It still runs the repo-root guard (it writes `.gtdrc.json` at
  * the root) and refuses to clobber an existing config. It also writes each
@@ -255,18 +248,9 @@ const runInitCommand = (
 ): Effect.Effect<void, Error, GitService | FileSystem.FileSystem | Cwd> =>
   Effect.gen(function* () {
     const args = commandArgs(argv)
-    if (args.length === 0) {
-      return yield* Effect.fail(new Error(`gtd init: missing workflow — ${initWorkflowChoices()}`))
-    }
-    if (args.length > 1) {
+    if (args.length > 0) {
       return yield* Effect.fail(
-        new Error(`gtd init: too many arguments — expected one workflow, got: ${args.join(", ")}`),
-      )
-    }
-    const name = args[0]!
-    if (!isWorkflowTemplateName(name)) {
-      return yield* Effect.fail(
-        new Error(`gtd init: unknown workflow '${name}' — ${initWorkflowChoices()}`),
+        new Error(`gtd init: too many arguments — init takes no argument, got: ${args.join(", ")}`),
       )
     }
     const git = yield* GitService
@@ -279,7 +263,7 @@ const runInitCommand = (
       )
     }
     const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
-    const scaffold = renderInitScaffold(name)
+    const scaffold = renderInitScaffold()
     yield* fs
       .writeFileString(join(root, ".gtdrc.json"), scaffold.config)
       .pipe(Effect.mapError(toError))
@@ -292,14 +276,14 @@ const runInitCommand = (
       write(
         JSON.stringify({
           written: ".gtdrc.json",
-          workflow: name,
+          workflow: "unified",
           prompts: scaffold.prompts.map((p) => p.path),
         }) + "\n",
       )
     } else {
       const promptCount = scaffold.prompts.length
       write(
-        `Wrote .gtdrc.json with the "${name}" workflow, and its ${promptCount} agent ` +
+        `Wrote .gtdrc.json with the bundled unified workflow, and its ${promptCount} agent ` +
           `prompt${promptCount === 1 ? "" : "s"} as editable Markdown under ${PROMPTS_DIR}/ ` +
           `(referenced from the config).\n\n` +
           `Review and commit them before starting: an uncommitted .gtdrc.json (or prompt\n` +
@@ -1022,7 +1006,7 @@ export interface RunOptions {
  *
  * v3 command surface: `step <actor>` / `next` / `status` / `validate` /
  * `mermaid` (see `src/Edge.ts` and `docs/design/pattern-machine-plan.md` §3),
- * plus `lsp` and `init <workflow>` — both dispatched before the config-reading
+ * plus `lsp` and `init` — both dispatched before the config-reading
  * path since they must work with no workflow configured yet. Bare `gtd` or an
  * unknown subcommand is a usage error. Shared setup (argv parsing, the
  * repo-root guard) lives here; each subcommand's own logic is a named

@@ -4,12 +4,12 @@
 Usage: gtd [command] [options]
 
 Commands:
-  init <workflow>  Scaffold a .gtdrc.json for this repo with the chosen
-                   bundled workflow (one of: simple, advanced); its agent
-                   prompts are written as editable Markdown under gtd-prompts/
-                   and referenced from the config. Run once per repo; refuses
-                   if a gtd config already exists. Leaves the files uncommitted
-                   for you to review and commit
+  init             Scaffold a .gtdrc.json for this repo with the bundled
+                   unified workflow; its agent prompts are written as editable
+                   Markdown under gtd-prompts/ and referenced from the config.
+                   Takes no argument. Run once per repo; refuses if a gtd
+                   config already exists. Leaves the files uncommitted for you
+                   to review and commit
   step <actor>     Authenticate as <actor>, match the resolved rest's
                    declared patterns against the pending changes, and commit
                    (or squash) the one resulting transition. Pass
@@ -59,19 +59,22 @@ mistyped flag can never degrade a JSON caller to plain-text mode. A bare
 `--model`, `--model` without `--cost`, or either flag on any command other than
 `gtd step` are all usage errors.
 
-## `gtd init <workflow>`
+## `gtd init`
 
-Scaffolds a `.gtdrc.json` at the repository root with one of the bundled
-workflow templates inline under a `workflow:` key, plus a `$schema` link.
-`<workflow>` is required and must be `simple` or `advanced` (a missing or
-unknown name is a usage error listing both). gtd ships **no** default workflow,
-so this is the one-time setup step for a repo; a state command run before it
-fails with `gtd: no workflow configured — run \`gtd init <simple|advanced>\` …`.
+Scaffolds a `.gtdrc.json` at the repository root with the bundled **unified**
+workflow template inline under a `workflow:` key, plus a `$schema` link. It
+takes **no argument** — passing one is a usage error
+(`gtd init: too many arguments — init takes no argument`). gtd ships **no**
+default workflow, so this is the one-time setup step for a repo; a state command
+run before it fails with `gtd: no workflow configured — run \`gtd init\` to
+create .gtdrc.json`.
 
-- `simple` — the 10-state machine (see
-  [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)).
-- `advanced` — the fuller machine (see
-  [advanced-workflow.md](examples/advanced-workflow.md)).
+The unified template has three entry points into one shared review/squash tail
+(see [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)): creating
+`.gtd/TODO.md` starts the simple flow (grilling → building → checking), creating
+`.gtd/REQUIREMENTS.md` starts the advanced flow (two-phase Q&A planning,
+per-package parallel build, agentic spec-review), and `gtd review <commitish>`
+enters review directly.
 
 The file is written **uncommitted**; review and commit it before your first
 `gtd step` (an uncommitted `.gtdrc.json` is a pending change the initial state
@@ -79,7 +82,7 @@ would otherwise capture). `gtd init` refuses if the repo root already has its
 own gtd config (a global/ancestor config, e.g. `~/.gtdrc`, does not count),
 requires the repository root, and — with `gtd lsp` — is one of the two commands
 that run with no workflow configured. `--json` prints
-`{"written":".gtdrc.json","workflow":"<name>"}`. See
+`{"written":".gtdrc.json","workflow":"unified","prompts":[…]}`. See
 [Configuration](configuration.md#gtd-init).
 
 ## `gtd step <actor> [--cost=<n>] [--model=<name>]`
@@ -325,9 +328,9 @@ Then:
   approve), has nothing to validate and exits `0`
   (`nothing to validate at "<state>"`). Nothing is formatted in that case.
 
-This is how the `simple` template keeps its steering files well-formed without
-an in-machine validation state — and the check runs whoever last touched the
-file, agent or human:
+This is how the unified template keeps its steering files well-formed without an
+in-machine validation state — and the check runs whoever last touched the file,
+agent or human:
 
 - **The producing agent self-validates.** Plain `gtd next` appends a "run
   `gtd validate` and fix all violations" instruction to a `prompt` rest that

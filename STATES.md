@@ -10,8 +10,8 @@ edge (`src/Edge.ts`, called from `src/program.ts`).
 This document is the design reference for the v3 engine: the state model, the
 pattern grammar, the commit-subject grammar and its attribution rule,
 resolution, step semantics (refusals/no-op/commit/squash), retry, the squash
-lifecycle, validation, and the `simple` template. Where this document and the
-code disagree, the code (`src/PatternMachine.ts`, `src/PatternConfig.ts`,
+lifecycle, validation, and the bundled unified template. Where this document and
+the code disagree, the code (`src/PatternMachine.ts`, `src/PatternConfig.ts`,
 `src/Edge.ts`) wins.
 
 See [docs/configuration.md](docs/configuration.md) for the full `.gtdrc`
@@ -216,12 +216,12 @@ A state's `retry: { max, otherwise }` caps how many times **that state** may be
 entered within the current **process** (the contiguous run of
 `gtd(<actor>): <state>` commits ending at HEAD — bounded by the nearest
 **process boundary**, i.e. whichever comes first walking back from HEAD: a
-non-matching commit (an old squash result, legacy/pre-v3 history, the repo's own
-root), or a workflow commit that **enters the workflow's own initial state** —
-e.g. the `simple` template's `gtd(human): idle`, the empty approval turn that
-ends a cycle with no squash. Either boundary kind is EXCLUDED from the process
-itself — it belongs to the finished cycle, like an old squash commit did — see
-`computeProcessRun` in `src/Edge.ts`). Once a transition's raw target has
+non-matching commit (a squash result — the unified template's own `done` commit
+carries an agent-authored, non-workflow subject — legacy/pre-v3 history, the
+repo's own root), or a workflow commit that **enters the workflow's own initial
+state** (e.g. `gtd(human): idle`). Either boundary kind is EXCLUDED from the
+process itself — it belongs to the finished cycle, like an old squash commit did
+— see `computeProcessRun` in `src/Edge.ts`). Once a transition's raw target has
 already been entered `max` times in the current process's trace, the transition
 is redirected to `otherwise` instead — decided **at write time**, so the
 redirected state is what actually lands in history, never the raw `on`-match
@@ -320,206 +320,204 @@ A bad config fails loudly — one thrown error naming every finding — before
 anything touches the repository. See
 [Configuration: validation and errors](docs/configuration.md#validation-and-errors).
 
-## 10. The bundled workflow templates
+## 10. The bundled workflow template
 
-gtd ships **no** default workflow — a repo scaffolds one with
-`gtd init <simple|advanced>` (see
-[Configuration](docs/configuration.md#gtd-init)), which writes the chosen
-bundled template into `.gtdrc.json` — each agent state's `prompt:` extracted to
-an editable `gtd-prompts/<state>.md` file the config references via `./`
+gtd ships **no** default workflow — a repo scaffolds one with `gtd init` (no
+argument, see [Configuration](docs/configuration.md#gtd-init)), which writes the
+single bundled template (`src/workflows/unified.yaml`) into `.gtdrc.json` — each
+agent state's `prompt:` extracted to an editable `gtd-prompts/<state>.md` file
+the config references via `./`
 ([auto-inlined at load](docs/configuration.md#content-values-inline-or-a-file-reference)),
-with human `message:`/check `script:` bodies left inline. This section walks
-through the **`simple`** template (`src/workflows/simple.yaml`); the
-**`advanced`** template (`src/workflows/advanced.yaml`) is the fuller machine
-walked through at
-[docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md). Both
-compile through the exact same compiler a custom `workflow:` key goes through —
-no privileged code path.
+with human `message:`/check `script:`/the `done` `commit:` bodies left inline.
+It compiles through the exact same compiler a custom `workflow:` key goes
+through — no privileged code path.
 
-The `simple` template has 10 states. Its two steering files have checkable
-formats — `.gtd/TODO.md`'s open-questions format and `.gtd/REVIEW.md`'s checkbox
-review format — but validation is not a state in the machine: the producing
-agent (`grilling`, `reviewing`) self-validates its output with `gtd validate`
-before finishing, so the machine holds no `todo-validating`/`review-validating`
-states and no `.gtd/FORMAT.md` (see
-[docs/design/steering-file-validation-command.md](docs/design/steering-file-validation-command.md)
-and §12):
+The **unified** template is one machine with **two file-keyed entry points into
+one shared tail**. The initial `idle` state forks on which steering file a human
+creates:
 
-| State             | Actor | Content | `on`                                                                                                                    | Retry              | Model   | Memory   | File                | Mode     |
-| ----------------- | ----- | ------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | -------- | ------------------- | -------- |
-| `idle` (initial)  | human | message | `* **` → `grilling`                                                                                                     | —                  | —       | —        | —                   | —        |
-| `grilling`        | agent | prompt  | `* **` → `grilling-answer`                                                                                              | —                  | `smart` | `plan`   | `vars.todoFile`     | `qa`     |
-| `grilling-answer` | human | message | `C` → `building`; `* **` → `grilling`                                                                                   | —                  | —       | —        | `vars.todoFile`     | `qa`     |
-| `building`        | agent | prompt  | `* **` → `checking`                                                                                                     | —                  | `base`  | `build`  | `vars.todoFile`     | `qa`     |
-| `checking`        | check | script  | `A .gtd/FEEDBACK.md` → `fixing`; `M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing` | —                  | —       | —        | —                   | —        |
-| `fixing`          | agent | prompt  | `* **` → `checking`                                                                                                     | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile` | —        |
-| `escalate`        | human | message | `* **` → `checking`                                                                                                     | —                  | —       | —        | `vars.feedbackFile` | —        |
-| `reviewing`       | agent | prompt  | `* **` → `await-review`                                                                                                 | —                  | `smart` | `review` | `vars.reviewFile`   | `review` |
-| `await-review`    | human | message | `D .gtd/REVIEW.md` → `idle`; `M .gtd/REVIEW.md` → `review-deciding`; `* **` → `grilling`                                | —                  | —       | —        | `vars.reviewFile`   | `review` |
-| `review-deciding` | check | script  | `A .gtd/TODO.md` → `grilling`; `M .gtd/TODO.md` → `grilling`; `D .gtd/REVIEW.md` → `idle`; `C` → `await-review`         | —                  | —       | —        | `vars.reviewFile`   | `review` |
+- **`.gtd/TODO.md`** (or any other change) → the **simple flow**: one grilling
+  Q&A loop, a monolithic `building` turn, no decomposition, no agentic review.
+- **`.gtd/REQUIREMENTS.md`** → the **advanced flow**: two-phase product then
+  technical Q&A, package decomposition, a per-package parallel build, and a
+  per-package agentic `spec-review` gate.
 
-Both `grilling` and `reviewing` declare a `file:`/`mode:` pair, so their output
-has a checkable format — they self-validate with `gtd validate` before finishing
-(see §12). `todo-validating`/`review-validating` and `.gtd/FORMAT.md` no longer
-exist; `grilling` hands straight to `grilling-answer` and `reviewing` straight
-to `await-review`.
+Both converge at `reviewing` → `await-review` (also the direct
+`gtd review <commitish>` entry, via `reviewEntry: true` on `reviewing`). From
+there a **full sign-off** (tick every box, or delete `.gtd/REVIEW.md`) is the
+only path to the **squash finale** (`squashing` → `done`), which collapses the
+whole cycle into one commit whose message an agent drafts. A **partial
+sign-off** routes the still-unticked items through `review-deciding` into
+`.gtd/REVIEW_FEEDBACK.md` → `feedback-building` → `checking` → `reviewing`,
+which regenerates an **incremental** review (`reviewBase: true` on
+`review-deciding` scopes it to `last-review..HEAD`). A **code-only edit** at
+`await-review` routes to `checking` to re-test and re-review the manual fix.
 
-The four agent states' `Memory` labels (`plan`/`build`/`fix`/`review`) scope
-which turns a memory-aware driver keeps memory across: the `grilling` and
-`fixing` loops re-enter one state, so their laps share a label and retain
-memory; each phase boundary crosses to a differently-labelled state and clears
-it. `File` names the workflow's own `vars:` entry the state's `file:` renders
-(`todoFile: .gtd/TODO.md`, `reviewFile: .gtd/REVIEW.md`,
-`feedbackFile: .gtd/FEEDBACK.md` — see below); `fixing`/`escalate` declare
-`file:` alone (`.gtd/FEEDBACK.md` is plain text, no LSP format).
+Steering-file formats
+(`.gtd/TODO.md`/`.gtd/REQUIREMENTS.md`/`.gtd/ARCHITECTURE.md` open questions,
+`.gtd/REVIEW.md` checkboxes) are checkable but validation is not a state in the
+machine: the producing agent self-validates with `gtd validate` before finishing
+(see §12).
 
-`await-review` additionally declares **`reviewWindow: true`**: while the cycle
-rests there for human review, gtd opens a review checkout window over the whole
-cycle diff (no `reviewBase` state is declared, so the base is the cycle's
-process boundary). See §11.
+**Entry + shared states** (the simple flow and the tail all three entries
+share):
 
-`reviewing` additionally declares **`reviewEntry: true`**:
-`gtd review <commitish>` (a clean tree resting at `idle`) starts a brand new
-process there directly, reviewing `<commitish>..HEAD` — e.g. a colleague's PR
-branch — through this exact same `reviewing` → `await-review` → feedback-lap
-machinery, with the `await-review` review checkout window then opening over that
-same range. See §11.
+| State               | Actor | Content | `on`                                                                                                          | Retry              | Model   | Memory   | File / Mode                  |
+| ------------------- | ----- | ------- | ------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | -------- | ---------------------------- |
+| `idle` (initial)    | human | message | `* .gtd/REQUIREMENTS.md` → `adv-grilling`; `* **` → `grilling`                                                | —                  | —       | —        | —                            |
+| `grilling`          | agent | prompt  | `* **` → `grilling-answer`                                                                                    | —                  | `smart` | `plan`   | `vars.todoFile` / `qa`       |
+| `grilling-answer`   | human | message | `C` → `building`; `* **` → `grilling`                                                                         | —                  | —       | —        | `vars.todoFile` / `qa`       |
+| `building`          | agent | prompt  | `* **` → `checking`                                                                                           | —                  | `base`  | `build`  | `vars.todoFile` / `qa`       |
+| `checking`          | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`                    | —                  | —       | —        | —                            |
+| `fixing`            | agent | prompt  | `* **` → `checking`                                                                                           | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile`          |
+| `escalate`          | human | message | `* **` → `checking`                                                                                           | —                  | —       | —        | `vars.feedbackFile`          |
+| `reviewing`         | agent | prompt  | `* **` → `await-review`                                                                                       | —                  | `smart` | `review` | `vars.reviewFile` / `review` |
+| `await-review`      | human | message | `D .gtd/REVIEW.md` → `squashing`; `M .gtd/REVIEW.md` → `review-deciding`; `* **` → `checking`                 | —                  | —       | —        | `vars.reviewFile` / `review` |
+| `review-deciding`   | check | script  | `A`/`M .gtd/REVIEW_FEEDBACK.md` → `feedback-building`; `D .gtd/REVIEW.md` → `squashing`; `C` → `await-review` | —                  | —       | —        | `vars.reviewFile` / `review` |
+| `feedback-building` | agent | prompt  | `* **` → `checking`                                                                                           | —                  | `base`  | `build`  | `vars.reviewFeedbackFile`    |
+| `squashing`         | agent | prompt  | `A`/`M .gtd/COMMIT_MSG.md` → `done`                                                                           | —                  | `base`  | `build`  | `vars.commitMsgFile`         |
+| `done`              | —     | commit  | — (commit state: squash ends the process)                                                                     | —                  | —       | —        | —                            |
 
-There is no squash — the cycle ends at human approval, an empty
-`gtd(human): idle` turn commit that rests the machine back at its own initial
-state (a **process boundary**, see §7). The cycle's turn commits stay in history
-exactly as authored; whether/how to squash them (an interactive rebase, an
-amend, a PR's squash-merge) is entirely the human's business, and gtd makes no
-assumption about it. The squash-flavored finale the `simple` template omits — a
-`squashing` prompt state authoring `.gtd/COMMIT_MSG.md` plus a `done` commit
-state — is still an engine capability (§8); it lives on in the `advanced`
-template.
+`await-review` declares **`reviewWindow: true`** and `review-deciding`
+**`reviewBase: true`** (§11); `reviewing` declares **`reviewEntry: true`**.
 
-The **`advanced`** template (`gtd init advanced`, `src/workflows/advanced.yaml`)
-adds two-phase Q&A planning, an architecture phase, task decomposition, the
-deterministic `picking` queue arbiter with a per-task build/check loop,
-agent-prepared `.gtd/REVIEW.md` review, and that squash finale (`squashing` +
-`done`). It is walked through in full at
-[docs/examples/advanced-workflow.md](docs/examples/advanced-workflow.md).
+**Advanced-flow states** (reached only via the `.gtd/REQUIREMENTS.md` entry):
 
-### Walkthrough
+| State                 | Actor | Content | `on`                                                                                               | Retry                  | Model   | Memory   | File / Mode                    |
+| --------------------- | ----- | ------- | -------------------------------------------------------------------------------------------------- | ---------------------- | ------- | -------- | ------------------------------ |
+| `adv-grilling`        | agent | prompt  | `* **` → `adv-grilling-answer`                                                                     | —                      | `smart` | `plan`   | `vars.requirementsFile` / `qa` |
+| `adv-grilling-answer` | human | message | `C` → `architecting`; `* **` → `adv-grilling`                                                      | —                      | —       | —        | `vars.requirementsFile` / `qa` |
+| `architecting`        | agent | prompt  | `* **` → `architecting-answer`                                                                     | —                      | `smart` | `plan`   | `vars.architectureFile` / `qa` |
+| `architecting-answer` | human | message | `C` → `decompose`; `* **` → `architecting`                                                         | —                      | —       | —        | `vars.architectureFile` / `qa` |
+| `decompose`           | agent | prompt  | `* .gtd/packages/**` → `picking`                                                                   | —                      | `base`  | `build`  | —                              |
+| `picking`             | check | script  | `D .gtd/NEXT.md` → `reviewing`; `* .gtd/NEXT.md` → `adv-building`; `C` → `reviewing`               | —                      | —       | —        | —                              |
+| `adv-building`        | agent | prompt  | `* **` → `adv-checking`                                                                            | —                      | `base`  | `build`  | —                              |
+| `adv-checking`        | check | script  | `A`/`M .gtd/FEEDBACK.md` → `adv-fixing`; `D .gtd/FEEDBACK.md` → `spec-review`; `C` → `spec-review` | —                      | —       | —        | —                              |
+| `adv-fixing`          | agent | prompt  | `* **` → `adv-checking`                                                                            | max 3 → `adv-escalate` | `base`  | `fix`    | `vars.feedbackFile`            |
+| `adv-escalate`        | human | message | `* **` → `adv-checking`                                                                            | —                      | —       | —        | `vars.feedbackFile`            |
+| `spec-review`         | agent | prompt  | `A`/`M .gtd/SPEC_FEEDBACK.md` → `spec-fix`; `D .gtd/SPEC_FEEDBACK.md` → `closing`; `C` → `closing` | max 3 → `closing`      | `smart` | `review` | —                              |
+| `spec-fix`            | agent | prompt  | `* **` → `adv-checking`                                                                            | —                      | `base`  | `fix`    | `vars.specFeedbackFile`        |
+| `closing`             | check | script  | `* **` → `picking`                                                                                 | —                      | —       | —        | —                              |
 
-A human writes `.gtd/TODO.md` (a short sketch — a few sentences is enough) and
-runs `gtd step human` at `idle`: that dirty tree matches `"* **"`, so the step
-lands `gtd(human): grilling`.
+### Walkthrough — the simple flow and the shared tail
+
+A human writes `.gtd/TODO.md` (a short sketch) and runs `gtd step human` at
+`idle`: the `REQUIREMENTS.md` row doesn't match, so the catch-all `"* **"` lands
+`gtd(human): idle → grilling`.
 
 **Planning — TODO.md open questions.** `grilling` reads `.gtd/TODO.md`, explores
-the codebase, and develops it into a concrete implementation plan; anything it
-can't settle itself goes under a `## Open Questions` heading near the top, one
-`### <question>` sub-heading per question, its body a suggested answer in plain
-prose (`src/OpenQuestions.ts`'s parser is this format's executable spec — status
-is POSITIONAL, there is no `Suggested default:`/`Answer:` marker; see §12).
-Because `grilling` declares `file: .gtd/TODO.md` and `mode: qa`, its output is
-checkable: before finishing it self-validates with `gtd validate` (see §12), so
-its turn steps straight to `grilling-answer` with a well-formed plan. At
-`grilling-answer`, a human answers a question by editing its body in place, or
-leaves a suggestion untouched to accept it; a **clean** step (`C`, every
-suggestion accepted as-is) moves to `building`, while any edit (an answer, a new
-question, code) loops back through `grilling`, which folds the whole answered
-batch into the plan — moving each resolved `### <question>` block down into a
-`## Answered Questions` section at the bottom — possibly asks follow-ups, and
-re-validates.
+the codebase, and develops it into a concrete plan; anything it can't settle
+goes under a `## Open Questions` heading, one `### <question>` each with a
+suggested answer in plain prose (`src/OpenQuestions.ts`'s parser is this
+format's executable spec; see §12). It declares `file: .gtd/TODO.md`/`mode: qa`,
+so it self-validates with `gtd validate` before finishing and steps to
+`grilling-answer`. There a human answers by editing in place, or leaves a
+suggestion untouched to accept it; a **clean** step (`C`) moves to `building`,
+any edit loops back through `grilling` (which folds the answered batch down into
+a `## Answered Questions` section).
 
-`building` implements the plan in `.gtd/TODO.md` directly — no task
-decomposition, no per-task queue — using TDD discipline (one test, then the
-implementation that passes it, then the next), and deletes `.gtd/TODO.md` once
-the work is complete and verified before stepping to `checking`.
+`building` implements the plan in one turn — no decomposition — using TDD
+discipline, deletes `.gtd/TODO.md`, and steps to `checking`.
 
-`checking` is a `script` state: the driver executes its inline test-running
-wrapper (`<%~ it.vars.testCommand %>`, defaulting to `npm test` — this
-workflow's own declared `vars:`, overridable via a top-level `.gtdrc` `vars:`
-key or a `GTD_VAR_testCommand` environment variable; see
-[Configuration](docs/configuration.md#variables)) and steps the `check` actor
-itself. A red run leaves `.gtd/FEEDBACK.md` pending (`A`/`M .gtd/FEEDBACK.md` →
-`fixing`); a green run moves on to `reviewing` either way — whether it just
-deleted a previous red run's `.gtd/FEEDBACK.md` (`D .gtd/FEEDBACK.md`) or there
-was nothing to clean up (`C`). `fixing`'s
-`retry: { max: 3, otherwise: escalate }` means the fourth consecutive entry into
-`fixing` within one process redirects to `escalate` — a human gate — instead; a
-human's own `"* **"` step from `escalate` returns to `checking` (with the
-process's retry trace unaffected by counting rules other than "how many times
-has `fixing` itself been entered").
+`checking` is a `script` state: the driver runs its inline test wrapper
+(`<%~ it.vars.testCommand %>`, default `npm test` — overridable via a top-level
+`.gtdrc` `vars:` key or `GTD_VAR_testCommand`) and steps the `check` actor. A
+red run leaves `.gtd/FEEDBACK.md` (`A`/`M` → `fixing`); a green run moves to
+`reviewing` (`D .gtd/FEEDBACK.md` cleaning a prior red run, or `C`). `fixing`'s
+`retry: { max: 3, otherwise: escalate }` redirects the fourth consecutive entry
+to the `escalate` human gate.
 
-**Review — REVIEW.md checkboxes.** A green `checking` run moves to `reviewing`
-(agent, `model: vars.plannerModel`, default `smart`), which writes
-`.gtd/REVIEW.md` grouping the cycle's full diff into reviewable chunks, in the
-exact checkbox-pointer format `src/ReviewDoc.ts`'s parser defines (header
-`# Review: <short-hash>`, a `<!-- base: <hash> -->` comment, `##` chunks each
-with `- [ ] ./path#line — note` pointers). Like `grilling`, `reviewing` declares
-a `file:`/`mode:` pair (`.gtd/REVIEW.md`/`review`), so it self-validates that
-format with `gtd validate` before finishing (see §12) and its turn steps
-straight to `await-review`. At `await-review`, a human ticks a pointer's `- [ ]`
-to `- [x]` to approve that item; deleting `.gtd/REVIEW.md` outright is the
-power-user shortcut to approve everything at once (`D .gtd/REVIEW.md` → `idle`
-directly). Any other `M .gtd/REVIEW.md` step — ticking/unticking boxes, adding
-notes, even alongside a code edit — routes to `review-deciding` (declared
-**before** the catch-all `"* **"` row, so a step that also touches code still
-goes to the decider); code-only edits that leave `.gtd/REVIEW.md` untouched go
-straight back to `grilling` as feedback. `review-deciding` is deterministic: if
-no unticked `- [ ]` pointer remains, the cycle is approved (`rm .gtd/REVIEW.md`
-→ `D .gtd/REVIEW.md` → `idle`); otherwise it extracts the still-unticked
-pointers (with their notes) into a fresh `.gtd/TODO.md` and removes
-`.gtd/REVIEW.md` — the resulting diff carries both `A .gtd/TODO.md` and
-`D .gtd/REVIEW.md`, and the `A`/`M .gtd/TODO.md` row is declared **first** so
-feedback wins over the approval pattern.
+**Review — REVIEW.md checkboxes.** `reviewing` (agent, `plannerModel`) writes
+`.gtd/REVIEW.md` grouping the diff into reviewable chunks in the exact
+checkbox-pointer format `src/ReviewDoc.ts` defines, self-validates it, and steps
+to `await-review`. There a human ticks a `- [ ]` to `- [x]` to sign off an item.
+Deleting `.gtd/REVIEW.md` outright is the power-user full-sign-off shortcut
+(`D .gtd/REVIEW.md` → `squashing`). Any other `M .gtd/REVIEW.md` step routes to
+`review-deciding` (declared **before** the catch-all, so a step that also
+touches code still goes to the decider); a code-only edit that leaves
+`.gtd/REVIEW.md` untouched goes to `checking` to re-test and re-review the
+manual fix. `review-deciding` is deterministic: if no unticked `- [ ]` remains,
+it removes `.gtd/REVIEW.md` (`D .gtd/REVIEW.md` → `squashing`); otherwise it
+extracts the still-unticked pointers (with their notes) into
+`.gtd/REVIEW_FEEDBACK.md` and removes `.gtd/REVIEW.md` — the
+`A`/`M .gtd/REVIEW_FEEDBACK.md` row is declared **first** so a feedback round
+wins over the sign-off pattern. `feedback-building` implements exactly those
+items (no Q&A), deletes the feedback file, and re-enters `checking` →
+`reviewing`, which regenerates a review scoped to just the changes since the
+last round (§11).
 
-**Hygiene invariant:** an approved cycle leaves `.gtd/` completely empty —
-`.gtd/FEEDBACK.md` is cleaned up by a green `checking` run, `.gtd/REVIEW.md` by
-the `review-deciding` approval branch, and `.gtd/TODO.md` by `building`. The
-idle-entering commit that closes the cycle is also this workflow's only process
-boundary besides an unrecognized HEAD (§7): the NEXT cycle's `retry` counts,
-`startCommit`, and diffs never reach back across it.
+**The squash finale.** A full sign-off reaches `squashing` (agent), which writes
+`.gtd/COMMIT_MSG.md` with one conventional-commits message for the whole cycle;
+entering the `done` commit state squashes every turn commit since the process
+start into that one commit (with a token-cost trailer, §8) and discards the
+message file. The squash commit carries a NON-workflow subject, so it is the
+process boundary (§7): the next cycle's `retry` counts, `startCommit`, and diffs
+never reach back across it.
 
-Every agent state draws its `model` from one of two `vars` tiers rather than a
-hardcoded string, so the tiers repoint in one place (the template's `vars:`, a
-top-level `.gtdrc` `vars:` key, or a `GTD_VAR_` override): `plannerModel`
-(default `smart`) for the heavier one-shot planning/reviewing turns (`grilling`,
-`reviewing`), `coderModel` (default `base`) for the coding turns (`building`,
-`fixing`). Both are opaque hints `gtd next`/`gtd status` `--json` emit verbatim
-(the resolved value, e.g. `smart`/`base`) for the driving loop to map onto its
-harness. The check/human states declare no `model`, so the harness default
-applies there.
+### Walkthrough — the advanced flow
 
-The four agent states also declare a `memory:` scope label — `grilling: plan`,
-`building: build`, `fixing: fix`, `reviewing: review` — another opaque hint the
-`--json` commands emit verbatim. A memory-aware driver keeps an agent's memory
-across consecutive agent turns that share a label and starts fresh when it
-changes: the `grilling` loop (grilling ↔ grilling-answer) and the `fixing` loop
-(fixing ↔ checking) each re-enter one agent state, so every lap carries the same
-label and the agent retains what it has already learned; crossing into the next
-phase — `building` after planning, `reviewing` after the fix loop — lands on a
-differently-labelled state, which is where the driver clears memory for a fresh
-start. gtd itself never reads the label (see §1).
+Creating `.gtd/REQUIREMENTS.md` and stepping at `idle` matches the first `on`
+row, landing `gtd(human): idle → adv-grilling`. `adv-grilling` develops the
+product plan in `.gtd/REQUIREMENTS.md` (product/user-facing decisions only, same
+`## Open Questions` protocol), gated by `adv-grilling-answer`. A clean step
+moves to `architecting`, which reads `.gtd/REQUIREMENTS.md`, writes the
+technical plan to `.gtd/ARCHITECTURE.md`, deletes `.gtd/REQUIREMENTS.md`, and is
+gated by `architecting-answer`.
 
-Every human gate (`idle`, `grilling-answer`, `escalate`, `await-review`)
-declares a `describe` on each of its `on` edges (see §3) and closes its
-`message:` with a "what each change does next" list rendered from `it.edges` —
-so the message tells the human, at that gate, which change routes to which next
-state (e.g. `await-review`: delete `.gtd/REVIEW.md` to approve → `idle`; tick a
-box → `review-deciding`; edit only code → `grilling`). The list is generated
-from the same `on` edges the engine routes on, so it can never drift from the
-routing it describes.
+A clean step moves to `decompose`, which reads `.gtd/ARCHITECTURE.md` and writes
+an ordered set of **work packages** under `.gtd/packages/` (one file each), then
+deletes `.gtd/ARCHITECTURE.md`. Each package file describes a set of
+**independent** tasks. `picking` is the deterministic queue arbiter: it takes
+the first package file (by name) into `.gtd/NEXT.md`, or removes `.gtd/NEXT.md`
+when the queue is empty (`D .gtd/NEXT.md` → `reviewing`, closing out to the
+shared tail). `adv-building` reads the package in `.gtd/NEXT.md` and implements
+ALL its tasks in one turn, **fanning the independent tasks out to parallel
+subagents** — gtd stays a single-branch serial machine; the parallelism is the
+agent's, inside one turn. It leaves the package file in place for review.
 
-The default's `vars:` also declares `todoFile`/`reviewFile`/`feedbackFile` (the
-three filenames above, in one place), which every `file:` and every
-prompt/script that names those files reads as `<%~ it.vars.todoFile %>` etc —
-one source of truth per filename. **Known limitation:** `on` pattern keys are
-NOT Eta templates — they keep the LITERAL `.gtd/...` paths matching these vars'
-default values (see
-[Configuration](docs/configuration.md#filemode--the-steering-file-association)).
-Repointing `todoFile`/`reviewFile`/`feedbackFile` via a top-level `.gtdrc`
-`vars:` key or a `GTD_VAR_` override changes what `file:` renders to (and what a
-template reads/writes) WITHOUT changing what the `on` patterns match against —
-desyncing the machine. `gtd lsp` (§3 of
-[docs/design/state-file-association.md](docs/design/state-file-association.md))
-reads this same `file:`/`mode:` pair to dispatch document symbols/code
-actions/diagnostics, config-driven rather than hardcoded to `TODO.md`/
-`REVIEW.md`.
+`adv-checking` runs the suite (a red run → `adv-fixing`, capped to
+`adv-escalate`); a green run reaches the per-package `spec-review` gate. There
+an agent verifies the built package against its spec (the package file, still on
+disk): if it finds problems it writes `.gtd/SPEC_FEEDBACK.md` (→ `spec-fix`,
+which addresses them and re-enters `adv-checking` → `spec-review`); a **clean**
+turn is its approval (`C` → `closing`). `spec-review` is bounded by
+`retry: { max: 3, otherwise: closing }` — the cap **force-closes** the package
+and moves on, deferring the unresolved concern to the shared human review (which
+sees the whole diff anyway). NOTE the cap is process-scoped, so it pools across
+packages — the same documented limitation the `fixing` cap has. `closing`
+removes the reviewed package file and `.gtd/NEXT.md`, returning to `picking` for
+the next package. Once the queue empties, `picking` closes out to `reviewing` —
+the same shared tail and squash finale the simple flow uses.
+
+**Hygiene invariant:** an approved cycle leaves `.gtd/` empty —
+`.gtd/FEEDBACK.md` by a green check, `.gtd/REVIEW.md` by `review-deciding`,
+`.gtd/TODO.md` by `building`, `.gtd/REQUIREMENTS.md`/`.gtd/ARCHITECTURE.md` by
+the phase that folds them in, package files by `closing`, and
+`.gtd/COMMIT_MSG.md` discarded by the squash.
+
+**Models and memory.** Every agent state draws its `model` from one of two
+`vars` tiers (`plannerModel` default `smart` for planning/architecting/review
+turns, `coderModel` default `base` for build/fix turns), repointable in one
+place (a `vars:` edit or a `GTD_VAR_` override). Each also declares a `memory:`
+scope label (`plan`/`build`/`fix`/`review`) — an opaque hint the `--json`
+commands emit verbatim so a memory-aware driver retains an agent's memory within
+a loop (same label across laps) and clears it at a phase boundary. gtd never
+reads either (see §1).
+
+**Human-gate route lists.** Every human gate declares a `describe` on each `on`
+edge and closes its `message:` with a "what each change does next" list rendered
+from `it.edges` (§3), so it can never drift from the routing it describes.
+
+The template's `vars:` declares every steering-file path in one place
+(`todoFile`, `requirementsFile`, `architectureFile`, `packagesDir`, `nextFile`,
+`reviewFile`, `reviewFeedbackFile`, `feedbackFile`, `specFeedbackFile`,
+`commitMsgFile`), read by every `file:` and prompt/script as `<%~ it.vars.… %>`.
+**Known limitation:** `on` pattern keys are NOT Eta templates — they keep the
+LITERAL `.gtd/…` paths matching these vars' default values (see
+[Configuration](docs/configuration.md#filemode--the-steering-file-association)),
+so repointing a file var desyncs the machine. `gtd lsp` reads this same
+`file:`/`mode:` pair to dispatch document symbols/code actions/diagnostics,
+config-driven rather than hardcoded.
 
 ## 11. The review checkout window
 
@@ -552,9 +550,9 @@ bracketing every state subcommand (`step`/`next`/`status`):
   existing). This is why the machine resolves the true rest, not the rewound
   base — and why a reviewer's own edits, made while the window was open, land as
   the resting state's ordinary pending changes and are captured by its `on`
-  patterns like any other diff (in the `simple` template, a code edit at
-  `await-review` routes to `grilling` as feedback; deleting `.gtd/REVIEW.md`
-  approves).
+  patterns like any other diff (in the unified template, a code edit at
+  `await-review` routes to `checking` to re-test and re-review; deleting
+  `.gtd/REVIEW.md` signs off into the squash finale).
 - **Re-arm last.** After the subcommand finishes — on success, on refusal, and
   after read-only commands too — gtd re-opens the window if the resolved rest
   declares `reviewWindow: true`. Every command participates, so the editor's
@@ -706,7 +704,8 @@ compose:
   `skills/loop/SKILL.md`). `gtd validate` being a no-op when there is nothing to
   validate means the loop can run it after every agent turn unconditionally.
 
-In the `simple` template (§10) this covers `grilling` (TODO.md/`qa`) and
+In the unified template (§10) this covers `grilling`/`adv-grilling`
+(TODO.md/REQUIREMENTS.md/`qa`), `architecting` (ARCHITECTURE.md/`qa`) and
 `reviewing` (REVIEW.md/`review`) — the states that author a steering file — and,
 through the `gtd step` gate, the human gates `grilling-answer` and
 `await-review` that edit those same files. It replaced the old in-machine

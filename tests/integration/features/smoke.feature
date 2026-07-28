@@ -13,7 +13,7 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
 
   Scenario: the simple workflow's happy path advances idle -> grilling -> grilling-answer -> building -> checking
     Given a test project
-    And the "simple" workflow
+    And the workflow
     And a file ".gtd/TODO.md" with:
       """
       Build a thing.
@@ -41,7 +41,7 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project
-    And the "simple" workflow
+    And the workflow
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"idle\""

@@ -31,7 +31,7 @@ import { Schema } from "effect"
  * schema.ts` (run via `jiti`, a plain TS-via-Babel loader with no bundler-
  * style pluggable per-extension loaders) can import JUST the schema without
  * risking a transitive pull into the bundled workflow templates
- * (`./workflows/templates.js`, which imports `simple.yaml`/`advanced.yaml` as
+ * (`./workflows/templates.js`, which imports `unified.yaml` as
  * raw text via tsdown's/vitest's `.yaml`-as-text loader — something `jiti` has
  * no equivalent for and doesn't need here): the schema shape never depends on
  * any workflow's content.
