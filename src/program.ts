@@ -38,6 +38,7 @@ import {
 } from "./SteeringMode.js"
 import {
   initialStateOf,
+  isRequireProgressState,
   isReviewWindowState,
   matchesPattern,
   parsePattern,
@@ -420,6 +421,10 @@ const stepAsActor = (
     // Review sign-off gate (edge): refuse a deleted review doc or an unfinished
     // review with no comment before either can commit (see the helper).
     yield* enforceReviewSignoffGate(worktree.read, invoker, rest, context, changes, decision.kind)
+    // Feedback-progress gate (edge): at a `requireProgress` state, refuse a
+    // work-free turn that just deletes the instructions file (the "captured
+    // then silently discarded" bug), exempting a NOTHING ACTIONABLE sentinel.
+    yield* enforceFeedbackProgressGate(invoker, rest, context, changes, decision.kind)
     const outcome = yield* executeDecision(git, run, executable, context, cost, model)
     return {
       state: rest.state,
@@ -798,6 +803,74 @@ const enforceReviewSignoffGate = (
       hasCodeChange: changes.some((c) => !c.path.startsWith(".gtd/")),
       original,
       current,
+    })
+    if (verdict.kind === "refuse") return yield* Effect.fail(new Error(verdict.reason))
+  })
+
+/** The one-line marker `feedback-collecting` writes when a review round left nothing actionable — the ONLY content that lets a `requireProgress` state's instructions file be deleted without a code change (see `classifyFeedbackProgress`). */
+const NOTHING_ACTIONABLE_SENTINEL = "NOTHING ACTIONABLE"
+
+/**
+ * The PURE core of the feedback-progress gate (see `enforceFeedbackProgressGate`).
+ * At a `requireProgress` state the `file` is an instruction list the agent must
+ * ADDRESS, then delete. Refuse a turn that deletes the file while touching no
+ * code (`hasCodeChange` false) — the "review feedback captured then silently
+ * discarded" bug. Two escapes ALLOW the step: the file isn't being deleted (the
+ * agent left work, or the list, in place), or there IS a code change alongside
+ * (real work was done). The one delete-with-no-code exception is a
+ * `NOTHING ACTIONABLE` sentinel (`deletedContent`): a legitimately
+ * non-actionable round makes no code change by design. Kept separate from the
+ * Effect so it is directly unit-tested (see program.test.ts).
+ */
+export const classifyFeedbackProgress = (input: {
+  readonly file: string
+  readonly stateName: string
+  readonly invoker: string
+  readonly changes: readonly PendingChange[]
+  readonly deletedContent: string
+}): ReviewSignoffVerdict => {
+  const fileDeleted = input.changes.some((c) => c.path === input.file && c.status === "D")
+  if (!fileDeleted) return { kind: "allow" }
+  const hasCodeChange = input.changes.some((c) => !c.path.startsWith(".gtd/"))
+  if (hasCodeChange) return { kind: "allow" }
+  if (input.deletedContent.trim().startsWith(NOTHING_ACTIONABLE_SENTINEL)) return { kind: "allow" }
+  return {
+    kind: "refuse",
+    reason: `gtd step ${input.invoker}: ${input.file} was deleted at "${input.stateName}" without addressing its instructions — implement the changes it lists (then delete it), don't just remove the file.`,
+  }
+}
+
+/**
+ * The feedback-progress gate (edge, like the sign-off gate above). At a
+ * `requireProgress: true` state (the unified template's `feedback-building`), a
+ * turn that just deletes the instructions file without doing the work it lists
+ * is refused BEFORE it can commit — the pure `classifyFeedbackProgress` decides.
+ * A no-op when the state is not a `requireProgress` state or the decision is a
+ * squash/no-op. The committed (pre-deletion) file content — read once here —
+ * feeds the sentinel exemption.
+ */
+const enforceFeedbackProgressGate = (
+  invoker: string,
+  rest: ResolvedRest,
+  context: TemplateContext,
+  changes: readonly PendingChange[],
+  kind: ExecutableDecision["kind"],
+): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | GitService> =>
+  Effect.gen(function* () {
+    if (kind !== "commit") return
+    if (!isRequireProgressState(rest.def, rest.state)) return
+    const file = yield* renderFile(rest.stateDef, context)
+    if (file === undefined) return
+    const git = yield* GitService
+    const deletedContent = yield* git
+      .readFileAtRef("HEAD", file)
+      .pipe(Effect.catchAll(() => Effect.succeed("")))
+    const verdict = classifyFeedbackProgress({
+      file,
+      stateName: rest.state,
+      invoker,
+      changes,
+      deletedContent,
     })
     if (verdict.kind === "refuse") return yield* Effect.fail(new Error(verdict.reason))
   })

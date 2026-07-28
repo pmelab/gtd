@@ -118,9 +118,12 @@ which steering file you create:
 Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
 checkbox review of the diff — tick a box as you review each hunk (ticking just
 records "I read this"), and leave a **comment** to request changes: a note on a
-line, or a direct code edit. Any comment sends a build + re-review round (a
-re-review covering only the follow-through, and a hand-edit is treated as your
-own fix the agent completes without reverting your lines); ticking every box
+line, an inline `// TODO`-style comment in the code, or a direct code edit. Any
+comment sends a build + re-review round — an agent first turns your comments
+into an explicit instruction list, then a build turn implements it (a re-review
+then covers only the follow-through, and a hand-edit is treated as your own fix
+the agent completes without reverting your lines; a comment can't be silently
+dropped — a build turn that addresses nothing is refused). Ticking every box
 with no comment is the sign-off, which collapses the whole cycle into one commit
 (a **squash finale** whose message an agent drafts). Stepping with a box still
 unticked and no comment is refused (finish reviewing first), as is deleting

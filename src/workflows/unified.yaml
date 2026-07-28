@@ -64,6 +64,7 @@ vars:
   packagesDir: .gtd/packages
   nextFile: .gtd/NEXT.md
   reviewFile: .gtd/REVIEW.md
+  reviewRawFile: .gtd/REVIEW_RAW.md
   reviewFeedbackFile: .gtd/REVIEW_FEEDBACK.md
   feedbackFile: .gtd/FEEDBACK.md
   specFeedbackFile: .gtd/SPEC_FEEDBACK.md
@@ -726,11 +727,13 @@ states:
       # once per round — nothing commits in between). It is FEEDBACK when the
       # human left a comment: a note in REVIEW.md (any edit beyond a "[ ]"->"[x]"
       # tick) OR a hand-edit to any non-.gtd/ file this round. Otherwise it is a
-      # clean sign-off. Either way, remove REVIEW.md; what the resulting diff
-      # MEANS is decided by this state's own `on` rules — the A/M
-      # REVIEW_FEEDBACK.md rows are declared BEFORE the D REVIEW.md row so a
-      # feedback round (which also deletes REVIEW.md) is captured as feedback,
-      # not mistaken for a sign-off.
+      # clean sign-off. This turn only CAPTURES the raw material into REVIEW_RAW.md
+      # (the `feedback-collecting` agent then turns it into instructions); it does
+      # NOT interpret it. Either way, remove REVIEW.md; what the resulting diff
+      # MEANS is decided by this state's own `on` rules — the A/M REVIEW_RAW.md
+      # rows are declared BEFORE the D REVIEW.md row so a feedback round (which
+      # also deletes REVIEW.md) is captured as feedback, not mistaken for a
+      # sign-off.
       set +e
       mkdir -p .gtd
       # Hoist the paths once, at the TOP: Eta's autoTrim eats the newline after
@@ -738,7 +741,7 @@ states:
       # would glue the next line onto it and break the script. Below this point
       # everything is plain bash.
       reviewFile="<%~ it.vars.reviewFile %>"
-      reviewFeedbackFile="<%~ it.vars.reviewFeedbackFile %>"
+      reviewRawFile="<%~ it.vars.reviewRawFile %>"
       # Which non-.gtd/ files did the human hand-edit this round?
       codeFiles=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -v '^\.gtd/')
       # A note is any REVIEW.md change beyond a checkbox flip: normalize every
@@ -750,11 +753,10 @@ states:
       if [ "$before" != "$after" ]; then notes=1; fi
       if [ -n "$codeFiles" ] || [ -n "$notes" ]; then
         {
-          echo "Review feedback to address, then delete this file. The human reviewed the diff and asked for the changes below."
-          echo "Build on their own edits: complete only the follow-through each change implies (callers, tests, types, docs). Treat any lines the human wrote as final — never revert or rewrite them."
+          echo "Raw review material captured for classification. The human reviewed the diff and left the feedback below; a downstream agent turns it into an instruction list. This file is machine-captured input, not instructions."
           if [ -n "$notes" ]; then
             echo
-            echo "## Notes left in the review (ticked items are approved — act on the notes)"
+            echo "## Notes the human added to REVIEW.md this round"
             echo
             echo '```diff'
             git show HEAD --format= -- "$reviewFile"
@@ -762,40 +764,107 @@ states:
           fi
           if [ -n "$codeFiles" ]; then
             echo
-            echo "## Code the human hand-edited this round — already committed, build on top"
+            echo "## Files the human hand-edited this round (already committed)"
             echo
             echo '```diff'
             git show HEAD --format= -- $codeFiles
             echo '```'
           fi
-        } > "$reviewFeedbackFile"
+        } > "$reviewRawFile"
       fi
       rm -f "$reviewFile"
     on:
+      "A .gtd/REVIEW_RAW.md": feedback-collecting
+      "M .gtd/REVIEW_RAW.md": feedback-collecting
+      "D .gtd/REVIEW.md": squashing
+
+  feedback-collecting:
+    actor: agent
+    file: <%= it.vars.reviewFeedbackFile %>
+    model: <%= it.vars.plannerModel %>
+    memory: review
+    prompt: |
+      You are an autonomous coding agent turning raw review feedback into an
+      explicit instruction list for a builder. `.gtd/` holds this workflow's own
+      state — never create, edit, or delete anything under `.gtd/` except
+      `<%= it.vars.reviewRawFile %>` (delete it when done) and
+      `<%= it.vars.reviewFeedbackFile %>` (write it). Do NOT change any other
+      file — you classify, you do not build.
+
+      The raw review material is: <%~ it.read(it.vars.reviewRawFile) %>
+
+      Classify every piece of it into `<%= it.vars.reviewFeedbackFile %>` as a
+      flat, numbered instruction list. Each item is `N. ./path/to/file.ts#line —
+      <imperative>`. Read the two RAW sections and apply these rules exactly:
+
+      1. NOTES the human added to REVIEW.md — each note is a MANDATORY change,
+         regardless of whether its checkbox is ticked (ticking means only "I read
+         this hunk", never sign-off). Anchor each to the `./path#line` its review
+         item names (or the chunk it sits under). Emit it as a concrete
+         imperative.
+      2. Every COMMENT the human ADDED this round (a `+` line that is a code
+         comment, in the hand-edited files) is a MANDATORY instruction the human
+         is giving the builder — even a plain-prose one, even if its box is
+         ticked. Emit an imperative to satisfy it and note that the comment line
+         itself must be REMOVED once addressed. If a comment turns out to describe
+         behaviour the code already has, the instruction is still "confirm the
+         code matches and remove the comment line".
+      3. Every NON-comment code line the human hand-edited is an already-committed
+         INTENT, NOT a do-then-delete item. Emit an instruction that names those
+         files and says: their lines are final — complete ONLY the follow-through
+         they imply (callers, tests, types, docs) and NEVER revert or rewrite
+         them. Do not turn their own edit into a task.
+
+      Split each hand-edited hunk per line: comment `+` lines follow rule 2, the
+      surrounding real code follows rule 3.
+
+      If — and only if — nothing in the raw material is actionable (e.g. the human
+      left only an approving remark), write `<%= it.vars.reviewFeedbackFile %>`
+      containing exactly one line: `NOTHING ACTIONABLE — <one-sentence reason>`.
+      Never invent work to satisfy a non-actionable remark.
+
+      Delete `<%= it.vars.reviewRawFile %>`, leave everything else uncommitted,
+      and finish your turn.
+    on:
       "A .gtd/REVIEW_FEEDBACK.md": feedback-building
       "M .gtd/REVIEW_FEEDBACK.md": feedback-building
-      "D .gtd/REVIEW.md": squashing
 
   feedback-building:
     actor: agent
     file: <%= it.vars.reviewFeedbackFile %>
     model: <%= it.vars.coderModel %>
     memory: build
+    # Refuse a work-free turn: a step whose only pending change is deleting the
+    # instructions file (the original "captured then discarded" bug). The edge
+    # gate (`enforceFeedbackProgressGate` in src/program.ts) reads this flag and
+    # exempts a `NOTHING ACTIONABLE` sentinel (a non-actionable review round,
+    # which legitimately makes no code change). The pure engine carries it inert.
+    requireProgress: true
     prompt: |
       You are an autonomous coding agent addressing review feedback. `.gtd/`
       holds this workflow's own state — never create, edit, or delete anything
       under `.gtd/` except `<%= it.vars.reviewFeedbackFile %>`, which this
       prompt tells you to address and then delete.
 
-      The review feedback to address is: <%~ it.read(it.vars.reviewFeedbackFile) %>
+      The instructions to implement are: <%~ it.read(it.vars.reviewFeedbackFile) %>
 
-      Implement exactly those changes — no Q&A, no re-planning. Use TDD
-      discipline. When the feedback includes code the human hand-edited this
-      round, that edit is ALREADY committed: treat their lines as final, build ON
-      TOP of them to complete only the follow-through they imply (callers, tests,
-      types, docs), and never revert or rewrite what they changed. Delete
-      `<%= it.vars.reviewFeedbackFile %>` once every item is addressed. Leave
-      everything else uncommitted and finish your turn.
+      This is a flat instruction list, not a diff — execute every item exactly as
+      written, no Q&A, no re-planning, using TDD discipline:
+
+      - An item that says the human's own lines are final: build ON TOP of them to
+        complete only the follow-through it names (callers, tests, types, docs).
+        NEVER revert or rewrite the lines they already committed.
+      - An item derived from a human comment: satisfy it AND delete that comment
+        line from the code (the human's review comments are transient — none of
+        them survive this round).
+
+      If the file's sole content is a `NOTHING ACTIONABLE` line, make no code
+      change; just delete the instructions file.
+
+      Delete `<%= it.vars.reviewFeedbackFile %>` once every item is addressed.
+      Leave everything else uncommitted and finish your turn. Deleting the
+      instructions file WITHOUT making the changes it asks for is refused — the
+      feedback must actually be addressed.
     on:
       "* **": checking
 

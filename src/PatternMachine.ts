@@ -167,6 +167,18 @@ export interface StateDef {
    * (`src/Edge.ts`/`src/program.ts`); see `reviewEntryStateOf`.
    */
   readonly reviewEntry?: boolean
+  /**
+   * Optional. When `true`, a step at this state is REFUSED if its only pending
+   * change is deleting the state's own `file:` — a work-free turn that discards
+   * its input without addressing it (the "review feedback captured then
+   * silently deleted" bug). Like the review window and sign-off gate, the PURE
+   * engine never reads it: the check lives at the edge
+   * (`enforceFeedbackProgressGate` in `src/program.ts`), which also exempts a
+   * `NOTHING ACTIONABLE` sentinel file (a legitimately non-actionable feedback
+   * round that makes no code change). Requires a `file:`; forbidden on a commit
+   * state (never at rest — see `validateDefinition`).
+   */
+  readonly requireProgress?: boolean
 }
 
 /**
@@ -259,6 +271,10 @@ export const isReviewWindowState = (def: WorkflowDefinition, state: StateName): 
 /** True when `state` anchors the review window's diff base (see `StateDef.reviewBase`). Safe for an unknown state name (returns `false`). */
 export const isReviewBaseState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.reviewBase === true
+
+/** True when a step at `state` must be refused if its only change is deleting the state's `file:` (see `StateDef.requireProgress`). Safe for an unknown state name (returns `false`). */
+export const isRequireProgressState = (def: WorkflowDefinition, state: StateName): boolean =>
+  def.states[state]?.requireProgress === true
 
 /** The workflow's declared review-entry state name (see `StateDef.reviewEntry`) — `gtd review <commitish>` (`src/program.ts`) enters this state to start a new review process. `undefined` when no state declares one; `validateDefinition` guarantees at most one does, so the first (only) match wins. */
 export const reviewEntryStateOf = (def: WorkflowDefinition): StateName | undefined => {
@@ -857,6 +873,24 @@ const validateReviewEntry = (name: string, state: StateDef): string[] => {
   return errors
 }
 
+/**
+ * `requireProgress`, when present, is forbidden on a commit state (never at
+ * rest — same rule family as `reviewWindow`/`reviewBase`) and REQUIRES a
+ * `file:`: the edge gate refuses a turn whose sole change is deleting that
+ * file, so a state with no `file:` to name has nothing to guard.
+ */
+const validateRequireProgress = (name: string, state: StateDef): string[] => {
+  if (state.requireProgress === undefined) return []
+  const errors: string[] = []
+  if (isCommitState(state)) {
+    errors.push(`state "${name}": a commit state cannot declare "requireProgress"`)
+  }
+  if (state.file === undefined) {
+    errors.push(`state "${name}": "requireProgress" requires "file"`)
+  }
+  return errors
+}
+
 /** At most one state may declare `reviewEntry: true` — `gtd review <commitish>` (`src/program.ts`) needs a single, unambiguous state name to enter (see `reviewEntryStateOf`). */
 const validateReviewEntryUniqueness = (
   def: WorkflowDefinition,
@@ -956,6 +990,7 @@ const validateState = (
     ...validateMode(def, name, state),
     ...validateReviewWindow(name, state),
     ...validateReviewEntry(name, state),
+    ...validateRequireProgress(name, state),
   ]
 }
 
