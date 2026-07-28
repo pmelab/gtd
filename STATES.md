@@ -343,15 +343,22 @@ creates:
   per-package agentic `spec-review` gate.
 
 Both converge at `reviewing` → `await-review` (also the direct
-`gtd review <commitish>` entry, via `reviewEntry: true` on `reviewing`). From
-there a **full sign-off** (tick every box, or delete `.gtd/REVIEW.md`) is the
-only path to the **squash finale** (`squashing` → `done`), which collapses the
-whole cycle into one commit whose message an agent drafts. A **partial
-sign-off** routes the still-unticked items through `review-deciding` into
+`gtd review <commitish>` entry, via `reviewEntry: true` on `reviewing`). Ticking
+a `- [ ]` box means only "I reviewed this hunk"; a **comment** — not an unticked
+box — is what asks for changes. Every human step routes to `review-deciding`,
+which decides from the step's content: a **full sign-off** (every box ticked, no
+note in `.gtd/REVIEW.md`, no code edit) is the only path to the **squash
+finale** (`squashing` → `done`), which collapses the whole cycle into one commit
+whose message an agent drafts. **Feedback** — any note in `.gtd/REVIEW.md`
+beyond a tick, OR a hand-edit to code — routes through `review-deciding` into
 `.gtd/REVIEW_FEEDBACK.md` → `feedback-building` → `checking` → `reviewing`,
 which regenerates an **incremental** review (`reviewBase: true` on
-`review-deciding` scopes it to `last-review..HEAD`). A **code-only edit** at
-`await-review` routes to `checking` to re-test and re-review the manual fix.
+`review-deciding` scopes it to `last-review..HEAD`, i.e. the agent's
+follow-through, not the reviewer's own edit). A code edit counts as the
+reviewer's own fix: `feedback-building` completes the follow-through it implies
+and never reverts their lines. Two dead ends never commit — the **sign-off
+gate** (`src/program.ts`, an edge like the review window) refuses a step that
+leaves a box unticked with no comment, and a deleted `.gtd/REVIEW.md`.
 
 Steering-file formats
 (`.gtd/TODO.md`/`.gtd/REQUIREMENTS.md`/`.gtd/ARCHITECTURE.md` open questions,
@@ -362,21 +369,21 @@ machine: the producing agent self-validates with `gtd validate` before finishing
 **Entry + shared states** (the simple flow and the tail all three entries
 share):
 
-| State               | Actor | Content | `on`                                                                                                          | Retry              | Model   | Memory   | File / Mode                  |
-| ------------------- | ----- | ------- | ------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | -------- | ---------------------------- |
-| `idle` (initial)    | human | message | `* .gtd/REQUIREMENTS.md` → `adv-grilling`; `* **` → `grilling`                                                | —                  | —       | —        | —                            |
-| `grilling`          | agent | prompt  | `* **` → `grilling-answer`                                                                                    | —                  | `smart` | `plan`   | `vars.todoFile` / `qa`       |
-| `grilling-answer`   | human | message | `C` → `building`; `* **` → `grilling`                                                                         | —                  | —       | —        | `vars.todoFile` / `qa`       |
-| `building`          | agent | prompt  | `* **` → `checking`                                                                                           | —                  | `base`  | `build`  | `vars.todoFile` / `qa`       |
-| `checking`          | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`                    | —                  | —       | —        | —                            |
-| `fixing`            | agent | prompt  | `* **` → `checking`                                                                                           | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile`          |
-| `escalate`          | human | message | `* **` → `checking`                                                                                           | —                  | —       | —        | `vars.feedbackFile`          |
-| `reviewing`         | agent | prompt  | `* **` → `await-review`                                                                                       | —                  | `smart` | `review` | `vars.reviewFile` / `review` |
-| `await-review`      | human | message | `D .gtd/REVIEW.md` → `squashing`; `M .gtd/REVIEW.md` → `review-deciding`; `* **` → `checking`                 | —                  | —       | —        | `vars.reviewFile` / `review` |
-| `review-deciding`   | check | script  | `A`/`M .gtd/REVIEW_FEEDBACK.md` → `feedback-building`; `D .gtd/REVIEW.md` → `squashing`; `C` → `await-review` | —                  | —       | —        | `vars.reviewFile` / `review` |
-| `feedback-building` | agent | prompt  | `* **` → `checking`                                                                                           | —                  | `base`  | `build`  | `vars.reviewFeedbackFile`    |
-| `squashing`         | agent | prompt  | `A`/`M .gtd/COMMIT_MSG.md` → `done`                                                                           | —                  | `base`  | `build`  | `vars.commitMsgFile`         |
-| `done`              | —     | commit  | — (commit state: squash ends the process)                                                                     | —                  | —       | —        | —                            |
+| State               | Actor | Content | `on`                                                                                                           | Retry              | Model   | Memory   | File / Mode                  |
+| ------------------- | ----- | ------- | -------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | -------- | ---------------------------- |
+| `idle` (initial)    | human | message | `* .gtd/REQUIREMENTS.md` → `adv-grilling`; `* **` → `grilling`                                                 | —                  | —       | —        | —                            |
+| `grilling`          | agent | prompt  | `* **` → `grilling-answer`                                                                                     | —                  | `smart` | `plan`   | `vars.todoFile` / `qa`       |
+| `grilling-answer`   | human | message | `C` → `building`; `* **` → `grilling`                                                                          | —                  | —       | —        | `vars.todoFile` / `qa`       |
+| `building`          | agent | prompt  | `* **` → `checking`                                                                                            | —                  | `base`  | `build`  | `vars.todoFile` / `qa`       |
+| `checking`          | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`                     | —                  | —       | —        | —                            |
+| `fixing`            | agent | prompt  | `* **` → `checking`                                                                                            | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile`          |
+| `escalate`          | human | message | `* **` → `checking`                                                                                            | —                  | —       | —        | `vars.feedbackFile`          |
+| `reviewing`         | agent | prompt  | `* **` → `await-review`                                                                                        | —                  | `smart` | `review` | `vars.reviewFile` / `review` |
+| `await-review`      | human | message | `* **` → `review-deciding` (+ edge sign-off gate: refuses a deleted `REVIEW.md` / an unticked-no-comment step) | —                  | —       | —        | `vars.reviewFile` / `review` |
+| `review-deciding`   | check | script  | `A`/`M .gtd/REVIEW_FEEDBACK.md` → `feedback-building`; `D .gtd/REVIEW.md` → `squashing`                        | —                  | —       | —        | `vars.reviewFile` / `review` |
+| `feedback-building` | agent | prompt  | `* **` → `checking`                                                                                            | —                  | `base`  | `build`  | `vars.reviewFeedbackFile`    |
+| `squashing`         | agent | prompt  | `A`/`M .gtd/COMMIT_MSG.md` → `done`                                                                            | —                  | `base`  | `build`  | `vars.commitMsgFile`         |
+| `done`              | —     | commit  | — (commit state: squash ends the process)                                                                      | —                  | —       | —        | —                            |
 
 `await-review` declares **`reviewWindow: true`** and `review-deciding`
 **`reviewBase: true`** (§11); `reviewing` declares **`reviewEntry: true`**.
@@ -430,21 +437,34 @@ to the `escalate` human gate.
 **Review — REVIEW.md checkboxes.** `reviewing` (agent, `plannerModel`) writes
 `.gtd/REVIEW.md` grouping the diff into reviewable chunks in the exact
 checkbox-pointer format `src/ReviewDoc.ts` defines, self-validates it, and steps
-to `await-review`. There a human ticks a `- [ ]` to `- [x]` to sign off an item.
-Deleting `.gtd/REVIEW.md` outright is the power-user full-sign-off shortcut
-(`D .gtd/REVIEW.md` → `squashing`). Any other `M .gtd/REVIEW.md` step routes to
-`review-deciding` (declared **before** the catch-all, so a step that also
-touches code still goes to the decider); a code-only edit that leaves
-`.gtd/REVIEW.md` untouched goes to `checking` to re-test and re-review the
-manual fix. `review-deciding` is deterministic: if no unticked `- [ ]` remains,
-it removes `.gtd/REVIEW.md` (`D .gtd/REVIEW.md` → `squashing`); otherwise it
-extracts the still-unticked pointers (with their notes) into
-`.gtd/REVIEW_FEEDBACK.md` and removes `.gtd/REVIEW.md` — the
+to `await-review`. There a human ticks a `- [ ]` to `- [x]` as they review each
+hunk — ticking records only "I read this", it is not sign-off. What asks for
+changes is a **comment**: a note left on a `.gtd/REVIEW.md` line, or a direct
+code edit. Every human step routes to `review-deciding` (`* **`);
+`review-deciding` is deterministic and decides from the step's content. It is a
+**feedback** round when the human left a comment — a change to `.gtd/REVIEW.md`
+beyond a `[ ]`→`[x]` tick (detected by comparing the reviewer's copy against the
+agent's original, `HEAD^`, with checkbox state normalized away), OR a hand-edit
+to any non-`.gtd/` file this round (its own commit's file list). It then writes
+those into `.gtd/REVIEW_FEEDBACK.md` and removes `.gtd/REVIEW.md` — the
 `A`/`M .gtd/REVIEW_FEEDBACK.md` row is declared **first** so a feedback round
-wins over the sign-off pattern. `feedback-building` implements exactly those
-items (no Q&A), deletes the feedback file, and re-enters `checking` →
-`reviewing`, which regenerates a review scoped to just the changes since the
-last round (§11).
+wins over the sign-off pattern. Otherwise (every box ticked, no note, no code)
+it just removes `.gtd/REVIEW.md` (`D .gtd/REVIEW.md` → `squashing`).
+`feedback-building` implements exactly those items (no Q&A) — completing the
+follow-through any hand-edited code implies and never reverting the reviewer's
+own lines — deletes the feedback file, and re-enters `checking` → `reviewing`,
+which regenerates a review scoped to just the changes since the last round
+(§11).
+
+Two content-shaped dead ends a file-pattern edge can't tell apart never commit:
+the **sign-off gate** (`enforceReviewSignoffGate` in `src/program.ts` — an edge
+like the review window, invisible to the pure engine, keyed on the resting
+state's `reviewWindow: true` + `mode: review`) inspects the pending step BEFORE
+it commits and refuses a **deleted** `.gtd/REVIEW.md` (ticking is the sign-off
+gesture now, not deletion) and an **unfinished** review (only tick-flips, a box
+still `- [ ]`, and no comment of any kind — committing it would corrupt the
+incremental review base, so the reviewer is told to finish first and the window
+stays open).
 
 **The squash finale.** A full sign-off reaches `squashing` (agent), which writes
 `.gtd/COMMIT_MSG.md` with one conventional-commits message; entering the `done`
@@ -569,8 +589,10 @@ bracketing every state subcommand (`step`/`next`/`status`):
   base — and why a reviewer's own edits, made while the window was open, land as
   the resting state's ordinary pending changes and are captured by its `on`
   patterns like any other diff (in the unified template, a code edit at
-  `await-review` routes to `checking` to re-test and re-review; deleting
-  `.gtd/REVIEW.md` signs off into the squash finale).
+  `await-review` is feedback — it routes through `review-deciding` into a
+  build + re-review round; ticking every box with no comment signs off into the
+  squash finale, while a deleted `.gtd/REVIEW.md` is refused by the sign-off
+  gate — see §10).
 - **Re-arm last.** After the subcommand finishes — on success, on refusal, and
   after read-only commands too — gtd re-opens the window if the resolved rest
   declares `reviewWindow: true`. Every command participates, so the editor's

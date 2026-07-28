@@ -26,6 +26,7 @@ const failingGitLayer = Layer.succeed(GitService, {
   lastCommitSubject: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
   resolveRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  readFileAtRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   readRefOption: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   isAncestor: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   topLevel: () => Effect.fail(new Error("GitService must not be called for --version/--help")),

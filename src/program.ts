@@ -38,6 +38,7 @@ import {
 } from "./SteeringMode.js"
 import {
   initialStateOf,
+  isReviewWindowState,
   matchesPattern,
   parsePattern,
   reviewEntryStateOf,
@@ -416,6 +417,9 @@ const stepAsActor = (
     // tidy, well-formed file. Invalid content refuses the step (see the helper,
     // which no-ops for a squash and when there is nothing to validate).
     yield* enforceSteeringGate(worktree.read, invoker, rest, context, decision.kind)
+    // Review sign-off gate (edge): refuse a deleted review doc or an unfinished
+    // review with no comment before either can commit (see the helper).
+    yield* enforceReviewSignoffGate(worktree.read, invoker, rest, context, changes, decision.kind)
     const outcome = yield* executeDecision(git, run, executable, context, cost, model)
     return {
       state: rest.state,
@@ -697,6 +701,81 @@ const enforceSteeringGate = (
         ),
       )
     }
+  })
+
+/** The `mode:` name of gtd's built-in REVIEW.md checkbox validator — the only mode the sign-off gate below understands. */
+const REVIEW_MODE = "review"
+
+/** Normalize every markdown checkbox to a single placeholder so a pure `[ ]`→`[x]` tick is invisible to a text comparison; any surviving difference is a human note. */
+const normalizeCheckboxes = (content: string): string => content.replace(/\[[ xX]\]/g, "[_]")
+
+/**
+ * The review sign-off gate (edge, not engine — like the review window it lives
+ * at `src/program.ts`, and the pure `PatternMachine.step` never sees it). At a
+ * review gate (a `reviewWindow: true` state with `mode: review`, i.e. the
+ * unified template's `await-review`), the ROUTING is uniform — every human step
+ * goes to `review-deciding`, which decides sign-off vs. feedback from the step's
+ * content. But two content-shaped dead ends a file-pattern edge can't
+ * distinguish must never commit, so this gate inspects the pending step BEFORE
+ * `executeDecision` and REFUSES them:
+ *
+ * - a DELETED review doc (`git status` shows it removed) — ticking is the
+ *   sign-off gesture now, not deletion; and
+ * - an UNFINISHED review — only checkbox flips, a box still `- [ ]`, and no
+ *   comment of any kind (no note in the doc, no code edit). Committing it would
+ *   corrupt the incremental review base (`review-deciding` is the `reviewBase`
+ *   anchor), so the reviewer is told to finish first — the window stays open.
+ *
+ * Everything else — a code edit, a real note (the doc differs beyond a tick), or
+ * a complete all-ticked no-comment sign-off — passes through to
+ * `review-deciding`. A no-op when the state is not a review gate, or the
+ * decision is a squash/no-op.
+ */
+const enforceReviewSignoffGate = (
+  worktreeRead: (path: string) => string,
+  invoker: string,
+  rest: ResolvedRest,
+  context: TemplateContext,
+  changes: readonly PendingChange[],
+  kind: ExecutableDecision["kind"],
+): Effect.Effect<void, Error, FileSystem.FileSystem | Cwd | GitService> =>
+  Effect.gen(function* () {
+    if (kind !== "commit") return
+    if (!isReviewWindowState(rest.def, rest.state) || rest.stateDef.mode !== REVIEW_MODE) return
+    const file = yield* renderFile(rest.stateDef, context)
+    if (file === undefined) return
+
+    // Deleting the review doc is no longer a sign-off gesture — refuse it.
+    if (changes.some((c) => c.path === file && c.status === "D")) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd step ${invoker}: ${file} was deleted at "${rest.state}" — restore it and tick the boxes to sign off, or leave a note (or edit code) to request changes.`,
+        ),
+      )
+    }
+    // Any code edit is a comment (the reviewer's own fix) — a feedback round.
+    if (changes.some((c) => !c.path.startsWith(".gtd/"))) return
+    // A note is any edit to the review doc beyond a checkbox flip — a feedback
+    // round. Compare the agent's committed original (HEAD) against the working
+    // copy with checkbox state normalized away.
+    const git = yield* GitService
+    const original = yield* git
+      .readFileAtRef("HEAD", file)
+      .pipe(Effect.catchAll(() => Effect.succeed("")))
+    const current = yield* Effect.try(() => worktreeRead(file)).pipe(
+      Effect.catchAll(() => Effect.succeed("")),
+    )
+    if (normalizeCheckboxes(original) !== normalizeCheckboxes(current)) return
+    // Only checkbox flips, no comment: a sign-off needs EVERY box ticked.
+    const unticked = current.match(/^[ \t]*-[ \t]*\[[ \t]*\]/gm)
+    if (unticked !== null && unticked.length > 0) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd step ${invoker}: ${unticked.length} review item(s) still unticked and no comment at "${rest.state}" — finish reviewing (tick every box), or leave a note (or edit code) to request a change.`,
+        ),
+      )
+    }
+    // Every box ticked, no note, no code: a clean sign-off — allow it through.
   })
 
 /**

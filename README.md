@@ -116,15 +116,20 @@ which steering file you create:
   per-package **agentic review** that verifies the package against its spec.
 
 Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
-checkbox review of the diff — tick a box to sign off an item, edit/untick for
-feedback (which sends only the unaddressed items back to build and re-review
-just those changes), and a full sign-off collapses the whole cycle into one
-commit (a **squash finale** whose message an agent drafts). The same review tail
-also has a direct entry point — `gtd review <commitish>` starts a brand new
-process reviewing `<commitish>..HEAD` with no cycle of its own, e.g. a
-colleague's PR branch. Its squash keeps and describes only the fixes made
-_during_ the review (not the reviewed changeset); a clean sign-off with no fixes
-becomes an empty `chore: human review` commit. See
+checkbox review of the diff — tick a box as you review each hunk (ticking just
+records "I read this"), and leave a **comment** to request changes: a note on a
+line, or a direct code edit. Any comment sends a build + re-review round (a
+re-review covering only the follow-through, and a hand-edit is treated as your
+own fix the agent completes without reverting your lines); ticking every box
+with no comment is the sign-off, which collapses the whole cycle into one commit
+(a **squash finale** whose message an agent drafts). Stepping with a box still
+unticked and no comment is refused (finish reviewing first), as is deleting
+`.gtd/REVIEW.md`. The same review tail also has a direct entry point —
+`gtd review <commitish>` starts a brand new process reviewing
+`<commitish>..HEAD` with no cycle of its own, e.g. a colleague's PR branch. Its
+squash keeps and describes only the fixes made _during_ the review (not the
+reviewed changeset); a clean sign-off with no fixes becomes an empty
+`chore: human review` commit. See
 [STATES.md](STATES.md#10-the-bundled-workflow-template) for the full shape. The
 workflow is just `.gtdrc` config — edit it or write your own (see
 [Configuration](docs/configuration.md)). Every agent state routes its model

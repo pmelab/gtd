@@ -5,9 +5,11 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
   (started by creating `.gtd/TODO.md`) through the SHARED tail: the
   grilling/answer planning loop, a check/fix round, the fix-retry-escalate path
   once `fixing`'s cap (max 3) is reached, the human review gate and its
-  `review-deciding` arbiter (partial-tick feedback vs. full sign-off), the
-  delete-shortcut sign-off, and the SQUASH finale (`squashing` → `done`) that
-  every entry point shares — the only path to which is full sign-off.
+  `review-deciding` arbiter (a COMMENT — a note or a code edit — is feedback; an
+  all-ticked no-comment step is sign-off), the sign-off gate's refusals (an
+  unfinished review, a deleted REVIEW.md), and the SQUASH finale (`squashing` →
+  `done`) that every entry point shares — the only path to which is full
+  sign-off.
 
   Steering-file formats (TODO.md open questions, REVIEW.md checkboxes) are not
   validated by an in-machine state — the producing agent self-validates via
@@ -97,8 +99,9 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     Then it succeeds
     And stdout contains "State: await-review"
 
-    # await-review: partial-tick feedback — a note without ticking the box
-    # routes to the decider (not the catch-all)
+    # await-review: a COMMENT is feedback — here a note added to the line (the
+    # box may be ticked or not; the note is the signal). Every human step routes
+    # to the decider.
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -106,20 +109,22 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
 
       ## Add thing.ts
 
-      - [ ] ./src/thing.ts#1 — new export — also add a doc comment
+      - [x] ./src/thing.ts#1 — new export — also add a doc comment
       """
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): await-review → review-deciding"
 
-    # review-deciding: extracts the unticked pointer into REVIEW_FEEDBACK.md,
-    # removes REVIEW.md — the A/M REVIEW_FEEDBACK.md row is declared before the
-    # D REVIEW.md row so a feedback round wins
+    # review-deciding: the note is a change to REVIEW.md beyond a tick, so it
+    # writes REVIEW_FEEDBACK.md and removes REVIEW.md — the A/M REVIEW_FEEDBACK.md
+    # row is declared before the D REVIEW.md row so a feedback round wins
     Given a file ".gtd/REVIEW_FEEDBACK.md" with:
       """
-      Feedback from review — address these before continuing:
+      Review feedback to address, then delete this file.
 
-      - [ ] ./src/thing.ts#1 — new export — also add a doc comment
+      ## Notes left in the review (ticked items are approved — act on the notes)
+
+      - [x] ./src/thing.ts#1 — new export — also add a doc comment
       """
     And the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
@@ -158,8 +163,8 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     Then it succeeds
     And stdout contains "State: await-review"
 
-    # await-review: tick every box — the decider sees no unticked pointer and
-    # removes REVIEW.md, routing to the squash finale
+    # await-review: tick every box and leave no comment — the decider sees no
+    # note and no code edit, removes REVIEW.md, routing to the squash finale
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: def5678
@@ -293,7 +298,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(check): checking → escalate"
 
-  Scenario: deleting REVIEW.md outright at await-review is the power-user sign-off shortcut, routing straight to the squash finale
+  Scenario: deleting REVIEW.md at await-review is refused — sign off by ticking every box, not by deleting
     Given a test project
     And the workflow
     And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
@@ -307,11 +312,43 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd step human
-    Then it succeeds
-    And the last commit subject is "gtd(human): await-review → squashing"
-    And ".gtd/REVIEW.md" does not exist
+    Then it fails
+    And stderr contains "was deleted"
+    # Nothing committed — the refusal re-arms the review window, so the cycle
+    # stays at the gate for the reviewer to restore + tick.
+    And the git ref "refs/gtd/review-head" exists
 
-  Scenario: at await-review, gtd next surfaces which change routes where — the human gate's route list, rendered from its `on` edge descriptions
+  Scenario: stepping at await-review with a box still unticked and no comment is refused — finish reviewing first
+    Given a test project
+    And the workflow
+    And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Chunk
+
+      - [ ] ./src/a.ts#1
+      - [ ] ./src/b.ts#1
+      """
+    # Tick only the first item, leave the second, add no note and no code edit.
+    Given ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Chunk
+
+      - [x] ./src/a.ts#1
+      - [ ] ./src/b.ts#1
+      """
+    When I run gtd step human
+    Then it fails
+    And stderr contains "still unticked and no comment"
+    # Nothing committed — the window re-arms, keeping the reviewer at the gate.
+    And the git ref "refs/gtd/review-head" exists
+
+  Scenario: at await-review, gtd next surfaces the sign-off vs. feedback contract in its human-gate message
     Given a test project
     And the workflow
     And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
@@ -325,11 +362,11 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "What each change does next (then run `gtd step human`):"
-    And stdout contains "- Delete `.gtd/REVIEW.md` outright to sign off on the whole cycle"
-    And stdout contains "- Change only code, leaving `.gtd/REVIEW.md` untouched"
+    And stdout contains "Tick EVERY box and leave no comment"
+    And stdout contains "Leave a comment to request changes"
+    And stdout contains "no comment is refused"
 
-  Scenario: a code-only edit at await-review (REVIEW.md untouched) re-runs the tests on the manual fix (checking)
+  Scenario: a code edit at await-review is feedback — it routes to review-deciding (which turns it into a fix + re-review round)
     Given a test project
     And the workflow
     And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
@@ -347,7 +384,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): await-review → checking"
+    And the last commit subject is "gtd(human): await-review → review-deciding"
 
   Scenario: an approved cycle's squash commit is a process boundary — a fresh cycle's fixing retry budget doesn't pool with a previous cycle's
     Given a test project
