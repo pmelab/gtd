@@ -95,7 +95,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): grilling"
+    And the last commit subject is "gtd(human): grilling-answer → grilling"
     And ".gtd/TODO.md" has no lines longer than 80 characters
 
   Scenario: Pre-commit hook wraps long lines in TODO.md

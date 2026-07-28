@@ -223,7 +223,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): idle"
+    And the last commit subject is "gtd(agent): drafting → idle"
 
   Scenario: a failing format command is a hard error — the file is never judged, nothing is committed
     Given a test project

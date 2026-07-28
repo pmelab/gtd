@@ -183,4 +183,4 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): grilling"
+    And the last commit subject is "gtd(human): grilling-answer → grilling"

@@ -20,24 +20,24 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): grilling"
+    And the last commit subject is "gtd(human): idle → grilling"
     Given ".gtd/TODO.md" is modified to:
       """
       Build a thing. Developed into a concrete plan.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): grilling-answer"
+    And the last commit subject is "gtd(agent): grilling → grilling-answer"
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): building"
+    And the last commit subject is "gtd(human): grilling-answer → building"
     Given a file "src/thing.ts" with:
       """
       export const thing = 1
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): checking"
+    And the last commit subject is "gtd(agent): building → checking"
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project
@@ -77,7 +77,7 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): working"
+    And the last commit subject is "gtd(human): idle → working"
     Given a file "COMMIT_MSG.md" with:
       """
       feat: remember the milk

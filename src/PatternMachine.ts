@@ -270,33 +270,53 @@ export const reviewEntryStateOf = (def: WorkflowDefinition): StateName | undefin
 
 // ── Commit-subject grammar ───────────────────────────────────────────────────
 
-/**
- * `gtd(<actor>): <state>` — the subject a step commit carries. Per decision
- * 2, `<actor>` is WHO AUTHORED THE STEP (the invoker), and `<state>` is the
- * state being ENTERED; `resolveState` reads back only the state name.
- */
-export const stateSubject = (actor: Actor, state: StateName): string => `gtd(${actor}): ${state}`
+/** The ` → ` that separates a transition subject's source state from its target. */
+const TRANSITION_SEP = " → "
 
-/** A parsed `gtd(<actor>): <state>` subject — `actor` is the step's author (the invoker), not necessarily `state`'s own declared actor. */
+/**
+ * `gtd(<actor>): <from> → <to>` — the subject a step commit carries. Per
+ * decision 2, `<actor>` is WHO AUTHORED THE STEP (the invoker); `<to>` is the
+ * state being ENTERED and `<from>` the state the authored changes were made
+ * in, so the subject reads as what this commit DID, not just where the machine
+ * is headed. `from` is optional: when it is omitted or equals `to` (a
+ * self-loop, or a manual entry like `gtd review` that has no meaningful
+ * source), the subject collapses to the bare `gtd(<actor>): <to>` form.
+ * `resolveState` reads back only `<to>` — the ` → ` prefix is human context.
+ */
+export const stateSubject = (actor: Actor, to: StateName, from?: StateName): string =>
+  from === undefined || from === to
+    ? `gtd(${actor}): ${to}`
+    : `gtd(${actor}): ${from}${TRANSITION_SEP}${to}`
+
+/** A parsed `gtd(<actor>): <from> → <to>` subject — `actor` is the step's author (the invoker), not necessarily `state`'s own declared actor; `state` is the entered state (`<to>`), `from` the source when the subject carried one. */
 export interface ParsedStateSubject {
   readonly actor: Actor
   readonly state: StateName
+  readonly from?: StateName
 }
 
 const SUBJECT_RE = /^gtd\(([^()]+)\): (.+)$/
 
 /**
- * Parse a raw commit subject as `gtd(<actor>): <state>`. Returns `undefined`
- * for anything else (non-gtd, malformed, or missing either half) — never
- * throws. Trims surrounding whitespace before matching.
+ * Parse a raw commit subject as `gtd(<actor>): <from> → <to>` (or the bare
+ * `gtd(<actor>): <to>` form). Returns `undefined` for anything else (non-gtd,
+ * malformed, or missing either half) — never throws. Trims surrounding
+ * whitespace before matching. `state` is always the ENTERED state (`<to>`, the
+ * segment after the last ` → `); the pre-arrow segment, when present, is
+ * surfaced as `from` for display but is never consulted by `resolveState`.
  */
 export const parseStateSubject = (subject: string): ParsedStateSubject | undefined => {
   const match = SUBJECT_RE.exec(subject.trim())
   if (match === null) return undefined
   const actor = match[1]
-  const state = match[2]
-  if (actor === undefined || actor === "" || state === undefined || state === "") return undefined
-  return { actor, state }
+  const rest = match[2]
+  if (actor === undefined || actor === "" || rest === undefined || rest === "") return undefined
+  const sepIndex = rest.lastIndexOf(TRANSITION_SEP)
+  if (sepIndex === -1) return { actor, state: rest }
+  const from = rest.slice(0, sepIndex)
+  const state = rest.slice(sepIndex + TRANSITION_SEP.length)
+  if (from === "" || state === "") return undefined
+  return { actor, state, from }
 }
 
 // ── Resolve ──────────────────────────────────────────────────────────────────
@@ -511,10 +531,12 @@ export interface StepNoOp {
 }
 
 /**
- * Commit everything pending as `gtd(<actor>): <to>` (the target after any
- * retry redirection). `actor` is the INVOKER who authored this step — per
+ * Commit everything pending as `gtd(<actor>): <from> → <to>` (the target after
+ * any retry redirection). `actor` is the INVOKER who authored this step — per
  * decision 2, the subject records "the state being ENTERED and who authored
- * the step". This works for a cross-actor handoff (a transition whose target
+ * the step", now prefixed with the `<from>` source so the message describes the
+ * committed changes rather than only the destination. This works for a
+ * cross-actor handoff (a transition whose target
  * is awaited by a different actor than `from`'s) because `resolveState`
  * resolves by STATE NAME ALONE: it never compares the subject's actor against
  * `to`'s own declared actor, so the next invocation lands on `to` regardless
@@ -587,9 +609,9 @@ const applyRetry = (
  * steps are the default, silent case. A match's target is retry-redirected
  * (`applyRetry`) before being classified: a commit-state target yields a
  * `"squash"` decision carrying its `commit` template verbatim; anything
- * else yields a `"commit"` decision naming the `gtd(<invoker>): <to>` subject
- * to write — `<invoker>` is who authored this step, per decision 2, not `to`'s
- * own declared actor (see `StepCommit`'s doc comment). Throws only on a
+ * else yields a `"commit"` decision naming the `gtd(<invoker>): <from> → <to>`
+ * subject to write — `<invoker>` is who authored this step, per decision 2, not
+ * `to`'s own declared actor (see `StepCommit`'s doc comment). Throws only on a
  * structurally invalid call (an undefined
  * `state`, or a commit-state `state` — stepping AT a commit state is a
  * caller error: a commit state ends the process, `resolveState` never rests
@@ -644,10 +666,12 @@ export const step = (
   }
 
   // The written subject names WHO AUTHORED THIS STEP (`invoker`), not the
-  // entered state's own declared actor — see StepCommit's doc comment.
+  // entered state's own declared actor — see StepCommit's doc comment — and
+  // carries the `<from> → <to>` transition so the message reads as what the
+  // commit DID, not just the state it lands in.
   return {
     kind: "commit",
-    subject: stateSubject(invoker, finalTarget),
+    subject: stateSubject(invoker, finalTarget, state),
     actor: invoker,
     from: state,
     to: finalTarget,

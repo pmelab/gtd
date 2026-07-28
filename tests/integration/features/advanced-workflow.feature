@@ -57,7 +57,7 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): picking"
+    And the last commit subject is "gtd(human): idle → picking"
 
     # picking (task 1 of 2): the arbiter takes the first task file by name
     Given a file ".gtd/NEXT.md" with:
@@ -66,13 +66,13 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): building"
+    And the last commit subject is "gtd(check): picking → building"
 
     # building (task 1): implements it, deletes the task file, back to picking
     Given the file ".gtd/tasks/01-a.md" is deleted
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): picking"
+    And the last commit subject is "gtd(agent): building → picking"
 
     # picking (task 2 of 2): overwrites NEXT.md with the one remaining task
     Given ".gtd/NEXT.md" is modified to:
@@ -81,13 +81,13 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): building"
+    And the last commit subject is "gtd(check): picking → building"
 
     # building (task 2): implements it, deletes the task file, back to picking
     Given the file ".gtd/tasks/02-b.md" is deleted
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): picking"
+    And the last commit subject is "gtd(agent): building → picking"
 
     # picking: the queue is now empty — deleting NEXT.md matches "D .gtd/NEXT.md"
     # (declared before the wildcard row) and closes the cycle out via "done"
@@ -137,7 +137,7 @@ Feature: The advanced example's picking arbiter — a per-task queue loop via a 
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): picking"
+    And the last commit subject is "gtd(human): idle → picking"
 
     # picking: .gtd/tasks/ was already empty, so a clean step matches "C" directly
     When I run gtd step check

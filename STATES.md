@@ -132,21 +132,31 @@ source of truth, no prose that can drift from the `on` map.
 Every commit a `gtd step <actor>` invocation authors carries the subject:
 
 ```
-gtd(<actor>): <state>
+gtd(<actor>): <from> → <to>
 ```
 
-`<actor>` is **who authored the step** — the invoker — and `<state>` is the
-state being **entered**. History is therefore an attributed state trace:
-`git log --oneline` reads as who did what, when.
+`<actor>` is **who authored the step** — the invoker — `<from>` is the state the
+authored changes were made **in**, and `<to>` is the state being **entered**.
+Naming both ends means `git log --oneline` reads as _what each commit did_ (the
+work done in `<from>`) rather than only where the machine is headed — the diff a
+commit carries belongs to `<from>`, not `<to>`. When there is no meaningful
+source — a self-loop (`<from>` == `<to>`) or a manual entry like `gtd review` —
+the subject collapses to the bare `gtd(<actor>): <to>` form. History is
+therefore an attributed state trace: who did what, from where, when.
 
-**Resolution reads back only `<state>`.** The subject's actor is checked only
-against the workflow's closed-world set of _every_ declared actor (not
-specifically the resolved state's own declared actor) — see §5. This is what
-makes a cross-actor handoff resolve correctly: a human stepping out of a
-human-awaited state into an agent-awaited one writes
-`gtd(human): <agent-state>`, and the next invocation must still resolve that
-subject to `<agent-state>` so the agent — that state's own actor — is now
-correctly recognized as awaited.
+**Resolution reads back only `<to>`** (the segment after the last `→`; the bare
+form is read as `<to>` directly). The `<from>` prefix is human context and is
+never consulted. The subject's actor is checked only against the workflow's
+closed-world set of _every_ declared actor (not specifically the resolved
+state's own declared actor) — see §5. This is what makes a cross-actor handoff
+resolve correctly: a human stepping out of a human-awaited state into an
+agent-awaited one writes `gtd(human): <human-state> → <agent-state>`, and the
+next invocation must still resolve that subject to `<agent-state>` so the agent
+— that state's own actor — is now correctly recognized as awaited.
+
+> Legacy note: pre-existing bare `gtd(<actor>): <state>` commits (from before
+> the transition prefix) still parse — the bare form _is_ the no-source form —
+> so old history and old fixtures resolve exactly as they always did.
 
 ## 5. Resolution
 
@@ -154,14 +164,14 @@ correctly recognized as awaited.
 next = f(HEAD's commit subject)
 ```
 
-Parse HEAD's subject as `gtd(<actor>): <state>`. The state resolves to `<state>`
-unless any of the following holds, in which case it resolves to the workflow's
-**initial state** instead:
+Parse HEAD's subject as `gtd(<actor>): <from> → <to>` (or the bare
+`gtd(<actor>): <to>`). The state resolves to `<to>` unless any of the following
+holds, in which case it resolves to the workflow's **initial state** instead:
 
-- the subject doesn't parse as `gtd(<actor>): <state>` at all (a plain commit, a
+- the subject doesn't parse as `gtd(<actor>): …` at all (a plain commit, a
   v1/v2-style `gtd: <label>` subject, anything non-`gtd`),
-- `<state>` doesn't name a state this workflow declares,
-- `<state>` names a **commit** state (a process never rests there — see §8),
+- `<to>` doesn't name a state this workflow declares,
+- `<to>` names a **commit** state (a process never rests there — see §8),
 - `<actor>` doesn't name any actor this workflow declares (the closed-world
   check from §4).
 
@@ -185,17 +195,18 @@ all also resolves to the initial state.
   relies on: opening every iteration with a step before the actor has acted must
   never author junk.
 - **Commit** (or **squash**, see §8) — a pattern fired. Everything pending is
-  committed as `gtd(<invoker>): <to>`, where `<to>` is the matched target after
-  retry redirection (§7) — unless `<to>` is a commit state, in which case the
-  process squashes instead of committing a turn.
+  committed as `gtd(<invoker>): <from> → <to>`, where `<from>` is the resolved
+  state the changes were made in and `<to>` is the matched target after retry
+  redirection (§7) — unless `<to>` is a commit state, in which case the process
+  squashes instead of committing a turn.
 
 **Token cost.** `gtd step <actor> --cost=<n> [--model=<name>]` records the token
 cost of the invocation that produced the pending changes — and the model it ran
 on — as a `Gtd-Cost: <n> <model>` trailer on the turn commit: a blank line then
-the trailer, below the untouched `gtd(<actor>): <state>` subject, so resolution
-(§5) is unaffected. The edge (`src/Edge.ts`) collects every such trailer across
-the current process, summing them into `it.processCost` and grouping them by
-model into `it.processCostByModel` (see §8 and
+the trailer, below the untouched `gtd(<actor>): <from> → <to>` subject, so
+resolution (§5) is unaffected. The edge (`src/Edge.ts`) collects every such
+trailer across the current process, summing them into `it.processCost` and
+grouping them by model into `it.processCostByModel` (see §8 and
 [Configuration: Token cost](docs/configuration.md#token-cost)); the engine never
 interprets the number or the model name, it only carries, sums, and groups them.
 

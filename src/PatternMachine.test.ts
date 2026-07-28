@@ -170,7 +170,7 @@ describe("reviewEntryStateOf", () => {
 // ── Commit-subject grammar ────────────────────────────────────────────────────
 
 describe("stateSubject / parseStateSubject round trip", () => {
-  it("round-trips actor/state pairs", () => {
+  it("round-trips actor/state pairs (no source)", () => {
     expect(parseStateSubject(stateSubject("human", "grilling"))).toEqual({
       actor: "human",
       state: "grilling",
@@ -181,10 +181,32 @@ describe("stateSubject / parseStateSubject round trip", () => {
     })
   })
 
+  it("renders and round-trips a <from> → <to> transition, resolving to <to>", () => {
+    const subject = stateSubject("builder", "checking", "building")
+    expect(subject).toBe("gtd(builder): building → checking")
+    expect(parseStateSubject(subject)).toEqual({
+      actor: "builder",
+      state: "checking",
+      from: "building",
+    })
+  })
+
+  it("collapses a self-loop (from === to) to the bare form", () => {
+    expect(stateSubject("builder", "building", "building")).toBe("gtd(builder): building")
+  })
+
+  it("still reads legacy bare `gtd(<actor>): <state>` subjects as the entered state", () => {
+    expect(parseStateSubject("gtd(agent): await-review")).toEqual({
+      actor: "agent",
+      state: "await-review",
+    })
+  })
+
   it("tolerates surrounding whitespace", () => {
-    expect(parseStateSubject("  gtd(human): grilling  \n")).toEqual({
+    expect(parseStateSubject("  gtd(human): building → grilling  \n")).toEqual({
       actor: "human",
       state: "grilling",
+      from: "building",
     })
   })
 
@@ -448,8 +470,8 @@ describe("step + resolveState — cross-actor handoff attribution", () => {
     expect(decision).toEqual({
       kind: "commit",
       // The subject carries "human" (the invoker), not "working"'s own
-      // declared actor ("agent").
-      subject: "gtd(human): working",
+      // declared actor ("agent"), prefixed with the "idle" source state.
+      subject: "gtd(human): idle → working",
       actor: "human",
       from: "idle",
       to: "working",
@@ -512,9 +534,9 @@ describe("step — clean tree", () => {
     expect(decision).toEqual({
       kind: "commit",
       // The subject carries the INVOKER's actor ("agent"), not "idle"'s own
-      // declared actor ("human") — resolveState reads the state name alone,
+      // declared actor ("human") — resolveState reads the entered state alone,
       // so this still resolves back to "idle" on the next invocation.
-      subject: "gtd(agent): idle",
+      subject: "gtd(agent): working → idle",
       actor: "agent",
       from: "working",
       to: "idle",
@@ -595,7 +617,7 @@ describe("step — retry redirection", () => {
       kind: "commit",
       // The subject carries the INVOKER's actor ("agent"), not "checking"'s
       // own declared actor ("check").
-      subject: "gtd(agent): checking",
+      subject: "gtd(agent): fixing → checking",
       actor: "agent",
       from: "fixing",
       to: "checking",
@@ -613,7 +635,7 @@ describe("step — retry redirection", () => {
       kind: "commit",
       // The subject carries the INVOKER's actor ("agent"), not "escalate"'s
       // own declared actor ("human").
-      subject: "gtd(agent): escalate",
+      subject: "gtd(agent): fixing → escalate",
       actor: "agent",
       from: "fixing",
       to: "escalate",
@@ -629,7 +651,7 @@ describe("step — retry redirection", () => {
     })
     expect(decision).toEqual({
       kind: "commit",
-      subject: "gtd(agent): escalate",
+      subject: "gtd(agent): fixing → escalate",
       actor: "agent",
       from: "fixing",
       to: "escalate",
@@ -643,7 +665,7 @@ describe("step — retry redirection", () => {
     })
     expect(decision).toEqual({
       kind: "commit",
-      subject: "gtd(agent): checking",
+      subject: "gtd(agent): fixing → checking",
       actor: "agent",
       from: "fixing",
       to: "checking",

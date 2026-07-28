@@ -498,11 +498,11 @@ A loop driver that knows how many tokens the invocation it just drove cost — a
 on which model — can record both with
 `gtd step <actor> --cost=<n> [--model=<name>]` (`<n>` a non-negative number).
 gtd appends them to that turn's commit as a `Gtd-Cost: <n> <model>` trailer — a
-blank line then the trailer, below the untouched `gtd(<actor>): <state>` subject
-— so the per-turn cost and model are persisted in the git log:
+blank line then the trailer, below the untouched `gtd(<actor>): <from> → <to>`
+subject — so the per-turn cost and model are persisted in the git log:
 
 ```
-gtd(agent): reviewing
+gtd(agent): building → reviewing
 
 Gtd-Cost: 1450 claude-opus-4-8
 ```

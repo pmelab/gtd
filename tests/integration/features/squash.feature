@@ -47,17 +47,17 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): drafting"
+    And the last commit subject is "gtd(human): idle → drafting"
     Given "DRAFT.md" is modified to:
       """
       v2
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): revising"
+    And the last commit subject is "gtd(agent): drafting → revising"
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): working"
+    And the last commit subject is "gtd(human): revising → working"
     Given a file "COMMIT_MSG.md" with:
       """
       feat: draft workflow

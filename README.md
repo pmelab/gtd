@@ -30,8 +30,9 @@ No chat scrollback. No lost sessions. No infinite fix loops. Just git.
 - **Bounded, not runaway.** Fix attempts are capped (`retry` on a state). When
   the cap is hit, gtd redirects to a human gate instead of burning tokens
   rewriting the same test for the 47th time.
-- **Your call on history.** Every intermediate `gtd(actor): state` commit is a
-  real, attributed commit — nothing hidden in chat. Squash them into one
+- **Your call on history.** Every intermediate `gtd(actor): from → to` commit is
+  a real, attributed commit — the subject names both the state the work was done
+  in and where it advanced to, nothing hidden in chat. Squash them into one
   conventional commit if you want that (an interactive rebase, an amend, a PR's
   squash-merge, or a custom workflow with a `commit:` finale), or don't — gtd
   makes no assumption.
