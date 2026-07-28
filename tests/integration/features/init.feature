@@ -105,3 +105,25 @@ Feature: gtd init — scaffold a .gtdrc.json from the bundled unified workflow
     Then it fails
     And stderr contains "no workflow configured"
     And stderr contains "gtd init"
+
+  # init writes only config — it derives no git state, so it may scaffold a
+  # SHARED config in a plain parent directory that is not a repo. A nested repo
+  # picks it up by walking up the cwd→home chain (see docs/configuration.md).
+  Scenario: gtd init runs outside any git repository
+    Given a plain directory that is not a git repository
+    When I run gtd with args "init"
+    Then it succeeds
+    And stdout contains "Wrote .gtdrc.json"
+    And stdout contains "not a git repository"
+    And ".gtdrc.json" exists
+    And ".gtdrc.json" contains "\"workflow\""
+    And "gtd-prompts/building.md" exists
+
+  # But a repository SUBDIRECTORY is refused: gtd discovers config by walking UP
+  # from the repo root, so a config written below the root would never be found.
+  Scenario: gtd init refuses to scaffold into a repository subdirectory
+    Given a subdirectory of a test project
+    When I run gtd with args "init"
+    Then it fails
+    And stderr contains "subdirectory"
+    And ".gtdrc.json" does not exist

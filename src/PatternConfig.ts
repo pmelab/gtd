@@ -289,6 +289,51 @@ const resolveContent = (
   }
 }
 
+/**
+ * Inline every `./`/`../` content file reference in ONE raw `workflow:` value
+ * against `configDir` — the directory of the `.gtdrc` that DECLARED it — and
+ * return a copy with those references replaced by the referenced file's text.
+ *
+ * Used by `src/Config.ts`'s `loadMerged` to resolve each config level's
+ * references against its OWN file's directory BEFORE the levels are
+ * deep-merged. The merge collapses every level into one anonymous object, so it
+ * erases which file a given `states.x.prompt` came from; resolving up front,
+ * per level, is the only way `./gtd-prompts/x.md` in a parent `.gtdrc` resolves
+ * against the parent (not the cwd a child repo runs from). `compileWorkflowConfig`
+ * is then invoked with `inlineFileRefs: false` on the merged result.
+ *
+ * Malformed shapes (a non-object workflow, non-object `states`, a non-object
+ * state, a non-string content value) pass through untouched —
+ * `compileWorkflowConfig`/`validateDefinition` own those findings; this pass
+ * only rewrites the strings it recognizes as file references, collecting a load
+ * error (via `resolveContent`) for any that is missing or unreadable.
+ */
+export const inlineWorkflowFileRefs = (
+  rawWorkflow: unknown,
+  configDir: string,
+  errors: string[],
+): unknown => {
+  if (!isPlainObject(rawWorkflow)) return rawWorkflow
+  const rawStates = rawWorkflow["states"]
+  if (!isPlainObject(rawStates)) return rawWorkflow
+  const states: Record<string, unknown> = {}
+  for (const [name, state] of Object.entries(rawStates)) {
+    if (!isPlainObject(state)) {
+      states[name] = state
+      continue
+    }
+    const next: Record<string, unknown> = { ...state }
+    for (const key of CONTENT_KEYS) {
+      const value = state[key]
+      if (typeof value !== "string" || !isFileReference(value)) continue
+      const resolved = resolveContent(value, configDir, `state "${name}" (${key})`, errors)
+      if (resolved !== undefined) next[key] = resolved
+    }
+    states[name] = next
+  }
+  return { ...rawWorkflow, states }
+}
+
 // ── Per-state field compilers ────────────────────────────────────────────────
 
 const KNOWN_EDGE_KEYS: ReadonlySet<string> = new Set(["to", "describe"])
@@ -369,12 +414,20 @@ const compileRetry = (raw: unknown, name: string, errors: string[]): RetryDef | 
   return maxOk && otherwiseOk ? { max, otherwise } : undefined
 }
 
-/** Exactly one of script/prompt/message/commit, each a string, file-refs auto-inlined. */
+/**
+ * Exactly one of script/prompt/message/commit, each a string, file-refs
+ * auto-inlined. `inlineFileRefs` is `false` only when the caller
+ * (`src/Config.ts`'s `loadMerged`) has ALREADY inlined every reference per
+ * declaring file — the content is then taken verbatim, so a `script:` whose
+ * inlined text happens to begin with `./` is never mistaken for a second file
+ * reference and re-resolved.
+ */
 const compileContent = (
   raw: Record<string, unknown>,
   name: string,
   configDir: string,
   errors: string[],
+  inlineFileRefs: boolean,
 ): Partial<Record<ContentKey, string>> => {
   const content: Partial<Record<ContentKey, string>> = {}
   for (const key of CONTENT_KEYS) {
@@ -382,6 +435,10 @@ const compileContent = (
     if (rawValue === undefined) continue
     if (typeof rawValue !== "string") {
       errors.push(`state "${name}": "${key}" must be a string`)
+      continue
+    }
+    if (!inlineFileRefs) {
+      content[key] = rawValue
       continue
     }
     const resolved = resolveContent(rawValue, configDir, `state "${name}" (${key})`, errors)
@@ -561,6 +618,7 @@ const compileState = (
   raw: unknown,
   configDir: string,
   errors: string[],
+  inlineFileRefs: boolean,
 ): StateDef => {
   if (!isPlainObject(raw)) {
     errors.push(`state "${name}": must be an object, got ${describeType(raw)}`)
@@ -574,7 +632,7 @@ const compileState = (
 
   return assembleStateDef({
     actor: compileActor(raw, name, errors),
-    content: compileContent(raw, name, configDir, errors),
+    content: compileContent(raw, name, configDir, errors, inlineFileRefs),
     on: compileOn(raw.on, name, errors),
     initial: compileInitial(raw, name, errors),
     retry: compileRetry(raw.retry, name, errors),
@@ -596,15 +654,19 @@ const compileState = (
  * file's own directory, used to resolve `./`/`../` file references. `rcModes`
  * is the already-compiled top-level `.gtdrc` `modes:` key (`src/Config.ts`),
  * layered over the workflow's own `modes:` per half BEFORE validation — so a
- * state may name a mode either layer declares. Throws a single
- * `Error` (message: `"workflow config:\n  - ..."`, one line per finding) on
- * ANY config-shape problem or `validateDefinition` finding — never partially
- * succeeds.
+ * state may name a mode either layer declares. `inlineFileRefs` (default
+ * `true`) inlines content file references against `configDir`; the real config
+ * path (`src/Config.ts`'s `loadMerged`) passes `false` because it has already
+ * inlined every reference per declaring file across the merge chain, so
+ * `configDir` is then irrelevant. Throws a single `Error` (message:
+ * `"workflow config:\n  - ..."`, one line per finding) on ANY config-shape
+ * problem or `validateDefinition` finding — never partially succeeds.
  */
 export const compileWorkflowConfig = (
   raw: unknown,
   configDir: string,
   rcModes?: Readonly<Record<string, ModeDef>>,
+  inlineFileRefs: boolean = true,
 ): CompiledWorkflowConfig => {
   if (!isPlainObject(raw)) {
     throw new Error(`workflow config: must be an object, got ${describeType(raw)}`)
@@ -631,7 +693,7 @@ export const compileWorkflowConfig = (
 
   const states: Record<string, StateDef> = {}
   for (const [name, s] of Object.entries(rawStates)) {
-    states[name] = compileState(name, s, configDir, errors)
+    states[name] = compileState(name, s, configDir, errors, inlineFileRefs)
   }
 
   // A definition can still be assembled (however messy) whenever `states`

@@ -58,13 +58,19 @@ gtd init
 This writes a `.gtdrc.json` for the bundled unified workflow, with each agent
 state's prompt saved as an editable Markdown file under `gtd-prompts/` and
 referenced from the config (review and commit both). Edit a prompt by editing
-its `gtd-prompts/*.md` file — no config edit needed. It also seeds a top-level
-`modes:` block suggesting **Prettier** as the steering-file formatter
-(`npx prettier --write` for the built-in `qa`/`review` modes — format only, so
-gtd still validates); edit or drop it freely (swap in dprint, a script, or
-delete the key). `gtd init` takes no argument. gtd ships **no** default
-workflow: a state command run before `gtd init` fails, pointing you back here.
-See [Configuration](docs/configuration.md#gtd-init) for the template.
+its `gtd-prompts/*.md` file — no config edit needed. File references resolve
+relative to **the `.gtdrc` that declares them**, so a config and its
+`gtd-prompts/` can even live in a parent directory shared across repos while gtd
+runs from each repo root — run `gtd init` from that parent directory (it need
+not be a git repo) to scaffold it there (see
+[Configuration](docs/configuration.md#content-values-inline-or-a-file-reference)).
+It also seeds a top-level `modes:` block suggesting **Prettier** as the
+steering-file formatter (`npx prettier --write` for the built-in `qa`/`review`
+modes — format only, so gtd still validates); edit or drop it freely (swap in
+dprint, a script, or delete the key). `gtd init` takes no argument. gtd ships
+**no** default workflow: a state command run before `gtd init` fails, pointing
+you back here. See [Configuration](docs/configuration.md#gtd-init) for the
+template.
 
 ## How it works
 

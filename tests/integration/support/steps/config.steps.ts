@@ -4,7 +4,11 @@ import { writeFileSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
 import { renderInitConfig } from "../../../../src/workflows/templates.js"
-import { createTestProjectUnderConfiguredAncestor } from "../../helpers/project-setup.js"
+import {
+  createPlainDirectory,
+  createTestProjectUnderConfiguredAncestor,
+  createTestProjectWithSubdir,
+} from "../../helpers/project-setup.js"
 
 // A test project whose PARENT directory already carries a `.gtdrc.json` —
 // modelling a global/ancestor config (e.g. `~/.gtdrc`) above the repo. @live
@@ -22,6 +26,28 @@ Given(
     world.extraCleanupDir = outer
   },
 )
+
+// A plain directory that is NOT a git repository — models scaffolding a shared
+// config in a parent directory. @live only, because `gtd init`'s location guard
+// (`assertInitLocation`) shells out to real `git rev-parse --show-toplevel`.
+Given("a plain directory that is not a git repository", (world: GtdWorld) => {
+  if (world.tier !== "live") {
+    throw new Error("this step runs gtd outside a git repo and requires an @live scenario")
+  }
+  world.repoDir = createPlainDirectory()
+})
+
+// A git repo with gtd run from a SUBDIRECTORY of it — models the placement
+// `gtd init` must refuse (config below the root is never found by the upward
+// walk). `extraCleanupDir` holds the repo root so the After hook removes it all.
+Given("a subdirectory of a test project", (world: GtdWorld) => {
+  if (world.tier !== "live") {
+    throw new Error("this step runs gtd from a repo subdirectory and requires an @live scenario")
+  }
+  const { repo, sub } = createTestProjectWithSubdir()
+  world.repoDir = sub
+  world.extraCleanupDir = repo
+})
 
 // Writes a gtd config file inside the test repo and commits it. `pathOrDir` is
 // resolved relative to repoDir. A trailing "/" (or ".") means "write `.gtdrc`

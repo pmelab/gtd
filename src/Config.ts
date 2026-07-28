@@ -3,7 +3,12 @@ import { dirname } from "node:path"
 import { cosmiconfig } from "cosmiconfig"
 import { parse as parseYaml } from "yaml"
 import { Context, Effect, Layer, Schema } from "effect"
-import { compileModesMap, compileVarsMap, compileWorkflowConfig } from "./PatternConfig.js"
+import {
+  compileModesMap,
+  compileVarsMap,
+  compileWorkflowConfig,
+  inlineWorkflowFileRefs,
+} from "./PatternConfig.js"
 import { type ModeDef, type WorkflowDefinition } from "./PatternMachine.js"
 import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
@@ -118,6 +123,18 @@ const makeExplorer = () =>
 /**
  * Load and deep-merge every config level from cwd up the directory chain.
  * Innermost (cwd) wins. Returns the merged plain object (undecoded).
+ *
+ * A `workflow:` value's `./`/`../` content file references are inlined PER
+ * LEVEL against that level's OWN file directory (`dirname(result.filepath)`)
+ * BEFORE merging — because the deep-merge collapses every level into one
+ * anonymous object and erases which file each `states.x.prompt` came from.
+ * Resolving up front is what lets a `.gtdrc` stored in a parent directory
+ * reference `./gtd-prompts/x.md` and have it resolve against the parent, even
+ * though gtd runs from a child repo (a different cwd). Any missing/unreadable
+ * reference is collected and thrown as one aggregated `workflow config:` error,
+ * exactly like the compiler's own resolution. The merged, already-inlined
+ * `workflow:` is later compiled with `inlineFileRefs: false` (see
+ * `toOperations`).
  */
 const loadMerged = (root: string): Effect.Effect<Record<string, unknown>, Error> =>
   Effect.tryPromise({
@@ -129,6 +146,7 @@ const loadMerged = (root: string): Effect.Effect<Record<string, unknown>, Error>
 
       // Collect outermost→innermost so merging in order makes innermost win.
       const levels: Array<Record<string, unknown>> = []
+      const refErrors: string[] = []
       for (let i = chain.length - 1; i >= 0; i--) {
         const dir = chain[i]
         const result = await explorer.search(dir)
@@ -138,8 +156,21 @@ const loadMerged = (root: string): Effect.Effect<Record<string, unknown>, Error>
               `${result.filepath}: config must be a plain object, got ${Array.isArray(result.config) ? "array" : String(result.config)}`,
             )
           }
-          levels.push(result.config)
+          const config = result.config
+          if (config["workflow"] === undefined) {
+            levels.push(config)
+          } else {
+            const configDir = dirname(result.filepath)
+            levels.push({
+              ...config,
+              workflow: inlineWorkflowFileRefs(config["workflow"], configDir, refErrors),
+            })
+          }
         }
+      }
+
+      if (refErrors.length > 0) {
+        throw new Error(`workflow config:\n${refErrors.map((e) => `  - ${e}`).join("\n")}`)
       }
 
       return levels.reduce<Record<string, unknown>>((acc, level) => deepMerge(acc, level), {})
@@ -207,12 +238,13 @@ export const NO_WORKFLOW_MESSAGE =
 
 /**
  * Compile the decoded config's `workflow:` key plus its top-level
- * `vars:`/`modes:` keys into `ConfigOperations`. `root` is used as the
- * workflow compiler's `configDir` — the directory a custom workflow's
- * `./`-relative content references resolve against. Throws `NO_WORKFLOW_MESSAGE`
- * when no `workflow:` key is present (there is no bundled default to fall back
- * to — see `gtd init`), or (via `compileWorkflowConfig`/`compileRcVars`) on any
- * invalid workflow/vars.
+ * `vars:`/`modes:` keys into `ConfigOperations`. Its `./`/`../` content file
+ * references were already inlined per declaring file by `loadMerged`, so the
+ * compiler is invoked with `inlineFileRefs: false` and `root` is passed only as
+ * an (unused) `configDir` placeholder. Throws `NO_WORKFLOW_MESSAGE` when no
+ * `workflow:` key is present (there is no bundled default to fall back to — see
+ * `gtd init`), or (via `compileWorkflowConfig`/`compileRcVars`) on any invalid
+ * workflow/vars.
  */
 const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations => {
   const rcVars = compileRcVars(decoded.vars)
@@ -220,7 +252,12 @@ const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations =>
   if (decoded.workflow === undefined) {
     throw new Error(NO_WORKFLOW_MESSAGE)
   }
-  const { definition, vars: workflowVars } = compileWorkflowConfig(decoded.workflow, root, rcModes)
+  const { definition, vars: workflowVars } = compileWorkflowConfig(
+    decoded.workflow,
+    root,
+    rcModes,
+    false,
+  )
   return { workflow: definition, workflowVars, rcVars }
 }
 

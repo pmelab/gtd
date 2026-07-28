@@ -92,11 +92,23 @@ engine, and [§3](../STATES.md#3-pattern-grammar) for the pattern grammar.
 ### Content values: inline or a file reference
 
 A `script`/`prompt`/`message`/`commit` value starting with `./` or `../` is a
-**file reference** — resolved relative to the config file's own directory and
-read at load time. A missing or unreadable file reference is a **load error**,
-collected and thrown with every other config problem — never silently treated as
-inline text. Any other string (including one that merely contains a `/`, or an
-absolute path) is inline Eta template source, used verbatim.
+**file reference** — resolved relative to **the directory of the `.gtdrc` that
+declared it** (not the directory `gtd` runs from) and read at load time. A
+missing or unreadable file reference is a **load error**, collected and thrown
+with every other config problem — never silently treated as inline text. Any
+other string (including one that merely contains a `/`, or an absolute path) is
+inline Eta template source, used verbatim.
+
+Because references anchor to the declaring file, a `.gtdrc` and its
+`gtd-prompts/` (or `prompts/`) directory can live **outside** the repo — e.g. in
+a parent directory shared across several repos. gtd still runs from the repo
+root, discovers the parent `.gtdrc` by walking up the directory chain (see
+["Lookup and precedence"](#lookup-and-precedence) — cwd→home), and inlines each
+level's `./`-relative references against that level's own directory. When
+workflows are layered across levels, every reference resolves against the file
+that wrote it, so a parent's `./gtd-prompts/x.md` and a child's never collide.
+You can scaffold such a shared config by running [`gtd init`](#gtd-init) from
+that parent directory — it need not be a git repository.
 
 ```yaml
 workflow:
@@ -676,6 +688,16 @@ is a usage error (`gtd init: too many arguments — init takes no argument`). Ea
 load time, so a prompt is editable Markdown and editing it changes the workflow
 with no config edit. Human `message:` blocks and check `script:` bodies stay
 inline in the config (they are workflow mechanics, not prompts).
+
+`gtd init` writes only config — it derives no git state — so it need not run in
+a git repository. It runs at a **repository root** or in a directory **outside
+any repository** (scaffolding a shared config a nested repo picks up by walking
+up — see the parent-dir note under
+[file references](#content-values-inline-or-a-file-reference)); its guidance
+adjusts to say there is nothing to commit when it is not in a repo. It refuses
+only to write into a repository **subdirectory**, where the upward config walk
+would never find the file. Either way, it will not overwrite an existing config
+at that directory (remove it first to re-scaffold).
 
 It also seeds a top-level [`modes:`](#modes--pluggable-steering-file-modes)
 block as a ready-to-edit suggestion — a Prettier `format:` for each built-in
