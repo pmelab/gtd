@@ -84,11 +84,13 @@ same `file:`/`mode:` annotations (it is the LSP-heavy flow), including
   (vars-layer context; the LSP process's env supplies `GTD_VAR_` overrides like
   any invocation), and build a map of absolute rendered paths → mode. Document
   features dispatch on that map: `qa` files get question symbols + parser-error
-  diagnostics; `review` files get chunk/hunk symbols + check/uncheck code
-  actions + diagnostics. Conflicting modes for one path: first declaring state
-  wins, log a warning. **Fallback:** when NO config resolves (or a `.gtd` file
-  isn't mapped), keep today's basename dispatch (`TODO.md` → qa, `REVIEW.md` →
-  review) so the server still works standalone.
+  diagnostics; `review` files get one headline symbol per chunk that still has
+  an unchecked hunk (an outline of the packages left to review — no hunk
+  children) + check/uncheck code actions + diagnostics. Conflicting modes for
+  one path: first declaring state wins, log a warning. **Fallback:** when NO
+  config resolves (or a `.gtd` file isn't mapped), keep today's basename
+  dispatch (`TODO.md` → qa, `REVIEW.md` → review) so the server still works
+  standalone.
 - **The jump command returns:** `gtd.openSteeringFile` — resolve the CURRENT
   state exactly like the CLI (config + git HEAD via the existing Edge helpers;
   this re-adds the git/config wiring the v2 server had), render its `file:`, and
