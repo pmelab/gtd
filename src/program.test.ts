@@ -17,6 +17,7 @@ import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
 import { compileTemplate, renderInitConfig } from "./workflows/templates.js"
 import {
+  classifyAnswerCompleteness,
   classifyFeedbackProgress,
   classifyReviewSignoff,
   cliErrorLine,
@@ -514,6 +515,74 @@ describe("classifyFeedbackProgress", () => {
       ...base,
       changes: [del, { path: ".gtd/REVIEW_RAW.md", status: "D" }],
     })
+    expect(v.kind).toBe("refuse")
+  })
+})
+
+describe("classifyAnswerCompleteness", () => {
+  const base = { file: ".gtd/REQUIREMENTS.md", stateName: "adv-grilling-answer", invoker: "human" }
+  const doc = (options: readonly string[]): string =>
+    ["Build a thing.", "", "## Open Questions", "", "### Which API?", "", ...options, ""].join("\n")
+
+  it("allows when there are no open questions (agent surfaced none / accept-all)", () => {
+    const v = classifyAnswerCompleteness({ ...base, content: "Build a thing. Plan: do it.\n" })
+    expect(v).toEqual({ kind: "allow" })
+  })
+
+  it("allows when the whole Open Questions section was deleted", () => {
+    const v = classifyAnswerCompleteness({
+      ...base,
+      content: "Build a thing.\n\n## Answered Questions\n\n### Which API?\n\nUse tRPC.\n",
+    })
+    expect(v).toEqual({ kind: "allow" })
+  })
+
+  it("refuses when an open question has no ticked option", () => {
+    const v = classifyAnswerCompleteness({
+      ...base,
+      content: doc(["- [ ] REST", "- [ ] GraphQL", "- [ ] _your answer_"]),
+    })
+    expect(v.kind).toBe("refuse")
+    if (v.kind === "refuse") {
+      expect(v.reason).toContain("1 open question(s)")
+      expect(v.reason).toContain("Which API?")
+    }
+  })
+
+  it("allows when every open question has exactly one tick", () => {
+    const v = classifyAnswerCompleteness({
+      ...base,
+      content: doc(["- [ ] REST", "- [x] GraphQL", "- [ ] _your answer_"]),
+    })
+    expect(v).toEqual({ kind: "allow" })
+  })
+
+  it("refuses a ticked-but-empty free-text slot", () => {
+    const v = classifyAnswerCompleteness({
+      ...base,
+      content: doc(["- [ ] REST", "- [ ] GraphQL", "- [x] _your answer_"]),
+    })
+    expect(v.kind).toBe("refuse")
+  })
+
+  it("allows a ticked free-text slot with text", () => {
+    const v = classifyAnswerCompleteness({
+      ...base,
+      content: doc(["- [ ] REST", "- [ ] GraphQL", "- [x] use tRPC"]),
+    })
+    expect(v).toEqual({ kind: "allow" })
+  })
+
+  it("refuses when two options are ticked (ambiguous)", () => {
+    const v = classifyAnswerCompleteness({
+      ...base,
+      content: doc(["- [x] REST", "- [x] GraphQL", "- [ ] _your answer_"]),
+    })
+    expect(v.kind).toBe("refuse")
+  })
+
+  it("refuses an open question that has no checkbox options at all", () => {
+    const v = classifyAnswerCompleteness({ ...base, content: doc(["some prose, no boxes"]) })
     expect(v.kind).toBe("refuse")
   })
 })

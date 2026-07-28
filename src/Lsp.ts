@@ -82,7 +82,7 @@ import {
   type TextEdit,
 } from "vscode-languageserver/node"
 import { TextDocument } from "vscode-languageserver-textdocument"
-import { parseOpenQuestions, type OpenQuestion } from "./OpenQuestions.js"
+import { parseOpenQuestions, type OpenQuestion, type QuestionOption } from "./OpenQuestions.js"
 import { parseReviewDoc, type ReviewFile, FILE_POINTER_RE } from "./ReviewDoc.js"
 import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
@@ -111,22 +111,38 @@ const spanRange = (lines: readonly string[], startLine: number, endLine: number)
   end: { line: endLine, character: (lines[endLine] ?? "").length },
 })
 
-const statusMarker = (status: OpenQuestion["status"]): string =>
-  status === "answered" ? "[answered]" : "[open]"
+/**
+ * The outline marker for one question. Answered-section questions are
+ * `[answered]`. An OPEN question is `[answered]` once exactly one option is
+ * ticked (see `OpenQuestion.answered`) and `[unanswered]` otherwise — so the
+ * `[unanswered]` entries are exactly the questions still blocking the
+ * answer-completeness gate, navigable straight from the outline.
+ */
+const statusMarker = (question: OpenQuestion): string => {
+  if (question.status === "answered") return "[answered]"
+  return question.answered ? "[answered]" : "[unanswered]"
+}
 
-/** Document symbols for `.gtd/TODO.md`'s open questions. */
+/** Document symbols for a `qa`-mode file's open/answered questions (each option a navigable child of an open question). */
 export const questionSymbols = (content: string): DocumentSymbol[] => {
   const { questions } = parseOpenQuestions(content)
   const lines = content.split(/\r?\n/)
   return questions.map((question, i) => {
     const start = question.headingLine
     const end = Math.max(start, (questions[i + 1]?.headingLine ?? lines.length) - 1)
+    const children: DocumentSymbol[] = question.options.map((option) => ({
+      name: `${option.checked ? "[x]" : "[ ]"} ${option.text || "your answer"}`,
+      kind: SymbolKind.Boolean,
+      range: lineRange(lines, option.sourceLine),
+      selectionRange: lineRange(lines, option.sourceLine),
+    }))
     return {
-      name: `${statusMarker(question.status)} ${question.question}`,
+      name: `${statusMarker(question)} ${question.question}`,
       detail: question.text,
       kind: SymbolKind.Boolean,
       range: spanRange(lines, start, end),
       selectionRange: lineRange(lines, start),
+      ...(children.length > 0 ? { children } : {}),
     }
   })
 }
@@ -278,6 +294,73 @@ export const reviewCodeActions = (uri: string, content: string, range: Range): C
     }
   })
 
+  return actions
+}
+
+/** Flips the `[ ]`/`[x]` box of the checkbox on line `line`, preserving the rest of the line exactly. `undefined` when the line has no checkbox. */
+export const toggleOptionEdit = (content: string, line: number): TextEdit | undefined => {
+  const raw = content.split(/\r?\n/)[line]
+  if (raw === undefined) return undefined
+  const match = /\[([ xX])\]/.exec(raw)
+  if (!match) return undefined
+  const character = match.index + 1
+  return {
+    range: { start: { line, character }, end: { line, character: character + 1 } },
+    newText: match[1] === " " ? "x" : " ",
+  }
+}
+
+/** The edits that make `option` the sole ticked option in `question` (radio semantics): check it, and uncheck any already-ticked sibling — so the question ends with exactly one tick (what the completeness gate wants). */
+const pickOptionEdits = (
+  content: string,
+  question: OpenQuestion,
+  option: QuestionOption,
+): TextEdit[] => {
+  const edits: TextEdit[] = []
+  for (const sibling of question.options) {
+    if (sibling.sourceLine !== option.sourceLine && !sibling.checked) continue
+    const edit = toggleOptionEdit(content, sibling.sourceLine)
+    if (edit) edits.push(edit)
+  }
+  return edits
+}
+
+/** The single code action for the option line the cursor sits on: uncheck it if ticked, else pick it (radio). `undefined` when there is no edit to make. */
+const optionCodeAction = (
+  uri: string,
+  content: string,
+  question: OpenQuestion,
+  option: QuestionOption,
+): CodeAction | undefined => {
+  const edits = option.checked
+    ? [toggleOptionEdit(content, option.sourceLine)].filter((e): e is TextEdit => e !== undefined)
+    : pickOptionEdits(content, question, option)
+  if (edits.length === 0) return undefined
+  return {
+    title: option.checked ? "gtd: uncheck this option" : "gtd: pick this option",
+    kind: CodeActionKind.QuickFix,
+    edit: { changes: { [uri]: edits } },
+  }
+}
+
+/**
+ * Code actions for a `qa`-mode file: on an open question's option line, "pick
+ * this option" (radio semantics — check it and uncheck every sibling in the
+ * same question, so exactly one stays ticked) or "uncheck this option" when it
+ * is already the chosen one. No action off an option line, or on an
+ * answered-section (prose) question.
+ */
+export const questionCodeActions = (uri: string, content: string, range: Range): CodeAction[] => {
+  const { questions } = parseOpenQuestions(content)
+  const cursorLine = range.start.line
+  const actions: CodeAction[] = []
+  for (const question of questions) {
+    if (question.status !== "open") continue
+    const option = question.options.find((o) => o.sourceLine === cursorLine)
+    if (!option) continue
+    const action = optionCodeAction(uri, content, question, option)
+    if (action) actions.push(action)
+  }
   return actions
 }
 
@@ -600,8 +683,14 @@ export const startLspServer = (): Effect.Effect<void, Error> =>
       const document = documents.get(params.textDocument.uri)
       if (!document) return []
       const map = await loadModeMap(rootFor(document.uri), warn)
-      if (modeForDocument(document.uri, map) !== "review") return []
-      return reviewCodeActions(document.uri, document.getText(), params.range)
+      switch (modeForDocument(document.uri, map)) {
+        case "review":
+          return reviewCodeActions(document.uri, document.getText(), params.range)
+        case "qa":
+          return questionCodeActions(document.uri, document.getText(), params.range)
+        default:
+          return []
+      }
     })
 
     connection.onDefinition(async (params: DefinitionParams) => {

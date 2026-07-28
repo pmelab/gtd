@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseOpenQuestions } from "./OpenQuestions.js"
+import { FREE_TEXT_PLACEHOLDER, parseOpenQuestions } from "./OpenQuestions.js"
 
 describe("parseOpenQuestions", () => {
   it("returns zero questions and zero errors when there is no questions section", () => {
@@ -16,7 +16,7 @@ describe("parseOpenQuestions", () => {
     })
   })
 
-  it("parses a single open question with a free-form body", () => {
+  it("parses a single open question with a free-form body (no options)", () => {
     const content = [
       "# Plan",
       "",
@@ -36,13 +36,15 @@ describe("parseOpenQuestions", () => {
           status: "open",
           text: "add and subtract.",
           headingLine: 6,
+          options: [],
+          answered: false,
         },
       ],
       errors: [],
     })
   })
 
-  it("marks questions under ## Answered Questions as answered", () => {
+  it("marks questions under ## Answered Questions as answered-status prose (no options)", () => {
     const content = [
       "## Answered Questions",
       "",
@@ -58,28 +60,8 @@ describe("parseOpenQuestions", () => {
           status: "answered",
           text: "add, subtract, and multiply.",
           headingLine: 2,
-        },
-      ],
-      errors: [],
-    })
-  })
-
-  it("no longer requires a Suggested default:/Answer: marker line", () => {
-    const content = [
-      "## Open Questions",
-      "",
-      "### Which operations?",
-      "",
-      "Not sure yet — leaning towards add and subtract.",
-      "",
-    ].join("\n")
-    expect(parseOpenQuestions(content)).toEqual({
-      questions: [
-        {
-          question: "Which operations?",
-          status: "open",
-          text: "Not sure yet — leaning towards add and subtract.",
-          headingLine: 2,
+          options: [],
+          answered: false,
         },
       ],
       errors: [],
@@ -95,62 +77,12 @@ describe("parseOpenQuestions", () => {
           status: "open",
           text: "",
           headingLine: 2,
+          options: [],
+          answered: false,
         },
       ],
       errors: [],
     })
-  })
-
-  it("parses both sections and returns questions in document order", () => {
-    const content = [
-      "## Open Questions",
-      "",
-      "### Still deciding the platform?",
-      "",
-      "web only, for now.",
-      "",
-      "## Answered Questions",
-      "",
-      "### Which operations?",
-      "",
-      "add, subtract, and multiply.",
-      "",
-    ].join("\n")
-    expect(parseOpenQuestions(content).questions).toEqual([
-      {
-        question: "Still deciding the platform?",
-        status: "open",
-        text: "web only, for now.",
-        headingLine: 2,
-      },
-      {
-        question: "Which operations?",
-        status: "answered",
-        text: "add, subtract, and multiply.",
-        headingLine: 8,
-      },
-    ])
-  })
-
-  it("sorts by document order even when Answered appears above Open", () => {
-    const content = [
-      "## Answered Questions",
-      "",
-      "### Already settled?",
-      "",
-      "yes.",
-      "",
-      "## Open Questions",
-      "",
-      "### Still open?",
-      "",
-      "maybe.",
-      "",
-    ].join("\n")
-    expect(parseOpenQuestions(content).questions).toEqual([
-      { question: "Already settled?", status: "answered", text: "yes.", headingLine: 2 },
-      { question: "Still open?", status: "open", text: "maybe.", headingLine: 8 },
-    ])
   })
 
   it("stops a questions section at the next H2 heading", () => {
@@ -175,6 +107,8 @@ describe("parseOpenQuestions", () => {
           status: "open",
           text: "add and subtract.",
           headingLine: 2,
+          options: [],
+          answered: false,
         },
       ],
       errors: [],
@@ -203,8 +137,99 @@ describe("parseOpenQuestions", () => {
     ].join("\n")
     const result = parseOpenQuestions(content)
     expect(result.questions).toEqual([
-      { question: "Real question?", status: "open", text: "an answer.", headingLine: 4 },
+      {
+        question: "Real question?",
+        status: "open",
+        text: "an answer.",
+        headingLine: 4,
+        options: [],
+        answered: false,
+      },
     ])
     expect(result.errors).toHaveLength(1)
+  })
+
+  describe("checkbox options", () => {
+    const q = (lines: readonly string[]): string =>
+      ["## Open Questions", "", "### Which API?", ...lines, ""].join("\n")
+
+    it("parses two agent options plus a trailing free-text slot, none ticked = unanswered", () => {
+      const result = parseOpenQuestions(
+        q(["", "- [ ] REST", "- [ ] GraphQL", `- [ ] ${FREE_TEXT_PLACEHOLDER}`]),
+      )
+      const [question] = result.questions
+      expect(question!.options).toEqual([
+        { checked: false, text: "REST", freeText: false, sourceLine: 4 },
+        { checked: false, text: "GraphQL", freeText: false, sourceLine: 5 },
+        { checked: false, text: "", freeText: true, sourceLine: 6 },
+      ])
+      expect(question!.answered).toBe(false)
+    })
+
+    it("is answered when exactly one agent option is ticked", () => {
+      const result = parseOpenQuestions(
+        q(["", "- [ ] REST", "- [x] GraphQL", `- [ ] ${FREE_TEXT_PLACEHOLDER}`]),
+      )
+      expect(result.questions[0]!.answered).toBe(true)
+    })
+
+    it("is unanswered when two options are ticked (ambiguous)", () => {
+      const result = parseOpenQuestions(
+        q(["", "- [x] REST", "- [x] GraphQL", `- [ ] ${FREE_TEXT_PLACEHOLDER}`]),
+      )
+      expect(result.questions[0]!.answered).toBe(false)
+    })
+
+    it("is answered when the free-text slot is ticked WITH text, capturing that text", () => {
+      const result = parseOpenQuestions(q(["", "- [ ] REST", "- [ ] GraphQL", "- [x] use tRPC"]))
+      const question = result.questions[0]!
+      expect(question.answered).toBe(true)
+      const chosen = question.options.find((o) => o.checked)!
+      expect(chosen).toEqual({ checked: true, text: "use tRPC", freeText: true, sourceLine: 6 })
+    })
+
+    it("is unanswered when the free-text slot is ticked but still the placeholder", () => {
+      const result = parseOpenQuestions(
+        q(["", "- [ ] REST", "- [ ] GraphQL", `- [x] ${FREE_TEXT_PLACEHOLDER}`]),
+      )
+      const question = result.questions[0]!
+      expect(question.answered).toBe(false)
+      expect(question.options[2]).toEqual({
+        checked: true,
+        text: "",
+        freeText: true,
+        sourceLine: 6,
+      })
+    })
+
+    it("accepts `* [X]` bullet/upper-case tick syntax", () => {
+      const result = parseOpenQuestions(q(["", "* [ ] REST", "* [X] GraphQL"]))
+      expect(result.questions[0]!.answered).toBe(true)
+    })
+
+    it("only normalizes the placeholder on the LAST option", () => {
+      // A non-last option literally equal to the placeholder is NOT the free-text
+      // slot, so it is not normalized to "".
+      const result = parseOpenQuestions(
+        q(["", `- [ ] ${FREE_TEXT_PLACEHOLDER}`, "- [ ] real free text"]),
+      )
+      const [first, last] = result.questions[0]!.options
+      expect(first).toEqual({
+        checked: false,
+        text: FREE_TEXT_PLACEHOLDER,
+        freeText: false,
+        sourceLine: 4,
+      })
+      expect(last!.freeText).toBe(true)
+    })
+
+    it("carries no options for an answered-section question even if it has checkbox-looking lines", () => {
+      const content = ["## Answered Questions", "", "### Which API?", "", "Use tRPC.", ""].join(
+        "\n",
+      )
+      const question = parseOpenQuestions(content).questions[0]!
+      expect(question.options).toEqual([])
+      expect(question.answered).toBe(false)
+    })
   })
 })

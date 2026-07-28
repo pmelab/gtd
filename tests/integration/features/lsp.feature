@@ -81,7 +81,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       add and subtract.
       """
     Then the LSP response has no error
-    And the LSP response result contains a symbol named "[open] Which operations?"
+    And the LSP response result contains a symbol named "[unanswered] Which operations?"
 
   Scenario: gtd.openSteeringFile resolves the current state's steering file and asks the client to show it
     Given a test project
