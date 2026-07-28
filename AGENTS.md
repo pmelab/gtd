@@ -86,6 +86,13 @@ a project plugs its own into a mode's `format:`).
   (`compileVarsMap` — scalar coercion, object/array rejection; shared with
   `Config.ts`'s top-level `vars:` key so both layers validate identically),
   config-shape validation collected alongside `validateDefinition`'s findings.
+  File references resolve against **the declaring `.gtdrc`'s own directory**,
+  not the cwd: `Config.ts`'s `loadMerged` inlines each config level via the
+  exported `inlineWorkflowFileRefs` (keyed on `dirname(result.filepath)`) BEFORE
+  the cwd→home deep-merge collapses provenance, then compiles the merged result
+  with `compileWorkflowConfig(..., inlineFileRefs=false)` so already-inlined
+  content is never re-resolved. This is what lets a `.gtdrc` + its
+  `gtd-prompts/` sit in a parent dir while gtd runs from a child repo.
 - **`src/PatternTemplates.ts`** — Eta rendering (`renderStateTemplate`) over
   `TemplateContext`. Pure-ISH: every impure value (hashes, diffs, the `read`
   callback) is injected by the caller: this module never touches git or the
@@ -124,10 +131,16 @@ a project plugs its own into a mode's `format:`).
   run with no workflow configured). `runInitCommand` writes
   `renderInitScaffold(name)` to `.gtdrc.json` (uncommitted) — the base config
   plus externalized `gtd-prompts/` files and a seeded top-level `modes:`
-  Prettier suggestion (`MODES_SUGGESTION`) — guarded by `anyConfigPresent` + the
-  repo-root check. Calls `Edge.ts` for everything IO-shaped; calls
-  `PatternMachine.ts`'s pure `step`/`matchesPattern`/ `parsePattern` directly
-  where no IO is needed (e.g. `gtd status`'s per-change pattern report).
+  Prettier suggestion (`MODES_SUGGESTION`) — guarded by `configPresentAt` (no
+  clobber) + `assertInitLocation`. Unlike the state commands, init derives no
+  git state, so `assertInitLocation` permits a repo root OR any directory
+  OUTSIDE a repository (to scaffold a shared parent-dir config a nested repo
+  finds by walking up), refusing only a repository SUBDIRECTORY (config below
+  the root is never found by the upward walk); it returns `inRepo` so init
+  tailors its "commit before starting" guidance. Calls `Edge.ts` for everything
+  IO-shaped; calls `PatternMachine.ts`'s pure `step`/`matchesPattern`/
+  `parsePattern` directly where no IO is needed (e.g. `gtd status`'s per-change
+  pattern report).
 - **`src/workflows/unified.yaml` + `templates.ts`** — the single bundled
   workflow template `gtd init` scaffolds, plus `templates.ts`
   (`renderInitScaffold` for the `.gtdrc.json` write — which seeds the top-level

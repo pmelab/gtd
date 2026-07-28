@@ -267,7 +267,7 @@ const runInitCommand = (
     }
     const git = yield* GitService
     const fs = yield* FileSystem.FileSystem
-    yield* assertRunningFromRepoRoot(git, fs)
+    const inRepo = yield* assertInitLocation(git, fs)
     const { root } = yield* Cwd
     if (yield* configPresentAt(root)) {
       return yield* Effect.fail(
@@ -290,18 +290,24 @@ const runInitCommand = (
           written: ".gtdrc.json",
           workflow: "unified",
           prompts: scaffold.prompts.map((p) => p.path),
+          inRepo,
         }) + "\n",
       )
     } else {
       const promptCount = scaffold.prompts.length
-      write(
+      const wrote =
         `Wrote .gtdrc.json with the bundled unified workflow, and its ${promptCount} agent ` +
-          `prompt${promptCount === 1 ? "" : "s"} as editable Markdown under ${PROMPTS_DIR}/ ` +
-          `(referenced from the config).\n\n` +
-          `Review and commit them before starting: an uncommitted .gtdrc.json (or prompt\n` +
+        `prompt${promptCount === 1 ? "" : "s"} as editable Markdown under ${PROMPTS_DIR}/ ` +
+        `(referenced from the config).\n\n`
+      const nextSteps = inRepo
+        ? `Review and commit them before starting: an uncommitted .gtdrc.json (or prompt\n` +
           `file) counts as a pending change, so the initial state would capture it on the\n` +
-          `first step. Once committed, run \`gtd step human\` to begin.\n`,
-      )
+          `first step. Once committed, run \`gtd step human\` to begin.\n`
+        : `This directory is not a git repository, so there is nothing to commit here. The\n` +
+          `config applies to any gtd repository nested below it — gtd discovers it by\n` +
+          `walking up from the repository root. Run \`gtd step human\` from such a repo to\n` +
+          `begin.\n`
+      write(wrote + nextSteps)
     }
   })
 
@@ -973,6 +979,40 @@ const assertRunningFromRepoRoot = (
         ),
       )
     }
+  })
+
+/**
+ * `gtd init` writes only a `.gtdrc.json` (+ prompt files) — it derives no state,
+ * so unlike the state commands it need not sit in a git repository at all. It
+ * may run EITHER at a repository root OR in a directory outside any repository —
+ * the latter scaffolds a shared config a nested repo picks up by walking up the
+ * cwd→home chain (see the parent-dir layout in docs/configuration.md). The one
+ * placement it must refuse is a repository SUBDIRECTORY: gtd runs from the repo
+ * root and discovers config by walking UP, so a config written below the root
+ * would silently never be found. Returns whether cwd is inside a repository (at
+ * its root), so the caller can tailor the "commit before starting" guidance —
+ * there is nothing to commit outside a repo.
+ */
+const assertInitLocation = (
+  git: GitOperations,
+  fs: FileSystem.FileSystem,
+): Effect.Effect<boolean, Error> =>
+  Effect.gen(function* () {
+    const topLevel = yield* Effect.either(git.topLevel())
+    // `topLevel` fails only outside a git repository — there, init is allowed.
+    if (topLevel._tag === "Left") return false
+    const topReal = yield* fs.realPath(topLevel.right)
+    const cwdReal = yield* fs.realPath(process.cwd())
+    if (topReal !== cwdReal) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd init must be run from the repository root (${topLevel.right}) or from a ` +
+            `directory outside any git repository; the current directory is a repository ` +
+            `subdirectory: ${process.cwd()}`,
+        ),
+      )
+    }
+    return true
   })
 
 /** Dispatches to the named `run*Command` handler for every known subcommand. */

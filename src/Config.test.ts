@@ -295,3 +295,98 @@ describe("ConfigService", () => {
     expect(existsSync(join(projectDir, ".gtdrc.json"))).toBe(false)
   })
 })
+
+// A single-state workflow whose `idle` message is a file reference.
+const idleMessageRefYaml = (ref: string) =>
+  [
+    `workflow:`,
+    `  states:`,
+    `    idle:`,
+    `      actor: human`,
+    `      initial: true`,
+    `      message: "${ref}"`,
+    `      on: {}`,
+    ``,
+  ].join("\n")
+
+// A partial workflow that overlays only `idle.model` — merged over an ancestor
+// that supplies the rest of the state (so the ancestor's `message` survives).
+const idleModelOverlayYaml = (model: string) =>
+  [`workflow:`, `  states:`, `    idle:`, `      model: "${model}"`, ``].join("\n")
+
+describe("ConfigService — content file refs resolve against the declaring config file", () => {
+  it("resolves a `./`-relative ref from a .gtdrc stored in an ANCESTOR dir against the ancestor, not the child cwd gtd runs from", async () => {
+    // .gtdrc + gtd-prompts/ live in `projectDir`; gtd runs from the child repo
+    // `projectDir/repo`, which has NO .gtdrc of its own.
+    const repo = join(projectDir, "repo")
+    mkdirSync(repo, { recursive: true })
+    mkdirSync(join(projectDir, "gtd-prompts"), { recursive: true })
+    writeFileSync(join(projectDir, "gtd-prompts", "idle.md"), "idle from the parent dir")
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), idleMessageRefYaml("./gtd-prompts/idle.md"))
+
+    const cfg = await getConfig(repo)
+
+    expect(cfg.workflow.states["idle"]?.message).toBe("idle from the parent dir")
+  })
+
+  it("resolves an ancestor's surviving ref against the ANCESTOR dir even when a child level overlays the same state", async () => {
+    const child = join(projectDir, "a", "b")
+    mkdirSync(child, { recursive: true })
+    mkdirSync(join(projectDir, "prompts"), { recursive: true })
+    writeFileSync(join(projectDir, "prompts", "idle.md"), "ancestor idle")
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), idleMessageRefYaml("./prompts/idle.md"))
+    writeFileSync(join(child, ".gtdrc.yaml"), idleModelOverlayYaml("opus-x"))
+
+    const cfg = await getConfig(child)
+
+    // `message` came from the ancestor and inlined against the ancestor dir; the
+    // child only overlaid `model`.
+    expect(cfg.workflow.states["idle"]?.message).toBe("ancestor idle")
+    expect(cfg.workflow.states["idle"]?.model).toBe("opus-x")
+  })
+
+  it("resolves a child's overriding ref against the CHILD dir (each level uses its own file), child wins", async () => {
+    const child = join(projectDir, "a", "b")
+    mkdirSync(child, { recursive: true })
+    mkdirSync(join(projectDir, "prompts"), { recursive: true })
+    mkdirSync(join(child, "prompts"), { recursive: true })
+    writeFileSync(join(projectDir, "prompts", "idle.md"), "ancestor idle")
+    writeFileSync(join(child, "prompts", "idle.md"), "child idle")
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), idleMessageRefYaml("./prompts/idle.md"))
+    writeFileSync(join(child, ".gtdrc.yaml"), idleMessageRefYaml("./prompts/idle.md"))
+
+    const cfg = await getConfig(child)
+
+    expect(cfg.workflow.states["idle"]?.message).toBe("child idle")
+  })
+
+  it("a missing ref in an ancestor .gtdrc fails with an aggregated `workflow config:` error naming the reference", async () => {
+    const repo = join(projectDir, "repo")
+    mkdirSync(repo, { recursive: true })
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), idleMessageRefYaml("./gtd-prompts/missing.md"))
+
+    const exit = await runExit(
+      Effect.flatMap(ConfigService, (c) => c.load),
+      repo,
+    )
+
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) {
+      const msg = String(exit.cause)
+      expect(msg).toContain("workflow config:")
+      expect(msg).toContain('file reference "./gtd-prompts/missing.md" does not exist')
+    }
+  })
+
+  it("does NOT re-resolve inlined content that itself begins with `./` (no double resolution)", async () => {
+    // The referenced file's own text starts with `./` — after inlining it must
+    // be kept verbatim, never mistaken for a second file reference.
+    mkdirSync(join(projectDir, "prompts"), { recursive: true })
+    writeFileSync(join(projectDir, "prompts", "idle.md"), "./configure && make")
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), idleMessageRefYaml("./prompts/idle.md"))
+
+    const cfg = await getConfig()
+
+    expect(cfg.workflow.states["idle"]?.message).toBe("./configure && make")
+  })
+})

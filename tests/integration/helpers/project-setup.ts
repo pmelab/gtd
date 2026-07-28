@@ -53,3 +53,24 @@ export function createTestProjectUnderConfiguredAncestor(): { outer: string; rep
   initGitRepo(repo)
   return { outer, repo }
 }
+
+/**
+ * A plain, empty directory that is NOT a git repository — for exercising
+ * `gtd init` run outside any repo (e.g. scaffolding a shared parent-dir config).
+ */
+export function createPlainDirectory(): string {
+  return mkdtempSync(join(tmpdir(), "gtd-plain-"))
+}
+
+/**
+ * A git repo with a nested subdirectory, returned as `{ repo, sub }` — for
+ * exercising `gtd init`'s refusal to scaffold into a repository subdirectory
+ * (where the upward config walk would never find it). `sub` is created under
+ * the repo root.
+ */
+export function createTestProjectWithSubdir(): { repo: string; sub: string } {
+  const repo = createTestProject()
+  const sub = join(repo, "packages", "app")
+  mkdirSync(sub, { recursive: true })
+  return { repo, sub }
+}
