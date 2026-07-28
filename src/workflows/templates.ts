@@ -20,6 +20,28 @@ export const SCHEMA_URL = "https://raw.githubusercontent.com/pmelab/gtd/main/sch
 export const PROMPTS_DIR = "gtd-prompts"
 
 /**
+ * The top-level `modes:` block `gtd init` SEEDS into the scaffolded
+ * `.gtdrc.json` as a ready-to-edit suggestion: a `format:` command for each
+ * built-in steering-file mode the bundled templates use (`qa` for the plan /
+ * open-questions files, `review` for REVIEW.md), so a fresh project's steering
+ * files are auto-formatted with Prettier before gtd validates them. Only
+ * `format:` is declared — gtd's built-in `qa`/`review` validators still do the
+ * validating (the two halves layer independently — see STATES.md §12 /
+ * docs/configuration.md `modes:`). gtd ships no formatter, so this is the one
+ * place a default is suggested; a project edits or drops it freely (swap
+ * Prettier for dprint, point at a script, delete the key).
+ *
+ * Seeded only by `renderInitScaffold` (the real `gtd init` write path), NOT by
+ * `renderInitConfig`: the latter is reused as a hermetic test fixture (the
+ * `Given the "…" workflow` step) that must not depend on Prettier being
+ * installed or spawn a subprocess at every steering-file gate.
+ */
+export const MODES_SUGGESTION = {
+  qa: { format: "npx prettier --write <%= it.file %>" },
+  review: { format: "npx prettier --write <%= it.file %>" },
+} as const
+
+/**
  * The bundled workflow templates `gtd init <name>` can scaffold, keyed by the
  * name the user passes. Each value is the raw YAML text of the template file,
  * imported as a string (tsdown's `.yaml` text loader / the vitest `rawMd`
@@ -41,12 +63,19 @@ export const isWorkflowTemplateName = (name: string): name is WorkflowTemplateNa
   Object.prototype.hasOwnProperty.call(WORKFLOW_TEMPLATES, name)
 
 /**
- * Render the `.gtdrc.json` `gtd init <name>` writes: a `$schema` link (so
- * editors pick up completion/validation) plus the template's whole workflow
- * object nested under a `workflow:` key — exactly the shape a hand-authored
- * `.gtdrc` `workflow:` value takes (`{ vars, states }`). The template's
- * multi-line prompts/scripts become `\n`-escaped JSON strings; the config
- * loader parses them back identically to the YAML source.
+ * Render the fully-inline BASE `.gtdrc.json` for a bundled template: a
+ * `$schema` link (so editors pick up completion/validation) plus the template's
+ * whole workflow object nested under a `workflow:` key — exactly the shape a
+ * hand-authored `.gtdrc` `workflow:` value takes (`{ vars, states }`). The
+ * template's multi-line prompts/scripts become `\n`-escaped JSON strings; the
+ * config loader parses them back identically to the YAML source.
+ *
+ * This is NOT the exact file `gtd init` writes — the real write path
+ * (`renderInitScaffold`) additionally externalizes agent prompts and seeds the
+ * top-level `modes:` Prettier suggestion (`MODES_SUGGESTION`). This base form is
+ * kept modes-free so it doubles as a hermetic test fixture (the
+ * `Given the "…" workflow` step) whose steering-file gates never shell out to
+ * Prettier.
  */
 export const renderInitConfig = (name: WorkflowTemplateName): string => {
   const workflow = parseYaml(WORKFLOW_TEMPLATES[name]) as unknown
@@ -63,7 +92,7 @@ export interface ScaffoldPromptFile {
 
 /** The files `gtd init <name>` writes: the `.gtdrc.json` text plus one Markdown file per agent prompt. */
 export interface InitScaffold {
-  /** The `.gtdrc.json` contents, with each agent state's `prompt:` rewritten to a `./gtd-prompts/<state>.md` file reference. */
+  /** The `.gtdrc.json` contents, with each agent state's `prompt:` rewritten to a `./gtd-prompts/<state>.md` file reference and a top-level `modes:` Prettier suggestion seeded (see `MODES_SUGGESTION`). */
   readonly config: string
   /** The extracted prompt files, one per agent (`prompt:`) state, in declaration order. */
   readonly prompts: readonly ScaffoldPromptFile[]
@@ -81,6 +110,12 @@ export interface InitScaffold {
  * (they are workflow mechanics, not prompts). The bundled YAML template itself
  * stays fully inline (it ships inside the single-file bundle); this function is
  * the only place the split happens, at scaffold time.
+ *
+ * It also seeds a top-level `modes:` block (`MODES_SUGGESTION`) — a ready-to-
+ * edit Prettier `format:` for the built-in `qa`/`review` steering-file modes —
+ * so a fresh project auto-formats its steering files out of the box. This lives
+ * here rather than in `renderInitConfig` so the latter stays a hermetic test
+ * fixture (see `MODES_SUGGESTION`).
  */
 export const renderInitScaffold = (name: WorkflowTemplateName): InitScaffold => {
   const workflow = parseYaml(WORKFLOW_TEMPLATES[name]) as {
@@ -94,7 +129,8 @@ export const renderInitScaffold = (name: WorkflowTemplateName): InitScaffold => 
       state.prompt = `./${path}`
     }
   }
-  const config = JSON.stringify({ $schema: SCHEMA_URL, workflow }, null, 2) + "\n"
+  const config =
+    JSON.stringify({ $schema: SCHEMA_URL, modes: MODES_SUGGESTION, workflow }, null, 2) + "\n"
   return { config, prompts }
 }
 

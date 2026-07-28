@@ -371,8 +371,10 @@ So for a state declaring `mode: qa`:
 That is what makes the built-in modes extensible rather than all-or-nothing —
 and the top-level key means a project can plug its formatter into whichever
 workflow it scaffolded (`gtd init simple`/`advanced`) without re-declaring a
-`modes:` block on the workflow itself. Add it alongside the `workflow:` key in
-your `.gtdrc.json`:
+`modes:` block on the workflow itself. **`gtd init` seeds exactly this block by
+default** (the Prettier suggestion below), so a fresh repo already formats its
+steering files — edit or drop it to taste. It sits alongside the `workflow:` key
+in your `.gtdrc.json`:
 
 ```jsonc
 // .gtdrc.json — the workflow from `gtd init`, plus your own markdown formatter
@@ -673,8 +675,26 @@ config references it via a `./gtd-prompts/<state>.md`
 [file reference](#content-values-inline-or-a-file-reference) — gtd inlines it at
 load time, so a prompt is editable Markdown and editing it changes the workflow
 with no config edit. Human `message:` blocks and check `script:` bodies stay
-inline in the config (they are workflow mechanics, not prompts). The two
-templates:
+inline in the config (they are workflow mechanics, not prompts).
+
+It also seeds a top-level [`modes:`](#modes--pluggable-steering-file-modes)
+block as a ready-to-edit suggestion — a Prettier `format:` for each built-in
+steering-file mode the templates use:
+
+```jsonc
+"modes": {
+  "qa": { "format": "npx prettier --write <%= it.file %>" },
+  "review": { "format": "npx prettier --write <%= it.file %>" }
+}
+```
+
+Only `format:` is declared, so gtd's built-in `qa`/`review` validators still do
+the validating (the two halves layer independently). gtd ships no formatter, so
+this is the one default it suggests: a fresh repo auto-formats its steering
+files out of the box, and you edit or drop the block freely (swap Prettier for
+dprint, point at a script, or delete the key).
+
+The two templates:
 
 - **`simple`** — the 10-state machine walked through in
   [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates): idle →

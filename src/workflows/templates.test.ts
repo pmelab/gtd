@@ -3,6 +3,7 @@ import { validateDefinition } from "../PatternMachine.js"
 import {
   compileTemplate,
   isWorkflowTemplateName,
+  MODES_SUGGESTION,
   PROMPTS_DIR,
   renderInitConfig,
   renderInitScaffold,
@@ -103,6 +104,26 @@ describe("bundled workflow templates", () => {
         const parsed = JSON.parse(config) as { $schema: string }
         expect(parsed.$schema).toBe(SCHEMA_URL)
         expect(config.endsWith("\n")).toBe(true)
+      })
+
+      it("seeds the top-level `modes:` Prettier suggestion for qa/review (format only)", () => {
+        const { config } = renderInitScaffold(name)
+        const parsed = JSON.parse(config) as { modes?: unknown }
+        // Seeded as a ready-to-edit default so a fresh project auto-formats its
+        // steering files (see MODES_SUGGESTION) — format only, keeping gtd's
+        // built-in qa/review validators.
+        expect(parsed.modes).toEqual(MODES_SUGGESTION)
+        expect(MODES_SUGGESTION.qa.format).toContain("prettier")
+        expect(MODES_SUGGESTION.review.format).toContain("prettier")
+        expect(MODES_SUGGESTION.qa).not.toHaveProperty("validate")
+        expect(MODES_SUGGESTION.review).not.toHaveProperty("validate")
+      })
+
+      it("does NOT seed `modes:` in the hermetic base config (renderInitConfig)", () => {
+        // renderInitConfig doubles as the `Given the "…" workflow` test fixture;
+        // it must stay modes-free so gate scenarios never shell out to Prettier.
+        const parsed = JSON.parse(renderInitConfig(name)) as { modes?: unknown }
+        expect(parsed.modes).toBeUndefined()
       })
     })
   }

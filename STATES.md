@@ -633,7 +633,11 @@ source of truth (their unit tests are the format's spec tests; the same parsers
 back the LSP's live diagnostics, `src/Lsp.ts`). They are available in every
 workflow without being declared — and they are validators ONLY: **gtd ships no
 formatter**, so `qa`/`review` reformat nothing until a project gives them a
-`format:` command.
+`format:` command. `gtd init` seeds one by default: the scaffolded `.gtdrc.json`
+carries a top-level `modes:` block suggesting `npx prettier --write` as the
+`format:` for both (validation still gtd's own) — an ordinary declared layer the
+project edits or drops, not privileged machinery (see
+[docs/configuration.md](docs/configuration.md#modes--pluggable-steering-file-modes)).
 
 The two halves resolve **independently**, each from the first layer that
 provides it (`resolveSteeringMode` in `src/SteeringMode.ts`) — so extending a
