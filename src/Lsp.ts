@@ -1,11 +1,22 @@
 /**
  * LSP server for `.gtd/` steering files — document symbols for a `qa`-mode
  * file's open questions and a `review`-mode file's review chunks/hunks, code
- * actions to check/uncheck a hunk or a whole chunk, and diagnostics publishing
- * the same parsers' `errors` the `gtd validate` CLI command reports (see
- * `src/OpenQuestions.ts` / `src/ReviewDoc.ts`'s module docs — those parsers
- * are each format's single source of truth, shared by this server and the
- * command).
+ * actions to check/uncheck a hunk or a whole chunk, go-to-definition from a
+ * `review`-mode hunk line into the file it points at, and diagnostics
+ * publishing the same parsers' `errors` the `gtd validate` CLI command reports
+ * (see `src/OpenQuestions.ts` / `src/ReviewDoc.ts`'s module docs — those
+ * parsers are each format's single source of truth, shared by this server and
+ * the command).
+ *
+ * GO-TO-DEFINITION (`textDocument/definition`, `review`-mode only): the cursor
+ * on a hunk pointer line (`- [ ] ./src/foo.ts#42`) jumps to `./src/foo.ts` at
+ * line 42 (`hunkDefinitionLocation`). The `./`-relative path resolves against
+ * the git toplevel of the file's own directory (`tryGitTopLevel`), falling
+ * back to the workspace root — never the document's own `.gtd/` directory — so
+ * a repo-root-relative diff path lands correctly even with no workspace folder
+ * open; no target is returned when neither anchor resolves. The `#line` is
+ * 1-based (a bare `./path` lands at the top of the file); the target file is
+ * not stat-ed, so a stale pointer still jumps and the editor reports the miss.
  *
  * CONFIG-DRIVEN (see `docs/design/state-file-association.md` §3): the server
  * locates the active gtd config the SAME way the CLI does (`ConfigService`'s
@@ -57,11 +68,13 @@ import {
   SymbolKind,
   type CodeAction,
   type CodeActionParams,
+  type DefinitionParams,
   type Diagnostic,
   type DocumentSymbol,
   type DocumentSymbolParams,
   type ExecuteCommandParams,
   type InitializeParams,
+  type Location,
   type Range,
   type TextEdit,
 } from "vscode-languageserver/node"
@@ -265,6 +278,39 @@ export const reviewCodeActions = (uri: string, content: string, range: Range): C
   return actions
 }
 
+/**
+ * Go-to-definition target for a `.gtd/REVIEW.md` hunk line: the file the hunk
+ * pointer at `line` (0-based, `params.position.line`) points into. `root` is
+ * the repo the `./`-relative hunk paths were authored against (the git
+ * toplevel of REVIEW.md's directory — see `resolveDefinitionRoot`). Returns
+ * `undefined` when `line` isn't a parsed hunk pointer (a heading, prose, or a
+ * malformed line has no `sourceLine`), so the provider yields no target there.
+ *
+ * The `#line` in a pointer is 1-based (git/human line numbers); LSP positions
+ * are 0-based, so it maps to `line - 1`. A bare `./path` with no `#line` lands
+ * at the top of the file (line 0). The range is collapsed (a cursor, not a
+ * selection) and the target file is NOT stat-ed — a stale/deleted/`../`-escaping
+ * path still returns a Location and the editor reports the miss itself. Pure —
+ * no git, no protocol, unit-testable directly.
+ */
+export const hunkDefinitionLocation = (
+  content: string,
+  line: number,
+  root: string,
+): Location | undefined => {
+  const { changesets } = parseReviewDoc(content)
+  const hunk = changesets.flatMap((chunk) => chunk.files).find((file) => file.sourceLine === line)
+  if (!hunk) return undefined
+  const targetLine = hunk.line !== undefined ? hunk.line - 1 : 0
+  return {
+    uri: pathToFileURL(resolvePath(root, hunk.path)).toString(),
+    range: {
+      start: { line: targetLine, character: 0 },
+      end: { line: targetLine, character: 0 },
+    },
+  }
+}
+
 // ── Config-driven path→mode dispatch (pure) ─────────────────────────────────
 
 /** The basename dispatch this server has always had — the fallback for any path the active workflow's `file:` map doesn't cover (or when no config resolves at all). */
@@ -442,6 +488,27 @@ const loadModeMap = async (
 }
 
 /**
+ * The git working-tree root of `dir` (`git rev-parse --show-toplevel`), or
+ * `undefined` when `dir` is outside any repository. This is the anchor a
+ * hunk's `./`-relative path resolves against — the repo the review diff's
+ * paths were authored against (`GitService.topLevel()`, the same op the CLI
+ * uses). Any failure resolves to `undefined` so the caller can fall back to
+ * the workspace root.
+ */
+const tryGitTopLevel = async (dir: string): Promise<string | undefined> => {
+  try {
+    return await Effect.runPromise(
+      GitService.pipe(
+        Effect.flatMap((git) => git.topLevel()),
+        Effect.provide(gitLayerForRoot(dir)),
+      ),
+    )
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Resolve the CURRENT state/actor and its `file:` (rendered), exactly like
  * the CLI (`resolveRest`/`computeProcessRun`/`buildTemplateContext` — the
  * same `src/Edge.ts` helpers `gtd status`/`gtd next` call), scoped to `root`.
@@ -506,6 +573,7 @@ export const startLspServer = (): Effect.Effect<void, Error> =>
           textDocumentSync: TextDocumentSyncKind.Incremental,
           documentSymbolProvider: true,
           codeActionProvider: true,
+          definitionProvider: true,
           executeCommandProvider: { commands: [OPEN_STEERING_FILE_COMMAND] },
         },
       }
@@ -531,6 +599,16 @@ export const startLspServer = (): Effect.Effect<void, Error> =>
       const map = await loadModeMap(rootFor(document.uri), warn)
       if (modeForDocument(document.uri, map) !== "review") return []
       return reviewCodeActions(document.uri, document.getText(), params.range)
+    })
+
+    connection.onDefinition(async (params: DefinitionParams) => {
+      const document = documents.get(params.textDocument.uri)
+      if (!document) return []
+      const map = await loadModeMap(rootFor(document.uri), warn)
+      if (modeForDocument(document.uri, map) !== "review") return []
+      const root = (await tryGitTopLevel(dirname(fileURLToPath(document.uri)))) ?? workspaceRoot
+      if (root === undefined) return []
+      return hunkDefinitionLocation(document.getText(), params.position.line, root) ?? []
     })
 
     connection.onExecuteCommand(async (params: ExecuteCommandParams) => {
