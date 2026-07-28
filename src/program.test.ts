@@ -16,7 +16,7 @@ import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
 import { compileTemplate, renderInitConfig } from "./workflows/templates.js"
-import { makeProgram } from "./program.js"
+import { cliErrorLine, makeProgram } from "./program.js"
 import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
 import { inMemoryLayers } from "../tests/integration/support/inmem/layers.js"
 
@@ -387,5 +387,24 @@ describe("JSON error envelope", () => {
     expect(Object.keys(parsed).sort()).toEqual(["prompt", "state"])
     expect(parsed.state).toBe("error")
     expect(typeof parsed.prompt).toBe("string")
+  })
+})
+
+describe("cliErrorLine", () => {
+  it("does not double a message that already carries a gtd prefix", () => {
+    expect(cliErrorLine(new Error("gtd: no workflow configured — run `gtd init`"))).toBe(
+      "gtd: no workflow configured — run `gtd init`",
+    )
+    expect(cliErrorLine(new Error("gtd init: too many arguments"))).toBe(
+      "gtd init: too many arguments",
+    )
+  })
+
+  it("prepends `gtd: ` to a message that has no prefix", () => {
+    expect(cliErrorLine(new Error("something broke"))).toBe("gtd: something broke")
+  })
+
+  it("stringifies a non-Error and prefixes it", () => {
+    expect(cliErrorLine("boom")).toBe("gtd: boom")
   })
 })

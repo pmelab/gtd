@@ -194,6 +194,49 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And ".gtd/COMMIT_MSG.md" does not exist
     And "src/thing.ts" exists
 
+  Scenario: a feedback round's reviewing covers only the changes since the last review (incremental it.reviewDiff)
+    # reviewBase: true on review-deciding anchors it.reviewDiff: a re-review sees
+    # only what changed AFTER the previous review round, not the whole cycle.
+    # fileA landed before the review-deciding boundary; fileB after it.
+    Given a test project
+    And the workflow
+    And a commit "gtd(agent): reviewing" that adds "fileA.ts" with:
+      """
+      export const A = 1
+      """
+    And a commit "gtd(agent): await-review" that adds ".gtd/REVIEW.md" with:
+      """
+      # Review: aaaaaaa
+      <!-- base: 0000000 -->
+
+      ## A
+      - [ ] ./fileA.ts#1
+      """
+    And a commit "gtd(human): review-deciding" that adds ".gtd/REVIEW_FEEDBACK.md" with:
+      """
+      Feedback:
+      - [ ] ./fileA.ts#1 — also add B
+      """
+    And a commit "gtd(check): feedback-building" that adds ".gtd/marker.md" with:
+      """
+      entering feedback-building
+      """
+    And a commit "gtd(agent): checking" that adds "fileB.ts" with:
+      """
+      export const B = 2
+      """
+    And a commit "gtd(check): reviewing" that adds ".gtd/note.md" with:
+      """
+      green, re-reviewing
+      """
+    When I run gtd next
+    Then it succeeds
+    # The reviewing prompt inlines it.reviewDiff — the post-feedback change
+    # (fileB) but NOT the already-reviewed fileA from before the review-deciding
+    # boundary.
+    And stdout contains "fileB.ts"
+    And stdout does not contain "fileA.ts"
+
   Scenario: a green check run that also cleans up leftover feedback moves on to reviewing with no residue (D .gtd/FEEDBACK.md)
     Given a test project
     And the workflow

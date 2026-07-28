@@ -5,7 +5,7 @@ import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
-import { isEnveloped, makeProgram, runVersionOrHelp } from "./program.js"
+import { cliErrorLine, isEnveloped, makeProgram, runVersionOrHelp } from "./program.js"
 
 // Version/help must short-circuit before the Effect runtime exists: layer
 // construction (config load/validation) must never run — nor fail — for
@@ -29,7 +29,7 @@ makeProgram().pipe(
       if (process.argv.includes("--json") && !isEnveloped(error)) {
         process.stdout.write(JSON.stringify({ state: "error", prompt: error.message }) + "\n")
       }
-      process.stderr.write(`gtd: ${error.message ?? String(error)}\n`)
+      process.stderr.write(cliErrorLine(error) + "\n")
       process.exit(1)
     }),
   ),
