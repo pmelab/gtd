@@ -127,7 +127,6 @@ describe("--help short-circuit", () => {
     expect(output).toContain("step <actor>")
     expect(output).toContain("next")
     expect(output).toContain("status")
-    expect(output).toContain("mermaid")
     expect(output).toContain("validate")
     expect(output).toContain("lsp")
     expect(output).toMatch(/\n$/)

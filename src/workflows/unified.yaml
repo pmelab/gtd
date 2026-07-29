@@ -15,6 +15,31 @@
 # `workflow:` value — the way to eject/customize the machine, and the hermetic
 # test fixture — but `gtd init` itself no longer writes the workflow.
 #
+# ── Authored with SUB-MACHINES (Option C) ──────────────────────────────────
+#
+# This template is written with `submachines:`/`use:` (see src/Submachines.ts
+# and STATES.md). Expansion is a compile-time raw → raw pre-pass with NO runtime
+# footprint: the pure engine only ever sees the flat concrete states, and each
+# invocation's `as:` rename map reproduces the exact state names the flat
+# template used — so the compiled `WorkflowDefinition` is BYTE-IDENTICAL to the
+# frozen `unified.flat.yaml` (pinned by src/workflows/golden.test.ts). The
+# sub-machines split into DEDUP (a gate/loop authored once, invoked several
+# times) and ENCAPSULATION (a single-instance cluster grouped for reading):
+#
+#   * makeGreen (dedup ×2)    — the check/fix/escalate health triple shared by
+#                               the simple build tail and the advanced package
+#                               loop (identical script/prompt/message).
+#   * assertGreen (dedup ×3)  — the green-baseline gate (check + human blocked)
+#                               guarding the simple, advanced and review entries.
+#   * qaLoop (dedup ×2)       — the checkbox Q&A author/answer loop shared by the
+#                               product (adv-grilling) and technical (architecting)
+#                               phases of the advanced flow.
+#   * planLoop (encap)        — the simple flow's plan-iteration loop.
+#   * humanReview (encap)     — the shared review tail (reviewing → await-review →
+#                               review-deciding → feedback collect/build).
+#   * specGate (encap)        — the advanced flow's per-package agentic review.
+#   * packageLoop (encap)     — the advanced flow's per-package build queue.
+#
 # ── Four entry points behind a green-baseline gate, one shared tail ─────────
 #
 # EVERY entry first runs the test suite and only proceeds when it is GREEN — you
@@ -89,6 +114,889 @@ vars:
   plannerModel: smart
   coderModel: base
 
+submachines:
+  # ── DEDUP: the check/fix/escalate health triple ───────────────────────────
+  # Runs the suite; a red run records .gtd/FEEDBACK.md, a green run cleans it up.
+  # The `on` rules turn that into "fix" vs "$onGreen". The fix turn retries up to
+  # 3× before escalating to a human. Invoked for the shared build tail
+  # (checking/fixing/escalate -> reviewing) and the advanced package loop
+  # (adv-checking/adv-fixing/adv-escalate -> spec-review).
+  makeGreen:
+    params: [onGreen, escalateDescribe]
+    states:
+      check:
+        actor: check
+        script: |
+          #!/usr/bin/env bash
+          # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
+          # green run cleans it up. The `on` rules decide what that means.
+          set +e
+          mkdir -p .gtd
+          # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
+          # newline after an interpolation tag, so no tag may be the last token on
+          # a line — it would glue the next line's `else`/`fi` onto it and break
+          # the script. Below this point everything is plain bash.
+          feedback="<%~ it.vars.feedbackFile %>"
+          <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            if [ -s .gtd/.check-output ]; then
+              mv .gtd/.check-output "$feedback"
+            else
+              rm -f .gtd/.check-output
+              printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
+            fi
+          else
+            rm -f .gtd/.check-output
+            rm -f "$feedback"
+          fi
+        on:
+          "A .gtd/FEEDBACK.md": fix
+          "M .gtd/FEEDBACK.md": fix
+          "D .gtd/FEEDBACK.md": $onGreen
+          "C": $onGreen
+      fix:
+        actor: agent
+        file: <%= it.vars.feedbackFile %>
+        model: <%= it.vars.coderModel %>
+        memory: fix
+        retry:
+          max: 3
+          otherwise: escalate
+        prompt: |
+          You are an autonomous coding agent. `.gtd/` holds this workflow's own
+          state — never create, edit, or delete anything under `.gtd/` except
+          `<%= it.vars.feedbackFile %>`, which this prompt tells you to address.
+
+          Read `<%= it.vars.feedbackFile %>` (the failing test output) and fix the
+          code so the suite passes. Keep the change focused — do not refactor
+          unrelated code. If the feedback is wrong, empty or delete
+          `<%= it.vars.feedbackFile %>` instead of "fixing" a non-issue.
+
+          Leave everything uncommitted and finish your turn — do not commit.
+        on:
+          "* **": check
+      escalate:
+        actor: human
+        file: <%= it.vars.feedbackFile %>
+        message: |
+          The agent could not get the check to pass after repeated attempts.
+          `<%= it.vars.feedbackFile %>` holds the last failing output.
+
+          What each change does next (then run `gtd step human`):
+          <% it.edges.forEach(function (e) { if (e.describe) { %>
+          <%~ "- " + e.describe + "\n" %>
+          <% } }) %>
+        on:
+          "* **":
+            to: check
+            describe: $escalateDescribe
+
+  # ── DEDUP: the green-baseline gate ─────────────────────────────────────────
+  # Runs the suite before any work starts (its script is the health check's test
+  # wrapper — red -> .gtd/FEEDBACK.md, green -> remove it); the `on` rules turn
+  # that into "halt at blocked" vs "proceed to $onGreen". The script and blocked
+  # message/describe differ per entry, so they ride in as `with:` params.
+  assertGreen:
+    params: [onGreen, checkScript, blockedMessage, blockedDescribe]
+    states:
+      check:
+        actor: check
+        script: $checkScript
+        on:
+          "A .gtd/FEEDBACK.md": blocked
+          "M .gtd/FEEDBACK.md": blocked
+          "D .gtd/FEEDBACK.md": $onGreen
+          "C": $onGreen
+      blocked:
+        actor: human
+        file: <%= it.vars.feedbackFile %>
+        message: $blockedMessage
+        on:
+          "* **":
+            to: check
+            describe: $blockedDescribe
+
+  # ── DEDUP: the checkbox Q&A author/answer loop ─────────────────────────────
+  # The agent develops a plan file, surfacing `## Open Questions` as checkbox
+  # lists; the human answers (answerGate refuses an unanswered step) and either
+  # advances or sends it back. Invoked for the product (adv-grilling) and
+  # technical (architecting) phases of the advanced flow.
+  qaLoop:
+    params: [authorFile, authorPrompt, answerMessage, onAdvance, advanceDescribe, editDescribe]
+    states:
+      author:
+        actor: agent
+        file: $authorFile
+        mode: qa
+        model: <%= it.vars.plannerModel %>
+        memory: plan
+        prompt: $authorPrompt
+        on:
+          "* **": answer
+      answer:
+        actor: human
+        file: $authorFile
+        mode: qa
+        answerGate: true
+        message: $answerMessage
+        on:
+          "C":
+            to: $onAdvance
+            describe: $advanceDescribe
+          "* **":
+            to: author
+            describe: $editDescribe
+
+  # ── ENCAPSULATION: the simple flow's plan-iteration loop ───────────────────
+  planLoop:
+    params: [onAccept]
+    states:
+      planning:
+        actor: agent
+        file: <%= it.vars.todoFile %>
+        model: <%= it.vars.plannerModel %>
+        memory: plan
+        prompt: |
+          You are an autonomous coding agent. `.gtd/` holds this workflow's own
+          state — never create, edit, or delete anything under `.gtd/` except
+          `<%= it.vars.todoFile %>`, which this prompt tells you to develop.
+
+          `<%= it.vars.todoFile %>` holds a short sketch of what to build — or, on a
+          return lap, the plan you already wrote plus the human's edits and comments
+          on it. Read it, explore the codebase, and develop it into a concrete
+          implementation plan: the files to change, the approach, and the steps to
+          take.
+
+          Do NOT ask questions and do NOT add an "Open Questions" section — decide
+          every open point yourself and write the plan as a set of concrete
+          decisions. Where a decision is genuinely a judgement call, state the
+          choice you made and, in one line, why. The human iterates on the plan by
+          editing it directly, not by answering questions.
+
+          On a return lap, `<%= it.vars.todoFile %>` carries the human's edits and
+          inline comments on your previous plan. Fold every edit and comment into a
+          revised, self-contained plan and remove the addressed comments — the plan
+          is always the current, clean proposal, never a diff.
+
+          Leave `<%= it.vars.todoFile %>` uncommitted and finish your turn — do
+          not commit, and do not run `gtd step agent` yourself; the harness does
+          that.
+        on:
+          "* **": plan-review
+
+      plan-review:
+        actor: human
+        file: <%= it.vars.todoFile %>
+        message: |
+          `<%= it.vars.todoFile %>` holds the proposed implementation plan. Read it,
+          then either accept it as-is or edit it — rewrite a step, add a
+          constraint, or drop an inline comment — to send it back for another round.
+
+          What each change does next (then run `gtd step human`):
+          <% it.edges.forEach(function (e) { if (e.describe) { %>
+          <%~ "- " + e.describe + "\n" %>
+          <% } }) %>
+        on:
+          "C":
+            to: $onAccept
+            describe: >-
+              Change nothing to accept the plan as-is and move on to implementation
+              (**building**).
+          "* **":
+            to: planning
+            describe: >-
+              Edit the plan — rewrite a step, add a constraint, or leave an inline
+              comment — to send it back for another round (**planning**).
+
+  # ── ENCAPSULATION: the shared review tail ──────────────────────────────────
+  humanReview:
+    params: [onSignoff]
+    states:
+      reviewing:
+        actor: agent
+        file: <%= it.vars.reviewFile %>
+        mode: review
+        model: <%= it.vars.plannerModel %>
+        memory: review
+        # `gtd review <commitish>` (a plain non-gtd branch, e.g. a colleague's PR)
+        # does NOT enter here directly — it enters `review-start-check` (reviewEntry)
+        # first, which runs the green-baseline gate and, once green, transitions
+        # here. The `Gtd-Review-Base:` trailer rides on that entry commit (the
+        # process's oldest), so everything below still reuses the same
+        # reviewing/await-review/feedback machinery over <commitish>..HEAD.
+        prompt: |
+          You are an autonomous coding agent. `.gtd/` holds this workflow's own
+          state — never create, edit, or delete anything under `.gtd/` except
+          `<%= it.vars.reviewFile %>`, which this prompt tells you to write.
+
+          Write `<%= it.vars.reviewFile %>` to help a human review the diff below in
+          this EXACT format:
+
+          - First non-blank line: `# Review: <%= it.currentCommit.slice(0, 7) %>`
+          - Somewhere in the document: `<!-- base: <%= it.startCommit %> -->`
+          - At least one `## <Chunk Title>` heading, grouping hunks semantically
+            (same feature/refactor/fix, even across files) — a short explanation of
+            what changed and why, then one `- [ ] ./path/to/file.ts#42 — note` file
+            pointer per hunk (checkboxes are for the human to tick, not you; every
+            path is `./`-relative, with an optional `#line` and an optional
+            ` — note`).
+
+          The diff below is `it.reviewDiff` — on a feedback round it covers ONLY the
+          changes made since the previous review, so you review just what changed,
+          not items already signed off. Leave `<%= it.vars.reviewFile %>`
+          uncommitted and finish your turn.
+          <% if (it.reviewDiff.trim()) { %>
+
+          ## Full diff under review
+
+          ```diff
+          <%~ it.reviewDiff %>
+          ```
+          <% } %>
+        on:
+          "* **": await-review
+
+      await-review:
+        actor: human
+        file: <%= it.vars.reviewFile %>
+        mode: review
+        # While the cycle rests here, gtd opens a "review checkout window": raw HEAD
+        # is rewound to the review base (the most-recent `review-deciding` commit —
+        # so a feedback round shows only `last-review..HEAD` — or the process start
+        # on the first review) with the working tree untouched, surfacing the diff
+        # as ordinary uncommitted changes. It closes on the next invocation.
+        #
+        # Every human step here routes to `review-deciding`, which decides sign-off
+        # vs. feedback from the step's CONTENT (a comment, not a tick). Ticking a box
+        # only records "I reviewed this hunk". Two dead ends can't be told apart by a
+        # file-pattern edge, so the sign-off gate (`enforceReviewSignoffGate` in
+        # src/program.ts) catches them BEFORE the step commits and refuses: an
+        # unfinished review (a box still `- [ ]` with no comment) and a deleted
+        # REVIEW.md.
+        reviewWindow: true
+        message: |
+          `<%= it.vars.reviewFile %>` holds the review record for the cycle — one
+          `- [ ]` checkbox per reviewable item, grouped into chunks. Tick a box
+          (`- [x]`) as you review each hunk; ticking only records that you've read
+          it, it is not sign-off.
+
+          When you've been through the whole diff, run `gtd step human`:
+
+          - Tick EVERY box and leave no comment — no note in
+            `<%= it.vars.reviewFile %>`, no code edit — to sign off and collapse the
+            cycle into one commit (**squashing**).
+          - Leave a comment to request changes — a note on a
+            `<%= it.vars.reviewFile %>` line, or a direct code edit — to send it to a
+            build + re-review round (**review-deciding** → **feedback-building**). A
+            code edit counts as your own fix: the agent completes the follow-through
+            it implies and never reverts your lines.
+
+          Stepping with a box still unticked and no comment is refused (finish
+          reviewing first); so is deleting `<%= it.vars.reviewFile %>`.
+        on:
+          "* **": review-deciding
+
+      review-deciding:
+        actor: check
+        file: <%= it.vars.reviewFile %>
+        mode: review
+        # Anchors the INCREMENTAL review base: its most-recent in-process commit is
+        # the point the previous review round ended, so the next `reviewing` turn
+        # (and the review checkout window) covers only the changes since then. On
+        # the first review there is no such commit, so the base is the cycle start.
+        reviewBase: true
+        script: |
+          #!/usr/bin/env bash
+          # gtd check turn — decide the human's review step from its CONTENT. HEAD is
+          # the human's `await-review -> review-deciding` commit; HEAD^ is the
+          # `reviewing` commit that wrote the agent's original REVIEW.md (the sign-off
+          # gate refuses an incomplete step, so review-deciding is entered exactly
+          # once per round — nothing commits in between). It is FEEDBACK when the
+          # human left a comment: a note in REVIEW.md (any edit beyond a "[ ]"->"[x]"
+          # tick) OR a hand-edit to any non-.gtd/ file this round. Otherwise it is a
+          # clean sign-off. This turn only CAPTURES the raw material into REVIEW_RAW.md
+          # (the `feedback-collecting` agent then turns it into instructions); it does
+          # NOT interpret it. Either way, remove REVIEW.md; what the resulting diff
+          # MEANS is decided by this state's own `on` rules — the A/M REVIEW_RAW.md
+          # rows are declared BEFORE the D REVIEW.md row so a feedback round (which
+          # also deletes REVIEW.md) is captured as feedback, not mistaken for a
+          # sign-off.
+          set +e
+          mkdir -p .gtd
+          # Hoist the paths once, at the TOP: Eta's autoTrim eats the newline after
+          # an interpolation tag, so no tag may be the last token on a line — it
+          # would glue the next line onto it and break the script. Below this point
+          # everything is plain bash.
+          reviewFile="<%~ it.vars.reviewFile %>"
+          reviewRawFile="<%~ it.vars.reviewRawFile %>"
+          # Which non-.gtd/ files did the human hand-edit this round?
+          codeFiles=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -v '^\.gtd/')
+          # A note is any REVIEW.md change beyond a checkbox flip: normalize every
+          # "[ ]"/"[x]" to a placeholder, then compare the agent's original (HEAD^)
+          # against the human's version (HEAD).
+          notes=""
+          before=$(git show "HEAD^:$reviewFile" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
+          after=$(git show "HEAD:$reviewFile" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
+          if [ "$before" != "$after" ]; then notes=1; fi
+          if [ -n "$codeFiles" ] || [ -n "$notes" ]; then
+            {
+              echo "Raw review material captured for classification. The human reviewed the diff and left the feedback below; a downstream agent turns it into an instruction list. This file is machine-captured input, not instructions."
+              if [ -n "$notes" ]; then
+                echo
+                echo "## Notes the human added to REVIEW.md this round"
+                echo
+                echo '```diff'
+                git show HEAD --format= -- "$reviewFile"
+                echo '```'
+              fi
+              if [ -n "$codeFiles" ]; then
+                echo
+                echo "## Files the human hand-edited this round (already committed)"
+                echo
+                echo '```diff'
+                git show HEAD --format= -- $codeFiles
+                echo '```'
+              fi
+            } > "$reviewRawFile"
+          fi
+          rm -f "$reviewFile"
+        on:
+          "A .gtd/REVIEW_RAW.md": feedback-collecting
+          "M .gtd/REVIEW_RAW.md": feedback-collecting
+          "D .gtd/REVIEW.md": $onSignoff
+
+      feedback-collecting:
+        actor: agent
+        file: <%= it.vars.reviewFeedbackFile %>
+        model: <%= it.vars.plannerModel %>
+        memory: review
+        prompt: |
+          You are an autonomous coding agent turning raw review feedback into an
+          explicit instruction list for a builder. `.gtd/` holds this workflow's own
+          state — never create, edit, or delete anything under `.gtd/` except
+          `<%= it.vars.reviewRawFile %>` (delete it when done) and
+          `<%= it.vars.reviewFeedbackFile %>` (write it). Do NOT change any other
+          file — you classify, you do not build.
+
+          The raw review material is: <%~ it.read(it.vars.reviewRawFile) %>
+
+          Classify every piece of it into `<%= it.vars.reviewFeedbackFile %>` as a
+          flat, numbered instruction list. Each item is `N. ./path/to/file.ts#line —
+          <imperative>`. Read the two RAW sections and apply these rules exactly:
+
+          1. NOTES the human added to REVIEW.md — each note is a MANDATORY change,
+             regardless of whether its checkbox is ticked (ticking means only "I read
+             this hunk", never sign-off). Anchor each to the `./path#line` its review
+             item names (or the chunk it sits under). Emit it as a concrete
+             imperative.
+          2. Every COMMENT the human ADDED this round (a `+` line that is a code
+             comment, in the hand-edited files) is a MANDATORY instruction the human
+             is giving the builder — even a plain-prose one, even if its box is
+             ticked. Emit an imperative to satisfy it and note that the comment line
+             itself must be REMOVED once addressed. If a comment turns out to describe
+             behaviour the code already has, the instruction is still "confirm the
+             code matches and remove the comment line".
+          3. Every NON-comment code line the human hand-edited is an already-committed
+             INTENT, NOT a do-then-delete item. Emit an instruction that names those
+             files and says: their lines are final — complete ONLY the follow-through
+             they imply (callers, tests, types, docs) and NEVER revert or rewrite
+             them. Do not turn their own edit into a task.
+
+          Split each hand-edited hunk per line: comment `+` lines follow rule 2, the
+          surrounding real code follows rule 3.
+
+          If — and only if — nothing in the raw material is actionable (e.g. the human
+          left only an approving remark), write `<%= it.vars.reviewFeedbackFile %>`
+          containing exactly one line: `NOTHING ACTIONABLE — <one-sentence reason>`.
+          Never invent work to satisfy a non-actionable remark.
+
+          Delete `<%= it.vars.reviewRawFile %>`, leave everything else uncommitted,
+          and finish your turn.
+        on:
+          "A .gtd/REVIEW_FEEDBACK.md": feedback-building
+          "M .gtd/REVIEW_FEEDBACK.md": feedback-building
+
+      feedback-building:
+        actor: agent
+        file: <%= it.vars.reviewFeedbackFile %>
+        model: <%= it.vars.coderModel %>
+        memory: build
+        # Refuse a work-free turn: a step whose only pending change is deleting the
+        # instructions file (the original "captured then discarded" bug). The edge
+        # gate (`enforceFeedbackProgressGate` in src/program.ts) reads this flag and
+        # exempts a `NOTHING ACTIONABLE` sentinel (a non-actionable review round,
+        # which legitimately makes no code change). The pure engine carries it inert.
+        requireProgress: true
+        prompt: |
+          You are an autonomous coding agent addressing review feedback. `.gtd/`
+          holds this workflow's own state — never create, edit, or delete anything
+          under `.gtd/` except `<%= it.vars.reviewFeedbackFile %>`, which this
+          prompt tells you to address and then delete.
+
+          The instructions to implement are: <%~ it.read(it.vars.reviewFeedbackFile) %>
+
+          This is a flat instruction list, not a diff — execute every item exactly as
+          written, no Q&A, no re-planning, using TDD discipline:
+
+          - An item that says the human's own lines are final: build ON TOP of them to
+            complete only the follow-through it names (callers, tests, types, docs).
+            NEVER revert or rewrite the lines they already committed.
+          - An item derived from a human comment: satisfy it AND delete that comment
+            line from the code (the human's review comments are transient — none of
+            them survive this round).
+
+          If the file's sole content is a `NOTHING ACTIONABLE` line, make no code
+          change; just delete the instructions file.
+
+          Delete `<%= it.vars.reviewFeedbackFile %>` once every item is addressed.
+          Leave everything else uncommitted and finish your turn. Deleting the
+          instructions file WITHOUT making the changes it asks for is refused — the
+          feedback must actually be addressed.
+        on:
+          "* **": checking
+
+  # ── ENCAPSULATION: the advanced flow's per-package agentic review ──────────
+  specGate:
+    params: [onApproved]
+    states:
+      spec-review:
+        actor: agent
+        model: <%= it.vars.plannerModel %>
+        memory: review
+        # Bounded per cycle: once entered `max` times, a transition into it is
+        # redirected to `closing` (force-close the package and move on — the
+        # unresolved concern is deferred to the shared human review at the tail,
+        # which sees the whole diff anyway). NOTE the cap is PROCESS-scoped, so it
+        # pools across packages — the same documented limitation the shared
+        # `fixing` cap has (see STATES.md / docs/configuration.md).
+        retry:
+          max: 3
+          otherwise: $onApproved
+        prompt: |
+          You are an autonomous coding agent reviewing a freshly-built work package
+          against its own spec. `.gtd/` holds this workflow's own state — never
+          create, edit, or delete anything under `.gtd/` except
+          `<%= it.vars.specFeedbackFile %>`, which this prompt tells you to write
+          when — and only when — you find problems.
+
+          The package spec is: <%~ it.read(it.vars.nextFile) %>
+
+          Read that spec, then verify the package's implementation (the diff below)
+          against it: are all its tasks done, acceptance criteria met, and the code
+          sound and consistent with the codebase?
+
+          - If it fully satisfies the spec, write NOTHING and finish your turn — a
+            clean turn is your approval.
+          - If it does not, write `<%= it.vars.specFeedbackFile %>` listing the
+            concrete problems for a fix turn to address. Be specific.
+
+          Do not fix anything yourself and do not delete the package file — a later
+          step owns that. Finish your turn.
+          <% if (it.processDiff.trim()) { %>
+
+          ## Diff under review
+
+          ```diff
+          <%~ it.processDiff %>
+          ```
+          <% } %>
+        on:
+          "A .gtd/SPEC_FEEDBACK.md": spec-fix
+          "M .gtd/SPEC_FEEDBACK.md": spec-fix
+          "D .gtd/SPEC_FEEDBACK.md": $onApproved
+          "C": $onApproved
+
+      spec-fix:
+        actor: agent
+        file: <%= it.vars.specFeedbackFile %>
+        model: <%= it.vars.coderModel %>
+        memory: fix
+        prompt: |
+          You are an autonomous coding agent. `.gtd/` holds this workflow's own
+          state — never create, edit, or delete anything under `.gtd/` except
+          `<%= it.vars.specFeedbackFile %>`, which this prompt tells you to address
+          and then delete.
+
+          Read `<%= it.vars.specFeedbackFile %>` (the reviewer's concerns about the
+          current package) and the package spec (`<%= it.read(it.vars.nextFile) %>`),
+          then fix the code to resolve every concern. Keep the change focused.
+
+          Delete `<%= it.vars.specFeedbackFile %>` once every concern is addressed.
+          Leave everything else uncommitted and finish your turn.
+        on:
+          "* **": adv-checking
+
+  # ── ENCAPSULATION: the advanced flow's per-package build queue ─────────────
+  packageLoop:
+    params: [onDrained]
+    states:
+      picking:
+        actor: check
+        script: |
+          #!/usr/bin/env bash
+          # gtd check turn (the package queue arbiter) — the loop driver executes
+          # this verbatim, then steps the check actor. Mechanics only: take the
+          # first package file (by name) under the packages dir into NEXT.md, or
+          # remove NEXT.md when the queue is empty. What NEXT.md's presence/absence
+          # MEANS (another package to build vs. the queue closing out to review) is
+          # decided by this state's own `on` rules at capture time — never here.
+          set +e
+          # Hoist the NEXT path once, at the TOP: Eta's autoTrim eats the newline
+          # after an interpolation tag, so no tag may be the last token on a line —
+          # it would glue the next line's `else`/`fi` onto it and break the script.
+          # Below this point everything is plain bash.
+          nextFile="<%~ it.vars.nextFile %>"
+          next=$(ls <%~ it.vars.packagesDir %>/*.md 2>/dev/null | head -n 1)
+          if [ -n "$next" ]; then
+            printf '%s' "$next" > "$nextFile"
+          else
+            rm -f "$nextFile"
+          fi
+        on:
+          "D .gtd/NEXT.md": $onDrained
+          "* .gtd/NEXT.md": adv-building
+          "C": $onDrained
+
+      adv-building:
+        actor: agent
+        model: <%= it.vars.coderModel %>
+        memory: build
+        prompt: |
+          You are an autonomous coding agent. `.gtd/` holds this workflow's own
+          state — never create, edit, or delete anything under `.gtd/`; in
+          particular do NOT delete the package file (the `spec-review` gate reads it
+          after you) and never touch `<%= it.vars.nextFile %>` — the `picking` state
+          owns it.
+
+          The package to implement is: <%~ it.read(it.vars.nextFile) %>
+
+          That file describes a set of INDEPENDENT tasks. Implement ALL of them in
+          this one turn, fanning the independent tasks out to parallel subagents
+          where your harness supports it — each task is self-contained and can be
+          built concurrently. Implement EXACTLY the tasks this package describes — no
+          more, no less; leave every other package file untouched. Use TDD
+          discipline within each task.
+
+          Leave the package file in place and everything else uncommitted, then
+          finish your turn.
+        on:
+          "* **": adv-checking
+
+      closing:
+        actor: check
+        script: |
+          #!/usr/bin/env bash
+          # gtd check turn (the package closer) — remove the just-reviewed package
+          # file (its path is in NEXT.md) plus any leftover spec feedback, so
+          # `picking` selects the NEXT package (or falls through to review when the
+          # queue is empty). Reached on approval (spec-review clean) and on the
+          # spec-review retry cap (force-close, deferring the concern to the tail).
+          set +e
+          pkg=$(cat <%~ it.vars.nextFile %> 2>/dev/null)
+          [ -n "$pkg" ] && rm -f "$pkg"
+          rm -f <%~ it.vars.specFeedbackFile %> <%~ it.vars.nextFile %>
+        on:
+          "* **": picking
+
+use:
+  # Shared health triple: checking/fixing/escalate -> reviewing.
+  - submachine: makeGreen
+    as: { check: checking, fix: fixing, escalate: escalate }
+    with:
+      onGreen: reviewing
+      escalateDescribe: >-
+        Fix the failure yourself — edit the code and/or `.gtd/FEEDBACK.md` —
+        to re-run the check (**checking**).
+  # Advanced package health triple: adv-checking/adv-fixing/adv-escalate -> spec-review.
+  - submachine: makeGreen
+    as: { check: adv-checking, fix: adv-fixing, escalate: adv-escalate }
+    with:
+      onGreen: spec-review
+      escalateDescribe: >-
+        Fix the failure yourself — edit the code and/or
+        `.gtd/FEEDBACK.md` — to re-run the check (**adv-checking**).
+
+  # Green-baseline gate: simple flow entry.
+  - submachine: assertGreen
+    as: { check: start-check, blocked: start-blocked }
+    with:
+      onGreen: planning
+      checkScript: |
+        #!/usr/bin/env bash
+        # gtd check turn — run the suite before starting new work; a red run
+        # records .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed).
+        set +e
+        mkdir -p .gtd
+        # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
+        # newline after an interpolation tag, so no tag may be the last token on
+        # a line — it would glue the next line's `else`/`fi` onto it and break
+        # the script. Below this point everything is plain bash.
+        feedback="<%~ it.vars.feedbackFile %>"
+        <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+        code=$?
+        if [ "$code" -ne 0 ]; then
+          if [ -s .gtd/.check-output ]; then
+            mv .gtd/.check-output "$feedback"
+          else
+            rm -f .gtd/.check-output
+            printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
+          fi
+        else
+          rm -f .gtd/.check-output
+          rm -f "$feedback"
+        fi
+      blockedMessage: |
+        The test baseline is red — gtd will not start new work on a broken suite.
+        `<%= it.vars.feedbackFile %>` holds the failing output.
+
+        What each change does next (then run `gtd step human`):
+        <% it.edges.forEach(function (e) { if (e.describe) { %>
+        <%~ "- " + e.describe + "\n" %>
+        <% } }) %>
+      blockedDescribe: >-
+        Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
+        re-run the baseline check (**start-check**). To repair the baseline as
+        its own separate reviewed commit instead, abandon this start and run
+        `gtd fix` from a clean `idle`.
+
+  # Green-baseline gate: advanced flow entry.
+  - submachine: assertGreen
+    as: { check: adv-start-check, blocked: adv-start-blocked }
+    with:
+      onGreen: adv-grilling
+      checkScript: |
+        #!/usr/bin/env bash
+        # gtd check turn — run the suite before starting the advanced flow; a red
+        # run records .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed).
+        set +e
+        mkdir -p .gtd
+        # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
+        # newline after an interpolation tag, so no tag may be the last token on
+        # a line — it would glue the next line's `else`/`fi` onto it and break
+        # the script. Below this point everything is plain bash.
+        feedback="<%~ it.vars.feedbackFile %>"
+        <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+        code=$?
+        if [ "$code" -ne 0 ]; then
+          if [ -s .gtd/.check-output ]; then
+            mv .gtd/.check-output "$feedback"
+          else
+            rm -f .gtd/.check-output
+            printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
+          fi
+        else
+          rm -f .gtd/.check-output
+          rm -f "$feedback"
+        fi
+      blockedMessage: |
+        The test baseline is red — gtd will not start new work on a broken suite.
+        `<%= it.vars.feedbackFile %>` holds the failing output.
+
+        What each change does next (then run `gtd step human`):
+        <% it.edges.forEach(function (e) { if (e.describe) { %>
+        <%~ "- " + e.describe + "\n" %>
+        <% } }) %>
+      blockedDescribe: >-
+        Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
+        re-run the baseline check (**adv-start-check**). To repair the baseline
+        as its own separate reviewed commit instead, abandon this start and run
+        `gtd fix` from a clean `idle`.
+
+  # Green-baseline gate: `gtd review` entry (reviewEntry -> reviewing).
+  - submachine: assertGreen
+    as: { check: review-start-check, blocked: review-start-blocked }
+    set:
+      check: { reviewEntry: true }
+    with:
+      onGreen: reviewing
+      checkScript: |
+        #!/usr/bin/env bash
+        # gtd check turn — run the suite before reviewing; a red run records
+        # .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed to reviewing).
+        set +e
+        mkdir -p .gtd
+        # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
+        # newline after an interpolation tag, so no tag may be the last token on
+        # a line — it would glue the next line's `else`/`fi` onto it and break
+        # the script. Below this point everything is plain bash.
+        feedback="<%~ it.vars.feedbackFile %>"
+        <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+        code=$?
+        if [ "$code" -ne 0 ]; then
+          if [ -s .gtd/.check-output ]; then
+            mv .gtd/.check-output "$feedback"
+          else
+            rm -f .gtd/.check-output
+            printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
+          fi
+        else
+          rm -f .gtd/.check-output
+          rm -f "$feedback"
+        fi
+      blockedMessage: |
+        The test baseline is red — gtd will not start a review on a broken suite.
+        `<%= it.vars.feedbackFile %>` holds the failing output.
+
+        What each change does next (then run `gtd step human`):
+        <% it.edges.forEach(function (e) { if (e.describe) { %>
+        <%~ "- " + e.describe + "\n" %>
+        <% } }) %>
+      blockedDescribe: >-
+        Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
+        re-run the baseline check (**review-start-check**).
+
+  # Advanced flow: product Q&A loop (adv-grilling/adv-grilling-answer -> architecting).
+  - submachine: qaLoop
+    as: { author: adv-grilling, answer: adv-grilling-answer }
+    with:
+      authorFile: <%= it.vars.requirementsFile %>
+      onAdvance: architecting
+      authorPrompt: |
+        You are an autonomous coding agent. `.gtd/` holds this workflow's own
+        state — never create, edit, or delete anything under `.gtd/` except
+        `<%= it.vars.requirementsFile %>`, which this prompt tells you to develop.
+
+        `<%= it.vars.requirementsFile %>` holds the product requirements (or the
+        plan you already wrote plus the human's answers on a return lap). Read it,
+        explore the codebase, and develop it into a concrete, PRODUCT-level plan
+        in this one turn.
+
+        Scope: product and user-facing decisions only. Leave implementation
+        details (file/module structure, data models, tech-stack choices) for the
+        next phase (`<%= it.vars.architectureFile %>`).
+
+        For every open point you cannot settle yourself, add a question under a
+        `## Open Questions` heading near the top: one `### <question>` sub-heading
+        each, followed by a checkbox list of candidate answers — aim for TWO
+        concrete options plus a final free-text slot, ALL left UNTICKED:
+
+            ### <the question>
+
+            - [ ] <first option — a concrete answer, a few words of rationale>
+            - [ ] <second option>
+            - [ ] _your answer_
+
+        Never tick a box yourself — the human ticks exactly one per question. The
+        last `- [ ] _your answer_` line is the human's own-answer slot; write it
+        with the literal `_your answer_` placeholder and leave it for them.
+
+        On a RETURN lap the human has ticked one option per question (or replaced
+        `_your answer_` with their own text). For each answered question: fold the
+        chosen answer into the plan prose, then MOVE the question down into a
+        `## Answered Questions` section as `### <question>` followed by the
+        resolved answer in plain PROSE (drop the checkboxes). Never re-raise a
+        question the human deleted; if the human deleted the whole
+        `## Open Questions` section, treat the plan as accepted and surface no new
+        questions unless something is genuinely still blocking. Omit
+        `## Open Questions` entirely once there are none left.
+
+        Leave `<%= it.vars.requirementsFile %>` uncommitted and finish your turn.
+      answerMessage: |
+        `<%= it.vars.requirementsFile %>` holds the product plan under
+        development. Each question under `## Open Questions` offers a few options
+        plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
+        exactly one box (`- [x]`); for your own answer, replace `_your answer_`
+        with your text and tick that line. Stepping is refused while any question
+        is unanswered.
+
+        What each change does next (then run `gtd step human`):
+        <% it.edges.forEach(function (e) { if (e.describe) { %>
+        <%~ "- " + e.describe + "\n" %>
+        <% } }) %>
+      advanceDescribe: >-
+        With no open questions left (the agent surfaced none, or you deleted
+        the section and it finalized the plan), change nothing to accept the
+        product plan and move on to technical architecting (**architecting**).
+      editDescribe: >-
+        Tick exactly one option per open question (replace `_your answer_` for
+        your own) to send the plan back for the agent to fold your answers in
+        (**adv-grilling**). Delete a question to skip it, or delete the whole
+        `## Open Questions` section to accept the plan as-is.
+
+  # Advanced flow: technical Q&A loop (architecting/architecting-answer -> decompose).
+  - submachine: qaLoop
+    as: { author: architecting, answer: architecting-answer }
+    with:
+      authorFile: <%= it.vars.architectureFile %>
+      onAdvance: decompose
+      authorPrompt: |
+        You are an autonomous coding agent. `.gtd/` holds this workflow's own
+        state — never create, edit, or delete anything under `.gtd/` except
+        `<%= it.vars.architectureFile %>` and `<%= it.vars.requirementsFile %>`,
+        which this prompt tells you to write and delete respectively.
+
+        Read `<%= it.vars.requirementsFile %>` (the converged product plan) and
+        develop `<%= it.vars.architectureFile %>` from it in this one turn:
+        file/module structure, data models, library/tech-stack choices,
+        error-handling strategy — the *how*, building on the *what* already
+        settled. Do not re-open product-level decisions; treat them as settled.
+
+        For every open point you cannot settle yourself, add a question under a
+        `## Open Questions` heading exactly as the grilling phase does: one
+        `### <question>` each, followed by a checkbox list — TWO concrete options
+        plus a final free-text slot, ALL left UNTICKED:
+
+            ### <the question>
+
+            - [ ] <first option>
+            - [ ] <second option>
+            - [ ] _your answer_
+
+        Never tick a box yourself. On a RETURN lap the human has ticked one option
+        per question (or replaced `_your answer_` with their own text): fold each
+        chosen answer into the plan prose, then MOVE the question into a
+        `## Answered Questions` section as `### <question>` + the resolved answer
+        in plain PROSE (drop the checkboxes). Never re-raise a deleted question;
+        treat a deleted `## Open Questions` section as acceptance. Omit
+        `## Open Questions` once there are none left.
+
+        Once `<%= it.vars.architectureFile %>` is written, delete
+        `<%= it.vars.requirementsFile %>` — its content has been folded in and it
+        must not linger. Leave everything uncommitted and finish your turn.
+      answerMessage: |
+        `<%= it.vars.architectureFile %>` holds the technical plan under
+        development. Each question under `## Open Questions` offers a few options
+        plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
+        exactly one box (`- [x]`); for your own answer, replace `_your answer_`
+        with your text and tick that line. Stepping is refused while any question
+        is unanswered.
+
+        What each change does next (then run `gtd step human`):
+        <% it.edges.forEach(function (e) { if (e.describe) { %>
+        <%~ "- " + e.describe + "\n" %>
+        <% } }) %>
+      advanceDescribe: >-
+        With no open questions left (the agent surfaced none, or you deleted
+        the section and it finalized the plan), change nothing to accept the
+        technical plan and move on to decomposing the work into packages
+        (**decompose**).
+      editDescribe: >-
+        Tick exactly one option per open question (replace `_your answer_` for
+        your own) to send the plan back for the agent to fold your answers in
+        (**architecting**). Delete a question to skip it, or delete the whole
+        `## Open Questions` section to accept the plan as-is.
+
+  # Simple flow plan-iteration loop (planning/plan-review -> building).
+  - submachine: planLoop
+    with:
+      onAccept: building
+
+  # Shared review tail (reviewing -> await-review -> ... -> squashing).
+  - submachine: humanReview
+    with:
+      onSignoff: squashing
+
+  # Advanced per-package agentic review (spec-review/spec-fix -> closing).
+  - submachine: specGate
+    with:
+      onApproved: closing
+
+  # Advanced per-package build queue (picking/adv-building/closing -> reviewing).
+  - submachine: packageLoop
+    with:
+      onDrained: reviewing
+
 states:
   # ── Shared entry ────────────────────────────────────────────────────────
   idle:
@@ -128,120 +1036,7 @@ states:
           agent reads it, explores the codebase, and develops it into a concrete
           implementation plan (**start-check**).
 
-  # ── Green-baseline gate: simple flow ──────────────────────────────────────
-  # Runs the suite before any planning starts. Its script is `checking`'s test
-  # wrapper verbatim (red -> .gtd/FEEDBACK.md, green -> remove it); the `on`
-  # rules turn that into "halt at start-blocked" vs "proceed to planning".
-  start-check:
-    actor: check
-    script: |
-      #!/usr/bin/env bash
-      # gtd check turn — run the suite before starting new work; a red run
-      # records .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed).
-      set +e
-      mkdir -p .gtd
-      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
-      # newline after an interpolation tag, so no tag may be the last token on
-      # a line — it would glue the next line's `else`/`fi` onto it and break
-      # the script. Below this point everything is plain bash.
-      feedback="<%~ it.vars.feedbackFile %>"
-      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
-      code=$?
-      if [ "$code" -ne 0 ]; then
-        if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output "$feedback"
-        else
-          rm -f .gtd/.check-output
-          printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
-        fi
-      else
-        rm -f .gtd/.check-output
-        rm -f "$feedback"
-      fi
-    on:
-      "A .gtd/FEEDBACK.md": start-blocked
-      "M .gtd/FEEDBACK.md": start-blocked
-      "D .gtd/FEEDBACK.md": planning
-      "C": planning
-
-  start-blocked:
-    actor: human
-    file: <%= it.vars.feedbackFile %>
-    message: |
-      The test baseline is red — gtd will not start new work on a broken suite.
-      `<%= it.vars.feedbackFile %>` holds the failing output.
-
-      What each change does next (then run `gtd step human`):
-      <% it.edges.forEach(function (e) { if (e.describe) { %>
-      <%~ "- " + e.describe + "\n" %>
-      <% } }) %>
-    on:
-      "* **":
-        to: start-check
-        describe: >-
-          Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
-          re-run the baseline check (**start-check**). To repair the baseline as
-          its own separate reviewed commit instead, abandon this start and run
-          `gtd fix` from a clean `idle`.
-
-  # ── Simple flow: plan-iteration loop, monolithic build ────────────────────
-  planning:
-    actor: agent
-    file: <%= it.vars.todoFile %>
-    model: <%= it.vars.plannerModel %>
-    memory: plan
-    prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.todoFile %>`, which this prompt tells you to develop.
-
-      `<%= it.vars.todoFile %>` holds a short sketch of what to build — or, on a
-      return lap, the plan you already wrote plus the human's edits and comments
-      on it. Read it, explore the codebase, and develop it into a concrete
-      implementation plan: the files to change, the approach, and the steps to
-      take.
-
-      Do NOT ask questions and do NOT add an "Open Questions" section — decide
-      every open point yourself and write the plan as a set of concrete
-      decisions. Where a decision is genuinely a judgement call, state the
-      choice you made and, in one line, why. The human iterates on the plan by
-      editing it directly, not by answering questions.
-
-      On a return lap, `<%= it.vars.todoFile %>` carries the human's edits and
-      inline comments on your previous plan. Fold every edit and comment into a
-      revised, self-contained plan and remove the addressed comments — the plan
-      is always the current, clean proposal, never a diff.
-
-      Leave `<%= it.vars.todoFile %>` uncommitted and finish your turn — do
-      not commit, and do not run `gtd step agent` yourself; the harness does
-      that.
-    on:
-      "* **": plan-review
-
-  plan-review:
-    actor: human
-    file: <%= it.vars.todoFile %>
-    message: |
-      `<%= it.vars.todoFile %>` holds the proposed implementation plan. Read it,
-      then either accept it as-is or edit it — rewrite a step, add a
-      constraint, or drop an inline comment — to send it back for another round.
-
-      What each change does next (then run `gtd step human`):
-      <% it.edges.forEach(function (e) { if (e.describe) { %>
-      <%~ "- " + e.describe + "\n" %>
-      <% } }) %>
-    on:
-      "C":
-        to: building
-        describe: >-
-          Change nothing to accept the plan as-is and move on to implementation
-          (**building**).
-      "* **":
-        to: planning
-        describe: >-
-          Edit the plan — rewrite a step, add a constraint, or leave an inline
-          comment — to send it back for another round (**planning**).
-
+  # ── Simple flow: monolithic build (plan loop is the `planLoop` sub-machine) ─
   building:
     actor: agent
     file: <%= it.vars.todoFile %>
@@ -264,218 +1059,7 @@ states:
     on:
       "* **": checking
 
-  # ── Green-baseline gate: advanced flow ────────────────────────────────────
-  adv-start-check:
-    actor: check
-    script: |
-      #!/usr/bin/env bash
-      # gtd check turn — run the suite before starting the advanced flow; a red
-      # run records .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed).
-      set +e
-      mkdir -p .gtd
-      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
-      # newline after an interpolation tag, so no tag may be the last token on
-      # a line — it would glue the next line's `else`/`fi` onto it and break
-      # the script. Below this point everything is plain bash.
-      feedback="<%~ it.vars.feedbackFile %>"
-      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
-      code=$?
-      if [ "$code" -ne 0 ]; then
-        if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output "$feedback"
-        else
-          rm -f .gtd/.check-output
-          printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
-        fi
-      else
-        rm -f .gtd/.check-output
-        rm -f "$feedback"
-      fi
-    on:
-      "A .gtd/FEEDBACK.md": adv-start-blocked
-      "M .gtd/FEEDBACK.md": adv-start-blocked
-      "D .gtd/FEEDBACK.md": adv-grilling
-      "C": adv-grilling
-
-  adv-start-blocked:
-    actor: human
-    file: <%= it.vars.feedbackFile %>
-    message: |
-      The test baseline is red — gtd will not start new work on a broken suite.
-      `<%= it.vars.feedbackFile %>` holds the failing output.
-
-      What each change does next (then run `gtd step human`):
-      <% it.edges.forEach(function (e) { if (e.describe) { %>
-      <%~ "- " + e.describe + "\n" %>
-      <% } }) %>
-    on:
-      "* **":
-        to: adv-start-check
-        describe: >-
-          Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
-          re-run the baseline check (**adv-start-check**). To repair the baseline
-          as its own separate reviewed commit instead, abandon this start and run
-          `gtd fix` from a clean `idle`.
-
-  # ── Advanced flow: product + technical Q&A ────────────────────────────────
-  adv-grilling:
-    actor: agent
-    file: <%= it.vars.requirementsFile %>
-    mode: qa
-    model: <%= it.vars.plannerModel %>
-    memory: plan
-    prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.requirementsFile %>`, which this prompt tells you to develop.
-
-      `<%= it.vars.requirementsFile %>` holds the product requirements (or the
-      plan you already wrote plus the human's answers on a return lap). Read it,
-      explore the codebase, and develop it into a concrete, PRODUCT-level plan
-      in this one turn.
-
-      Scope: product and user-facing decisions only. Leave implementation
-      details (file/module structure, data models, tech-stack choices) for the
-      next phase (`<%= it.vars.architectureFile %>`).
-
-      For every open point you cannot settle yourself, add a question under a
-      `## Open Questions` heading near the top: one `### <question>` sub-heading
-      each, followed by a checkbox list of candidate answers — aim for TWO
-      concrete options plus a final free-text slot, ALL left UNTICKED:
-
-          ### <the question>
-
-          - [ ] <first option — a concrete answer, a few words of rationale>
-          - [ ] <second option>
-          - [ ] _your answer_
-
-      Never tick a box yourself — the human ticks exactly one per question. The
-      last `- [ ] _your answer_` line is the human's own-answer slot; write it
-      with the literal `_your answer_` placeholder and leave it for them.
-
-      On a RETURN lap the human has ticked one option per question (or replaced
-      `_your answer_` with their own text). For each answered question: fold the
-      chosen answer into the plan prose, then MOVE the question down into a
-      `## Answered Questions` section as `### <question>` followed by the
-      resolved answer in plain PROSE (drop the checkboxes). Never re-raise a
-      question the human deleted; if the human deleted the whole
-      `## Open Questions` section, treat the plan as accepted and surface no new
-      questions unless something is genuinely still blocking. Omit
-      `## Open Questions` entirely once there are none left.
-
-      Leave `<%= it.vars.requirementsFile %>` uncommitted and finish your turn.
-    on:
-      "* **": adv-grilling-answer
-
-  adv-grilling-answer:
-    actor: human
-    file: <%= it.vars.requirementsFile %>
-    mode: qa
-    answerGate: true
-    message: |
-      `<%= it.vars.requirementsFile %>` holds the product plan under
-      development. Each question under `## Open Questions` offers a few options
-      plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
-      exactly one box (`- [x]`); for your own answer, replace `_your answer_`
-      with your text and tick that line. Stepping is refused while any question
-      is unanswered.
-
-      What each change does next (then run `gtd step human`):
-      <% it.edges.forEach(function (e) { if (e.describe) { %>
-      <%~ "- " + e.describe + "\n" %>
-      <% } }) %>
-    on:
-      "C":
-        to: architecting
-        describe: >-
-          With no open questions left (the agent surfaced none, or you deleted
-          the section and it finalized the plan), change nothing to accept the
-          product plan and move on to technical architecting (**architecting**).
-      "* **":
-        to: adv-grilling
-        describe: >-
-          Tick exactly one option per open question (replace `_your answer_` for
-          your own) to send the plan back for the agent to fold your answers in
-          (**adv-grilling**). Delete a question to skip it, or delete the whole
-          `## Open Questions` section to accept the plan as-is.
-
-  architecting:
-    actor: agent
-    file: <%= it.vars.architectureFile %>
-    mode: qa
-    model: <%= it.vars.plannerModel %>
-    memory: plan
-    prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.architectureFile %>` and `<%= it.vars.requirementsFile %>`,
-      which this prompt tells you to write and delete respectively.
-
-      Read `<%= it.vars.requirementsFile %>` (the converged product plan) and
-      develop `<%= it.vars.architectureFile %>` from it in this one turn:
-      file/module structure, data models, library/tech-stack choices,
-      error-handling strategy — the *how*, building on the *what* already
-      settled. Do not re-open product-level decisions; treat them as settled.
-
-      For every open point you cannot settle yourself, add a question under a
-      `## Open Questions` heading exactly as the grilling phase does: one
-      `### <question>` each, followed by a checkbox list — TWO concrete options
-      plus a final free-text slot, ALL left UNTICKED:
-
-          ### <the question>
-
-          - [ ] <first option>
-          - [ ] <second option>
-          - [ ] _your answer_
-
-      Never tick a box yourself. On a RETURN lap the human has ticked one option
-      per question (or replaced `_your answer_` with their own text): fold each
-      chosen answer into the plan prose, then MOVE the question into a
-      `## Answered Questions` section as `### <question>` + the resolved answer
-      in plain PROSE (drop the checkboxes). Never re-raise a deleted question;
-      treat a deleted `## Open Questions` section as acceptance. Omit
-      `## Open Questions` once there are none left.
-
-      Once `<%= it.vars.architectureFile %>` is written, delete
-      `<%= it.vars.requirementsFile %>` — its content has been folded in and it
-      must not linger. Leave everything uncommitted and finish your turn.
-    on:
-      "* **": architecting-answer
-
-  architecting-answer:
-    actor: human
-    file: <%= it.vars.architectureFile %>
-    mode: qa
-    answerGate: true
-    message: |
-      `<%= it.vars.architectureFile %>` holds the technical plan under
-      development. Each question under `## Open Questions` offers a few options
-      plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
-      exactly one box (`- [x]`); for your own answer, replace `_your answer_`
-      with your text and tick that line. Stepping is refused while any question
-      is unanswered.
-
-      What each change does next (then run `gtd step human`):
-      <% it.edges.forEach(function (e) { if (e.describe) { %>
-      <%~ "- " + e.describe + "\n" %>
-      <% } }) %>
-    on:
-      "C":
-        to: decompose
-        describe: >-
-          With no open questions left (the agent surfaced none, or you deleted
-          the section and it finalized the plan), change nothing to accept the
-          technical plan and move on to decomposing the work into packages
-          (**decompose**).
-      "* **":
-        to: architecting
-        describe: >-
-          Tick exactly one option per open question (replace `_your answer_` for
-          your own) to send the plan back for the agent to fold your answers in
-          (**architecting**). Delete a question to skip it, or delete the whole
-          `## Open Questions` section to accept the plan as-is.
-
-  # ── Advanced flow: decomposition + per-package parallel build loop ─────────
+  # ── Advanced flow: decomposition (Q&A loops are the `qaLoop` sub-machine) ───
   decompose:
     actor: agent
     model: <%= it.vars.coderModel %>
@@ -506,342 +1090,6 @@ states:
       everything uncommitted and finish your turn.
     on:
       "* .gtd/packages/**": picking
-
-  picking:
-    actor: check
-    script: |
-      #!/usr/bin/env bash
-      # gtd check turn (the package queue arbiter) — the loop driver executes
-      # this verbatim, then steps the check actor. Mechanics only: take the
-      # first package file (by name) under the packages dir into NEXT.md, or
-      # remove NEXT.md when the queue is empty. What NEXT.md's presence/absence
-      # MEANS (another package to build vs. the queue closing out to review) is
-      # decided by this state's own `on` rules at capture time — never here.
-      set +e
-      # Hoist the NEXT path once, at the TOP: Eta's autoTrim eats the newline
-      # after an interpolation tag, so no tag may be the last token on a line —
-      # it would glue the next line's `else`/`fi` onto it and break the script.
-      # Below this point everything is plain bash.
-      nextFile="<%~ it.vars.nextFile %>"
-      next=$(ls <%~ it.vars.packagesDir %>/*.md 2>/dev/null | head -n 1)
-      if [ -n "$next" ]; then
-        printf '%s' "$next" > "$nextFile"
-      else
-        rm -f "$nextFile"
-      fi
-    on:
-      "D .gtd/NEXT.md": reviewing
-      "* .gtd/NEXT.md": adv-building
-      "C": reviewing
-
-  adv-building:
-    actor: agent
-    model: <%= it.vars.coderModel %>
-    memory: build
-    prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/`; in
-      particular do NOT delete the package file (the `spec-review` gate reads it
-      after you) and never touch `<%= it.vars.nextFile %>` — the `picking` state
-      owns it.
-
-      The package to implement is: <%~ it.read(it.vars.nextFile) %>
-
-      That file describes a set of INDEPENDENT tasks. Implement ALL of them in
-      this one turn, fanning the independent tasks out to parallel subagents
-      where your harness supports it — each task is self-contained and can be
-      built concurrently. Implement EXACTLY the tasks this package describes — no
-      more, no less; leave every other package file untouched. Use TDD
-      discipline within each task.
-
-      Leave the package file in place and everything else uncommitted, then
-      finish your turn.
-    on:
-      "* **": adv-checking
-
-  adv-checking:
-    actor: check
-    script: |
-      #!/usr/bin/env bash
-      # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
-      # green run cleans it up. The `on` rules decide what that means.
-      set +e
-      mkdir -p .gtd
-      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
-      # newline after an interpolation tag, so no tag may be the last token on
-      # a line — it would glue the next line's `else`/`fi` onto it and break
-      # the script. Below this point everything is plain bash.
-      feedback="<%~ it.vars.feedbackFile %>"
-      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
-      code=$?
-      if [ "$code" -ne 0 ]; then
-        if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output "$feedback"
-        else
-          rm -f .gtd/.check-output
-          printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
-        fi
-      else
-        rm -f .gtd/.check-output
-        rm -f "$feedback"
-      fi
-    on:
-      "A .gtd/FEEDBACK.md": adv-fixing
-      "M .gtd/FEEDBACK.md": adv-fixing
-      "D .gtd/FEEDBACK.md": spec-review
-      "C": spec-review
-
-  adv-fixing:
-    actor: agent
-    file: <%= it.vars.feedbackFile %>
-    model: <%= it.vars.coderModel %>
-    memory: fix
-    retry:
-      max: 3
-      otherwise: adv-escalate
-    prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.feedbackFile %>`, which this prompt tells you to address.
-
-      Read `<%= it.vars.feedbackFile %>` (the failing test output) and fix the
-      code so the suite passes. Keep the change focused — do not refactor
-      unrelated code. If the feedback is wrong, empty or delete
-      `<%= it.vars.feedbackFile %>` instead of "fixing" a non-issue.
-
-      Leave everything uncommitted and finish your turn — do not commit.
-    on:
-      "* **": adv-checking
-
-  adv-escalate:
-    actor: human
-    file: <%= it.vars.feedbackFile %>
-    message: |
-      The agent could not get the check to pass after repeated attempts.
-      `<%= it.vars.feedbackFile %>` holds the last failing output.
-
-      What each change does next (then run `gtd step human`):
-      <% it.edges.forEach(function (e) { if (e.describe) { %>
-      <%~ "- " + e.describe + "\n" %>
-      <% } }) %>
-    on:
-      "* **":
-        to: adv-checking
-        describe: >-
-          Fix the failure yourself — edit the code and/or
-          `.gtd/FEEDBACK.md` — to re-run the check (**adv-checking**).
-
-  spec-review:
-    actor: agent
-    model: <%= it.vars.plannerModel %>
-    memory: review
-    # Bounded per cycle: once entered `max` times, a transition into it is
-    # redirected to `closing` (force-close the package and move on — the
-    # unresolved concern is deferred to the shared human review at the tail,
-    # which sees the whole diff anyway). NOTE the cap is PROCESS-scoped, so it
-    # pools across packages — the same documented limitation the shared
-    # `fixing` cap has (see STATES.md / docs/configuration.md).
-    retry:
-      max: 3
-      otherwise: closing
-    prompt: |
-      You are an autonomous coding agent reviewing a freshly-built work package
-      against its own spec. `.gtd/` holds this workflow's own state — never
-      create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.specFeedbackFile %>`, which this prompt tells you to write
-      when — and only when — you find problems.
-
-      The package spec is: <%~ it.read(it.vars.nextFile) %>
-
-      Read that spec, then verify the package's implementation (the diff below)
-      against it: are all its tasks done, acceptance criteria met, and the code
-      sound and consistent with the codebase?
-
-      - If it fully satisfies the spec, write NOTHING and finish your turn — a
-        clean turn is your approval.
-      - If it does not, write `<%= it.vars.specFeedbackFile %>` listing the
-        concrete problems for a fix turn to address. Be specific.
-
-      Do not fix anything yourself and do not delete the package file — a later
-      step owns that. Finish your turn.
-      <% if (it.processDiff.trim()) { %>
-
-      ## Diff under review
-
-      ```diff
-      <%~ it.processDiff %>
-      ```
-      <% } %>
-    on:
-      "A .gtd/SPEC_FEEDBACK.md": spec-fix
-      "M .gtd/SPEC_FEEDBACK.md": spec-fix
-      "D .gtd/SPEC_FEEDBACK.md": closing
-      "C": closing
-
-  spec-fix:
-    actor: agent
-    file: <%= it.vars.specFeedbackFile %>
-    model: <%= it.vars.coderModel %>
-    memory: fix
-    prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.specFeedbackFile %>`, which this prompt tells you to address
-      and then delete.
-
-      Read `<%= it.vars.specFeedbackFile %>` (the reviewer's concerns about the
-      current package) and the package spec (`<%= it.read(it.vars.nextFile) %>`),
-      then fix the code to resolve every concern. Keep the change focused.
-
-      Delete `<%= it.vars.specFeedbackFile %>` once every concern is addressed.
-      Leave everything else uncommitted and finish your turn.
-    on:
-      "* **": adv-checking
-
-  closing:
-    actor: check
-    script: |
-      #!/usr/bin/env bash
-      # gtd check turn (the package closer) — remove the just-reviewed package
-      # file (its path is in NEXT.md) plus any leftover spec feedback, so
-      # `picking` selects the NEXT package (or falls through to review when the
-      # queue is empty). Reached on approval (spec-review clean) and on the
-      # spec-review retry cap (force-close, deferring the concern to the tail).
-      set +e
-      pkg=$(cat <%~ it.vars.nextFile %> 2>/dev/null)
-      [ -n "$pkg" ] && rm -f "$pkg"
-      rm -f <%~ it.vars.specFeedbackFile %> <%~ it.vars.nextFile %>
-    on:
-      "* **": picking
-
-  # ── Shared health segment (simple build, feedback loop, code-only edits) ──
-  checking:
-    actor: check
-    script: |
-      #!/usr/bin/env bash
-      # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
-      # green run cleans it up. The `on` rules decide what that means.
-      set +e
-      mkdir -p .gtd
-      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
-      # newline after an interpolation tag, so no tag may be the last token on
-      # a line — it would glue the next line's `else`/`fi` onto it and break
-      # the script. Below this point everything is plain bash.
-      feedback="<%~ it.vars.feedbackFile %>"
-      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
-      code=$?
-      if [ "$code" -ne 0 ]; then
-        if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output "$feedback"
-        else
-          rm -f .gtd/.check-output
-          printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
-        fi
-      else
-        rm -f .gtd/.check-output
-        rm -f "$feedback"
-      fi
-    on:
-      "A .gtd/FEEDBACK.md": fixing
-      "M .gtd/FEEDBACK.md": fixing
-      "D .gtd/FEEDBACK.md": reviewing
-      "C": reviewing
-
-  fixing:
-    actor: agent
-    file: <%= it.vars.feedbackFile %>
-    model: <%= it.vars.coderModel %>
-    memory: fix
-    retry:
-      max: 3
-      otherwise: escalate
-    prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.feedbackFile %>`, which this prompt tells you to address.
-
-      Read `<%= it.vars.feedbackFile %>` (the failing test output) and fix the
-      code so the suite passes. Keep the change focused — do not refactor
-      unrelated code. If the feedback is wrong, empty or delete
-      `<%= it.vars.feedbackFile %>` instead of "fixing" a non-issue.
-
-      Leave everything uncommitted and finish your turn — do not commit.
-    on:
-      "* **": checking
-
-  escalate:
-    actor: human
-    file: <%= it.vars.feedbackFile %>
-    message: |
-      The agent could not get the check to pass after repeated attempts.
-      `<%= it.vars.feedbackFile %>` holds the last failing output.
-
-      What each change does next (then run `gtd step human`):
-      <% it.edges.forEach(function (e) { if (e.describe) { %>
-      <%~ "- " + e.describe + "\n" %>
-      <% } }) %>
-    on:
-      "* **":
-        to: checking
-        describe: >-
-          Fix the failure yourself — edit the code and/or `.gtd/FEEDBACK.md` —
-          to re-run the check (**checking**).
-
-  # ── Green-baseline gate: `gtd review` entry ───────────────────────────────
-  # `gtd review <commitish>` enters HERE (reviewEntry), not `reviewing`. It runs
-  # the suite on HEAD first; green proceeds to `reviewing`, red halts. The
-  # `Gtd-Review-Base:` trailer rides on this state's entry commit, so the review
-  # window / incremental-diff machinery downstream is unchanged.
-  review-start-check:
-    actor: check
-    reviewEntry: true
-    script: |
-      #!/usr/bin/env bash
-      # gtd check turn — run the suite before reviewing; a red run records
-      # .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed to reviewing).
-      set +e
-      mkdir -p .gtd
-      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
-      # newline after an interpolation tag, so no tag may be the last token on
-      # a line — it would glue the next line's `else`/`fi` onto it and break
-      # the script. Below this point everything is plain bash.
-      feedback="<%~ it.vars.feedbackFile %>"
-      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
-      code=$?
-      if [ "$code" -ne 0 ]; then
-        if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output "$feedback"
-        else
-          rm -f .gtd/.check-output
-          printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
-        fi
-      else
-        rm -f .gtd/.check-output
-        rm -f "$feedback"
-      fi
-    on:
-      "A .gtd/FEEDBACK.md": review-start-blocked
-      "M .gtd/FEEDBACK.md": review-start-blocked
-      "D .gtd/FEEDBACK.md": reviewing
-      "C": reviewing
-
-  review-start-blocked:
-    actor: human
-    file: <%= it.vars.feedbackFile %>
-    message: |
-      The test baseline is red — gtd will not start a review on a broken suite.
-      `<%= it.vars.feedbackFile %>` holds the failing output.
-
-      What each change does next (then run `gtd step human`):
-      <% it.edges.forEach(function (e) { if (e.describe) { %>
-      <%~ "- " + e.describe + "\n" %>
-      <% } }) %>
-    on:
-      "* **":
-        to: review-start-check
-        describe: >-
-          Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
-          re-run the baseline check (**review-start-check**).
 
   # ── Green-baseline gate: `gtd fix` entry ──────────────────────────────────
   # `gtd fix` enters HERE (fixEntry): run the suite, then a red run drops
@@ -880,250 +1128,7 @@ states:
       "D .gtd/FEEDBACK.md": idle
       "C": idle
 
-  # ── Shared tail: agent review -> human review -> squash finale ────────────
-  reviewing:
-    actor: agent
-    file: <%= it.vars.reviewFile %>
-    mode: review
-    model: <%= it.vars.plannerModel %>
-    memory: review
-    # `gtd review <commitish>` (a plain non-gtd branch, e.g. a colleague's PR)
-    # does NOT enter here directly — it enters `review-start-check` (reviewEntry)
-    # first, which runs the green-baseline gate and, once green, transitions
-    # here. The `Gtd-Review-Base:` trailer rides on that entry commit (the
-    # process's oldest), so everything below still reuses the same
-    # reviewing/await-review/feedback machinery over <commitish>..HEAD.
-    prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.reviewFile %>`, which this prompt tells you to write.
-
-      Write `<%= it.vars.reviewFile %>` to help a human review the diff below in
-      this EXACT format:
-
-      - First non-blank line: `# Review: <%= it.currentCommit.slice(0, 7) %>`
-      - Somewhere in the document: `<!-- base: <%= it.startCommit %> -->`
-      - At least one `## <Chunk Title>` heading, grouping hunks semantically
-        (same feature/refactor/fix, even across files) — a short explanation of
-        what changed and why, then one `- [ ] ./path/to/file.ts#42 — note` file
-        pointer per hunk (checkboxes are for the human to tick, not you; every
-        path is `./`-relative, with an optional `#line` and an optional
-        ` — note`).
-
-      The diff below is `it.reviewDiff` — on a feedback round it covers ONLY the
-      changes made since the previous review, so you review just what changed,
-      not items already signed off. Leave `<%= it.vars.reviewFile %>`
-      uncommitted and finish your turn.
-      <% if (it.reviewDiff.trim()) { %>
-
-      ## Full diff under review
-
-      ```diff
-      <%~ it.reviewDiff %>
-      ```
-      <% } %>
-    on:
-      "* **": await-review
-
-  await-review:
-    actor: human
-    file: <%= it.vars.reviewFile %>
-    mode: review
-    # While the cycle rests here, gtd opens a "review checkout window": raw HEAD
-    # is rewound to the review base (the most-recent `review-deciding` commit —
-    # so a feedback round shows only `last-review..HEAD` — or the process start
-    # on the first review) with the working tree untouched, surfacing the diff
-    # as ordinary uncommitted changes. It closes on the next invocation.
-    #
-    # Every human step here routes to `review-deciding`, which decides sign-off
-    # vs. feedback from the step's CONTENT (a comment, not a tick). Ticking a box
-    # only records "I reviewed this hunk". Two dead ends can't be told apart by a
-    # file-pattern edge, so the sign-off gate (`enforceReviewSignoffGate` in
-    # src/program.ts) catches them BEFORE the step commits and refuses: an
-    # unfinished review (a box still `- [ ]` with no comment) and a deleted
-    # REVIEW.md.
-    reviewWindow: true
-    message: |
-      `<%= it.vars.reviewFile %>` holds the review record for the cycle — one
-      `- [ ]` checkbox per reviewable item, grouped into chunks. Tick a box
-      (`- [x]`) as you review each hunk; ticking only records that you've read
-      it, it is not sign-off.
-
-      When you've been through the whole diff, run `gtd step human`:
-
-      - Tick EVERY box and leave no comment — no note in
-        `<%= it.vars.reviewFile %>`, no code edit — to sign off and collapse the
-        cycle into one commit (**squashing**).
-      - Leave a comment to request changes — a note on a
-        `<%= it.vars.reviewFile %>` line, or a direct code edit — to send it to a
-        build + re-review round (**review-deciding** → **feedback-building**). A
-        code edit counts as your own fix: the agent completes the follow-through
-        it implies and never reverts your lines.
-
-      Stepping with a box still unticked and no comment is refused (finish
-      reviewing first); so is deleting `<%= it.vars.reviewFile %>`.
-    on:
-      "* **": review-deciding
-
-  review-deciding:
-    actor: check
-    file: <%= it.vars.reviewFile %>
-    mode: review
-    # Anchors the INCREMENTAL review base: its most-recent in-process commit is
-    # the point the previous review round ended, so the next `reviewing` turn
-    # (and the review checkout window) covers only the changes since then. On
-    # the first review there is no such commit, so the base is the cycle start.
-    reviewBase: true
-    script: |
-      #!/usr/bin/env bash
-      # gtd check turn — decide the human's review step from its CONTENT. HEAD is
-      # the human's `await-review -> review-deciding` commit; HEAD^ is the
-      # `reviewing` commit that wrote the agent's original REVIEW.md (the sign-off
-      # gate refuses an incomplete step, so review-deciding is entered exactly
-      # once per round — nothing commits in between). It is FEEDBACK when the
-      # human left a comment: a note in REVIEW.md (any edit beyond a "[ ]"->"[x]"
-      # tick) OR a hand-edit to any non-.gtd/ file this round. Otherwise it is a
-      # clean sign-off. This turn only CAPTURES the raw material into REVIEW_RAW.md
-      # (the `feedback-collecting` agent then turns it into instructions); it does
-      # NOT interpret it. Either way, remove REVIEW.md; what the resulting diff
-      # MEANS is decided by this state's own `on` rules — the A/M REVIEW_RAW.md
-      # rows are declared BEFORE the D REVIEW.md row so a feedback round (which
-      # also deletes REVIEW.md) is captured as feedback, not mistaken for a
-      # sign-off.
-      set +e
-      mkdir -p .gtd
-      # Hoist the paths once, at the TOP: Eta's autoTrim eats the newline after
-      # an interpolation tag, so no tag may be the last token on a line — it
-      # would glue the next line onto it and break the script. Below this point
-      # everything is plain bash.
-      reviewFile="<%~ it.vars.reviewFile %>"
-      reviewRawFile="<%~ it.vars.reviewRawFile %>"
-      # Which non-.gtd/ files did the human hand-edit this round?
-      codeFiles=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -v '^\.gtd/')
-      # A note is any REVIEW.md change beyond a checkbox flip: normalize every
-      # "[ ]"/"[x]" to a placeholder, then compare the agent's original (HEAD^)
-      # against the human's version (HEAD).
-      notes=""
-      before=$(git show "HEAD^:$reviewFile" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
-      after=$(git show "HEAD:$reviewFile" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
-      if [ "$before" != "$after" ]; then notes=1; fi
-      if [ -n "$codeFiles" ] || [ -n "$notes" ]; then
-        {
-          echo "Raw review material captured for classification. The human reviewed the diff and left the feedback below; a downstream agent turns it into an instruction list. This file is machine-captured input, not instructions."
-          if [ -n "$notes" ]; then
-            echo
-            echo "## Notes the human added to REVIEW.md this round"
-            echo
-            echo '```diff'
-            git show HEAD --format= -- "$reviewFile"
-            echo '```'
-          fi
-          if [ -n "$codeFiles" ]; then
-            echo
-            echo "## Files the human hand-edited this round (already committed)"
-            echo
-            echo '```diff'
-            git show HEAD --format= -- $codeFiles
-            echo '```'
-          fi
-        } > "$reviewRawFile"
-      fi
-      rm -f "$reviewFile"
-    on:
-      "A .gtd/REVIEW_RAW.md": feedback-collecting
-      "M .gtd/REVIEW_RAW.md": feedback-collecting
-      "D .gtd/REVIEW.md": squashing
-
-  feedback-collecting:
-    actor: agent
-    file: <%= it.vars.reviewFeedbackFile %>
-    model: <%= it.vars.plannerModel %>
-    memory: review
-    prompt: |
-      You are an autonomous coding agent turning raw review feedback into an
-      explicit instruction list for a builder. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.reviewRawFile %>` (delete it when done) and
-      `<%= it.vars.reviewFeedbackFile %>` (write it). Do NOT change any other
-      file — you classify, you do not build.
-
-      The raw review material is: <%~ it.read(it.vars.reviewRawFile) %>
-
-      Classify every piece of it into `<%= it.vars.reviewFeedbackFile %>` as a
-      flat, numbered instruction list. Each item is `N. ./path/to/file.ts#line —
-      <imperative>`. Read the two RAW sections and apply these rules exactly:
-
-      1. NOTES the human added to REVIEW.md — each note is a MANDATORY change,
-         regardless of whether its checkbox is ticked (ticking means only "I read
-         this hunk", never sign-off). Anchor each to the `./path#line` its review
-         item names (or the chunk it sits under). Emit it as a concrete
-         imperative.
-      2. Every COMMENT the human ADDED this round (a `+` line that is a code
-         comment, in the hand-edited files) is a MANDATORY instruction the human
-         is giving the builder — even a plain-prose one, even if its box is
-         ticked. Emit an imperative to satisfy it and note that the comment line
-         itself must be REMOVED once addressed. If a comment turns out to describe
-         behaviour the code already has, the instruction is still "confirm the
-         code matches and remove the comment line".
-      3. Every NON-comment code line the human hand-edited is an already-committed
-         INTENT, NOT a do-then-delete item. Emit an instruction that names those
-         files and says: their lines are final — complete ONLY the follow-through
-         they imply (callers, tests, types, docs) and NEVER revert or rewrite
-         them. Do not turn their own edit into a task.
-
-      Split each hand-edited hunk per line: comment `+` lines follow rule 2, the
-      surrounding real code follows rule 3.
-
-      If — and only if — nothing in the raw material is actionable (e.g. the human
-      left only an approving remark), write `<%= it.vars.reviewFeedbackFile %>`
-      containing exactly one line: `NOTHING ACTIONABLE — <one-sentence reason>`.
-      Never invent work to satisfy a non-actionable remark.
-
-      Delete `<%= it.vars.reviewRawFile %>`, leave everything else uncommitted,
-      and finish your turn.
-    on:
-      "A .gtd/REVIEW_FEEDBACK.md": feedback-building
-      "M .gtd/REVIEW_FEEDBACK.md": feedback-building
-
-  feedback-building:
-    actor: agent
-    file: <%= it.vars.reviewFeedbackFile %>
-    model: <%= it.vars.coderModel %>
-    memory: build
-    # Refuse a work-free turn: a step whose only pending change is deleting the
-    # instructions file (the original "captured then discarded" bug). The edge
-    # gate (`enforceFeedbackProgressGate` in src/program.ts) reads this flag and
-    # exempts a `NOTHING ACTIONABLE` sentinel (a non-actionable review round,
-    # which legitimately makes no code change). The pure engine carries it inert.
-    requireProgress: true
-    prompt: |
-      You are an autonomous coding agent addressing review feedback. `.gtd/`
-      holds this workflow's own state — never create, edit, or delete anything
-      under `.gtd/` except `<%= it.vars.reviewFeedbackFile %>`, which this
-      prompt tells you to address and then delete.
-
-      The instructions to implement are: <%~ it.read(it.vars.reviewFeedbackFile) %>
-
-      This is a flat instruction list, not a diff — execute every item exactly as
-      written, no Q&A, no re-planning, using TDD discipline:
-
-      - An item that says the human's own lines are final: build ON TOP of them to
-        complete only the follow-through it names (callers, tests, types, docs).
-        NEVER revert or rewrite the lines they already committed.
-      - An item derived from a human comment: satisfy it AND delete that comment
-        line from the code (the human's review comments are transient — none of
-        them survive this round).
-
-      If the file's sole content is a `NOTHING ACTIONABLE` line, make no code
-      change; just delete the instructions file.
-
-      Delete `<%= it.vars.reviewFeedbackFile %>` once every item is addressed.
-      Leave everything else uncommitted and finish your turn. Deleting the
-      instructions file WITHOUT making the changes it asks for is refused — the
-      feedback must actually be addressed.
-    on:
-      "* **": checking
-
+  # ── Shared tail: squash finale (review loop is the `humanReview` sub-machine) ─
   squashing:
     actor: agent
     file: <%= it.vars.commitMsgFile %>

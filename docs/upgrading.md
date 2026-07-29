@@ -80,8 +80,12 @@ upgrading.
   existing review/feedback machinery unmodified — see
   [STATES.md §11](../STATES.md#11-the-review-checkout-window) and
   [CLI reference](cli.md#gtd-review-commitish---json). The current command
-  surface is `init` / `step` / `next` / `status` / `validate` / `mermaid` /
-  `review` / `lsp`.
+  surface is `init` / `step` / `next` / `status` / `validate` / `review` /
+  `lsp`.
+
+- **`gtd mermaid`.** The built-in workflow-diagram emitter has been removed;
+  workflow visualization will return in a different form. Nothing in the machine
+  changes — it was purely a read-only shape renderer of the active workflow.
 
 - **`gtd format <file>`, and the bundled prettier with it.** gtd no longer
   formats anything on its own: a steering-file mode declares its own `format:`

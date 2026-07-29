@@ -182,8 +182,8 @@ Both halves are enforced by `gtd validate` and the `gtd step` gate.
 ## Documentation
 
 - [STATES.md](STATES.md) — the full pattern-machine specification: the model,
-  the pattern grammar, resolution, retry, the squash lifecycle, and the bundled
-  workflow templates
+  the pattern grammar, resolution, retry, the squash lifecycle, reusable
+  sub-machines, and the bundled workflow template
 - [CLI reference](docs/cli.md) — every command, exit codes, JSON schemas,
   repository requirements
 - [Driving the loop](docs/loop.md) — the reference loop driver, `gtd-loop`,

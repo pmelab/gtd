@@ -341,6 +341,15 @@ the workflow itself. To customize the machine, a repo declares its own
 through the exact same compiler the built-in default goes through — no
 privileged code path.
 
+The template's SOURCE (`src/workflows/unified.yaml`) is authored with
+**sub-machines** (§13) — `assertGreen`/`makeGreen`/`qaLoop` for dedup,
+`planLoop`/`humanReview`/`specGate`/`packageLoop` for comprehension — but they
+expand to the exact concrete states below before anything else runs, and
+`gtd init` scaffolds that expanded flat form. So the state tables and
+walkthroughs in this section describe the machine unchanged; sub-machines are a
+source-authoring layer, guaranteed behavior-neutral by the golden test
+(`src/workflows/golden.test.ts`).
+
 The **unified** template is one machine with **four entry points behind a
 green-baseline gate, into one shared tail**. EVERY entry first runs the test
 suite and only proceeds when it is green — a red baseline halts at a human
@@ -888,3 +897,110 @@ diagnostics, document symbols and code actions for `qa`/`review` files only: gtd
 never runs a mode's shell command per keystroke over an unsaved buffer. A
 custom-mode file is still formatted and validated by `gtd validate` and the
 `gtd step` gate.
+
+## 13. Sub-machines (compile-time expansion)
+
+A workflow may factor repeated or complex clusters of states into reusable
+**sub-machines**, expanded at config-load time into ordinary concrete states
+BEFORE the pure engine ever sees the definition. Two OPTIONAL top-level keys sit
+beside `states:` (see `src/Submachines.ts`):
+
+- **`submachines:`** — named, parameterized clusters of states.
+- **`use:`** — an ordered list of invocations, each cloning one sub-machine into
+  concrete states.
+
+```yaml
+workflow:
+  submachines:
+    assertGreen: # a green-baseline gate, authored once
+      params: [onGreen, checkScript, blockedMessage, blockedDescribe]
+      states:
+        check:
+          actor: check
+          script: "$checkScript"
+          on:
+            "A .gtd/FEEDBACK.md": blocked
+            "D .gtd/FEEDBACK.md": "$onGreen"
+            "C": "$onGreen"
+        blocked:
+          actor: human
+          file: <%= it.vars.feedbackFile %>
+          message: "$blockedMessage"
+          on:
+            "* **": { to: check, describe: "$blockedDescribe" }
+  use:
+    - submachine: assertGreen
+      as: { check: start-check, blocked: start-blocked } # local -> concrete (omit for identity)
+      with:
+        {
+          onGreen: planning,
+          checkScript: "...",
+          blockedMessage: "...",
+          blockedDescribe: "...",
+        }
+    - submachine: assertGreen
+      as: { check: review-start-check, blocked: review-start-blocked }
+      with:
+        {
+          onGreen: reviewing,
+          checkScript: "...",
+          blockedMessage: "...",
+          blockedDescribe: "...",
+        }
+      set: { check: { reviewEntry: true } } # extra per-instance state fields
+  states:
+    idle:
+      {
+        actor: human,
+        initial: true,
+        message: "...",
+        on: { "* **": start-check },
+      }
+    # ... the rest of the machine ...
+```
+
+**Expansion** (`expandSubmachines`, a pure raw → raw pre-pass at the top of
+`compileWorkflowConfig`): for each `use:` entry it clones the named
+sub-machine's states, renames each local via `as:` (identity when a local is
+omitted or `as:` is absent), substitutes every `$param` token from `with:`,
+applies any `set:` overrides, and merges the result into `states:` — then strips
+`submachines:`/`use:` so the rest of the compiler sees only the familiar
+`{ vars, states, modes }` shape. The pure engine (§1–§9) is entirely unaware
+sub-machines exist.
+
+**Substitution is WHOLE-VALUE only.** A `$name` token is resolved from `with:`
+ONLY when it is the ENTIRE value of a field, or an entire `on`/`retry.otherwise`
+target — never a substring. So bash `$x`/`${x}` inside a `script:` and Eta
+`<%= it.vars.x %>` inside any content are left untouched; text that varies per
+instance (a whole message, prompt, or `describe` sentence) is passed WHOLE as a
+`$name` binding. An `on`/`retry.otherwise` target naming one of the
+sub-machine's OWN local states is rewritten through `as:`; any other target
+passes through verbatim (it names a concrete top-level state, resolved after the
+merge). `on` PATTERN keys are never touched.
+
+**Two uses of one mechanism:**
+
+- **Dedup** — a multi-instance sub-machine (a gate/loop authored once, invoked
+  several times) removes duplicated states/structure. In the bundled template
+  `assertGreen`/`makeGreen`/`qaLoop` fold the three green-baseline gates, the
+  two fix loops, and the two Q&A loops.
+- **Encapsulation** — a single-instance sub-machine groups a complex cluster
+  into one named block for source comprehension. It expands 1:1, so it has NO
+  runtime effect. In the bundled template `planLoop`/`humanReview`/`specGate`/
+  `packageLoop` wrap the plan loop, the whole review + feedback tail, the
+  autonomous spec-review gate, and the per-package build loop.
+
+**No behavior change — a checked invariant.** Aliasing each invocation's locals
+to the exact concrete names a hand-written workflow would use makes the expanded
+definition BYTE-IDENTICAL to the flat one. `src/workflows/golden.test.ts`
+compiles both the sub-machine `unified.yaml` and the frozen flat reference
+`unified.flat.yaml` and asserts the two `WorkflowDefinition`s are deep-equal, so
+sub-machine expansion can never silently change routing, retry, flags, or
+content. `gtd init` scaffolds the EXPANDED flat `.gtdrc.json`, so sub-machines
+are invisible to a fresh project unless it authors its own.
+
+**Validation** runs on the expanded definition, so every §9 rule (exactly one
+initial state, resolvable targets, reachability, …) applies to the concrete
+states a `use:` produces. Expansion-specific findings — an unknown sub-machine,
+a `$param` with no binding, a generated name colliding with an existing state —
+are collected alongside the rest and thrown as one load-time error.

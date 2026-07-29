@@ -1,6 +1,7 @@
 import { parse as parseYaml } from "yaml"
 import { compileWorkflowConfig, type CompiledWorkflowConfig } from "../PatternConfig.js"
 import type { WorkflowDefinition } from "../PatternMachine.js"
+import { expandSubmachines } from "../Submachines.js"
 import unifiedYaml from "./unified.yaml"
 
 /**
@@ -56,7 +57,7 @@ const UNIFIED_WORKFLOW = unifiedYaml
  * `compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through — no
  * privileged code path. `src/Config.ts` (and the in-memory test layer) fall
  * back to this whenever no `workflow:` key is configured; `compileTemplate`
- * exposes it fresh for Mermaid rendering and tests. `configDir` is `"."` and
+ * exposes it fresh for tests. `configDir` is `"."` and
  * never consulted: no template content value starts with `./`/`../`.
  */
 const DEFAULT_WORKFLOW: CompiledWorkflowConfig = compileWorkflowConfig(
@@ -81,7 +82,11 @@ export const defaultWorkflowVars: Record<string, string> = DEFAULT_WORKFLOW.vars
  * Prettier).
  */
 export const renderInitConfig = (): string => {
-  const workflow = parseYaml(UNIFIED_WORKFLOW) as unknown
+  // Expand any `submachines:`/`use:` the template is authored with, so the
+  // scaffolded config is the FLAT concrete-state form — identical to a
+  // hand-written workflow (see src/Submachines.ts). A template with no
+  // sub-machines passes through unchanged.
+  const workflow = expandSubmachines(parseYaml(UNIFIED_WORKFLOW), [])
   return JSON.stringify({ $schema: SCHEMA_URL, workflow }, null, 2) + "\n"
 }
 
@@ -110,7 +115,7 @@ export const renderInitScaffold = (): InitScaffold => {
 /**
  * Compile the bundled template through the same `compileWorkflowConfig` a
  * user's `.gtdrc` `workflow:` key goes through. Used where a freshly-compiled
- * `WorkflowDefinition` is needed directly (Mermaid rendering, tests).
+ * `WorkflowDefinition` is needed directly (tests).
  * `configDir` is `"."` and never consulted: no template content value starts
  * with `./`/`../`.
  */

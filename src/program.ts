@@ -30,7 +30,6 @@ import {
 } from "./Edge.js"
 import { closeReviewWindow, openReviewWindow, reviewBaseHash } from "./ReviewWindow.js"
 import { startLspServer } from "./Lsp.js"
-import { renderMermaid } from "./Mermaid.js"
 import {
   formatAndValidateSteeringFile,
   resolveSteeringMode,
@@ -90,8 +89,6 @@ Commands:
   validate         Format and validate the steering file the resolved rest
                    declares, with its mode's commands (its file:/mode:);
                    exits non-zero with the findings when it is invalid
-  mermaid          Print the active workflow's shape as Mermaid
-                   stateDiagram-v2 source (no mutation)
   lsp              Start the LSP server for .gtd/ steering files (stdio)
   version          Print version and exit
   help             Print this help and exit
@@ -1190,39 +1187,7 @@ const runStatusCommand = (
     }
   })
 
-/**
- * `gtd mermaid`: pure emitter of the active workflow's SHAPE (not the
- * resolved rest) as Mermaid `stateDiagram-v2` source — see `src/Mermaid.ts`.
- * Needs only `ConfigService` (no HEAD resolution, no rendering), but is
- * dispatched alongside `next`/`status` since it still depends on the active
- * `.gtdrc` — unlike `format`/`lsp`, which need neither git nor config — so it
- * goes through the same repository-root guard and auto-init. Rejects
- * `--json`: there is no structured shape to emit beyond the Mermaid source
- * itself.
- */
-const runMermaidCommand = (
-  argv: readonly string[],
-  json: boolean,
-  write: (chunk: string) => void,
-): Effect.Effect<void, Error, ProgramRequirements> =>
-  Effect.gen(function* () {
-    if (json) {
-      return yield* Effect.fail(new Error("gtd mermaid does not accept --json"))
-    }
-    yield* rejectExtraArgs("mermaid", argv)
-    const config = yield* (yield* ConfigService).load
-    write(renderMermaid(config.workflow))
-  })
-
-const KNOWN_SUBCOMMANDS = [
-  "step",
-  "review",
-  "fix",
-  "next",
-  "status",
-  "validate",
-  "mermaid",
-] as const
+const KNOWN_SUBCOMMANDS = ["step", "review", "fix", "next", "status", "validate"] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
 /**
@@ -1349,8 +1314,6 @@ const dispatchKnownSubcommand = (
       return runStatusCommand(argv, json, write)
     case "validate":
       return runValidateCommand(argv, json, write)
-    case "mermaid":
-      return runMermaidCommand(argv, json, write)
   }
 }
 
@@ -1375,7 +1338,7 @@ export interface RunOptions {
  * captures stdout via the `write` callback.
  *
  * v3 command surface: `step <actor>` / `review <commitish>` / `fix` / `next` /
- * `status` / `validate` / `mermaid` (see `src/Edge.ts` and
+ * `status` / `validate` (see `src/Edge.ts` and
  * `docs/design/pattern-machine-plan.md` §3),
  * plus `lsp` and `init` — both dispatched before the config-reading
  * path since neither needs to touch the config. Bare `gtd` or an
