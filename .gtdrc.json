@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
+  "vars": {
+    "testCommand": "npm test"
+  },
+  "modes": {
+    "qa": {
+      "format": "npx prettier --write <%= it.file %>"
+    },
+    "review": {
+      "format": "npx prettier --write <%= it.file %>"
+    }
+  }
+}
