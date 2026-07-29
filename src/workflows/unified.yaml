@@ -14,18 +14,28 @@
 # state's `prompt:` is written out as an editable `gtd-prompts/<state>.md`
 # file; human `message:`/check `script:`/the `done` `commit:` body stay inline.
 #
-# ── Three entry points, one shared tail ────────────────────────────────────
+# ── Four entry points behind a green-baseline gate, one shared tail ─────────
 #
-# The initial `idle` state FORKS on which steering file the human creates:
+# EVERY entry first runs the test suite and only proceeds when it is GREEN — you
+# never start new work (or a review) on top of a red baseline. A red run halts
+# at a human `*-start-blocked` gate (fix the failures and re-run, exactly like
+# the `escalate` states), or is what `gtd fix` exists to repair.
 #
-#   * .gtd/REQUIREMENTS.md -> the ADVANCED flow (product + technical Q&A,
-#     package decomposition, per-package parallel build + agentic spec-review).
-#   * anything else (e.g. .gtd/TODO.md) -> the SIMPLE flow (a plan-iteration
-#     loop — the agent presents a plan, the human accepts or edits it, no
-#     Q&A — a monolithic build, no decomposition, no agentic review).
+# The initial `idle` state FORKS on which steering file the human creates,
+# routing into that flow's OWN start gate:
 #
-# A third entry, `gtd review <commitish>`, jumps straight to `reviewing`
-# (reviewEntry) to review a foreign branch through the same shared tail.
+#   * .gtd/REQUIREMENTS.md -> `adv-start-check` -> the ADVANCED flow (product +
+#     technical Q&A, package decomposition, per-package parallel build +
+#     agentic spec-review).
+#   * anything else (e.g. .gtd/TODO.md) -> `start-check` -> the SIMPLE flow (one
+#     grilling Q&A loop, a monolithic build, no decomposition, no agentic
+#     review).
+#
+# A third entry, `gtd review <commitish>`, jumps to `review-start-check`
+# (reviewEntry) and, once green, to `reviewing` to review a foreign branch
+# through the same shared tail. A fourth, `gtd fix`, jumps to `fix-check`
+# (fixEntry): a red suite drops straight into the shared `fixing` loop and out
+# through the review + squash tail; a green suite is a no-op back to `idle`.
 #
 # All three converge at `reviewing` -> `await-review`. Ticking a REVIEW.md box
 # means only "I reviewed this hunk"; a COMMENT (not an unticked box) is what asks
@@ -103,18 +113,75 @@ states:
       <% } }) %>
     on:
       "* .gtd/REQUIREMENTS.md":
-        to: adv-grilling
+        to: adv-start-check
         describe: >-
           Save the product requirements to `.gtd/REQUIREMENTS.md` to start the
-          ADVANCED flow — the agent develops them through product then technical
-          Q&A, decomposes the work into packages, and builds each in parallel
-          (**adv-grilling**).
+          ADVANCED flow — gtd first checks the test baseline is green, then the
+          agent develops them through product then technical Q&A, decomposes the
+          work into packages, and builds each in parallel (**adv-start-check**).
       "* **":
-        to: planning
+        to: start-check
         describe: >-
           Save a short sketch to `.gtd/TODO.md` (or any other change) to start
-          the SIMPLE flow — the agent reads it, explores the codebase, and
-          develops it into a concrete implementation plan (**planning**).
+          the SIMPLE flow — gtd first checks the test baseline is green, then the
+          agent reads it, explores the codebase, and develops it into a concrete
+          implementation plan (**start-check**).
+
+  # ── Green-baseline gate: simple flow ──────────────────────────────────────
+  # Runs the suite before any planning starts. Its script is `checking`'s test
+  # wrapper verbatim (red -> .gtd/FEEDBACK.md, green -> remove it); the `on`
+  # rules turn that into "halt at start-blocked" vs "proceed to planning".
+  start-check:
+    actor: check
+    script: |
+      #!/usr/bin/env bash
+      # gtd check turn — run the suite before starting new work; a red run
+      # records .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed).
+      set +e
+      mkdir -p .gtd
+      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
+      # newline after an interpolation tag, so no tag may be the last token on
+      # a line — it would glue the next line's `else`/`fi` onto it and break
+      # the script. Below this point everything is plain bash.
+      feedback="<%~ it.vars.feedbackFile %>"
+      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+      code=$?
+      if [ "$code" -ne 0 ]; then
+        if [ -s .gtd/.check-output ]; then
+          mv .gtd/.check-output "$feedback"
+        else
+          rm -f .gtd/.check-output
+          printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
+        fi
+      else
+        rm -f .gtd/.check-output
+        rm -f "$feedback"
+      fi
+    on:
+      "A .gtd/FEEDBACK.md": start-blocked
+      "M .gtd/FEEDBACK.md": start-blocked
+      "D .gtd/FEEDBACK.md": planning
+      "C": planning
+
+  start-blocked:
+    actor: human
+    file: <%= it.vars.feedbackFile %>
+    message: |
+      The test baseline is red — gtd will not start new work on a broken suite.
+      `<%= it.vars.feedbackFile %>` holds the failing output.
+
+      What each change does next (then run `gtd step human`):
+      <% it.edges.forEach(function (e) { if (e.describe) { %>
+      <%~ "- " + e.describe + "\n" %>
+      <% } }) %>
+    on:
+      "* **":
+        to: start-check
+        describe: >-
+          Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
+          re-run the baseline check (**start-check**). To repair the baseline as
+          its own separate reviewed commit instead, abandon this start and run
+          `gtd fix` from a clean `idle`.
 
   # ── Simple flow: plan-iteration loop, monolithic build ────────────────────
   planning:
@@ -195,6 +262,59 @@ states:
       and verified. Leave everything else uncommitted and finish your turn.
     on:
       "* **": checking
+
+  # ── Green-baseline gate: advanced flow ────────────────────────────────────
+  adv-start-check:
+    actor: check
+    script: |
+      #!/usr/bin/env bash
+      # gtd check turn — run the suite before starting the advanced flow; a red
+      # run records .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed).
+      set +e
+      mkdir -p .gtd
+      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
+      # newline after an interpolation tag, so no tag may be the last token on
+      # a line — it would glue the next line's `else`/`fi` onto it and break
+      # the script. Below this point everything is plain bash.
+      feedback="<%~ it.vars.feedbackFile %>"
+      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+      code=$?
+      if [ "$code" -ne 0 ]; then
+        if [ -s .gtd/.check-output ]; then
+          mv .gtd/.check-output "$feedback"
+        else
+          rm -f .gtd/.check-output
+          printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
+        fi
+      else
+        rm -f .gtd/.check-output
+        rm -f "$feedback"
+      fi
+    on:
+      "A .gtd/FEEDBACK.md": adv-start-blocked
+      "M .gtd/FEEDBACK.md": adv-start-blocked
+      "D .gtd/FEEDBACK.md": adv-grilling
+      "C": adv-grilling
+
+  adv-start-blocked:
+    actor: human
+    file: <%= it.vars.feedbackFile %>
+    message: |
+      The test baseline is red — gtd will not start new work on a broken suite.
+      `<%= it.vars.feedbackFile %>` holds the failing output.
+
+      What each change does next (then run `gtd step human`):
+      <% it.edges.forEach(function (e) { if (e.describe) { %>
+      <%~ "- " + e.describe + "\n" %>
+      <% } }) %>
+    on:
+      "* **":
+        to: adv-start-check
+        describe: >-
+          Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
+          re-run the baseline check (**adv-start-check**). To repair the baseline
+          as its own separate reviewed commit instead, abandon this start and run
+          `gtd fix` from a clean `idle`.
 
   # ── Advanced flow: product + technical Q&A ────────────────────────────────
   adv-grilling:
@@ -666,6 +786,99 @@ states:
           Fix the failure yourself — edit the code and/or `.gtd/FEEDBACK.md` —
           to re-run the check (**checking**).
 
+  # ── Green-baseline gate: `gtd review` entry ───────────────────────────────
+  # `gtd review <commitish>` enters HERE (reviewEntry), not `reviewing`. It runs
+  # the suite on HEAD first; green proceeds to `reviewing`, red halts. The
+  # `Gtd-Review-Base:` trailer rides on this state's entry commit, so the review
+  # window / incremental-diff machinery downstream is unchanged.
+  review-start-check:
+    actor: check
+    reviewEntry: true
+    script: |
+      #!/usr/bin/env bash
+      # gtd check turn — run the suite before reviewing; a red run records
+      # .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed to reviewing).
+      set +e
+      mkdir -p .gtd
+      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
+      # newline after an interpolation tag, so no tag may be the last token on
+      # a line — it would glue the next line's `else`/`fi` onto it and break
+      # the script. Below this point everything is plain bash.
+      feedback="<%~ it.vars.feedbackFile %>"
+      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+      code=$?
+      if [ "$code" -ne 0 ]; then
+        if [ -s .gtd/.check-output ]; then
+          mv .gtd/.check-output "$feedback"
+        else
+          rm -f .gtd/.check-output
+          printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
+        fi
+      else
+        rm -f .gtd/.check-output
+        rm -f "$feedback"
+      fi
+    on:
+      "A .gtd/FEEDBACK.md": review-start-blocked
+      "M .gtd/FEEDBACK.md": review-start-blocked
+      "D .gtd/FEEDBACK.md": reviewing
+      "C": reviewing
+
+  review-start-blocked:
+    actor: human
+    file: <%= it.vars.feedbackFile %>
+    message: |
+      The test baseline is red — gtd will not start a review on a broken suite.
+      `<%= it.vars.feedbackFile %>` holds the failing output.
+
+      What each change does next (then run `gtd step human`):
+      <% it.edges.forEach(function (e) { if (e.describe) { %>
+      <%~ "- " + e.describe + "\n" %>
+      <% } }) %>
+    on:
+      "* **":
+        to: review-start-check
+        describe: >-
+          Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
+          re-run the baseline check (**review-start-check**).
+
+  # ── Green-baseline gate: `gtd fix` entry ──────────────────────────────────
+  # `gtd fix` enters HERE (fixEntry): run the suite, then a red run drops
+  # straight into the shared `fixing` loop (-> checking -> review + squash
+  # tail); a green run is a no-op back to `idle` (nothing to fix).
+  fix-check:
+    actor: check
+    fixEntry: true
+    script: |
+      #!/usr/bin/env bash
+      # gtd check turn — run the suite to find what needs fixing; a red run
+      # records .gtd/FEEDBACK.md (-> fixing), a green run cleans it up (-> idle).
+      set +e
+      mkdir -p .gtd
+      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
+      # newline after an interpolation tag, so no tag may be the last token on
+      # a line — it would glue the next line's `else`/`fi` onto it and break
+      # the script. Below this point everything is plain bash.
+      feedback="<%~ it.vars.feedbackFile %>"
+      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+      code=$?
+      if [ "$code" -ne 0 ]; then
+        if [ -s .gtd/.check-output ]; then
+          mv .gtd/.check-output "$feedback"
+        else
+          rm -f .gtd/.check-output
+          printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
+        fi
+      else
+        rm -f .gtd/.check-output
+        rm -f "$feedback"
+      fi
+    on:
+      "A .gtd/FEEDBACK.md": fixing
+      "M .gtd/FEEDBACK.md": fixing
+      "D .gtd/FEEDBACK.md": idle
+      "C": idle
+
   # ── Shared tail: agent review -> human review -> squash finale ────────────
   reviewing:
     actor: agent
@@ -674,10 +887,11 @@ states:
     model: <%= it.vars.plannerModel %>
     memory: review
     # `gtd review <commitish>` (a plain non-gtd branch, e.g. a colleague's PR)
-    # enters here directly, recording the resolved base as a `Gtd-Review-Base:`
-    # trailer on its empty entry commit — everything below then reuses the same
+    # does NOT enter here directly — it enters `review-start-check` (reviewEntry)
+    # first, which runs the green-baseline gate and, once green, transitions
+    # here. The `Gtd-Review-Base:` trailer rides on that entry commit (the
+    # process's oldest), so everything below still reuses the same
     # reviewing/await-review/feedback machinery over <commitish>..HEAD.
-    reviewEntry: true
     prompt: |
       You are an autonomous coding agent. `.gtd/` holds this workflow's own
       state — never create, edit, or delete anything under `.gtd/` except

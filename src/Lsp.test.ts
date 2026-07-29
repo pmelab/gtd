@@ -163,15 +163,28 @@ describe("questionDiagnostics", () => {
 })
 
 describe("reviewSymbols", () => {
-  it("maps each chunk to a symbol with its checked/total count and one child per hunk", () => {
+  it("emits only headlines of chunks with an unchecked hunk, no hunk children", () => {
     const symbols = reviewSymbols(reviewDoc)
     expect(symbols.map((s) => s.name)).toEqual(["Add calculator (1/2)", "Wire it up (0/1)"])
-    expect(symbols[0]?.children?.map((c) => c.name)).toEqual([
-      "[ ] ./src/calc.ts#1",
-      "[x] ./src/calc.ts#5 — subtract",
-    ])
+    expect(symbols[0]?.children).toBeUndefined()
     expect(symbols[0]?.selectionRange.start.line).toBe(3)
-    expect(symbols[0]?.children?.[0]?.selectionRange.start.line).toBe(5)
+  })
+
+  it("omits a fully-checked chunk's headline", () => {
+    const doc = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## All done",
+      "",
+      "- [x] ./src/calc.ts#1",
+      "",
+      "## Still open",
+      "",
+      "- [ ] ./src/index.ts#10",
+      "",
+    ].join("\n")
+    expect(reviewSymbols(doc).map((s) => s.name)).toEqual(["Still open (0/1)"])
   })
 })
 

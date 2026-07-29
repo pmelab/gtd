@@ -482,7 +482,39 @@ parent is a non-workflow commit, so the ordinary boundary rule already stops
 there. See [STATES.md §11](../STATES.md#11-the-review-checkout-window) for the
 full mechanism.
 
-The bundled default enables `reviewEntry: true` on `reviewing` itself.
+The bundled default enables `reviewEntry: true` on `review-start-check` — the
+green-baseline gate in front of `reviewing`.
+
+### `fixEntry:` — the fix entry point (`gtd fix`)
+
+A state may declare `fixEntry: true` (at most one across the whole workflow;
+forbidden on a commit state and on the initial state — the same rule family as
+`reviewEntry`). It marks the state [`gtd fix`](cli.md#gtd-fix---json) enters to
+start a BRAND NEW process that goes straight into repairing the current failing
+tests.
+
+```yaml
+workflow:
+  states:
+    # …
+    fix-check:
+      actor: check
+      fixEntry: true # `gtd fix` starts a new process here
+      script: <%~ it.vars.testCommand %> || echo fail > .gtd/FEEDBACK.md
+      on:
+        "A .gtd/FEEDBACK.md": fixing # red -> repair loop
+        "C": idle # green -> nothing to fix
+```
+
+`gtd fix` requires resting at the workflow's initial state with a clean tree,
+and requires the active workflow to declare a `fixEntry` state. Unlike
+`gtd review`, it writes NO `Gtd-Review-Base:` trailer — a fix reviews its own
+fixes from the ordinary process start — so it simply writes one empty
+`gtd(human): <fix-entry-state>` turn commit and lets the workflow's own `on`
+routing take over. The bundled default enables `fixEntry: true` on `fix-check`:
+a red suite drops into the shared `fixing` loop and out through the review +
+squash tail; a green suite is a no-op back to `idle`. See
+[STATES.md §10](../STATES.md#10-the-bundled-workflow-template).
 
 ### Template variables
 

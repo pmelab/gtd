@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
   both refusal shapes) has its own dedicated feature files — see
   refusals.feature, default-workflow.feature, retry.feature, squash.feature.
 
-  Scenario: the simple workflow's happy path advances idle -> planning -> plan-review -> building -> checking
+  Scenario: the simple workflow's happy path advances idle -> start-check -> planning -> plan-review -> building -> checking
     Given a test project
     And the workflow
     And a file ".gtd/TODO.md" with:
@@ -20,7 +20,11 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → planning"
+    And the last commit subject is "gtd(human): idle → start-check"
+    # The green-baseline gate: a clean tree (tests pass) advances to planning.
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-check → planning"
     Given ".gtd/TODO.md" is modified to:
       """
       Build a thing. Developed into a concrete plan.

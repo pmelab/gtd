@@ -11,6 +11,7 @@ import {
   parseStateSubject,
   resolveState,
   reviewEntryStateOf,
+  fixEntryStateOf,
   stateSubject,
   step,
   validateDefinition,
@@ -164,6 +165,30 @@ describe("reviewEntryStateOf", () => {
       states: { idle: { actor: "human", message: "x", initial: true } },
     }
     expect(reviewEntryStateOf(def)).toBeUndefined()
+  })
+})
+
+describe("fixEntryStateOf", () => {
+  it("returns the one state name declaring `fixEntry: true`", () => {
+    const def: WorkflowDefinition = {
+      states: {
+        idle: { actor: "human", message: "x", initial: true, on: [["* *", "fix-check"]] },
+        "fix-check": {
+          actor: "check",
+          script: "run",
+          fixEntry: true,
+          on: [["C", "idle"]],
+        },
+      },
+    }
+    expect(fixEntryStateOf(def)).toBe("fix-check")
+  })
+
+  it("is undefined when no state declares `fixEntry`", () => {
+    const def: WorkflowDefinition = {
+      states: { idle: { actor: "human", message: "x", initial: true } },
+    }
+    expect(fixEntryStateOf(def)).toBeUndefined()
   })
 })
 
@@ -1142,6 +1167,60 @@ describe("validateDefinition", () => {
     expect(errors).toContain('at most one state may declare "reviewEntry" (found 2: b, c)')
   })
 
+  it("accepts a non-commit, non-initial state declaring `fixEntry`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { actor: "check", script: "run", fixEntry: true, on: [["C", "a"]] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects a commit state that declares `fixEntry`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { commit: "chore: b", fixEntry: true },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "fixEntry"')
+  })
+
+  it("rejects the initial state declaring `fixEntry`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, fixEntry: true, on: [["* *", "b"]] },
+        b: { actor: "h", message: "y", on: [["C", "a"]] },
+      },
+    })
+    expect(errors).toContain('state "a": the initial state cannot declare "fixEntry"')
+  })
+
+  it("rejects more than one state declaring `fixEntry`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { actor: "check", script: "r", fixEntry: true, on: [["* *", "c"]] },
+        c: { actor: "check", script: "r", fixEntry: true, on: [["C", "a"]] },
+      },
+    })
+    expect(errors).toContain('at most one state may declare "fixEntry" (found 2: b, c)')
+  })
+
+  it("treats a `fixEntry` state reachable only via `gtd fix` as reachable (seeded as a root)", () => {
+    // "fix-check" has no inbound `on`/`retry` edge from the initial state — it
+    // is entered ONLY by `gtd fix`, so seeding it as a reachability root is
+    // what keeps it from being wrongly flagged unreachable.
+    const errors = validateDefinition({
+      states: {
+        idle: { actor: "h", message: "x", initial: true, on: [["* *", "idle"]] },
+        "fix-check": { actor: "check", script: "r", fixEntry: true, on: [["C", "idle"]] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
   it("aggregates a bad `file`/`mode` alongside other unrelated findings", () => {
     const errors = validateDefinition({
       states: {
@@ -1201,7 +1280,7 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toEqual([
-      'state "orphan" is unreachable from initial state "a" (no "on" target or "retry.otherwise" leads to it)',
+      'state "orphan" is unreachable from any entry state (a) (no "on" target or "retry.otherwise" leads to it)',
     ])
   })
 
@@ -1233,10 +1312,10 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain(
-      'state "b" is unreachable from initial state "a" (no "on" target or "retry.otherwise" leads to it)',
+      'state "b" is unreachable from any entry state (a) (no "on" target or "retry.otherwise" leads to it)',
     )
     expect(errors).toContain(
-      'state "c" is unreachable from initial state "a" (no "on" target or "retry.otherwise" leads to it)',
+      'state "c" is unreachable from any entry state (a) (no "on" target or "retry.otherwise" leads to it)',
     )
   })
 

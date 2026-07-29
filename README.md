@@ -88,6 +88,9 @@ Four commands drive it:
 - **`gtd review <commitish>`** — start a brand new review process reviewing
   `<commitish>..HEAD` (e.g. a colleague's PR branch), reusing the workflow's
   existing review/feedback machinery over that diff.
+- **`gtd fix`** — start a brand new process that goes straight into repairing
+  the current failing tests, then runs the shared review/squash tail (a no-op if
+  the suite is already green).
 
 `gtd version` (or `gtd --version`/`-v`) prints the installed version and exits;
 `gtd help` (or `gtd --help`/`-h`) prints the command list. Both short-circuit
@@ -101,8 +104,11 @@ never executes anything — the driver owns running scripts. See
 [STATES.md](STATES.md) for the model and [Driving the loop](docs/loop.md) for
 the full protocol.
 
-The unified workflow has **two entry points into one shared tail**, chosen by
-which steering file you create:
+The unified workflow has **entry points behind a green-baseline gate, into one
+shared tail**. Every entry first runs your test suite and only starts once it's
+green — you never build (or review) on top of a red baseline; a red run halts
+and tells you to repair it first (that's what `gtd fix` is for). The two
+steering-file entries are chosen by which file you create:
 
 - Create **`.gtd/TODO.md`** with a short sketch to start the **simple** flow: an
   agent develops your sketch into a concrete plan — deciding open points itself
@@ -135,7 +141,9 @@ unticked and no comment is refused (finish reviewing first), as is deleting
 `<commitish>..HEAD` with no cycle of its own, e.g. a colleague's PR branch. Its
 squash keeps and describes only the fixes made _during_ the review (not the
 reviewed changeset); a clean sign-off with no fixes becomes an empty
-`chore: human review` commit. See
+`chore: human review` commit. A fourth entry, `gtd fix`, starts from a clean
+`idle` and goes straight into repairing a red baseline — repair, review, and
+squash into one commit (a no-op if the suite is already green). See
 [STATES.md](STATES.md#10-the-bundled-workflow-template) for the full shape. The
 workflow is just `.gtdrc` config — edit it or write your own (see
 [Configuration](docs/configuration.md)). Every agent state routes its model
@@ -156,11 +164,12 @@ Before wiring gtd into a repo, note the
 importantly: gitignore everything your scripts write.
 
 Editor integration: `gtd lsp` starts an LSP server over stdio for `.gtd/`
-steering files — symbols and check/uncheck actions over a `review`-mode file's
-chunks, go-to-definition from a `review`-mode hunk line into the file it points
-at (at its `#line`), symbols over a `qa`-mode file's open questions, diagnostics
-for both (live as you edit), and a `gtd.openSteeringFile` command that jumps to
-the current state's steering file. Config-driven via each state's
+steering files — a symbol per `review`-mode chunk that still has an unchecked
+hunk (an outline of the packages left to review) plus check/uncheck actions over
+those chunks, go-to-definition from a `review`-mode hunk line into the file it
+points at (at its `#line`), symbols over a `qa`-mode file's open questions,
+diagnostics for both (live as you edit), and a `gtd.openSteeringFile` command
+that jumps to the current state's steering file. Config-driven via each state's
 `file:`/`mode:` (see [CLI reference](docs/cli.md#gtd-lsp)) — falls back to
 basename dispatch (`REVIEW.md` → `review`) with no config in sight. `qa` and
 `review` are gtd's built-in steering-file MODES — validators, not formatters: a
