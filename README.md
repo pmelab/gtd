@@ -91,6 +91,8 @@ Four commands drive it:
 - **`gtd fix`** — start a brand new process that goes straight into repairing
   the current failing tests, then runs the shared review/squash tail (a no-op if
   the suite is already green).
+- **`gtd visualize`** — serve an interactive diagram of the active workflow on a
+  local web server (the main flow, its sub-machines, and per-state details).
 
 `gtd version` (or `gtd --version`/`-v`) prints the installed version and exits;
 `gtd help` (or `gtd --help`/`-h`) prints the command list. Both short-circuit
@@ -182,8 +184,8 @@ Both halves are enforced by `gtd validate` and the `gtd step` gate.
 ## Documentation
 
 - [STATES.md](STATES.md) — the full pattern-machine specification: the model,
-  the pattern grammar, resolution, retry, the squash lifecycle, and the bundled
-  workflow templates
+  the pattern grammar, resolution, retry, the squash lifecycle, reusable
+  sub-machines, and the bundled workflow template
 - [CLI reference](docs/cli.md) — every command, exit codes, JSON schemas,
   repository requirements
 - [Driving the loop](docs/loop.md) — the reference loop driver, `gtd-loop`,

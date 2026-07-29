@@ -32,14 +32,15 @@ Commands:
   validate         Format and validate the steering file the resolved rest
                    declares, with its mode's commands (its file:/mode:);
                    exits non-zero with the findings when it is invalid
-  mermaid          Print the active workflow's shape as Mermaid
-                   stateDiagram-v2 source (no mutation)
   lsp              Start the LSP server for .gtd/ steering files (stdio)
+  visualize        Serve an interactive diagram of the active workflow locally
   version          Print version and exit
   help             Print this help and exit
 
 Options:
   --json           Output structured JSON instead of plain text
+  --port=<n>       (gtd visualize only) port to serve on (default: a free port)
+  --no-open        (gtd visualize only) do not open the browser
   --cost=<n>       (gtd step only) record the invocation's token cost
   --model=<name>   (gtd step only, with --cost) tag that cost's model
   --version, -v    Print version and exit
@@ -394,46 +395,6 @@ agent or human:
 
 `gtd validate` takes no arguments.
 
-## `gtd mermaid`
-
-Pure emitter of the active workflow's **shape** — not the resolved rest — as
-Mermaid [`stateDiagram-v2`](https://mermaid.js.org/syntax/stateDiagram.html)
-source (see `src/Mermaid.ts`): one node per declared state, the `[*] -->`
-initial-state marker, one edge per declared `on` row labeled with its raw
-pattern string (same declaration order the engine itself evaluates), a `--> [*]`
-edge for every commit state (final, no outgoing edges — see
-[STATES.md §8](../STATES.md#8-the-squash-lifecycle)), and one `note right of`
-per rest naming its actor, content kind, and retry cap (e.g.
-`agent · prompt · retry 3→escalate`). No git, no HEAD resolution, no template
-rendering — purely a function of the compiled `WorkflowDefinition`, so its
-output is identical regardless of the current process/branch state.
-
-```
-$ gtd mermaid
-stateDiagram-v2
-    state "idle" as idle
-    state "planning" as planning
-    ...
-    [*] --> idle
-    idle --> planning : * **
-    ...
-    note right of idle : human · message
-    ...
-```
-
-Pipe it straight into a `.md`/`.mmd` file, a GitHub issue/PR description, or any
-Mermaid-aware renderer (GitHub, GitLab, VS Code, Obsidian, the
-[Mermaid Live Editor](https://mermaid.live)) to get a diagram of a custom
-`.gtdrc` `workflow:` with no hand-maintained docs required.
-
-State names are aliased to Mermaid-safe identifiers (non-word characters fold to
-`_`; a digit-led name gets an `s_` prefix) via a `state "<name>" as <alias>`
-declaration up front, so a hyphenated name like `plan-review` still displays
-with its exact declared spelling. Rejects `--json` (exit 1,
-`gtd mermaid does not accept --json`) — there is no structured shape to emit
-beyond the Mermaid source itself — and takes no arguments (extra positional args
-are rejected).
-
 ## `gtd lsp`
 
 Starts an LSP server over stdio for `.gtd/` steering files — document symbols
@@ -469,6 +430,39 @@ extra positional arguments — it's a long-running server, not a state command.
 Runs until the client disconnects (the LSP `exit` notification), then exits
 cleanly.
 
+## `gtd visualize [--port=<n>] [--no-open] [--json]`
+
+Serve an interactive diagram of the ACTIVE workflow on a local web server: the
+main flow as a graph (one box per sub-machine), and a click-through inspector
+with each state's actor, content kind, model/memory, steering file+mode, retry,
+flags, and outgoing/incoming edges. This is the replacement for the removed
+`gtd mermaid` — a live viewer instead of a static diagram dump.
+
+```
+$ gtd visualize
+gtd visualize running at http://127.0.0.1:53017 — Ctrl-C to stop
+```
+
+The server serves two routes: `/` (the self-contained HTML page) and
+`/workflow.json` (the model the page renders). It runs until interrupted
+(Ctrl-C), then closes cleanly. Options (orthogonal, `gtd visualize` only):
+
+- `--port=<n>` (or `--port <n>`) — serve on a specific port (0–65535); the
+  default is a free ephemeral port, printed on start.
+- `--no-open` — do not open the default browser (the URL is always printed).
+- `--json` — print the workflow model to stdout and exit WITHOUT starting a
+  server. The model is `{ states, initial, groups, vars }`; each state carries
+  its `actor`/`kind`/`model`/`memory`/`file`/`mode`/`retry`/`flags`, its `on`
+  edges, its computed `incoming` edges, and its sub-machine `group`. `groups`
+  lists each sub-machine invocation and the concrete states it produced.
+
+Dispatched before the repository-root guard and the config-reading path's review
+window — it reads the active workflow (the built-in default when none is
+configured) but touches no git/HEAD/review-window state. The diagram is rendered
+with Mermaid loaded from a CDN, so the graph needs network access the first time
+a browser loads the page; the inspector works offline regardless. Rejects
+unknown options and unexpected positional arguments.
+
 ## Error envelope
 
 Every command, in `--json` mode, reports a failure as a machine-readable
@@ -496,8 +490,8 @@ the plain-text one.
   green run, and the check's `"C"` pattern never fires. Gitignore every path
   your scripts write before wiring gtd into a repo.
 - **Repository root invocation.** Every state subcommand (`step`/`review`/
-  `next`/`status`/`mermaid`) must run from the git repository root — the
-  workflow, pending changes, and process history are resolved against the
-  process cwd. `--help`/`--version` (and the `help`/`version` subcommands),
-  `format`, and `lsp` skip this guard entirely (and any git/`.gtdrc` dependency
-  along with it).
+  `next`/`status`) must run from the git repository root — the workflow, pending
+  changes, and process history are resolved against the process cwd.
+  `--help`/`--version` (and the `help`/`version` subcommands), `lsp`, and
+  `visualize` skip this guard entirely (`visualize` still reads the `.gtdrc`
+  workflow, but needs no git state).

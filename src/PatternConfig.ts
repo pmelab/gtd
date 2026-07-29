@@ -9,6 +9,7 @@ import {
   type StateMode,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
+import { expandSubmachines } from "./Submachines.js"
 
 /**
  * The v3 `.gtdrc` `workflow:` config compiler (see
@@ -686,15 +687,22 @@ export const compileWorkflowConfig = (
 
   const errors: string[] = []
 
-  const unknownTopKeys = Object.keys(raw).filter((k) => !KNOWN_TOP_KEYS.has(k))
+  // Sub-machine expansion (Option C) runs FIRST, as a raw → raw pre-pass: it
+  // turns the optional `submachines:`/`use:` keys into concrete `states` and
+  // strips them, so everything below sees the familiar `{ vars, states, modes }`
+  // shape and the engine stays oblivious to sub-machines (see src/Submachines.ts).
+  const expanded = expandSubmachines(raw, errors)
+  const cfg: Record<string, unknown> = isPlainObject(expanded) ? expanded : raw
+
+  const unknownTopKeys = Object.keys(cfg).filter((k) => !KNOWN_TOP_KEYS.has(k))
   if (unknownTopKeys.length > 0) {
     errors.push(`unknown top-level key(s) ${unknownTopKeys.join(", ")}`)
   }
 
-  const vars = compileVarsMap(raw.vars, errors)
-  const modes = mergeModes(compileModesMap(raw.modes, errors), rcModes)
+  const vars = compileVarsMap(cfg.vars, errors)
+  const modes = mergeModes(compileModesMap(cfg.modes, errors), rcModes)
 
-  const rawStates = raw.states
+  const rawStates = cfg.states
   if (!isPlainObject(rawStates) || Object.keys(rawStates).length === 0) {
     // Truly unassemblable: there is no per-state work to even attempt, so
     // there is nothing `validateDefinition` could add — throw with just the

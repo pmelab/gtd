@@ -36,6 +36,182 @@
             }
           }
         },
+        "submachines": {
+          "type": "object",
+          "description": "Optional reusable sub-machines, invoked by `use:` and expanded into concrete states at load time (see src/Submachines.ts).",
+          "additionalProperties": {
+            "type": "object",
+            "description": "A reusable, parameterized cluster of states, expanded at load time by each `use:` invocation into concrete states (see src/Submachines.ts). Purely a source-authoring convenience — the engine only ever sees the expanded states.",
+            "additionalProperties": false,
+            "required": ["states"],
+            "properties": {
+              "params": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Parameter names. A `$name` token used as a whole field value or `on`/`retry.otherwise` target is replaced by the invocation's `with:` binding."
+              },
+              "states": {
+                "type": "object",
+                "description": "The sub-machine's local states. `on`/`retry.otherwise` targets naming another local are rewritten via `as:`; a `$name` value is bound from `with:`.",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "object",
+                  "description": "One workflow state. Declare exactly one content kind (script/prompt/message/commit). A commit state is final: no actor, no on.",
+                  "additionalProperties": false,
+                  "properties": {
+                    "actor": {
+                      "type": "string",
+                      "description": "Who acts at this state. Required on every non-commit state; forbidden on a commit state."
+                    },
+                    "script": {
+                      "type": "string",
+                      "description": "Content kind: a shell script (Eta template). The loop driver executes it verbatim via bash, then steps this state's actor."
+                    },
+                    "prompt": {
+                      "type": "string",
+                      "description": "Content kind: an agent prompt (Eta template), emitted by `gtd next`."
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "Content kind: a human-facing message (Eta template), emitted by `gtd next`."
+                    },
+                    "commit": {
+                      "type": "string",
+                      "description": "Content kind: entering this state ends the process by squashing it into one commit with this message (Eta template). Final — no actor, no on."
+                    },
+                    "on": {
+                      "type": "object",
+                      "description": "Ordered map of change pattern -> target state. Patterns: \"C\" (clean tree) or \"<A|M|D|*> <glob>\" over the pending diff; first declared match wins. Every target must name a defined state, and every non-initial state must be reachable through these edges (or a retry.otherwise). A value is either the target state name (string) or a { to, describe } object whose describe is a human-readable sentence templates can surface as it.edges (e.g. in a human gate's message).",
+                      "additionalProperties": {
+                        "oneOf": [
+                          {
+                            "type": "string",
+                            "description": "The target state name."
+                          },
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["to"],
+                            "properties": {
+                              "to": {
+                                "type": "string",
+                                "description": "The target state name."
+                              },
+                              "describe": {
+                                "type": "string",
+                                "description": "Human-readable sentence describing where this change routes; surfaced verbatim (never Eta-rendered) to templates as it.edges[].describe."
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "initial": {
+                      "type": "boolean",
+                      "description": "Exactly one state in the workflow must declare initial: true (and it must not be a commit state)."
+                    },
+                    "retry": {
+                      "type": "object",
+                      "description": "Redirect transitions INTO this state once it has been entered `max` times in the current process.",
+                      "additionalProperties": false,
+                      "required": ["max", "otherwise"],
+                      "properties": {
+                        "max": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "Entries allowed this process before redirecting."
+                        },
+                        "otherwise": {
+                          "type": "string",
+                          "description": "Defined state to redirect to once over the cap."
+                        }
+                      }
+                    },
+                    "model": {
+                      "type": "string",
+                      "description": "Opaque harness hint passed through `gtd next --json`/`gtd status --json` (e.g. \"smart\"). Never interpreted by gtd. Forbidden on a commit state."
+                    },
+                    "memory": {
+                      "type": "string",
+                      "description": "Opaque memory-scope label passed through `gtd next --json`/`gtd status --json` (e.g. \"plan\"). A memory-aware driver retains an agent's memory across consecutive agent turns sharing this label and starts fresh when it changes. Never interpreted by gtd. Forbidden on a commit state."
+                    },
+                    "file": {
+                      "type": "string",
+                      "description": "The state's steering file: an Eta template naming the file a human/editor should look at while the machine rests here. Forbidden on a commit state."
+                    },
+                    "mode": {
+                      "type": "string",
+                      "description": "The steering file's format: the name of a built-in mode (qa/review, validated in-process by gtd) or of a `modes:` entry. gtd formats and validates the file with that mode before capturing a turn out of this state, and the LSP dispatches live diagnostics on the built-in names. Requires a sibling `file:`. Forbidden on a commit state."
+                    },
+                    "reviewWindow": {
+                      "type": "boolean",
+                      "description": "When true, gtd opens a review checkout window while the machine rests here — HEAD/index are rewound to the review base so the whole base..HEAD diff surfaces as uncommitted changes in the editor. Forbidden on a commit state."
+                    },
+                    "reviewBase": {
+                      "type": "boolean",
+                      "description": "Marks the state whose most-recent in-process commit anchors the review window's diff base; absent any, the base is the process start. Forbidden on a commit state."
+                    },
+                    "reviewEntry": {
+                      "type": "boolean",
+                      "description": "Marks the (at most one) state `gtd review <commitish>` enters to start a brand new process reviewing <commitish>..HEAD. Forbidden on a commit state and on the initial state."
+                    },
+                    "fixEntry": {
+                      "type": "boolean",
+                      "description": "Marks the (at most one) state `gtd fix` enters to start a brand new process that goes straight into repairing the current failing tests. Forbidden on a commit state and on the initial state."
+                    },
+                    "requireProgress": {
+                      "type": "boolean",
+                      "description": "When true, a step at this state is refused if its only pending change is deleting the state's own `file:` — a work-free turn that discards its input without addressing it. A `NOTHING ACTIONABLE` sentinel file is exempt (a legitimately non-actionable round makes no code change). Requires a `file:`. Forbidden on a commit state."
+                    },
+                    "answerGate": {
+                      "type": "boolean",
+                      "description": "When true, a step at this state is refused unless every open question in its qa-mode `file:` is answered — exactly one checkbox ticked per question. Requires a `file:` and `mode: qa`. Forbidden on a commit state."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "use": {
+          "type": "array",
+          "description": "Sub-machine invocations. Each clones a `submachines:` entry into concrete states: `as:` renames its locals (identity when omitted), `with:` binds its `$param`s, `set:` adds extra per-instance state fields.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["submachine"],
+            "properties": {
+              "submachine": {
+                "type": "string",
+                "description": "Name of a declared sub-machine."
+              },
+              "name": {
+                "type": "string",
+                "description": "Optional label for this instance (inert to expansion; used by tooling like `gtd visualize` to name the group). Defaults to the sub-machine name."
+              },
+              "as": {
+                "type": "object",
+                "description": "Rename map: local state name -> concrete state name (identity when omitted).",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "with": {
+                "type": "object",
+                "description": "Bindings for the sub-machine's `$param`s."
+              },
+              "set": {
+                "type": "object",
+                "description": "Extra fields merged onto a renamed local state, keyed by local name.",
+                "additionalProperties": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
         "states": {
           "type": "object",
           "description": "The workflow's named states. At least one; exactly one with initial: true.",
@@ -148,6 +324,10 @@
               "requireProgress": {
                 "type": "boolean",
                 "description": "When true, a step at this state is refused if its only pending change is deleting the state's own `file:` — a work-free turn that discards its input without addressing it. A `NOTHING ACTIONABLE` sentinel file is exempt (a legitimately non-actionable round makes no code change). Requires a `file:`. Forbidden on a commit state."
+              },
+              "answerGate": {
+                "type": "boolean",
+                "description": "When true, a step at this state is refused unless every open question in its qa-mode `file:` is answered — exactly one checkbox ticked per question. Requires a `file:` and `mode: qa`. Forbidden on a commit state."
               }
             }
           }

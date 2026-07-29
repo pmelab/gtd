@@ -588,6 +588,71 @@ done:
 command), and gtd never interprets the number's unit (tokens, cents, whatever
 the driver records) or the model name — it only records, sums, and groups them.
 
+## Sub-machines (`submachines:` / `use:`)
+
+Two OPTIONAL top-level keys let you factor repeated or complex clusters of
+states into reusable **sub-machines** that are expanded into ordinary concrete
+states at load time (see [STATES.md §13](../STATES.md) and
+`src/Submachines.ts`). They add NO runtime behavior — the engine only ever sees
+the expanded states — so a workflow authored with them is exactly a workflow
+written flat.
+
+```yaml
+workflow:
+  submachines:
+    gate: # authored once
+      params: [onGreen] # names referenced as `$onGreen` below
+      states:
+        check:
+          actor: check
+          script: <%~ it.vars.testCommand %>
+          on:
+            "A .gtd/FEEDBACK.md": blocked # a local state -> renamed by `as:`
+            "C": "$onGreen" # a param -> bound by `with:`
+        blocked:
+          actor: human
+          file: <%= it.vars.feedbackFile %>
+          message: "fix the baseline"
+          on: { "* **": check }
+  use:
+    - submachine: gate
+      as: { check: start-check, blocked: start-blocked } # local -> concrete (omit for identity)
+      with: { onGreen: planning } # bind each `$param`
+      set: { check: { reviewEntry: true } } # optional extra fields on a renamed state
+  states:
+    idle:
+      { actor: human, initial: true, message: "…", on: { "* **": start-check } }
+    planning: { actor: agent, prompt: "…", on: { "* **": start-check } }
+```
+
+Rules:
+
+- **`submachines: { <name>: { params, states } }`** — `states` are ordinary
+  state definitions, except an `on`/`retry.otherwise` target or any whole field
+  value may be a `$param` placeholder.
+- **`use:`** is an ordered list. Each entry names a `submachine:` and may set:
+  - **`as:`** — a `local -> concreteName` rename map. Omit it (or a given local)
+    for identity. Alias to the names a flat workflow would use to keep history
+    and `git log` unchanged.
+  - **`with:`** — bindings for the sub-machine's `$param`s.
+  - **`set:`** — extra fields merged onto a renamed state (e.g. `reviewEntry`).
+- **Substitution is WHOLE-VALUE only.** `$name` resolves only when it is the
+  entire value of a field or target — never a substring — so bash `$x`/`${x}`
+  and Eta `<%= it.vars.x %>` inside content are untouched. Pass per-instance
+  text (a whole message/prompt/`describe`) as a whole `$name` binding.
+- A target naming one of the sub-machine's own locals is rewritten via `as:`;
+  any other target passes through verbatim (a concrete top-level state). `on`
+  PATTERN keys are never substituted.
+- Expansion strips `submachines:`/`use:`; the merged `states` are then compiled
+  and `validateDefinition`'d normally. Unknown sub-machine, unbound `$param`,
+  and generated-name collisions are load-time errors, aggregated with the rest.
+
+`gtd init` scaffolds the EXPANDED flat config, so a fresh project never sees
+`submachines:`/`use:` unless it adds them itself. The bundled template is
+authored with them (dedup: `assertGreen`/`makeGreen`/`qaLoop`; comprehension:
+`planLoop`/`humanReview`/`specGate`/`packageLoop`) and its golden test pins that
+expansion is byte-identical to the flat form.
+
 ## Variables
 
 Every template — `script`/`prompt`/`message`/`commit`, and `model`/`memory`/

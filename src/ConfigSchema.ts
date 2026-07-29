@@ -191,6 +191,69 @@ const stateJsonSchema = {
       description:
         "When true, a step at this state is refused if its only pending change is deleting the state's own `file:` — a work-free turn that discards its input without addressing it. A `NOTHING ACTIONABLE` sentinel file is exempt (a legitimately non-actionable round makes no code change). Requires a `file:`. Forbidden on a commit state.",
     },
+    answerGate: {
+      type: "boolean",
+      description:
+        "When true, a step at this state is refused unless every open question in its qa-mode `file:` is answered — exactly one checkbox ticked per question. Requires a `file:` and `mode: qa`. Forbidden on a commit state.",
+    },
+  },
+} as const
+
+/** One reusable sub-machine definition — mirrors `Submachines.ts`. */
+const submachineJsonSchema = {
+  type: "object",
+  description:
+    "A reusable, parameterized cluster of states, expanded at load time by each `use:` invocation into concrete states (see src/Submachines.ts). Purely a source-authoring convenience — the engine only ever sees the expanded states.",
+  additionalProperties: false,
+  required: ["states"],
+  properties: {
+    params: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Parameter names. A `$name` token used as a whole field value or `on`/`retry.otherwise` target is replaced by the invocation's `with:` binding.",
+    },
+    states: {
+      type: "object",
+      description:
+        "The sub-machine's local states. `on`/`retry.otherwise` targets naming another local are rewritten via `as:`; a `$name` value is bound from `with:`.",
+      minProperties: 1,
+      additionalProperties: stateJsonSchema,
+    },
+  },
+} as const
+
+/** One sub-machine invocation — mirrors `Submachines.ts`. */
+const useJsonSchema = {
+  type: "array",
+  description:
+    "Sub-machine invocations. Each clones a `submachines:` entry into concrete states: `as:` renames its locals (identity when omitted), `with:` binds its `$param`s, `set:` adds extra per-instance state fields.",
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["submachine"],
+    properties: {
+      submachine: { type: "string", description: "Name of a declared sub-machine." },
+      name: {
+        type: "string",
+        description:
+          "Optional label for this instance (inert to expansion; used by tooling like `gtd visualize` to name the group). Defaults to the sub-machine name.",
+      },
+      as: {
+        type: "object",
+        description: "Rename map: local state name -> concrete state name (identity when omitted).",
+        additionalProperties: { type: "string" },
+      },
+      with: {
+        type: "object",
+        description: "Bindings for the sub-machine's `$param`s.",
+      },
+      set: {
+        type: "object",
+        description: "Extra fields merged onto a renamed local state, keyed by local name.",
+        additionalProperties: { type: "object" },
+      },
+    },
   },
 } as const
 
@@ -204,6 +267,13 @@ const workflowJsonSchema = {
   properties: {
     vars: varsJsonSchema,
     modes: modesJsonSchema,
+    submachines: {
+      type: "object",
+      description:
+        "Optional reusable sub-machines, invoked by `use:` and expanded into concrete states at load time (see src/Submachines.ts).",
+      additionalProperties: submachineJsonSchema,
+    },
+    use: useJsonSchema,
     states: {
       type: "object",
       description: "The workflow's named states. At least one; exactly one with initial: true.",

@@ -1,0 +1,1553 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>gtd · workflow visualizer</title>
+    <style>
+      :root {
+        --bg: #f4f6fa;
+        --surface: #ffffff;
+        --surface-2: #eef1f7;
+        --surface-3: #e6ebf3;
+        --border: #d9dee8;
+        --border-strong: #c2ccdb;
+        --text: #1a2233;
+        --text-dim: #55607a;
+        --text-faint: #8a93a6;
+        --accent: #2d6cdf;
+        --accent-soft: #e4edfd;
+        --human-bg: #fbeccd;
+        --human-fg: #7a5310;
+        --human-dot: #d99413;
+        --agent-bg: #e5e2fb;
+        --agent-fg: #463693;
+        --agent-dot: #6d5ce0;
+        --check-bg: #d3f0ef;
+        --check-fg: #0c524f;
+        --check-dot: #16a39d;
+        --engine-bg: #fbdfe4;
+        --engine-fg: #8a1f38;
+        --engine-dot: #d84a68;
+        --unknown-bg: #eef1f7;
+        --unknown-fg: #55607a;
+        --unknown-dot: #8a93a6;
+        --shadow: 0 1px 2px rgba(20, 30, 50, 0.06), 0 8px 28px rgba(20, 30, 50, 0.1);
+        --shadow-sm: 0 1px 2px rgba(20, 30, 50, 0.08);
+        --radius: 12px;
+        --mono:
+          ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+        --sans:
+          ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --dia-bg: #f7f9fc;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0e1420;
+          --surface: #161d2b;
+          --surface-2: #1c2434;
+          --surface-3: #232c3e;
+          --border: #2b3547;
+          --border-strong: #3a465c;
+          --text: #e6ebf4;
+          --text-dim: #9aa6bd;
+          --text-faint: #6b7690;
+          --accent: #5b8def;
+          --accent-soft: #1b2740;
+          --human-bg: #3a2e12;
+          --human-fg: #f0c674;
+          --human-dot: #e0a83e;
+          --agent-bg: #26224a;
+          --agent-fg: #b6abf7;
+          --agent-dot: #8b7cf0;
+          --check-bg: #123433;
+          --check-fg: #68dcd4;
+          --check-dot: #2dc4bc;
+          --engine-bg: #3a1b24;
+          --engine-fg: #f2a3b3;
+          --engine-dot: #e05f7c;
+          --unknown-bg: #1c2434;
+          --unknown-fg: #9aa6bd;
+          --unknown-dot: #6b7690;
+          --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 34px rgba(0, 0, 0, 0.45);
+          --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+          --dia-bg: #0b1018;
+        }
+      }
+      :root[data-theme="light"] {
+        --bg: #f4f6fa;
+        --surface: #ffffff;
+        --surface-2: #eef1f7;
+        --surface-3: #e6ebf3;
+        --border: #d9dee8;
+        --border-strong: #c2ccdb;
+        --text: #1a2233;
+        --text-dim: #55607a;
+        --text-faint: #8a93a6;
+        --accent: #2d6cdf;
+        --accent-soft: #e4edfd;
+        --human-bg: #fbeccd;
+        --human-fg: #7a5310;
+        --human-dot: #d99413;
+        --agent-bg: #e5e2fb;
+        --agent-fg: #463693;
+        --agent-dot: #6d5ce0;
+        --check-bg: #d3f0ef;
+        --check-fg: #0c524f;
+        --check-dot: #16a39d;
+        --engine-bg: #fbdfe4;
+        --engine-fg: #8a1f38;
+        --engine-dot: #d84a68;
+        --unknown-bg: #eef1f7;
+        --unknown-fg: #55607a;
+        --unknown-dot: #8a93a6;
+        --shadow: 0 1px 2px rgba(20, 30, 50, 0.06), 0 8px 28px rgba(20, 30, 50, 0.1);
+        --shadow-sm: 0 1px 2px rgba(20, 30, 50, 0.08);
+        --dia-bg: #f7f9fc;
+      }
+      :root[data-theme="dark"] {
+        --bg: #0e1420;
+        --surface: #161d2b;
+        --surface-2: #1c2434;
+        --surface-3: #232c3e;
+        --border: #2b3547;
+        --border-strong: #3a465c;
+        --text: #e6ebf4;
+        --text-dim: #9aa6bd;
+        --text-faint: #6b7690;
+        --accent: #5b8def;
+        --accent-soft: #1b2740;
+        --human-bg: #3a2e12;
+        --human-fg: #f0c674;
+        --human-dot: #e0a83e;
+        --agent-bg: #26224a;
+        --agent-fg: #b6abf7;
+        --agent-dot: #8b7cf0;
+        --check-bg: #123433;
+        --check-fg: #68dcd4;
+        --check-dot: #2dc4bc;
+        --engine-bg: #3a1b24;
+        --engine-fg: #f2a3b3;
+        --engine-dot: #e05f7c;
+        --unknown-bg: #1c2434;
+        --unknown-fg: #9aa6bd;
+        --unknown-dot: #6b7690;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 34px rgba(0, 0, 0, 0.45);
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+        --dia-bg: #0b1018;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 15px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      ::selection {
+        background: var(--accent);
+        color: #fff;
+      }
+      .wrap {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 0 20px;
+      }
+
+      /* header */
+      header.top {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        background: color-mix(in srgb, var(--bg) 88%, transparent);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid var(--border);
+      }
+      .top-inner {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 12px 20px;
+        max-width: 1180px;
+        margin: 0 auto;
+        flex-wrap: wrap;
+      }
+      .brand {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin-right: auto;
+      }
+      .brand .cmd {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 17px;
+        letter-spacing: -0.02em;
+      }
+      .brand .cmd b {
+        color: var(--accent);
+      }
+      .brand .sub {
+        font-size: 12px;
+        color: var(--text-faint);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .summary {
+        font-size: 12.5px;
+        color: var(--text-dim);
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .summary .s-num {
+        font-family: var(--mono);
+        font-weight: 700;
+        color: var(--text);
+      }
+      .summary .sep {
+        color: var(--border-strong);
+      }
+      .theme-btn {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text-dim);
+        border-radius: 8px;
+        width: 32px;
+        height: 32px;
+        cursor: pointer;
+        font-size: 14px;
+        display: grid;
+        place-items: center;
+      }
+      .theme-btn:hover {
+        color: var(--text);
+        border-color: var(--border-strong);
+      }
+      .theme-btn:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      /* hero */
+      .hero {
+        padding: 40px 0 4px;
+      }
+      h1 {
+        font-size: clamp(26px, 4vw, 36px);
+        line-height: 1.08;
+        letter-spacing: -0.025em;
+        margin: 0 0 12px;
+        font-weight: 780;
+      }
+      h1 .mono {
+        font-family: var(--mono);
+        font-weight: 700;
+      }
+      .lede {
+        font-size: 16px;
+        color: var(--text-dim);
+        max-width: 70ch;
+        margin: 0;
+      }
+      .lede code {
+        font-family: var(--mono);
+        font-size: 0.88em;
+        background: var(--surface-2);
+        padding: 1px 6px;
+        border-radius: 5px;
+        color: var(--text);
+      }
+
+      /* section headers */
+      .sec-head {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        margin: 46px 0 4px;
+      }
+      .sec-head h2 {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--text-faint);
+        margin: 0;
+        font-weight: 700;
+      }
+      .sec-head .rule {
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+      }
+
+      /* diagram */
+      .diagram-note {
+        font-size: 13px;
+        color: var(--text-dim);
+        margin: 16px 0 14px;
+        max-width: 78ch;
+      }
+      .diagram-note .mono {
+        font-family: var(--mono);
+      }
+      .dia-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-sm);
+        overflow: hidden;
+      }
+      .dia-scroll {
+        overflow-x: auto;
+        background: var(--dia-bg);
+        padding: 18px 16px;
+      }
+      .dia-scroll .mflow {
+        min-width: min-content;
+        display: flex;
+        justify-content: center;
+      }
+      .dia-scroll .mflow svg {
+        max-width: none;
+        height: auto;
+      }
+      .dia-msg {
+        padding: 22px 18px;
+        font-size: 13.5px;
+        color: var(--text-dim);
+      }
+      .dia-msg code {
+        font-family: var(--mono);
+        font-size: 12px;
+        background: var(--surface-2);
+        padding: 1px 6px;
+        border-radius: 5px;
+      }
+      .dia-src {
+        margin: 10px 0 0;
+        padding: 12px 14px;
+        background: var(--surface-2);
+        border-radius: 9px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        white-space: pre;
+        overflow-x: auto;
+        color: var(--text-dim);
+        max-height: 260px;
+      }
+
+      /* sub-machines */
+      .sm-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 14px;
+        margin-top: 18px;
+      }
+      .sm-def {
+        border: 1.5px dashed var(--border-strong);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow-sm);
+        overflow: hidden;
+      }
+      .sm-def .h {
+        padding: 13px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-2);
+      }
+      .sm-def .h .nm {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 15px;
+      }
+      .sm-def .h .pm {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text-dim);
+        display: block;
+        margin-top: 3px;
+      }
+      .sm-def .h .pm b {
+        color: var(--accent);
+      }
+      .sm-def .body {
+        padding: 12px 16px 16px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .muted-note {
+        color: var(--text-faint);
+        font-style: italic;
+        margin-top: 16px;
+      }
+
+      /* toolbar */
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin: 18px 0 22px;
+        flex-wrap: wrap;
+      }
+      .search {
+        flex: 1;
+        min-width: 200px;
+        position: relative;
+      }
+      .search input {
+        width: 100%;
+        font-family: var(--mono);
+        font-size: 14px;
+        padding: 10px 12px 10px 34px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+      }
+      .search input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+      .search svg {
+        position: absolute;
+        left: 11px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--text-faint);
+      }
+      .chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .chip-btn {
+        font: inherit;
+        font-size: 12.5px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text-dim);
+        cursor: pointer;
+      }
+      .chip-btn:hover {
+        border-color: var(--border-strong);
+        color: var(--text);
+      }
+      .chip-btn.on {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .chip-btn:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .legend {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .legend .li {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12.5px;
+        color: var(--text-dim);
+        cursor: pointer;
+        user-select: none;
+        padding: 5px 9px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+      }
+      .legend .li:hover {
+        border-color: var(--border-strong);
+      }
+      .legend .li.off {
+        opacity: 0.4;
+      }
+      .legend .li:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .legend .li .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+      }
+
+      /* groups + cards */
+      .group {
+        margin-bottom: 30px;
+      }
+      .group-head {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin: 0 0 12px;
+      }
+      .group-head h3 {
+        font-family: var(--mono);
+        font-size: 15px;
+        margin: 0;
+        letter-spacing: -0.01em;
+      }
+      .group-head .flow-tag {
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 6px;
+        background: var(--surface-2);
+        color: var(--text-dim);
+        border: 1px solid var(--border);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 12px;
+      }
+      .card {
+        text-align: left;
+        font: inherit;
+        cursor: pointer;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-left: 4px solid var(--card-accent, var(--border));
+        border-radius: 10px;
+        padding: 13px 15px;
+        box-shadow: var(--shadow-sm);
+        transition:
+          transform 0.12s ease,
+          box-shadow 0.12s ease,
+          border-color 0.12s ease;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow);
+      }
+      .card:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .card[data-actor="human"] {
+        --card-accent: var(--human-dot);
+      }
+      .card[data-actor="agent"] {
+        --card-accent: var(--agent-dot);
+      }
+      .card[data-actor="check"] {
+        --card-accent: var(--check-dot);
+      }
+      .card[data-actor="commit"] {
+        --card-accent: var(--engine-dot);
+      }
+      .card[data-actor="unknown"] {
+        --card-accent: var(--unknown-dot);
+      }
+      .card .name {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 14.5px;
+        letter-spacing: -0.01em;
+        word-break: break-word;
+      }
+      .card .row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .card .init-tick {
+        position: absolute;
+        top: 11px;
+        right: 12px;
+        font-size: 10px;
+        font-family: var(--mono);
+        color: var(--accent);
+        background: var(--accent-soft);
+        padding: 1px 6px;
+        border-radius: 5px;
+        font-weight: 700;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 999px;
+      }
+      .pill.actor-human {
+        background: var(--human-bg);
+        color: var(--human-fg);
+      }
+      .pill.actor-agent {
+        background: var(--agent-bg);
+        color: var(--agent-fg);
+      }
+      .pill.actor-check {
+        background: var(--check-bg);
+        color: var(--check-fg);
+      }
+      .pill.actor-engine {
+        background: var(--engine-bg);
+        color: var(--engine-fg);
+      }
+      .pill.actor-unknown {
+        background: var(--unknown-bg);
+        color: var(--unknown-fg);
+      }
+      .pill .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 2px;
+      }
+      .pill.actor-human .dot {
+        background: var(--human-dot);
+      }
+      .pill.actor-agent .dot {
+        background: var(--agent-dot);
+      }
+      .pill.actor-check .dot {
+        background: var(--check-dot);
+      }
+      .pill.actor-engine .dot {
+        background: var(--engine-dot);
+      }
+      .pill.actor-unknown .dot {
+        background: var(--unknown-dot);
+      }
+      .kind {
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 6px;
+        border: 1px solid var(--border-strong);
+        color: var(--text-dim);
+        background: var(--surface-2);
+      }
+      .flag {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        padding: 1px 6px;
+        border-radius: 5px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-weight: 600;
+        border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+      }
+
+      /* drawer */
+      .backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(10, 16, 28, 0.5);
+        backdrop-filter: blur(2px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.22s ease;
+        z-index: 90;
+      }
+      .backdrop.open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .drawer {
+        position: fixed;
+        top: 0;
+        right: 0;
+        height: 100%;
+        width: min(560px, 100%);
+        background: var(--surface);
+        border-left: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        transform: translateX(100%);
+        transition: transform 0.26s cubic-bezier(0.22, 0.61, 0.36, 1);
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+      }
+      .drawer.open {
+        transform: translateX(0);
+      }
+      .drawer-head {
+        padding: 18px 22px 14px;
+        border-bottom: 1px solid var(--border);
+        border-top: 4px solid var(--card-accent, var(--accent));
+      }
+      .drawer-head .top {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .drawer-head h3 {
+        font-family: var(--mono);
+        font-size: 20px;
+        font-weight: 700;
+        margin: 0;
+        letter-spacing: -0.02em;
+        word-break: break-word;
+      }
+      .drawer-head .meta-row {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+      .close-x {
+        margin-left: auto;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: var(--text-dim);
+        border-radius: 8px;
+        width: 30px;
+        height: 30px;
+        cursor: pointer;
+        flex: none;
+        font-size: 15px;
+      }
+      .close-x:hover {
+        color: var(--text);
+      }
+      .close-x:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .drawer-body {
+        overflow-y: auto;
+        padding: 20px 22px 40px;
+        flex: 1;
+      }
+      .field {
+        margin-bottom: 18px;
+      }
+      .field > .k {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+        color: var(--text-faint);
+        font-weight: 700;
+        margin-bottom: 7px;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 88px 1fr;
+        gap: 4px 14px;
+        font-size: 13.5px;
+      }
+      .kv dt {
+        color: var(--text-faint);
+        font-size: 12px;
+      }
+      .kv dd {
+        margin: 0;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        word-break: break-word;
+      }
+      .none {
+        color: var(--text-faint);
+        font-style: italic;
+        font-family: var(--sans);
+      }
+
+      .edges {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .edge {
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        padding: 10px 12px;
+        background: var(--surface-2);
+      }
+      .edge .er {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .edge .pat {
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 700;
+        background: var(--surface);
+        border: 1px solid var(--border-strong);
+        padding: 2px 8px;
+        border-radius: 6px;
+        white-space: nowrap;
+      }
+      .edge .arr {
+        color: var(--text-faint);
+      }
+      .goto {
+        font: inherit;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        font-weight: 700;
+        cursor: pointer;
+        border: 1px solid var(--card-accent, var(--accent));
+        background: transparent;
+        color: var(--card-accent, var(--accent));
+        padding: 2px 9px;
+        border-radius: 6px;
+      }
+      .goto:hover {
+        background: var(--card-accent, var(--accent));
+        color: #fff;
+      }
+      .goto:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .goto[data-actor="human"] {
+        --card-accent: var(--human-dot);
+      }
+      .goto[data-actor="agent"] {
+        --card-accent: var(--agent-dot);
+      }
+      .goto[data-actor="check"] {
+        --card-accent: var(--check-dot);
+      }
+      .goto[data-actor="commit"] {
+        --card-accent: var(--engine-dot);
+      }
+      .goto[data-actor="unknown"] {
+        --card-accent: var(--unknown-dot);
+      }
+      .edge .em {
+        font-size: 12.5px;
+        color: var(--text-dim);
+        margin-top: 6px;
+        line-height: 1.45;
+      }
+      .incoming {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .flag-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .flag-item {
+        display: flex;
+        gap: 9px;
+        font-size: 13px;
+        align-items: baseline;
+      }
+      .flag-item .fn {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        font-weight: 700;
+        color: var(--accent);
+        flex: none;
+        padding: 1px 6px;
+        border-radius: 5px;
+        background: var(--accent-soft);
+      }
+      .flag-item .fd {
+        color: var(--text-dim);
+      }
+
+      /* vars */
+      .vars-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .var-chip {
+        font-family: var(--mono);
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        box-shadow: var(--shadow-sm);
+      }
+      .var-chip b {
+        color: var(--accent);
+      }
+
+      footer {
+        border-top: 1px solid var(--border);
+        margin-top: 56px;
+        padding: 24px 0 60px;
+        color: var(--text-faint);
+        font-size: 13px;
+      }
+      footer code {
+        font-family: var(--mono);
+        background: var(--surface-2);
+        padding: 1px 6px;
+        border-radius: 5px;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          transition: none !important;
+          animation: none !important;
+        }
+      }
+      @media (max-width: 640px) {
+        .brand .sub {
+          display: none;
+        }
+        .kv {
+          grid-template-columns: 74px 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="top-inner">
+        <div class="brand">
+          <span class="cmd"><b>gtd</b> · workflow visualizer</span>
+          <span class="sub" id="brandSub">read-only view</span>
+        </div>
+        <div class="summary" id="summary"></div>
+        <button
+          class="theme-btn"
+          id="themeBtn"
+          title="Toggle light/dark theme"
+          aria-label="Toggle light/dark theme"
+        >
+          ◐
+        </button>
+      </div>
+    </header>
+
+    <main class="wrap" id="app">
+      <section class="hero">
+        <h1 id="heroTitle">Loading workflow…</h1>
+        <p class="lede" id="heroLede">
+          Fetching <code>/workflow.json</code> from the local
+          <span class="mono">gtd visualize</span> server.
+        </p>
+      </section>
+
+      <div id="content" class="hidden">
+        <div class="sec-head">
+          <h2>Main flow</h2>
+          <span class="rule"></span>
+        </div>
+        <p class="diagram-note" id="diaNote"></p>
+        <div class="dia-card">
+          <div class="dia-scroll" id="diaScroll"><div class="dia-msg">Rendering diagram…</div></div>
+        </div>
+
+        <div class="sec-head">
+          <h2>Sub-machines</h2>
+          <span class="rule"></span>
+        </div>
+        <div id="smSection"></div>
+
+        <div class="sec-head">
+          <h2>State catalogue</h2>
+          <span class="rule"></span>
+        </div>
+        <div class="toolbar">
+          <div class="search">
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.4"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+            <input
+              id="search"
+              type="search"
+              placeholder="filter by name, actor, kind, file, mode, flag…"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="Filter states"
+            />
+          </div>
+          <div class="chips" id="kindChips"></div>
+          <div class="legend" id="legend"></div>
+        </div>
+        <div id="groups"></div>
+      </div>
+    </main>
+
+    <div class="backdrop" id="backdrop"></div>
+    <aside
+      class="drawer"
+      id="drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="State detail"
+      tabindex="-1"
+    ></aside>
+
+    <footer class="wrap" id="footer"></footer>
+
+    <script type="module">
+      // ── theme ──────────────────────────────────────────────────────────────
+      const root = document.documentElement
+      const prefersDark = () => matchMedia("(prefers-color-scheme: dark)").matches
+      const isDark = () => {
+        const t = root.getAttribute("data-theme")
+        return t ? t === "dark" : prefersDark()
+      }
+      document.getElementById("themeBtn").onclick = () => {
+        const next = isDark() ? "light" : "dark"
+        root.setAttribute("data-theme", next)
+        renderDiagram()
+      }
+
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        )
+
+      // Actor metadata: color class, css-var prefix, mermaid classDef name, label.
+      const ACTOR = {
+        human: { cls: "actor-human", dot: "human", label: "human" },
+        agent: { cls: "actor-agent", dot: "agent", label: "agent" },
+        check: { cls: "actor-check", dot: "check", label: "check" },
+        commit: { cls: "actor-engine", dot: "engine", label: "commit" },
+        unknown: { cls: "actor-unknown", dot: "unknown", label: "?" },
+      }
+      // A commit state has no actor — treat it as the engine/commit colour.
+      const actorOf = (s) => s.actor || (s.kind === "commit" ? "commit" : "unknown")
+      const meta = (a) => ACTOR[a] || ACTOR.unknown
+
+      const FLAGS = {
+        initial:
+          "The one initial state — an unrecognized HEAD (any non-gtd history) resolves here.",
+        reviewEntry:
+          "This state is a dedicated CLI entry point (e.g. `gtd review <ref>`) that starts a brand-new process.",
+        fixEntry:
+          "This state is the `gtd fix` entry point — a red suite drops into the fixing loop, a green suite is a no-op.",
+        reviewWindow:
+          "While resting here, gtd opens the review checkout window: HEAD is rewound to the review base so the whole diff surfaces as ordinary uncommitted changes.",
+        reviewBase:
+          "Anchors the incremental review diff base — its most-recent in-process commit is where the next reviewing turn and checkout window start.",
+        answerGate:
+          "Edge gate: a step is refused while any open question in the steering file is not answered with exactly one tick.",
+        requireProgress:
+          "Edge gate: refuses a work-free turn that only deletes the instructions file (unless it held a NOTHING ACTIONABLE sentinel).",
+      }
+
+      // ── state ──────────────────────────────────────────────────────────────
+      let MODEL = null
+      let STATES = []
+      let byName = {}
+      let DIAGRAM_SRC = ""
+      let mermaidMod = null
+      let renderSeq = 0
+
+      const actorFilter = new Set(["human", "agent", "check", "commit", "unknown"])
+      let kindFilter = "all"
+
+      // ── boot ─────────────────────────────────────────────────────────────
+      try {
+        const res = await fetch("/workflow.json")
+        if (!res.ok) throw new Error("HTTP " + res.status)
+        MODEL = await res.json()
+      } catch (e) {
+        document.getElementById("heroTitle").textContent = "Could not load workflow"
+        document.getElementById("heroLede").innerHTML =
+          "Fetching <code>/workflow.json</code> failed: " +
+          esc(e.message) +
+          '. This page must be served by <span class="mono">gtd visualize</span>.'
+        throw e
+      }
+
+      STATES = MODEL.states || []
+      byName = Object.fromEntries(STATES.map((s) => [s.name, s]))
+
+      // ── header summary + hero ───────────────────────────────────────────
+      const counts = { human: 0, agent: 0, check: 0, commit: 0, unknown: 0 }
+      STATES.forEach((s) => {
+        counts[actorOf(s)]++
+      })
+      const nGroups = (MODEL.groups || []).length
+      const cnt = (a) =>
+        counts[a] ? `<span><span class="s-num">${counts[a]}</span> ${meta(a).label}</span>` : ""
+      document.getElementById("summary").innerHTML = [
+        `<span><span class="s-num">${STATES.length}</span> states</span>`,
+        `<span><span class="s-num">${nGroups}</span> sub-machine${nGroups === 1 ? "" : "s"}</span>`,
+        `<span class="sep">·</span>`,
+        cnt("human"),
+        cnt("agent"),
+        cnt("check"),
+        cnt("commit"),
+        cnt("unknown"),
+      ]
+        .filter(Boolean)
+        .join(" ")
+
+      document.getElementById("heroTitle").innerHTML =
+        `A workflow of <span class="mono">${STATES.length}</span> states`
+      document.getElementById("heroLede").innerHTML =
+        `Rendered live from <code>/workflow.json</code>. The initial state is ` +
+        `<code>${esc(MODEL.initial)}</code>. Click any state — in the diagram, a sub-machine chip, ` +
+        `or the catalogue — to open its full definition, walk its outgoing edges, and see what routes into it.`
+      document.getElementById("content").classList.remove("hidden")
+
+      document.getElementById("footer").innerHTML =
+        `Read-only view served by <code>gtd visualize</code>. Node shape = content kind ` +
+        `(<span style="font-family:var(--mono)">([message])</span> · ` +
+        `<span style="font-family:var(--mono)">[prompt]</span> · ` +
+        `<span style="font-family:var(--mono)">{{script}}</span> · ` +
+        `<span style="font-family:var(--mono)">[[commit]]</span>); colour = actor.`
+
+      // ── pill helper ────────────────────────────────────────────────────
+      const pill = (a) =>
+        `<span class="pill ${meta(a).cls}"><span class="dot"></span>${meta(a).label}</span>`
+
+      // ── mermaid source generation ──────────────────────────────────────
+      // Safe, stable node ids (state names can contain hyphens etc.).
+      const idFor = (() => {
+        const map = new Map()
+        return (name) => {
+          if (!map.has(name)) map.set(name, "n" + map.size)
+          return map.get(name)
+        }
+      })()
+      const shapeFor = (kind, label) => {
+        const l = `"${label.replace(/"/g, "&quot;")}"`
+        switch (kind) {
+          case "message":
+            return `(["${label.replace(/"/g, "&quot;")}"])`
+          case "prompt":
+            return `[${l}]`
+          case "script":
+            return `{{${l}}}`
+          case "commit":
+            return `[[${l}]]`
+          default:
+            return `[${l}]`
+        }
+      }
+      const mlabel = (s) => `"${String(s).replace(/"/g, "&quot;").replace(/\|/g, "&#124;")}"`
+
+      function buildMermaid() {
+        const lines = ["flowchart TD"]
+        const rendered = new Set()
+        const nodeLine = (s) => `  ${idFor(s.name)}${shapeFor(s.kind, s.name)}:::${actorOf(s)}`
+
+        // Nodes grouped by their innermost sub-machine.
+        const groups = MODEL.groups || []
+        const byGroupName = {}
+        STATES.forEach((s) => {
+          if (s.group) (byGroupName[s.group] ||= []).push(s)
+        })
+        // Emit one subgraph per group (in declared order), containing only the
+        // states whose innermost group is this one.
+        groups.forEach((g, i) => {
+          const members = byGroupName[g.name] || []
+          if (!members.length) return
+          lines.push(`  subgraph sg${i}[${mlabel(g.name)}]`)
+          members.forEach((s) => {
+            lines.push("  " + nodeLine(s))
+            rendered.add(s.name)
+          })
+          lines.push("  end")
+        })
+        // Ungrouped states sit outside any subgraph.
+        STATES.forEach((s) => {
+          if (!rendered.has(s.name)) {
+            lines.push(nodeLine(s))
+            rendered.add(s.name)
+          }
+        })
+
+        // Edges: one per `on` entry, labelled with the pattern.
+        STATES.forEach((s) => {
+          ;(s.on || []).forEach((e) => {
+            if (!byName[e.to]) return
+            lines.push(`  ${idFor(s.name)} -->|${mlabel(e.pattern)}| ${idFor(e.to)}`)
+          })
+          // Retry redirect (dashed) — informative, mirrors the "routes in from" list.
+          if (s.retry && byName[s.retry.otherwise]) {
+            lines.push(
+              `  ${idFor(s.name)} -.->|${mlabel("retry ×" + s.retry.max)}| ${idFor(s.retry.otherwise)}`,
+            )
+          }
+        })
+
+        lines.push(
+          "classDef human fill:#fbeccd,stroke:#d99413,color:#5a3d0a;",
+          "classDef agent fill:#e5e2fb,stroke:#6d5ce0,color:#3a2c85;",
+          "classDef check fill:#d3f0ef,stroke:#16a39d,color:#0c524f;",
+          "classDef commit fill:#fbdfe4,stroke:#d84a68,color:#8a1f38;",
+          "classDef unknown fill:#eef1f7,stroke:#c2ccdb,color:#55607a,stroke-dasharray:4 3;",
+        )
+        return lines.join("\n")
+      }
+
+      DIAGRAM_SRC = buildMermaid()
+      document.getElementById("diaNote").innerHTML =
+        `Every state as a node — shape is the content kind, colour is the actor. Each edge is an ` +
+        `<span class="mono">on</span> pattern (first match wins); dashed edges are ` +
+        `<span class="mono">retry</span> redirects. Sub-machines are drawn as labelled boxes. ` +
+        `Scrolls horizontally if wide.`
+
+      // ── diagram render (theme-aware, offline-tolerant) ─────────────────
+      async function loadMermaid() {
+        if (mermaidMod) return mermaidMod
+        const m = await import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs")
+        mermaidMod = m.default
+        return mermaidMod
+      }
+      async function renderDiagram() {
+        const host = document.getElementById("diaScroll")
+        const seq = ++renderSeq
+        let mermaid
+        try {
+          mermaid = await loadMermaid()
+        } catch (e) {
+          host.innerHTML =
+            `<div class="dia-msg">Could not load the Mermaid renderer (offline?). ` +
+            `The workflow is still fully browsable below. Diagram source:` +
+            `<pre class="dia-src">${esc(DIAGRAM_SRC)}</pre></div>`
+          return
+        }
+        if (seq !== renderSeq) return
+        try {
+          const dark = isDark()
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: "base",
+            securityLevel: "strict",
+            flowchart: { useMaxWidth: false, htmlLabels: true },
+            themeVariables: {
+              fontFamily: "ui-monospace, Menlo, monospace",
+              fontSize: "12.5px",
+              lineColor: dark ? "#6b7690" : "#8a93a6",
+              primaryBorderColor: dark ? "#3a465c" : "#c2ccdb",
+              tertiaryColor: dark ? "#1c2434" : "#f0f3f8",
+              clusterBkg: dark ? "#1c2434" : "#f0f3f8",
+              clusterBorder: dark ? "#3a465c" : "#c2ccdb",
+              titleColor: dark ? "#e6ebf4" : "#1a2233",
+            },
+          })
+          const { svg } = await mermaid.render("gtdflow" + seq, DIAGRAM_SRC)
+          if (seq !== renderSeq) return
+          host.innerHTML = `<div class="mflow">${svg}</div>`
+        } catch (e) {
+          host.innerHTML =
+            `<div class="dia-msg">Diagram render failed: ${esc(e.message)}. ` +
+            `Diagram source:<pre class="dia-src">${esc(DIAGRAM_SRC)}</pre></div>`
+        }
+      }
+      renderDiagram()
+
+      // ── sub-machines panel ──────────────────────────────────────────────
+      ;(function renderSubmachines() {
+        const el = document.getElementById("smSection")
+        const groups = MODEL.groups || []
+        if (!groups.length) {
+          el.innerHTML = `<p class="muted-note">This workflow declares no sub-machines.</p>`
+          return
+        }
+        const grid = document.createElement("div")
+        grid.className = "sm-grid"
+        groups.forEach((g) => {
+          const card = document.createElement("div")
+          card.className = "sm-def"
+          const chips = (g.states || [])
+            .map((n) => {
+              const s = byName[n]
+              const a = s ? actorOf(s) : "unknown"
+              return `<button class="goto" data-actor="${a}" data-to="${esc(n)}">${esc(n)}</button>`
+            })
+            .join("")
+          card.innerHTML =
+            `<div class="h"><span class="nm">${esc(g.name)}</span>` +
+            `<span class="pm">instantiates <b>${esc(g.submachine)}</b> · ${(g.states || []).length} states</span></div>` +
+            `<div class="body">${chips}</div>`
+          grid.appendChild(card)
+        })
+        el.innerHTML = ""
+        el.appendChild(grid)
+        el.querySelectorAll(".goto").forEach((b) => (b.onclick = () => openDrawer(b.dataset.to)))
+      })()
+
+      // ── vars ─────────────────────────────────────────────────────────────
+      ;(function renderVars() {
+        const vars = MODEL.vars || {}
+        const keys = Object.keys(vars)
+        if (!keys.length) return
+        const el = document.getElementById("smSection")
+        const box = document.createElement("div")
+        box.innerHTML =
+          `<div class="sec-head" style="margin-top:34px"><h2>Workflow variables</h2><span class="rule"></span></div>` +
+          `<div class="vars-grid">${keys
+            .map((k) => `<span class="var-chip"><b>${esc(k)}</b> = ${esc(vars[k])}</span>`)
+            .join("")}</div>`
+        el.appendChild(box)
+      })()
+
+      // ── kind chips + actor legend ──────────────────────────────────────
+      const kindChipsEl = document.getElementById("kindChips")
+      const presentKinds = ["all", ...Array.from(new Set(STATES.map((s) => s.kind)))]
+      presentKinds.forEach((k) => {
+        const b = document.createElement("button")
+        b.className = "chip-btn" + (k === "all" ? " on" : "")
+        b.textContent = k
+        b.dataset.kind = k
+        b.onclick = () => {
+          kindFilter = k
+          ;[...kindChipsEl.children].forEach((c) =>
+            c.classList.toggle("on", c.dataset.kind === kindFilter),
+          )
+          renderCatalogue()
+        }
+        kindChipsEl.appendChild(b)
+      })
+
+      const legendEl = document.getElementById("legend")
+      ;["human", "agent", "check", "commit", "unknown"].forEach((a) => {
+        if (!counts[a]) return
+        const el = document.createElement("button")
+        el.className = "li"
+        el.dataset.actor = a
+        el.setAttribute("aria-pressed", "true")
+        el.innerHTML = `<span class="dot" style="background:var(--${meta(a).dot}-dot)"></span>${meta(a).label}`
+        el.onclick = () => {
+          const on = actorFilter.has(a)
+          on ? actorFilter.delete(a) : actorFilter.add(a)
+          el.classList.toggle("off", on)
+          el.setAttribute("aria-pressed", String(!on))
+          renderCatalogue()
+        }
+        legendEl.appendChild(el)
+      })
+
+      // ── catalogue ──────────────────────────────────────────────────────
+      const groupsEl = document.getElementById("groups")
+      function stateMatches(s, q) {
+        if (!actorFilter.has(actorOf(s))) return false
+        if (kindFilter !== "all" && s.kind !== kindFilter) return false
+        if (!q) return true
+        const hay = [
+          s.name,
+          s.actor,
+          s.kind,
+          s.file,
+          s.mode,
+          s.model,
+          s.memory,
+          (s.flags || []).join(" "),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+        return hay.includes(q)
+      }
+      function cardFor(s) {
+        const a = actorOf(s)
+        const card = document.createElement("button")
+        card.className = "card"
+        card.dataset.actor = a
+        const flags = (s.flags || [])
+          .filter((f) => f !== "initial")
+          .map((f) => `<span class="flag">${esc(f)}</span>`)
+          .join("")
+        const retry = s.retry ? `<span class="flag">retry ${s.retry.max}</span>` : ""
+        const initTick = s.initial ? `<div class="init-tick">initial</div>` : ""
+        card.innerHTML =
+          `${initTick}<div class="name">${esc(s.name)}</div>` +
+          `<div class="row">${pill(a)}<span class="kind">${esc(s.kind)}</span>${retry}${flags}</div>`
+        card.onclick = () => openDrawer(s.name)
+        return card
+      }
+      function renderCatalogue() {
+        const q = document.getElementById("search").value.trim().toLowerCase()
+        groupsEl.innerHTML = ""
+        const sections = []
+        ;(MODEL.groups || []).forEach((g) => {
+          sections.push({
+            label: g.name,
+            flow: g.submachine,
+            items: STATES.filter((s) => s.group === g.name),
+          })
+        })
+        const ungrouped = STATES.filter((s) => !s.group)
+        if (ungrouped.length) sections.push({ label: "Ungrouped", flow: "", items: ungrouped })
+
+        let shown = 0
+        sections.forEach((sec) => {
+          const items = sec.items.filter((s) => stateMatches(s, q))
+          if (!items.length) return
+          shown += items.length
+          const wrap = document.createElement("div")
+          wrap.className = "group"
+          wrap.innerHTML =
+            `<div class="group-head">${sec.flow ? `<span class="flow-tag">${esc(sec.flow)}</span>` : ""}` +
+            `<h3>${esc(sec.label)}</h3></div>`
+          const grid = document.createElement("div")
+          grid.className = "grid"
+          items.forEach((s) => grid.appendChild(cardFor(s)))
+          wrap.appendChild(grid)
+          groupsEl.appendChild(wrap)
+        })
+        if (!shown)
+          groupsEl.innerHTML = `<p class="none" style="padding:20px 0">No states match this filter.</p>`
+      }
+      document.getElementById("search").addEventListener("input", renderCatalogue)
+      renderCatalogue()
+
+      // ── drawer ─────────────────────────────────────────────────────────
+      const drawer = document.getElementById("drawer")
+      const backdrop = document.getElementById("backdrop")
+      let lastFocus = null
+
+      function openDrawer(name) {
+        const s = byName[name]
+        if (!s) return
+        const a = actorOf(s)
+        if (!drawer.classList.contains("open")) lastFocus = document.activeElement
+
+        const kv = []
+        kv.push(["actor", pill(a)])
+        kv.push(["kind", `<span class="kind">${esc(s.kind)}</span>`])
+        kv.push(["model", s.model ? esc(s.model) : '<span class="none">—</span>'])
+        kv.push(["memory", s.memory ? esc(s.memory) : '<span class="none">—</span>'])
+        kv.push(["file", s.file ? esc(s.file) : '<span class="none">—</span>'])
+        kv.push(["mode", s.mode ? esc(s.mode) : '<span class="none">—</span>'])
+        if (s.retry)
+          kv.push([
+            "retry",
+            `max ${s.retry.max} → <span style="color:var(--accent)">${esc(s.retry.otherwise)}</span>`,
+          ])
+        if (s.group) kv.push(["group", esc(s.group)])
+
+        const flags = s.flags || []
+        const flagBlock = flags.length
+          ? `<div class="field"><div class="k">flags & gates</div><div class="flag-list">${flags
+              .map(
+                (f) =>
+                  `<div class="flag-item"><span class="fn">${esc(f)}</span><span class="fd">${esc(FLAGS[f] || "")}</span></div>`,
+              )
+              .join("")}</div></div>`
+          : ""
+
+        const edges = s.on || []
+        const edgesBlock = edges.length
+          ? `<div class="field"><div class="k">outgoing edges — on (first match wins)</div><div class="edges">${edges
+              .map((e) => {
+                const t = byName[e.to]
+                const ta = t ? actorOf(t) : "unknown"
+                return (
+                  `<div class="edge"><div class="er"><span class="pat">${esc(e.pattern)}</span><span class="arr">→</span>` +
+                  `<button class="goto" data-actor="${ta}" data-to="${esc(e.to)}">${esc(e.to)}</button></div>` +
+                  `${e.describe ? `<div class="em">${esc(e.describe)}</div>` : ""}</div>`
+                )
+              })
+              .join("")}</div></div>`
+          : `<div class="field"><div class="k">outgoing edges</div><p class="none">${
+              s.kind === "commit"
+                ? "Commit state — no outgoing edges. Entering it ends the process in one squash."
+                : "No outgoing edges declared."
+            }</p></div>`
+
+        const retryOut =
+          s.retry && byName[s.retry.otherwise]
+            ? `<div class="field"><div class="k">retry redirect</div><div class="edge"><div class="er">` +
+              `<span class="pat">after ${esc(s.retry.max)} tries</span><span class="arr">→</span>` +
+              `<button class="goto" data-actor="${actorOf(byName[s.retry.otherwise])}" data-to="${esc(s.retry.otherwise)}">${esc(s.retry.otherwise)}</button>` +
+              `</div></div></div>`
+            : ""
+
+        const inc = s.incoming || []
+        const incBlock =
+          `<div class="field"><div class="k">routes in from (${inc.length})</div>` +
+          (inc.length
+            ? `<div class="incoming">${inc
+                .map((i) => {
+                  const f = byName[i.from]
+                  return `<button class="goto" data-actor="${f ? actorOf(f) : "unknown"}" data-to="${esc(i.from)}" title="${esc(i.pattern)}">${esc(i.from)}</button>`
+                })
+                .join("")}</div>`
+            : `<p class="none">Reached only as an entry point (a CLI command enters it directly).</p>`) +
+          `</div>`
+
+        drawer.style.setProperty("--card-accent", `var(--${meta(a).dot}-dot)`)
+        drawer.innerHTML =
+          `<div class="drawer-head" style="--card-accent:var(--${meta(a).dot}-dot)">` +
+          `<div class="top"><h3>${esc(s.name)}</h3>` +
+          `<button class="close-x" id="closeX" aria-label="Close detail">✕</button></div>` +
+          `<div class="meta-row">${pill(a)}<span class="kind">${esc(s.kind)}</span>` +
+          `${s.initial ? '<span class="flag">initial</span>' : ""}` +
+          `${s.retry ? `<span class="flag">retry ${s.retry.max}</span>` : ""}` +
+          `${flags
+            .filter((f) => f !== "initial")
+            .map((f) => `<span class="flag">${esc(f)}</span>`)
+            .join("")}</div></div>` +
+          `<div class="drawer-body">` +
+          `<div class="field"><div class="k">definition</div><dl class="kv">${kv
+            .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`)
+            .join("")}</dl></div>` +
+          flagBlock +
+          edgesBlock +
+          retryOut +
+          incBlock +
+          `</div>`
+
+        drawer
+          .querySelectorAll(".goto")
+          .forEach((b) => (b.onclick = () => openDrawer(b.dataset.to)))
+        drawer.querySelector("#closeX").onclick = closeDrawer
+
+        backdrop.classList.add("open")
+        drawer.classList.add("open")
+        drawer.querySelector(".drawer-body").scrollTop = 0
+        drawer.querySelector("#closeX").focus()
+      }
+      function closeDrawer() {
+        backdrop.classList.remove("open")
+        drawer.classList.remove("open")
+        if (lastFocus && lastFocus.focus) lastFocus.focus()
+      }
+      backdrop.onclick = closeDrawer
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && drawer.classList.contains("open")) closeDrawer()
+      })
+
+      // expose for interactions
+      window.__openState = openDrawer
+    </script>
+  </body>
+</html>

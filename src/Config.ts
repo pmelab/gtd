@@ -11,7 +11,11 @@ import {
   mergeModes,
 } from "./PatternConfig.js"
 import { type ModeDef, type WorkflowDefinition } from "./PatternMachine.js"
-import { defaultWorkflowDefinition, defaultWorkflowVars } from "./workflows/templates.js"
+import {
+  defaultWorkflowDefinition,
+  defaultWorkflowRaw,
+  defaultWorkflowVars,
+} from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
 import { ConfigSchema, type DecodedConfig } from "./ConfigSchema.js"
@@ -23,6 +27,15 @@ export interface ConfigOperations {
   readonly workflowVars: Record<string, string>
   /** The top-level `.gtdrc` `vars:` key (layer 2), already cwd→home deep-merged like any other config key. `{}` when absent. */
   readonly rcVars: Record<string, string>
+  /**
+   * The active workflow's RAW value — the `.gtdrc` `workflow:` key BEFORE
+   * `compileWorkflowConfig` expands/compiles it (so it still carries any
+   * `submachines:`/`use:`), or the built-in default's raw (`defaultWorkflowRaw`)
+   * when no `workflow:` is configured. Tooling that needs the sub-machine
+   * grouping the compiled `workflow` flattens away (e.g. `gtd visualize`) reads
+   * it via `collectGroups`; the engine never does.
+   */
+  readonly rawWorkflow: unknown
 }
 
 /**
@@ -262,6 +275,7 @@ const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations =>
         modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition,
       workflowVars: defaultWorkflowVars,
       rcVars,
+      rawWorkflow: defaultWorkflowRaw,
     }
   }
   const { definition, vars: workflowVars } = compileWorkflowConfig(
@@ -270,7 +284,7 @@ const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations =>
     rcModes,
     false,
   )
-  return { workflow: definition, workflowVars, rcVars }
+  return { workflow: definition, workflowVars, rcVars, rawWorkflow: decoded.workflow }
 }
 
 const formatSchemaError = (e: ParseError): string => {
