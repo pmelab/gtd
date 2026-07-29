@@ -4,8 +4,9 @@ import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Layer } from "effect"
 import { NodeContext } from "@effect/platform-node"
-import { ConfigService, NO_WORKFLOW_MESSAGE } from "./Config.js"
+import { ConfigService } from "./Config.js"
 import { Cwd } from "./Cwd.js"
+import { compileTemplate } from "./workflows/templates.js"
 
 // ConfigService.Live only loads/validates the config — it never writes.
 // NodeContext.layer satisfies FileSystem + CommandExecutor.
@@ -47,24 +48,39 @@ const minimalWorkflowYaml = (idleMessage: string) =>
   ].join("\n")
 
 describe("ConfigService", () => {
-  it("with no config anywhere: fails with the `gtd init` hint (there is no default)", async () => {
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+  it("with no config anywhere: falls back to the built-in default workflow", async () => {
+    const cfg = await getConfig()
 
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain(NO_WORKFLOW_MESSAGE)
-    }
+    // The built-in default is gtd's bundled unified template — same compiled
+    // shape and its own `vars:` defaults.
+    const { definition, vars } = compileTemplate()
+    expect(cfg.workflow).toEqual(definition)
+    expect(cfg.workflowVars).toEqual(vars)
+    expect(cfg.rcVars).toEqual({})
   })
 
-  it("a config with a top-level `vars:` but no `workflow:` still fails with the init hint", async () => {
-    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  testCommand: "npm test"\n`)
+  it("a config with a top-level `vars:` but no `workflow:` uses the built-in default", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  testCommand: "custom-test"\n`)
 
-    const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
+    const cfg = await getConfig()
 
-    expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain(NO_WORKFLOW_MESSAGE)
-    }
+    // No `workflow:` -> built-in default; the top-level `vars:` still loads as
+    // the `rcVars` layer that overrides the workflow's own defaults.
+    expect(cfg.workflow).toEqual(compileTemplate().definition)
+    expect(cfg.rcVars).toEqual({ testCommand: "custom-test" })
+  })
+
+  it("layers a top-level `modes:` key over the built-in default's modes", async () => {
+    writeFileSync(
+      join(projectDir, ".gtdrc.yaml"),
+      [`modes:`, `  qa:`, `    format: "adr-fmt <%= it.file %>"`, ``].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    // No `workflow:` -> built-in default, with the rc `modes:` merged in.
+    expect(cfg.workflow.states).toEqual(compileTemplate().definition.states)
+    expect(cfg.workflow.modes?.qa).toEqual({ format: "adr-fmt <%= it.file %>" })
   })
 
   it("reads a custom `workflow:` from a single .gtdrc.yaml in cwd", async () => {

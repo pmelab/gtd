@@ -1,12 +1,15 @@
 # Configuration
 
-gtd reads a required `.gtdrc` config file via
-[cosmiconfig](https://github.com/cosmiconfig/cosmiconfig). gtd ships **no**
-default workflow: scaffold one for the repo with [`gtd init`](#gtd-init) (once),
-which writes a `.gtdrc.json` for a bundled workflow template (with its agent
-prompts as editable Markdown under `gtd-prompts/`). A state command run with no
-`workflow:` configured fails, pointing you at `gtd init`. Supported filenames
-(searched in this order):
+gtd reads an optional `.gtdrc` config file via
+[cosmiconfig](https://github.com/cosmiconfig/cosmiconfig). gtd ships the bundled
+**unified** workflow as its **built-in default**: with no `workflow:` configured
+anywhere in the cwd→home config chain, that default is used automatically, so a
+state command works out of the box with no config at all.
+[`gtd init`](#gtd-init) is optional — it seeds a minimal `.gtdrc.json` with the
+two things most projects tune (a `testCommand` var and a Prettier formatting
+suggestion), not the workflow. To CUSTOMIZE the machine itself, add your own
+[`workflow:`](#the-workflow-key) key. Supported filenames (searched in this
+order):
 
 - `.gtdrc`
 - `.gtdrc.json`
@@ -19,10 +22,11 @@ prompts as editable Markdown under `gtd-prompts/`). A state command run with no
 
 v3's `.gtdrc` has exactly three blessed top-level keys:
 
-- **`workflow`** (object, **required**) — the whole machine definition (its
-  states, plus its own `vars:` defaults and `modes:`), compiled by
-  `src/PatternConfig.ts`. Absent = a hard error pointing at
-  [`gtd init`](#gtd-init); there is no bundled default. See
+- **`workflow`** (object, optional) — the whole machine definition (its states,
+  plus its own `vars:` defaults and `modes:`), compiled by
+  `src/PatternConfig.ts`. Absent = gtd's built-in default (the bundled unified
+  workflow) is used. Declare it to fully REPLACE that default with your own
+  machine (there is no `extends`/merge). See
   ["The `workflow:` key" below](#the-workflow-key) for its schema.
 - **`vars`** (object, optional) — a flat `name -> scalar` map, one layer of the
   merged `it.vars` every template sees — see ["Variables"](#variables) below.
@@ -52,11 +56,12 @@ interprets.
 > verify a change compiles. This section is the exhaustive schema reference
 > behind it.
 
-The `workflow:` key is the **only** definition source — there is no `extends`,
-no merge-over-a-built-in. The bundled template `gtd init` scaffolds is itself a
-YAML asset (`src/workflows/unified.yaml`) compiled through the exact same
-compiler (`compileWorkflowConfig`); `gtd init` just writes it, inline, under
-this key. Its shape:
+A declared `workflow:` key fully REPLACES gtd's built-in default — there is no
+`extends`, no merge-over-a-built-in. The built-in default is itself a YAML asset
+(`src/workflows/unified.yaml`) compiled through the exact same compiler
+(`compileWorkflowConfig`) your own `workflow:` value goes through — no
+privileged code path — so you can materialize it into config form as a starting
+point to edit (`renderInitConfig` in `src/workflows/templates.ts`). Its shape:
 
 ```yaml
 workflow:
@@ -107,8 +112,8 @@ root, discovers the parent `.gtdrc` by walking up the directory chain (see
 level's `./`-relative references against that level's own directory. When
 workflows are layered across levels, every reference resolves against the file
 that wrote it, so a parent's `./gtd-prompts/x.md` and a child's never collide.
-You can scaffold such a shared config by running [`gtd init`](#gtd-init) from
-that parent directory — it need not be a git repository.
+(This is a capability of a `.gtdrc` you write yourself — `gtd init` seeds only
+`vars:`/`modes:`, not a `workflow:` with file references.)
 
 ```yaml
 workflow:
@@ -380,16 +385,17 @@ So for a state declaring `mode: qa`:
 | both                             | its `format:` | its `validate:`             |
 
 That is what makes the built-in modes extensible rather than all-or-nothing —
-and the top-level key means a project can plug its formatter into the workflow
-it scaffolded (`gtd init`) without re-declaring a `modes:` block on the workflow
-itself. **`gtd init` seeds exactly this block by default** (the Prettier
-suggestion below), so a fresh repo already formats its steering files — edit or
-drop it to taste. It sits alongside the `workflow:` key in your `.gtdrc.json`:
+and the top-level key means a project can plug its formatter into the built-in
+default workflow (or its own) without re-declaring a `modes:` block on the
+workflow itself. **`gtd init` seeds exactly this block by default** (the
+Prettier suggestion below), so a fresh repo already formats its steering files —
+edit or drop it to taste. It is what a scaffolded `.gtdrc.json` contains
+(`gtd init` writes no `workflow:` key — the built-in default is used):
 
 ```jsonc
-// .gtdrc.json — the workflow from `gtd init`, plus your own markdown formatter
+// .gtdrc.json — as scaffolded by `gtd init`: a testCommand var and the markdown formatter
 {
-  "workflow": { "...": "..." },
+  "vars": { "testCommand": "npm test" },
   "modes": {
     "qa": { "format": "npx prettier --write <%= it.file %>" },
     "review": { "format": "npx prettier --write <%= it.file %>" },
@@ -702,24 +708,21 @@ can still override with its own `.gtdrc`.
 
 ## `gtd init`
 
-gtd ships **no** default workflow, so a repo must scaffold one before any state
-command works:
+gtd ships the bundled unified workflow as its **built-in default**, so a state
+command works out of the box with **no** config and no init at all. `gtd init`
+is therefore optional — it just seeds the two things most projects tune:
 
 ```bash
 gtd init      # takes no argument
 ```
 
-`gtd init` writes a `.gtdrc.json` at the repository root with the bundled
-unified template's workflow under a `workflow:` key, plus a `$schema` link (so
-editors pick up completion/validation). It takes **no argument** — passing one
-is a usage error (`gtd init: too many arguments — init takes no argument`). Each
-**agent state's prompt** is written as a standalone Markdown file under
-`gtd-prompts/<state>.md` and the config references it via a
-`./gtd-prompts/<state>.md`
-[file reference](#content-values-inline-or-a-file-reference) — gtd inlines it at
-load time, so a prompt is editable Markdown and editing it changes the workflow
-with no config edit. Human `message:` blocks and check `script:` bodies stay
-inline in the config (they are workflow mechanics, not prompts).
+`gtd init` writes a **minimal** `.gtdrc.json` at the repository root — a
+`$schema` link (so editors pick up completion/validation), a
+`vars: { "testCommand": "npm test" }` entry (the var the built-in workflow's
+check script reads), and a ready-to-edit `modes:` formatting suggestion (below).
+It writes **no** `workflow:` key — the built-in default is used until you
+declare your own. It takes **no argument** — passing one is a usage error
+(`gtd init: too many arguments — init takes no argument`).
 
 `gtd init` writes only config — it derives no git state — so it need not run in
 a git repository. It runs at a **repository root** or in a directory **outside
@@ -731,9 +734,9 @@ only to write into a repository **subdirectory**, where the upward config walk
 would never find the file. Either way, it will not overwrite an existing config
 at that directory (remove it first to re-scaffold).
 
-It also seeds a top-level [`modes:`](#modes--pluggable-steering-file-modes)
-block as a ready-to-edit suggestion — a Prettier `format:` for each built-in
-steering-file mode the template uses:
+The [`modes:`](#modes--pluggable-steering-file-modes) block it seeds is a
+ready-to-edit suggestion — a Prettier `format:` for each built-in steering-file
+mode the default workflow uses:
 
 ```jsonc
 "modes": {
@@ -748,8 +751,8 @@ this is the one default it suggests: a fresh repo auto-formats its steering
 files out of the box, and you edit or drop the block freely (swap Prettier for
 dprint, point at a script, or delete the key).
 
-The one bundled template has three entry points into a shared review/squash tail
-(all walked through in
+The built-in default workflow has three entry points into a shared review/squash
+tail (all walked through in
 [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)):
 
 - **the simple flow** — creating `.gtd/TODO.md` starts idle → planning ⇄
@@ -763,20 +766,15 @@ The one bundled template has three entry points into a shared review/squash tail
   review a foreign branch.
 
 Both file-created flows converge on `reviewing` → `await-review`, and a full
-sign-off squashes the whole cycle into one commit.
+sign-off squashes the whole cycle into one commit. To CUSTOMIZE any of this, add
+a [`workflow:`](#the-workflow-key) key that fully replaces the default.
 
-The files are written **uncommitted** — review them, then commit `.gtdrc.json`
-and `gtd-prompts/` before your first `gtd step` (an uncommitted file is a
-pending change the initial state's `* **` edge would otherwise capture).
-`gtd init` refuses if the repo root already has its OWN gtd config (remove it
-first to re-init; a global/ancestor config such as `~/.gtdrc` does not count),
-requires the repository root, and is one of the two commands (with `gtd lsp`)
-that run with no workflow configured. A state command run before `gtd init`
-fails with:
-
-```
-gtd: no workflow configured — run `gtd init` to create .gtdrc.json
-```
+The file is written **uncommitted** — review it, then commit `.gtdrc.json`
+before your first `gtd step` (an uncommitted file is a pending change the
+initial state's `* **` edge would otherwise capture). `gtd init` refuses if the
+repo root already has its OWN gtd config (remove it first to re-init; a
+global/ancestor config such as `~/.gtdrc` does not count) and requires the
+repository root (or a directory outside any repo).
 
 ## A complete example
 

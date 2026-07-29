@@ -23,21 +23,26 @@ what the user wants. This skill is the authoring contract;
 `skills/loop/SKILL.md` is the separate contract for _driving_ a workflow once it
 exists.
 
-## Golden rule: start from a bundled template, edit incrementally
+## Golden rule: start from the built-in default, edit incrementally
 
-Do **not** write a workflow from a blank page. gtd ships one known-good
-template. Scaffold it and edit it:
+Do **not** write a workflow from a blank page. gtd ships one known-good workflow
+— the unified template (two file-keyed entry points, simple / advanced, into one
+shared review + squash-finale tail) — and RUNS it as its built-in default when
+no `workflow:` key is configured. To customize it, declare a `workflow:` key
+that fully REPLACES the default (there is no `extends`/merge), so start from the
+default's own source and edit it:
 
 ```bash
-gtd init      # the unified template: two file-keyed entry points (simple /
-              # advanced) into one shared review + squash-finale tail
+# The built-in default's source, heavily commented — copy from it, don't start blank:
+src/workflows/unified.yaml
 ```
 
-`gtd init` writes the template inline under the `workflow:` key of a new
-`.gtdrc.json` (it refuses if a config already exists). If a `.gtdrc` is already
-present, read its `workflow:` and edit in place instead. When in doubt about a
-construct, read the bundled source for a working example:
-`src/workflows/unified.yaml` (heavily commented).
+If a `.gtdrc` already declares a `workflow:`, read it and edit in place instead.
+Otherwise, materialize the built-in default into config form (`renderInitConfig`
+in `src/workflows/templates.ts`) as your starting point, or hand-copy the states
+you want to change from `src/workflows/unified.yaml`. `gtd init` does **not**
+write a workflow — it only seeds a minimal `.gtdrc.json` (a `testCommand` var
+and a formatting suggestion), so it is not the way to scaffold one to edit.
 
 Make one small change, **verify it compiles** (see "Verify" below), then make
 the next. A workflow that fails to compile breaks every `gtd` state command in
@@ -48,7 +53,7 @@ the repo, so never leave it broken between edits.
 Exactly these top-level keys (any other key is a hard error):
 
 ```yaml
-workflow: # REQUIRED — the whole machine (states + its own vars/modes)
+workflow: # optional — the whole machine (states + its own vars/modes)
   vars: { ... } # optional — the workflow's own it.vars defaults
   modes: { ... } # optional — steering-file modes a state's mode: may name
   states: { ... } # the named states
@@ -57,9 +62,11 @@ modes: { ... } # optional — project layer over workflow.modes
 $schema: "..." # optional — point at the shipped schema.json for editor autocomplete
 ```
 
-There is **no default workflow** and no `extends`/merge — `workflow:` is the
-sole definition source. Config can be `.gtdrc`, `.gtdrc.json`, `.gtdrc.yaml`,
-`.gtdrc.yml`, `gtd.config.json`, or `gtd.config.yaml`.
+gtd ships a **built-in default** workflow (the unified template), used when no
+`workflow:` key is configured. A declared `workflow:` fully REPLACES it — there
+is **no** `extends`/merge, so `workflow:` is the sole definition source when
+present. Config can be `.gtdrc`, `.gtdrc.json`, `.gtdrc.yaml`, `.gtdrc.yml`,
+`gtd.config.json`, or `gtd.config.yaml`.
 
 ## Anatomy of a state
 

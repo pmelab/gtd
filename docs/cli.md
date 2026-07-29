@@ -4,12 +4,12 @@
 Usage: gtd [command] [options]
 
 Commands:
-  init             Scaffold a .gtdrc.json for this repo with the bundled
-                   unified workflow; its agent prompts are written as editable
-                   Markdown under gtd-prompts/ and referenced from the config.
-                   Takes no argument. Run once per repo; refuses if a gtd
-                   config already exists. Leaves the files uncommitted for you
-                   to review and commit
+  init             Scaffold a minimal .gtdrc.json for this repo, seeding a
+                   testCommand var (npm test) and a ready-to-edit Prettier
+                   formatting suggestion under modes:. Writes no workflow — gtd
+                   runs the bundled unified workflow as its built-in default.
+                   Takes no argument. Refuses if a gtd config already exists.
+                   Leaves the file uncommitted for you to review and commit
   step <actor>     Authenticate as <actor>, match the resolved rest's
                    declared patterns against the pending changes, and commit
                    (or squash) the one resulting transition. Pass
@@ -65,15 +65,17 @@ mistyped flag can never degrade a JSON caller to plain-text mode. A bare
 
 ## `gtd init`
 
-Scaffolds a `.gtdrc.json` at the repository root with the bundled **unified**
-workflow template inline under a `workflow:` key, plus a `$schema` link. It
-takes **no argument** — passing one is a usage error
-(`gtd init: too many arguments — init takes no argument`). gtd ships **no**
-default workflow, so this is the one-time setup step for a repo; a state command
-run before it fails with `gtd: no workflow configured — run \`gtd init\` to
-create .gtdrc.json`.
+Scaffolds a **minimal** `.gtdrc.json` at the repository root, plus a `$schema`
+link. It writes **no** `workflow:` key — gtd runs the bundled **unified**
+workflow as its built-in default, so a state command works out of the box with
+no config and no init at all. What `gtd init` seeds is the two things most
+projects tune: a `vars: { "testCommand": "npm test" }` entry (the var the
+bundled workflow's check script reads) and a ready-to-edit `modes:` block
+suggesting a Prettier `format:` for each built-in steering-file mode
+(`qa`/`review`). It takes **no argument** — passing one is a usage error
+(`gtd init: too many arguments — init takes no argument`).
 
-The unified template has four entry points — each behind a green-baseline gate
+The bundled default has four entry points — each behind a green-baseline gate
 that runs the suite before starting — into one shared review/squash tail (see
 [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)): creating
 `.gtd/TODO.md` starts the simple flow (planning → building → checking), creating
@@ -81,15 +83,16 @@ that runs the suite before starting — into one shared review/squash tail (see
 per-package parallel build, agentic spec-review), `gtd review <commitish>`
 enters review directly, and `gtd fix` goes straight into repairing failing
 tests. A red baseline halts at a `*-start-blocked` gate rather than starting new
-work.
+work. To CUSTOMIZE that machine, add your own `workflow:` key (a full definition
+— there is no `extends`/merge); see
+[Configuration](configuration.md#the-workflow-key).
 
 The file is written **uncommitted**; review and commit it before your first
 `gtd step` (an uncommitted `.gtdrc.json` is a pending change the initial state
 would otherwise capture). `gtd init` refuses if the repo root already has its
-own gtd config (a global/ancestor config, e.g. `~/.gtdrc`, does not count),
-requires the repository root, and — with `gtd lsp` — is one of the two commands
-that run with no workflow configured. `--json` prints
-`{"written":".gtdrc.json","workflow":"unified","prompts":[…]}`. See
+own gtd config (a global/ancestor config, e.g. `~/.gtdrc`, does not count) and
+requires the repository root (or a directory outside any repo). `--json` prints
+`{"written":".gtdrc.json","inRepo":true}`. See
 [Configuration](configuration.md#gtd-init).
 
 ## `gtd step <actor> [--cost=<n>] [--model=<name>]`
@@ -460,11 +463,11 @@ naming the state instead — bind it to an editor keybinding for a "jump to the
 active steering file" command.
 
 Dispatched before the repository-root guard and the config-reading path — the
-server needs no git/workflow state of its own (like `gtd init`, it runs with no
-workflow configured). Rejects `--json` (exit 1,
-`gtd lsp does not accept --json`) and extra positional arguments — it's a
-long-running server, not a state command. Runs until the client disconnects (the
-LSP `exit` notification), then exits cleanly.
+server needs no git/workflow state of its own (like `gtd init`, it needs no
+config to run). Rejects `--json` (exit 1, `gtd lsp does not accept --json`) and
+extra positional arguments — it's a long-running server, not a state command.
+Runs until the client disconnects (the LSP `exit` notification), then exits
+cleanly.
 
 ## Error envelope
 

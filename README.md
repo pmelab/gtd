@@ -49,28 +49,28 @@ Or run without installing:
 npx @pmelab/gtd
 ```
 
-Then scaffold the workflow for the repo — run once:
+That's it — gtd ships the **unified** workflow as its **built-in default**, so a
+state command works out of the box with no configuration at all.
+
+Optionally, seed the settings a project usually tunes — run once:
 
 ```bash
 gtd init
 ```
 
-This writes a `.gtdrc.json` for the bundled unified workflow, with each agent
-state's prompt saved as an editable Markdown file under `gtd-prompts/` and
-referenced from the config (review and commit both). Edit a prompt by editing
-its `gtd-prompts/*.md` file — no config edit needed. File references resolve
-relative to **the `.gtdrc` that declares them**, so a config and its
-`gtd-prompts/` can even live in a parent directory shared across repos while gtd
-runs from each repo root — run `gtd init` from that parent directory (it need
-not be a git repo) to scaffold it there (see
-[Configuration](docs/configuration.md#content-values-inline-or-a-file-reference)).
-It also seeds a top-level `modes:` block suggesting **Prettier** as the
-steering-file formatter (`npx prettier --write` for the built-in `qa`/`review`
-modes — format only, so gtd still validates); edit or drop it freely (swap in
-dprint, a script, or delete the key). `gtd init` takes no argument. gtd ships
-**no** default workflow: a state command run before `gtd init` fails, pointing
-you back here. See [Configuration](docs/configuration.md#gtd-init) for the
-template.
+This writes a minimal `.gtdrc.json` seeding the one variable most projects
+change — the test command (`vars.testCommand`, defaulting to `npm test`) — plus
+a top-level `modes:` block suggesting **Prettier** as the steering-file
+formatter (`npx prettier --write` for the built-in `qa`/`review` modes — format
+only, so gtd still validates); edit or drop either freely (point `testCommand`
+at your suite, swap Prettier for dprint or a script, delete a key). It writes
+**no** `workflow:` key — the machine is built in — so review and commit the file
+before your first `gtd step`. `gtd init` takes no argument and refuses to
+clobber an existing config; it may also run in a plain parent directory (not a
+git repo) to seed a shared config a nested repo picks up. To customize the
+machine itself, add a `workflow:` key (there is no default fallback to merge
+over — a `workflow:` is the whole definition). See
+[Configuration](docs/configuration.md#gtd-init) for the details.
 
 ## How it works
 

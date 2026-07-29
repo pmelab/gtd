@@ -330,15 +330,16 @@ anything touches the repository. See
 
 ## 10. The bundled workflow template
 
-gtd ships **no** default workflow — a repo scaffolds one with `gtd init` (no
-argument, see [Configuration](docs/configuration.md#gtd-init)), which writes the
-single bundled template (`src/workflows/unified.yaml`) into `.gtdrc.json` — each
-agent state's `prompt:` extracted to an editable `gtd-prompts/<state>.md` file
-the config references via `./`
-([auto-inlined at load](docs/configuration.md#content-values-inline-or-a-file-reference)),
-with human `message:`/check `script:`/the `done` `commit:` bodies left inline.
-It compiles through the exact same compiler a custom `workflow:` key goes
-through — no privileged code path.
+gtd ships the single bundled template (`src/workflows/unified.yaml`) as its
+**built-in default workflow**: when no `workflow:` key is configured anywhere in
+the cwd→home config chain, `src/Config.ts` runs this template directly, so a
+state command works with no configuration at all. `gtd init` (no argument, see
+[Configuration](docs/configuration.md#gtd-init)) seeds only the settings a
+project tunes — `vars.testCommand` and a `modes:` formatting suggestion — never
+the workflow itself. To customize the machine, a repo declares its own
+`workflow:` key (materialize the default as a starting point); it compiles
+through the exact same compiler the built-in default goes through — no
+privileged code path.
 
 The **unified** template is one machine with **four entry points behind a
 green-baseline gate, into one shared tail**. EVERY entry first runs the test

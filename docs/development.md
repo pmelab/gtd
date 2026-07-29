@@ -31,7 +31,8 @@ registry to keep in sync: a workflow's content strings are either inline in its
 YAML/`.gtdrc` or a `./`-relative file reference auto-inlined at config load
 (`src/PatternConfig.ts`) — see
 [Configuration](configuration.md#content-values-inline-or-a-file-reference). The
-bundled workflow template (`src/workflows/unified.yaml`) `gtd init` scaffolds is
+bundled workflow template (`src/workflows/unified.yaml`) gtd runs as its
+built-in default (and materializes into config form via `renderInitConfig`) is
 imported as raw text via tsdown's `.yaml`-as-text loader (`tsdown.config.ts`)
 and compiled through the same path a `.gtdrc` `workflow:` key goes through
 (`src/workflows/templates.ts`) — no privileged code path.

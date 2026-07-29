@@ -4,8 +4,8 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
   Minimal smoke coverage for the v3 CLI (`gtd step <actor>` / `gtd next` /
   `gtd status`, see src/Edge.ts and
   docs/design/pattern-machine-plan.md). Proves the rewritten edge/CLI wiring
-  end to end: a couple of `simple`-workflow hops (scaffolded by `gtd init
-  simple`), the `gtd next --json` contract, and a custom `.gtdrc` `workflow:`
+  end to end: a couple of simple-flow hops on the built-in default workflow, the
+  `gtd next --json` contract, and a custom `.gtdrc` `workflow:`
   squashing through a `commit:` state. Comprehensive coverage (every
   simple-workflow state, retry/escalation, the full check/fix/review cycle,
   both refusal shapes) has its own dedicated feature files — see
