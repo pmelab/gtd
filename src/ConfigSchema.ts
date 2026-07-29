@@ -234,6 +234,11 @@ const useJsonSchema = {
     required: ["submachine"],
     properties: {
       submachine: { type: "string", description: "Name of a declared sub-machine." },
+      name: {
+        type: "string",
+        description:
+          "Optional label for this instance (inert to expansion; used by tooling like `gtd visualize` to name the group). Defaults to the sub-machine name.",
+      },
       as: {
         type: "object",
         description: "Rename map: local state name -> concrete state name (identity when omitted).",

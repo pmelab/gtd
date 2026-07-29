@@ -83,9 +83,11 @@ upgrading.
   surface is `init` / `step` / `next` / `status` / `validate` / `review` /
   `lsp`.
 
-- **`gtd mermaid`.** The built-in workflow-diagram emitter has been removed;
-  workflow visualization will return in a different form. Nothing in the machine
-  changes — it was purely a read-only shape renderer of the active workflow.
+- **`gtd mermaid` → `gtd visualize`.** The static Mermaid emitter has been
+  replaced by `gtd visualize`, which serves an interactive diagram of the active
+  workflow (main flow, sub-machines, per-state details) on a local web server —
+  see [CLI reference](cli.md#gtd-visualize---portn---no-open---json). Both are
+  read-only views of the active workflow; nothing in the machine changes.
 
 - **`gtd format <file>`, and the bundled prettier with it.** gtd no longer
   formats anything on its own: a steering-file mode declares its own `format:`

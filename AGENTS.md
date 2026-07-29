@@ -129,20 +129,32 @@ a project plugs its own into a mode's `format:`).
   `reviewWindow: true` and on `refs/gtd/review-head` existence) and
   `reviewBaseHash` (the `reviewBase`-state diff-base derivation). Pure engine is
   oblivious; `program.ts` calls it, it calls `GitService`/`Edge.ts`.
-- **`src/program.ts`** — CLI dispatch (`init`/`step`/`next`/`status`/`validate`/
-  `mermaid`; `lsp` and `init` dispatched BEFORE the config-reading path so they
-  need not touch the config). `runInitCommand` writes `renderInitScaffold()` to
-  `.gtdrc.json` (uncommitted) — a MINIMAL config seeding `vars.testCommand` and
-  a top-level `modes:` Prettier suggestion (`MODES_SUGGESTION`), NO `workflow:`
-  key (the machine is built in) — guarded by `configPresentAt` (no clobber) +
-  `assertInitLocation`. Unlike the state commands, init derives no git state, so
-  `assertInitLocation` permits a repo root OR any directory OUTSIDE a repository
-  (to seed a shared parent-dir config a nested repo finds by walking up),
-  refusing only a repository SUBDIRECTORY (config below the root is never found
-  by the upward walk); it returns `inRepo` so init tailors its "commit before
-  starting" guidance. Calls `Edge.ts` for everything IO-shaped; calls
-  `PatternMachine.ts`'s pure `step`/`matchesPattern`/`parsePattern` directly
-  where no IO is needed (e.g. `gtd status`'s per-change pattern report).
+- **`src/program.ts`** — CLI dispatch (`init`/`step`/`next`/`status`/`validate`;
+  `lsp`, `init`, and `visualize` dispatched BEFORE the config-reading path's
+  git/repo-root/review-window bracket — `lsp`/`init` need no config at all,
+  `visualize` reads the workflow but no git state). `runInitCommand` writes
+  `renderInitScaffold()` to `.gtdrc.json` (uncommitted) — a MINIMAL config
+  seeding `vars.testCommand` and a top-level `modes:` Prettier suggestion
+  (`MODES_SUGGESTION`), NO `workflow:` key (the machine is built in) — guarded
+  by `configPresentAt` (no clobber) + `assertInitLocation`. Unlike the state
+  commands, init derives no git state, so `assertInitLocation` permits a repo
+  root OR any directory OUTSIDE a repository (to seed a shared parent-dir config
+  a nested repo finds by walking up), refusing only a repository SUBDIRECTORY
+  (config below the root is never found by the upward walk); it returns `inRepo`
+  so init tailors its "commit before starting" guidance. Calls `Edge.ts` for
+  everything IO-shaped; calls `PatternMachine.ts`'s pure
+  `step`/`matchesPattern`/`parsePattern` directly where no IO is needed (e.g.
+  `gtd status`'s per-change pattern report).
+- **`src/Visualize.ts` (+ `src/visualize.html`)** — the `gtd visualize` viewer:
+  `buildVizModel` describes the active workflow as JSON (the flat compiled
+  states with their edges/details, PLUS the sub-machine grouping via
+  `Submachines.collectGroups` over `ConfigService`'s `rawWorkflow` — the only
+  place the grouping survives `compileWorkflowConfig`'s flattening);
+  `handleVizRequest` routes `/` (the bundled `visualize.html` page, imported as
+  text) and `/workflow.json`; `startVizServer` runs the local HTTP server. Pure
+  functions of their inputs (no Effect/git); `program.ts`'s
+  `runVisualizeCommand` wires them into the runtime. Replaces the deleted
+  Mermaid emitter (see docs/upgrading.md).
 - **`src/workflows/unified.yaml` + `templates.ts`** — the single bundled
   workflow template gtd runs as its BUILT-IN DEFAULT (`Config.ts` falls back to
   it when no `workflow:` is configured), plus `templates.ts`:

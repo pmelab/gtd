@@ -68,6 +68,15 @@ const DEFAULT_WORKFLOW: CompiledWorkflowConfig = compileWorkflowConfig(
 /** The compiled built-in default workflow definition — the fallback when no `workflow:` is configured. */
 export const defaultWorkflowDefinition: WorkflowDefinition = DEFAULT_WORKFLOW.definition
 
+/**
+ * The built-in default's RAW workflow value — `unified.yaml` parsed but NOT
+ * expanded, so it still carries `submachines:`/`use:`. `src/Config.ts` exposes
+ * it as `ConfigOperations.rawWorkflow` for the built-in default; tooling that
+ * needs the sub-machine grouping the compiled definition flattens away (e.g.
+ * `gtd visualize`'s `collectGroups`) reads it. Parsed once at module load.
+ */
+export const defaultWorkflowRaw: unknown = parseYaml(UNIFIED_WORKFLOW)
+
 /** The built-in default workflow's own declared `vars:` defaults (layer 1 of the merged `it.vars`). */
 export const defaultWorkflowVars: Record<string, string> = DEFAULT_WORKFLOW.vars
 

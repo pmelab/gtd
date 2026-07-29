@@ -62,6 +62,7 @@ const stubConfigLayer = Layer.succeed(ConfigService, {
     workflow: compileTemplate().definition,
     workflowVars: {},
     rcVars: {},
+    rawWorkflow: {},
   }),
 })
 

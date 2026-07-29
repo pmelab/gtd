@@ -9,7 +9,7 @@ import { type Plugin } from "vitest/config"
 export const rawMd = (): Plugin => ({
   name: "raw-md",
   transform(_code, id) {
-    if (id.endsWith(".md") || id.endsWith(".yaml")) {
+    if (id.endsWith(".md") || id.endsWith(".yaml") || id.endsWith(".html")) {
       const content = readFileSync(id, "utf-8")
       return {
         code: `export default ${JSON.stringify(content)};`,

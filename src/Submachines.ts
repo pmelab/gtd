@@ -69,7 +69,13 @@ const describeType = (v: unknown): string => {
 const PARAM_REF = /^\$([A-Za-z_][A-Za-z0-9_]*)$/
 
 const KNOWN_SUBMACHINE_KEYS: ReadonlySet<string> = new Set(["params", "states"])
-const KNOWN_INVOCATION_KEYS: ReadonlySet<string> = new Set(["submachine", "as", "with", "set"])
+const KNOWN_INVOCATION_KEYS: ReadonlySet<string> = new Set([
+  "submachine",
+  "as",
+  "with",
+  "set",
+  "name",
+])
 
 interface ExpansionContext {
   /** The sub-machine's own local state names, for target-rename detection. */
@@ -356,4 +362,54 @@ export const expandSubmachines = (raw: unknown, errors: string[]): unknown => {
   delete result["submachines"]
   delete result["use"]
   return result
+}
+
+/** One expanded sub-machine invocation, described for visualization (see `collectGroups`). */
+export interface SubmachineGroup {
+  /** The sub-machine this invocation instantiates. */
+  readonly submachine: string
+  /** A human label for the instance: the invocation's `name:`, else the sub-machine name (disambiguated with `#i` when it is invoked more than once). */
+  readonly name: string
+  /** The concrete state names this invocation produced (locals resolved through `as:`), in declaration order. */
+  readonly states: readonly string[]
+}
+
+/**
+ * Describe a raw workflow's `use:` invocations as visualization GROUPS — which
+ * concrete states each sub-machine invocation produced — WITHOUT expanding or
+ * validating (a best-effort read for tooling like `gtd visualize`; malformed
+ * entries are skipped, not reported). A workflow with no `use:` yields `[]`.
+ * This is the only way to recover the sub-machine grouping after
+ * `compileWorkflowConfig` has flattened it away.
+ */
+export const collectGroups = (raw: unknown): SubmachineGroup[] => {
+  if (!isPlainObject(raw)) return []
+  const submachines = isPlainObject(raw["submachines"]) ? raw["submachines"] : {}
+  const use = Array.isArray(raw["use"]) ? raw["use"] : []
+  const smUseCount = new Map<string, number>()
+  for (const inv of use) {
+    if (isPlainObject(inv) && typeof inv["submachine"] === "string")
+      smUseCount.set(inv["submachine"], (smUseCount.get(inv["submachine"]) ?? 0) + 1)
+  }
+  const groups: SubmachineGroup[] = []
+  use.forEach((inv, index) => {
+    if (!isPlainObject(inv)) return
+    const smName = inv["submachine"]
+    if (typeof smName !== "string") return
+    const sm = submachines[smName]
+    if (!isPlainObject(sm) || !isPlainObject(sm["states"])) return
+    const smStates = sm["states"] as Record<string, unknown>
+    const as = isPlainObject(inv["as"]) ? inv["as"] : {}
+    const states = Object.keys(smStates).map((local) =>
+      typeof as[local] === "string" ? (as[local] as string) : local,
+    )
+    const name =
+      typeof inv["name"] === "string"
+        ? inv["name"]
+        : (smUseCount.get(smName) ?? 0) > 1
+          ? `${smName}#${index}`
+          : smName
+    groups.push({ submachine: smName, name, states })
+  })
+  return groups
 }

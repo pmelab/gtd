@@ -702,6 +702,7 @@ submachines:
 use:
   # Shared health triple: checking/fixing/escalate -> reviewing.
   - submachine: makeGreen
+    name: build
     as: { check: checking, fix: fixing, escalate: escalate }
     with:
       onGreen: reviewing
@@ -710,6 +711,7 @@ use:
         to re-run the check (**checking**).
   # Advanced package health triple: adv-checking/adv-fixing/adv-escalate -> spec-review.
   - submachine: makeGreen
+    name: pkg
     as: { check: adv-checking, fix: adv-fixing, escalate: adv-escalate }
     with:
       onGreen: spec-review
@@ -719,6 +721,7 @@ use:
 
   # Green-baseline gate: simple flow entry.
   - submachine: assertGreen
+    name: start
     as: { check: start-check, blocked: start-blocked }
     with:
       onGreen: planning
@@ -762,6 +765,7 @@ use:
 
   # Green-baseline gate: advanced flow entry.
   - submachine: assertGreen
+    name: adv-start
     as: { check: adv-start-check, blocked: adv-start-blocked }
     with:
       onGreen: adv-grilling
@@ -805,6 +809,7 @@ use:
 
   # Green-baseline gate: `gtd review` entry (reviewEntry -> reviewing).
   - submachine: assertGreen
+    name: review-start
     as: { check: review-start-check, blocked: review-start-blocked }
     set:
       check: { reviewEntry: true }
@@ -848,6 +853,7 @@ use:
 
   # Advanced flow: product Q&A loop (adv-grilling/adv-grilling-answer -> architecting).
   - submachine: qaLoop
+    name: grill
     as: { author: adv-grilling, answer: adv-grilling-answer }
     with:
       authorFile: <%= it.vars.requirementsFile %>
@@ -916,6 +922,7 @@ use:
 
   # Advanced flow: technical Q&A loop (architecting/architecting-answer -> decompose).
   - submachine: qaLoop
+    name: arch
     as: { author: architecting, answer: architecting-answer }
     with:
       authorFile: <%= it.vars.architectureFile %>

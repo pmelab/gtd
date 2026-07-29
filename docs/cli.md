@@ -33,11 +33,14 @@ Commands:
                    declares, with its mode's commands (its file:/mode:);
                    exits non-zero with the findings when it is invalid
   lsp              Start the LSP server for .gtd/ steering files (stdio)
+  visualize        Serve an interactive diagram of the active workflow locally
   version          Print version and exit
   help             Print this help and exit
 
 Options:
   --json           Output structured JSON instead of plain text
+  --port=<n>       (gtd visualize only) port to serve on (default: a free port)
+  --no-open        (gtd visualize only) do not open the browser
   --cost=<n>       (gtd step only) record the invocation's token cost
   --model=<name>   (gtd step only, with --cost) tag that cost's model
   --version, -v    Print version and exit
@@ -427,6 +430,39 @@ extra positional arguments — it's a long-running server, not a state command.
 Runs until the client disconnects (the LSP `exit` notification), then exits
 cleanly.
 
+## `gtd visualize [--port=<n>] [--no-open] [--json]`
+
+Serve an interactive diagram of the ACTIVE workflow on a local web server: the
+main flow as a graph (one box per sub-machine), and a click-through inspector
+with each state's actor, content kind, model/memory, steering file+mode, retry,
+flags, and outgoing/incoming edges. This is the replacement for the removed
+`gtd mermaid` — a live viewer instead of a static diagram dump.
+
+```
+$ gtd visualize
+gtd visualize running at http://127.0.0.1:53017 — Ctrl-C to stop
+```
+
+The server serves two routes: `/` (the self-contained HTML page) and
+`/workflow.json` (the model the page renders). It runs until interrupted
+(Ctrl-C), then closes cleanly. Options (orthogonal, `gtd visualize` only):
+
+- `--port=<n>` (or `--port <n>`) — serve on a specific port (0–65535); the
+  default is a free ephemeral port, printed on start.
+- `--no-open` — do not open the default browser (the URL is always printed).
+- `--json` — print the workflow model to stdout and exit WITHOUT starting a
+  server. The model is `{ states, initial, groups, vars }`; each state carries
+  its `actor`/`kind`/`model`/`memory`/`file`/`mode`/`retry`/`flags`, its `on`
+  edges, its computed `incoming` edges, and its sub-machine `group`. `groups`
+  lists each sub-machine invocation and the concrete states it produced.
+
+Dispatched before the repository-root guard and the config-reading path's review
+window — it reads the active workflow (the built-in default when none is
+configured) but touches no git/HEAD/review-window state. The diagram is rendered
+with Mermaid loaded from a CDN, so the graph needs network access the first time
+a browser loads the page; the inspector works offline regardless. Rejects
+unknown options and unexpected positional arguments.
+
 ## Error envelope
 
 Every command, in `--json` mode, reports a failure as a machine-readable
@@ -456,6 +492,6 @@ the plain-text one.
 - **Repository root invocation.** Every state subcommand (`step`/`review`/
   `next`/`status`) must run from the git repository root — the workflow, pending
   changes, and process history are resolved against the process cwd.
-  `--help`/`--version` (and the `help`/`version` subcommands), `format`, and
-  `lsp` skip this guard entirely (and any git/`.gtdrc` dependency along with
-  it).
+  `--help`/`--version` (and the `help`/`version` subcommands), `lsp`, and
+  `visualize` skip this guard entirely (`visualize` still reads the `.gtdrc`
+  workflow, but needs no git state).

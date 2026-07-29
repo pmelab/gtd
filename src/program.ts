@@ -30,6 +30,7 @@ import {
 } from "./Edge.js"
 import { closeReviewWindow, openReviewWindow, reviewBaseHash } from "./ReviewWindow.js"
 import { startLspServer } from "./Lsp.js"
+import { buildVizModel, openInBrowser, startVizServer } from "./Visualize.js"
 import {
   formatAndValidateSteeringFile,
   resolveSteeringMode,
@@ -90,11 +91,16 @@ Commands:
                    declares, with its mode's commands (its file:/mode:);
                    exits non-zero with the findings when it is invalid
   lsp              Start the LSP server for .gtd/ steering files (stdio)
+  visualize        Serve an interactive diagram of the active workflow on a
+                   local web server (--port <n>, --no-open; --json prints the
+                   model and exits)
   version          Print version and exit
   help             Print this help and exit
 
 Options:
   --json           Output structured JSON instead of plain text
+  --port=<n>       (gtd visualize only) port to serve on (default: a free port)
+  --no-open        (gtd visualize only) do not open the browser
   --cost=<n>       (gtd step only) record the invocation's token cost
   --model=<name>   (gtd step only, with --cost) tag that cost's model
   --version, -v    Print version and exit
@@ -1187,6 +1193,103 @@ const runStatusCommand = (
     }
   })
 
+interface VisualizeOptions {
+  readonly port: number
+  readonly open: boolean
+}
+
+/** Parse a `--port` value: an integer 0–65535, or `undefined` if invalid/absent. */
+const parsePort = (value: string | undefined): number | undefined => {
+  const n = Number(value)
+  return value !== undefined && Number.isInteger(n) && n >= 0 && n <= 65535 ? n : undefined
+}
+
+/** Resolve a `--port`/`--port=<n>` argument to its raw value + the index consumed, or `null` if `arg` is not a port option. */
+const portArgValue = (
+  arg: string,
+  rest: readonly string[],
+  i: number,
+): { value: string | undefined; nextIndex: number } | null => {
+  if (arg === "--port") return { value: rest[i + 1], nextIndex: i + 1 }
+  if (arg.startsWith("--port=")) return { value: arg.slice("--port=".length), nextIndex: i }
+  return null
+}
+
+/**
+ * Parse `gtd visualize`'s own options from the argv tail (the subcommand token
+ * already dropped): `--port <n>`/`--port=<n>`, `--no-open`, and a passthrough
+ * `--json`. Returns the options, or an `{ error }` message for an invalid port,
+ * an unknown `--` option, or an unexpected positional.
+ */
+const parseVisualizeOptions = (rest: readonly string[]): VisualizeOptions | { error: string } => {
+  let port = 0
+  let open = true
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i]!
+    const portArg = portArgValue(arg, rest, i)
+    if (portArg !== null) {
+      const parsed = parsePort(portArg.value)
+      if (parsed === undefined)
+        return {
+          error: `gtd visualize: --port must be an integer 0–65535 (got '${portArg.value ?? ""}')`,
+        }
+      port = parsed
+      i = portArg.nextIndex
+      continue
+    }
+    if (arg === "--json") continue
+    if (arg === "--no-open") open = false
+    else if (arg.startsWith("--"))
+      return { error: `gtd: unknown option '${arg}' — see \`gtd --help\`` }
+    else return { error: `gtd visualize: unexpected argument '${arg}'` }
+  }
+  return { port, open }
+}
+
+/**
+ * `gtd visualize`: serve an interactive diagram of the ACTIVE workflow on a
+ * local HTTP server (see `src/Visualize.ts`). Dispatched early (like `lsp`/
+ * `init`) — it reads the config but never touches git, HEAD, or the review
+ * window — and parses its OWN options (`--port`, `--no-open`), since the global
+ * unknown-option check does not know them. `--json` prints the model and exits
+ * without starting a server (the testable path).
+ */
+const runVisualizeCommand = (
+  argv: readonly string[],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, ConfigService> =>
+  Effect.gen(function* () {
+    const tokens = argv.slice(2)
+    const subIdx = tokens.indexOf("visualize")
+    const rest = subIdx >= 0 ? [...tokens.slice(0, subIdx), ...tokens.slice(subIdx + 1)] : tokens
+    const opts = parseVisualizeOptions(rest)
+    if ("error" in opts) return yield* Effect.fail(new Error(opts.error))
+
+    const config = yield* (yield* ConfigService).load
+    const model = buildVizModel(config.workflow, config.rawWorkflow, {
+      ...config.workflowVars,
+      ...config.rcVars,
+    })
+
+    if (json) {
+      write(JSON.stringify(model, null, 2) + "\n")
+      return
+    }
+
+    const { server, url } = yield* Effect.tryPromise({
+      try: () => startVizServer(model, opts.port),
+      catch: (e) =>
+        new Error(
+          `gtd visualize: could not start server: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+    })
+    write(`gtd visualize running at ${url} — Ctrl-C to stop\n`)
+    if (opts.open) openInBrowser(url)
+    // Block until the process is interrupted (Ctrl-C); always close the server.
+    yield* Effect.never.pipe(Effect.ensuring(Effect.sync(() => server.close())))
+  })
+
 const KNOWN_SUBCOMMANDS = ["step", "review", "fix", "next", "status", "validate"] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
@@ -1356,6 +1459,13 @@ export function makeProgram(
 
   return Effect.gen(function* () {
     if (runVersionOrHelp(argv, write)) return
+
+    // `visualize` is dispatched BEFORE the global option check (like lsp/init):
+    // it reads config but touches no git/HEAD/review-window, and it owns
+    // `--port`/`--no-open`, which the global check does not know.
+    if (positional === "visualize") {
+      return yield* runVisualizeCommand(argv, json, write)
+    }
 
     // Reject unknown `--` options up front: a typo like `--jsn` must not
     // silently degrade to plain-text mode. `--json` and `--cost=<n>` are the
