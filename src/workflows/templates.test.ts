@@ -2,20 +2,14 @@ import { describe, expect, it } from "vitest"
 import { validateDefinition } from "../PatternMachine.js"
 import {
   compileTemplate,
+  defaultWorkflowDefinition,
+  defaultWorkflowVars,
+  INIT_VARS,
   MODES_SUGGESTION,
-  PROMPTS_DIR,
   renderInitConfig,
   renderInitScaffold,
   SCHEMA_URL,
 } from "./templates.js"
-
-/** Shape of a scaffolded config's `workflow.states` after prompt extraction. */
-type ScaffoldStates = Record<
-  string,
-  { prompt?: string; message?: string; script?: string; commit?: string }
->
-const scaffoldStates = (config: string): ScaffoldStates =>
-  (JSON.parse(config) as { workflow: { states: ScaffoldStates } }).workflow.states
 
 describe("the bundled unified workflow template", () => {
   it("compiles with no validation findings and exactly one initial state", () => {
@@ -60,72 +54,56 @@ describe("the bundled unified workflow template", () => {
     )
   })
 
-  it("renders a valid .gtdrc.json with the $schema key first", () => {
+  it("exposes the compiled default as the built-in fallback (definition + its own vars)", () => {
+    // `src/Config.ts` and the in-memory test layer fall back to these when no
+    // `workflow:` is configured — so they must be the same compiled shape the
+    // template produces, with the template's own `vars:` defaults intact.
+    expect(validateDefinition(defaultWorkflowDefinition)).toEqual([])
+    expect(defaultWorkflowDefinition).toEqual(compileTemplate().definition)
+    expect(defaultWorkflowVars).toEqual(compileTemplate().vars)
+    expect(defaultWorkflowVars.testCommand).toBe("npm test")
+  })
+
+  it("renders the full workflow config with the $schema key first (renderInitConfig)", () => {
+    // renderInitConfig materializes the built-in default into a `workflow:`
+    // config — the way to eject/customize the machine, and the hermetic
+    // `Given the workflow` test fixture (modes-free).
     const rendered = renderInitConfig()
-    const parsed = JSON.parse(rendered) as { $schema: string; workflow: unknown }
+    const parsed = JSON.parse(rendered) as { $schema: string; workflow: unknown; modes?: unknown }
     expect(parsed.$schema).toBe(SCHEMA_URL)
     expect(parsed.workflow).toBeTypeOf("object")
+    expect(parsed.modes).toBeUndefined()
     expect(rendered.endsWith("\n")).toBe(true)
   })
 
-  describe("renderInitScaffold", () => {
-    it("extracts every agent prompt to a gtd-prompts/<state>.md file and references it from the config", () => {
-      const { config, prompts } = renderInitScaffold()
-      const states = scaffoldStates(config)
-      const inlineStates = scaffoldStates(renderInitConfig())
-      const promptStates = Object.entries(inlineStates)
-        .filter(([, s]) => typeof s.prompt === "string")
-        .map(([stateName]) => stateName)
-
-      expect(promptStates.length).toBeGreaterThan(0)
-      expect(prompts.map((p) => p.path).sort()).toEqual(
-        promptStates.map((s) => `${PROMPTS_DIR}/${s}.md`).sort(),
-      )
-      for (const stateName of promptStates) {
-        const path = `${PROMPTS_DIR}/${stateName}.md`
-        expect(states[stateName]!.prompt).toBe(`./${path}`)
-        const file = prompts.find((p) => p.path === path)
-        expect(file?.content).toBe(inlineStates[stateName]!.prompt)
-      }
-    })
-
-    it("leaves human messages, check scripts, and commit templates inline in the config", () => {
-      const states = scaffoldStates(renderInitScaffold().config)
-      for (const state of Object.values(states)) {
-        expect(state.message?.startsWith("./")).not.toBe(true)
-        expect(state.script?.startsWith("./")).not.toBe(true)
-        expect(state.commit?.startsWith("./")).not.toBe(true)
-      }
-      const inline = scaffoldStates(renderInitConfig())
-      for (const [stateName, s] of Object.entries(inline)) {
-        if (s.message !== undefined) expect(states[stateName]!.message).toBe(s.message)
-        if (s.script !== undefined) expect(states[stateName]!.script).toBe(s.script)
-        if (s.commit !== undefined) expect(states[stateName]!.commit).toBe(s.commit)
-      }
-    })
-
-    it("keeps the $schema key first and ends with a newline", () => {
+  describe("renderInitScaffold — the minimal config `gtd init` writes", () => {
+    it("seeds only the default vars and the Prettier modes suggestion, no workflow", () => {
       const { config } = renderInitScaffold()
-      const parsed = JSON.parse(config) as { $schema: string }
+      const parsed = JSON.parse(config) as {
+        $schema: string
+        vars: unknown
+        modes: unknown
+        workflow?: unknown
+      }
       expect(parsed.$schema).toBe(SCHEMA_URL)
+      expect(parsed.vars).toEqual(INIT_VARS)
+      expect(parsed.modes).toEqual(MODES_SUGGESTION)
+      // The workflow is built in — init never writes it.
+      expect(parsed.workflow).toBeUndefined()
       expect(config.endsWith("\n")).toBe(true)
     })
 
-    it("seeds the top-level `modes:` Prettier suggestion for qa/review (format only)", () => {
+    it("seeds testCommand as the one variable a fresh project usually changes", () => {
       const { config } = renderInitScaffold()
-      const parsed = JSON.parse(config) as { modes?: unknown }
-      expect(parsed.modes).toEqual(MODES_SUGGESTION)
+      const parsed = JSON.parse(config) as { vars: { testCommand?: string } }
+      expect(parsed.vars.testCommand).toBe("npm test")
+    })
+
+    it("seeds a format-only Prettier suggestion for qa/review (gtd still validates)", () => {
       expect(MODES_SUGGESTION.qa.format).toContain("prettier")
       expect(MODES_SUGGESTION.review.format).toContain("prettier")
       expect(MODES_SUGGESTION.qa).not.toHaveProperty("validate")
       expect(MODES_SUGGESTION.review).not.toHaveProperty("validate")
-    })
-
-    it("does NOT seed `modes:` in the hermetic base config (renderInitConfig)", () => {
-      // renderInitConfig doubles as the `Given the workflow` test fixture; it
-      // must stay modes-free so gate scenarios never shell out to Prettier.
-      const parsed = JSON.parse(renderInitConfig()) as { modes?: unknown }
-      expect(parsed.modes).toBeUndefined()
     })
   })
 })

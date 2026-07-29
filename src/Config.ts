@@ -8,16 +8,18 @@ import {
   compileVarsMap,
   compileWorkflowConfig,
   inlineWorkflowFileRefs,
+  mergeModes,
 } from "./PatternConfig.js"
 import { type ModeDef, type WorkflowDefinition } from "./PatternMachine.js"
+import { defaultWorkflowDefinition, defaultWorkflowVars } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
 import { ArrayFormatter, ParseError } from "effect/ParseResult"
 import { ConfigSchema, type DecodedConfig } from "./ConfigSchema.js"
 
 export interface ConfigOperations {
-  /** The active workflow definition — the `.gtdrc` `workflow:` key compiled through `compileWorkflowConfig`. gtd ships no default: a repo scaffolds one with `gtd init`, and config with no `workflow:` key fails (see `toOperations`). */
+  /** The active workflow definition — the `.gtdrc` `workflow:` key compiled through `compileWorkflowConfig`, or gtd's built-in bundled default when no `workflow:` key is configured (see `toOperations`). */
   readonly workflow: WorkflowDefinition
-  /** The active workflow's own declared `vars:` defaults (layer 1 of the merged `it.vars` — see `src/Edge.ts`'s `resolveVars`). */
+  /** The active workflow's own declared `vars:` defaults (layer 1 of the merged `it.vars` — see `src/Edge.ts`'s `resolveVars`). `defaultWorkflowVars` for the built-in default. */
   readonly workflowVars: Record<string, string>
   /** The top-level `.gtdrc` `vars:` key (layer 2), already cwd→home deep-merged like any other config key. `{}` when absent. */
   readonly rcVars: Record<string, string>
@@ -236,29 +238,31 @@ const compileRcVars = (raw: unknown): Record<string, string> => {
 }
 
 /**
- * The error every config-reading command fails with when no `workflow:` key is
- * configured anywhere in the cwd→home chain. gtd ships no default workflow, so
- * there is nothing to fall back to — the user must scaffold one with
- * `gtd init`. Exported so the CLI layer and tests can assert on it verbatim.
- */
-export const NO_WORKFLOW_MESSAGE =
-  "gtd: no workflow configured — run `gtd init` to create .gtdrc.json"
-
-/**
- * Compile the decoded config's `workflow:` key plus its top-level
- * `vars:`/`modes:` keys into `ConfigOperations`. Its `./`/`../` content file
- * references were already inlined per declaring file by `loadMerged`, so the
- * compiler is invoked with `inlineFileRefs: false` and `root` is passed only as
- * an (unused) `configDir` placeholder. Throws `NO_WORKFLOW_MESSAGE` when no
- * `workflow:` key is present (there is no bundled default to fall back to — see
- * `gtd init`), or (via `compileWorkflowConfig`/`compileRcVars`) on any invalid
- * workflow/vars.
+ * Compile the decoded config's `workflow:` key (or gtd's built-in bundled
+ * default, when absent) plus its top-level `vars:`/`modes:` keys into
+ * `ConfigOperations`. A custom `workflow:`'s `./`/`../` content file references
+ * were already inlined per declaring file by `loadMerged`, so the compiler is
+ * invoked with `inlineFileRefs: false` and `root` is passed only as an (unused)
+ * `configDir` placeholder.
+ *
+ * When no `workflow:` key is configured anywhere in the cwd→home chain, the
+ * built-in default (`defaultWorkflowDefinition`, pre-compiled and validated
+ * once at module load) is used. Layering the top-level `modes:` over it can
+ * only ADD mode names (never invalidate a `mode:` reference), so it needs no
+ * re-validation. Throws (via `compileWorkflowConfig`/`compileRcVars`) only on
+ * an invalid CUSTOM workflow/vars; the built-in default never throws here.
  */
 const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations => {
   const rcVars = compileRcVars(decoded.vars)
   const rcModes = compileRcModes(decoded.modes)
   if (decoded.workflow === undefined) {
-    throw new Error(NO_WORKFLOW_MESSAGE)
+    const modes = mergeModes(defaultWorkflowDefinition.modes, rcModes)
+    return {
+      workflow:
+        modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition,
+      workflowVars: defaultWorkflowVars,
+      rcVars,
+    }
   }
   const { definition, vars: workflowVars } = compileWorkflowConfig(
     decoded.workflow,
@@ -281,10 +285,11 @@ const formatSchemaError = (e: ParseError): string => {
  * The service interface. Config loading is exposed as a DEFERRED effect
  * (`load`) rather than an already-loaded `ConfigOperations` value: the layer
  * is provided to the whole program (see `main.ts`), which builds it eagerly,
- * so if it loaded (and validated a workflow) at BUILD time, the "no workflow
- * configured" failure would break `gtd init` and `gtd lsp` too — the two
- * commands that must run with no workflow configured yet. Deferring to `load`
- * means the failure surfaces only when a command actually reads the config.
+ * so if it loaded (and validated a CUSTOM workflow) at BUILD time, a
+ * config-validation failure would break `gtd init` and `gtd lsp` too — the two
+ * commands that must run without touching the config. Deferring to `load` means
+ * any such failure surfaces only when a command actually reads the config. (An
+ * absent `workflow:` no longer fails at all — the built-in default is used.)
  */
 interface ConfigServiceOperations {
   readonly load: Effect.Effect<ConfigOperations, Error>

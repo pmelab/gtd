@@ -364,9 +364,10 @@ describe("gtd review <commitish> — subcommand guards", () => {
 
   it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the unified template's review-entry state (review-start-check)", async () => {
     const repo = seededRepo()
-    // gtd ships no default workflow: scaffold the unified template (whose
-    // `review-start-check` state declares `reviewEntry: true`) and commit it,
-    // exactly as `gtd init` + a commit would.
+    // Pin the bundled unified template (whose `review-start-check` state
+    // declares `reviewEntry: true`) explicitly and commit it — this is the same
+    // machine gtd runs as its built-in default, materialized via
+    // `renderInitConfig` (see src/workflows/templates.ts).
     repo.writeFile(".gtdrc.json", renderInitConfig())
     repo.commitAllWithPrefix("chore: init gtd workflow")
     const base = repo.commitHistory().at(-1)!.hash
@@ -508,8 +509,8 @@ describe("JSON error envelope", () => {
 
 describe("cliErrorLine", () => {
   it("does not double a message that already carries a gtd prefix", () => {
-    expect(cliErrorLine(new Error("gtd: no workflow configured — run `gtd init`"))).toBe(
-      "gtd: no workflow configured — run `gtd init`",
+    expect(cliErrorLine(new Error("gtd: unknown option '--jsn' — see `gtd --help`"))).toBe(
+      "gtd: unknown option '--jsn' — see `gtd --help`",
     )
     expect(cliErrorLine(new Error("gtd init: too many arguments"))).toBe(
       "gtd init: too many arguments",

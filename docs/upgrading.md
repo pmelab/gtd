@@ -122,28 +122,24 @@ upgrading.
 
 ## How to adopt
 
-`workflow:` is now **required** — gtd ships no default workflow, so after
-upgrading each repo must scaffold one **once**:
+`workflow:` is **optional** — gtd ships the bundled **unified** workflow as its
+built-in default, so after upgrading a repo works with **no** config and no init
+at all. The default forks on which steering file you create: `.gtd/TODO.md`
+starts the **simple flow** (a `planning` ⇄ `plan-review` plan-iteration loop,
+direct `building`, a `checking`/`fixing` loop), while `.gtd/REQUIREMENTS.md`
+starts the **advanced flow** (two-phase grilling ⇄ grilling-answer /
+architecting ⇄ architecting-answer / decompose / picking / per-package build
+with an agentic spec-review gate). Both converge on the same `reviewing` →
+`await-review` tail, and a full sign-off squashes the whole cycle into one
+commit (see [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)).
+
+`gtd init` is now optional and no longer writes a workflow — it seeds only a
+minimal `.gtdrc.json` (a `testCommand` var and a Prettier formatting
+suggestion). Run it if you want to tune those; otherwise nothing is required:
 
 ```bash
-gtd init      # takes no argument
+gtd init      # optional — seeds testCommand + a formatting suggestion
 ```
-
-`gtd init` (no argument) writes a `.gtdrc.json` for the single bundled
-**unified** template (its agent prompts extracted to editable `gtd-prompts/*.md`
-files the config references). The template forks on which steering file you
-create: `.gtd/TODO.md` starts the **simple flow** (a `planning` ⇄ `plan-review`
-plan-iteration loop, direct `building`, a `checking`/`fixing` loop), while
-`.gtd/REQUIREMENTS.md` starts the **advanced flow** (two-phase grilling ⇄
-grilling-answer / architecting ⇄ architecting-answer / decompose / picking /
-per-package build with an agentic spec-review gate). Both converge on the same
-`reviewing` → `await-review` tail, and a full sign-off squashes the whole cycle
-into one commit (see
-[STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)). Review and
-commit the generated `.gtdrc.json` (and its `gtd-prompts/` directory), then
-continue from a settled `idle` boundary. **Note:** a repo relying on earlier
-gtd's auto-created `.gtdrc.json` `$schema` stub (which carried no `workflow:`)
-will now fail until you `gtd init` — the stub alone is no longer enough.
 
 A repo that customized v2's `workflow:` key (actors, gates, guard vocabulary,
 ladders) needs to rewrite it from scratch in the v3 schema — see

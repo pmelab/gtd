@@ -1,9 +1,9 @@
 import { createRequire } from "node:module"
-import { dirname, join } from "node:path"
+import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect, Either } from "effect"
 import { configPresentAt, ConfigService } from "./Config.js"
-import { PROMPTS_DIR, renderInitScaffold } from "./workflows/templates.js"
+import { renderInitScaffold } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { WorktreeReader } from "./WorktreeReader.js"
@@ -60,11 +60,13 @@ const GTD_VERSION: string = (_require("../package.json") as { version: string })
 const HELP_TEXT = `Usage: gtd [command] [options]
 
 Commands:
-  init             Scaffold a .gtdrc.json for this repo with the bundled
-                   unified workflow; its agent prompts are written as editable
-                   Markdown under gtd-prompts/ and referenced from the config.
+  init             Scaffold a minimal .gtdrc.json for this repo, seeding the
+                   default variables you are most likely to change (the test
+                   command) and a Prettier formatting suggestion. gtd runs its
+                   built-in workflow by default, so no workflow is written —
+                   add a workflow: key only to customize the machine itself.
                    Takes no argument. Run once per repo; refuses if a gtd
-                   config already exists. Leaves the files uncommitted for you
+                   config already exists. Leaves the file uncommitted for you
                    to review and commit
   step <actor>     Authenticate as <actor>, match the resolved rest's
                    declared patterns against the pending changes, and commit
@@ -120,7 +122,7 @@ export const isEnveloped = (error: unknown): boolean =>
  * The stderr line for a CLI error (see `main.ts`): a `gtd: ` prefix UNLESS the
  * message already carries one. Most gtd errors are authored with a
  * `gtd:`/`gtd <cmd>:` prefix of their own (e.g. `gtd init: …`,
- * `gtd: no workflow configured …`), so a blind prepend produced a doubled
+ * `gtd: unknown option …`), so a blind prepend produced a doubled
  * `gtd: gtd: …`.
  */
 export const cliErrorLine = (error: unknown): string => {
@@ -247,20 +249,19 @@ const runLspCommand = (argv: readonly string[], json: boolean): Effect.Effect<vo
   })
 
 /**
- * `gtd init`: scaffold a `.gtdrc.json` carrying the bundled unified workflow
- * template inline. Takes NO argument — gtd ships a single template and no
- * longer offers a choice. Dispatched like `lsp` — BEFORE the
- * closeReviewWindow/dispatch/openReviewWindow block — because it is the ONE
- * command that must run with no workflow configured yet: it needs no
- * `ConfigService` (which would throw the "no workflow" error pre-init) and no
- * review window. It still runs the repo-root guard (it writes `.gtdrc.json` at
- * the root) and refuses to clobber an existing config. It also writes each
- * agent state's prompt as a standalone `gtd-prompts/<state>.md` file the config
- * references via `./` (see `renderInitScaffold`), so prompts are editable
- * Markdown rather than JSON-escaped strings. Everything is left UNCOMMITTED, so
- * the message warns to commit it all before the first `gtd step` (an
- * uncommitted config/prompt is a pending change the initial state's `* **` edge
- * would otherwise capture).
+ * `gtd init`: scaffold a MINIMAL `.gtdrc.json` seeding the default variables a
+ * fresh project is most likely to change — the test command (`vars.testCommand`)
+ * and a ready-to-edit Prettier formatting suggestion (`modes:`). It writes NO
+ * `workflow:` key: gtd ships the unified workflow as its built-in default and
+ * runs it whenever none is configured (see `src/Config.ts`), so there is
+ * nothing to scaffold there — a project customizes the machine itself only by
+ * adding a `workflow:` key. Takes NO argument. Dispatched like `lsp` — BEFORE
+ * the closeReviewWindow/dispatch/openReviewWindow block — because it needs no
+ * `ConfigService` and no review window. It still runs the repo-root guard (it
+ * writes `.gtdrc.json` at the root) and refuses to clobber an existing config.
+ * The file is left UNCOMMITTED, so the message warns to commit it before the
+ * first `gtd step` (an uncommitted config counts as a pending change the
+ * initial state's `* **` edge would otherwise capture).
  */
 const runInitCommand = (
   argv: readonly string[],
@@ -288,30 +289,17 @@ const runInitCommand = (
     yield* fs
       .writeFileString(join(root, ".gtdrc.json"), scaffold.config)
       .pipe(Effect.mapError(toError))
-    for (const prompt of scaffold.prompts) {
-      const full = join(root, prompt.path)
-      yield* fs.makeDirectory(dirname(full), { recursive: true }).pipe(Effect.mapError(toError))
-      yield* fs.writeFileString(full, prompt.content).pipe(Effect.mapError(toError))
-    }
     if (json) {
-      write(
-        JSON.stringify({
-          written: ".gtdrc.json",
-          workflow: "unified",
-          prompts: scaffold.prompts.map((p) => p.path),
-          inRepo,
-        }) + "\n",
-      )
+      write(JSON.stringify({ written: ".gtdrc.json", inRepo }) + "\n")
     } else {
-      const promptCount = scaffold.prompts.length
       const wrote =
-        `Wrote .gtdrc.json with the bundled unified workflow, and its ${promptCount} agent ` +
-        `prompt${promptCount === 1 ? "" : "s"} as editable Markdown under ${PROMPTS_DIR}/ ` +
-        `(referenced from the config).\n\n`
+        `Wrote .gtdrc.json seeding the default variables (the test command) and a\n` +
+        `Prettier formatting suggestion. gtd runs its built-in workflow by default — add\n` +
+        `a workflow: key only if you want to customize the machine itself.\n\n`
       const nextSteps = inRepo
-        ? `Review and commit them before starting: an uncommitted .gtdrc.json (or prompt\n` +
-          `file) counts as a pending change, so the initial state would capture it on the\n` +
-          `first step. Once committed, run \`gtd step human\` to begin.\n`
+        ? `Review and commit it before starting: an uncommitted .gtdrc.json counts as a\n` +
+          `pending change, so the initial state would capture it on the first step. Once\n` +
+          `committed, run \`gtd step human\` to begin.\n`
         : `This directory is not a git repository, so there is nothing to commit here. The\n` +
           `config applies to any gtd repository nested below it — gtd discovers it by\n` +
           `walking up from the repository root. Run \`gtd step human\` from such a repo to\n` +
@@ -1390,7 +1378,7 @@ export interface RunOptions {
  * `status` / `validate` / `mermaid` (see `src/Edge.ts` and
  * `docs/design/pattern-machine-plan.md` §3),
  * plus `lsp` and `init` — both dispatched before the config-reading
- * path since they must work with no workflow configured yet. Bare `gtd` or an
+ * path since neither needs to touch the config. Bare `gtd` or an
  * unknown subcommand is a usage error. Shared setup (argv parsing, the
  * repo-root guard) lives here; each subcommand's own logic is a named
  * `run*Command` function above.

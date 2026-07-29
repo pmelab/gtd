@@ -78,12 +78,14 @@ Given(
   },
 )
 
-// Scaffolds the bundled unified workflow template into `.gtdrc.json` and
-// commits it — exactly what `gtd init` writes (via the same `renderInitConfig`),
-// minus the "leave it uncommitted" part: committing keeps the working tree
-// clean so the machine starts at the template's initial state. gtd ships one
-// template and no default fallback, so a scenario exercising its shape sets it
-// up explicitly here.
+// Materializes the bundled unified workflow into `.gtdrc.json` (via
+// `renderInitConfig`) and commits it. The workflow is gtd's BUILT-IN default,
+// so a scenario need not configure it — but pinning it explicitly (and
+// committing to keep the tree clean, resting at the template's initial state)
+// keeps a scenario's assertions stable against the exact shape it was written
+// for. `renderInitConfig` is modes-free, so the steering-file gates stay
+// hermetic (no shelling out to Prettier). This is NOT what `gtd init` writes
+// (init seeds only vars/modes — see init.feature).
 const scaffoldUnifiedWorkflow = (world: GtdWorld): void => {
   const content = renderInitConfig()
   if (world.tier === "inmem") {

@@ -299,6 +299,14 @@ Then("{string} contains {string}", (world: GtdWorld, path: string, text: string)
   assert.ok(content.includes(text), `Expected "${path}" to contain "${text}". Got:\n${content}`)
 })
 
+Then("{string} does not contain {string}", (world: GtdWorld, path: string, text: string) => {
+  const content = world.readRepoFile(path)
+  assert.ok(
+    !content.includes(text),
+    `Expected "${path}" NOT to contain "${text}". Got:\n${content}`,
+  )
+})
+
 // Full-history assertion for journey scenarios: the exact commit subject
 // sequence, oldest → newest, one subject per docstring line.
 Then("the commit subjects from oldest to newest are:", (world: GtdWorld, doc: string) => {

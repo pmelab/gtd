@@ -14,16 +14,17 @@ import {
   type GitWriterOperations,
   type GitOperations,
 } from "../../../../src/Git.js"
-import {
-  ConfigService,
-  NO_WORKFLOW_MESSAGE,
-  type ConfigOperations,
-} from "../../../../src/Config.js"
+import { ConfigService, type ConfigOperations } from "../../../../src/Config.js"
 import {
   compileModesMap,
   compileVarsMap,
   compileWorkflowConfig,
+  mergeModes,
 } from "../../../../src/PatternConfig.js"
+import {
+  defaultWorkflowDefinition,
+  defaultWorkflowVars,
+} from "../../../../src/workflows/templates.js"
 import { InMemRepo } from "./Repo.js"
 import { Cwd } from "../../../../src/Cwd.js"
 import { EnvVars } from "../../../../src/EnvVars.js"
@@ -411,21 +412,27 @@ const compileRcModes = (raw: unknown) => {
 
 /**
  * Mirrors the real `ConfigService.Live`'s `toOperations`: an absent
- * `workflow:` key THROWS `NO_WORKFLOW_MESSAGE` (gtd ships no default — a repo
- * scaffolds one with `gtd init`); a present one is compiled through the SAME
- * `compileWorkflowConfig` the real service uses — no bespoke in-memory
- * workflow interpretation. Likewise the top-level `vars:` key goes through the
- * same `compileRcVars` the real service uses. `configDir` is `"/repo"` (this
- * harness's fixed in-memory root, matching `topLevel`/`realPath` above) so a
- * scenario's custom workflow could reference `./`-relative content if it ever
- * needed to (none currently do; every @inmem custom-workflow scenario writes
- * inline content).
+ * `workflow:` key falls back to gtd's built-in bundled default
+ * (`defaultWorkflowDefinition`, with the top-level `modes:` layered over it);
+ * a present one is compiled through the SAME `compileWorkflowConfig` the real
+ * service uses — no bespoke in-memory workflow interpretation. Likewise the
+ * top-level `vars:` key goes through the same `compileRcVars` the real service
+ * uses. `configDir` is `"/repo"` (this harness's fixed in-memory root, matching
+ * `topLevel`/`realPath` above) so a scenario's custom workflow could reference
+ * `./`-relative content if it ever needed to (none currently do; every @inmem
+ * custom-workflow scenario writes inline content).
  */
 const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
   const rcVars = compileRcVars(raw["vars"])
   const rcModes = compileRcModes(raw["modes"])
   if (raw["workflow"] === undefined) {
-    throw new Error(NO_WORKFLOW_MESSAGE)
+    const modes = mergeModes(defaultWorkflowDefinition.modes, rcModes)
+    return {
+      workflow:
+        modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition,
+      workflowVars: defaultWorkflowVars,
+      rcVars,
+    }
   }
   const { definition, vars: workflowVars } = compileWorkflowConfig(
     raw["workflow"],
@@ -439,8 +446,8 @@ const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> 
   const worktree = (repo as unknown as { worktree: Map<string, string> })["worktree"]
 
   // Deferred exactly like the real `ConfigService.Live`: `load` (re)reads the
-  // worktree config on each access and throws `NO_WORKFLOW_MESSAGE` when no
-  // `workflow:` is present, so building the layer never fails and
+  // worktree config on each access and falls back to the built-in default when
+  // no `workflow:` is present, so building the layer never fails and
   // config-independent commands (`init`) run with no config in the worktree.
   const load = Effect.try({
     try: (): ConfigOperations => {

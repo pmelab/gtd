@@ -30,14 +30,15 @@ entirely at the edge in `src/ReviewWindow.ts` and oblivious to the pure engine
 ### Changing the Workflow
 
 There is no engine-side wiring left to trace through when a workflow's shape
-changes — a workflow (the bundled template or custom) is DATA, not code. gtd
-ships NO default: a repo scaffolds one with `gtd init` (no argument), which
-writes the single bundled template inline into `.gtdrc.json`; a state command
-with no `workflow:` configured fails (`Config.ts`'s `toOperations` throws
-`NO_WORKFLOW_MESSAGE`). gtd ships ONE bundled template, `unified.yaml` — a
-single machine with two file-keyed entry points (`.gtd/TODO.md` → the simple
-flow, `.gtd/REQUIREMENTS.md` → the advanced flow) converging on a shared
-review-and-squash tail. To change what it does, edit
+changes — a workflow (the bundled default or a custom one) is DATA, not code.
+gtd ships ONE bundled template, `unified.yaml`, as its BUILT-IN DEFAULT: a state
+command with no `workflow:` configured falls back to it (`Config.ts`'s
+`toOperations` returns `defaultWorkflowDefinition`/`defaultWorkflowVars` from
+`templates.ts`), so gtd works out of the box with no config. `gtd init` seeds
+only `vars.testCommand` + a `modes:` formatting suggestion, never the workflow.
+The unified template is a single machine with two file-keyed entry points
+(`.gtd/TODO.md` → the simple flow, `.gtd/REQUIREMENTS.md` → the advanced flow)
+converging on a shared review-and-squash tail. To change what it does, edit
 `src/workflows/unified.yaml` (states, `actor`, exactly one content kind, `on`
 edges, `retry`, `model`, `file`/`mode`, `reviewWindow`/`reviewBase`) —
 `src/workflows/templates.ts` compiles/renders it through the same
@@ -130,29 +131,32 @@ a project plugs its own into a mode's `format:`).
   oblivious; `program.ts` calls it, it calls `GitService`/`Edge.ts`.
 - **`src/program.ts`** — CLI dispatch (`init`/`step`/`next`/`status`/`validate`/
   `mermaid`; `lsp` and `init` dispatched BEFORE the config-reading path so they
-  run with no workflow configured). `runInitCommand` writes
-  `renderInitScaffold(name)` to `.gtdrc.json` (uncommitted) — the base config
-  plus externalized `gtd-prompts/` files and a seeded top-level `modes:`
-  Prettier suggestion (`MODES_SUGGESTION`) — guarded by `configPresentAt` (no
-  clobber) + `assertInitLocation`. Unlike the state commands, init derives no
-  git state, so `assertInitLocation` permits a repo root OR any directory
-  OUTSIDE a repository (to scaffold a shared parent-dir config a nested repo
-  finds by walking up), refusing only a repository SUBDIRECTORY (config below
-  the root is never found by the upward walk); it returns `inRepo` so init
-  tailors its "commit before starting" guidance. Calls `Edge.ts` for everything
-  IO-shaped; calls `PatternMachine.ts`'s pure `step`/`matchesPattern`/
-  `parsePattern` directly where no IO is needed (e.g. `gtd status`'s per-change
-  pattern report).
+  need not touch the config). `runInitCommand` writes `renderInitScaffold()` to
+  `.gtdrc.json` (uncommitted) — a MINIMAL config seeding `vars.testCommand` and
+  a top-level `modes:` Prettier suggestion (`MODES_SUGGESTION`), NO `workflow:`
+  key (the machine is built in) — guarded by `configPresentAt` (no clobber) +
+  `assertInitLocation`. Unlike the state commands, init derives no git state, so
+  `assertInitLocation` permits a repo root OR any directory OUTSIDE a repository
+  (to seed a shared parent-dir config a nested repo finds by walking up),
+  refusing only a repository SUBDIRECTORY (config below the root is never found
+  by the upward walk); it returns `inRepo` so init tailors its "commit before
+  starting" guidance. Calls `Edge.ts` for everything IO-shaped; calls
+  `PatternMachine.ts`'s pure `step`/`matchesPattern`/`parsePattern` directly
+  where no IO is needed (e.g. `gtd status`'s per-change pattern report).
 - **`src/workflows/unified.yaml` + `templates.ts`** — the single bundled
-  workflow template `gtd init` scaffolds, plus `templates.ts`
-  (`renderInitScaffold` for the `.gtdrc.json` write — which seeds the top-level
-  `modes:` Prettier suggestion, `MODES_SUGGESTION`; `renderInitConfig` is the
-  hermetic base form reused by the `Given the workflow` test fixture and stays
-  modes-free — and `compileTemplate` for tests/mermaid) — compiled through the
-  exact same `compileWorkflowConfig` path, no privileged code path. Every
-  content string in the template MUST be inline (no `./`-relative file
-  references): it ships inside the single-file `dist/gtd.bundle.mjs` build, so
-  it can't reach out to sibling files on disk at runtime.
+  workflow template gtd runs as its BUILT-IN DEFAULT (`Config.ts` falls back to
+  it when no `workflow:` is configured), plus `templates.ts`:
+  `defaultWorkflowDefinition`/`defaultWorkflowVars` (the compiled default
+  `Config.ts` and the in-memory test layer fall back to); `renderInitScaffold`
+  (the minimal `vars`+`modes` `.gtdrc.json` write — seeding `MODES_SUGGESTION`,
+  no workflow); `renderInitConfig` (materializes the full default into a
+  `workflow:` config — the eject/customize starting point and the hermetic,
+  modes-free `Given the workflow` test fixture); and `compileTemplate`
+  (tests/mermaid). All compiled through the exact same `compileWorkflowConfig`
+  path, no privileged code path. Every content string in the template MUST be
+  inline (no `./`-relative file references): it ships inside the single-file
+  `dist/gtd.bundle.mjs` build, so it can't reach out to sibling files on disk at
+  runtime.
 
 ### The Configurable Machine (`workflow:` and `vars:` in .gtdrc)
 
@@ -160,16 +164,17 @@ a project plugs its own into a mode's `format:`).
 cwd→home), decodes it against `src/ConfigSchema.ts` (two keys: `workflow` and
 `vars`, both `Schema.Unknown` — the shape is validated structurally by the
 compiler, not by `effect/schema`), and compiles the `workflow:` value through
-`compileWorkflowConfig`. There is NO default fallback: an absent `workflow:`
-throws `NO_WORKFLOW_MESSAGE` (pointing at `gtd init`). The load is exposed as a
-DEFERRED effect — `ConfigService` provides `{ load: Effect<ConfigOperations> }`,
-not the ops directly — because the layer is provided to the whole program and
-built eagerly (`main.ts`), so if it loaded/failed at build time the "no
-workflow" error would break `gtd init`/`gtd lsp` too; consumers do
-`yield* (yield* ConfigService).load` (Edge/program/ReviewWindow/Lsp). The
-top-level `vars:` value compiles through the same `compileVarsMap` (see
-`Config.ts`'s `compileRcVars`). There is no module-global registry (no v2-style
-`activeWorkflow()`/`setActiveWorkflow`):
+`compileWorkflowConfig`. An absent `workflow:` falls back to the BUILT-IN
+DEFAULT (`defaultWorkflowDefinition`/`defaultWorkflowVars` from `templates.ts`,
+with the top-level `modes:` merged over via `mergeModes`) — never an error. The
+load is exposed as a DEFERRED effect — `ConfigService` provides
+`{ load: Effect<ConfigOperations> }`, not the ops directly — because the layer
+is provided to the whole program and built eagerly (`main.ts`), so if it
+loaded/failed at build time a CUSTOM-workflow validation error would break
+`gtd init`/`gtd lsp` too; consumers do `yield* (yield* ConfigService).load`
+(Edge/program/ReviewWindow/Lsp). The top-level `vars:` value compiles through
+the same `compileVarsMap` (see `Config.ts`'s `compileRcVars`). There is no
+module-global registry (no v2-style `activeWorkflow()`/`setActiveWorkflow`):
 `ConfigOperations { workflow, workflowVars, rcVars }` flows through the
 `ConfigService` Context tag like any other Effect dependency, read fresh each
 invocation — nothing to reset between tests. `src/Edge.ts`'s `resolveVars`
