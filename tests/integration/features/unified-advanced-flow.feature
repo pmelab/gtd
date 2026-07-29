@@ -274,7 +274,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step agent
     Then it succeeds
-    And the git ref "refs/gtd/review-head" exists
+    And the git ref "refs/worktree/gtd/review-head" exists
     When I run gtd status
     Then it succeeds
     And stdout contains "State: await-review"

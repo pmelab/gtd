@@ -1,7 +1,7 @@
 @inmem
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
-  gtd v3 exposes `init`, `step <actor>`, `review <commitish>`,
+  gtd v3 exposes `init`, `step <actor>`, `review <commitish>`, `fix`, `abandon`,
   `next`, `status`, `validate`, `lsp`, `visualize`, `version`, and `help` as its
   subcommands. Bare `gtd` (no subcommand) is a usage error. `--help`/`help` and
   `--version`/`version` short-circuit before any repo-state work and exit 0
@@ -32,6 +32,8 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     And stdout contains "init "
     And stdout contains "step <actor>"
     And stdout contains "review <commitish>"
+    And stdout contains "fix"
+    And stdout contains "abandon"
     And stdout contains "next"
     And stdout contains "visualize"
 

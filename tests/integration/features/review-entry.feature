@@ -180,7 +180,7 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
       """
     When I run gtd next
     Then it succeeds
-    And the git ref "refs/gtd/review-head" exists
+    And the git ref "refs/worktree/gtd/review-head" exists
     # HEAD rests at "base" — the process's diff base — surfacing the whole
     # <commitish>..HEAD diff as ordinary uncommitted changes.
     And the last commit subject is "chore: init gtd workflow"

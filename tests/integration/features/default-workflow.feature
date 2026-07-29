@@ -96,7 +96,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     Then it succeeds
     # await-review declares `reviewWindow: true` — resolve the true rest via
     # `gtd status` rather than raw HEAD.
-    And the git ref "refs/gtd/review-head" exists
+    And the git ref "refs/worktree/gtd/review-head" exists
     When I run gtd status
     Then it succeeds
     And stdout contains "State: await-review"
@@ -172,7 +172,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the git ref "refs/gtd/review-head" exists
+    And the git ref "refs/worktree/gtd/review-head" exists
     When I run gtd status
     Then it succeeds
     And stdout contains "State: await-review"
@@ -330,7 +330,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And stderr contains "was deleted"
     # Nothing committed — the refusal re-arms the review window, so the cycle
     # stays at the gate for the reviewer to restore + tick.
-    And the git ref "refs/gtd/review-head" exists
+    And the git ref "refs/worktree/gtd/review-head" exists
 
   Scenario: stepping at await-review with a box still unticked and no comment is refused — finish reviewing first
     Given a test project
@@ -360,7 +360,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     Then it fails
     And stderr contains "still unticked and no comment"
     # Nothing committed — the window re-arms, keeping the reviewer at the gate.
-    And the git ref "refs/gtd/review-head" exists
+    And the git ref "refs/worktree/gtd/review-head" exists
 
   Scenario: at await-review, gtd next surfaces the sign-off vs. feedback contract in its human-gate message
     Given a test project

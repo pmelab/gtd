@@ -126,11 +126,16 @@ a project plugs its own into a mode's `format:`).
 - **`src/ReviewWindow.ts`** — the review checkout window edge (see STATES.md
   §11): `openReviewWindow`/`closeReviewWindow` (the `git reset --mixed`
   open/close bracketing every state subcommand, keyed on the resolved rest's
-  `reviewWindow: true` and on `refs/gtd/review-head` existence) and
-  `reviewBaseHash` (the `reviewBase`-state diff-base derivation). Pure engine is
+  `reviewWindow: true` and on `refs/worktree/gtd/review-head` existence) and
+  `reviewBaseHash` (the `reviewBase`-state diff-base derivation). The window's
+  refs live in git's PER-WORKTREE `refs/worktree/*` namespace so linked
+  worktrees sharing one `.git` never clobber each other (issue #118); the
+  pre-7.2 SHARED `refs/gtd/*` pair is read-only legacy (`openWindowRefs`),
+  closed only when HEAD is contained in the saved head. Pure engine is
   oblivious; `program.ts` calls it, it calls `GitService`/`Edge.ts`.
-- **`src/program.ts`** — CLI dispatch (`init`/`step`/`next`/`status`/`validate`;
-  `lsp`, `init`, and `visualize` dispatched BEFORE the config-reading path's
+- **`src/program.ts`** — CLI dispatch
+  (`init`/`step`/`review`/`fix`/`abandon`/`next`/`status`/`validate`; `lsp`,
+  `init`, and `visualize` dispatched BEFORE the config-reading path's
   git/repo-root/review-window bracket — `lsp`/`init` need no config at all,
   `visualize` reads the workflow but no git state). `runInitCommand` writes
   `renderInitScaffold()` to `.gtdrc.json` (uncommitted) — a MINIMAL config
@@ -144,7 +149,11 @@ a project plugs its own into a mode's `format:`).
   so init tailors its "commit before starting" guidance. Calls `Edge.ts` for
   everything IO-shaped; calls `PatternMachine.ts`'s pure
   `step`/`matchesPattern`/`parsePattern` directly where no IO is needed (e.g.
-  `gtd status`'s per-change pattern report).
+  `gtd status`'s per-change pattern report). `runAbandonCommand` is the human
+  counterpart to a squash: it mixed-resets to `computeProcessRun`'s
+  `startParentHash` (the window already closed by the shared bracket), keeping
+  every dropped commit's content as pending changes — a no-op success at the
+  initial state.
 - **`src/Visualize.ts` (+ `src/visualize.html`)** — the `gtd visualize` viewer:
   `buildVizModel` describes the active workflow as JSON (the flat compiled
   states with their edges/details, PLUS the sub-machine grouping via

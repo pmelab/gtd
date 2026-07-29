@@ -34,6 +34,19 @@ capture for the human as its opening move (see below), so re-launching the loop
 is the only thing the human ever does — at a gate they edit and re-run, and the
 loop picks their change up.
 
+**A `"message"` rest is a real handoff, not a slow beat.** No driver signs off
+for the human: in the bundled workflow the loop runs the whole cycle unattended
+up to `await-review` and then STOPS there with the review checkout window open
+(the reviewable diff surfaced as uncommitted changes — see
+[STATES.md §11](../STATES.md#11-the-review-checkout-window)). Advancing takes a
+human edit to `.gtd/REVIEW.md`: ticking every box with **no** comment signs off
+into the squash finale, while any comment (a note, or a code edit of your own)
+is feedback that routes into another build + re-review round. Re-launching the
+loop after that edit picks the decision up. Until then the loop halts on every
+run — that is the contract, not a stall. A review nobody is going to finish is
+ended with [`gtd abandon`](cli.md#gtd-abandon---json), which drops the process's
+commits and keeps their content as uncommitted changes.
+
 ```bash
 gtd next --json   # ask who's up and what they should do
 ```

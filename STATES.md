@@ -295,6 +295,18 @@ the message filename appears only in user-authored patterns/templates.
 * <process start parent>
 ```
 
+**Abandoning instead of finishing.** A squash is the workflow's own way out of a
+process; **`gtd abandon`** is the human's. It targets the same boundary — the
+process's start parent — but with `git reset --mixed` and no commit: every turn
+commit is dropped and everything they carried (code, `.gtd/` steering files)
+stays in the working tree as uncommitted changes, so nothing is lost and the
+machine rests at the initial state again. Resting there already is a no-op
+success (a recovery command that fails when there is nothing to recover is a
+worse tool); a process whose first commit is the repository's root commit is the
+one refusal, since there is no earlier commit to rewind to. Like the squash,
+this lives entirely at the edge (`src/program.ts`) — the pure engine has no
+notion of abandoning.
+
 ## 9. Validation
 
 `validateDefinition` (run at config-load time, never at step time) rejects a
@@ -688,8 +700,20 @@ gutters, per-file diff, and discard-hunk already understand.
 begins, so an editor would otherwise show a clean tree. gtd temporarily rewinds
 HEAD and the index to the review base (`git reset --mixed <base>`) with the
 working tree untouched, so the entire `base..HEAD` diff re-appears as
-uncommitted changes. The real head is preserved under `refs/gtd/review-head`
-(the base under `refs/gtd/review-base`) so nothing is lost.
+uncommitted changes. The real head is preserved under
+`refs/worktree/gtd/review-head` (the base under `refs/worktree/gtd/review-base`)
+so nothing is lost.
+
+**One window per worktree.** Those two refs sit in git's **per-worktree**
+`refs/worktree/*` namespace, so N linked worktrees of one repository
+(`git worktree add`, sharing a single `.git`) each get their own independent
+window, and git drops the refs along with the worktree. gtd ≤ 7.1 used the
+SHARED `refs/gtd/*` namespace, where a window opened in one worktree made the
+next worktree's very first gtd invocation "close" it — mixed-resetting that
+worktree's branch onto the other's saved head. A window an older gtd left open
+across the upgrade is still finished from the legacy refs, but only when HEAD is
+contained in the saved head; otherwise the close refuses with the manual
+recovery, rather than resetting a branch onto a sibling worktree's work.
 
 **The base.** By default it is the process's diff base (`computeProcessRun`'s
 `diffBase` — see §7), so the window shows the whole current cycle — or, for a
@@ -711,15 +735,15 @@ window — it is opened and closed entirely at the edge (`src/ReviewWindow.ts`),
 bracketing every state subcommand (`step`/`next`/`status`):
 
 - **Close first, always.** Before anything reads or mutates state, gtd restores
-  the real head if a window is open (keyed solely on `refs/gtd/review-head`
-  existing). This is why the machine resolves the true rest, not the rewound
-  base — and why a reviewer's own edits, made while the window was open, land as
-  the resting state's ordinary pending changes and are captured by its `on`
-  patterns like any other diff (in the unified template, a code edit at
-  `await-review` is feedback — it routes through `review-deciding` into a
-  build + re-review round; ticking every box with no comment signs off into the
-  squash finale, while a deleted `.gtd/REVIEW.md` is refused by the sign-off
-  gate — see §10).
+  the real head if a window is open (keyed solely on
+  `refs/worktree/gtd/review-head` existing). This is why the machine resolves
+  the true rest, not the rewound base — and why a reviewer's own edits, made
+  while the window was open, land as the resting state's ordinary pending
+  changes and are captured by its `on` patterns like any other diff (in the
+  unified template, a code edit at `await-review` is feedback — it routes
+  through `review-deciding` into a build + re-review round; ticking every box
+  with no comment signs off into the squash finale, while a deleted
+  `.gtd/REVIEW.md` is refused by the sign-off gate — see §10).
 - **Re-arm last.** After the subcommand finishes — on success, on refusal, and
   after read-only commands too — gtd re-opens the window if the resolved rest
   declares `reviewWindow: true`. Every command participates, so the editor's

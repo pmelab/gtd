@@ -76,8 +76,8 @@ over — a `workflow:` is the whole definition). See
 
 gtd is a small **pattern machine**: named states, each awaiting one actor and
 carrying one piece of content (a script, a prompt, a message, or a squash commit
-template), with an ordered set of change-patterns routing to the next state.
-Four commands drive it:
+template), with an ordered set of change-patterns routing to the next state. A
+handful of commands drive it:
 
 - **`gtd step <actor>`** — authenticate as `<actor>` and perform the one
   transition the pending changes match.
@@ -91,6 +91,9 @@ Four commands drive it:
 - **`gtd fix`** — start a brand new process that goes straight into repairing
   the current failing tests, then runs the shared review/squash tail (a no-op if
   the suite is already green).
+- **`gtd abandon`** — end the process underway without completing it: rewind to
+  the commit it started from, keeping everything it produced as uncommitted
+  changes (nothing is discarded).
 - **`gtd visualize`** — serve an interactive diagram of the active workflow on a
   local web server (the main flow, its sub-machines, and per-state details).
 

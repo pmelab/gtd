@@ -159,6 +159,42 @@ loudly at load time rather than silently misinterpreting.
 or agent harness, upgrading the `gtd` binary also means re-copying that skill
 from this release.
 
+## 7.2: the review checkout window is now per worktree
+
+The review checkout window's two refs moved from the SHARED `refs/gtd/*`
+namespace to git's PER-WORKTREE `refs/worktree/*` one:
+
+| before (≤ 7.1)         | from 7.2                        |
+| ---------------------- | ------------------------------- |
+| `refs/gtd/review-head` | `refs/worktree/gtd/review-head` |
+| `refs/gtd/review-base` | `refs/worktree/gtd/review-base` |
+
+Nothing in a `.gtdrc` or a workflow definition references those names, so **no
+config change is needed**. What changes is behaviour in a repository checked out
+as several linked worktrees (`git worktree add`, one `.git` shared between
+them): each worktree now has its own window, so a review resting in one no
+longer "closes" from another — which, on the shared refs, mixed-reset that other
+worktree's branch onto the reviewing worktree's saved head and left every
+sibling refusing with "a process is already underway".
+
+A window an OLDER gtd left open across the upgrade still closes from the legacy
+refs, so an in-flight review in a single-worktree repo needs no attention. In a
+multi-worktree repo gtd cannot tell which worktree a shared ref belongs to, so
+it closes only when HEAD is contained in the saved head and otherwise refuses
+with the exact recovery commands — run them in the worktree that owns the
+window:
+
+```bash
+git reset --mixed refs/gtd/review-head
+git update-ref -d refs/gtd/review-head
+git update-ref -d refs/gtd/review-base
+```
+
+7.2 also adds [`gtd abandon`](cli.md#gtd-abandon---json), the supported way out
+of a process that will never be finished (it closes the window, then rewinds
+HEAD to the process's start parent, keeping everything the process produced as
+uncommitted changes) — no hand-editing of refs required.
+
 ## Prior breaking change: the v1 → v2 label grammar (historical)
 
 v2 replaced v1's undifferentiated turn labels with six labels carrying the

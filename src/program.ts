@@ -83,6 +83,11 @@ Commands:
                    state (fixEntry: true) that goes straight into repairing the
                    current failing tests. Requires a clean tree resting at the
                    workflow's initial state
+  abandon          End the process currently underway without completing it:
+                   close any open review checkout window, then rewind HEAD to
+                   the commit the process started from, keeping everything it
+                   produced as uncommitted changes. A no-op when no process is
+                   underway
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   status           Print the resolved rest's state/actor and which declared
@@ -535,7 +540,7 @@ const runReviewCommand = (
     if (rest.state !== initialStateOf(rest.def)) {
       return yield* Effect.fail(
         new Error(
-          `gtd review: a process is already underway (resting at "${rest.state}") — finish or abandon it before starting a review`,
+          `gtd review: a process is already underway (resting at "${rest.state}") — finish it, or run \`gtd abandon\`, before starting a review`,
         ),
       )
     }
@@ -608,7 +613,7 @@ const runFixCommand = (
     if (rest.state !== initialStateOf(rest.def)) {
       return yield* Effect.fail(
         new Error(
-          `gtd fix: a process is already underway (resting at "${rest.state}") — finish or abandon it before starting a fix`,
+          `gtd fix: a process is already underway (resting at "${rest.state}") — finish it, or run \`gtd abandon\`, before starting a fix`,
         ),
       )
     }
@@ -633,6 +638,82 @@ const runFixCommand = (
       write(JSON.stringify({ state: entryState, subject }) + "\n")
     } else {
       write(`committed: ${subject}\n`)
+    }
+  })
+
+// git's empty-tree object — `computeProcessRun`'s `startParentHash` when the
+// process covers the whole history, so there is no earlier commit to rewind to.
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+/**
+ * `gtd abandon`: end the process currently underway WITHOUT completing it,
+ * returning the machine to the workflow's initial state — the recovery path out
+ * of a process nobody is going to finish (the refusals of `gtd review`/`gtd fix`
+ * name it: "finish or abandon it before starting a review").
+ *
+ * NOTHING is discarded. The shared bracket in `makeProgram` has already closed
+ * any open review checkout window (so HEAD is the real head), and abandon then
+ * `git reset --mixed`es HEAD to the commit the process started from
+ * (`computeProcessRun`'s `startParentHash` — the same boundary a squash resets
+ * to). Every turn commit the process wrote is dropped, and everything they
+ * carried — the code, the `.gtd/` steering files — stays in the working tree as
+ * uncommitted changes for the human to keep, re-commit, or discard with
+ * ordinary git.
+ *
+ * Idempotent: resting at the initial state (a plain non-gtd branch, or a
+ * just-squashed cycle) is a no-op SUCCESS, not a refusal — a recovery command
+ * that fails when there is nothing to recover is a worse tool. The one refusal
+ * is a process whose first commit is the repository's own root commit: there is
+ * no earlier commit to rewind to.
+ */
+const runAbandonCommand = (
+  argv: readonly string[],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, ProgramRequirements> =>
+  Effect.gen(function* () {
+    yield* rejectExtraArgs("abandon", argv)
+
+    const git = yield* GitService
+    const rest = yield* resolveRest()
+    const initial = initialStateOf(rest.def)
+    if (rest.state === initial) {
+      if (json) {
+        write(JSON.stringify({ state: initial, abandoned: false }) + "\n")
+      } else {
+        write(`no gtd process is underway (resting at "${initial}") — nothing to abandon\n`)
+      }
+      return
+    }
+
+    const run = yield* computeProcessRun(git, rest.def)
+    if (run.startParentHash === EMPTY_TREE) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd abandon: the process underway (resting at "${rest.state}") starts at the ` +
+            "repository's first commit — there is no earlier commit to rewind to",
+        ),
+      )
+    }
+
+    yield* git.mixedResetTo(run.startParentHash)
+    const subject = yield* git.lastCommitSubject()
+    if (json) {
+      write(
+        JSON.stringify({
+          state: initial,
+          abandoned: true,
+          from: rest.state,
+          head: run.startParentHash,
+        }) + "\n",
+      )
+    } else {
+      write(
+        `abandoned the process resting at "${rest.state}" — HEAD is back at ` +
+          `${run.startParentHash.slice(0, 7)} ("${subject}"), resting at "${initial}".\n` +
+          `Everything the process produced is kept as uncommitted changes (\`git status\`); ` +
+          `discard them with \`git checkout -- . && git clean -fd .gtd\` for a clean tree.\n`,
+      )
     }
   })
 
@@ -1290,7 +1371,15 @@ const runVisualizeCommand = (
     yield* Effect.never.pipe(Effect.ensuring(Effect.sync(() => server.close())))
   })
 
-const KNOWN_SUBCOMMANDS = ["step", "review", "fix", "next", "status", "validate"] as const
+const KNOWN_SUBCOMMANDS = [
+  "step",
+  "review",
+  "fix",
+  "abandon",
+  "next",
+  "status",
+  "validate",
+] as const
 type KnownSubcommand = (typeof KNOWN_SUBCOMMANDS)[number]
 
 /**
@@ -1411,6 +1500,8 @@ const dispatchKnownSubcommand = (
       return runReviewCommand(argv, json, write)
     case "fix":
       return runFixCommand(argv, json, write)
+    case "abandon":
+      return runAbandonCommand(argv, json, write)
     case "next":
       return runNextCommand(json, write)
     case "status":
