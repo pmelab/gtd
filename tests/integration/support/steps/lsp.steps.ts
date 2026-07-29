@@ -256,6 +256,15 @@ Then(
   },
 )
 
+Then("the LSP response result is an empty symbol list", (world: GtdWorld) => {
+  const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+  const symbols = response.result as ReadonlyArray<{ name: string }>
+  assert.ok(
+    Array.isArray(symbols) && symbols.length === 0,
+    `Expected no symbols. Got: ${JSON.stringify(symbols)}`,
+  )
+})
+
 After(async (world: GtdWorld) => {
   const client = clients.get(world)
   if (!client) return

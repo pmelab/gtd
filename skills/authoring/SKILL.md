@@ -286,18 +286,17 @@ Add a state and re-route the edge into it:
 
 ```yaml
 states:
-  # ... grilling-answer previously routed "C" straight to `building`.
-  grilling-answer:
+  # ... plan-review previously routed "C" straight to `building`.
+  plan-review:
     on:
       "C":
         to: approve-plan # was: building
         describe: Accept the plan and send it for sign-off.
-      "* **": grilling
+      "* **": planning
 
   approve-plan: # NEW human gate
     actor: human
     file: <%= it.vars.todoFile %>
-    mode: qa
     message: |
       The plan in `<%= it.vars.todoFile %>` is ready. Approve to build.
 
@@ -310,11 +309,11 @@ states:
         to: building
         describe: Change nothing to approve the plan and start building.
       "* **":
-        to: grilling
+        to: planning
         describe: Edit the plan to send it back for another round.
 ```
 
-Then verify: `gtd mermaid` shows `grilling-answer → approve-plan → building`,
+Then verify: `gtd mermaid` shows `plan-review → approve-plan → building`,
 `approve-plan` is reachable, and no state is orphaned.
 
 ## Notes

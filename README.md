@@ -111,12 +111,15 @@ and tells you to repair it first (that's what `gtd fix` is for). The two
 steering-file entries are chosen by which file you create:
 
 - Create **`.gtd/TODO.md`** with a short sketch to start the **simple** flow: an
-  agent develops your sketch into a plan — asking any open question it can't
-  settle itself via a deterministic `.gtd/TODO.md` format, validated before it
-  ever reaches you — you answer inline, then it builds the plan in one turn and
+  agent develops your sketch into a concrete plan — deciding open points itself
+  rather than asking questions — and hands it back for you to accept as-is or
+  edit. Editing sends it round again; accepting builds the plan in one turn and
   runs your tests (looping on failures).
 - Create **`.gtd/REQUIREMENTS.md`** to start the **advanced** flow: two-phase
-  product then technical Q&A (`.gtd/REQUIREMENTS.md` → `.gtd/ARCHITECTURE.md`),
+  product then technical Q&A (`.gtd/REQUIREMENTS.md` → `.gtd/ARCHITECTURE.md`) —
+  each open question offers a couple of candidate answers plus a
+  `- [ ] _your answer_` slot, and you tick exactly one per question (the gate
+  won't let a phase advance while any question is unanswered) — then
   decomposition into work **packages** (each a set of independent tasks a single
   build turn fans out to parallel subagents), a per-package test loop, and a
   per-package **agentic review** that verifies the package against its spec.
@@ -168,8 +171,8 @@ points at (at its `#line`), symbols over a `qa`-mode file's open questions,
 diagnostics for both (live as you edit), and a `gtd.openSteeringFile` command
 that jumps to the current state's steering file. Config-driven via each state's
 `file:`/`mode:` (see [CLI reference](docs/cli.md#gtd-lsp)) — falls back to
-basename dispatch (`TODO.md`/`REVIEW.md`) with no config in sight. Those two
-formats are gtd's built-in steering-file MODES — validators, not formatters: a
+basename dispatch (`REVIEW.md` → `review`) with no config in sight. `qa` and
+`review` are gtd's built-in steering-file MODES — validators, not formatters: a
 mode's `format:` and `validate:` are shell commands a workflow (or a project's
 `.gtdrc`) declares for itself, so you bring your own formatter and your own
 checkers (see

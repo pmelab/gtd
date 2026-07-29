@@ -4,12 +4,13 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   Minimal protocol-level smoke for `gtd lsp` (see src/Lsp.ts and
   docs/design/steering-file-loops.md §5): the server starts over stdio, the
   `initialize` handshake succeeds and advertises the document-symbol/code-
-  action capabilities, and a `textDocument/documentSymbol` request against a
-  `.gtd/TODO.md` fixture round-trips the open-questions parser's output (the
-  no-config basename fallback). Two further scenarios prove the config-driven
-  half (see docs/design/state-file-association.md §3): documentSymbol served
-  for a CUSTOM-named `qa` file mapped via a real `.gtdrc` `file:`/`mode:`
-  pair, and the `gtd.openSteeringFile` executeCommand resolving a
+  action capabilities, and a `textDocument/documentSymbol` request against an
+  unmapped `.gtd/TODO.md` fixture yields NO symbols (the `TODO.md` → qa basename
+  fallback was removed — TODO.md is now a free-form plan file). Two further
+  scenarios prove the config-driven half (see
+  docs/design/state-file-association.md §3): documentSymbol served for a
+  CUSTOM-named `qa` file mapped via a real `.gtdrc` `file:`/`mode:` pair, and
+  the `gtd.openSteeringFile` executeCommand resolving a
   hand-authored current state and asking the client to show its steering
   file (`window/showDocument`). A final scenario proves go-to-definition: a
   `textDocument/definition` on a `.gtd/REVIEW.md` hunk pointer line returns a
@@ -24,7 +25,11 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And the LSP response result has a "documentSymbolProvider" capability
     And the LSP response result has a "codeActionProvider" capability
 
-  Scenario: a documentSymbol request against a TODO.md fixture round-trips the open-questions parser
+  Scenario: with no config, .gtd/TODO.md is NOT dispatched by basename — it yields no symbols
+    # The `TODO.md` → qa basename fallback was removed: the bundled template's
+    # simple flow iterates on a free-form plan there, not a qa-format file. With
+    # no `.gtdrc` mapping it, documentSymbol returns nothing. (Config-driven qa
+    # dispatch over any file — including TODO.md — is covered below.)
     Given a test project
     And an LSP server started in the test project
     When the LSP client sends an initialize request
@@ -40,7 +45,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       add and subtract.
       """
     Then the LSP response has no error
-    And the LSP response result contains a symbol named "[open] Which operations?"
+    And the LSP response result is an empty symbol list
 
   Scenario: documentSymbol is served for a CUSTOM-named qa file mapped via a real .gtdrc (config-driven dispatch)
     Given a test project
@@ -76,7 +81,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       add and subtract.
       """
     Then the LSP response has no error
-    And the LSP response result contains a symbol named "[open] Which operations?"
+    And the LSP response result contains a symbol named "[unanswered] Which operations?"
 
   Scenario: gtd.openSteeringFile resolves the current state's steering file and asks the client to show it
     Given a test project

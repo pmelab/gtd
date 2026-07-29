@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest"
 import {
   questionSymbols,
   questionDiagnostics,
+  questionCodeActions,
   reviewSymbols,
   reviewDiagnostics,
   toggleHunkEdit,
   toggleChunkEdits,
+  toggleOptionEdit,
   reviewCodeActions,
   hunkDefinitionLocation,
   basenameFallbackMode,
@@ -49,18 +51,98 @@ const reviewDoc = [
 ].join("\n")
 
 describe("questionSymbols", () => {
-  it("maps each question to a symbol carrying its section-derived status and heading position", () => {
+  it("marks a prose (option-less) open question as unanswered, and answered-section questions as answered", () => {
     const symbols = questionSymbols(questionsDoc)
     expect(symbols.map((s) => s.name)).toEqual([
-      "[open] Which operations?",
+      "[unanswered] Which operations?",
       "[answered] What is the target platform?",
     ])
     expect(symbols[0]?.selectionRange.start.line).toBe(4)
     expect(symbols[1]?.selectionRange.start.line).toBe(10)
   })
 
+  it("marks an open question with exactly one ticked option as answered, and lists options as children", () => {
+    const doc = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [x] GraphQL",
+      "- [ ] _your answer_",
+      "",
+    ].join("\n")
+    const symbols = questionSymbols(doc)
+    expect(symbols[0]?.name).toBe("[answered] Which API?")
+    expect(symbols[0]?.children?.map((c) => c.name)).toEqual([
+      "[ ] REST",
+      "[x] GraphQL",
+      "[ ] your answer",
+    ])
+  })
+
+  it("marks an open question with no tick as unanswered", () => {
+    const doc = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST",
+      "- [ ] GraphQL",
+      "",
+    ].join("\n")
+    expect(questionSymbols(doc)[0]?.name).toBe("[unanswered] Which API?")
+  })
+
   it("returns no symbols when there is no Open Questions section", () => {
     expect(questionSymbols("# Plan\n\nJust prose.\n")).toEqual([])
+  })
+})
+
+describe("questionCodeActions / toggleOptionEdit", () => {
+  const doc = [
+    "## Open Questions",
+    "",
+    "### Which API?",
+    "",
+    "- [ ] REST",
+    "- [x] GraphQL",
+    "- [ ] _your answer_",
+    "",
+  ].join("\n")
+  const uri = "file:///repo/.gtd/REQUIREMENTS.md"
+  const at = (
+    line: number,
+  ): { start: { line: number; character: number }; end: { line: number; character: number } } => ({
+    start: { line, character: 0 },
+    end: { line, character: 0 },
+  })
+
+  it("offers 'pick this option' on an unticked option, checking it and unticking the ticked sibling", () => {
+    const actions = questionCodeActions(uri, doc, at(4)) // the REST line
+    expect(actions).toHaveLength(1)
+    expect(actions[0]?.title).toBe("gtd: pick this option")
+    const edits = actions[0]?.edit?.changes?.[uri] ?? []
+    // one edit to check REST (line 4), one to uncheck GraphQL (line 5)
+    expect(edits.map((e) => e.range.start.line).sort()).toEqual([4, 5])
+    expect(edits.find((e) => e.range.start.line === 4)?.newText).toBe("x")
+    expect(edits.find((e) => e.range.start.line === 5)?.newText).toBe(" ")
+  })
+
+  it("offers 'uncheck this option' on the already-ticked option", () => {
+    const actions = questionCodeActions(uri, doc, at(5)) // the ticked GraphQL line
+    expect(actions[0]?.title).toBe("gtd: uncheck this option")
+    expect(actions[0]?.edit?.changes?.[uri]).toHaveLength(1)
+  })
+
+  it("offers nothing off an option line", () => {
+    expect(questionCodeActions(uri, doc, at(2))).toEqual([]) // the ### heading
+  })
+
+  it("toggleOptionEdit flips the box in place", () => {
+    expect(toggleOptionEdit(doc, 4)?.newText).toBe("x")
+    expect(toggleOptionEdit(doc, 5)?.newText).toBe(" ")
+    expect(toggleOptionEdit(doc, 3)).toBeUndefined() // blank line
   })
 })
 
@@ -230,9 +312,9 @@ describe("hunkDefinitionLocation", () => {
 })
 
 describe("basenameFallbackMode", () => {
-  it("maps TODO.md to qa and REVIEW.md to review, and anything else to undefined", () => {
-    expect(basenameFallbackMode("TODO.md")).toBe("qa")
+  it("maps REVIEW.md to review, and anything else (including TODO.md) to undefined", () => {
     expect(basenameFallbackMode("REVIEW.md")).toBe("review")
+    expect(basenameFallbackMode("TODO.md")).toBeUndefined()
     expect(basenameFallbackMode("NOTES.md")).toBeUndefined()
   })
 })
@@ -316,8 +398,8 @@ describe("modeForDocument", () => {
 
   it("falls back to basename dispatch for a path the map doesn't cover", () => {
     const map = new Map()
-    expect(modeForDocument("file:///repo/.gtd/TODO.md", map)).toBe("qa")
     expect(modeForDocument("file:///repo/.gtd/REVIEW.md", map)).toBe("review")
+    expect(modeForDocument("file:///repo/.gtd/TODO.md", map)).toBeUndefined()
     expect(modeForDocument("file:///repo/NOTES.md", map)).toBeUndefined()
   })
 })

@@ -95,7 +95,7 @@ export interface StateDef {
    * value belong to the same memory scope (the driver retains memory across
    * them), and a change in value — or the first agent turn — is where the
    * driver starts fresh. This makes a loop that keeps re-entering one state
-   * (e.g. a grilling or fix loop) retain memory across its laps, while a phase
+   * (e.g. a planning or fix loop) retain memory across its laps, while a phase
    * boundary that moves to a differently-labelled state clears it. Unset means
    * "use the harness's default". Rendered as an Eta template through the same
    * `it.vars`-carrying context as `model`/content (a plain string with no Eta
@@ -195,6 +195,21 @@ export interface StateDef {
    * state (never at rest — see `validateDefinition`).
    */
   readonly requireProgress?: boolean
+
+  /**
+   * Optional. When `true`, a step at this state is REFUSED unless every OPEN
+   * question in its `qa`-mode `file:` is answered — EXACTLY ONE checkbox ticked
+   * per question (and, when the ticked one is the trailing free-text slot, its
+   * text is non-empty). This is what makes the advanced flow's answer gates
+   * (`adv-grilling-answer`/`architecting-answer`) require a decision on every
+   * question before looping back or advancing. Like the review sign-off gate,
+   * the PURE engine never reads it: the check lives at the edge
+   * (`enforceAnswerCompletenessGate` in `src/program.ts`, over
+   * `src/OpenQuestions.ts`), and only acts when the state also declares
+   * `mode: qa`. Requires a `file:`; forbidden on a commit state (never at
+   * rest — see `validateDefinition`).
+   */
+  readonly answerGate?: boolean
 }
 
 /**
@@ -291,6 +306,10 @@ export const isReviewBaseState = (def: WorkflowDefinition, state: StateName): bo
 /** True when a step at `state` must be refused if its only change is deleting the state's `file:` (see `StateDef.requireProgress`). Safe for an unknown state name (returns `false`). */
 export const isRequireProgressState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.requireProgress === true
+
+/** True when a step at `state` must be refused unless every open question in its `qa`-mode file is answered (see `StateDef.answerGate`). Safe for an unknown state name (returns `false`). */
+export const isAnswerGateState = (def: WorkflowDefinition, state: StateName): boolean =>
+  def.states[state]?.answerGate === true
 
 /** The workflow's declared review-entry state name (see `StateDef.reviewEntry`) — `gtd review <commitish>` (`src/program.ts`) enters this state to start a new review process. `undefined` when no state declares one; `validateDefinition` guarantees at most one does, so the first (only) match wins. */
 export const reviewEntryStateOf = (def: WorkflowDefinition): StateName | undefined => {
@@ -934,6 +953,26 @@ const validateRequireProgress = (name: string, state: StateDef): string[] => {
   return errors
 }
 
+/**
+ * `answerGate`, when present, is forbidden on a commit state (never at rest —
+ * same rule family as `reviewWindow`/`requireProgress`) and REQUIRES a `file:`:
+ * the edge gate reads that file's open questions to check every one is answered,
+ * so a state with no `file:` to name has nothing to gate. The gate only ACTS
+ * when the state also declares `mode: qa` (the built-in checkbox format), but
+ * that pairing is an edge concern, not enforced here.
+ */
+const validateAnswerGate = (name: string, state: StateDef): string[] => {
+  if (state.answerGate === undefined) return []
+  const errors: string[] = []
+  if (isCommitState(state)) {
+    errors.push(`state "${name}": a commit state cannot declare "answerGate"`)
+  }
+  if (state.file === undefined) {
+    errors.push(`state "${name}": "answerGate" requires "file"`)
+  }
+  return errors
+}
+
 /** At most one state may declare `reviewEntry: true` — `gtd review <commitish>` (`src/program.ts`) needs a single, unambiguous state name to enter (see `reviewEntryStateOf`). */
 const validateReviewEntryUniqueness = (
   def: WorkflowDefinition,
@@ -1055,6 +1094,7 @@ const validateState = (
     ...validateReviewEntry(name, state),
     ...validateFixEntry(name, state),
     ...validateRequireProgress(name, state),
+    ...validateAnswerGate(name, state),
   ]
 }
 

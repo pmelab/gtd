@@ -290,13 +290,13 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
   Scenario: the simple template resolves a planner-tier state's model from "vars.plannerModel"
     Given a test project
     And the workflow
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
       """
       a sketch
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"grilling\""
+    And stdout contains "\"state\":\"planning\""
     And stdout contains "\"model\":\"smart\""
 
   Scenario: the simple template resolves a coder-tier state's model from "vars.coderModel"
@@ -314,7 +314,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
   Scenario: a "GTD_VAR_plannerModel" override repoints every planner-tier state at once
     Given a test project
     And the workflow
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
       """
       a sketch
       """

@@ -76,7 +76,7 @@ create .gtdrc.json`.
 The unified template has four entry points — each behind a green-baseline gate
 that runs the suite before starting — into one shared review/squash tail (see
 [STATES.md §10](../STATES.md#10-the-bundled-workflow-templates)): creating
-`.gtd/TODO.md` starts the simple flow (grilling → building → checking), creating
+`.gtd/TODO.md` starts the simple flow (planning → building → checking), creating
 `.gtd/REQUIREMENTS.md` starts the advanced flow (two-phase Q&A planning,
 per-package parallel build, agentic spec-review), `gtd review <commitish>`
 enters review directly, and `gtd fix` goes straight into repairing failing
@@ -126,7 +126,7 @@ to `--json`.
 Plain-mode output is one line:
 
 ```
-committed: gtd(human): idle → grilling
+committed: gtd(human): idle → planning
 ```
 
 or, at a no-op:
@@ -142,7 +142,7 @@ not passed):
 ```json
 {
   "state": "idle",
-  "subject": "gtd(human): idle → grilling",
+  "subject": "gtd(human): idle → planning",
   "cost": 1450,
   "model": "claude-opus-4-8"
 }
@@ -385,7 +385,7 @@ agent or human:
   declares `file:`+`mode:` formats that file in place and validates it first
   (with the very same mode commands), and **refuses the step** (committing
   nothing) when it is invalid — so a human's edit at a gate (answering at
-  `grilling-answer`, reviewing at `await-review`) is formatted and checked
+  `adv-grilling-answer`, reviewing at `await-review`) is formatted and checked
   exactly like an agent's draft, and a malformed steering file is never
   committed.
 
@@ -409,10 +409,10 @@ output is identical regardless of the current process/branch state.
 $ gtd mermaid
 stateDiagram-v2
     state "idle" as idle
-    state "grilling" as grilling
+    state "planning" as planning
     ...
     [*] --> idle
-    idle --> grilling : * **
+    idle --> planning : * **
     ...
     note right of idle : human · message
     ...
@@ -425,7 +425,7 @@ Mermaid-aware renderer (GitHub, GitLab, VS Code, Obsidian, the
 
 State names are aliased to Mermaid-safe identifiers (non-word characters fold to
 `_`; a digit-led name gets an `s_` prefix) via a `state "<name>" as <alias>`
-declaration up front, so a hyphenated name like `grilling-answer` still displays
+declaration up front, so a hyphenated name like `plan-review` still displays
 with its exact declared spelling. Rejects `--json` (exit 1,
 `gtd mermaid does not accept --json`) — there is no structured shape to emit
 beyond the Mermaid source itself — and takes no arguments (extra positional args

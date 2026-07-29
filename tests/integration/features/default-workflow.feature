@@ -3,21 +3,23 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
 
   Comprehensive coverage of the SIMPLE entry of `src/workflows/unified.yaml`
   (started by creating `.gtd/TODO.md`) through the SHARED tail: the
-  grilling/answer planning loop, a check/fix round, the fix-retry-escalate path
-  once `fixing`'s cap (max 3) is reached, the human review gate and its
+  planning/plan-review iteration loop, a check/fix round, the fix-retry-escalate
+  path once `fixing`'s cap (max 3) is reached, the human review gate and its
   `review-deciding` arbiter (a COMMENT — a note or a code edit — is feedback; an
   all-ticked no-comment step is sign-off), the sign-off gate's refusals (an
   unfinished review, a deleted REVIEW.md), and the SQUASH finale (`squashing` →
   `done`) that every entry point shares — the only path to which is full
   sign-off.
 
-  Steering-file formats (TODO.md open questions, REVIEW.md checkboxes) are not
-  validated by an in-machine state — the producing agent self-validates via
-  `gtd validate` (covered in validate.feature), so `grilling` hands straight to
-  `grilling-answer` and `reviewing` straight to `await-review`. The remaining
-  `check`-actor states here (`checking`, `review-deciding`) are simulated by
-  writing their verdict files directly and running `gtd step check` — @inmem
-  never executes the scripts themselves.
+  The simple flow's `.gtd/TODO.md` is a free-form plan the human iterates on by
+  editing it — no `qa` mode, no open-questions Q&A (that lives in the ADVANCED
+  flow). REVIEW.md checkboxes aren't validated by an in-machine state either —
+  the producing agent self-validates via `gtd validate` (covered in
+  validate.feature), so `planning` hands straight to `plan-review` and
+  `reviewing` straight to `await-review`. The remaining `check`-actor states
+  here (`checking`, `review-deciding`) are simulated by writing their verdict
+  files directly and running `gtd step check` — @inmem never executes the
+  scripts themselves.
 
   Scenario: the full simple cycle — plan, build, check/fix, review with a feedback lap, then full sign-off into the squash finale
     Given a test project
@@ -30,30 +32,25 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     Then it succeeds
     And the last commit subject is "gtd(human): idle → start-check"
 
-    # start-check: green baseline gate — a clean tree (tests pass) -> grilling
+    # start-check: green baseline gate — a clean tree (tests pass) -> planning
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): start-check → grilling"
+    And the last commit subject is "gtd(check): start-check → planning"
 
-    # grilling: develops the sketch into a plan and hands to grilling-answer
+    # planning: develops the sketch into a concrete plan and hands to plan-review
     Given ".gtd/TODO.md" is modified to:
       """
-      Build a thing. Implementation plan: add src/thing.ts exporting `thing`.
-
-      ## Open Questions
-
-      ### Should thing export a default too?
-
-      No, named export only.
+      Build a thing. Implementation plan: add src/thing.ts exporting `thing`,
+      named export only.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): grilling → grilling-answer"
+    And the last commit subject is "gtd(agent): planning → plan-review"
 
-    # grilling-answer: accept the suggested answer with a clean step -> building
+    # plan-review: accept the plan as-is with a clean step -> building
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): grilling-answer → building"
+    And the last commit subject is "gtd(human): plan-review → building"
 
     # building: implements the plan directly, deletes TODO.md when done
     Given the file ".gtd/TODO.md" is deleted
@@ -449,17 +446,17 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And the last commit subject is "gtd(human): idle → start-check"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): start-check → grilling"
+    And the last commit subject is "gtd(check): start-check → planning"
     Given ".gtd/TODO.md" is modified to:
       """
       Build a second thing. Plan: add src/thing2.ts exporting `thing2`.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): grilling → grilling-answer"
+    And the last commit subject is "gtd(agent): planning → plan-review"
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): grilling-answer → building"
+    And the last commit subject is "gtd(human): plan-review → building"
     Given a file "src/thing2.ts" with:
       """
       export const thing2 = 1
@@ -478,17 +475,17 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
   Scenario: the simple flow's agent states emit their memory scope labels
     # The scope labels let a memory-aware driver retain memory within a loop
     # (same label across laps) and clear it at a phase boundary (a
-    # differently-labelled state). grilling=plan, building=build, fixing=fix,
+    # differently-labelled state). planning=plan, building=build, fixing=fix,
     # reviewing=review — see src/workflows/unified.yaml.
     Given a test project
     And the workflow
-    And a commit "gtd(human): grilling" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
       """
       Build a thing.
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"grilling\""
+    And stdout contains "\"state\":\"planning\""
     And stdout contains "\"memory\":\"plan\""
     Given a commit "gtd(human): building" that adds "src/thing.ts" with:
       """

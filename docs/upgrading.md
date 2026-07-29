@@ -132,8 +132,8 @@ gtd init      # takes no argument
 `gtd init` (no argument) writes a `.gtdrc.json` for the single bundled
 **unified** template (its agent prompts extracted to editable `gtd-prompts/*.md`
 files the config references). The template forks on which steering file you
-create: `.gtd/TODO.md` starts the **simple flow** (a single-shot `grilling`
-plan, direct `building`, a `checking`/`fixing` loop), while
+create: `.gtd/TODO.md` starts the **simple flow** (a `planning` ⇄ `plan-review`
+plan-iteration loop, direct `building`, a `checking`/`fixing` loop), while
 `.gtd/REQUIREMENTS.md` starts the **advanced flow** (two-phase grilling ⇄
 grilling-answer / architecting ⇄ architecting-answer / decompose / picking /
 per-package build with an agentic spec-review gate). Both converge on the same

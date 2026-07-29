@@ -4,7 +4,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
   The bundled unified template gates EVERY entry on a green test baseline
   (STATES.md §10): `idle` forks into a per-flow `*-start-check` state that runs
   the suite before any planning starts. A green run (a clean tree — the check
-  script removed .gtd/FEEDBACK.md) proceeds into `grilling`/`adv-grilling`; a
+  script removed .gtd/FEEDBACK.md) proceeds into `planning`/`adv-grilling`; a
   red run (the script left .gtd/FEEDBACK.md) halts at a human `*-start-blocked`
   gate that loops back to the check once the human repairs the failures — the
   same shape as `escalate`. `@inmem` scenarios never execute the check script;
@@ -15,7 +15,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Given a test project
     And the workflow
 
-  Scenario: simple flow — a green baseline proceeds from the gate into grilling
+  Scenario: simple flow — a green baseline proceeds from the gate into planning
     Given a file ".gtd/TODO.md" with:
       """
       Build a thing.
@@ -23,10 +23,10 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): idle → start-check"
-    # A clean tree at the gate = tests pass = green -> grilling.
+    # A clean tree at the gate = tests pass = green -> planning.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): start-check → grilling"
+    And the last commit subject is "gtd(check): start-check → planning"
 
   Scenario: simple flow — a red baseline halts at start-blocked, then a fix re-runs the gate to green
     Given a file ".gtd/TODO.md" with:
@@ -58,10 +58,10 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): start-blocked → start-check"
-    # Re-run the gate: now green -> grilling.
+    # Re-run the gate: now green -> planning.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): start-check → grilling"
+    And the last commit subject is "gtd(check): start-check → planning"
 
   Scenario: advanced flow — a green baseline proceeds from the gate into adv-grilling
     Given a file ".gtd/REQUIREMENTS.md" with:

@@ -15,18 +15,18 @@ Feature: gtd mermaid — the active workflow's shape as Mermaid stateDiagram-v2 
     Then it succeeds
     And stdout contains "stateDiagram-v2"
     And stdout contains "state \"idle\" as idle"
-    And stdout contains "state \"grilling\" as grilling"
-    And stdout contains "state \"grilling-answer\" as grilling_answer"
+    And stdout contains "state \"planning\" as planning"
+    And stdout contains "state \"plan-review\" as plan_review"
     And stdout contains "state \"start-check\" as start_check"
     And stdout contains "state \"fix-check\" as fix_check"
     And stdout contains "[*] --> idle"
     And stdout contains "idle --> start_check : * **"
     And stdout contains "idle --> adv_start_check : * .gtd/REQUIREMENTS.md"
-    And stdout contains "start_check --> grilling : C"
+    And stdout contains "start_check --> planning : C"
     And stdout contains "start_check --> start_blocked : A .gtd/FEEDBACK.md"
     And stdout contains "fix_check --> fixing : A .gtd/FEEDBACK.md"
     And stdout contains "fix_check --> idle : C"
-    And stdout contains "grilling --> grilling_answer : * **"
+    And stdout contains "planning --> plan_review : * **"
     And stdout contains "note right of fixing : agent · prompt · retry 3→escalate"
 
   Scenario: a custom workflow's shape — including a hyphenated state name and a retry cap — renders correctly

@@ -73,7 +73,7 @@ export const renderInitConfig = (): string => {
 
 /** One agent prompt `gtd init` writes out as a standalone Markdown file. */
 export interface ScaffoldPromptFile {
-  /** Repo-root-relative path, e.g. `gtd-prompts/grilling.md`. */
+  /** Repo-root-relative path, e.g. `gtd-prompts/planning.md`. */
   readonly path: string
   /** The prompt body, verbatim from the bundled template's inline `prompt:`. */
   readonly content: string

@@ -9,6 +9,13 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
   re-review; clean = approval → closing), and the queue closing out to the
   SHARED tail (`reviewing`) once every package is done.
 
+  The Q&A phases use the qa checkbox format: the agent surfaces each open
+  question with candidate-answer checkboxes plus a `- [ ] _your answer_` slot,
+  and the `answerGate` on adv-grilling-answer/architecting-answer refuses a step
+  while any open question lacks exactly one tick. Ticking loops back to the
+  agent (which folds answers in); a clean step advances only when no open
+  questions remain (agent surfaced none, or the human deleted the section).
+
   Check-actor states (picking, adv-checking, closing, review-deciding) are
   simulated by writing their verdict files directly and running
   `gtd step check` — @inmem never executes the scripts themselves.
@@ -34,6 +41,103 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): idle → start-check"
+
+  Scenario: the answer gate refuses an unanswered open question, then ticking loops back and a converged plan advances
+    Given a test project
+    And the workflow
+    And a commit "gtd(agent): adv-grilling-answer" that adds ".gtd/REQUIREMENTS.md" with:
+      """
+      Build a widget.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+      - [ ] SQLite — zero-config, file-based
+      - [ ] Postgres — for concurrent writers
+      - [ ] _your answer_
+      """
+    # answerGate: stepping with no tick is refused, nothing committed
+    When I run gtd step human
+    Then it fails
+    And stderr contains "not answered"
+    And stderr contains "Which storage backend?"
+    # tick exactly one option -> loops back to adv-grilling to fold the answer in
+    Given ".gtd/REQUIREMENTS.md" is modified to:
+      """
+      Build a widget.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+      - [x] SQLite — zero-config, file-based
+      - [ ] Postgres — for concurrent writers
+      - [ ] _your answer_
+      """
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): adv-grilling-answer → adv-grilling"
+
+  Scenario: the accept-all escape — deleting the whole Open Questions section is allowed and loops to the agent to finalize
+    Given a test project
+    And the workflow
+    And a commit "gtd(agent): adv-grilling-answer" that adds ".gtd/REQUIREMENTS.md" with:
+      """
+      Build a widget.
+
+      ## Open Questions
+
+      ### Which storage backend?
+
+      - [ ] SQLite
+      - [ ] Postgres
+      - [ ] _your answer_
+      """
+    # delete the whole Open Questions section — accept-all, no unanswered question remains
+    Given ".gtd/REQUIREMENTS.md" is modified to:
+      """
+      Build a widget.
+      """
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): adv-grilling-answer → adv-grilling"
+
+  Scenario: a ticked free-text slot with text is a valid answer; the placeholder alone is refused
+    Given a test project
+    And the workflow
+    And a commit "gtd(agent): architecting-answer" that adds ".gtd/ARCHITECTURE.md" with:
+      """
+      Modules: widget.ts, store.ts.
+
+      ## Open Questions
+
+      ### ORM or raw SQL?
+
+      - [ ] Prisma
+      - [ ] raw SQL
+      - [x] _your answer_
+      """
+    # free-text slot ticked but still the placeholder -> refused
+    When I run gtd step human
+    Then it fails
+    And stderr contains "not answered"
+    # replace the placeholder with real text -> answered, loops to architecting
+    Given ".gtd/ARCHITECTURE.md" is modified to:
+      """
+      Modules: widget.ts, store.ts.
+
+      ## Open Questions
+
+      ### ORM or raw SQL?
+
+      - [ ] Prisma
+      - [ ] raw SQL
+      - [x] Drizzle — typed, lightweight
+      """
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): architecting-answer → architecting"
 
   Scenario: the advanced flow runs product + technical Q&A, decomposes into a package, builds it, fails and passes the spec-review gate, then closes out to review
     Given a test project

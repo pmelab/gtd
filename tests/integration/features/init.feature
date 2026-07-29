@@ -39,8 +39,8 @@ Feature: gtd init — scaffold a .gtdrc.json from the bundled unified workflow
     Given a test project
     When I run gtd with args "init"
     Then it succeeds
-    And "gtd-prompts/grilling.md" exists
-    And "gtd-prompts/grilling.md" contains "autonomous coding agent"
+    And "gtd-prompts/planning.md" exists
+    And "gtd-prompts/planning.md" contains "autonomous coding agent"
     And "gtd-prompts/building.md" exists
     And "gtd-prompts/fixing.md" exists
     And "gtd-prompts/reviewing.md" exists
@@ -48,7 +48,7 @@ Feature: gtd init — scaffold a .gtdrc.json from the bundled unified workflow
     And "gtd-prompts/decompose.md" exists
     And "gtd-prompts/spec-review.md" exists
     And "gtd-prompts/squashing.md" exists
-    And ".gtdrc.json" contains "./gtd-prompts/grilling.md"
+    And ".gtdrc.json" contains "./gtd-prompts/planning.md"
     # idle is a human message, checking is a script — both stay inline.
     And "gtd-prompts/idle.md" does not exist
     And "gtd-prompts/checking.md" does not exist
@@ -60,12 +60,12 @@ Feature: gtd init — scaffold a .gtdrc.json from the bundled unified workflow
     Given a test project
     When I run gtd with args "init"
     Then it succeeds
-    Given "gtd-prompts/grilling.md" is modified to:
+    Given "gtd-prompts/planning.md" is modified to:
       """
-      SENTINEL edited grilling prompt body
+      SENTINEL edited planning prompt body
       """
     # A passing test command so the green-baseline gate (start-check) proceeds
-    # to grilling — the state whose edited prompt this scenario checks.
+    # to planning — the state whose edited prompt this scenario checks.
     And a file "package.json" with:
       """
       { "scripts": { "test": "exit 0" } }
@@ -80,9 +80,9 @@ Feature: gtd init — scaffold a .gtdrc.json from the bundled unified workflow
     And the last commit subject is "gtd(human): idle → start-check"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): start-check → grilling"
+    And the last commit subject is "gtd(check): start-check → planning"
     When I run gtd next
-    Then stdout contains "SENTINEL edited grilling prompt body"
+    Then stdout contains "SENTINEL edited planning prompt body"
 
   Scenario: gtd init rejects a workflow argument
     Given a test project
