@@ -22,7 +22,7 @@ export interface GitReaderOperations {
    */
   readonly diffRef: (ref: string, exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
-  /** `git rev-parse --verify --quiet <ref>` — the ref's hash if it resolves, `Option.none` if it doesn't exist (never fails). Used to detect an open review checkout window (`refs/gtd/review-head`). */
+  /** `git rev-parse --verify --quiet <ref>` — the ref's hash if it resolves, `Option.none` if it doesn't exist (never fails). Used to detect an open review checkout window (`refs/worktree/gtd/review-head`). */
   readonly readRefOption: (ref: string) => Effect.Effect<Option.Option<string>, Error>
   /** `git merge-base --is-ancestor <a> <b>` — true iff `a` is an ancestor of `b`. Never fails: a non-zero exit (or error) reports `false`. Guards the review window's close against a HEAD that has moved off the reviewed branch. */
   readonly isAncestor: (a: string, b: string) => Effect.Effect<boolean, Error>
@@ -117,7 +117,7 @@ export interface GitWriterOperations {
    * lands the squash commit.
    */
   readonly discardPending: () => Effect.Effect<void, Error>
-  /** `git update-ref <ref> <hash>` — point a repo-local ref (e.g. `refs/gtd/review-head`) at a commit. */
+  /** `git update-ref <ref> <hash>` — point a repo-local ref (e.g. the per-worktree `refs/worktree/gtd/review-head`) at a commit. */
   readonly updateRef: (ref: string, hash: string) => Effect.Effect<void, Error>
   /** `git update-ref -d <ref>` — idempotent: deleting a missing ref is a no-op. */
   readonly deleteRef: (ref: string) => Effect.Effect<void, Error>

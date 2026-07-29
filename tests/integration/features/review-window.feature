@@ -6,11 +6,12 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
   base (the process start, unless a `reviewBase` state narrows it) with the
   working tree untouched, so the whole reviewable diff shows up as ordinary
   uncommitted changes in any editor's standard git integration. The real head
-  is preserved under `refs/gtd/review-head` (the base under
-  `refs/gtd/review-base`); every gtd invocation restores it BEFORE reading or
-  mutating state, so the pure machine never sees the window and the reviewer's
-  own edits are captured by the resting state's own `on` patterns like any
-  other pending change.
+  is preserved under `refs/worktree/gtd/review-head` (the base under
+  `refs/worktree/gtd/review-base`) — git's PER-WORKTREE ref namespace, so
+  linked worktrees sharing one `.git` each get their own window; every gtd
+  invocation restores it BEFORE reading or mutating state, so the pure machine
+  never sees the window and the reviewer's own edits are captured by the
+  resting state's own `on` patterns like any other pending change.
 
   The bundled unified workflow declares `reviewWindow: true` on
   `await-review`. Each scenario builds a cycle that rests there: the
@@ -42,8 +43,8 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
   Scenario: Resting at the gate opens the window — HEAD at the base, the diff dirty
     When I run gtd next
     Then it succeeds
-    And the git ref "refs/gtd/review-head" exists
-    And the git ref "refs/gtd/review-base" exists
+    And the git ref "refs/worktree/gtd/review-head" exists
+    And the git ref "refs/worktree/gtd/review-base" exists
     # HEAD rests at the review base: the cycle's process boundary.
     And the last commit subject is "chore: init gtd workflow"
     # The whole package diff is visible as uncommitted changes…
@@ -58,7 +59,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     Then it succeeds
     # `gtd status` closed the window, resolved the true rest, then re-armed it:
     And stdout contains "State: await-review"
-    And the git ref "refs/gtd/review-head" exists
+    And the git ref "refs/worktree/gtd/review-head" exists
     And the last commit subject is "chore: init gtd workflow"
 
   Scenario: Deleting the review doc is refused — the window stays open, nothing commits
@@ -68,7 +69,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     Then it fails
     And stderr contains "was deleted"
     # Nothing committed; the window re-arms so the reviewer can restore + tick.
-    And the git ref "refs/gtd/review-head" exists
+    And the git ref "refs/worktree/gtd/review-head" exists
     And the last commit subject is "chore: init gtd workflow"
 
   Scenario: Ticking every box with no comment signs off — the window closes and routes to review-deciding
@@ -87,7 +88,7 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     # Every box ticked, no note, no code edit — a clean sign-off hands to the
     # deterministic check, which collapses the cycle from there.
     And the last commit subject is "gtd(human): await-review → review-deciding"
-    And the git ref "refs/gtd/review-head" does not exist
+    And the git ref "refs/worktree/gtd/review-head" does not exist
 
   Scenario: Reviewer code edits are feedback — the window closes and routes to review-deciding
     Given I run gtd next
@@ -101,11 +102,11 @@ Feature: Review checkout window — the pending review diff surfaces in the edit
     # A code edit is a comment: it routes to the deterministic review check,
     # which turns it into a build + re-review round.
     And the last commit subject is "gtd(human): await-review → review-deciding"
-    And the git ref "refs/gtd/review-head" does not exist
+    And the git ref "refs/worktree/gtd/review-head" does not exist
 
   Scenario: Read-only commands re-arm the window on their way out
     Given I run gtd next
     When I run gtd status
     Then it succeeds
-    And the git ref "refs/gtd/review-head" exists
+    And the git ref "refs/worktree/gtd/review-head" exists
     And the last commit subject is "chore: init gtd workflow"

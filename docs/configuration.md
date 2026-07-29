@@ -449,9 +449,10 @@ The unified template enables `reviewWindow: true` on `await-review` and marks
 `review-deciding` `reviewBase: true`, so the first review covers the whole cycle
 but each subsequent feedback round's window narrows to `last-review..HEAD`. The
 pure engine never observes an open window — it is opened/closed entirely at the
-edge; the real head is preserved under `refs/gtd/review-head` (the base under
-`refs/gtd/review-base`) for the window's lifetime. See
-[STATES.md §11](../STATES.md) for the full lifecycle.
+edge; the real head is preserved under `refs/worktree/gtd/review-head` (the base
+under `refs/worktree/gtd/review-base`) for the window's lifetime — git's
+per-worktree ref namespace, so linked worktrees of one repository each get their
+own window. See [STATES.md §11](../STATES.md) for the full lifecycle.
 
 ### `reviewEntry:` — the review entry point (`gtd review <commitish>`)
 

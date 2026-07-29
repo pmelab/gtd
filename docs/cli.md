@@ -25,6 +25,11 @@ Commands:
                    state (fixEntry: true) that goes straight into repairing the
                    current failing tests. Requires a clean tree resting at the
                    workflow's initial state
+  abandon          End the process currently underway without completing it:
+                   close any open review checkout window, then rewind HEAD to
+                   the commit the process started from, keeping everything it
+                   produced as uncommitted changes. A no-op when no process is
+                   underway
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   status           Print the resolved rest's state/actor and which declared
@@ -167,7 +172,8 @@ written):
 
 - the machine currently resting at the workflow's **initial state** (a plain
   non-gtd branch resolves there via the inert-subject rule — the normal case; a
-  process already underway refuses);
+  process already underway refuses — finish it, or
+  [`gtd abandon`](#gtd-abandon---json) it);
 - a **clean working tree**;
 - the active workflow declaring a **`reviewEntry: true`** state (otherwise:
   `gtd review: the active workflow declares no review entry state`);
@@ -213,7 +219,8 @@ Requires, in order (any failure is a plain refusal — exit non-zero, nothing
 written):
 
 - the machine currently resting at the workflow's **initial state** (a process
-  already underway refuses);
+  already underway refuses — finish it, or [`gtd abandon`](#gtd-abandon---json)
+  it);
 - a **clean working tree**;
 - the active workflow declaring a **`fixEntry: true`** state (otherwise:
   `gtd fix: the active workflow declares no fix entry state`).
@@ -231,6 +238,62 @@ committed: gtd(human): fix-check
 unified template the fix-entry state is `fix-check`: a red suite drops into the
 shared `fixing` loop and out through the review + squash tail; a green suite is
 a no-op back to `idle`.
+
+## `gtd abandon [--json]`
+
+Ends the process currently underway **without completing it** — the way out of a
+process nobody is going to finish, and the command `gtd review`/`gtd fix` name
+when they refuse ("finish it, or run `gtd abandon`, before starting a review").
+A workflow's own exit is its squash finale
+([STATES.md §8](../STATES.md#8-the-squash-lifecycle)); this is the human's, and
+it targets the same boundary:
+
+1. any open **review checkout window** is closed first (the bracket every state
+   subcommand runs — see
+   [STATES.md §11](../STATES.md#11-the-review-checkout-window)), so the rewind
+   starts from the real head, not the rewound base;
+2. HEAD is `git reset --mixed`ed to the commit the process started from (its
+   start parent — the same target a squash resets to).
+
+**Nothing is discarded.** Every turn commit the process wrote is dropped, and
+everything they carried — the code, the `.gtd/` steering files — stays in the
+working tree as uncommitted changes for you to keep, re-commit, or throw away
+with ordinary git:
+
+```
+abandoned the process resting at "await-review" — HEAD is back at 1a2b3c4
+("feat: add calculator"), resting at "idle".
+Everything the process produced is kept as uncommitted changes (`git status`);
+discard them with `git checkout -- . && git clean -fd .gtd` for a clean tree.
+```
+
+Takes no positional argument (extra arguments are a usage error). Resting at the
+workflow's initial state is a **no-op success**, not a refusal — a recovery
+command that fails when there is nothing to recover is a worse tool:
+
+```
+no gtd process is underway (resting at "idle") — nothing to abandon
+```
+
+The one refusal is a process whose first commit is the repository's own root
+commit: there is no earlier commit to rewind to, so its commits have to be
+removed by hand.
+
+`--json` emits `{state, abandoned, from, head}` — `state` is the initial state
+the machine returns to, `abandoned` whether anything was rewound, and (only when
+it was) `from` the state the abandoned process rested at plus `head` the full
+hash HEAD now points at:
+
+```json
+{
+  "state": "idle",
+  "abandoned": true,
+  "from": "await-review",
+  "head": "1a2b3c4…"
+}
+```
+
+The no-op reports `{"state": "idle", "abandoned": false}` and still exits 0.
 
 ## `gtd next [--json]`
 
@@ -495,3 +558,11 @@ the plain-text one.
   `--help`/`--version` (and the `help`/`version` subcommands), `lsp`, and
   `visualize` skip this guard entirely (`visualize` still reads the `.gtdrc`
   workflow, but needs no git state).
+- **Linked worktrees are independent.** N `git worktree` worktrees of one
+  repository (sharing a single `.git`) each run their own gtd process: state is
+  derived from that worktree's own HEAD, and the review checkout window's refs
+  live in git's per-worktree `refs/worktree/gtd/*` namespace, so a review
+  resting in one worktree neither blocks nor rewrites any other
+  ([STATES.md §11](../STATES.md#11-the-review-checkout-window)). This holds from
+  7.2 on; gtd ≤ 7.1 kept the window under the shared `refs/gtd/*` refs, where
+  the first worktree to open one clobbered every sibling's branch.
