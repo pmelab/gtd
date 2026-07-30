@@ -95,7 +95,10 @@ handful of commands drive it:
   the commit it started from, keeping everything it produced as uncommitted
   changes (nothing is discarded).
 - **`gtd visualize`** — serve an interactive diagram of the active workflow on a
-  local web server (the main flow, its sub-machines, and per-state details).
+  local web server: the main flow (each sub-machine collapsed to one box, with
+  its own diagram below), per-state details, and — read once at page load — a
+  "Current state" panel showing where the active process rests and which action
+  leads where.
 
 `gtd version` (or `gtd --version`/`-v`) prints the installed version and exits;
 `gtd help` (or `gtd --help`/`-h`) prints the command list. Both short-circuit

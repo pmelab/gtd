@@ -392,6 +392,87 @@
         font-style: italic;
         margin-top: 16px;
       }
+      .sm-def .h {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .sm-def .h .goto-sm {
+        font: inherit;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--accent);
+        background: none;
+        border: none;
+        cursor: pointer;
+        text-decoration: underline;
+        padding: 0;
+      }
+
+      /* current-state panel */
+      .current-panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-sm);
+        padding: 18px 20px 20px;
+        margin: 16px 0 34px;
+      }
+      .cur-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        cursor: pointer;
+      }
+      .cur-name {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: -0.01em;
+      }
+      .cur-none {
+        color: var(--text-faint);
+        font-style: italic;
+      }
+      .edge.cur-matched {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+      .cur-tag {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        font-weight: 700;
+        color: var(--accent);
+        background: var(--surface);
+        border: 1px solid var(--accent);
+        padding: 1px 7px;
+        border-radius: 999px;
+        margin-left: auto;
+      }
+
+      /* mermaid black-box / ghost node labels (rendered inside the SVG via htmlLabels) */
+      .sm-hint {
+        display: block;
+        margin-top: 2px;
+        font-size: 10.5px;
+        opacity: 0.72;
+        font-weight: 500;
+      }
+
+      /* the current-state highlight ring on a rendered SVG node/group box */
+      g.node.gtd-current {
+        filter: drop-shadow(0 0 6px var(--accent));
+      }
+      g.node.gtd-current > rect,
+      g.node.gtd-current > polygon,
+      g.node.gtd-current > circle,
+      g.node.gtd-current > ellipse,
+      g.node.gtd-current > path.basic {
+        stroke: var(--accent) !important;
+        stroke-width: 3px !important;
+      }
 
       /* toolbar */
       .toolbar {
@@ -959,6 +1040,12 @@
 
       <div id="content" class="hidden">
         <div class="sec-head">
+          <h2>Current state</h2>
+          <span class="rule"></span>
+        </div>
+        <div class="current-panel hidden" id="currentPanel"></div>
+
+        <div class="sec-head">
           <h2>Main flow</h2>
           <span class="rule"></span>
         </div>
@@ -1029,7 +1116,7 @@
       document.getElementById("themeBtn").onclick = () => {
         const next = isDark() ? "light" : "dark"
         root.setAttribute("data-theme", next)
-        renderDiagram()
+        reinitializeAndRenderAll()
       }
 
       const esc = (s) =>
@@ -1071,9 +1158,8 @@
       let MODEL = null
       let STATES = []
       let byName = {}
-      let DIAGRAM_SRC = ""
+      let CURRENT = null
       let mermaidMod = null
-      let renderSeq = 0
 
       const actorFilter = new Set(["human", "agent", "check", "commit", "unknown"])
       let kindFilter = "all"
@@ -1090,6 +1176,16 @@
           esc(e.message) +
           '. This page must be served by <span class="mono">gtd visualize</span>.'
         throw e
+      }
+
+      // Resolved ONCE at page load — no polling; a page refresh re-reads. Tolerates
+      // a 404/error (an older server) or an empty `{}` (no active process/not a repo).
+      try {
+        const res = await fetch("/state.json")
+        const body = res.ok ? await res.json() : {}
+        CURRENT = body && body.state ? body : null
+      } catch (e) {
+        CURRENT = null
       }
 
       STATES = MODEL.states || []
@@ -1136,14 +1232,25 @@
         `<span class="pill ${meta(a).cls}"><span class="dot"></span>${meta(a).label}</span>`
 
       // ── mermaid source generation ──────────────────────────────────────
-      // Safe, stable node ids (state names can contain hyphens etc.).
+      // Safe, stable node ids (state names can contain hyphens etc.), with a
+      // reverse lookup — needed to map a rendered SVG node's id back to its
+      // state name when wiring clicks (see `nodeIdOf`/`wire*Clicks` below).
       const idFor = (() => {
         const map = new Map()
-        return (name) => {
-          if (!map.has(name)) map.set(name, "n" + map.size)
+        const rev = new Map()
+        const fn = (name) => {
+          if (!map.has(name)) {
+            const id = "n" + map.size
+            map.set(name, id)
+            rev.set(id, name)
+          }
           return map.get(name)
         }
+        fn.nameOf = (id) => rev.get(id)
+        return fn
       })()
+      const groupBoxId = (i) => "g" + i
+      const groupIndexOf = (name) => (MODEL.groups || []).findIndex((g) => g.name === name)
       const shapeFor = (kind, label) => {
         const l = `"${label.replace(/"/g, "&quot;")}"`
         switch (kind) {
@@ -1160,68 +1267,137 @@
         }
       }
       const mlabel = (s) => `"${String(s).replace(/"/g, "&quot;").replace(/\|/g, "&#124;")}"`
+      const CLASS_DEFS = [
+        "classDef human fill:#fbeccd,stroke:#d99413,color:#5a3d0a;",
+        "classDef agent fill:#e5e2fb,stroke:#6d5ce0,color:#3a2c85;",
+        "classDef check fill:#d3f0ef,stroke:#16a39d,color:#0c524f;",
+        "classDef commit fill:#fbdfe4,stroke:#d84a68,color:#8a1f38;",
+        "classDef unknown fill:#eef1f7,stroke:#c2ccdb,color:#55607a,stroke-dasharray:4 3;",
+        // Black-box sub-machine invocation: a fixed dark/opaque fill + light
+        // text so it reads the same in both themes (deliberately theme-invariant
+        // — it's meant to look like an opaque box, not follow the page's actor
+        // palette).
+        "classDef submachine fill:#1c2434,stroke:#4a5875,color:#eef1f7,font-weight:700;",
+        // A muted, dashed ghost node standing in for a target OUTSIDE the
+        // current diagram (a sub-machine diagram's external edge).
+        "classDef external fill:#eef1f7,stroke:#c2ccdb,color:#55607a,stroke-dasharray:5 4;",
+      ]
 
-      function buildMermaid() {
+      /**
+       * Build one flowchart's mermaid source over `states` (a diagram scope):
+       * the whole machine for the main flow (`opts.scope` unset), or one
+       * sub-machine's own member states (`opts.scope` = that group's name).
+       * A member state whose innermost group differs from `opts.scope`
+       * collapses into a black box for ITS group (handles a sub-machine
+       * nested inside another); a target outside `states` entirely renders as
+       * a muted, dashed ghost node instead (only possible in a sub-machine
+       * diagram — the main flow's `states` is every state, so nothing is ever
+       * "outside" it).
+       */
+      function buildFlowSrc(states, opts) {
+        const scope = opts && opts.scope
+        const inSet = new Set(states.map((s) => s.name))
         const lines = ["flowchart TD"]
-        const rendered = new Set()
-        const nodeLine = (s) => `  ${idFor(s.name)}${shapeFor(s.kind, s.name)}:::${actorOf(s)}`
 
-        // Nodes grouped by their innermost sub-machine.
-        const groups = MODEL.groups || []
-        const byGroupName = {}
-        STATES.forEach((s) => {
-          if (s.group) (byGroupName[s.group] ||= []).push(s)
-        })
-        // Emit one subgraph per group (in declared order), containing only the
-        // states whose innermost group is this one.
-        groups.forEach((g, i) => {
-          const members = byGroupName[g.name] || []
-          if (!members.length) return
-          lines.push(`  subgraph sg${i}[${mlabel(g.name)}]`)
-          members.forEach((s) => {
-            lines.push("  " + nodeLine(s))
-            rendered.add(s.name)
-          })
-          lines.push("  end")
-        })
-        // Ungrouped states sit outside any subgraph.
-        STATES.forEach((s) => {
-          if (!rendered.has(s.name)) {
+        const unitOf = (name) => {
+          const s = byName[name]
+          if (s && s.group && s.group !== scope) return { kind: "box", group: s.group }
+          return { kind: "node", name }
+        }
+        const unitId = (name) => {
+          const u = unitOf(name)
+          return u.kind === "box" ? groupBoxId(groupIndexOf(u.group)) : idFor(name)
+        }
+
+        const emittedNodes = new Set()
+        const emittedBoxes = new Set()
+        const emittedGhosts = new Set()
+        const nodeLine = (s) => `  ${idFor(s.name)}${shapeFor(s.kind, s.name)}:::${actorOf(s)}`
+        const boxLine = (g, i) =>
+          `  ${groupBoxId(i)}["${esc(g.name)}<br/><span class='sm-hint'>▸ ${g.states.length} state${
+            g.states.length === 1 ? "" : "s"
+          }</span>"]:::submachine`
+        const ghostLine = (s) => `  e${idFor(s.name)}${shapeFor(s.kind, s.name)}:::external`
+
+        states.forEach((s) => {
+          const u = unitOf(s.name)
+          if (u.kind === "node") {
+            if (emittedNodes.has(s.name)) return
+            emittedNodes.add(s.name)
             lines.push(nodeLine(s))
-            rendered.add(s.name)
+          } else if (!emittedBoxes.has(u.group)) {
+            emittedBoxes.add(u.group)
+            const i = groupIndexOf(u.group)
+            if (i >= 0) lines.push(boxLine(MODEL.groups[i], i))
           }
         })
 
-        // Edges: one per `on` entry, labelled with the pattern.
-        STATES.forEach((s) => {
+        // Edges within this diagram's own state set, collapsed through box
+        // units, deduped, and label-dropped when several patterns land on the
+        // same box-level edge (a black box hides which one specifically).
+        const solid = new Map()
+        const dashed = new Map()
+        const addEdge = (map, from, to, label) => {
+          if (from === to) return
+          const key = from + " " + to
+          if (!map.has(key)) map.set(key, [])
+          map.get(key).push(label)
+        }
+        states.forEach((s) => {
           ;(s.on || []).forEach((e) => {
-            if (!byName[e.to]) return
-            lines.push(`  ${idFor(s.name)} -->|${mlabel(e.pattern)}| ${idFor(e.to)}`)
+            if (!inSet.has(e.to) || !byName[e.to]) return
+            addEdge(solid, unitId(s.name), unitId(e.to), e.pattern)
           })
-          // Retry redirect (dashed) — informative, mirrors the "routes in from" list.
-          if (s.retry && byName[s.retry.otherwise]) {
+          if (s.retry && inSet.has(s.retry.otherwise)) {
+            addEdge(dashed, unitId(s.name), unitId(s.retry.otherwise), "retry ×" + s.retry.max)
+          }
+        })
+        // Ghost edges to a target entirely outside this diagram's state set
+        // (only fires for a sub-machine diagram — the main flow's set is
+        // every state, so nothing is ever "outside" it).
+        states.forEach((s) => {
+          ;(s.on || []).forEach((e) => {
+            if (inSet.has(e.to) || !byName[e.to]) return
+            const target = byName[e.to]
+            if (!emittedGhosts.has(e.to)) {
+              emittedGhosts.add(e.to)
+              lines.push(ghostLine(target))
+            }
+            lines.push(`  ${idFor(s.name)} -->|${mlabel(e.pattern)}| e${idFor(e.to)}`)
+          })
+          if (s.retry && byName[s.retry.otherwise] && !inSet.has(s.retry.otherwise)) {
+            const target = byName[s.retry.otherwise]
+            if (!emittedGhosts.has(s.retry.otherwise)) {
+              emittedGhosts.add(s.retry.otherwise)
+              lines.push(ghostLine(target))
+            }
             lines.push(
-              `  ${idFor(s.name)} -.->|${mlabel("retry ×" + s.retry.max)}| ${idFor(s.retry.otherwise)}`,
+              `  ${idFor(s.name)} -.->|${mlabel("retry ×" + s.retry.max)}| e${idFor(s.retry.otherwise)}`,
             )
           }
         })
 
-        lines.push(
-          "classDef human fill:#fbeccd,stroke:#d99413,color:#5a3d0a;",
-          "classDef agent fill:#e5e2fb,stroke:#6d5ce0,color:#3a2c85;",
-          "classDef check fill:#d3f0ef,stroke:#16a39d,color:#0c524f;",
-          "classDef commit fill:#fbdfe4,stroke:#d84a68,color:#8a1f38;",
-          "classDef unknown fill:#eef1f7,stroke:#c2ccdb,color:#55607a,stroke-dasharray:4 3;",
-        )
+        solid.forEach((labels, key) => {
+          const [from, to] = key.split(" ")
+          const label = labels.length === 1 ? mlabel(labels[0]) : null
+          lines.push(`  ${from} -->${label ? "|" + label + "|" : ""} ${to}`)
+        })
+        dashed.forEach((labels, key) => {
+          const [from, to] = key.split(" ")
+          const label = labels.length === 1 ? mlabel(labels[0]) : null
+          lines.push(`  ${from} -.->${label ? "|" + label + "|" : ""} ${to}`)
+        })
+
+        lines.push(...CLASS_DEFS)
         return lines.join("\n")
       }
 
-      DIAGRAM_SRC = buildMermaid()
       document.getElementById("diaNote").innerHTML =
         `Every state as a node — shape is the content kind, colour is the actor. Each edge is an ` +
         `<span class="mono">on</span> pattern (first match wins); dashed edges are ` +
-        `<span class="mono">retry</span> redirects. Sub-machines are drawn as labelled boxes. ` +
-        `Scrolls horizontally if wide.`
+        `<span class="mono">retry</span> redirects. A sub-machine invocation collapses into a single ` +
+        `dark box (click it to jump to its own diagram below); an edge label is dropped when several ` +
+        `patterns collapse onto the same box-to-box edge. Scrolls horizontally if wide.`
 
       // ── diagram render (theme-aware, offline-tolerant) ─────────────────
       async function loadMermaid() {
@@ -1230,9 +1406,17 @@
         mermaidMod = m.default
         return mermaidMod
       }
-      async function renderDiagram() {
-        const host = document.getElementById("diaScroll")
-        const seq = ++renderSeq
+
+      const renderSeqByBase = new Map()
+      const nextSeq = (base) => {
+        const n = (renderSeqByBase.get(base) || 0) + 1
+        renderSeqByBase.set(base, n)
+        return n
+      }
+
+      /** Render `src` into `host` via mermaid, guarding against a stale (superseded) render; falls back to a readable error + raw source on failure. Returns the mermaid render id used (so the caller can wire clicks/highlight against ITS OWN node ids), or `null` if nothing rendered. */
+      async function renderInto(host, src, renderIdBase) {
+        const seq = nextSeq(renderIdBase)
         let mermaid
         try {
           mermaid = await loadMermaid()
@@ -1240,11 +1424,39 @@
           host.innerHTML =
             `<div class="dia-msg">Could not load the Mermaid renderer (offline?). ` +
             `The workflow is still fully browsable below. Diagram source:` +
-            `<pre class="dia-src">${esc(DIAGRAM_SRC)}</pre></div>`
-          return
+            `<pre class="dia-src">${esc(src)}</pre></div>`
+          return null
         }
-        if (seq !== renderSeq) return
+        if (seq !== renderSeqByBase.get(renderIdBase)) return null
+        const renderId = renderIdBase + seq
         try {
+          const { svg } = await mermaid.render(renderId, src)
+          if (seq !== renderSeqByBase.get(renderIdBase)) return null
+          host.innerHTML = `<div class="mflow">${svg}</div>`
+          return renderId
+        } catch (e) {
+          host.innerHTML =
+            `<div class="dia-msg">Diagram render failed: ${esc(e.message)}. ` +
+            `Diagram source:<pre class="dia-src">${esc(src)}</pre></div>`
+          return null
+        }
+      }
+
+      // Every live diagram (main + one per sub-machine) — re-rendered as a
+      // group on every theme toggle (replaces the old single DIAGRAM_SRC).
+      const diagrams = []
+      function registerDiagram(host, src, renderIdBase, onRendered) {
+        diagrams.push({ host, src, renderIdBase, onRendered })
+      }
+      async function renderAllDiagrams() {
+        for (const d of diagrams) {
+          const renderId = await renderInto(d.host, d.src, d.renderIdBase)
+          if (renderId && d.onRendered) d.onRendered(renderId, d.host)
+        }
+      }
+      async function reinitializeAndRenderAll() {
+        const mermaid = await loadMermaid().catch(() => null)
+        if (mermaid) {
           const dark = isDark()
           mermaid.initialize({
             startOnLoad: false,
@@ -1257,23 +1469,105 @@
               lineColor: dark ? "#6b7690" : "#8a93a6",
               primaryBorderColor: dark ? "#3a465c" : "#c2ccdb",
               tertiaryColor: dark ? "#1c2434" : "#f0f3f8",
+              mainBkg: dark ? "#232c3e" : "#ffffff",
               clusterBkg: dark ? "#1c2434" : "#f0f3f8",
               clusterBorder: dark ? "#3a465c" : "#c2ccdb",
               titleColor: dark ? "#e6ebf4" : "#1a2233",
+              nodeTextColor: dark ? "#e6ebf4" : "#1a2233",
+              textColor: dark ? "#e6ebf4" : "#1a2233",
+              edgeLabelBackground: dark ? "#161d2b" : "#f4f6fa",
             },
           })
-          const { svg } = await mermaid.render("gtdflow" + seq, DIAGRAM_SRC)
-          if (seq !== renderSeq) return
-          host.innerHTML = `<div class="mflow">${svg}</div>`
-        } catch (e) {
-          host.innerHTML =
-            `<div class="dia-msg">Diagram render failed: ${esc(e.message)}. ` +
-            `Diagram source:<pre class="dia-src">${esc(DIAGRAM_SRC)}</pre></div>`
         }
+        await renderAllDiagrams()
       }
-      renderDiagram()
 
-      // ── sub-machines panel ──────────────────────────────────────────────
+      // ── click wiring + current-state highlight (post-render — mermaid's own
+      // `click` callbacks are disabled by securityLevel:"strict") ──────────
+      // A rendered node group's `id` is `${renderId}-flowchart-${ourNodeId}-<n>`
+      // (verified against mermaid@11's actual output) — strip that wrapper to
+      // recover the id we generated the diagram with.
+      function nodeIdOf(el, renderId) {
+        const prefix = renderId + "-flowchart-"
+        if (!el.id || !el.id.startsWith(prefix)) return null
+        const m = /^(.+)-\d+$/.exec(el.id.slice(prefix.length))
+        return m ? m[1] : null
+      }
+      const nodeGroupsOf = (host) => [...host.querySelectorAll("g.node")]
+
+      function scrollToSubmachine(i) {
+        const el = document.getElementById("sm-" + i)
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
+      }
+      function navigateTo(name) {
+        const s = byName[name]
+        if (s && s.group) {
+          const gi = groupIndexOf(s.group)
+          if (gi >= 0) return scrollToSubmachine(gi)
+        }
+        openDrawer(name)
+      }
+
+      function applyCurrentHighlight(renderId, host, mode, gi) {
+        if (!CURRENT || !CURRENT.state) return
+        const wantId =
+          mode === "main"
+            ? CURRENT.group
+              ? groupBoxId(groupIndexOf(CURRENT.group))
+              : idFor(CURRENT.state)
+            : CURRENT.group === MODEL.groups[gi].name
+              ? idFor(CURRENT.state)
+              : null
+        if (wantId === null) return
+        nodeGroupsOf(host).forEach((el) => {
+          if (nodeIdOf(el, renderId) === wantId) el.classList.add("gtd-current")
+        })
+      }
+
+      function wireMainDiagramClicks(renderId, host) {
+        nodeGroupsOf(host).forEach((el) => {
+          const rawId = nodeIdOf(el, renderId)
+          if (!rawId) return
+          el.classList.add("clickable")
+          el.style.cursor = "pointer"
+          if (rawId[0] === "g") {
+            el.onclick = () => scrollToSubmachine(Number(rawId.slice(1)))
+          } else {
+            const name = idFor.nameOf(rawId)
+            if (name) el.onclick = () => openDrawer(name)
+          }
+        })
+        applyCurrentHighlight(renderId, host, "main")
+      }
+
+      function wireSubmachineDiagramClicks(renderId, host, gi) {
+        nodeGroupsOf(host).forEach((el) => {
+          const rawId = nodeIdOf(el, renderId)
+          if (!rawId) return
+          el.classList.add("clickable")
+          el.style.cursor = "pointer"
+          if (rawId[0] === "g") {
+            el.onclick = () => scrollToSubmachine(Number(rawId.slice(1)))
+          } else if (rawId[0] === "e") {
+            const name = idFor.nameOf(rawId.slice(1))
+            if (name) el.onclick = () => navigateTo(name)
+          } else {
+            const name = idFor.nameOf(rawId)
+            if (name) el.onclick = () => openDrawer(name)
+          }
+        })
+        applyCurrentHighlight(renderId, host, "submachine", gi)
+      }
+
+      // ── main flow ────────────────────────────────────────────────────────
+      registerDiagram(
+        document.getElementById("diaScroll"),
+        buildFlowSrc(STATES, {}),
+        "gtdmain",
+        wireMainDiagramClicks,
+      )
+
+      // ── sub-machines panel — one real mermaid diagram per invocation ─────
       ;(function renderSubmachines() {
         const el = document.getElementById("smSection")
         const groups = MODEL.groups || []
@@ -1281,27 +1575,25 @@
           el.innerHTML = `<p class="muted-note">This workflow declares no sub-machines.</p>`
           return
         }
-        const grid = document.createElement("div")
-        grid.className = "sm-grid"
-        groups.forEach((g) => {
-          const card = document.createElement("div")
-          card.className = "sm-def"
-          const chips = (g.states || [])
-            .map((n) => {
-              const s = byName[n]
-              const a = s ? actorOf(s) : "unknown"
-              return `<button class="goto" data-actor="${a}" data-to="${esc(n)}">${esc(n)}</button>`
-            })
-            .join("")
-          card.innerHTML =
-            `<div class="h"><span class="nm">${esc(g.name)}</span>` +
-            `<span class="pm">instantiates <b>${esc(g.submachine)}</b> · ${(g.states || []).length} states</span></div>` +
-            `<div class="body">${chips}</div>`
-          grid.appendChild(card)
-        })
         el.innerHTML = ""
-        el.appendChild(grid)
-        el.querySelectorAll(".goto").forEach((b) => (b.onclick = () => openDrawer(b.dataset.to)))
+        groups.forEach((g, i) => {
+          const card = document.createElement("div")
+          card.className = "dia-card"
+          card.id = "sm-" + i
+          card.style.marginBottom = "16px"
+          card.innerHTML =
+            `<div class="h"><span class="nm">${esc(g.name)} · instantiates <b>${esc(g.submachine)}</b></span></div>` +
+            `<div class="dia-scroll" id="smDia${i}"><div class="dia-msg">Rendering diagram…</div></div>`
+          el.appendChild(card)
+
+          const members = (g.states || []).map((n) => byName[n]).filter(Boolean)
+          registerDiagram(
+            card.querySelector(`#smDia${i}`),
+            buildFlowSrc(members, { scope: g.name }),
+            "gtdsm" + i + "-",
+            (renderId, host) => wireSubmachineDiagramClicks(renderId, host, i),
+          )
+        })
       })()
 
       // ── vars ─────────────────────────────────────────────────────────────
@@ -1318,6 +1610,42 @@
             .join("")}</div>`
         el.appendChild(box)
       })()
+
+      // ── current-state panel ─────────────────────────────────────────────
+      ;(function renderCurrentPanel() {
+        const panel = document.getElementById("currentPanel")
+        if (!CURRENT || !CURRENT.state) {
+          panel.classList.add("hidden")
+          return
+        }
+        panel.classList.remove("hidden")
+        const a = CURRENT.actor
+        const edgeRow = (pattern, to, matched, retryOf) => {
+          const t = byName[to]
+          return (
+            `<div class="edge${matched ? " cur-matched" : ""}"><div class="er">` +
+            `<span class="pat">${retryOf ? "after " + esc(retryOf) + " tries" : "if " + esc(pattern)}</span>` +
+            `<span class="arr">→</span>` +
+            `<button class="goto" data-actor="${t ? actorOf(t) : "unknown"}" data-to="${esc(to)}">${esc(to)}</button>` +
+            `${matched ? '<span class="cur-tag">current match</span>' : ""}</div></div>`
+          )
+        }
+        const rows = (CURRENT.edges || []).map((e) => edgeRow(e.pattern, e.to, e.matched)).join("")
+        const retryRow = CURRENT.retry
+          ? edgeRow(null, CURRENT.retry.otherwise, false, CURRENT.retry.max)
+          : ""
+        panel.innerHTML =
+          `<div class="cur-head"><span class="cur-name">${esc(CURRENT.state)}</span>` +
+          `${pill(a)}<span class="kind">${esc(CURRENT.kind)}</span>` +
+          `${CURRENT.group ? `<span class="flow-tag">${esc(CURRENT.group)}</span>` : ""}</div>` +
+          `<div class="edges" style="margin-top:14px">${
+            rows || retryRow ? rows + retryRow : '<p class="none">No outgoing edges declared.</p>'
+          }</div>`
+        panel.querySelector(".cur-head").onclick = () => navigateTo(CURRENT.state)
+        panel.querySelectorAll(".goto").forEach((b) => (b.onclick = () => navigateTo(b.dataset.to)))
+      })()
+
+      reinitializeAndRenderAll()
 
       // ── kind chips + actor legend ──────────────────────────────────────
       const kindChipsEl = document.getElementById("kindChips")
