@@ -314,16 +314,33 @@
         justify-content: space-between;
         cursor: pointer;
         list-style: none;
+        padding: 14px 18px;
+        transition: background 0.12s ease;
+      }
+      .sm-card summary.h:hover {
+        background: var(--surface-2);
+      }
+      .sm-card[open] summary.h {
+        border-bottom: 1px solid var(--border);
       }
       .sm-card summary::-webkit-details-marker {
         display: none;
       }
       .sm-card summary::after {
-        content: "▸";
+        content: "+";
+        align-self: center;
         color: var(--text-dim);
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1;
+        transform: translateY(-0.08em);
+        transition: color 0.15s ease;
+      }
+      .sm-card summary:hover::after {
+        color: var(--text);
       }
       .sm-card[open] summary::after {
-        content: "▾";
+        content: "\2212";
       }
       .dia-scroll {
         overflow-x: auto;
@@ -996,7 +1013,7 @@
       footer {
         border-top: 1px solid var(--border);
         margin-top: 56px;
-        padding: 24px 0 60px;
+        padding: 40px 0 72px;
         color: var(--text-faint);
         font-size: 13px;
       }
@@ -1005,6 +1022,27 @@
         background: var(--surface-2);
         padding: 1px 6px;
         border-radius: 5px;
+      }
+      footer .foot-lead {
+        margin: 0 0 14px;
+        padding-top: 16px;
+        color: var(--text-dim);
+      }
+      footer .foot-legend {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding-bottom: 16px;
+      }
+      footer .foot-chip {
+        font-family: var(--mono);
+        font-size: 12px;
+        padding: 3px 9px;
+        border-radius: 7px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text-dim);
       }
 
       .hidden {
@@ -1137,6 +1175,11 @@
         root.setAttribute("data-theme", next)
         reinitializeAndRenderAll()
       }
+      // Follow the OS when the user hasn't made an explicit choice — an
+      // explicit `data-theme` override always wins over an OS flip.
+      matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+        if (!root.getAttribute("data-theme")) reinitializeAndRenderAll()
+      })
 
       const esc = (s) =>
         String(s).replace(
@@ -1246,20 +1289,22 @@
         .filter(Boolean)
         .join(" ")
 
-      document.getElementById("heroTitle").innerHTML =
-        `A workflow of <span class="mono">${STATES.length}</span> states`
+      document.getElementById("heroTitle").innerHTML = `GTD workflow visualization`
       document.getElementById("heroLede").innerHTML =
-        `Rendered live from <code>/workflow.json</code>. The initial state is ` +
+        `Rendered live from your workflow. The initial state is ` +
         `<code>${esc(MODEL.initial)}</code>. Click any state — in the diagram, a sub-machine chip, ` +
         `or the catalogue — to open its full definition, walk its outgoing edges, and see what routes into it.`
       document.getElementById("content").classList.remove("hidden")
 
       document.getElementById("footer").innerHTML =
-        `Read-only view served by <code>gtd visualize</code>. Node shape = content kind ` +
-        `(<span style="font-family:var(--mono)">([message])</span> · ` +
-        `<span style="font-family:var(--mono)">[prompt]</span> · ` +
-        `<span style="font-family:var(--mono)">{{script}}</span> · ` +
-        `<span style="font-family:var(--mono)">[[commit]]</span>); colour = actor.`
+        `<p class="foot-lead">Read-only view served by <code>gtd visualize</code>.</p>` +
+        `<div class="foot-legend">` +
+        `<span class="foot-chip">([message])</span>` +
+        `<span class="foot-chip">[prompt]</span>` +
+        `<span class="foot-chip">{{script}}</span>` +
+        `<span class="foot-chip">[[commit]]</span>` +
+        `<span>— node shape = content kind; colour = actor.</span>` +
+        `</div>`
 
       // ── pill helper ────────────────────────────────────────────────────
       const pill = (a) =>
@@ -1301,21 +1346,40 @@
         }
       }
       const mlabel = (s) => `"${String(s).replace(/"/g, "&quot;").replace(/\|/g, "&#124;")}"`
-      const CLASS_DEFS = [
-        "classDef human fill:#fbeccd,stroke:#d99413,color:#5a3d0a;",
-        "classDef agent fill:#e5e2fb,stroke:#6d5ce0,color:#3a2c85;",
-        "classDef check fill:#d3f0ef,stroke:#16a39d,color:#0c524f;",
-        "classDef commit fill:#fbdfe4,stroke:#d84a68,color:#8a1f38;",
-        "classDef unknown fill:#eef1f7,stroke:#c2ccdb,color:#55607a,stroke-dasharray:4 3;",
-        // Black-box sub-machine invocation: a fixed dark/opaque fill + light
-        // text so it reads the same in both themes (deliberately theme-invariant
-        // — it's meant to look like an opaque box, not follow the page's actor
-        // palette).
-        "classDef submachine fill:#1c2434,stroke:#4a5875,color:#eef1f7,font-weight:700;",
-        // A muted, dashed ghost node standing in for a target OUTSIDE the
-        // current diagram (a sub-machine diagram's external edge).
-        "classDef external fill:#eef1f7,stroke:#c2ccdb,color:#55607a,stroke-dasharray:5 4;",
-      ]
+      /**
+       * The mermaid `classDef` lines for actor/ghost node fills, chosen per
+       * theme so dark mode doesn't render washed-out light pastels.
+       */
+      function classDefs(dark) {
+        return [
+          dark
+            ? "classDef human fill:#3a2e12,stroke:#e0a83e,color:#f0c674;"
+            : "classDef human fill:#fbeccd,stroke:#d99413,color:#5a3d0a;",
+          dark
+            ? "classDef agent fill:#26224a,stroke:#8b7cf0,color:#b6abf7;"
+            : "classDef agent fill:#e5e2fb,stroke:#6d5ce0,color:#3a2c85;",
+          dark
+            ? "classDef check fill:#123433,stroke:#2dc4bc,color:#68dcd4;"
+            : "classDef check fill:#d3f0ef,stroke:#16a39d,color:#0c524f;",
+          dark
+            ? "classDef commit fill:#3a1b24,stroke:#e05f7c,color:#f2a3b3;"
+            : "classDef commit fill:#fbdfe4,stroke:#d84a68,color:#8a1f38;",
+          dark
+            ? "classDef unknown fill:#1c2434,stroke:#3a465c,color:#9aa6bd,stroke-dasharray:4 3;"
+            : "classDef unknown fill:#eef1f7,stroke:#c2ccdb,color:#55607a,stroke-dasharray:4 3;",
+          // Sub-machine invocation: a muted slate box (not one of the actor
+          // colours) so it still reads as its own distinct "black-box" kind,
+          // without the harsh opaque-black fill clashing with a light theme.
+          dark
+            ? "classDef submachine fill:#2a3142,stroke:#5a6b8c,color:#dbe4f5,font-weight:700;"
+            : "classDef submachine fill:#e4e9f2,stroke:#8695b3,color:#2a3142,font-weight:700;",
+          // A muted, dashed ghost node standing in for a target OUTSIDE the
+          // current diagram (a sub-machine diagram's external edge).
+          dark
+            ? "classDef external fill:#1c2434,stroke:#3a465c,color:#9aa6bd,stroke-dasharray:5 4;"
+            : "classDef external fill:#eef1f7,stroke:#c2ccdb,color:#55607a,stroke-dasharray:5 4;",
+        ]
+      }
 
       /**
        * Build one flowchart's mermaid source over `states` (a diagram scope):
@@ -1422,7 +1486,7 @@
           lines.push(`  ${from} -.->${label ? "|" + label + "|" : ""} ${to}`)
         })
 
-        lines.push(...CLASS_DEFS)
+        lines.push(...classDefs(isDark()))
         return lines.join("\n")
       }
 
@@ -1478,13 +1542,16 @@
 
       // Every live diagram (main + one per sub-machine) — re-rendered as a
       // group on every theme toggle (replaces the old single DIAGRAM_SRC).
+      // `build` is a thunk (not a fixed string) because the diagram source
+      // embeds theme-dependent classDefs — it must be re-emitted fresh on
+      // every re-render, not cached from first render.
       const diagrams = []
-      function registerDiagram(host, src, renderIdBase, onRendered, highlight) {
-        diagrams.push({ host, src, renderIdBase, onRendered, highlight, lastRenderId: null })
+      function registerDiagram(host, build, renderIdBase, onRendered, highlight) {
+        diagrams.push({ host, build, renderIdBase, onRendered, highlight, lastRenderId: null })
       }
       async function renderAllDiagrams() {
         for (const d of diagrams) {
-          const renderId = await renderInto(d.host, d.src, d.renderIdBase)
+          const renderId = await renderInto(d.host, d.build(), d.renderIdBase)
           if (renderId) d.lastRenderId = renderId
           if (renderId && d.onRendered) d.onRendered(renderId, d.host)
         }
@@ -1610,7 +1677,7 @@
       // ── main flow ────────────────────────────────────────────────────────
       registerDiagram(
         document.getElementById("diaScroll"),
-        buildFlowSrc(STATES, {}),
+        () => buildFlowSrc(STATES, {}),
         "gtdmain",
         wireMainDiagramClicks,
         { mode: "main" },
@@ -1639,7 +1706,7 @@
           const members = (g.states || []).map((n) => byName[n]).filter(Boolean)
           registerDiagram(
             card.querySelector(`#smDia${i}`),
-            buildFlowSrc(members, { scope: g.name }),
+            () => buildFlowSrc(members, { scope: g.name }),
             "gtdsm" + i + "-",
             (renderId, host) => wireSubmachineDiagramClicks(renderId, host, i),
             { mode: "submachine", gi: i },
