@@ -14,6 +14,7 @@ import {
   executeDecision,
   pendingChanges,
   renderFile,
+  renderLabel,
   renderMemory,
   renderModel,
   renderRest,
@@ -832,6 +833,7 @@ const nextJsonOutput = (rendered: RenderedRest): string =>
     content: rendered.content,
     ...(rendered.model !== undefined ? { model: rendered.model } : {}),
     ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
+    ...(rendered.label !== undefined ? { label: rendered.label } : {}),
     ...(rendered.file !== undefined ? { file: rendered.file } : {}),
     ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
     ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
@@ -1262,13 +1264,14 @@ const costStatusLines = (cost: number, byModel: readonly ModelCost[]): string[] 
   return lines
 }
 
-/** `gtd status --json`'s emission — `{state, actor, changes, model?, memory?, file?, mode?, cost?, costByModel?, edges?}`. */
+/** `gtd status --json`'s emission — `{state, actor, changes, model?, memory?, label?, file?, mode?, cost?, costByModel?, edges?}`. */
 const writeStatusJson = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
   statusChanges: readonly StatusChange[],
   model: string | undefined,
   memory: string | undefined,
+  label: string | undefined,
   file: string | undefined,
   cost: number,
   costByModel: readonly ModelCost[],
@@ -1281,6 +1284,7 @@ const writeStatusJson = (
       changes: statusChanges,
       ...(model !== undefined ? { model } : {}),
       ...(memory !== undefined ? { memory } : {}),
+      ...(label !== undefined ? { label } : {}),
       ...(file !== undefined ? { file } : {}),
       ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
       ...(cost > 0 ? { cost } : {}),
@@ -1290,18 +1294,20 @@ const writeStatusJson = (
   )
 }
 
-/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Model:`/`Memory:`/`File:`/`Mode:`/`Cost:`/`Pending:` lines. */
+/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Label:`/`Model:`/`Memory:`/`File:`/`Mode:`/`Cost:`/`Pending:` lines. */
 const writeStatusPlain = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
   statusChanges: readonly StatusChange[],
   model: string | undefined,
   memory: string | undefined,
+  label: string | undefined,
   file: string | undefined,
   cost: number,
   costByModel: readonly ModelCost[],
 ): void => {
   const lines = [`State: ${rest.state}`, `Awaits: ${rest.actor}`]
+  if (label !== undefined) lines.push(`Label: ${label}`)
   if (model !== undefined) lines.push(`Model: ${model}`)
   if (memory !== undefined) lines.push(`Memory: ${memory}`)
   if (file !== undefined) lines.push(`File: ${file}`)
@@ -1331,6 +1337,7 @@ const runStatusCommand = (
     const changes = yield* pendingChanges(git)
     const model = yield* renderModel(rest.stateDef, context)
     const memory = yield* renderMemory(rest.stateDef, context)
+    const label = yield* renderLabel(rest.stateDef, context)
     const file = yield* renderFile(rest.stateDef, context)
     const statusChanges = computeStatusChanges(rest.stateDef.on ?? [], changes)
     if (json) {
@@ -1340,6 +1347,7 @@ const runStatusCommand = (
         statusChanges,
         model,
         memory,
+        label,
         file,
         context.processCost,
         context.processCostByModel,
@@ -1351,6 +1359,7 @@ const runStatusCommand = (
         statusChanges,
         model,
         memory,
+        label,
         file,
         context.processCost,
         context.processCostByModel,

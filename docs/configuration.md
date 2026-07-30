@@ -261,6 +261,38 @@ value) only when the resolved state declares one — **omitted entirely**, never
 `null`, when unset. Plain `gtd status` prints a `Memory:` line (right after
 `Model:`, when present).
 
+### `label:` — the opaque display name, template-rendered
+
+A state may declare `label: <string>` — an OPAQUE display name gtd never
+interprets; it is only passed through so a driver/viewer can show something
+friendlier than the raw state name. Unset means the state has no display name.
+Forbidden on a commit state (never at rest, emits nothing):
+
+```yaml
+workflow:
+  states:
+    working:
+      actor: agent
+      label: Implement the feature
+      prompt: do the thing
+      on:
+        "* **": done
+```
+
+Like `model`/`memory`, `label:` is rendered as an Eta template through the exact
+same context as the state's content — a plain string with no Eta tags
+(`Implement the feature` above) passes through unchanged, but
+`label: "<%= it.vars.stateLabel %>"` resolves against the merged `it.vars` (see
+["Variables"](#variables)). A render failure behaves exactly like a content
+render failure at the same call site: `gtd next`/`gtd status` error out, nothing
+committed.
+
+`gtd next --json` and `gtd status --json` include a `"label"` key (the RENDERED
+value) only when the resolved state declares one — it is **omitted entirely**,
+never emitted as `null`, when unset. A driver/viewer choosing to fall back to
+the raw state name when `label` is absent is that consumer's own fallback, not
+something gtd itself does.
+
 ### `file:`/`mode:` — the steering-file association
 
 A state may additionally declare `file:` — an Eta template naming THE steering

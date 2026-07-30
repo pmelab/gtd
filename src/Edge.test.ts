@@ -6,6 +6,7 @@ import {
   executeDecision,
   pendingChanges,
   renderFile,
+  renderLabel,
   renderMemory,
   renderModel,
   resolveVars,
@@ -730,6 +731,39 @@ describe("renderMemory", () => {
     const outcome = await run1(
       renderMemory(stateDef("<%= it.vars.nope.deeper %>"), context()),
     ).then(
+      () => "resolved" as const,
+      (e: Error) => e,
+    )
+    expect(outcome).not.toBe("resolved")
+    expect(outcome).toBeInstanceOf(Error)
+  })
+})
+
+describe("renderLabel", () => {
+  const stateDef = (label?: string): StateDef =>
+    label !== undefined ? { actor: "agent", prompt: "x", label } : { actor: "agent", prompt: "x" }
+
+  const run1 = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
+
+  it("a state with no `label:` renders to `undefined`", async () => {
+    const result = await run1(renderLabel(stateDef(), context()))
+    expect(result).toBeUndefined()
+  })
+
+  it("a plain string with no Eta tags passes through unchanged", async () => {
+    const result = await run1(renderLabel(stateDef("planning"), context()))
+    expect(result).toBe("planning")
+  })
+
+  it("a templated `label:` resolves against the same `it.vars` the content sees", async () => {
+    const result = await run1(
+      renderLabel(stateDef("<%= it.vars.labelName %>"), context({ vars: { labelName: "review" } })),
+    )
+    expect(result).toBe("review")
+  })
+
+  it("a label render failure propagates as a thrown/rejected error, same as a content render failure", async () => {
+    const outcome = await run1(renderLabel(stateDef("<%= it.vars.nope.deeper %>"), context())).then(
       () => "resolved" as const,
       (e: Error) => e,
     )
