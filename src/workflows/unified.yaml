@@ -88,10 +88,10 @@
 # (`adv-checking`/`adv-fixing`/`adv-escalate`) because its green edge targets
 # the per-package `spec-review` gate instead.
 #
-# KNOWN LIMITATION: `on` pattern keys are NOT Eta templates — they keep the
-# LITERAL `.gtd/...` paths matching these vars' DEFAULT values. Repointing a
-# file var changes what templates read/write WITHOUT changing what the `on`
-# patterns match, desyncing the machine (see docs/configuration.md).
+# Every `on` pattern's path below is written as the matching var's Eta
+# template (e.g. `"A <%= it.vars.feedbackFile %>"`), not a literal `.gtd/...`
+# path — repointing a var reroutes the machine along with every template that
+# reads/writes it (see docs/configuration.md).
 
 vars:
   testCommand: npm test
@@ -152,9 +152,9 @@ submachines:
             rm -f "$feedback"
           fi
         on:
-          "A .gtd/FEEDBACK.md": fix
-          "M .gtd/FEEDBACK.md": fix
-          "D .gtd/FEEDBACK.md": $onGreen
+          "A <%= it.vars.feedbackFile %>": fix
+          "M <%= it.vars.feedbackFile %>": fix
+          "D <%= it.vars.feedbackFile %>": $onGreen
           "C": $onGreen
       fix:
         actor: agent
@@ -208,9 +208,9 @@ submachines:
         label: $checkLabel
         script: $checkScript
         on:
-          "A .gtd/FEEDBACK.md": blocked
-          "M .gtd/FEEDBACK.md": blocked
-          "D .gtd/FEEDBACK.md": $onGreen
+          "A <%= it.vars.feedbackFile %>": blocked
+          "M <%= it.vars.feedbackFile %>": blocked
+          "D <%= it.vars.feedbackFile %>": $onGreen
           "C": $onGreen
       blocked:
         actor: human
@@ -484,9 +484,9 @@ submachines:
           fi
           rm -f "$reviewFile"
         on:
-          "A .gtd/REVIEW_RAW.md": feedback-collecting
-          "M .gtd/REVIEW_RAW.md": feedback-collecting
-          "D .gtd/REVIEW.md": $onSignoff
+          "A <%= it.vars.reviewRawFile %>": feedback-collecting
+          "M <%= it.vars.reviewRawFile %>": feedback-collecting
+          "D <%= it.vars.reviewFile %>": $onSignoff
 
       feedback-collecting:
         actor: agent
@@ -537,8 +537,8 @@ submachines:
           Delete `<%= it.vars.reviewRawFile %>`, leave everything else uncommitted,
           and finish your turn.
         on:
-          "A .gtd/REVIEW_FEEDBACK.md": feedback-building
-          "M .gtd/REVIEW_FEEDBACK.md": feedback-building
+          "A <%= it.vars.reviewFeedbackFile %>": feedback-building
+          "M <%= it.vars.reviewFeedbackFile %>": feedback-building
 
       feedback-building:
         actor: agent
@@ -627,9 +627,9 @@ submachines:
           ```
           <% } %>
         on:
-          "A .gtd/SPEC_FEEDBACK.md": spec-fix
-          "M .gtd/SPEC_FEEDBACK.md": spec-fix
-          "D .gtd/SPEC_FEEDBACK.md": $onApproved
+          "A <%= it.vars.specFeedbackFile %>": spec-fix
+          "M <%= it.vars.specFeedbackFile %>": spec-fix
+          "D <%= it.vars.specFeedbackFile %>": $onApproved
           "C": $onApproved
 
       spec-fix:
@@ -681,8 +681,8 @@ submachines:
             rm -f "$nextFile"
           fi
         on:
-          "D .gtd/NEXT.md": $onDrained
-          "* .gtd/NEXT.md": adv-building
+          "D <%= it.vars.nextFile %>": $onDrained
+          "* <%= it.vars.nextFile %>": adv-building
           "C": $onDrained
 
       adv-building:
@@ -1074,7 +1074,7 @@ states:
       <%~ "- " + e.describe + "\n" %>
       <% } }) %>
     on:
-      "* .gtd/REQUIREMENTS.md":
+      "* <%= it.vars.requirementsFile %>":
         to: adv-start-check
         describe: >-
           Save the product requirements to `.gtd/REQUIREMENTS.md` to start the
@@ -1144,7 +1144,7 @@ states:
       files are written, delete `<%= it.vars.architectureFile %>`. Leave
       everything uncommitted and finish your turn.
     on:
-      "* .gtd/packages/**": picking
+      "* <%= it.vars.packagesDir %>/**": picking
 
   # ── Green-baseline gate: `gtd fix` entry ──────────────────────────────────
   # `gtd fix` enters HERE (fixEntry): run the suite, then a red run drops
@@ -1179,9 +1179,9 @@ states:
         rm -f "$feedback"
       fi
     on:
-      "A .gtd/FEEDBACK.md": fixing
-      "M .gtd/FEEDBACK.md": fixing
-      "D .gtd/FEEDBACK.md": idle
+      "A <%= it.vars.feedbackFile %>": fixing
+      "M <%= it.vars.feedbackFile %>": fixing
+      "D <%= it.vars.feedbackFile %>": idle
       "C": idle
 
   # ── Shared tail: squash finale (review loop is the `humanReview` sub-machine) ─
@@ -1225,8 +1225,8 @@ states:
       chore: human review
       <% } %>
     on:
-      "A .gtd/COMMIT_MSG.md": done
-      "M .gtd/COMMIT_MSG.md": done
+      "A <%= it.vars.commitMsgFile %>": done
+      "M <%= it.vars.commitMsgFile %>": done
 
   done:
     commit: |

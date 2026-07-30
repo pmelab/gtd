@@ -15,7 +15,12 @@ import {
   type StepDecision,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
-import { renderStateTemplate, type TemplateContext, type TemplateEdge } from "./PatternTemplates.js"
+import {
+  renderStateTemplate,
+  varsOnlyContext,
+  type TemplateContext,
+  type TemplateEdge,
+} from "./PatternTemplates.js"
 import { retainHistory, withHistoryTrailer } from "./RetainedHistory.js"
 
 /**
@@ -331,17 +336,62 @@ export const resolveVars = (
 
 // ── Template context ─────────────────────────────────────────────────────────
 
-/** Map a state's raw `on` edges to the `{ pattern, target, describe? }` shape templates see as `it.edges`. `undefined` (a commit state, no `on`) yields an empty list. */
+/** Map a state's raw `on` edges to the `{ pattern, target, describe? }` shape templates see as `it.edges`. `undefined` (a commit state, no `on`) yields an empty list. Callers pass already-rendered edges (see `renderOnEdges`) — this never renders anything itself. */
 export const toTemplateEdges = (edges: readonly OnEdge[] | undefined): readonly TemplateEdge[] =>
   (edges ?? []).map(([pattern, target, describe]) =>
     describe !== undefined ? { pattern, target, describe } : { pattern, target },
   )
 
 /**
+ * Render every `on` edge's pattern key as an Eta template over `vars` ONLY
+ * (`PatternTemplates.varsOnlyContext`) — a pattern names a path; it never
+ * needs diffs/commit hashes, and restricting to `vars` avoids an ordering
+ * circularity (the full `TemplateContext`'s `it.edges` is itself derived from
+ * these same `on` edges). `target`/`describe` pass through verbatim —
+ * `describe` is inert to the engine and is never rendered, unlike the pattern
+ * key. Throws whatever Eta throws on a malformed pattern template; the caller
+ * turns that into a step refusal / command error, exactly like a content
+ * render failure.
+ */
+export const renderOnEdges = (
+  edges: readonly OnEdge[] | undefined,
+  vars: Record<string, string>,
+): readonly OnEdge[] => {
+  const ctx = varsOnlyContext(vars)
+  return (edges ?? []).map(
+    ([pattern, target, describe]): OnEdge =>
+      describe !== undefined
+        ? [renderStateTemplate(pattern, ctx), target, describe]
+        : [renderStateTemplate(pattern, ctx), target],
+  )
+}
+
+/**
+ * A shallow clone of `def` whose `state`'s `on` is replaced by
+ * `renderedOnEdges` — used to feed `PatternMachine.step`, which matches only
+ * `def.states[state].on` for the state it's invoked at. Only the RESTING
+ * state needs patching: `step`'s retry/target logic keys on state NAMES, not
+ * on any other state's `on`, so every other state is left as-is.
+ */
+export const withRenderedOn = (
+  def: WorkflowDefinition,
+  state: StateName,
+  renderedOnEdges: readonly OnEdge[],
+): WorkflowDefinition => ({
+  ...def,
+  states: {
+    ...def.states,
+    [state]: { ...def.states[state]!, on: renderedOnEdges },
+  },
+})
+
+/**
  * Build the `PatternTemplates.TemplateContext` for rendering `state`'s content
  * at the resolved rest. `vars` is the already-merged three-layer map (see
- * `resolveVars`); `edges` is the resting state's own `on` edges (see
- * `toTemplateEdges`). `currentCost`/`currentModel` are the in-flight step's own
+ * `resolveVars`); `edges` is the resting state's own `on` edges, ALREADY
+ * RENDERED by the caller (`renderOnEdges`) — this function never renders a
+ * pattern itself, it only maps the given edges into `it.edges`
+ * (`toTemplateEdges`). `currentCost`/`currentModel` are the in-flight step's own
  * `--cost`/`--model` (folded into the process's committed cost entries so a
  * `commit:` squash template sees the whole-process total AND per-model
  * breakdown including the squashing step) — `0`/absent for the pure emitters
@@ -577,7 +627,11 @@ export const renderRest = (
       kind,
       content,
       ...omitUndefined(hints),
-      edges: toTemplateEdges(rest.stateDef.on),
+      // `context.edges` is already the resting state's `on` edges, rendered
+      // against `it.vars` by the caller (`renderOnEdges`) before
+      // `buildTemplateContext` built this context — not re-derived from
+      // `rest.stateDef.on` here, which would be the unrendered literal.
+      edges: context.edges,
     }
   })
 

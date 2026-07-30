@@ -97,7 +97,7 @@ import {
   resolveVars,
 } from "./Edge.js"
 import type { StateMode, WorkflowDefinition } from "./PatternMachine.js"
-import { renderStateTemplate } from "./PatternTemplates.js"
+import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -427,26 +427,7 @@ export const buildFileModeMap = (
     if (stateDef.file === undefined || stateDef.mode === undefined) continue
     let rendered: string
     try {
-      rendered = renderStateTemplate(stateDef.file, {
-        startCommit: "",
-        currentCommit: "",
-        previousCommit: "",
-        state: name,
-        actor: "",
-        processDiff: "",
-        reviewDiff: "",
-        retainedDiff: "",
-        lastDiff: "",
-        processCost: 0,
-        processCostByModel: [],
-        read: (path: string) => {
-          throw new Error(
-            `"file:" is not readable while building the path→mode map (path: ${path})`,
-          )
-        },
-        vars,
-        edges: [],
-      })
+      rendered = renderStateTemplate(stateDef.file, varsOnlyContext(vars, name))
     } catch (e) {
       warnings.push(
         `state "${name}": "file:" failed to render, skipped — ${e instanceof Error ? e.message : String(e)}`,

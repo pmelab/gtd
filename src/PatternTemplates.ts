@@ -119,6 +119,36 @@ export interface TemplateContext {
   readonly edges: readonly TemplateEdge[]
 }
 
+/**
+ * The stub `TemplateContext` an `on` pattern key renders against at the edge
+ * (see `Edge.ts`'s `renderOnEdges`): only `vars` (and, optionally, `state`)
+ * are real — every commit-ish/diff field is empty, `processCost` is `0`,
+ * `edges` is empty, and `read` throws, since a pattern names a path and never
+ * legitimately needs a working tree or git history to resolve. This is also
+ * `Lsp.ts`'s `buildFileModeMap` map-building context, factored out here to
+ * avoid building the same stub in two places.
+ */
+export const varsOnlyContext = (vars: Record<string, string>, state = ""): TemplateContext => ({
+  startCommit: "",
+  currentCommit: "",
+  previousCommit: "",
+  state,
+  actor: "",
+  processDiff: "",
+  reviewDiff: "",
+  retainedDiff: "",
+  lastDiff: "",
+  processCost: 0,
+  processCostByModel: [],
+  read: (path: string) => {
+    throw new Error(
+      `no working tree to read from while rendering against a vars-only context (path: ${path})`,
+    )
+  },
+  vars,
+  edges: [],
+})
+
 // One shared Eta instance, `renderString`-only (no named template registry —
 // content strings are ad hoc, compiled fresh per state by the config loader).
 // Filesystem template resolution is nulled out, same discipline as

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
-import { renderStateTemplate, type TemplateContext } from "./PatternTemplates.js"
+import { renderStateTemplate, varsOnlyContext, type TemplateContext } from "./PatternTemplates.js"
 import { compileTemplate } from "./workflows/templates.js"
 
 const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext => ({
@@ -152,6 +152,42 @@ describe("renderStateTemplate — render-error propagation", () => {
     expect(() =>
       renderStateTemplate("<%~ it.read('a/b/missing.md') %>", baseContext()),
     ).toThrowError(/ENOENT/)
+  })
+})
+
+describe("varsOnlyContext", () => {
+  it("carries the given vars and empty/inert everything else", () => {
+    const ctx = varsOnlyContext({ feedbackFile: ".gtd/FEEDBACK.md" })
+    expect(ctx.vars).toEqual({ feedbackFile: ".gtd/FEEDBACK.md" })
+    expect(ctx.state).toBe("")
+    expect(ctx.actor).toBe("")
+    expect(ctx.startCommit).toBe("")
+    expect(ctx.currentCommit).toBe("")
+    expect(ctx.previousCommit).toBe("")
+    expect(ctx.processDiff).toBe("")
+    expect(ctx.reviewDiff).toBe("")
+    expect(ctx.retainedDiff).toBe("")
+    expect(ctx.lastDiff).toBe("")
+    expect(ctx.processCost).toBe(0)
+    expect(ctx.processCostByModel).toEqual([])
+    expect(ctx.edges).toEqual([])
+  })
+
+  it("accepts an optional state name", () => {
+    const ctx = varsOnlyContext({}, "picking")
+    expect(ctx.state).toBe("picking")
+  })
+
+  it("renders a pattern template against it.vars", () => {
+    const out = renderStateTemplate(
+      "A <%= it.vars.feedbackFile %>",
+      varsOnlyContext({ feedbackFile: ".gtd/FEEDBACK.md" }),
+    )
+    expect(out).toBe("A .gtd/FEEDBACK.md")
+  })
+
+  it("its read() throws — no working tree at this layer", () => {
+    expect(() => varsOnlyContext({}).read("anything")).toThrow()
   })
 })
 

@@ -14,6 +14,7 @@ import {
 } from "./PatternMachine.js"
 import { collectGroups } from "./Submachines.js"
 import type { ResolvedRest } from "./Edge.js"
+import { renderStateTemplate, varsOnlyContext } from "./PatternTemplates.js"
 import visualizeHtml from "./visualize.html"
 
 /**
@@ -113,10 +114,11 @@ const stripUndefined = (o: Record<string, unknown>): Record<string, unknown> => 
   return o
 }
 
-/** Describe one compiled state for the viewer (optional fields omitted when unset). */
+/** Describe one compiled state for the viewer (optional fields omitted when unset). `onEdges` is that state's `on`, ALREADY RENDERED against `it.vars` (see `buildVizModel`) — never `def.on` directly, which would show the unrendered literal. */
 const toVizState = (
   name: string,
   def: StateDef,
+  onEdges: readonly OnEdge[],
   group: string | undefined,
   incoming: ReadonlyArray<{ from: string; pattern: string }>,
 ): VizState =>
@@ -132,16 +134,44 @@ const toVizState = (
     mode: def.mode,
     retry: def.retry,
     flags: flagsOf(def),
-    on: (def.on ?? []).map(edgeToViz),
+    on: onEdges.map(edgeToViz),
     incoming,
     group,
   }) as unknown as VizState
+
+/** Render one `on` pattern key against `vars` (see `Edge.ts`'s `renderOnEdges`), falling back to the raw pattern string on a render failure — the viewer is best-effort, unlike a real step (which refuses). */
+const renderPatternOrRaw = (pattern: string, vars: Record<string, string>): string => {
+  try {
+    return renderStateTemplate(pattern, varsOnlyContext(vars))
+  } catch {
+    return pattern
+  }
+}
+
+/** Render every `on` edge of every state against `vars` (pattern key only — `target`/`describe` pass through verbatim), keyed by state name. */
+const renderedOnByState = (
+  workflow: WorkflowDefinition,
+  vars: Record<string, string>,
+): ReadonlyMap<string, readonly OnEdge[]> =>
+  new Map(
+    Object.entries(workflow.states).map(([name, def]) => [
+      name,
+      (def.on ?? []).map(
+        ([pattern, target, describe]): OnEdge =>
+          describe !== undefined
+            ? [renderPatternOrRaw(pattern, vars), target, describe]
+            : [renderPatternOrRaw(pattern, vars), target],
+      ),
+    ]),
+  )
 
 /**
  * Build the viewer's JSON description from the active COMPILED workflow plus its
  * RAW value (the pre-expansion `submachines:`/`use:` form — `rawWorkflow` from
  * `ConfigService`), which is the only place the sub-machine grouping survives
- * (`compileWorkflowConfig` flattens it away). `vars` is shown for reference.
+ * (`compileWorkflowConfig` flattens it away). `vars` is shown for reference, AND
+ * used to render every state's `on` pattern (see `renderedOnByState`) so the
+ * diagram shows real paths rather than a repointed var's stale literal.
  */
 export const buildVizModel = (
   workflow: WorkflowDefinition,
@@ -160,6 +190,8 @@ export const buildVizModel = (
     }
   }
 
+  const renderedOn = renderedOnByState(workflow, vars)
+
   const incoming = new Map<string, Array<{ from: string; pattern: string }>>()
   const addIncoming = (target: string, from: string, pattern: string) => {
     const list = incoming.get(target) ?? []
@@ -167,12 +199,12 @@ export const buildVizModel = (
     incoming.set(target, list)
   }
   for (const [name, def] of Object.entries(workflow.states)) {
-    for (const [pattern, to] of def.on ?? []) addIncoming(to, name, pattern)
+    for (const [pattern, to] of renderedOn.get(name) ?? []) addIncoming(to, name, pattern)
     if (def.retry) addIncoming(def.retry.otherwise, name, `retry ×${def.retry.max}`)
   }
 
   const states = Object.entries(workflow.states).map(([name, def]) =>
-    toVizState(name, def, groupOf.get(name), incoming.get(name) ?? []),
+    toVizState(name, def, renderedOn.get(name) ?? [], groupOf.get(name), incoming.get(name) ?? []),
   )
 
   return {
@@ -205,16 +237,20 @@ export interface CurrentStateModel {
  * Describe the currently-rested state for the viewer: its `on` edges each
  * flagged with whether it's the one that would fire on the CURRENT pending
  * changes (same first-match semantics `PatternMachine.step` decides a real
- * step with), plus the retry redirect and pending changes verbatim. `group`
- * is threaded in by the caller (already computed once by `buildVizModel`
- * from the same workflow) rather than recomputed here.
+ * step with), plus the retry redirect and pending changes verbatim. `onEdges`
+ * is the resting state's `on` edges ALREADY RENDERED against `it.vars` (see
+ * `Edge.ts`'s `renderOnEdges`) — this function never renders anything itself,
+ * it only matches/emits from what it's given (never `rest.stateDef.on`, which
+ * would be the unrendered literal). `group` is threaded in by the caller
+ * (already computed once by `buildVizModel` from the same workflow) rather
+ * than recomputed here.
  */
 export const buildCurrentStateModel = (
   rest: ResolvedRest,
   changes: readonly PendingChange[],
+  onEdges: readonly OnEdge[],
   group?: string,
 ): CurrentStateModel => {
-  const onEdges = rest.stateDef.on ?? []
   const matchedIndex = onEdges.findIndex(([patternStr]) => {
     const parsed = parsePattern(patternStr)
     return parsed !== undefined && matchesPattern(parsed, changes)

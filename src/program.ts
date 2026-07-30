@@ -17,11 +17,13 @@ import {
   renderLabel,
   renderMemory,
   renderModel,
+  renderOnEdges,
   renderRest,
   resolveRest,
   resolveVars,
   toTemplateEdges,
   UNATTRIBUTED_MODEL,
+  withRenderedOn,
   withReviewBaseTrailer,
   type ExecutableDecision,
   type ModelCost,
@@ -346,18 +348,35 @@ const runInitCommand = (
     }
   })
 
+/** Render a state's `on` edges against `vars` (see `renderOnEdges`), surfacing a malformed pattern template as a plain command error, exactly like a content render failure. */
+const renderOnEdgesOrFail = (
+  onEdges: readonly OnEdge[] | undefined,
+  vars: Record<string, string>,
+): Effect.Effect<readonly OnEdge[], Error> =>
+  Effect.try({
+    try: () => renderOnEdges(onEdges, vars),
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
 /**
  * Resolve HEAD's rest, the current process run, and the template context for
  * rendering that rest's OWN state/actor — the common prefix shared by `gtd
  * next` and `gtd status` (each fetches `git` itself first, since
  * `gtd status` also needs it for `pendingChanges`; `stepAsActor`'s squash
  * path renders a DIFFERENT state, so it builds its own context inline
- * instead of sharing this helper).
+ * instead of sharing this helper). `renderedOn` is the resting state's `on`
+ * edges already rendered against `it.vars` (`renderOnEdges`) — `next`/`status`
+ * reuse it instead of re-rendering the same patterns themselves.
  */
 const resolveRestContext = (
   git: GitOperations,
 ): Effect.Effect<
-  { readonly rest: ResolvedRest; readonly run: ProcessRun; readonly context: TemplateContext },
+  {
+    readonly rest: ResolvedRest
+    readonly run: ProcessRun
+    readonly context: TemplateContext
+    readonly renderedOn: readonly OnEdge[]
+  },
   Error,
   GitService | ConfigService | WorktreeReader | EnvVars
 > =>
@@ -368,6 +387,7 @@ const resolveRestContext = (
     const rest = yield* resolveRest()
     const run = yield* computeProcessRun(git, rest.def)
     const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const renderedOn = yield* renderOnEdgesOrFail(rest.stateDef.on, vars)
     const reviewBase = yield* reviewBaseHash(git, rest.def, run)
     const context = yield* buildTemplateContext(
       git,
@@ -376,12 +396,12 @@ const resolveRestContext = (
       rest.actor,
       run,
       vars,
-      rest.stateDef.on,
+      renderedOn,
       0,
       undefined,
       reviewBase,
     )
-    return { rest, run, context }
+    return { rest, run, context, renderedOn }
   })
 
 /** The user-facing message for a `step` refusal — out-of-turn names the awaited actor, no-match names every declared pattern. */
@@ -413,6 +433,7 @@ const stepAsActor = (
   Error,
   ProgramRequirements
 > =>
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
@@ -421,7 +442,12 @@ const stepAsActor = (
     const rest = yield* resolveRest()
     const run = yield* computeProcessRun(git, rest.def)
     const changes = yield* pendingChanges(git)
-    const decision = step(rest.def, rest.state, invoker, { changes, processTrace: run.trace })
+    const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const renderedOn = yield* renderOnEdgesOrFail(rest.stateDef.on, vars)
+    const decision = step(withRenderedOn(rest.def, rest.state, renderedOn), rest.state, invoker, {
+      changes,
+      processTrace: run.trace,
+    })
 
     if (decision.kind === "refusal") {
       return yield* Effect.fail(new Error(formatStepRefusal(invoker, decision)))
@@ -432,8 +458,11 @@ const stepAsActor = (
     }
 
     const executable: ExecutableDecision = decision
-    const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
     const renderedState = decision.kind === "squash" ? decision.state : rest.state
+    const renderedStateOn =
+      renderedState === rest.state
+        ? renderedOn
+        : yield* renderOnEdgesOrFail(rest.def.states[renderedState]?.on, vars)
     const context = yield* buildTemplateContext(
       git,
       worktree.read,
@@ -441,7 +470,7 @@ const stepAsActor = (
       invoker,
       run,
       vars,
-      rest.def.states[renderedState]?.on,
+      renderedStateOn,
       cost ?? 0,
       model,
     )
@@ -1250,7 +1279,7 @@ interface StatusChange {
   readonly pattern: string | null
 }
 
-/** Which declared `on` pattern (if any) each pending change matches — the pure computation `gtd status` reports (both plain and `--json`). */
+/** Which declared `on` pattern (if any) each pending change matches — the pure computation `gtd status` reports (both plain and `--json`). `onEdges` is ALREADY RENDERED against `it.vars` (`renderOnEdges`) — the reported pattern is the one a real `gtd step` would match against. */
 const computeStatusChanges = (
   onEdges: readonly OnEdge[],
   changes: readonly PendingChange[],
@@ -1281,11 +1310,12 @@ const costStatusLines = (cost: number, byModel: readonly ModelCost[]): string[] 
   return lines
 }
 
-/** `gtd status --json`'s emission — `{state, actor, changes, model?, memory?, label?, file?, mode?, cost?, costByModel?, edges?}`. */
+/** `gtd status --json`'s emission — `{state, actor, changes, model?, memory?, label?, file?, mode?, cost?, costByModel?, edges?}`. `renderedOn` is the resting state's `on` edges already rendered against `it.vars` (`renderOnEdges`), so the emitted `edges[].pattern` carries the same rendered path as `changes[].pattern`. */
 const writeStatusJson = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
   statusChanges: readonly StatusChange[],
+  renderedOn: readonly OnEdge[],
   model: string | undefined,
   memory: string | undefined,
   label: string | undefined,
@@ -1293,7 +1323,7 @@ const writeStatusJson = (
   cost: number,
   costByModel: readonly ModelCost[],
 ): void => {
-  const edges = toTemplateEdges(rest.stateDef.on)
+  const edges = toTemplateEdges(renderedOn)
   write(
     JSON.stringify({
       state: rest.state,
@@ -1350,18 +1380,19 @@ const runStatusCommand = (
   Effect.gen(function* () {
     yield* rejectExtraArgs("status", argv)
     const git: GitOperations = yield* GitService
-    const { rest, context } = yield* resolveRestContext(git)
+    const { rest, context, renderedOn } = yield* resolveRestContext(git)
     const changes = yield* pendingChanges(git)
     const model = yield* renderModel(rest.stateDef, context)
     const memory = yield* renderMemory(rest.stateDef, context)
     const label = yield* renderLabel(rest.stateDef, context)
     const file = yield* renderFile(rest.stateDef, context)
-    const statusChanges = computeStatusChanges(rest.stateDef.on ?? [], changes)
+    const statusChanges = computeStatusChanges(renderedOn, changes)
     if (json) {
       writeStatusJson(
         write,
         rest,
         statusChanges,
+        renderedOn,
         model,
         memory,
         label,
@@ -1449,14 +1480,18 @@ const parseVisualizeOptions = (rest: readonly string[]): VisualizeOptions | { er
  */
 const computeCurrentState = (
   model: VizModel,
-): Effect.Effect<CurrentStateModel, Error, GitService | ConfigService> =>
+): Effect.Effect<CurrentStateModel, Error, GitService | ConfigService | EnvVars> =>
   Effect.gen(function* () {
     const git: GitOperations = yield* GitService
+    const config = yield* (yield* ConfigService).load
+    const envVars = yield* EnvVars
     const reviewHead = yield* git.readRefOption(REVIEW_HEAD_REF)
     const currentRest = yield* resolveRest(Option.getOrUndefined(reviewHead))
     const changes = yield* pendingChanges(git)
+    const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const renderedOn = yield* renderOnEdgesOrFail(currentRest.stateDef.on, vars)
     const group = model.states.find((s) => s.name === currentRest.state)?.group
-    return buildCurrentStateModel(currentRest, changes, group)
+    return buildCurrentStateModel(currentRest, changes, renderedOn, group)
   })
 
 /**
@@ -1474,7 +1509,7 @@ const runVisualizeCommand = (
   argv: readonly string[],
   json: boolean,
   write: (chunk: string) => void,
-): Effect.Effect<void, Error, GitService | ConfigService> =>
+): Effect.Effect<void, Error, GitService | ConfigService | EnvVars> =>
   Effect.gen(function* () {
     const tokens = argv.slice(2)
     const subIdx = tokens.indexOf("visualize")
@@ -1493,7 +1528,7 @@ const runVisualizeCommand = (
       return
     }
 
-    const runtime = yield* Effect.runtime<GitService | ConfigService>()
+    const runtime = yield* Effect.runtime<GitService | ConfigService | EnvVars>()
     const resolveCurrent = () =>
       Runtime.runPromise(runtime)(computeCurrentState(model).pipe(Effect.either)).then(
         Either.getOrNull,
