@@ -308,6 +308,23 @@
         box-shadow: var(--shadow-sm);
         overflow: hidden;
       }
+      .sm-card summary.h {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        cursor: pointer;
+        list-style: none;
+      }
+      .sm-card summary::-webkit-details-marker {
+        display: none;
+      }
+      .sm-card summary::after {
+        content: "▸";
+        color: var(--text-dim);
+      }
+      .sm-card[open] summary::after {
+        content: "▾";
+      }
       .dia-scroll {
         overflow-x: auto;
         background: var(--dia-bg);
@@ -604,6 +621,7 @@
       .card {
         text-align: left;
         font: inherit;
+        color: var(--text);
         cursor: pointer;
         background: var(--surface);
         border: 1px solid var(--border);
@@ -1044,6 +1062,7 @@
           <span class="rule"></span>
         </div>
         <div class="current-panel hidden" id="currentPanel"></div>
+        <div id="varsSection"></div>
 
         <div class="sec-head">
           <h2>Main flow</h2>
@@ -1497,7 +1516,9 @@
 
       function scrollToSubmachine(i) {
         const el = document.getElementById("sm-" + i)
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
+        if (!el) return
+        el.open = true
+        el.scrollIntoView({ behavior: "smooth", block: "start" })
       }
       function navigateTo(name) {
         const s = byName[name]
@@ -1577,12 +1598,13 @@
         }
         el.innerHTML = ""
         groups.forEach((g, i) => {
-          const card = document.createElement("div")
-          card.className = "dia-card"
+          const card = document.createElement("details")
+          card.className = "dia-card sm-card"
           card.id = "sm-" + i
           card.style.marginBottom = "16px"
+          if (CURRENT && CURRENT.group === g.name) card.open = true
           card.innerHTML =
-            `<div class="h"><span class="nm">${esc(g.name)} · instantiates <b>${esc(g.submachine)}</b></span></div>` +
+            `<summary class="h"><span class="nm">${esc(g.name)} · instantiates <b>${esc(g.submachine)}</b></span></summary>` +
             `<div class="dia-scroll" id="smDia${i}"><div class="dia-msg">Rendering diagram…</div></div>`
           el.appendChild(card)
 
@@ -1601,14 +1623,12 @@
         const vars = MODEL.vars || {}
         const keys = Object.keys(vars)
         if (!keys.length) return
-        const el = document.getElementById("smSection")
-        const box = document.createElement("div")
-        box.innerHTML =
-          `<div class="sec-head" style="margin-top:34px"><h2>Workflow variables</h2><span class="rule"></span></div>` +
+        const el = document.getElementById("varsSection")
+        el.innerHTML =
+          `<div class="sec-head"><h2>Workflow variables</h2><span class="rule"></span></div>` +
           `<div class="vars-grid">${keys
             .map((k) => `<span class="var-chip"><b>${esc(k)}</b> = ${esc(vars[k])}</span>`)
             .join("")}</div>`
-        el.appendChild(box)
       })()
 
       // ── current-state panel ─────────────────────────────────────────────
