@@ -96,9 +96,10 @@ handful of commands drive it:
   changes (nothing is discarded).
 - **`gtd visualize`** — serve an interactive diagram of the active workflow on a
   local web server: the main flow (each sub-machine collapsed to one box, with
-  its own diagram below), per-state details, and — read once at page load — a
-  "Current state" panel showing where the active process rests and which action
-  leads where.
+  its own diagram below), per-state details, and a "Current state" panel showing
+  where the active process rests and which action leads where. The panel and
+  diagram highlight refresh live (~every 3s) while the page is open, so
+  advancing the process elsewhere shows up without a manual refresh.
 
 `gtd version` (or `gtd --version`/`-v`) prints the installed version and exits;
 `gtd help` (or `gtd --help`/`-h`) prints the command list. Both short-circuit

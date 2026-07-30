@@ -1178,7 +1178,27 @@
       let STATES = []
       let byName = {}
       let CURRENT = null
+      let lastCurrentSig = undefined
       let mermaidMod = null
+
+      // Fetches `/state.json`, updates `CURRENT`, and reports whether the
+      // resolved body actually changed since the last call (compared on the
+      // full JSON so an edge's `matched` flag flipping counts as a change too).
+      async function refreshCurrent() {
+        let next = null
+        try {
+          const res = await fetch("/state.json")
+          const body = res.ok ? await res.json() : {}
+          next = body && body.state ? body : null
+        } catch (e) {
+          next = null
+        }
+        const sig = JSON.stringify(next)
+        if (sig === lastCurrentSig) return false
+        lastCurrentSig = sig
+        CURRENT = next
+        return true
+      }
 
       const actorFilter = new Set(["human", "agent", "check", "commit", "unknown"])
       let kindFilter = "all"
@@ -1197,15 +1217,10 @@
         throw e
       }
 
-      // Resolved ONCE at page load — no polling; a page refresh re-reads. Tolerates
-      // a 404/error (an older server) or an empty `{}` (no active process/not a repo).
-      try {
-        const res = await fetch("/state.json")
-        const body = res.ok ? await res.json() : {}
-        CURRENT = body && body.state ? body : null
-      } catch (e) {
-        CURRENT = null
-      }
+      // Resolved at page load, then re-polled every 3s (see `poll()` below) so
+      // advancing the process shows up without a manual refresh. Tolerates a
+      // 404/error (an older server) or an empty `{}` (no active process/not a repo).
+      await refreshCurrent()
 
       STATES = MODEL.states || []
       byName = Object.fromEntries(STATES.map((s) => [s.name, s]))
@@ -1464,12 +1479,13 @@
       // Every live diagram (main + one per sub-machine) — re-rendered as a
       // group on every theme toggle (replaces the old single DIAGRAM_SRC).
       const diagrams = []
-      function registerDiagram(host, src, renderIdBase, onRendered) {
-        diagrams.push({ host, src, renderIdBase, onRendered })
+      function registerDiagram(host, src, renderIdBase, onRendered, highlight) {
+        diagrams.push({ host, src, renderIdBase, onRendered, highlight, lastRenderId: null })
       }
       async function renderAllDiagrams() {
         for (const d of diagrams) {
           const renderId = await renderInto(d.host, d.src, d.renderIdBase)
+          if (renderId) d.lastRenderId = renderId
           if (renderId && d.onRendered) d.onRendered(renderId, d.host)
         }
       }
@@ -1545,6 +1561,17 @@
         })
       }
 
+      // Re-applies the current-state highlight to every already-rendered
+      // diagram, without re-running mermaid — used by the poll loop below.
+      function repaintHighlights() {
+        for (const d of diagrams) {
+          nodeGroupsOf(d.host).forEach((el) => el.classList.remove("gtd-current"))
+          if (d.lastRenderId && d.highlight) {
+            applyCurrentHighlight(d.lastRenderId, d.host, d.highlight.mode, d.highlight.gi)
+          }
+        }
+      }
+
       function wireMainDiagramClicks(renderId, host) {
         nodeGroupsOf(host).forEach((el) => {
           const rawId = nodeIdOf(el, renderId)
@@ -1586,6 +1613,7 @@
         buildFlowSrc(STATES, {}),
         "gtdmain",
         wireMainDiagramClicks,
+        { mode: "main" },
       )
 
       // ── sub-machines panel — one real mermaid diagram per invocation ─────
@@ -1614,6 +1642,7 @@
             buildFlowSrc(members, { scope: g.name }),
             "gtdsm" + i + "-",
             (renderId, host) => wireSubmachineDiagramClicks(renderId, host, i),
+            { mode: "submachine", gi: i },
           )
         })
       })()
@@ -1632,7 +1661,7 @@
       })()
 
       // ── current-state panel ─────────────────────────────────────────────
-      ;(function renderCurrentPanel() {
+      function renderCurrentPanel() {
         const panel = document.getElementById("currentPanel")
         if (!CURRENT || !CURRENT.state) {
           panel.classList.add("hidden")
@@ -1663,9 +1692,28 @@
           }</div>`
         panel.querySelector(".cur-head").onclick = () => navigateTo(CURRENT.state)
         panel.querySelectorAll(".goto").forEach((b) => (b.onclick = () => navigateTo(b.dataset.to)))
-      })()
+      }
+      renderCurrentPanel()
 
       reinitializeAndRenderAll()
+
+      // ── live current-state polling ──────────────────────────────────────
+      // Keeps the panel + diagram highlight in sync with an in-progress
+      // process without a manual page refresh. Skipped while the tab is
+      // hidden; becoming visible again triggers an immediate refresh. No
+      // in-flight guard — a slow tick just means the next one also awaits.
+      async function poll() {
+        if (document.hidden) return
+        const changed = await refreshCurrent()
+        if (changed) {
+          renderCurrentPanel()
+          repaintHighlights()
+        }
+      }
+      setInterval(poll, 3000)
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) poll()
+      })
 
       // ── kind chips + actor legend ──────────────────────────────────────
       const kindChipsEl = document.getElementById("kindChips")
