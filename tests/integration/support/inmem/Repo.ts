@@ -137,8 +137,9 @@ export class InMemRepo {
     return this.branches.get(ref) ?? null
   }
 
-  lastCommitSubject(): string | null {
-    const c = this.headCommit()
+  lastCommitSubject(ref = "HEAD"): string | null {
+    const hash = this.resolveRef(ref)
+    const c = hash !== null ? this.getCommit(hash) : null
     if (!c) return null
     return c.message.split("\n")[0] ?? null
   }

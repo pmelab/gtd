@@ -287,6 +287,22 @@ for (const [tierName, makeTier] of tiers) {
     })
 
     // -----------------------------------------------------------------------
+    describe("lastCommitSubject", () => {
+      it("returns HEAD's subject with no ref argument", async () => {
+        const subject = await t.run(Effect.flatMap(GitService, (g) => g.lastCommitSubject()))
+        expect(subject).toBe("init: first commit")
+      })
+
+      it("returns the given ref's subject, not HEAD's", async () => {
+        t.commit("feat: second commit", { "extra.txt": "extra" })
+        const subject = await t.run(
+          Effect.flatMap(GitService, (g) => g.lastCommitSubject("HEAD~1")),
+        )
+        expect(subject).toBe("init: first commit")
+      })
+    })
+
+    // -----------------------------------------------------------------------
     describe("commitHistory", () => {
       it("returns [] for an empty repo", async () => {
         if (tierName === "Live") {

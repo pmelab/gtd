@@ -101,8 +101,8 @@ function renderPathDiff(
 const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
   hasCommits: () => Effect.succeed(repo.hasCommits()),
 
-  lastCommitSubject: () => {
-    const subject = repo.lastCommitSubject()
+  lastCommitSubject: (ref?: string) => {
+    const subject = repo.lastCommitSubject(ref)
     return subject !== null ? Effect.succeed(subject) : Effect.fail(new Error("No commits"))
   },
 

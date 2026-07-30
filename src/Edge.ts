@@ -173,14 +173,23 @@ export interface ResolvedRest {
   readonly actor: string
 }
 
-/** Resolve HEAD's subject against the active workflow definition (the bundled default, or a compiled `.gtdrc` `workflow:` key). */
-export const resolveRest = (): Effect.Effect<ResolvedRest, Error, GitService | ConfigService> =>
+/**
+ * Resolve a commit's subject against the active workflow definition (the
+ * bundled default, or a compiled `.gtdrc` `workflow:` key). Resolves HEAD by
+ * default; `atRef` resolves an arbitrary ref/hash instead — used by `gtd
+ * visualize`'s best-effort current-state read, which prefers the review
+ * checkout window's saved head over a HEAD that may be mid-window-rewind (see
+ * `src/ReviewWindow.ts`'s `REVIEW_HEAD_REF`).
+ */
+export const resolveRest = (
+  atRef?: string,
+): Effect.Effect<ResolvedRest, Error, GitService | ConfigService> =>
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
     const def = config.workflow
     const hasCommits = yield* git.hasCommits()
-    const headSubject = hasCommits ? yield* git.lastCommitSubject() : ""
+    const headSubject = hasCommits ? yield* git.lastCommitSubject(atRef) : ""
     const state = resolveState(def, headSubject)
     const stateDef = def.states[state]!
     // `resolveState` never rests at a commit state (it excludes them

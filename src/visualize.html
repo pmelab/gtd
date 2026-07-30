@@ -308,19 +308,93 @@
         box-shadow: var(--shadow-sm);
         overflow: hidden;
       }
+      .sm-card summary.h {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        cursor: pointer;
+        list-style: none;
+        padding: 14px 18px;
+        transition: background 0.12s ease;
+      }
+      .sm-card summary.h:hover {
+        background: var(--surface-2);
+      }
+      .sm-card[open] summary.h {
+        border-bottom: 1px solid var(--border);
+      }
+      .sm-card summary::-webkit-details-marker {
+        display: none;
+      }
+      .sm-card summary::after {
+        content: "+";
+        align-self: center;
+        color: var(--text-dim);
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1;
+        transform: translateY(-0.08em);
+        transition: color 0.15s ease;
+      }
+      .sm-card summary:hover::after {
+        color: var(--text);
+      }
+      .sm-card[open] summary::after {
+        content: "\2212";
+      }
       .dia-scroll {
-        overflow-x: auto;
+        position: relative;
+        overflow: hidden;
         background: var(--dia-bg);
-        padding: 18px 16px;
+        height: 460px;
+        cursor: grab;
+        touch-action: none;
+      }
+      .dia-scroll.pz-dragging {
+        cursor: grabbing;
       }
       .dia-scroll .mflow {
-        min-width: min-content;
-        display: flex;
-        justify-content: center;
+        position: absolute;
+        top: 0;
+        left: 0;
+        padding: 18px 16px;
+        transform-origin: 0 0;
       }
       .dia-scroll .mflow svg {
         max-width: none;
         height: auto;
+        display: block;
+      }
+      .pz-controls {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        display: flex;
+        gap: 6px;
+        z-index: 5;
+      }
+      .pz-btn {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text-dim);
+        cursor: pointer;
+        font-size: 15px;
+        font-family: var(--mono);
+        display: grid;
+        place-items: center;
+        box-shadow: var(--shadow-sm);
+        padding: 0;
+      }
+      .pz-btn:hover {
+        color: var(--text);
+        border-color: var(--border-strong);
+      }
+      .pz-btn:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
       }
       .dia-msg {
         padding: 22px 18px;
@@ -345,6 +419,11 @@
         overflow-x: auto;
         color: var(--text-dim);
         max-height: 260px;
+      }
+      .state-content {
+        max-height: 340px;
+        white-space: pre-wrap;
+        word-break: break-word;
       }
 
       /* sub-machines */
@@ -391,6 +470,116 @@
         color: var(--text-faint);
         font-style: italic;
         margin-top: 16px;
+      }
+      .sm-def .h {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .sm-def .h .goto-sm {
+        font: inherit;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--accent);
+        background: none;
+        border: none;
+        cursor: pointer;
+        text-decoration: underline;
+        padding: 0;
+      }
+
+      /* current-state panel */
+      .current-panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-sm);
+        padding: 18px 20px 20px;
+        margin: 16px 0 34px;
+      }
+      .cur-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        cursor: pointer;
+      }
+      .cur-name {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 18px;
+        letter-spacing: -0.01em;
+      }
+      .cur-none {
+        color: var(--text-faint);
+        font-style: italic;
+      }
+      .edge.cur-matched {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+      .cur-tag {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        font-weight: 700;
+        color: var(--accent);
+        background: var(--surface);
+        border: 1px solid var(--accent);
+        padding: 1px 7px;
+        border-radius: 999px;
+        margin-left: auto;
+      }
+
+      /* pending-changes readout in the current-state panel */
+      .pending-list {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        margin-bottom: 14px;
+      }
+      .pending-list .pc {
+        display: flex;
+        gap: 9px;
+      }
+      .pending-list .st {
+        font-weight: 700;
+        width: 1ch;
+        flex: none;
+      }
+      .pending-list .path {
+        color: var(--text-dim);
+        word-break: break-all;
+      }
+      .pending-clean {
+        color: var(--text-faint);
+        font-style: italic;
+        font-size: 12.5px;
+        margin-bottom: 14px;
+      }
+
+      /* mermaid black-box / ghost node labels (rendered inside the SVG via htmlLabels) */
+      .sm-hint {
+        display: block;
+        margin-top: 2px;
+        font-size: 10.5px;
+        opacity: 0.72;
+        font-weight: 500;
+      }
+
+      /* the current-state highlight ring on a rendered SVG node/group box */
+      g.node.gtd-current {
+        filter: drop-shadow(0 0 6px var(--accent));
+      }
+      g.node.gtd-current > rect,
+      g.node.gtd-current > polygon,
+      g.node.gtd-current > circle,
+      g.node.gtd-current > ellipse,
+      g.node.gtd-current > path.basic {
+        stroke: var(--accent) !important;
+        stroke-width: 3px !important;
       }
 
       /* toolbar */
@@ -523,6 +712,7 @@
       .card {
         text-align: left;
         font: inherit;
+        color: var(--text);
         cursor: pointer;
         background: var(--surface);
         border: 1px solid var(--border);
@@ -897,7 +1087,7 @@
       footer {
         border-top: 1px solid var(--border);
         margin-top: 56px;
-        padding: 24px 0 60px;
+        padding: 40px 0 72px;
         color: var(--text-faint);
         font-size: 13px;
       }
@@ -906,6 +1096,27 @@
         background: var(--surface-2);
         padding: 1px 6px;
         border-radius: 5px;
+      }
+      footer .foot-lead {
+        margin: 0 0 14px;
+        padding-top: 16px;
+        color: var(--text-dim);
+      }
+      footer .foot-legend {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding-bottom: 16px;
+      }
+      footer .foot-chip {
+        font-family: var(--mono);
+        font-size: 12px;
+        padding: 3px 9px;
+        border-radius: 7px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text-dim);
       }
 
       .hidden {
@@ -958,6 +1169,13 @@
       </section>
 
       <div id="content" class="hidden">
+        <div class="sec-head">
+          <h2>Current state</h2>
+          <span class="rule"></span>
+        </div>
+        <div class="current-panel hidden" id="currentPanel"></div>
+        <div id="varsSection"></div>
+
         <div class="sec-head">
           <h2>Main flow</h2>
           <span class="rule"></span>
@@ -1029,8 +1247,13 @@
       document.getElementById("themeBtn").onclick = () => {
         const next = isDark() ? "light" : "dark"
         root.setAttribute("data-theme", next)
-        renderDiagram()
+        reinitializeAndRenderAll()
       }
+      // Follow the OS when the user hasn't made an explicit choice — an
+      // explicit `data-theme` override always wins over an OS flip.
+      matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+        if (!root.getAttribute("data-theme")) reinitializeAndRenderAll()
+      })
 
       const esc = (s) =>
         String(s).replace(
@@ -1071,9 +1294,28 @@
       let MODEL = null
       let STATES = []
       let byName = {}
-      let DIAGRAM_SRC = ""
+      let CURRENT = null
+      let lastCurrentSig = undefined
       let mermaidMod = null
-      let renderSeq = 0
+
+      // Fetches `/state.json`, updates `CURRENT`, and reports whether the
+      // resolved body actually changed since the last call (compared on the
+      // full JSON so an edge's `matched` flag flipping counts as a change too).
+      async function refreshCurrent() {
+        let next = null
+        try {
+          const res = await fetch("/state.json")
+          const body = res.ok ? await res.json() : {}
+          next = body && body.state ? body : null
+        } catch (e) {
+          next = null
+        }
+        const sig = JSON.stringify(next)
+        if (sig === lastCurrentSig) return false
+        lastCurrentSig = sig
+        CURRENT = next
+        return true
+      }
 
       const actorFilter = new Set(["human", "agent", "check", "commit", "unknown"])
       let kindFilter = "all"
@@ -1091,6 +1333,11 @@
           '. This page must be served by <span class="mono">gtd visualize</span>.'
         throw e
       }
+
+      // Resolved at page load, then re-polled every 3s (see `poll()` below) so
+      // advancing the process shows up without a manual refresh. Tolerates a
+      // 404/error (an older server) or an empty `{}` (no active process/not a repo).
+      await refreshCurrent()
 
       STATES = MODEL.states || []
       byName = Object.fromEntries(STATES.map((s) => [s.name, s]))
@@ -1116,34 +1363,47 @@
         .filter(Boolean)
         .join(" ")
 
-      document.getElementById("heroTitle").innerHTML =
-        `A workflow of <span class="mono">${STATES.length}</span> states`
+      document.getElementById("heroTitle").innerHTML = `GTD workflow visualization`
       document.getElementById("heroLede").innerHTML =
-        `Rendered live from <code>/workflow.json</code>. The initial state is ` +
+        `Rendered live from your workflow. The initial state is ` +
         `<code>${esc(MODEL.initial)}</code>. Click any state — in the diagram, a sub-machine chip, ` +
         `or the catalogue — to open its full definition, walk its outgoing edges, and see what routes into it.`
       document.getElementById("content").classList.remove("hidden")
 
       document.getElementById("footer").innerHTML =
-        `Read-only view served by <code>gtd visualize</code>. Node shape = content kind ` +
-        `(<span style="font-family:var(--mono)">([message])</span> · ` +
-        `<span style="font-family:var(--mono)">[prompt]</span> · ` +
-        `<span style="font-family:var(--mono)">{{script}}</span> · ` +
-        `<span style="font-family:var(--mono)">[[commit]]</span>); colour = actor.`
+        `<p class="foot-lead">Read-only view served by <code>gtd visualize</code>.</p>` +
+        `<div class="foot-legend">` +
+        `<span class="foot-chip">([message])</span>` +
+        `<span class="foot-chip">[prompt]</span>` +
+        `<span class="foot-chip">{{script}}</span>` +
+        `<span class="foot-chip">[[commit]]</span>` +
+        `<span>— node shape = content kind; colour = actor.</span>` +
+        `</div>`
 
       // ── pill helper ────────────────────────────────────────────────────
       const pill = (a) =>
         `<span class="pill ${meta(a).cls}"><span class="dot"></span>${meta(a).label}</span>`
 
       // ── mermaid source generation ──────────────────────────────────────
-      // Safe, stable node ids (state names can contain hyphens etc.).
+      // Safe, stable node ids (state names can contain hyphens etc.), with a
+      // reverse lookup — needed to map a rendered SVG node's id back to its
+      // state name when wiring clicks (see `nodeIdOf`/`wire*Clicks` below).
       const idFor = (() => {
         const map = new Map()
-        return (name) => {
-          if (!map.has(name)) map.set(name, "n" + map.size)
+        const rev = new Map()
+        const fn = (name) => {
+          if (!map.has(name)) {
+            const id = "n" + map.size
+            map.set(name, id)
+            rev.set(id, name)
+          }
           return map.get(name)
         }
+        fn.nameOf = (id) => rev.get(id)
+        return fn
       })()
+      const groupBoxId = (i) => "g" + i
+      const groupIndexOf = (name) => (MODEL.groups || []).findIndex((g) => g.name === name)
       const shapeFor = (kind, label) => {
         const l = `"${label.replace(/"/g, "&quot;")}"`
         switch (kind) {
@@ -1160,68 +1420,157 @@
         }
       }
       const mlabel = (s) => `"${String(s).replace(/"/g, "&quot;").replace(/\|/g, "&#124;")}"`
+      /**
+       * The mermaid `classDef` lines for actor/ghost node fills, chosen per
+       * theme so dark mode doesn't render washed-out light pastels.
+       */
+      function classDefs(dark) {
+        return [
+          dark
+            ? "classDef human fill:#3a2e12,stroke:#e0a83e,color:#f0c674;"
+            : "classDef human fill:#fbeccd,stroke:#d99413,color:#5a3d0a;",
+          dark
+            ? "classDef agent fill:#26224a,stroke:#8b7cf0,color:#b6abf7;"
+            : "classDef agent fill:#e5e2fb,stroke:#6d5ce0,color:#3a2c85;",
+          dark
+            ? "classDef check fill:#123433,stroke:#2dc4bc,color:#68dcd4;"
+            : "classDef check fill:#d3f0ef,stroke:#16a39d,color:#0c524f;",
+          dark
+            ? "classDef commit fill:#3a1b24,stroke:#e05f7c,color:#f2a3b3;"
+            : "classDef commit fill:#fbdfe4,stroke:#d84a68,color:#8a1f38;",
+          dark
+            ? "classDef unknown fill:#1c2434,stroke:#3a465c,color:#9aa6bd,stroke-dasharray:4 3;"
+            : "classDef unknown fill:#eef1f7,stroke:#c2ccdb,color:#55607a,stroke-dasharray:4 3;",
+          // Sub-machine invocation: a muted slate box (not one of the actor
+          // colours) so it still reads as its own distinct "black-box" kind,
+          // without the harsh opaque-black fill clashing with a light theme.
+          dark
+            ? "classDef submachine fill:#2a3142,stroke:#5a6b8c,color:#dbe4f5,font-weight:700;"
+            : "classDef submachine fill:#e4e9f2,stroke:#8695b3,color:#2a3142,font-weight:700;",
+          // A muted, dashed ghost node standing in for a target OUTSIDE the
+          // current diagram (a sub-machine diagram's external edge).
+          dark
+            ? "classDef external fill:#1c2434,stroke:#3a465c,color:#9aa6bd,stroke-dasharray:5 4;"
+            : "classDef external fill:#eef1f7,stroke:#c2ccdb,color:#55607a,stroke-dasharray:5 4;",
+        ]
+      }
 
-      function buildMermaid() {
+      /**
+       * Build one flowchart's mermaid source over `states` (a diagram scope):
+       * the whole machine for the main flow (`opts.scope` unset), or one
+       * sub-machine's own member states (`opts.scope` = that group's name).
+       * A member state whose innermost group differs from `opts.scope`
+       * collapses into a black box for ITS group (handles a sub-machine
+       * nested inside another); a target outside `states` entirely renders as
+       * a muted, dashed ghost node instead (only possible in a sub-machine
+       * diagram — the main flow's `states` is every state, so nothing is ever
+       * "outside" it).
+       */
+      function buildFlowSrc(states, opts) {
+        const scope = opts && opts.scope
+        const inSet = new Set(states.map((s) => s.name))
         const lines = ["flowchart TD"]
-        const rendered = new Set()
-        const nodeLine = (s) => `  ${idFor(s.name)}${shapeFor(s.kind, s.name)}:::${actorOf(s)}`
 
-        // Nodes grouped by their innermost sub-machine.
-        const groups = MODEL.groups || []
-        const byGroupName = {}
-        STATES.forEach((s) => {
-          if (s.group) (byGroupName[s.group] ||= []).push(s)
-        })
-        // Emit one subgraph per group (in declared order), containing only the
-        // states whose innermost group is this one.
-        groups.forEach((g, i) => {
-          const members = byGroupName[g.name] || []
-          if (!members.length) return
-          lines.push(`  subgraph sg${i}[${mlabel(g.name)}]`)
-          members.forEach((s) => {
-            lines.push("  " + nodeLine(s))
-            rendered.add(s.name)
-          })
-          lines.push("  end")
-        })
-        // Ungrouped states sit outside any subgraph.
-        STATES.forEach((s) => {
-          if (!rendered.has(s.name)) {
+        const unitOf = (name) => {
+          const s = byName[name]
+          if (s && s.group && s.group !== scope) return { kind: "box", group: s.group }
+          return { kind: "node", name }
+        }
+        const unitId = (name) => {
+          const u = unitOf(name)
+          return u.kind === "box" ? groupBoxId(groupIndexOf(u.group)) : idFor(name)
+        }
+
+        const emittedNodes = new Set()
+        const emittedBoxes = new Set()
+        const emittedGhosts = new Set()
+        const nodeLine = (s) => `  ${idFor(s.name)}${shapeFor(s.kind, s.name)}:::${actorOf(s)}`
+        const boxLine = (g, i) =>
+          `  ${groupBoxId(i)}["${esc(g.name)}<br/><span class='sm-hint'>▸ ${g.states.length} state${
+            g.states.length === 1 ? "" : "s"
+          }</span>"]:::submachine`
+        const ghostLine = (s) => `  e${idFor(s.name)}${shapeFor(s.kind, s.name)}:::external`
+
+        states.forEach((s) => {
+          const u = unitOf(s.name)
+          if (u.kind === "node") {
+            if (emittedNodes.has(s.name)) return
+            emittedNodes.add(s.name)
             lines.push(nodeLine(s))
-            rendered.add(s.name)
+          } else if (!emittedBoxes.has(u.group)) {
+            emittedBoxes.add(u.group)
+            const i = groupIndexOf(u.group)
+            if (i >= 0) lines.push(boxLine(MODEL.groups[i], i))
           }
         })
 
-        // Edges: one per `on` entry, labelled with the pattern.
-        STATES.forEach((s) => {
+        // Edges within this diagram's own state set, collapsed through box
+        // units, deduped, and label-dropped when several patterns land on the
+        // same box-level edge (a black box hides which one specifically).
+        const solid = new Map()
+        const dashed = new Map()
+        const addEdge = (map, from, to, label) => {
+          if (from === to) return
+          const key = from + " " + to
+          if (!map.has(key)) map.set(key, [])
+          map.get(key).push(label)
+        }
+        states.forEach((s) => {
           ;(s.on || []).forEach((e) => {
-            if (!byName[e.to]) return
-            lines.push(`  ${idFor(s.name)} -->|${mlabel(e.pattern)}| ${idFor(e.to)}`)
+            if (!inSet.has(e.to) || !byName[e.to]) return
+            addEdge(solid, unitId(s.name), unitId(e.to), e.pattern)
           })
-          // Retry redirect (dashed) — informative, mirrors the "routes in from" list.
-          if (s.retry && byName[s.retry.otherwise]) {
+          if (s.retry && inSet.has(s.retry.otherwise)) {
+            addEdge(dashed, unitId(s.name), unitId(s.retry.otherwise), "retry ×" + s.retry.max)
+          }
+        })
+        // Ghost edges to a target entirely outside this diagram's state set
+        // (only fires for a sub-machine diagram — the main flow's set is
+        // every state, so nothing is ever "outside" it).
+        states.forEach((s) => {
+          ;(s.on || []).forEach((e) => {
+            if (inSet.has(e.to) || !byName[e.to]) return
+            const target = byName[e.to]
+            if (!emittedGhosts.has(e.to)) {
+              emittedGhosts.add(e.to)
+              lines.push(ghostLine(target))
+            }
+            lines.push(`  ${idFor(s.name)} -->|${mlabel(e.pattern)}| e${idFor(e.to)}`)
+          })
+          if (s.retry && byName[s.retry.otherwise] && !inSet.has(s.retry.otherwise)) {
+            const target = byName[s.retry.otherwise]
+            if (!emittedGhosts.has(s.retry.otherwise)) {
+              emittedGhosts.add(s.retry.otherwise)
+              lines.push(ghostLine(target))
+            }
             lines.push(
-              `  ${idFor(s.name)} -.->|${mlabel("retry ×" + s.retry.max)}| ${idFor(s.retry.otherwise)}`,
+              `  ${idFor(s.name)} -.->|${mlabel("retry ×" + s.retry.max)}| e${idFor(s.retry.otherwise)}`,
             )
           }
         })
 
-        lines.push(
-          "classDef human fill:#fbeccd,stroke:#d99413,color:#5a3d0a;",
-          "classDef agent fill:#e5e2fb,stroke:#6d5ce0,color:#3a2c85;",
-          "classDef check fill:#d3f0ef,stroke:#16a39d,color:#0c524f;",
-          "classDef commit fill:#fbdfe4,stroke:#d84a68,color:#8a1f38;",
-          "classDef unknown fill:#eef1f7,stroke:#c2ccdb,color:#55607a,stroke-dasharray:4 3;",
-        )
+        solid.forEach((labels, key) => {
+          const [from, to] = key.split(" ")
+          const label = labels.length === 1 ? mlabel(labels[0]) : null
+          lines.push(`  ${from} -->${label ? "|" + label + "|" : ""} ${to}`)
+        })
+        dashed.forEach((labels, key) => {
+          const [from, to] = key.split(" ")
+          const label = labels.length === 1 ? mlabel(labels[0]) : null
+          lines.push(`  ${from} -.->${label ? "|" + label + "|" : ""} ${to}`)
+        })
+
+        lines.push(...classDefs(isDark()))
         return lines.join("\n")
       }
 
-      DIAGRAM_SRC = buildMermaid()
       document.getElementById("diaNote").innerHTML =
         `Every state as a node — shape is the content kind, colour is the actor. Each edge is an ` +
         `<span class="mono">on</span> pattern (first match wins); dashed edges are ` +
-        `<span class="mono">retry</span> redirects. Sub-machines are drawn as labelled boxes. ` +
-        `Scrolls horizontally if wide.`
+        `<span class="mono">retry</span> redirects. A sub-machine invocation collapses into a single ` +
+        `dark box (click it to jump to its own diagram below); an edge label is dropped when several ` +
+        `patterns collapse onto the same box-to-box edge. Scroll/pinch or drag to pan and zoom; use the ` +
+        `<span class="mono">+</span>/<span class="mono">−</span>/<span class="mono">⤢</span> controls in the corner.`
 
       // ── diagram render (theme-aware, offline-tolerant) ─────────────────
       async function loadMermaid() {
@@ -1230,9 +1579,17 @@
         mermaidMod = m.default
         return mermaidMod
       }
-      async function renderDiagram() {
-        const host = document.getElementById("diaScroll")
-        const seq = ++renderSeq
+
+      const renderSeqByBase = new Map()
+      const nextSeq = (base) => {
+        const n = (renderSeqByBase.get(base) || 0) + 1
+        renderSeqByBase.set(base, n)
+        return n
+      }
+
+      /** Render `src` into `host` via mermaid, guarding against a stale (superseded) render; falls back to a readable error + raw source on failure. Returns the mermaid render id used (so the caller can wire clicks/highlight against ITS OWN node ids), or `null` if nothing rendered. */
+      async function renderInto(host, src, renderIdBase) {
+        const seq = nextSeq(renderIdBase)
         let mermaid
         try {
           mermaid = await loadMermaid()
@@ -1240,11 +1597,43 @@
           host.innerHTML =
             `<div class="dia-msg">Could not load the Mermaid renderer (offline?). ` +
             `The workflow is still fully browsable below. Diagram source:` +
-            `<pre class="dia-src">${esc(DIAGRAM_SRC)}</pre></div>`
-          return
+            `<pre class="dia-src">${esc(src)}</pre></div>`
+          return null
         }
-        if (seq !== renderSeq) return
+        if (seq !== renderSeqByBase.get(renderIdBase)) return null
+        const renderId = renderIdBase + seq
         try {
+          const { svg } = await mermaid.render(renderId, src)
+          if (seq !== renderSeqByBase.get(renderIdBase)) return null
+          host.innerHTML = `<div class="mflow">${svg}</div>`
+          return renderId
+        } catch (e) {
+          host.innerHTML =
+            `<div class="dia-msg">Diagram render failed: ${esc(e.message)}. ` +
+            `Diagram source:<pre class="dia-src">${esc(src)}</pre></div>`
+          return null
+        }
+      }
+
+      // Every live diagram (main + one per sub-machine) — re-rendered as a
+      // group on every theme toggle (replaces the old single DIAGRAM_SRC).
+      // `build` is a thunk (not a fixed string) because the diagram source
+      // embeds theme-dependent classDefs — it must be re-emitted fresh on
+      // every re-render, not cached from first render.
+      const diagrams = []
+      function registerDiagram(host, build, renderIdBase, onRendered, highlight) {
+        diagrams.push({ host, build, renderIdBase, onRendered, highlight, lastRenderId: null })
+      }
+      async function renderAllDiagrams() {
+        for (const d of diagrams) {
+          const renderId = await renderInto(d.host, d.build(), d.renderIdBase)
+          if (renderId) d.lastRenderId = renderId
+          if (renderId && d.onRendered) d.onRendered(renderId, d.host)
+        }
+      }
+      async function reinitializeAndRenderAll() {
+        const mermaid = await loadMermaid().catch(() => null)
+        if (mermaid) {
           const dark = isDark()
           mermaid.initialize({
             startOnLoad: false,
@@ -1257,23 +1646,261 @@
               lineColor: dark ? "#6b7690" : "#8a93a6",
               primaryBorderColor: dark ? "#3a465c" : "#c2ccdb",
               tertiaryColor: dark ? "#1c2434" : "#f0f3f8",
+              mainBkg: dark ? "#232c3e" : "#ffffff",
               clusterBkg: dark ? "#1c2434" : "#f0f3f8",
               clusterBorder: dark ? "#3a465c" : "#c2ccdb",
               titleColor: dark ? "#e6ebf4" : "#1a2233",
+              nodeTextColor: dark ? "#e6ebf4" : "#1a2233",
+              textColor: dark ? "#e6ebf4" : "#1a2233",
+              edgeLabelBackground: dark ? "#161d2b" : "#f4f6fa",
             },
           })
-          const { svg } = await mermaid.render("gtdflow" + seq, DIAGRAM_SRC)
-          if (seq !== renderSeq) return
-          host.innerHTML = `<div class="mflow">${svg}</div>`
-        } catch (e) {
-          host.innerHTML =
-            `<div class="dia-msg">Diagram render failed: ${esc(e.message)}. ` +
-            `Diagram source:<pre class="dia-src">${esc(DIAGRAM_SRC)}</pre></div>`
+        }
+        await renderAllDiagrams()
+      }
+
+      // ── click wiring + current-state highlight (post-render — mermaid's own
+      // `click` callbacks are disabled by securityLevel:"strict") ──────────
+      // A rendered node group's `id` is `${renderId}-flowchart-${ourNodeId}-<n>`
+      // (verified against mermaid@11's actual output) — strip that wrapper to
+      // recover the id we generated the diagram with.
+      function nodeIdOf(el, renderId) {
+        const prefix = renderId + "-flowchart-"
+        if (!el.id || !el.id.startsWith(prefix)) return null
+        const m = /^(.+)-\d+$/.exec(el.id.slice(prefix.length))
+        return m ? m[1] : null
+      }
+      const nodeGroupsOf = (host) => [...host.querySelectorAll("g.node")]
+
+      function scrollToSubmachine(i) {
+        const el = document.getElementById("sm-" + i)
+        if (!el) return
+        el.open = true
+        el.scrollIntoView({ behavior: "smooth", block: "start" })
+      }
+      function navigateTo(name) {
+        const s = byName[name]
+        if (s && s.group) {
+          const gi = groupIndexOf(s.group)
+          if (gi >= 0) return scrollToSubmachine(gi)
+        }
+        openDrawer(name)
+      }
+
+      function applyCurrentHighlight(renderId, host, mode, gi) {
+        if (!CURRENT || !CURRENT.state) return
+        const wantId =
+          mode === "main"
+            ? CURRENT.group
+              ? groupBoxId(groupIndexOf(CURRENT.group))
+              : idFor(CURRENT.state)
+            : CURRENT.group === MODEL.groups[gi].name
+              ? idFor(CURRENT.state)
+              : null
+        if (wantId === null) return
+        nodeGroupsOf(host).forEach((el) => {
+          if (nodeIdOf(el, renderId) === wantId) el.classList.add("gtd-current")
+        })
+      }
+
+      // Re-applies the current-state highlight to every already-rendered
+      // diagram, without re-running mermaid — used by the poll loop below.
+      function repaintHighlights() {
+        for (const d of diagrams) {
+          nodeGroupsOf(d.host).forEach((el) => el.classList.remove("gtd-current"))
+          if (d.lastRenderId && d.highlight) {
+            applyCurrentHighlight(d.lastRenderId, d.host, d.highlight.mode, d.highlight.gi)
+          }
         }
       }
-      renderDiagram()
 
-      // ── sub-machines panel ──────────────────────────────────────────────
+      function wireMainDiagramClicks(renderId, host) {
+        nodeGroupsOf(host).forEach((el) => {
+          const rawId = nodeIdOf(el, renderId)
+          if (!rawId) return
+          el.classList.add("clickable")
+          el.style.cursor = "pointer"
+          if (rawId[0] === "g") {
+            el.onclick = () => scrollToSubmachine(Number(rawId.slice(1)))
+          } else {
+            const name = idFor.nameOf(rawId)
+            if (name) el.onclick = () => openDrawer(name)
+          }
+        })
+        applyCurrentHighlight(renderId, host, "main")
+        attachPanZoom(host)
+      }
+
+      function wireSubmachineDiagramClicks(renderId, host, gi) {
+        nodeGroupsOf(host).forEach((el) => {
+          const rawId = nodeIdOf(el, renderId)
+          if (!rawId) return
+          el.classList.add("clickable")
+          el.style.cursor = "pointer"
+          if (rawId[0] === "g") {
+            el.onclick = () => scrollToSubmachine(Number(rawId.slice(1)))
+          } else if (rawId[0] === "e") {
+            const name = idFor.nameOf(rawId.slice(1))
+            if (name) el.onclick = () => navigateTo(name)
+          } else {
+            const name = idFor.nameOf(rawId)
+            if (name) el.onclick = () => openDrawer(name)
+          }
+        })
+        applyCurrentHighlight(renderId, host, "submachine", gi)
+        attachPanZoom(host)
+      }
+
+      // ── diagram pan & zoom (hand-rolled — no pan-zoom dependency, see plan) ──
+      // `host` is a `.dia-scroll` element whose content mermaid just replaced
+      // wholesale (`renderInto`'s `host.innerHTML = ...`), so old listeners on
+      // its previous children are already gone — this re-creates the control
+      // cluster and re-attaches fresh listeners on every render, never
+      // accumulating stale ones.
+      const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches
+      const clampScale = (s) => Math.min(3, Math.max(0.4, s))
+
+      function attachPanZoom(host) {
+        const flow = host.querySelector(".mflow")
+        const svg = flow && flow.querySelector("svg")
+        if (!flow || !svg) return
+
+        const controls = document.createElement("div")
+        controls.className = "pz-controls"
+        controls.innerHTML =
+          `<button class="pz-btn" data-act="in" title="Zoom in" aria-label="Zoom in">+</button>` +
+          `<button class="pz-btn" data-act="out" title="Zoom out" aria-label="Zoom out">−</button>` +
+          `<button class="pz-btn" data-act="fit" title="Fit to width" aria-label="Fit to width">⤢</button>`
+        host.appendChild(controls)
+
+        const box = svg.getBBox ? svg.getBBox() : { width: 0, height: 0 }
+        const naturalWidth = box.width || svg.clientWidth || 1
+        const naturalHeight = box.height || svg.clientHeight || 1
+
+        const state = { scale: 1, tx: 0, ty: 0 }
+        const apply = () => {
+          flow.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`
+        }
+        // Fit-to-width, capped at 1× so a small workflow renders at its
+        // natural size (the pre-pan/zoom default) instead of being blown up.
+        const fit = () => {
+          const r = host.getBoundingClientRect()
+          state.scale = clampScale(Math.min(1, Math.max(r.width - 32, 40) / naturalWidth))
+          state.tx = (r.width - naturalWidth * state.scale) / 2
+          state.ty = (r.height - naturalHeight * state.scale) / 2
+          apply()
+        }
+        const zoomBy = (factor, cx, cy) => {
+          const r = host.getBoundingClientRect()
+          const px = cx == null ? r.width / 2 : cx
+          const py = cy == null ? r.height / 2 : cy
+          const next = clampScale(state.scale * factor)
+          const ratio = next / state.scale
+          state.tx = px - (px - state.tx) * ratio
+          state.ty = py - (py - state.ty) * ratio
+          state.scale = next
+          apply()
+        }
+        // Animate only a button-triggered zoom/fit (an explicit, discrete
+        // action) — wheel/drag stay instant so the transform tracks the
+        // cursor/finger with no lag. Skipped entirely under
+        // prefers-reduced-motion.
+        const animated = (fn) => {
+          if (REDUCED_MOTION) return fn()
+          flow.style.transition = "transform 0.18s ease"
+          fn()
+          flow.addEventListener("transitionend", () => (flow.style.transition = ""), {
+            once: true,
+          })
+        }
+        fit()
+
+        host.addEventListener(
+          "wheel",
+          (e) => {
+            e.preventDefault()
+            flow.style.transition = "none"
+            const r = host.getBoundingClientRect()
+            zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top)
+          },
+          { passive: false },
+        )
+
+        // Drag-to-pan: a small movement threshold before a pointerdown counts
+        // as a drag (rather than a click), and — once it does — the resulting
+        // synthetic `click` is swallowed so dragging over a node never opens
+        // its drawer. Pointer capture is deferred until that threshold is
+        // actually crossed: a captured pointer retargets its WHOLE mouse-event
+        // sequence (including the eventual `click`) to `host`, so capturing
+        // eagerly on every pointerdown would silently break a plain click on
+        // any node (or the zoom/fit buttons) — not just an actual drag.
+        let drag = null
+        host.addEventListener("pointerdown", (e) => {
+          if (e.button !== 0 || e.target.closest(".pz-controls")) return
+          drag = { x: e.clientX, y: e.clientY, tx: state.tx, ty: state.ty, moved: false }
+          flow.style.transition = "none"
+        })
+        host.addEventListener("pointermove", (e) => {
+          if (!drag) return
+          const dx = e.clientX - drag.x
+          const dy = e.clientY - drag.y
+          if (!drag.moved && Math.hypot(dx, dy) > 4) {
+            drag.moved = true
+            host.classList.add("pz-dragging")
+            host.setPointerCapture(e.pointerId)
+          }
+          if (drag.moved) {
+            state.tx = drag.tx + dx
+            state.ty = drag.ty + dy
+            apply()
+          }
+        })
+        const endDrag = () => {
+          if (!drag) return
+          if (drag.moved) {
+            host.classList.remove("pz-dragging")
+            host.addEventListener(
+              "click",
+              (ev) => {
+                ev.stopPropagation()
+                ev.preventDefault()
+              },
+              { capture: true, once: true },
+            )
+          }
+          drag = null
+        }
+        host.addEventListener("pointerup", endDrag)
+        host.addEventListener("pointercancel", endDrag)
+
+        controls.querySelector('[data-act="in"]').onclick = (e) => {
+          e.stopPropagation()
+          animated(() => zoomBy(1.25))
+        }
+        controls.querySelector('[data-act="out"]').onclick = (e) => {
+          e.stopPropagation()
+          animated(() => zoomBy(1 / 1.25))
+        }
+        controls.querySelector('[data-act="fit"]').onclick = (e) => {
+          e.stopPropagation()
+          animated(fit)
+        }
+
+        // Exposed so a collapsed sub-machine `<details>` panel can re-fit once
+        // it's actually opened (its content renders at zero width while hidden).
+        host.__pz = { fit, zoomBy }
+      }
+
+      // ── main flow ────────────────────────────────────────────────────────
+      registerDiagram(
+        document.getElementById("diaScroll"),
+        () => buildFlowSrc(STATES, {}),
+        "gtdmain",
+        wireMainDiagramClicks,
+        { mode: "main" },
+      )
+
+      // ── sub-machines panel — one real mermaid diagram per invocation ─────
       ;(function renderSubmachines() {
         const el = document.getElementById("smSection")
         const groups = MODEL.groups || []
@@ -1281,27 +1908,35 @@
           el.innerHTML = `<p class="muted-note">This workflow declares no sub-machines.</p>`
           return
         }
-        const grid = document.createElement("div")
-        grid.className = "sm-grid"
-        groups.forEach((g) => {
-          const card = document.createElement("div")
-          card.className = "sm-def"
-          const chips = (g.states || [])
-            .map((n) => {
-              const s = byName[n]
-              const a = s ? actorOf(s) : "unknown"
-              return `<button class="goto" data-actor="${a}" data-to="${esc(n)}">${esc(n)}</button>`
-            })
-            .join("")
-          card.innerHTML =
-            `<div class="h"><span class="nm">${esc(g.name)}</span>` +
-            `<span class="pm">instantiates <b>${esc(g.submachine)}</b> · ${(g.states || []).length} states</span></div>` +
-            `<div class="body">${chips}</div>`
-          grid.appendChild(card)
-        })
         el.innerHTML = ""
-        el.appendChild(grid)
-        el.querySelectorAll(".goto").forEach((b) => (b.onclick = () => openDrawer(b.dataset.to)))
+        groups.forEach((g, i) => {
+          const card = document.createElement("details")
+          card.className = "dia-card sm-card"
+          card.id = "sm-" + i
+          card.style.marginBottom = "16px"
+          if (CURRENT && CURRENT.group === g.name) card.open = true
+          card.innerHTML =
+            `<summary class="h"><span class="nm">${esc(g.name)} · instantiates <b>${esc(g.submachine)}</b></span></summary>` +
+            `<div class="dia-scroll" id="smDia${i}"><div class="dia-msg">Rendering diagram…</div></div>`
+          el.appendChild(card)
+
+          const members = (g.states || []).map((n) => byName[n]).filter(Boolean)
+          registerDiagram(
+            card.querySelector(`#smDia${i}`),
+            () => buildFlowSrc(members, { scope: g.name }),
+            "gtdsm" + i + "-",
+            (renderId, host) => wireSubmachineDiagramClicks(renderId, host, i),
+            { mode: "submachine", gi: i },
+          )
+          // A collapsed <details> renders its content at zero width, so the
+          // pan/zoom "fit" computed while hidden is wrong — recompute it once
+          // the panel is actually opened.
+          card.addEventListener("toggle", () => {
+            if (!card.open) return
+            const host = card.querySelector(`#smDia${i}`)
+            if (host && host.__pz) host.__pz.fit()
+          })
+        })
       })()
 
       // ── vars ─────────────────────────────────────────────────────────────
@@ -1309,15 +1944,92 @@
         const vars = MODEL.vars || {}
         const keys = Object.keys(vars)
         if (!keys.length) return
-        const el = document.getElementById("smSection")
-        const box = document.createElement("div")
-        box.innerHTML =
-          `<div class="sec-head" style="margin-top:34px"><h2>Workflow variables</h2><span class="rule"></span></div>` +
+        const el = document.getElementById("varsSection")
+        el.innerHTML =
+          `<div class="sec-head"><h2>Workflow variables</h2><span class="rule"></span></div>` +
           `<div class="vars-grid">${keys
             .map((k) => `<span class="var-chip"><b>${esc(k)}</b> = ${esc(vars[k])}</span>`)
             .join("")}</div>`
-        el.appendChild(box)
       })()
+
+      // ── current-state panel ─────────────────────────────────────────────
+      // Status-letter colour reuses existing actor tokens rather than adding new
+      // theme variables: A (added) reads as the check colour, M (modified) as
+      // the accent, D (deleted) as the engine/commit colour.
+      const PENDING_STATUS_COLOR = {
+        A: "var(--check-fg)",
+        M: "var(--accent)",
+        D: "var(--engine-fg)",
+      }
+      function pendingListHtml(pending) {
+        if (!pending || !pending.length) {
+          return `<p class="pending-clean">working tree clean</p>`
+        }
+        return (
+          `<div class="pending-list">` +
+          pending
+            .map(
+              (c) =>
+                `<div class="pc"><span class="st" style="color:${PENDING_STATUS_COLOR[c.status] || "var(--text-dim)"}">${esc(c.status)}</span><span class="path">${esc(c.path)}</span></div>`,
+            )
+            .join("") +
+          `</div>`
+        )
+      }
+      function renderCurrentPanel() {
+        const panel = document.getElementById("currentPanel")
+        if (!CURRENT || !CURRENT.state) {
+          panel.classList.add("hidden")
+          return
+        }
+        panel.classList.remove("hidden")
+        const a = CURRENT.actor
+        const edgeRow = (pattern, to, matched, retryOf) => {
+          const t = byName[to]
+          return (
+            `<div class="edge${matched ? " cur-matched" : ""}"><div class="er">` +
+            `<span class="pat">${retryOf ? "after " + esc(retryOf) + " tries" : "if " + esc(pattern)}</span>` +
+            `<span class="arr">→</span>` +
+            `<button class="goto" data-actor="${t ? actorOf(t) : "unknown"}" data-to="${esc(to)}">${esc(to)}</button>` +
+            `${matched ? '<span class="cur-tag">current match</span>' : ""}</div></div>`
+          )
+        }
+        const rows = (CURRENT.edges || []).map((e) => edgeRow(e.pattern, e.to, e.matched)).join("")
+        const retryRow = CURRENT.retry
+          ? edgeRow(null, CURRENT.retry.otherwise, false, CURRENT.retry.max)
+          : ""
+        panel.innerHTML =
+          `<div class="cur-head"><span class="cur-name">${esc(CURRENT.state)}</span>` +
+          `${pill(a)}<span class="kind">${esc(CURRENT.kind)}</span>` +
+          `${CURRENT.group ? `<span class="flow-tag">${esc(CURRENT.group)}</span>` : ""}</div>` +
+          `<div style="margin-top:14px">${pendingListHtml(CURRENT.pending)}</div>` +
+          `<div class="edges">${
+            rows || retryRow ? rows + retryRow : '<p class="none">No outgoing edges declared.</p>'
+          }</div>`
+        panel.querySelector(".cur-head").onclick = () => navigateTo(CURRENT.state)
+        panel.querySelectorAll(".goto").forEach((b) => (b.onclick = () => navigateTo(b.dataset.to)))
+      }
+      renderCurrentPanel()
+
+      reinitializeAndRenderAll()
+
+      // ── live current-state polling ──────────────────────────────────────
+      // Keeps the panel + diagram highlight in sync with an in-progress
+      // process without a manual page refresh. Skipped while the tab is
+      // hidden; becoming visible again triggers an immediate refresh. No
+      // in-flight guard — a slow tick just means the next one also awaits.
+      async function poll() {
+        if (document.hidden) return
+        const changed = await refreshCurrent()
+        if (changed) {
+          renderCurrentPanel()
+          repaintHighlights()
+        }
+      }
+      setInterval(poll, 3000)
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) poll()
+      })
 
       // ── kind chips + actor legend ──────────────────────────────────────
       const kindChipsEl = document.getElementById("kindChips")
@@ -1454,6 +2166,10 @@
           ])
         if (s.group) kv.push(["group", esc(s.group)])
 
+        const contentBlock = s.content
+          ? `<div class="field"><div class="k">content — ${esc(s.kind)}</div><pre class="dia-src state-content">${esc(s.content)}</pre></div>`
+          : ""
+
         const flags = s.flags || []
         const flagBlock = flags.length
           ? `<div class="field"><div class="k">flags & gates</div><div class="flag-list">${flags
@@ -1520,6 +2236,7 @@
           `<div class="field"><div class="k">definition</div><dl class="kv">${kv
             .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`)
             .join("")}</dl></div>` +
+          contentBlock +
           flagBlock +
           edgesBlock +
           retryOut +

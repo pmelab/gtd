@@ -1,7 +1,7 @@
 import { createRequire } from "node:module"
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
-import { Effect, Either, Option } from "effect"
+import { Effect, Either, Option, Runtime } from "effect"
 import { configPresentAt, ConfigService } from "./Config.js"
 import { renderInitScaffold } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
@@ -29,7 +29,12 @@ import {
   type RenderedRest,
   type ResolvedRest,
 } from "./Edge.js"
-import { closeReviewWindow, openReviewWindow, reviewBaseHash } from "./ReviewWindow.js"
+import {
+  closeReviewWindow,
+  openReviewWindow,
+  reviewBaseHash,
+  REVIEW_HEAD_REF,
+} from "./ReviewWindow.js"
 import {
   clearRetainedHistory,
   readRetainedHistory,
@@ -37,7 +42,14 @@ import {
   retainHistory,
 } from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
-import { buildVizModel, openInBrowser, startVizServer } from "./Visualize.js"
+import {
+  buildCurrentStateModel,
+  buildVizModel,
+  openInBrowser,
+  startVizServer,
+  type CurrentStateModel,
+  type VizModel,
+} from "./Visualize.js"
 import {
   formatAndValidateSteeringFile,
   resolveSteeringMode,
@@ -1421,18 +1433,43 @@ const parseVisualizeOptions = (rest: readonly string[]): VisualizeOptions | { er
 }
 
 /**
+ * Best-effort resolution of the currently-rested state for the viewer's
+ * `/state.json` route: prefers the review checkout window's saved head
+ * (`REVIEW_HEAD_REF`) over HEAD itself, since `gtd visualize` is dispatched
+ * BEFORE the review-window bracket and a request landing mid-window would
+ * otherwise read a HEAD that's been temporarily rewound (see
+ * `src/ReviewWindow.ts`). Any failure (not a repo, no commits, resolves to
+ * the initial state with no process underway) is swallowed to `null` — the
+ * browser just hides the panel.
+ */
+const computeCurrentState = (
+  model: VizModel,
+): Effect.Effect<CurrentStateModel, Error, GitService | ConfigService> =>
+  Effect.gen(function* () {
+    const git: GitOperations = yield* GitService
+    const reviewHead = yield* git.readRefOption(REVIEW_HEAD_REF)
+    const currentRest = yield* resolveRest(Option.getOrUndefined(reviewHead))
+    const changes = yield* pendingChanges(git)
+    const group = model.states.find((s) => s.name === currentRest.state)?.group
+    return buildCurrentStateModel(currentRest, changes, group)
+  })
+
+/**
  * `gtd visualize`: serve an interactive diagram of the ACTIVE workflow on a
  * local HTTP server (see `src/Visualize.ts`). Dispatched early (like `lsp`/
  * `init`) — it reads the config but never touches git, HEAD, or the review
- * window — and parses its OWN options (`--port`, `--no-open`), since the global
- * unknown-option check does not know them. `--json` prints the model and exits
- * without starting a server (the testable path).
+ * window ITSELF (though its `/state.json` route best-effort reads git state
+ * per request, see `computeCurrentState`) — and parses its OWN options
+ * (`--port`, `--no-open`), since the global unknown-option check does not
+ * know them. `--json` prints the model and exits without starting a server
+ * (the testable path; live state is a server-only concern, so `--json`'s
+ * shape is unchanged).
  */
 const runVisualizeCommand = (
   argv: readonly string[],
   json: boolean,
   write: (chunk: string) => void,
-): Effect.Effect<void, Error, ConfigService> =>
+): Effect.Effect<void, Error, GitService | ConfigService> =>
   Effect.gen(function* () {
     const tokens = argv.slice(2)
     const subIdx = tokens.indexOf("visualize")
@@ -1451,8 +1488,14 @@ const runVisualizeCommand = (
       return
     }
 
+    const runtime = yield* Effect.runtime<GitService | ConfigService>()
+    const resolveCurrent = () =>
+      Runtime.runPromise(runtime)(computeCurrentState(model).pipe(Effect.either)).then(
+        Either.getOrNull,
+      )
+
     const { server, url } = yield* Effect.tryPromise({
-      try: () => startVizServer(model, opts.port),
+      try: () => startVizServer(model, opts.port, "127.0.0.1", resolveCurrent),
       catch: (e) =>
         new Error(
           `gtd visualize: could not start server: ${e instanceof Error ? e.message : String(e)}`,

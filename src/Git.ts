@@ -13,7 +13,8 @@ export interface GitReaderOperations {
    * with `!` re-includes that exact path even when a directory entry excludes it.
    */
   readonly diffHead: (exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
-  readonly lastCommitSubject: () => Effect.Effect<string, Error>
+  /** The subject of `ref`'s commit (`ref` defaults to `HEAD`). */
+  readonly lastCommitSubject: (ref?: string) => Effect.Effect<string, Error>
   /** `git log -1 --pretty=%B` — the full commit message (subject + body) of HEAD. Mirrors `lastCommitSubject`'s `--pretty=%s`, but keeps the body — needed to read back a `Gtd-History:` trailer (see `RetainedHistory.ts`'s `parseHistoryTrailer`). */
   readonly lastCommitMessage: () => Effect.Effect<string, Error>
   readonly hasCommits: () => Effect.Effect<boolean, Error>
@@ -314,8 +315,8 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         return renderDiff(files)
       }),
 
-    lastCommitSubject: () =>
-      exec("git", "log", "-1", "--pretty=%s").pipe(Effect.map((s) => s.trim())),
+    lastCommitSubject: (ref = "HEAD") =>
+      exec("git", "log", "-1", "--pretty=%s", ref).pipe(Effect.map((s) => s.trim())),
 
     lastCommitMessage: () =>
       exec("git", "log", "-1", "--pretty=%B").pipe(Effect.map((s) => s.trim())),
