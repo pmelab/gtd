@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest"
 import { compileWorkflowConfig } from "./PatternConfig.js"
-import { buildVizModel, handleVizRequest } from "./Visualize.js"
+import {
+  buildCurrentStateModel,
+  buildVizModel,
+  handleVizRequest,
+  startVizServer,
+  type CurrentStateModel,
+} from "./Visualize.js"
+import type { ResolvedRest } from "./Edge.js"
+import type { PendingChange } from "./PatternMachine.js"
 
 // A small workflow authored with a sub-machine, so we exercise both the
 // compiled (flat) states AND the raw sub-machine grouping.
@@ -68,6 +76,13 @@ describe("buildVizModel", () => {
     expect(planning.on).toEqual([{ pattern: "* **", to: "done" }])
   })
 
+  it("carries a prompt/message/script state's raw content, omits it for a commit state", () => {
+    expect(stateNamed("planning").content).toBe("plan")
+    expect(stateNamed("idle").content).toBe("idle")
+    expect(stateNamed("start-check").content).toBe("run")
+    expect(stateNamed("done").content).toBeUndefined()
+  })
+
   it("groups states by their sub-machine invocation (using its `name`)", () => {
     expect(model.groups).toContainEqual({
       name: "start",
@@ -103,6 +118,53 @@ describe("buildVizModel", () => {
   })
 })
 
+describe("buildCurrentStateModel", () => {
+  const definition = compileWorkflowConfig(raw, "/dir").definition
+  const restAt = (state: string): ResolvedRest => ({
+    def: definition,
+    state,
+    stateDef: definition.states[state]!,
+    actor: definition.states[state]!.actor!,
+  })
+
+  it("flags the on-edge that matches the pending changes", () => {
+    const changes: PendingChange[] = [{ status: "A", path: ".gtd/FEEDBACK.md" }]
+    const model = buildCurrentStateModel(restAt("start-check"), changes)
+    expect(model).toMatchObject({ state: "start-check", actor: "check", kind: "script" })
+    expect(model.edges).toEqual([
+      { pattern: "A .gtd/FEEDBACK.md", to: "start-blocked", matched: true },
+      { pattern: "C", to: "planning", matched: false },
+    ])
+  })
+
+  it("flags the clean-tree edge when there are no pending changes", () => {
+    const model = buildCurrentStateModel(restAt("start-check"), [])
+    expect(model.edges).toEqual([
+      { pattern: "A .gtd/FEEDBACK.md", to: "start-blocked", matched: false },
+      { pattern: "C", to: "planning", matched: true },
+    ])
+  })
+
+  it("carries the group when given one, omits it otherwise", () => {
+    expect(buildCurrentStateModel(restAt("start-check"), [], "start").group).toBe("start")
+    expect(buildCurrentStateModel(restAt("start-check"), []).group).toBeUndefined()
+  })
+
+  it("passes retry through verbatim, omits it when unset", () => {
+    const withRetry: ResolvedRest = {
+      ...restAt("planning"),
+      stateDef: { ...definition.states.planning!, retry: { max: 3, otherwise: "idle" } },
+    }
+    expect(buildCurrentStateModel(withRetry, []).retry).toEqual({ max: 3, otherwise: "idle" })
+    expect(buildCurrentStateModel(restAt("planning"), []).retry).toBeUndefined()
+  })
+
+  it("passes pending changes through", () => {
+    const changes: PendingChange[] = [{ status: "A", path: ".gtd/FEEDBACK.md" }]
+    expect(buildCurrentStateModel(restAt("start-check"), changes).pending).toEqual(changes)
+  })
+})
+
 describe("handleVizRequest", () => {
   it("serves the page at / and the model at /workflow.json, 404 otherwise", () => {
     expect(handleVizRequest("/", model).status).toBe(200)
@@ -112,5 +174,42 @@ describe("handleVizRequest", () => {
     expect(json.contentType).toMatch(/application\/json/)
     expect(JSON.parse(json.body).initial).toBe("idle")
     expect(handleVizRequest("/nope", model).status).toBe(404)
+  })
+})
+
+describe("startVizServer's /state.json route", () => {
+  it("serves the resolver's current-state JSON, and {} when it resolves null", async () => {
+    const current: CurrentStateModel = {
+      state: "planning",
+      actor: "agent",
+      kind: "prompt",
+      edges: [{ pattern: "* **", to: "done", matched: true }],
+      pending: [],
+    }
+    let resolved: CurrentStateModel | null = current
+    const { server, url } = await startVizServer(model, 0, "127.0.0.1", () =>
+      Promise.resolve(resolved),
+    )
+    try {
+      const res = await fetch(`${url}/state.json`)
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual(current)
+
+      resolved = null
+      const res2 = await fetch(`${url}/state.json`)
+      expect(await res2.json()).toEqual({})
+    } finally {
+      server.close()
+    }
+  })
+
+  it("serves {} when no resolveCurrent is given at all", async () => {
+    const { server, url } = await startVizServer(model, 0)
+    try {
+      const res = await fetch(`${url}/state.json`)
+      expect(await res.json()).toEqual({})
+    } finally {
+      server.close()
+    }
   })
 })

@@ -40,6 +40,20 @@ Feature: gtd abandon — end the process underway without completing it
     Then it succeeds
     And stdout contains "State: idle"
 
+  Scenario: retains the abandoned tip on the retained-history ref
+    Given a file ".gtd/TODO.md" with:
+      """
+      Build a thing.
+      """
+    When I run gtd step human
+    Then it succeeds
+    When I run gtd step check
+    Then it succeeds
+    Given I mark the current commit as "tip"
+    When I run gtd with args "abandon"
+    Then it succeeds
+    And the git ref "refs/worktree/gtd/history" exists
+
   Scenario: a no-op success when no process is underway — nothing to abandon
     Given I record the commit count
     When I run gtd with args "abandon"

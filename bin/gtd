@@ -65,6 +65,29 @@ fi
 # resume-or-fresh flag are exported as $GTD_LOOP_MEMORY / $GTD_LOOP_SESSION_ID
 # / $GTD_LOOP_MEMORY_RESUME; the default adapter turns them into
 # `--resume`/`--session-id`. An adapter that ignores them keeps working.
+herdr_ok() { [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1; }
+
+herdr_report() {  # $1=state (working|blocked|idle)  $2=message
+  herdr_ok || return 0
+  herdr pane report-agent --source herdr:gtd --agent gtd \
+    --state "$1" --message "$2" "$HERDR_PANE_ID" >/dev/null 2>&1 || true
+}
+
+herdr_notify() {  # $1=title  $2=body
+  herdr_ok || return 0
+  herdr notification show "$1" --body "$2" --sound request >/dev/null 2>&1 || true
+}
+
+herdr_release() {  # hand the pane back to Herdr's normal detection
+  herdr_ok || return 0
+  herdr pane release-agent --source herdr:gtd --agent gtd "$HERDR_PANE_ID" >/dev/null 2>&1 || true
+}
+
+trap 'code=$?; if [ "$code" -ne 0 ]; then
+        herdr_report blocked "${GTD_LAST_LABEL:-stopped}: exited $code"
+        herdr_notify "gtd stopped — $(basename "$PWD")" "${GTD_LAST_LABEL:-loop} failed (exit $code)"
+      fi' EXIT
+
 prev_state=""
 prev_content=""
 # Where the last "prompt" turn's `memory` scope + session id are remembered
@@ -142,8 +165,16 @@ while true; do
   content="$(jq -r .content <<<"$next_json")"
   model="$(jq -r '.model // empty' <<<"$next_json")"
   memory="$(jq -r '.memory // empty' <<<"$next_json")"
+  label="$(jq -r '.label // .state' <<<"$next_json")"
+  GTD_LAST_LABEL="$label"
+
+  if [[ "$kind" != "message" ]]; then
+    herdr_report working "$label"
+  fi
 
   if [[ "$kind" == "message" ]]; then
+    herdr_report blocked "$label"
+    herdr_notify "gtd needs you — $(basename "$PWD")" "$label"
     echo "--- Your turn ($state) ---"
     run_gtd next
     exit 0
@@ -159,6 +190,8 @@ while true; do
     run_gtd step "$actor" >/dev/null
     head_after="$(git rev-parse HEAD 2>/dev/null || echo none)"
     if [[ "$head_before" == "$head_after" ]]; then
+      herdr_report idle "$label"
+      herdr_release
       echo "--- Settled ($state: check passed, nothing to do) ---"
       exit 0
     fi

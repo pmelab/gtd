@@ -31,6 +31,8 @@ const failingGitLayer = Layer.succeed(GitService, {
   hasCommits: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   lastCommitSubject: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
+  lastCommitMessage: () =>
+    Effect.fail(new Error("GitService must not be called for --version/--help")),
   resolveRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   readFileAtRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   readRefOption: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
@@ -50,6 +52,7 @@ const failingGitLayer = Layer.succeed(GitService, {
   updateRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   deleteRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   mixedResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  hardResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   restoreStagedFrom: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
   addIntentToAdd: () =>
@@ -493,6 +496,116 @@ describe("gtd fix — subcommand guards", () => {
     expect(output).toContain("committed: gtd(human): fix-check")
     expect(repo.commitHistory()).toHaveLength(before + 1)
     expect(repo.lastCommitSubject()).toBe("gtd(human): fix-check")
+  })
+})
+
+describe("gtd next --json / gtd status — label emission", () => {
+  // `label:` is a display-only state hint rendered/emitted exactly like
+  // `model:`/`memory:` (see src/Edge.ts's renderLabel) — pinned end-to-end in
+  // tests/integration/features/driver-json-status.feature for `model:`; these
+  // mirror that coverage for `label:` at the unit level using the same
+  // InMemRepo + inMemoryLayers precedent as the `gtd review`/`gtd fix` blocks
+  // above.
+
+  const workflowWithLabel = [
+    "workflow:",
+    "  states:",
+    "    idle:",
+    "      actor: human",
+    "      initial: true",
+    "      message: write NOTE.md to start a cycle",
+    "      on:",
+    '        "* **": working',
+    "    working:",
+    "      actor: agent",
+    "      label: planning",
+    "      prompt: do the work described in NOTE.md",
+    "      on:",
+    '        "* **": idle',
+    "",
+  ].join("\n")
+
+  const workflowWithoutLabel = [
+    "workflow:",
+    "  states:",
+    "    idle:",
+    "      actor: human",
+    "      initial: true",
+    "      message: write NOTE.md to start a cycle",
+    "      on:",
+    '        "* **": working',
+    "    working:",
+    "      actor: agent",
+    "      prompt: do the work described in NOTE.md",
+    "      on:",
+    '        "* **": idle',
+    "",
+  ].join("\n")
+
+  const seededRepoAt = (workflowYaml: string): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gitignore", "node_modules\n")
+    repo.writeFile("README.md", "# test project\n")
+    repo.writeFile(".gtdrc.yaml", workflowYaml)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix("gtd(human): working")
+    return repo
+  }
+
+  const runProgram = async (
+    repo: InMemRepo,
+    ...args: string[]
+  ): Promise<{ output: string; exit: Exit.Exit<void, Error> }> => {
+    let output = ""
+    const write = (chunk: string) => {
+      output += chunk
+    }
+    const argv = ["node", "gtd.js", ...args]
+    const exit = await Effect.runPromiseExit(
+      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+    )
+    return { output, exit }
+  }
+
+  it("gtd next --json carries the state's declared label hint", async () => {
+    const repo = seededRepoAt(workflowWithLabel)
+    const { output, exit } = await runProgram(repo, "next", "--json")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(parsed.label).toBe("planning")
+  })
+
+  it("gtd next --json omits label entirely when the state declares none", async () => {
+    const repo = seededRepoAt(workflowWithoutLabel)
+    const { output, exit } = await runProgram(repo, "next", "--json")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(parsed).not.toHaveProperty("label")
+  })
+
+  it("gtd status shows the state's declared label hint as a plain-text Label: line", async () => {
+    const repo = seededRepoAt(workflowWithLabel)
+    const { output, exit } = await runProgram(repo, "status")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(output).toContain("State: working")
+    expect(output).toContain("Label: planning")
+  })
+
+  it("gtd status --json carries the state's declared label hint", async () => {
+    const repo = seededRepoAt(workflowWithLabel)
+    const { output, exit } = await runProgram(repo, "status", "--json")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(parsed.label).toBe("planning")
+  })
+
+  it("gtd status --json omits label entirely when the state declares none", async () => {
+    const repo = seededRepoAt(workflowWithoutLabel)
+    const { output, exit } = await runProgram(repo, "status", "--json")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(parsed).not.toHaveProperty("label")
   })
 })
 

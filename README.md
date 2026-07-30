@@ -94,8 +94,18 @@ handful of commands drive it:
 - **`gtd abandon`** — end the process underway without completing it: rewind to
   the commit it started from, keeping everything it produced as uncommitted
   changes (nothing is discarded).
+- **`gtd restore`** — undo the last squash (or `gtd abandon`) by hard-resetting
+  HEAD back to its retained pre-squash tip, bringing the turn-by-turn history
+  back. Refuses on a dirty working tree, when there is nothing retained to
+  restore, or when HEAD has since moved past it with commits that would be lost.
 - **`gtd visualize`** — serve an interactive diagram of the active workflow on a
-  local web server (the main flow, its sub-machines, and per-state details).
+  local web server: the main flow (each sub-machine collapsed to one box, with
+  its own diagram below — pan/zoom with scroll, drag, or the corner controls),
+  per-state details including the state's own raw prompt/message/ script text,
+  and a "Current state" panel showing where the active process rests, its
+  pending changes, and which action leads where. The panel and diagram highlight
+  refresh live (~every 3s) while the page is open, so advancing the process
+  elsewhere shows up without a manual refresh.
 
 `gtd version` (or `gtd --version`/`-v`) prints the installed version and exits;
 `gtd help` (or `gtd --help`/`-h`) prints the command list. Both short-circuit
@@ -183,6 +193,15 @@ mode's `format:` and `validate:` are shell commands a workflow (or a project's
 checkers (see
 [Configuration](docs/configuration.md#modes--pluggable-steering-file-modes)).
 Both halves are enforced by `gtd validate` and the `gtd step` gate.
+
+Herdr integration: a workflow state can declare an optional `label:` — a
+human-readable display name surfaced in `gtd next --json`/`gtd status`. The
+reference `bin/gtd-loop` driver uses it to report its lifecycle
+(working/blocked/idle) to a [Herdr](https://herdr.dev) pane sidebar via the
+`herdr` CLI when running under Herdr (`HERDR_ENV=1`, a pane ID, and `herdr` on
+`$PATH`); outside Herdr this is a complete no-op. See
+[Driving the loop](docs/loop.md#herdr-integration-optional) for the full
+reporting contract.
 
 ## Documentation
 

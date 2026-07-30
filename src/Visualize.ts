@@ -2,25 +2,50 @@ import { createServer, type Server } from "node:http"
 import { spawn } from "node:child_process"
 import {
   contentKindOf,
+  contentOf,
   initialStateOf,
+  matchesPattern,
+  parsePattern,
   type OnEdge,
+  type PendingChange,
+  type RetryDef,
   type StateDef,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
 import { collectGroups } from "./Submachines.js"
+import type { ResolvedRest } from "./Edge.js"
 import visualizeHtml from "./visualize.html"
 
 /**
  * `gtd visualize` — the read-only workflow viewer (see `runVisualizeCommand` in
  * `src/program.ts`). It builds a plain JSON DESCRIPTION of the active workflow
  * (`VizModel`) and serves it, alongside a self-contained HTML page
- * (`src/visualize.html`, bundled as text), from a tiny local HTTP server. The
- * page fetches `/workflow.json` and renders the machine — a Mermaid flowchart
- * with one `subgraph` per sub-machine, plus a per-state inspector.
+ * (`src/visualize.html`, bundled as text), from a tiny local HTTP server.
+ * `visualize.html` fetches `/workflow.json` and draws the main flow with each
+ * sub-machine invocation collapsed into a single opaque black-box node — the
+ * "one box per invocation" diagram — plus a separate, real Mermaid diagram per
+ * sub-machine (its own member states, true shapes/colours, and a muted ghost
+ * node for any edge leaving the group) rendered below (each diagram supporting
+ * scroll/drag pan-zoom), and a per-state inspector whose drawer also shows the
+ * state's own raw `script`/`prompt`/`message` source (`VizState.content`,
+ * omitted for a commit state) — the text that actually instructs the actor,
+ * not just the state's shape.
+ *
+ * A third route, `/state.json`, serves best-effort CURRENT-STATE info: the
+ * `CurrentStateModel` built by `buildCurrentStateModel` — where the active
+ * process rests right now, which `on` edge would fire on its pending changes,
+ * its retry redirect, and the pending changes themselves. The browser fetches
+ * it ONCE at page load (no polling — a refresh re-reads) to render a "Current
+ * state" panel — including a readout of those pending changes, explaining
+ * which edge is about to fire and why — and highlight the resting node in
+ * both the main flow and its sub-machine diagram. This route is served by a
+ * caller-supplied `resolveCurrent` callback (`startVizServer`'s 4th argument)
+ * so this module stays git/Effect-free; `program.ts`'s `runVisualizeCommand`
+ * supplies one backed by `resolveRest`.
  *
  * Everything here is a plain function of its inputs — no Effect, no git — so the
- * model builder and the request handler unit-test directly; `program.ts` wires
- * the server into the Effect runtime.
+ * model builders and the request handler unit-test directly; `program.ts` wires
+ * the server (and its `resolveCurrent` callback) into the Effect runtime.
  */
 
 /** One `on` edge, flattened for the viewer. */
@@ -37,6 +62,8 @@ export interface VizState {
   readonly actor?: string
   /** `script` | `prompt` | `message` | `commit` | `unknown` (a malformed state). */
   readonly kind: string
+  /** The state's raw template source (script/prompt/message), verbatim — omitted for a commit state. */
+  readonly content?: string
   readonly initial?: boolean
   readonly model?: string
   readonly memory?: string
@@ -97,6 +124,7 @@ const toVizState = (
     name,
     actor: def.actor,
     kind: contentKindOf(def) ?? "unknown",
+    content: contentOf(def),
     initial: def.initial === true ? true : undefined,
     model: def.model,
     memory: def.memory,
@@ -155,6 +183,54 @@ export const buildVizModel = (
   }
 }
 
+/** One `on` edge from the currently-rested state, flagged with whether it's the one `gtd step` would fire right now. */
+export interface CurrentStateEdge {
+  readonly pattern: string
+  readonly to: string
+  readonly matched: boolean
+}
+
+/** Where the active process rests right now, for the viewer's "Current state" panel — resolved once at page load, never polled. */
+export interface CurrentStateModel {
+  readonly state: string
+  readonly actor: string
+  readonly kind: string
+  readonly group?: string
+  readonly edges: readonly CurrentStateEdge[]
+  readonly retry?: RetryDef
+  readonly pending: readonly PendingChange[]
+}
+
+/**
+ * Describe the currently-rested state for the viewer: its `on` edges each
+ * flagged with whether it's the one that would fire on the CURRENT pending
+ * changes (same first-match semantics `PatternMachine.step` decides a real
+ * step with), plus the retry redirect and pending changes verbatim. `group`
+ * is threaded in by the caller (already computed once by `buildVizModel`
+ * from the same workflow) rather than recomputed here.
+ */
+export const buildCurrentStateModel = (
+  rest: ResolvedRest,
+  changes: readonly PendingChange[],
+  group?: string,
+): CurrentStateModel => {
+  const onEdges = rest.stateDef.on ?? []
+  const matchedIndex = onEdges.findIndex(([patternStr]) => {
+    const parsed = parsePattern(patternStr)
+    return parsed !== undefined && matchesPattern(parsed, changes)
+  })
+  const edges = onEdges.map(([pattern, to], i) => ({ pattern, to, matched: i === matchedIndex }))
+  return stripUndefined({
+    state: rest.state,
+    actor: rest.actor,
+    kind: contentKindOf(rest.stateDef) ?? "unknown",
+    group,
+    edges,
+    retry: rest.stateDef.retry,
+    pending: changes,
+  }) as unknown as CurrentStateModel
+}
+
 /** A ready-to-send HTTP response for a viewer route. */
 export interface VizResponse {
   readonly status: number
@@ -183,15 +259,31 @@ export const handleVizRequest = (pathname: string, model: VizModel): VizResponse
  * Start the viewer's HTTP server, resolving once it is listening with the
  * chosen URL (a `port` of `0` picks a free port). Rejects if the port is in
  * use. The caller owns the returned `server` (closes it on shutdown).
+ *
+ * `resolveCurrent`, when given, backs an extra `/state.json` route serving
+ * where the active process rests right now (resolved fresh on every request
+ * — there's no polling on the browser side, just a single fetch at page
+ * load). It resolves to `null` when there's no active process to report
+ * (not a repo, no commits) — served as `{}`. This route is handled INLINE
+ * (not through `handleVizRequest`) because it's async and per-request, unlike
+ * the static routes `handleVizRequest` serves synchronously from a fixed model.
  */
 export const startVizServer = (
   model: VizModel,
   port: number,
   host = "127.0.0.1",
+  resolveCurrent?: () => Promise<CurrentStateModel | null>,
 ): Promise<{ server: Server; url: string }> =>
   new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
       const { pathname } = new URL(req.url ?? "/", "http://localhost")
+      if (pathname === "/state.json") {
+        Promise.resolve(resolveCurrent ? resolveCurrent() : null).then((current) => {
+          res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
+          res.end(JSON.stringify(current ?? {}))
+        })
+        return
+      }
       const { status, contentType, body } = handleVizRequest(pathname, model)
       res.writeHead(status, { "content-type": contentType })
       res.end(body)

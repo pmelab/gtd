@@ -1,9 +1,10 @@
-import { Given, When } from "quickpickle"
+import { Given, Then, When } from "quickpickle"
 import { execFile as execFileCb } from "node:child_process"
 import { promisify } from "node:util"
-import { writeFileSync, mkdtempSync, chmodSync } from "node:fs"
+import { writeFileSync, mkdtempSync, chmodSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 
 const execFile = promisify(execFileCb)
@@ -22,10 +23,37 @@ Given("a stub agent script that responds to prompts with:", (world: GtdWorld, sc
   world.stubAgentPath = scriptPath
 })
 
+// A fake `herdr` binary standing in for the real Herdr CLI — bin/gtd's
+// `herdr_ok` only fires its Herdr-reporting calls when `herdr` resolves on
+// PATH (alongside HERDR_ENV=1 + a non-empty HERDR_PANE_ID), so this step's
+// mere presence on world is what `gtdLoopEnv` uses to decide whether to
+// provision the Herdr environment at all. The stub logs every invocation's
+// arguments as one space-joined line (however bash's `"$@"` renders them) to
+// a log file, then exits 0, so scenarios can assert on the exact sequence of
+// calls gtd made without a real Herdr install.
+Given("a fake herdr binary", (world: GtdWorld) => {
+  const dir = mkdtempSync(join(tmpdir(), "gtd-loop-herdr-"))
+  const logPath = join(dir, "herdr.log")
+  const herdrPath = join(dir, "herdr")
+  writeFileSync(herdrPath, `#!/usr/bin/env bash\necho "$@" >> "${logPath}"\nexit 0\n`)
+  chmodSync(herdrPath, 0o755)
+  world.fakeHerdrDir = dir
+  world.fakeHerdrLogPath = logPath
+})
+
 function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env }
+  // bin/gtd self-locates its bundle, so no `gtd` PATH shim is needed; the
+  // fake herdr binary, however, must be discoverable on PATH for herdr_ok.
+  if (world.fakeHerdrDir) {
+    env["PATH"] = `${world.fakeHerdrDir}:${process.env["PATH"]}`
+  }
   if (world.stubAgentPath) {
     env["GTD_LOOP_AGENT_CMD"] = `bash "${world.stubAgentPath}"`
+  }
+  if (world.fakeHerdrDir) {
+    env["HERDR_ENV"] = "1"
+    env["HERDR_PANE_ID"] = "test-pane"
   }
   return env
 }
@@ -76,4 +104,29 @@ When("I run gtd loop {word}", async (world: GtdWorld, extraArg: string) => {
 // arguments — e.g. "status" via gtd, or "step human" via gtd.
 When("I run {string} via gtd", async (world: GtdWorld, args: string) => {
   await runBinGtd(world, args.split(" "))
+})
+
+// Asserts each non-empty docstring line appears as a substring of the fake
+// herdr log, IN ORDER — later lines must be found strictly after where the
+// previous one ended, so the check proves call sequence, not just presence.
+Then("the fake herdr log contains, in order:", (world: GtdWorld, block: string) => {
+  if (!world.fakeHerdrLogPath) {
+    throw new Error(
+      'no fake herdr binary was provisioned for this scenario — add "Given a fake herdr binary"',
+    )
+  }
+  const log = readFileSync(world.fakeHerdrLogPath, "utf-8")
+  const expectedLines = block
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  let cursor = 0
+  for (const line of expectedLines) {
+    const idx = log.indexOf(line, cursor)
+    assert.ok(
+      idx !== -1,
+      `Expected fake herdr log to contain "${line}" at or after position ${cursor}, in order.\nFull log:\n${log}`,
+    )
+    cursor = idx + line.length
+  }
 })

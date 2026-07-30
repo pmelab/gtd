@@ -106,6 +106,22 @@ export interface StateDef {
    */
   readonly memory?: string
   /**
+   * An OPAQUE, human-readable display NAME for the state — gtd never
+   * interprets this string, it only passes it through verbatim (`gtd next
+   * --json`/`gtd status --json`) so a driving loop or viewer can show
+   * something nicer than the raw state name. Unlike `memory`, there is no
+   * comparison semantics here — it is just a label. Unset means "show the
+   * raw state name" — that fallback lives in the CONSUMER (a driver/viewer),
+   * not in gtd itself, which simply omits the field. Rendered as an Eta
+   * template through the same `it.vars`-carrying context as
+   * `model`/`memory`/content (a plain string with no Eta tags passes through
+   * unchanged). Plays no role in engine decisions — `step` and
+   * `resolveState` never read it. Forbidden on a commit state (never at
+   * rest, emits nothing — see `validateDefinition`), same rule family as
+   * `model`/`memory`.
+   */
+  readonly label?: string
+  /**
    * Optional — THE steering file this state is about: the file a human/
    * editor should look at while the machine rests here. An Eta template
    * (rendered through the same `it.vars`-carrying context as content and
@@ -294,6 +310,10 @@ export const contentKindOf = (state: StateDef): ContentKind | undefined => {
 
 /** True when a state is a commit (final, squash) state. */
 export const isCommitState = (state: StateDef): boolean => state.commit !== undefined
+
+/** The raw template source a state's own content kind carries — `script`/`prompt`/`message`, or `undefined` for a commit state (never at rest, no template a viewer could show). */
+export const contentOf = (state: StateDef): string | undefined =>
+  state.script ?? state.prompt ?? state.message
 
 /** True when a rest at `state` should open the review checkout window (see `StateDef.reviewWindow`). Safe for an unknown state name (returns `false`). */
 export const isReviewWindowState = (def: WorkflowDefinition, state: StateName): boolean =>
@@ -809,6 +829,18 @@ const validateMemory = (name: string, state: StateDef): string[] => {
   return errors
 }
 
+/** `label`, when present, must be a non-empty string; forbidden on a commit state — same rule family as `model`/`memory` (`validateModel`/`validateMemory`): a commit state is never at rest and emits nothing for a driver/viewer to display a label for. */
+const validateLabel = (name: string, state: StateDef): string[] => {
+  const errors: string[] = []
+  if (state.label !== undefined && state.label === "") {
+    errors.push(`state "${name}": "label" must be a non-empty string`)
+  }
+  if (isCommitState(state) && state.label !== undefined) {
+    errors.push(`state "${name}": a commit state cannot declare "label"`)
+  }
+  return errors
+}
+
 /**
  * The `modes:` map itself: every declared mode must carry at least one of
  * `format`/`validate`, and neither may be blank (a whitespace-only shell
@@ -1088,6 +1120,7 @@ const validateState = (
     ...validateRetry(name, state, names),
     ...validateModel(name, state),
     ...validateMemory(name, state),
+    ...validateLabel(name, state),
     ...validateFile(name, state),
     ...validateMode(def, name, state),
     ...validateReviewWindow(name, state),
@@ -1111,7 +1144,9 @@ const validateState = (
  * non-negative integer; `model`, when present, is a non-empty string and is
  * never declared on a commit state; `memory`, when present, is a non-empty
  * string and is never declared on a commit state (same rule family as
- * `model`); `file`, when present, is a non-empty
+ * `model`); `label`, when present, is a non-empty string and is never
+ * declared on a commit state (same rule family as `model`); `file`, when
+ * present, is a non-empty
  * string and is never declared on a commit state; `mode`, when present, names
  * a mode the definition knows (a built-in or a `modes:` entry — see
  * `knownModes`), requires a sibling `file`, and is never declared on a commit

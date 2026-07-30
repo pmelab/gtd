@@ -37,6 +37,12 @@ Commands:
                    the commit the process started from, keeping everything it
                    produced as uncommitted changes. A no-op when no process is
                    underway
+  restore          Hard-reset HEAD back to the pre-squash tip retained by the
+                   last squash/abandon (refs/worktree/gtd/history), undoing a
+                   squash or bringing back an abandoned process's turns.
+                   Refuses on a dirty working tree, when there is no retained
+                   history, or when HEAD has advanced past the squash with
+                   commits that would be lost
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   status           Print the resolved rest's state/actor and which declared
@@ -306,6 +312,47 @@ hash HEAD now points at:
 
 The no-op reports `{"state": "idle", "abandoned": false}` and still exits 0.
 
+## `gtd restore [--json]`
+
+Undoes the last squash or `gtd abandon` by hard-resetting HEAD back to the
+pre-squash tip that either one retains, before acting, on the per-worktree
+`refs/worktree/gtd/history` ref
+([STATES.md §8](../STATES.md#8-the-squash-lifecycle)):
+
+```
+restored the retained history — HEAD is back at 1a2b3c4 ("gtd(agent): drafting
+→ working"), resting at "await-review". Resume with the loop, or `git reset`
+to any earlier turn to restart from there.
+```
+
+Refuses on a dirty working tree — commit, stash, or discard your changes first.
+Refuses when there is no retained history to restore (nothing has been squashed
+or abandoned yet, or a previous `restore` already consumed it). Refuses when
+HEAD has advanced past the retained tip with commits that would be discarded by
+resetting:
+
+```
+gtd restore: HEAD has advanced past the squash — restoring would discard
+commits built on top of it — HEAD 4d5e6f7 is ahead of the retained tip
+1a2b3c4.
+```
+
+Takes no positional argument (extra arguments are a usage error).
+
+`--json` emits `{state, restored, to, from}` — `state` is the resolved rest
+after the reset, `restored` always `true` (a refusal exits non-zero instead),
+`to` the full hash HEAD was reset to, and `from` the state the machine rested at
+before the reset:
+
+```json
+{
+  "state": "await-review",
+  "restored": true,
+  "to": "1a2b3c4…",
+  "from": "idle"
+}
+```
+
 ## `gtd next [--json]`
 
 Pure emitter of the resolved rest's rendered content — it **never mutates** the
@@ -507,9 +554,17 @@ cleanly.
 ## `gtd visualize [--port=<n>] [--no-open] [--json]`
 
 Serve an interactive diagram of the ACTIVE workflow on a local web server: the
-main flow as a graph (one box per sub-machine), and a click-through inspector
-with each state's actor, content kind, model/memory, steering file+mode, retry,
-flags, and outgoing/incoming edges. This is the replacement for the removed
+main flow as a graph (each sub-machine invocation collapsed into a single opaque
+black-box node — click it to jump to that sub-machine's own diagram, rendered
+separately below with its true member states/shapes/colours and a muted ghost
+node for any edge leaving the group; every diagram supports scroll-to-zoom,
+drag-to-pan, and a corner `+`/`−`/fit control cluster), a click-through
+inspector with each state's actor, content kind, its own raw
+prompt/message/script text, model/memory, steering file+mode, retry, flags, and
+outgoing/incoming edges, and — read ONCE at page load, never polled — a "Current
+state" panel showing where the active process rests, its pending changes, and
+which `on` pattern (or retry redirect) currently leads where, with the resting
+node highlighted in the diagrams. This is the replacement for the removed
 `gtd mermaid` — a live viewer instead of a static diagram dump.
 
 ```
@@ -517,25 +572,34 @@ $ gtd visualize
 gtd visualize running at http://127.0.0.1:53017 — Ctrl-C to stop
 ```
 
-The server serves two routes: `/` (the self-contained HTML page) and
-`/workflow.json` (the model the page renders). It runs until interrupted
+The server serves three routes: `/` (the self-contained HTML page),
+`/workflow.json` (the model the page renders), and `/state.json` (the current
+process's resting state, or `{}` when there isn't one — not a repo, no commits,
+or an older server; the browser tolerates either). It runs until interrupted
 (Ctrl-C), then closes cleanly. Options (orthogonal, `gtd visualize` only):
 
 - `--port=<n>` (or `--port <n>`) — serve on a specific port (0–65535); the
   default is a free ephemeral port, printed on start.
 - `--no-open` — do not open the default browser (the URL is always printed).
 - `--json` — print the workflow model to stdout and exit WITHOUT starting a
-  server. The model is `{ states, initial, groups, vars }`; each state carries
-  its `actor`/`kind`/`model`/`memory`/`file`/`mode`/`retry`/`flags`, its `on`
-  edges, its computed `incoming` edges, and its sub-machine `group`. `groups`
-  lists each sub-machine invocation and the concrete states it produced.
+  server (unchanged shape — live state is a server-only concern). The model is
+  `{ states, initial, groups, vars }`; each state carries its
+  `actor`/`kind`/`content`/`model`/`memory`/`file`/`mode`/`retry`/`flags`
+  (`content` is the state's own raw script/prompt/message text, omitted for a
+  commit state), its `on` edges, its computed `incoming` edges, and its
+  sub-machine `group`. `groups` lists each sub-machine invocation and the
+  concrete states it produced.
 
 Dispatched before the repository-root guard and the config-reading path's review
 window — it reads the active workflow (the built-in default when none is
-configured) but touches no git/HEAD/review-window state. The diagram is rendered
-with Mermaid loaded from a CDN, so the graph needs network access the first time
-a browser loads the page; the inspector works offline regardless. Rejects
-unknown options and unexpected positional arguments.
+configured) but touches no git/HEAD/review-window state ITSELF; the
+`/state.json` route best-effort reads git state per request instead (any failure
+— not a repo, no commits — serves `{}`), preferring the review checkout window's
+saved head over HEAD so a request landing mid-window still reports the state the
+process actually rests at. The diagram is rendered with Mermaid loaded from a
+CDN, so the graph needs network access the first time a browser loads the page;
+the inspector and current-state panel work offline regardless. Rejects unknown
+options and unexpected positional arguments.
 
 ## Error envelope
 

@@ -152,6 +152,16 @@ it is the green terminal signal.) Halt and escalate to the user with what you
 observed (state, content, and that it repeated) instead of retrying
 indefinitely.
 
+## Herdr reporting (optional, driver-side)
+
+A Herdr-aware driver MAY additionally report its lifecycle to a Herdr pane —
+`herdr pane report-agent --state working|blocked|idle` at the top of each
+iteration/gate/settle, and `herdr notification show` at a human gate or on
+abnormal exit (see `bin/gtd-loop` and `docs/loop.md`'s "Herdr integration"
+section for the exact mapping). This is purely additive: it never changes the
+dispatch contract above (`kind` → message/script/prompt), never gates a step,
+and is a complete no-op outside Herdr.
+
 ## Notes
 
 - `gtd step <actor>` performs AT MOST one transition (a single commit or squash)

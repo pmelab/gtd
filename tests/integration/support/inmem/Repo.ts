@@ -137,10 +137,17 @@ export class InMemRepo {
     return this.branches.get(ref) ?? null
   }
 
-  lastCommitSubject(): string | null {
-    const c = this.headCommit()
+  lastCommitSubject(ref = "HEAD"): string | null {
+    const hash = this.resolveRef(ref)
+    const c = hash !== null ? this.getCommit(hash) : null
     if (!c) return null
     return c.message.split("\n")[0] ?? null
+  }
+
+  lastCommitMessage(): string | null {
+    const c = this.headCommit()
+    if (!c) return null
+    return c.message
   }
 
   commitHistory(base?: string): Array<{
@@ -279,11 +286,11 @@ export class InMemRepo {
 
   /**
    * `git reset --hard <ref>` — move HEAD, the index, AND the worktree to
-   * `ref`'s commit. Test-SETUP only (no production `GitOperations`
-   * counterpart, unlike `softResetTo`/`mixedResetTo`): used by a scenario to
-   * simulate checking out a DIFFERENT point in history — e.g. to build two
-   * diverging tips off one shared base, so one of them is provably NOT an
-   * ancestor of the other (`gtd review <commitish>`'s ancestor guard).
+   * `ref`'s commit. Doubles as test-setup (a scenario simulating checking out
+   * a DIFFERENT point in history — e.g. to build two diverging tips off one
+   * shared base, so one of them is provably NOT an ancestor of the other,
+   * `gtd review <commitish>`'s ancestor guard) and as this repo's backing for
+   * the production `GitOperations.hardResetTo` (wired in `layers.ts`).
    */
   hardResetTo(ref: string): void {
     const hash = this.resolveRef(ref)

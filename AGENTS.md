@@ -159,11 +159,24 @@ a project plugs its own into a mode's `format:`).
   states with their edges/details, PLUS the sub-machine grouping via
   `Submachines.collectGroups` over `ConfigService`'s `rawWorkflow` — the only
   place the grouping survives `compileWorkflowConfig`'s flattening);
+  `buildCurrentStateModel` describes where the active process rests right now (a
+  `ResolvedRest` + pending changes → state/actor/kind/group, each `on` edge
+  flagged with whether it currently matches, plus the retry redirect) for the
+  browser's one-shot "Current state" panel/highlight — never polled.
   `handleVizRequest` routes `/` (the bundled `visualize.html` page, imported as
-  text) and `/workflow.json`; `startVizServer` runs the local HTTP server. Pure
-  functions of their inputs (no Effect/git); `program.ts`'s
-  `runVisualizeCommand` wires them into the runtime. Replaces the deleted
-  Mermaid emitter (see docs/upgrading.md).
+  text) and `/workflow.json`; `startVizServer` runs the local HTTP server and,
+  given a `resolveCurrent` callback, an async `/state.json` route backing the
+  current-state panel (`{}` when the callback is absent or resolves `null`).
+  Pure functions of their inputs (no Effect/git); `program.ts`'s
+  `runVisualizeCommand` wires them into the runtime, supplying `resolveCurrent`
+  from `resolveRest`/`pendingChanges` (best-effort — any failure resolves to
+  `null`), preferring the review checkout window's saved head
+  (`REVIEW_HEAD_REF`) over HEAD since this command reads state before the
+  review-window bracket. In the browser, `visualize.html` collapses each
+  sub-machine invocation into a single opaque black-box node in the main flow
+  and renders a separate, real Mermaid diagram per sub-machine below it (true
+  shapes/colours for its own states, a muted ghost node for any edge leaving the
+  group) — replaces the deleted Mermaid emitter (see docs/upgrading.md).
 - **`src/workflows/unified.yaml` + `templates.ts`** — the single bundled
   workflow template gtd runs as its BUILT-IN DEFAULT (`Config.ts` falls back to
   it when no `workflow:` is configured), plus `templates.ts`:

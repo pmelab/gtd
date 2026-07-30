@@ -6,6 +6,7 @@ import {
   executeDecision,
   pendingChanges,
   renderFile,
+  renderLabel,
   renderMemory,
   renderModel,
   resolveVars,
@@ -18,6 +19,7 @@ import {
   withReviewBaseTrailer,
   parseReviewBaseTrailer,
 } from "./Edge.js"
+import { withHistoryTrailer, parseHistoryTrailer } from "./RetainedHistory.js"
 import type { TemplateContext } from "./PatternTemplates.js"
 import type { StateDef, WorkflowDefinition } from "./PatternMachine.js"
 
@@ -38,6 +40,7 @@ const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
   diffHead: notImplemented("diffHead"),
   readFileAtRef: notImplemented("readFileAtRef"),
   lastCommitSubject: notImplemented("lastCommitSubject"),
+  lastCommitMessage: notImplemented("lastCommitMessage"),
   hasCommits: notImplemented("hasCommits"),
   diffRef: notImplemented("diffRef"),
   resolveRef: notImplemented("resolveRef"),
@@ -54,6 +57,7 @@ const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
   updateRef: notImplemented("updateRef"),
   deleteRef: notImplemented("deleteRef"),
   mixedResetTo: notImplemented("mixedResetTo"),
+  hardResetTo: notImplemented("hardResetTo"),
   restoreStagedFrom: notImplemented("restoreStagedFrom"),
   addIntentToAdd: notImplemented("addIntentToAdd"),
   ...overrides,
@@ -398,10 +402,28 @@ describe("executeDecision", () => {
   })
 
   it("a squash decision renders, soft-resets, commits as-is, and discards the rest", async () => {
-    const softResetTo = vi.fn(() => Effect.succeed(undefined))
-    const commitAsIs = vi.fn(() => Effect.succeed(undefined))
-    const discardPending = vi.fn(() => Effect.succeed(undefined))
-    const git = stubGit({ softResetTo, commitAsIs, discardPending })
+    const calls: string[] = []
+    const resolveRef = vi.fn(() => {
+      calls.push("resolveRef")
+      return Effect.succeed("tip-hash")
+    })
+    const updateRef = vi.fn(() => {
+      calls.push("updateRef")
+      return Effect.succeed(undefined)
+    })
+    const softResetTo = vi.fn(() => {
+      calls.push("softResetTo")
+      return Effect.succeed(undefined)
+    })
+    const commitAsIs = vi.fn(() => {
+      calls.push("commitAsIs")
+      return Effect.succeed(undefined)
+    })
+    const discardPending = vi.fn(() => {
+      calls.push("discardPending")
+      return Effect.succeed(undefined)
+    })
+    const git = stubGit({ resolveRef, updateRef, softResetTo, commitAsIs, discardPending })
     const outcome = await run(
       executeDecision(
         git,
@@ -418,8 +440,11 @@ describe("executeDecision", () => {
     )
     expect(outcome).toEqual({ kind: "squash", subject: "feat: done" })
     expect(softResetTo).toHaveBeenCalledWith("parent-hash")
-    expect(commitAsIs).toHaveBeenCalledWith("feat: done")
+    expect(commitAsIs).toHaveBeenCalledWith("feat: done\n\nGtd-History: tip-hash")
     expect(discardPending).toHaveBeenCalledOnce()
+    // The retention write (via `updateRef`) happens before the soft reset rewrites HEAD.
+    expect(calls.indexOf("updateRef")).toBeGreaterThanOrEqual(0)
+    expect(calls.indexOf("updateRef")).toBeLessThan(calls.indexOf("softResetTo"))
   })
 
   it("a failed commit-template render refuses the step, touching nothing", async () => {
@@ -528,6 +553,25 @@ describe("parseReviewBaseTrailer", () => {
   it("is undefined when the message carries no such trailer", () => {
     expect(parseReviewBaseTrailer("gtd(human): reviewing")).toBeUndefined()
     expect(parseReviewBaseTrailer("chore: init\n\nGtd-Cost: 10")).toBeUndefined()
+  })
+})
+
+describe("withHistoryTrailer", () => {
+  it("appends a `Gtd-History:` trailer after a blank line, leaving the subject as the first line", () => {
+    const message = withHistoryTrailer("subject line", "abc123")
+    expect(message).toBe("subject line\n\nGtd-History: abc123")
+    expect(message.split("\n")[0]).toBe("subject line")
+  })
+})
+
+describe("parseHistoryTrailer", () => {
+  it("reads the hash back off a message carrying the trailer", () => {
+    expect(parseHistoryTrailer("subject line\n\nGtd-History: abc123")).toBe("abc123")
+  })
+
+  it("is undefined when the message carries no such trailer", () => {
+    expect(parseHistoryTrailer("subject line")).toBeUndefined()
+    expect(parseHistoryTrailer("chore: init\n\nGtd-Cost: 10")).toBeUndefined()
   })
 })
 
@@ -687,6 +731,39 @@ describe("renderMemory", () => {
     const outcome = await run1(
       renderMemory(stateDef("<%= it.vars.nope.deeper %>"), context()),
     ).then(
+      () => "resolved" as const,
+      (e: Error) => e,
+    )
+    expect(outcome).not.toBe("resolved")
+    expect(outcome).toBeInstanceOf(Error)
+  })
+})
+
+describe("renderLabel", () => {
+  const stateDef = (label?: string): StateDef =>
+    label !== undefined ? { actor: "agent", prompt: "x", label } : { actor: "agent", prompt: "x" }
+
+  const run1 = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
+
+  it("a state with no `label:` renders to `undefined`", async () => {
+    const result = await run1(renderLabel(stateDef(), context()))
+    expect(result).toBeUndefined()
+  })
+
+  it("a plain string with no Eta tags passes through unchanged", async () => {
+    const result = await run1(renderLabel(stateDef("planning"), context()))
+    expect(result).toBe("planning")
+  })
+
+  it("a templated `label:` resolves against the same `it.vars` the content sees", async () => {
+    const result = await run1(
+      renderLabel(stateDef("<%= it.vars.labelName %>"), context({ vars: { labelName: "review" } })),
+    )
+    expect(result).toBe("review")
+  })
+
+  it("a label render failure propagates as a thrown/rejected error, same as a content render failure", async () => {
+    const outcome = await run1(renderLabel(stateDef("<%= it.vars.nope.deeper %>"), context())).then(
       () => "resolved" as const,
       (e: Error) => e,
     )

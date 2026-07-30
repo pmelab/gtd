@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import fc from "fast-check"
 import {
   contentKindOf,
+  contentOf,
   initialStateOf,
   isCommitState,
   isReviewBaseState,
@@ -101,6 +102,22 @@ describe("contentKindOf", () => {
 
   it("is undefined when no content key is set", () => {
     expect(contentKindOf({})).toBeUndefined()
+  })
+})
+
+describe("contentOf", () => {
+  it("returns the raw content string for script/prompt/message", () => {
+    expect(contentOf({ script: "run tests" })).toBe("run tests")
+    expect(contentOf({ prompt: "do the thing" })).toBe("do the thing")
+    expect(contentOf({ message: "waiting" })).toBe("waiting")
+  })
+
+  it("is undefined for a commit state", () => {
+    expect(contentOf({ commit: "chore: done" })).toBeUndefined()
+  })
+
+  it("is undefined when no content key is set", () => {
+    expect(contentOf({})).toBeUndefined()
   })
 })
 
@@ -932,6 +949,50 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain('state "a": "memory" must be a non-empty string')
+    expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
+  })
+
+  it("accepts a state declaring a valid `label`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, label: "Doing the work", on: [] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects an empty-string `label`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, label: "", on: [] },
+      },
+    })
+    expect(errors).toContain('state "a": "label" must be a non-empty string')
+  })
+
+  it("rejects a commit state that declares a `label`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { commit: "chore: b", label: "Done" },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "label"')
+  })
+
+  it("aggregates a bad `label` alongside other unrelated findings", () => {
+    const errors = validateDefinition({
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          initial: true,
+          label: "",
+          on: [["* *", "ghost"]],
+        },
+      },
+    })
+    expect(errors).toContain('state "a": "label" must be a non-empty string')
     expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
   })
 
