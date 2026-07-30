@@ -9,6 +9,7 @@ import {
   renderLabel,
   renderMemory,
   renderModel,
+  renderOnEdges,
   resolveVars,
   costByModel,
   parseCostTrailers,
@@ -16,6 +17,7 @@ import {
   toTemplateEdges,
   UNATTRIBUTED_MODEL,
   withCostTrailer,
+  withRenderedOn,
   withReviewBaseTrailer,
   parseReviewBaseTrailer,
 } from "./Edge.js"
@@ -662,6 +664,69 @@ describe("toTemplateEdges — OnEdge tuples to the `{ pattern, target, describe?
   it("omits the describe key entirely (never `undefined`) when an edge carries none", () => {
     const [edge] = toTemplateEdges([["* **", "next"]])
     expect("describe" in edge!).toBe(false)
+  })
+})
+
+describe("renderOnEdges — `on` pattern keys rendered against `it.vars`", () => {
+  it("renders each pattern's Eta tags against the given vars, preserving target/order", () => {
+    const rendered = renderOnEdges(
+      [
+        ["A <%= it.vars.feedbackFile %>", "fixing"],
+        ["C", "building"],
+      ],
+      { feedbackFile: ".gtd/FEEDBACK.md" },
+    )
+    expect(rendered).toEqual([
+      ["A .gtd/FEEDBACK.md", "fixing"],
+      ["C", "building"],
+    ])
+  })
+
+  it("preserves an edge's `describe`", () => {
+    const rendered = renderOnEdges(
+      [["A <%= it.vars.feedbackFile %>", "fixing", "Feedback was left."]],
+      { feedbackFile: ".gtd/FEEDBACK.md" },
+    )
+    expect(rendered).toEqual([["A .gtd/FEEDBACK.md", "fixing", "Feedback was left."]])
+  })
+
+  it("returns an empty list for `undefined` (a commit state's `on`)", () => {
+    expect(renderOnEdges(undefined, {})).toEqual([])
+  })
+
+  it("a default var renders byte-identical to a literal path — no behavior change at default vars", () => {
+    const rendered = renderOnEdges([["A <%= it.vars.feedbackFile %>", "fixing"]], {
+      feedbackFile: ".gtd/FEEDBACK.md",
+    })
+    expect(rendered).toEqual([["A .gtd/FEEDBACK.md", "fixing"]])
+  })
+
+  it("throws whatever Eta throws for a malformed pattern template", () => {
+    expect(() => renderOnEdges([["A <%= it.vars.nope.deeper %>", "fixing"]], {})).toThrow()
+  })
+})
+
+describe("withRenderedOn — patches only the resting state's `on` for `step`", () => {
+  const def: WorkflowDefinition = {
+    states: {
+      idle: { actor: "human", message: "m", initial: true, on: [["A <%= it.vars.x %>", "idle"]] },
+      other: { actor: "human", message: "m", on: [["A <%= it.vars.y %>", "other"]] },
+    },
+  }
+
+  it("replaces the named state's `on` with the given rendered edges", () => {
+    const patched = withRenderedOn(def, "idle", [["A rendered", "idle"]])
+    expect(patched.states.idle!.on).toEqual([["A rendered", "idle"]])
+  })
+
+  it("leaves every other state's `on` untouched", () => {
+    const patched = withRenderedOn(def, "idle", [["A rendered", "idle"]])
+    expect(patched.states.other!.on).toEqual([["A <%= it.vars.y %>", "other"]])
+  })
+
+  it("leaves the rest of the definition (states map keys, modes, etc) untouched", () => {
+    const patched = withRenderedOn(def, "idle", [])
+    expect(Object.keys(patched.states)).toEqual(["idle", "other"])
   })
 })
 

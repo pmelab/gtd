@@ -107,20 +107,32 @@ changes.
 (a YAML mapping preserves key order); the first row whose pattern fires against
 the pending diff decides the target.
 
+**The pattern key is an Eta template, rendered against `it.vars` at the edge.**
+A workflow author may write `"A <%= it.vars.feedbackFile %>"` instead of a
+literal `.gtd/FEEDBACK.md` — `src/Edge.ts`'s `renderOnEdges` renders every `on`
+pattern's key against a vars-only context (`it.vars` alone — no diffs/commit
+hashes, since a pattern only ever needs to name a path) BEFORE handing the edges
+to the pure engine (`PatternMachine.step`/`matchesPattern`), which only ever
+sees plain, already-rendered strings and renders nothing itself. This is what
+lets repointing a `vars:` path (e.g. `feedbackFile`) reroute the machine along
+with every `file:`/content template that reads or writes that same path — before
+this, a repointed var desynced the two. A malformed pattern template refuses the
+step / errors the command, exactly like a content render failure.
+
 **Row value: a target, or a `{ to, describe }` object.** A row's value is
 normally just the target state name. It may instead be an object
 `{ to: <target>, describe: <sentence> }`, where `describe` is a human-readable
 sentence explaining what making that kind of change does next — e.g.
 `describe: "Change nothing to accept the current state and proceed."`. The
-`describe` is **inert to the engine** — it is not part of matching, not
-Eta-rendered (exactly like the pattern key itself), and never affects a
-decision. It exists only to be surfaced: a state's own edges are handed to that
-state's content template as `it.edges` (an array of
-`{ pattern, target, describe? }`), so a human gate's `message:` can render a
-"what each change does next" list straight from the routing it documents — one
-source of truth, no prose that can drift from the `on` map.
-`gtd next --json`/`gtd status --json` emit the same `edges` array (see §1). The
-`simple` template uses this at every human gate (see §10).
+`describe` is **inert to the engine** — it is not part of matching and never
+affects a decision — and, UNLIKE the pattern key, it is never Eta-rendered
+either; it is emitted verbatim. It exists only to be surfaced: a state's own
+edges are handed to that state's content template as `it.edges` (an array of
+`{ pattern, target, describe? }`, `pattern` already rendered), so a human gate's
+`message:` can render a "what each change does next" list straight from the
+routing it documents — one source of truth, no prose that can drift from the
+`on` map. `gtd next --json`/`gtd status --json` emit the same `edges` array (see
+§1). The `simple` template uses this at every human gate (see §10).
 
 > **Documented discrepancy:** an early design note called `"* *"` "the catch-all
 > for any dirty tree". Per the single-segment rule above that is only true when
@@ -701,13 +713,13 @@ from `it.edges` (§3), so it can never drift from the routing it describes.
 The template's `vars:` declares every steering-file path in one place
 (`todoFile`, `requirementsFile`, `architectureFile`, `packagesDir`, `nextFile`,
 `reviewFile`, `reviewFeedbackFile`, `feedbackFile`, `specFeedbackFile`,
-`commitMsgFile`), read by every `file:` and prompt/script as `<%~ it.vars.… %>`.
-**Known limitation:** `on` pattern keys are NOT Eta templates — they keep the
-LITERAL `.gtd/…` paths matching these vars' default values (see
-[Configuration](docs/configuration.md#filemode--the-steering-file-association)),
-so repointing a file var desyncs the machine. `gtd lsp` reads this same
-`file:`/`mode:` pair to dispatch document symbols/code actions/diagnostics,
-config-driven rather than hardcoded.
+`commitMsgFile`), read by every `file:` and prompt/script as `<%~ it.vars.… %>`
+— and by every `on` pattern key that names one of these paths, as
+`<%= it.vars.… %>` (§3), so repointing a var reroutes the machine along with
+every template that reads/writes the same path (see
+[Configuration](docs/configuration.md#filemode--the-steering-file-association)).
+`gtd lsp` reads this same `file:`/`mode:` pair to dispatch document symbols/
+code actions/diagnostics, config-driven rather than hardcoded.
 
 ## 11. The review checkout window
 

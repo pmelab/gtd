@@ -135,12 +135,12 @@ An `on` row's value is normally the target state name. It may instead be an
 object `{ to: <target>, describe: <sentence> }`, attaching a human-readable
 `describe` — a plain sentence explaining what making that kind of change does
 next. `describe` is **inert to the engine**: it plays no part in matching, is
-never Eta-rendered (exactly like the pattern key itself — see the "Known
-limitation" note below), and never affects a decision. It exists only to be
-surfaced. A state's own edges are handed to its content template as `it.edges`
-(an array of `{ pattern, target, describe? }`, in declaration order), so a human
-gate's `message:` can render a "what each change does next" list from the same
-routing the engine uses — one source of truth:
+never Eta-rendered — UNLIKE the pattern key itself, which IS an Eta template
+(see below) — and never affects a decision. It exists only to be surfaced. A
+state's own edges are handed to its content template as `it.edges` (an array of
+`{ pattern, target, describe? }`, `pattern` already rendered, in declaration
+order), so a human gate's `message:` can render a "what each change does next"
+list from the same routing the engine uses — one source of truth:
 
 ```yaml
 workflow:
@@ -173,6 +173,14 @@ skipped by the `if (e.describe)` guard. `gtd next --json` and
 `gtd status --json` also emit the `edges` array; both omit it when the state has
 no `on` (a commit state), and omit a per-edge `describe` when that edge declares
 none.
+
+**The pattern key (everything before the value) is an Eta template, rendered
+against `it.vars` alone** — the same vars-only slice `on` templates could ever
+need, since a pattern only ever names a path, never a diff or commit hash. A
+literal path (`"A .gtd/FEEDBACK.md": fix`) still works unchanged; naming a var
+instead (`"A <%= it.vars.feedbackFile %>": fix`) makes that row track a
+repointed `feedbackFile` the same way `file:` does — see
+["Variables"](#variables).
 
 ### `model:` — the opaque harness hint, template-rendered
 
@@ -343,14 +351,19 @@ the built-in names only.
 resolved state declares none — exactly like `model`. Plain `gtd status` prints
 `File:`/`Mode:` lines (right after `Model:`, when present) when set.
 
-**Known limitation — `on` pattern keys are NOT Eta templates.** A workflow's
-`on` patterns keep LITERAL `.gtd/…` paths, so repointing a filename var
-(`.gtdrc`'s top-level `vars:`, or a `GTD_VAR_` override) without ALSO overriding
-the workflow's `on` patterns desyncs the machine: `file:` (and any template
-reading/writing that path) follows the var, but the `on` map that decides what a
-change to that path MEANS keeps matching the old literal path. The vars are a
-DRY mechanism inside templates and the state↔file association, not a rename
-switch. (Making pattern keys var-aware at compile time is possible future work.)
+**`on` pattern keys are Eta templates too.** A workflow's `on` patterns may name
+a filename var the same way `file:`/content does — e.g.
+`"A <%= it.vars.feedbackFile %>": fix` instead of a literal
+`"A .gtd/FEEDBACK.md": fix`. The edge (`src/Edge.ts`'s `renderOnEdges`) renders
+every pattern's key against `it.vars` ALONE (no diffs/commit hashes — a pattern
+only ever needs to name a path) before handing the edges to the pure engine,
+which only ever matches plain, already-rendered strings. This is what lets a
+repointed filename var (`.gtdrc`'s top-level `vars:`, or a `GTD_VAR_` override)
+reroute the machine consistently: `file:` (and any template reading/ writing
+that path) and the `on` map that decides what a change to it MEANS both follow
+the same var. A pattern written with a literal `.gtd/…` path instead of the var
+still works exactly as before — only a workflow that templates its patterns
+benefits from the repoint.
 
 ### `modes:` — pluggable steering-file modes
 

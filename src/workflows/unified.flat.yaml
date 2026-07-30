@@ -71,10 +71,10 @@
 # (`adv-checking`/`adv-fixing`/`adv-escalate`) because its green edge targets
 # the per-package `spec-review` gate instead.
 #
-# KNOWN LIMITATION: `on` pattern keys are NOT Eta templates — they keep the
-# LITERAL `.gtd/...` paths matching these vars' DEFAULT values. Repointing a
-# file var changes what templates read/write WITHOUT changing what the `on`
-# patterns match, desyncing the machine (see docs/configuration.md).
+# Every `on` pattern's path below is written as the matching var's Eta
+# template (e.g. `"A <%= it.vars.feedbackFile %>"`), not a literal `.gtd/...`
+# path — repointing a var reroutes the machine along with every template that
+# reads/writes it (see docs/configuration.md).
 
 vars:
   testCommand: npm test
@@ -122,7 +122,7 @@ states:
       <%~ "- " + e.describe + "\n" %>
       <% } }) %>
     on:
-      "* .gtd/REQUIREMENTS.md":
+      "* <%= it.vars.requirementsFile %>":
         to: adv-start-check
         describe: >-
           Save the product requirements to `.gtd/REQUIREMENTS.md` to start the
@@ -169,9 +169,9 @@ states:
         rm -f "$feedback"
       fi
     on:
-      "A .gtd/FEEDBACK.md": start-blocked
-      "M .gtd/FEEDBACK.md": start-blocked
-      "D .gtd/FEEDBACK.md": planning
+      "A <%= it.vars.feedbackFile %>": start-blocked
+      "M <%= it.vars.feedbackFile %>": start-blocked
+      "D <%= it.vars.feedbackFile %>": planning
       "C": planning
 
   start-blocked:
@@ -307,9 +307,9 @@ states:
         rm -f "$feedback"
       fi
     on:
-      "A .gtd/FEEDBACK.md": adv-start-blocked
-      "M .gtd/FEEDBACK.md": adv-start-blocked
-      "D .gtd/FEEDBACK.md": adv-grilling
+      "A <%= it.vars.feedbackFile %>": adv-start-blocked
+      "M <%= it.vars.feedbackFile %>": adv-start-blocked
+      "D <%= it.vars.feedbackFile %>": adv-grilling
       "C": adv-grilling
 
   adv-start-blocked:
@@ -526,7 +526,7 @@ states:
       files are written, delete `<%= it.vars.architectureFile %>`. Leave
       everything uncommitted and finish your turn.
     on:
-      "* .gtd/packages/**": picking
+      "* <%= it.vars.packagesDir %>/**": picking
 
   picking:
     actor: check
@@ -552,8 +552,8 @@ states:
         rm -f "$nextFile"
       fi
     on:
-      "D .gtd/NEXT.md": reviewing
-      "* .gtd/NEXT.md": adv-building
+      "D <%= it.vars.nextFile %>": reviewing
+      "* <%= it.vars.nextFile %>": adv-building
       "C": reviewing
 
   adv-building:
@@ -610,9 +610,9 @@ states:
         rm -f "$feedback"
       fi
     on:
-      "A .gtd/FEEDBACK.md": adv-fixing
-      "M .gtd/FEEDBACK.md": adv-fixing
-      "D .gtd/FEEDBACK.md": spec-review
+      "A <%= it.vars.feedbackFile %>": adv-fixing
+      "M <%= it.vars.feedbackFile %>": adv-fixing
+      "D <%= it.vars.feedbackFile %>": spec-review
       "C": spec-review
 
   adv-fixing:
@@ -700,9 +700,9 @@ states:
       ```
       <% } %>
     on:
-      "A .gtd/SPEC_FEEDBACK.md": spec-fix
-      "M .gtd/SPEC_FEEDBACK.md": spec-fix
-      "D .gtd/SPEC_FEEDBACK.md": closing
+      "A <%= it.vars.specFeedbackFile %>": spec-fix
+      "M <%= it.vars.specFeedbackFile %>": spec-fix
+      "D <%= it.vars.specFeedbackFile %>": closing
       "C": closing
 
   spec-fix:
@@ -772,9 +772,9 @@ states:
         rm -f "$feedback"
       fi
     on:
-      "A .gtd/FEEDBACK.md": fixing
-      "M .gtd/FEEDBACK.md": fixing
-      "D .gtd/FEEDBACK.md": reviewing
+      "A <%= it.vars.feedbackFile %>": fixing
+      "M <%= it.vars.feedbackFile %>": fixing
+      "D <%= it.vars.feedbackFile %>": reviewing
       "C": reviewing
 
   fixing:
@@ -853,9 +853,9 @@ states:
         rm -f "$feedback"
       fi
     on:
-      "A .gtd/FEEDBACK.md": review-start-blocked
-      "M .gtd/FEEDBACK.md": review-start-blocked
-      "D .gtd/FEEDBACK.md": reviewing
+      "A <%= it.vars.feedbackFile %>": review-start-blocked
+      "M <%= it.vars.feedbackFile %>": review-start-blocked
+      "D <%= it.vars.feedbackFile %>": reviewing
       "C": reviewing
 
   review-start-blocked:
@@ -910,9 +910,9 @@ states:
         rm -f "$feedback"
       fi
     on:
-      "A .gtd/FEEDBACK.md": fixing
-      "M .gtd/FEEDBACK.md": fixing
-      "D .gtd/FEEDBACK.md": idle
+      "A <%= it.vars.feedbackFile %>": fixing
+      "M <%= it.vars.feedbackFile %>": fixing
+      "D <%= it.vars.feedbackFile %>": idle
       "C": idle
 
   # ── Shared tail: agent review -> human review -> squash finale ────────────
@@ -1068,9 +1068,9 @@ states:
       fi
       rm -f "$reviewFile"
     on:
-      "A .gtd/REVIEW_RAW.md": feedback-collecting
-      "M .gtd/REVIEW_RAW.md": feedback-collecting
-      "D .gtd/REVIEW.md": squashing
+      "A <%= it.vars.reviewRawFile %>": feedback-collecting
+      "M <%= it.vars.reviewRawFile %>": feedback-collecting
+      "D <%= it.vars.reviewFile %>": squashing
 
   feedback-collecting:
     actor: agent
@@ -1121,8 +1121,8 @@ states:
       Delete `<%= it.vars.reviewRawFile %>`, leave everything else uncommitted,
       and finish your turn.
     on:
-      "A .gtd/REVIEW_FEEDBACK.md": feedback-building
-      "M .gtd/REVIEW_FEEDBACK.md": feedback-building
+      "A <%= it.vars.reviewFeedbackFile %>": feedback-building
+      "M <%= it.vars.reviewFeedbackFile %>": feedback-building
 
   feedback-building:
     actor: agent
@@ -1204,8 +1204,8 @@ states:
       chore: human review
       <% } %>
     on:
-      "A .gtd/COMMIT_MSG.md": done
-      "M .gtd/COMMIT_MSG.md": done
+      "A <%= it.vars.commitMsgFile %>": done
+      "M <%= it.vars.commitMsgFile %>": done
 
   done:
     commit: |

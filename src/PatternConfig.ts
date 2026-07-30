@@ -34,9 +34,9 @@ import { expandSubmachines } from "./Submachines.js"
  *   <name>:
  *     actor: <string>    # forbidden on a commit state, required otherwise
  *     script: <string>   # exactly one of script/prompt/message/commit
- *     on:                # a mapping, DECLARATION ORDER PRESERVED
+ *     on:                # a mapping, DECLARATION ORDER PRESERVED — each <pattern> KEY is itself an Eta template, rendered against `it.vars` at the edge (src/Edge.ts's renderOnEdges) before the pure engine ever sees it
  *       "<pattern>": <targetState>                    # short form
- *       "<pattern>": { to: <targetState>, describe: <sentence> }  # with a human-readable route description
+ *       "<pattern>": { to: <targetState>, describe: <sentence> }  # with a human-readable route description (describe is NEVER Eta-rendered, unlike the pattern key)
  *     initial: true       # exactly one state across the whole workflow
  *     retry:
  *       max: <number>

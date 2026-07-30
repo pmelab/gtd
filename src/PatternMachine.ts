@@ -54,8 +54,13 @@ export interface RetryDef {
  * to share a pattern string.
  *
  * `describe` is INERT to the engine — `step`/`resolveState`/`matchesPattern`
- * never read it (it is not Eta-rendered either, exactly like the pattern key
- * itself; see STATES.md §3). It exists only to be emitted verbatim so the
+ * never read it, and it is NEVER Eta-rendered (see STATES.md §3). The pattern
+ * key itself is different: THIS module (the pure engine) only ever sees a
+ * plain string here too, but the edge (`src/Edge.ts`'s `renderOnEdges`)
+ * renders it as an Eta template against `it.vars` BEFORE handing it to
+ * `step`/`matchesPattern` — so a workflow author writes
+ * `"A <%= it.vars.feedbackFile %>"` and the engine still only ever matches a
+ * literal string. `describe` exists only to be emitted verbatim so the
  * driving loop / a `message:` template can present it to a human.
  */
 export type OnEdge = readonly [pattern: string, target: StateName, describe?: string]
@@ -488,7 +493,11 @@ const STATUSES = new Set(["A", "M", "D", "*"])
  * glob, is tolerated (trimmed); the glob itself is taken verbatim after that
  * (so a glob containing further spaces, e.g. a path with a literal space in
  * it, is preserved intact — only the FIRST space is the status/glob
- * separator).
+ * separator). Operates on the ALREADY-Eta-RENDERED pattern string — a
+ * workflow author may write `"A <%= it.vars.feedbackFile %>"` in `on:`, but
+ * by the time it reaches this parser (or `matchesPattern` below) the edge
+ * (`src/Edge.ts`'s `renderOnEdges`) has already substituted `it.vars`; this
+ * module never renders anything itself.
  */
 export const parsePattern = (raw: string): ParsedPattern | undefined => {
   const trimmed = raw.trim()
