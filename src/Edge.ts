@@ -16,6 +16,7 @@ import {
   type WorkflowDefinition,
 } from "./PatternMachine.js"
 import { renderStateTemplate, type TemplateContext, type TemplateEdge } from "./PatternTemplates.js"
+import { retainHistory, withHistoryTrailer } from "./RetainedHistory.js"
 
 /**
  * The v3 Effect edge (see `docs/design/pattern-machine-plan.md`, "Phase 3:
@@ -556,13 +557,15 @@ export type ExecutableDecision = Extract<StepDecision, { kind: "commit" | "squas
  * `Gtd-Cost: <cost>[ <model>]` trailer (the invocation's `--cost`/`--model`,
  * persisted in the git log); a `"squash"` decision renders the commit-state
  * template against the PENDING tree — a render failure REFUSES the step,
- * touching nothing — then soft-resets to the process's start parent, writes
- * ONE commit with the rendered message (via `commitAsIs`, so the
- * still-uncommitted template file is excluded), and discards everything left
- * pending (the template file included). A squash records no trailer of its own
- * — the whole-process total and per-model breakdown reach the message through
- * `it.processCost`/`it.processCostByModel` in the rendered template. A
- * `"noop"` performs no IO.
+ * touching nothing — then records the pre-squash tip on the retained-history
+ * ref (`retainHistory`, a no-op for an empty process) before soft-resetting to
+ * the process's start parent, writes ONE commit with the rendered message
+ * plus a `Gtd-History: <hash>` trailer pointing at that tip (via
+ * `withHistoryTrailer`/`commitAsIs`, so the still-uncommitted template file is
+ * excluded), and discards everything left pending (the template file
+ * included). The whole-process total and per-model breakdown reach the
+ * message through `it.processCost`/`it.processCostByModel` in the rendered
+ * template. A `"noop"` performs no IO.
  */
 export const executeDecision = (
   git: GitOperations,
@@ -588,8 +591,10 @@ export const executeDecision = (
               }`,
             ),
         })
+        const tip = yield* git.resolveRef("HEAD")
+        yield* retainHistory(git, tip, run.startParentHash)
         yield* git.softResetTo(run.startParentHash)
-        yield* git.commitAsIs(message)
+        yield* git.commitAsIs(withHistoryTrailer(message, tip))
         yield* git.discardPending()
         return { kind: "squash", subject: subjectOf(message) }
       }

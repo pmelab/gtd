@@ -1,7 +1,7 @@
 import { createRequire } from "node:module"
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
-import { Effect, Either } from "effect"
+import { Effect, Either, Option } from "effect"
 import { configPresentAt, ConfigService } from "./Config.js"
 import { renderInitScaffold } from "./workflows/templates.js"
 import { Cwd } from "./Cwd.js"
@@ -29,6 +29,12 @@ import {
   type ResolvedRest,
 } from "./Edge.js"
 import { closeReviewWindow, openReviewWindow, reviewBaseHash } from "./ReviewWindow.js"
+import {
+  clearRetainedHistory,
+  readRetainedHistory,
+  restorability,
+  retainHistory,
+} from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
 import { buildVizModel, openInBrowser, startVizServer } from "./Visualize.js"
 import {
@@ -88,6 +94,12 @@ Commands:
                    the commit the process started from, keeping everything it
                    produced as uncommitted changes. A no-op when no process is
                    underway
+  restore          Hard-reset HEAD back to the pre-squash tip retained by the
+                   last squash/abandon (refs/worktree/gtd/history), undoing a
+                   squash or bringing back an abandoned process's turns.
+                   Refuses on a dirty working tree, when there is no retained
+                   history, or when HEAD has advanced past the squash with
+                   commits that would be lost
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   status           Print the resolved rest's state/actor and which declared
@@ -696,6 +708,9 @@ const runAbandonCommand = (
       )
     }
 
+    const tip = yield* git.resolveRef("HEAD")
+    yield* retainHistory(git, tip, run.startParentHash)
+
     yield* git.mixedResetTo(run.startParentHash)
     const subject = yield* git.lastCommitSubject()
     if (json) {
@@ -713,6 +728,75 @@ const runAbandonCommand = (
           `${run.startParentHash.slice(0, 7)} ("${subject}"), resting at "${initial}".\n` +
           `Everything the process produced is kept as uncommitted changes (\`git status\`); ` +
           `discard them with \`git checkout -- . && git clean -fd .gtd\` for a clean tree.\n`,
+      )
+    }
+  })
+
+/**
+ * `gtd restore`: hard-reset HEAD back to the pre-squash tip a squash or
+ * `gtd abandon` retained (`RetainedHistory.ts`'s `HISTORY_REF`), undoing
+ * either. Unlike `gtd abandon` (which rewinds a process still underway),
+ * restore reaches BACK past a completed squash — or re-applies an abandon's
+ * own retained tip — to bring the turn-by-turn history back.
+ *
+ * Guarded by `restorability` so it never discards work it didn't create:
+ * refuses on a dirty working tree, when there is no retained history, and
+ * when HEAD has advanced past the retained tip with commits that would be
+ * lost by resetting.
+ */
+const runRestoreCommand = (
+  argv: readonly string[],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, ProgramRequirements> =>
+  Effect.gen(function* () {
+    yield* rejectExtraArgs("restore", argv)
+
+    const git = yield* GitService
+
+    const changes = yield* pendingChanges(git)
+    if (changes.length > 0) {
+      return yield* Effect.fail(
+        new Error(
+          "gtd restore: refuses on a dirty working tree — commit, stash, or discard your changes first.",
+        ),
+      )
+    }
+
+    const retained = yield* readRetainedHistory(git)
+    if (Option.isNone(retained)) {
+      return yield* Effect.fail(new Error("gtd restore: no retained history to restore."))
+    }
+    const tip = retained.value
+
+    const before = yield* resolveRest()
+    const headHash = yield* git.resolveRef("HEAD")
+    const headMessage = yield* git.lastCommitMessage()
+    const check = yield* restorability(git, headHash, headMessage, tip)
+    if (!check.ok) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd restore: ${check.reason} — HEAD ${headHash.slice(0, 7)} is ahead of the ` +
+            `retained tip ${tip.slice(0, 7)}.`,
+        ),
+      )
+    }
+
+    yield* git.hardResetTo(tip)
+    yield* clearRetainedHistory(git)
+
+    const after = yield* resolveRest()
+    const subject = yield* git.lastCommitSubject()
+
+    if (json) {
+      write(
+        JSON.stringify({ state: after.state, restored: true, to: tip, from: before.state }) + "\n",
+      )
+    } else {
+      write(
+        `restored the retained history — HEAD is back at ${tip.slice(0, 7)} ("${subject}"), ` +
+          `resting at "${after.state}". Resume with the loop, or \`git reset\` to any earlier ` +
+          `turn to restart from there.\n`,
       )
     }
   })
@@ -1376,6 +1460,7 @@ const KNOWN_SUBCOMMANDS = [
   "review",
   "fix",
   "abandon",
+  "restore",
   "next",
   "status",
   "validate",
@@ -1502,6 +1587,8 @@ const dispatchKnownSubcommand = (
       return runFixCommand(argv, json, write)
     case "abandon":
       return runAbandonCommand(argv, json, write)
+    case "restore":
+      return runRestoreCommand(argv, json, write)
     case "next":
       return runNextCommand(json, write)
     case "status":
