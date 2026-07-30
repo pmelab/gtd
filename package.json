@@ -4,8 +4,7 @@
   "private": false,
   "description": "Git-aware CLI that emits the next prompt for an autonomous coding agent based on the current repository state",
   "bin": {
-    "gtd": "dist/gtd.bundle.mjs",
-    "gtd-loop": "bin/gtd-loop"
+    "gtd": "bin/gtd"
   },
   "files": [
     "dist/",

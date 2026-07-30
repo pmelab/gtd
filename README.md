@@ -167,11 +167,11 @@ through two `vars` tiers — `plannerModel` (heavier planning and review) and
 place (a `vars:` edit or a `GTD_VAR_plannerModel` override) instead of per
 state.
 
-`gtd-loop`, installed alongside `gtd`, is a ready-to-run driver for the whole
-protocol — point it at a repo and it runs the loop until it's your turn. It is
-the only command you run: at a gate you edit files (answer a plan question, tick
-a review box, fix code) and re-launch it, and it captures your edit as its
-opening move before driving on — so you never run `gtd step human` by hand. See
+Bare `gtd` (or `gtd loop`) is a ready-to-run driver for the whole protocol —
+point it at a repo and it runs the loop until it's your turn. It is the only
+command you run: at a gate you edit files (answer a plan question, tick a review
+box, fix code) and re-launch it, and it captures your edit as its opening move
+before driving on — so you never run `gtd step human` by hand. See
 [Driving the loop](docs/loop.md).
 
 Before wiring gtd into a repo, note the
@@ -210,8 +210,8 @@ reporting contract.
   sub-machines, and the bundled workflow template
 - [CLI reference](docs/cli.md) — every command, exit codes, JSON schemas,
   repository requirements
-- [Driving the loop](docs/loop.md) — the reference loop driver, `gtd-loop`,
-  custom agents
+- [Driving the loop](docs/loop.md) — the reference loop driver,
+  `gtd`/`gtd loop`, custom agents
 - [Configuration](docs/configuration.md) — `gtd init`, the `.gtdrc` `workflow:`
   schema, lookup
 - [Upgrading](docs/upgrading.md) — breaking changes and migration

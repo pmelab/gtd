@@ -10,11 +10,10 @@ import type { GtdWorld } from "../world.js"
 const execFile = promisify(execFileCb)
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
-const GTD_BIN = join(PROJECT_ROOT, "dist/gtd.bundle.mjs")
-const GTD_LOOP_BIN = join(PROJECT_ROOT, "bin/gtd-loop")
+const GTD_BIN_PATH = join(PROJECT_ROOT, "bin/gtd")
 
 // The stub stands in for a real coding agent CLI: it reads $GTD_LOOP_PROMPT
-// (set by gtd-loop per turn) and reacts however the docstring says to, so the
+// (set by the loop per turn) and reacts however the docstring says to, so the
 // scenario text shows exactly what the "agent" does for each prompt it sees.
 Given("a stub agent script that responds to prompts with:", (world: GtdWorld, script: string) => {
   const dir = mkdtempSync(join(tmpdir(), "gtd-loop-stub-"))
@@ -24,25 +23,14 @@ Given("a stub agent script that responds to prompts with:", (world: GtdWorld, sc
   world.stubAgentPath = scriptPath
 })
 
-// A `gtd` shim on PATH — bin/gtd-loop calls bare `gtd`, exactly as it would
-// once installed, rather than the absolute dist path the @live tier's own
-// runGtdLive uses for `gtd` directly.
-function writeGtdShim(): string {
-  const shimDir = mkdtempSync(join(tmpdir(), "gtd-loop-path-"))
-  const gtdShim = join(shimDir, "gtd")
-  writeFileSync(gtdShim, `#!/usr/bin/env bash\nexec node "${GTD_BIN}" "$@"\n`)
-  chmodSync(gtdShim, 0o755)
-  return shimDir
-}
-
-// A fake `herdr` binary standing in for the real Herdr CLI — bin/gtd-loop's
+// A fake `herdr` binary standing in for the real Herdr CLI — bin/gtd's
 // `herdr_ok` only fires its Herdr-reporting calls when `herdr` resolves on
 // PATH (alongside HERDR_ENV=1 + a non-empty HERDR_PANE_ID), so this step's
 // mere presence on world is what `gtdLoopEnv` uses to decide whether to
 // provision the Herdr environment at all. The stub logs every invocation's
 // arguments as one space-joined line (however bash's `"$@"` renders them) to
 // a log file, then exits 0, so scenarios can assert on the exact sequence of
-// calls gtd-loop made without a real Herdr install.
+// calls gtd made without a real Herdr install.
 Given("a fake herdr binary", (world: GtdWorld) => {
   const dir = mkdtempSync(join(tmpdir(), "gtd-loop-herdr-"))
   const logPath = join(dir, "herdr.log")
@@ -54,11 +42,11 @@ Given("a fake herdr binary", (world: GtdWorld) => {
 })
 
 function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
-  const pathDirs = [writeGtdShim()]
-  if (world.fakeHerdrDir) pathDirs.push(world.fakeHerdrDir)
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    PATH: `${pathDirs.join(":")}:${process.env["PATH"]}`,
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  // bin/gtd self-locates its bundle, so no `gtd` PATH shim is needed; the
+  // fake herdr binary, however, must be discoverable on PATH for herdr_ok.
+  if (world.fakeHerdrDir) {
+    env["PATH"] = `${world.fakeHerdrDir}:${process.env["PATH"]}`
   }
   if (world.stubAgentPath) {
     env["GTD_LOOP_AGENT_CMD"] = `bash "${world.stubAgentPath}"`
@@ -76,12 +64,14 @@ function toFailedResult(err: unknown): { exitCode: number; stdout: string; stder
   return { exitCode, stdout: e.stdout ?? "", stderr: e.stderr ?? "" }
 }
 
-// Spawns the real bin/gtd-loop against the real built gtd.bundle.mjs, exactly
-// like the @live tier's runGtdLive does for `gtd` itself — gtd-loop is its own
-// process, so it can't go through the in-process/inmem tier.
-When("I run gtd-loop", async (world: GtdWorld) => {
+// Spawns the real bin/gtd against the real built dist/gtd.bundle.mjs, exactly
+// like the @live tier's runGtdLive does for `gtd` itself — bin/gtd is its own
+// process, so it can't go through the in-process/inmem tier. bin/gtd
+// self-locates the bundle relative to its own script path, so no PATH shim
+// is needed to reach it.
+async function runBinGtd(world: GtdWorld, args: string[]): Promise<void> {
   try {
-    const { stdout, stderr } = await execFile("bash", [GTD_LOOP_BIN], {
+    const { stdout, stderr } = await execFile("bash", [GTD_BIN_PATH, ...args], {
       cwd: world.repoDir,
       env: gtdLoopEnv(world),
       encoding: "utf-8",
@@ -91,6 +81,29 @@ When("I run gtd-loop", async (world: GtdWorld) => {
   } catch (err: unknown) {
     world.lastResult = toFailedResult(err)
   }
+}
+
+// Bare `gtd`, no arguments — the loop body's default entry point.
+When("I run bare gtd", async (world: GtdWorld) => {
+  await runBinGtd(world, [])
+})
+
+// `gtd loop` with no further arguments — must dispatch to the exact same
+// loop body as bare `gtd`.
+When("I run gtd loop", async (world: GtdWorld) => {
+  await runBinGtd(world, ["loop"])
+})
+
+// `gtd loop` plus an extra argument — a usage error, rejected before node
+// ever runs.
+When("I run gtd loop {word}", async (world: GtdWorld, extraArg: string) => {
+  await runBinGtd(world, ["loop", extraArg])
+})
+
+// Any other first argument hands off to the bundle unchanged, forwarding all
+// arguments — e.g. "status" via gtd, or "step human" via gtd.
+When("I run {string} via gtd", async (world: GtdWorld, args: string) => {
+  await runBinGtd(world, args.split(" "))
 })
 
 // Asserts each non-empty docstring line appears as a substring of the fake

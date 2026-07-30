@@ -4,12 +4,19 @@
 Usage: gtd [command] [options]
 
 Commands:
-  init             Scaffold a minimal .gtdrc.json for this repo, seeding a
-                   testCommand var (npm test) and a ready-to-edit Prettier
-                   formatting suggestion under modes:. Writes no workflow — gtd
-                   runs the bundled unified workflow as its built-in default.
-                   Takes no argument. Refuses if a gtd config already exists.
-                   Leaves the file uncommitted for you to review and commit
+  (no command), loop
+                   Launch the loop driver (bin/gtd), which repeatedly drives
+                   an agent through gtd next/gtd step calls until the
+                   workflow returns to its initial state again. A bare gtd
+                   invocation and gtd loop both launch it identically
+  init             Scaffold a minimal .gtdrc.json for this repo, seeding the
+                   default variables you are most likely to change (the test
+                   command) and a Prettier formatting suggestion. gtd runs its
+                   built-in workflow by default, so no workflow is written —
+                   add a workflow: key only to customize the machine itself.
+                   Takes no argument. Run once per repo; refuses if a gtd
+                   config already exists. Leaves the file uncommitted for you
+                   to review and commit
   step <actor>     Authenticate as <actor>, match the resolved rest's
                    declared patterns against the pending changes, and commit
                    (or squash) the one resulting transition. Pass
@@ -44,7 +51,9 @@ Commands:
                    declares, with its mode's commands (its file:/mode:);
                    exits non-zero with the findings when it is invalid
   lsp              Start the LSP server for .gtd/ steering files (stdio)
-  visualize        Serve an interactive diagram of the active workflow locally
+  visualize        Serve an interactive diagram of the active workflow on a
+                   local web server (--port <n>, --no-open; --json prints the
+                   model and exits)
   version          Print version and exit
   help             Print this help and exit
 
@@ -61,9 +70,11 @@ Options:
 `--version` (`-v`) / `gtd version` and `--help` (`-h`) / `gtd help`
 short-circuit before any git or repository-state work — they run outside a repo
 and in any repo state (the bare subcommands are exact equivalents of their flag
-forms). Bare `gtd` (no subcommand) is a usage error: it prints the help text and
-exits 1 without touching the repository. Every other command must be run from
-the **repository root** — gtd derives the workflow, pending changes, and process
+forms). Bare `gtd` (no subcommand) and `gtd loop` both launch the loop driver
+(`bin/gtd`) immediately — neither is a usage error. Any other, truly unknown
+subcommand remains a usage error: it prints the help text and exits 1 without
+touching the repository. Every other (recognized) command must be run from the
+**repository root** — gtd derives the workflow, pending changes, and process
 history relative to cwd, so it refuses with a clear error if invoked from a
 subdirectory.
 
@@ -401,7 +412,7 @@ which are JSON-only. `--json` emits
 
 There is no `gtd` subcommand that executes a workflow script — gtd never runs a
 workflow script itself. When `gtd next` resolves to a `script`-content rest, the
-**driver** (`bin/gtd-loop`, or any loop harness) executes the emitted `content`
+**driver** (`bin/gtd`, or any loop harness) executes the emitted `content`
 verbatim via `bash -c` — foreground, inherited stdio, exit code deliberately
 ignored (a check script encodes its outcome in the tree, e.g. writing a findings
 file, never in its exit status) — then runs `gtd step <actor>` for that state's
@@ -493,7 +504,7 @@ agent or human:
 - **The producing agent self-validates.** Plain `gtd next` appends a "run
   `gtd validate` and fix all violations" instruction to a `prompt` rest that
   declares `file:`+`mode:`; `gtd next --json` withholds it and the driving loop
-  runs `gtd validate` after the turn instead (see `bin/gtd-loop` /
+  runs `gtd validate` after the turn instead (see `bin/gtd` /
   [STATES.md §12](../STATES.md#12-steering-file-validation-gtd-validate)).
 - **`gtd step` enforces the same gate.** Capturing a turn out of a state that
   declares `file:`+`mode:` formats that file in place and validates it first

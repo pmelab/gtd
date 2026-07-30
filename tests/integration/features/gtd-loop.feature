@@ -1,13 +1,18 @@
 @live
-Feature: gtd-loop — the packaged reference loop driver (v3)
+Feature: gtd loop — the packaged reference loop driver (v3)
 
-  `bin/gtd-loop` is the installable implementation of the loop protocol
-  documented in docs/loop.md. These scenarios spawn it as a real subprocess
-  (never the real `claude` CLI — a stub agent script stands in, wired through
+  `bin/gtd` is the single installable entry point: bare `gtd` (no arguments)
+  and `gtd loop` (no further arguments) both run the installable
+  implementation of the loop protocol documented in docs/loop.md, while any
+  other first argument (e.g. `gtd status`) hands off to the real bundle
+  unchanged. These scenarios spawn `bin/gtd` as a real subprocess (never the
+  real `claude` CLI — a stub agent script stands in, wired through
   `GTD_LOOP_AGENT_CMD`) against a minimal custom `.gtdrc` `workflow:` to prove
   its dispatch: an agent prompt turn chained through a script (check) turn,
-  settling when a script rest makes no progress, and stalling when an
-  agent's turn doesn't either.
+  settling when a script rest makes no progress, stalling when an agent's
+  turn doesn't either, `gtd loop` behaving identically to bare `gtd`, a
+  `gtd loop` with an extra argument being rejected as a usage error, and a
+  real subcommand being forwarded to the bundle untouched.
 
   Scenario: Chains an agent turn through a check turn and halts back at idle
     Given a test project
@@ -56,13 +61,13 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
           ;;
       esac
       """
-    When I run gtd-loop
+    When I run bare gtd
     Then it succeeds
     And stdout contains "--- Your turn (idle) ---"
     And the git log contains "chore: calculator done"
     And "src/calc.ts" exists
 
-  Scenario: Captures the human's pending edit at the opening gate, so the human only runs gtd-loop
+  Scenario: Captures the human's pending edit at the opening gate, so the human only runs gtd
     # The machine rests at the initial human gate `idle` (no gtd commit — the
     # test project's "chore: initial commit" resolves to the initial state) with
     # an uncommitted NOTE.md sketch. The human never runs `gtd step human`: the
@@ -116,7 +121,7 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
           ;;
       esac
       """
-    When I run gtd-loop
+    When I run bare gtd
     Then it succeeds
     And "src/calc.ts" exists
     And the git log contains "chore: calculator done"
@@ -143,7 +148,7 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
       """
       note
       """
-    When I run gtd-loop
+    When I run bare gtd
     Then it succeeds
     And stdout contains "--- Settled (watching: check passed, nothing to do) ---"
 
@@ -217,7 +222,7 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
           ;;
       esac
       """
-    When I run gtd-loop
+    When I run bare gtd
     Then it succeeds
     And stdout contains "AGENT MEMORY=work RESUME=0"
     And stdout contains "AGENT MEMORY=fix RESUME=0"
@@ -280,7 +285,7 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
           ;;
       esac
       """
-    When I run gtd-loop
+    When I run bare gtd
     Then it succeeds
     And stdout contains "AGENT: first draft"
     And stdout contains "AGENT: fixing the plan"
@@ -317,17 +322,86 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
       """
       : # does nothing — the build prompt is never acted on
       """
-    When I run gtd-loop
+    When I run bare gtd
     Then it fails
     And stderr contains "no progress at 'working'"
 
-  # The scenarios below prove bin/gtd-loop's Herdr pane reporting (see its
+
+  Scenario: gtd loop with no further arguments behaves identically to bare gtd
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": done
+          done:
+            commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run gtd loop
+    Then it succeeds
+    And stdout contains "--- Your turn (idle) ---"
+    And the git log contains "chore: calculator done"
+    And "src/calc.ts" exists
+
+  Scenario: gtd loop rejects an extra argument as a usage error without running node
+    Given a test project
+    And I record the commit count
+    When I run gtd loop extra
+    Then the exit code is 2
+    And stderr contains "gtd: 'loop' takes no arguments"
+    And the commit count is unchanged
+
+  Scenario: any other first argument hands off to the bundle, forwarding it untouched
+    Given a test project
+    And the workflow
+    When I run "status" via gtd
+    Then it succeeds
+    And stdout contains "State: idle"
+
+  # The scenarios below prove bin/gtd's Herdr pane reporting (see its
   # `herdr_ok`/`herdr_report`/`herdr_notify`/`herdr_release` helpers): it shells
   # out to a `herdr` CLI only when HERDR_ENV=1, HERDR_PANE_ID is set, and
   # `herdr` resolves on PATH — "Given a fake herdr binary" provisions exactly
   # that (a logging stub on PATH plus the two env vars), and every scenario
   # ABOVE this comment (none of which use that step) is the proof of the
-  # complement: with no fake herdr binary, gtd-loop's behavior is unchanged —
+  # complement: with no fake herdr binary, gtd's behavior is unchanged —
   # it never even tries to invoke a `herdr` command.
 
   Scenario: Reports working then idle/release to Herdr for an agent turn that settles cleanly
@@ -375,7 +449,7 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
       esac
       """
     And a fake herdr binary
-    When I run gtd-loop
+    When I run bare gtd
     Then it succeeds
     And stdout contains "--- Settled (checking: check passed, nothing to do) ---"
     And the fake herdr log contains, in order:
@@ -433,7 +507,7 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
       esac
       """
     And a fake herdr binary
-    When I run gtd-loop
+    When I run bare gtd
     Then it succeeds
     And stdout contains "--- Your turn (idle) ---"
     And the fake herdr log contains, in order:
@@ -465,7 +539,7 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
       note
       """
     And a fake herdr binary
-    When I run gtd-loop
+    When I run bare gtd
     Then it succeeds
     And stdout contains "--- Settled (watching: check passed, nothing to do) ---"
     And the fake herdr log contains, in order:
@@ -506,7 +580,7 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
       : # does nothing — the build prompt is never acted on
       """
     And a fake herdr binary
-    When I run gtd-loop
+    When I run bare gtd
     Then it fails
     And stderr contains "no progress at 'working'"
     And the fake herdr log contains, in order:

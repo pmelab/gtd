@@ -159,6 +159,47 @@ loudly at load time rather than silently misinterpreting.
 or agent harness, upgrading the `gtd` binary also means re-copying that skill
 from this release.
 
+## 7.4: `gtd-loop` is gone — bare `gtd` and `gtd loop` run it directly
+
+`gtd-loop`, the standalone loop-driver binary installed alongside `gtd`, no
+longer exists. Its body now lives in `bin/gtd` itself, which is a bash entry
+script that dispatches on its first argument:
+
+| behavior                                               | before (≤ 7.3)                                 | from 7.4                                        |
+| ------------------------------------------------------ | ---------------------------------------------- | ----------------------------------------------- |
+| `gtd-loop`                                             | separate installed binary                      | removed                                         |
+| bare `gtd` (no subcommand)                             | usage error, prints help, exits 1              | runs the loop driver immediately                |
+| `gtd loop`                                             | not a recognized subcommand                    | runs the loop driver immediately                |
+| any other subcommand (`step`, `status`, `validate`, …) | handled by `node dist/gtd.bundle.mjs` directly | same, now reached via `bin/gtd`'s hand-off/exec |
+
+**Bare `gtd` is a behavior flip, not merely an addition** — the same kind of
+change as the v1 → v2 label grammar below: previously it printed the help text
+and exited 1 without touching the repository; from 7.4 it launches the loop
+driver immediately, identically to `gtd loop`. A script that relied on bare
+`gtd` failing fast (e.g. to detect a missing subcommand) now gets a running loop
+instead of an error.
+
+Because `bin/gtd` is a bash script for every invocation now, **running `gtd` at
+all — including any subcommand — requires bash**. Before 7.4, only the loop
+driver (`gtd-loop`) needed bash; a subcommand could be invoked directly via the
+bundle (e.g. `node node_modules/.bin/gtd`) with no bash in between. This is
+intentional and accepted, not an oversight: gtd's loop, its `script`-content
+checks, and a steering-file mode's own `format:`/`validate:` commands already
+run via `bash -c` (see
+[Configuration](configuration.md#modes--pluggable-steering-file-modes)) — gtd
+already assumes a unix/bash agent environment everywhere else, so the entry
+point catching up removes an inconsistency rather than introducing a new
+dependency.
+
+**Migration:**
+
+- Anyone invoking `gtd-loop` directly — in scripts, CI, or docs — should invoke
+  `gtd` or `gtd loop` instead.
+- Anyone relying on `node node_modules/.bin/gtd` resolving straight to the
+  bundle should note `gtd` is now a bash script that execs the bundle for
+  subcommands, so behavior for actual subcommands (`gtd step`, `gtd status`,
+  etc.) is unchanged — only the underlying file changed.
+
 ## 7.2: the review checkout window is now per worktree
 
 The review checkout window's two refs moved from the SHARED `refs/gtd/*`
