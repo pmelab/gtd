@@ -52,9 +52,10 @@ gtd next --json   # ask who's up and what they should do
 ```
 
 See [`skills/loop/SKILL.md`](../skills/loop/SKILL.md) for the agent-facing
-instructions that follow the same pinned contract. `gtd-loop`, installed
-alongside `gtd` (see below), is the packaged, ready-to-run implementation of
-that same script for anyone who doesn't want to drive the loop by hand.
+instructions that follow the same pinned contract. `gtd` itself (bare, or with
+`loop` as its first argument — see below) is the packaged, ready-to-run
+implementation of that same script for anyone who doesn't want to drive the loop
+by hand.
 
 ## The reference loop driver
 
@@ -63,17 +64,29 @@ A minimal bash implementation of the pinned protocol, driving an agent CLI (e.g.
 reference for what a loop driver must do; keep any other implementation
 (including `skills/loop/SKILL.md`) consistent with it rather than editing both
 independently. Both open with the same move — capture the human's pending edit
-when the machine rests at a `"message"` gate — so `gtd-loop` is the only command
-a human runs. `bin/gtd-loop` is this exact script, packaged as the `gtd-loop`
-binary, with four additions: it stops with a diagnostic if the same `"prompt"`
-state/content repeat with no progress (see `skills/loop/SKILL.md`'s "Stall
-detection"); it lets `GTD_LOOP_AGENT_CMD` swap in any coding agent CLI in place
-of the default `claude -p`, receiving the prompt via `$GTD_LOOP_PROMPT`; it
-exports the resolved state's optional `model` hint as `$GTD_LOOP_MODEL`,
-appending `--model "$GTD_LOOP_MODEL"` to the default `claude -p` invocation
-whenever it's non-empty; and it acts on the optional `memory` scope hint (see
-"Agent memory scope" below) — continuing one agent session across consecutive
-same-scope turns and starting fresh when the scope changes.
+when the machine rests at a `"message"` gate — so `gtd` is the only command a
+human runs. `bin/gtd` is the packaged entry point: invoked bare, or with `loop`
+as its first argument, it runs this exact script; any other first argument (e.g.
+`next`, `step`, `status`) hands off to `node dist/gtd.bundle.mjs` instead. The
+loop body it runs adds four things on top of the reference script above: it
+stops with a diagnostic if the same `"prompt"` state/content repeat with no
+progress (see `skills/loop/SKILL.md`'s "Stall detection"); it lets
+`GTD_LOOP_AGENT_CMD` swap in any coding agent CLI in place of the default
+`claude -p`, receiving the prompt via `$GTD_LOOP_PROMPT`; it exports the
+resolved state's optional `model` hint as `$GTD_LOOP_MODEL`, appending
+`--model "$GTD_LOOP_MODEL"` to the default `claude -p` invocation whenever it's
+non-empty; and it acts on the optional `memory` scope hint (see "Agent memory
+scope" below) — continuing one agent session across consecutive same-scope turns
+and starting fresh when the scope changes.
+
+`bin/gtd` resolves both its bundle hand-off and the loop's own internal `gtd`
+calls against `dist/gtd.bundle.mjs` next to its own location. Set `GTD_BIN` — a
+full command, not just a path — to point both at source instead, e.g. for
+development or testing:
+
+```bash
+GTD_BIN="node $PWD/dev/run.mjs" bin/gtd
+```
 
 ```bash
 #!/usr/bin/env bash
@@ -139,9 +152,9 @@ turn, or either side has no `memory` — start fresh.
 This is what makes a loop retain memory while a phase boundary clears it: a loop
 that keeps re-entering one state emits the same label every lap, so the agent
 accumulates context across the loop; the move to the next phase's
-differently-labelled state resets it. `bin/gtd-loop` implements this by mapping
-the signal onto claude's session flags — `--session-id` to pin a fresh session
-when the scope changes, `--resume` to continue it while the scope holds — and
+differently-labelled state resets it. `bin/gtd` implements this by mapping the
+signal onto claude's session flags — `--session-id` to pin a fresh session when
+the scope changes, `--resume` to continue it while the scope holds — and
 persists the current scope + session id in the git dir (never the working tree,
 so `gtd status` and the pending diff never see them) so retention survives even
 across the restarts a human gate forces mid-loop. See `skills/loop/SKILL.md`'s
@@ -149,7 +162,7 @@ across the restarts a human gate forces mid-loop. See `skills/loop/SKILL.md`'s
 
 ## Using a different agent
 
-`gtd-loop` defaults to
+`gtd` (bare, or `gtd loop`) defaults to
 `claude -p "$GTD_LOOP_PROMPT" --dangerously-skip-permissions`, but the agent
 invocation is swappable: set `GTD_LOOP_AGENT_CMD` to any shell command, and it
 runs with the prompt available as `$GTD_LOOP_PROMPT` in its environment, along
@@ -160,5 +173,5 @@ session). An adapter that ignores any of these keeps working unchanged. For
 example, to drive a different agent CLI:
 
 ```bash
-GTD_LOOP_AGENT_CMD='my-agent-cli --prompt "$GTD_LOOP_PROMPT"' gtd-loop
+GTD_LOOP_AGENT_CMD='my-agent-cli --prompt "$GTD_LOOP_PROMPT"' gtd
 ```

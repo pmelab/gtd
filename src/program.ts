@@ -60,6 +60,11 @@ const GTD_VERSION: string = (_require("../package.json") as { version: string })
 const HELP_TEXT = `Usage: gtd [command] [options]
 
 Commands:
+  (no command), loop
+                   Launch the loop driver (bin/gtd), which repeatedly drives
+                   an agent through gtd next/gtd step calls until the
+                   workflow returns to its initial state again. A bare gtd
+                   invocation and gtd loop both launch it identically
   init             Scaffold a minimal .gtdrc.json for this repo, seeding the
                    default variables you are most likely to change (the test
                    command) and a Prettier formatting suggestion. gtd runs its

@@ -9,9 +9,10 @@ description: >-
 # gtd loop
 
 Drive `gtd` (v3 — the pattern machine) to completion by alternating
-`gtd next --json` with whatever it says to do next. Never call bare `gtd` — it
-has no default command and it is a usage error. Only `gtd next --json` and
-`gtd step <actor>` are used here.
+`gtd next --json` with whatever it says to do next. Don't call bare `gtd` or
+`gtd loop` from in here — that starts a NEW loop process, recursively, on top of
+the one you're already driving. Only `gtd next --json` and `gtd step <actor>`
+are used here.
 
 ## Requirements
 
@@ -162,4 +163,5 @@ indefinitely.
   `.gtd/FEEDBACK.md`); the fix round follows as your next `"prompt"` beat.
 - `gtd next --json` never mutates the working tree; it is safe to call as often
   as needed to inspect state.
-- Never run bare `gtd` — it is a usage error.
+- Don't run bare `gtd` or `gtd loop` from inside the loop — that starts a NEW
+  loop process; only `gtd next --json` and `gtd step <actor>` belong here.

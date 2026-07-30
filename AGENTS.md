@@ -223,19 +223,19 @@ NEVER executes anything itself. The command lives INLINE in that state's own
 `script:` content (no BLESSED `testCommand` config key — see `docs/upgrading.md`
 — though the templates' script does read its own `vars.testCommand`,
 workflow-authored data like any other `it.vars` entry, not a name the engine
-special-cases). `gtd next` renders and prints the script; the DRIVER
-(`bin/gtd-loop`, or any loop harness) executes that rendered `content` verbatim
-via `bash` — gtd itself never runs a workflow script (the only place gtd spawns
-a subprocess at all is a steering-file mode's own `format:`/`validate:` command,
-see `src/SteeringMode.ts`). The driver then runs `gtd step <actor>` for that
-state's own actor to capture the outcome from whatever the script left in the
-tree (e.g. an `on` pattern matching `A .gtd/FEEDBACK.md` vs `C`). Mechanics
-belong in the script; which `on` pattern the resulting diff matches is the only
-thing that decides the outcome — there is no separate capture-rule layer to keep
-in sync. In e2e, simulate a check's outcome by writing the output file (e.g.
+special-cases). `gtd next` renders and prints the script; the DRIVER (`bin/gtd`,
+or any loop harness) executes that rendered `content` verbatim via `bash` — gtd
+itself never runs a workflow script (the only place gtd spawns a subprocess at
+all is a steering-file mode's own `format:`/`validate:` command, see
+`src/SteeringMode.ts`). The driver then runs `gtd step <actor>` for that state's
+own actor to capture the outcome from whatever the script left in the tree (e.g.
+an `on` pattern matching `A .gtd/FEEDBACK.md` vs `C`). Mechanics belong in the
+script; which `on` pattern the resulting diff matches is the only thing that
+decides the outcome — there is no separate capture-rule layer to keep in sync.
+In e2e, simulate a check's outcome by writing the output file (e.g.
 `Given a file "FEEDBACK.md" with:`) and running `gtd step check` — `@inmem`
-scenarios never execute scripts; only `@live` scenarios (the `bin/gtd-loop`
-driver in `gtd-loop.feature`) actually run them.
+scenarios never execute scripts; only `@live` scenarios (the `bin/gtd` driver in
+`gtd-loop.feature`) actually run them.
 
 ## CLI Design
 

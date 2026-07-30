@@ -1,6 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This file is the single published `bin` entry: `bin/gtd`. Before anything
+# else, it dispatches on $1:
+#   - no arguments, or exactly `loop` with no further arguments -> fall through
+#     into the loop body below (the loop protocol comment further down).
+#   - `loop` with additional arguments -> usage error, exit 2.
+#   - anything else -> hand off to the bundle via `run_gtd`, forwarding all
+#     arguments unchanged (e.g. `bin/gtd status`, `bin/gtd step human`).
+# `run_gtd` is the ONE place that knows how to invoke "the bundle": by default
+# it resolves `dist/gtd.bundle.mjs` relative to this script's own location
+# (not cwd), but `GTD_BIN` (a dev/test override for the whole invocation
+# command, e.g. `GTD_BIN="node $PWD/dev/run.mjs"`) takes precedence when set.
+# Every call the loop body makes below goes through `run_gtd` too, so the loop
+# always drives the exact same build/source it was launched from — no
+# dependence on a `gtd` binary being on PATH.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+
+run_gtd() {
+  if [[ -n "${GTD_BIN:-}" ]]; then
+    eval "$GTD_BIN" '"$@"'
+  else
+    node "$SCRIPT_DIR/../dist/gtd.bundle.mjs" "$@"
+  fi
+}
+
+if [[ $# -gt 0 && "$1" != "loop" ]]; then
+  run_gtd "$@"
+  exit $?
+fi
+if [[ "${1:-}" == "loop" && $# -gt 1 ]]; then
+  echo "gtd: 'loop' takes no arguments" >&2
+  exit 2
+fi
+# otherwise ($# -eq 0, or exactly "loop" with no further args): fall through
+# into the existing loop body below, unchanged in behavior.
+
 # Drives the v3 pattern-machine loop (see docs/loop.md): each iteration asks
 # `gtd next --json` who's up and what they should do, dispatching on `kind`:
 #   - "message" (a human rest)  -> halt, tell the user what gtd is waiting on.
@@ -78,14 +113,14 @@ run_agent_turn() {
 # a harmless no-op; a genuine refusal there (a malformed steering file, or an
 # edit no `on` pattern accepts) is surfaced and stops the loop rather than being
 # driven past.
-if ! peek_json="$(gtd next --json 2>&1)"; then
+if ! peek_json="$(run_gtd next --json 2>&1)"; then
   echo "gtd-loop: could not determine the next step:" >&2
   echo "$peek_json" >&2
   echo "Run \`gtd status\` to inspect the repo." >&2
   exit 1
 fi
 if [[ "$(jq -r .kind <<<"$peek_json")" == "message" ]]; then
-  if ! step_out="$(gtd step human 2>&1)"; then
+  if ! step_out="$(run_gtd step human 2>&1)"; then
     echo "gtd-loop: could not capture your changes at the human gate:" >&2
     echo "$step_out" >&2
     echo "Fix the reported issue and re-run gtd-loop." >&2
@@ -94,7 +129,7 @@ if [[ "$(jq -r .kind <<<"$peek_json")" == "message" ]]; then
 fi
 
 while true; do
-  if ! next_json="$(gtd next --json 2>&1)"; then
+  if ! next_json="$(run_gtd next --json 2>&1)"; then
     echo "gtd-loop: could not determine the next step:" >&2
     echo "$next_json" >&2
     echo "Run \`gtd status\` to inspect the repo." >&2
@@ -110,7 +145,7 @@ while true; do
 
   if [[ "$kind" == "message" ]]; then
     echo "--- Your turn ($state) ---"
-    gtd next
+    run_gtd next
     exit 0
   fi
 
@@ -121,7 +156,7 @@ while true; do
     # the tree, and `gtd step` captures whatever it left there via the state's
     # own `on` patterns.
     bash -c "$content" || true
-    gtd step "$actor" >/dev/null
+    run_gtd step "$actor" >/dev/null
     head_after="$(git rev-parse HEAD 2>/dev/null || echo none)"
     if [[ "$head_before" == "$head_after" ]]; then
       echo "--- Settled ($state: check passed, nothing to do) ---"
@@ -137,7 +172,7 @@ while true; do
   # progress; stop rather than spin on it.
   if [[ "$state" == "$prev_state" && "$content" == "$prev_content" ]]; then
     echo "gtd-loop: no progress at '$state' — the agent's last turn changed nothing. Stopping to avoid spinning." >&2
-    gtd next >&2
+    run_gtd next >&2
     exit 1
   fi
   prev_state="$state"
@@ -180,7 +215,7 @@ while true; do
   run_agent_turn "$content" "$resume"
 
   fix_attempt=0
-  while ! validate_out="$(gtd validate 2>&1)"; do
+  while ! validate_out="$(run_gtd validate 2>&1)"; do
     fix_attempt=$((fix_attempt + 1))
     if ((fix_attempt > 3)); then
       echo "gtd-loop: '$state' still fails \`gtd validate\` after 3 fix attempts:" >&2
@@ -195,5 +230,5 @@ while true; do
     run_agent_turn "$content"$'\n\n'"Your last turn does not pass \`gtd validate\`. Fix these format violations, then finish:"$'\n'"$validate_out" "$fix_resume"
   done
 
-  gtd step "$actor" >/dev/null
+  run_gtd step "$actor" >/dev/null
 done
