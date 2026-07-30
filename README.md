@@ -184,6 +184,15 @@ checkers (see
 [Configuration](docs/configuration.md#modes--pluggable-steering-file-modes)).
 Both halves are enforced by `gtd validate` and the `gtd step` gate.
 
+Herdr integration: a workflow state can declare an optional `label:` — a
+human-readable display name surfaced in `gtd next --json`/`gtd status`. The
+reference `bin/gtd-loop` driver uses it to report its lifecycle
+(working/blocked/idle) to a [Herdr](https://herdr.dev) pane sidebar via the
+`herdr` CLI when running under Herdr (`HERDR_ENV=1`, a pane ID, and `herdr` on
+`$PATH`); outside Herdr this is a complete no-op. See
+[Driving the loop](docs/loop.md#herdr-integration-optional) for the full
+reporting contract.
+
 ## Documentation
 
 - [STATES.md](STATES.md) — the full pattern-machine specification: the model,

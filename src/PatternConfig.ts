@@ -43,6 +43,7 @@ import { expandSubmachines } from "./Submachines.js"
  *       otherwise: <targetState>
  *     model: <string>     # optional, opaque harness hint — never on a commit state
  *     memory: <string>    # optional, opaque memory-scope label — never on a commit state
+ *     label: <string>     # optional, opaque display name — never on a commit state
  *     file: <string>      # optional, an Eta template naming the state's steering file — never on a commit state
  *     mode: <modeName>    # optional, requires "file" — a built-in (qa/review) or a `modes:` entry; never on a commit state
  * ```
@@ -236,6 +237,7 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "retry",
   "model",
   "memory",
+  "label",
   "file",
   "mode",
   "reviewWindow",
@@ -498,6 +500,20 @@ const compileMemory = (
   return raw.memory
 }
 
+/** The `label` field: an opaque display name, or undefined (either absent or invalid — the type mismatch is its own error). Never interpreted or validated beyond "is it a string" — see `PatternMachine.StateDef.label`. */
+const compileLabel = (
+  raw: Record<string, unknown>,
+  name: string,
+  errors: string[],
+): string | undefined => {
+  if (raw.label === undefined) return undefined
+  if (typeof raw.label !== "string") {
+    errors.push(`state "${name}": "label" must be a string`)
+    return undefined
+  }
+  return raw.label
+}
+
 /** The `file` field: an Eta template string naming the state's steering file, or undefined (either absent or invalid — the type mismatch is its own error). Vocabulary/shape rules (non-empty, forbidden on a commit state) are `validateDefinition`'s concern, not this compiler's — see `PatternMachine.StateDef.file`. */
 const compileFile = (
   raw: Record<string, unknown>,
@@ -563,6 +579,7 @@ interface StateParts {
   readonly retry: RetryDef | undefined
   readonly model: string | undefined
   readonly memory: string | undefined
+  readonly label: string | undefined
   readonly file: string | undefined
   readonly mode: StateMode | undefined
   readonly reviewWindow: true | undefined
@@ -610,6 +627,7 @@ const assembleStateDef = (parts: StateParts): StateDef => ({
     retry: parts.retry,
     model: parts.model,
     memory: parts.memory,
+    label: parts.label,
     file: parts.file,
     mode: parts.mode,
     reviewWindow: parts.reviewWindow,
@@ -648,6 +666,7 @@ const compileState = (
     retry: compileRetry(raw.retry, name, errors),
     model: compileModel(raw, name, errors),
     memory: compileMemory(raw, name, errors),
+    label: compileLabel(raw, name, errors),
     file: compileFile(raw, name, errors),
     mode: compileMode(raw, name, errors),
     reviewWindow: compileBooleanFlag(raw, "reviewWindow", name, errors),

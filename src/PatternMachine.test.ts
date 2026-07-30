@@ -935,6 +935,50 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
   })
 
+  it("accepts a state declaring a valid `label`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, label: "Doing the work", on: [] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects an empty-string `label`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, label: "", on: [] },
+      },
+    })
+    expect(errors).toContain('state "a": "label" must be a non-empty string')
+  })
+
+  it("rejects a commit state that declares a `label`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, on: [["* *", "b"]] },
+        b: { commit: "chore: b", label: "Done" },
+      },
+    })
+    expect(errors).toContain('state "b": a commit state cannot declare "label"')
+  })
+
+  it("aggregates a bad `label` alongside other unrelated findings", () => {
+    const errors = validateDefinition({
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          initial: true,
+          label: "",
+          on: [["* *", "ghost"]],
+        },
+      },
+    })
+    expect(errors).toContain('state "a": "label" must be a non-empty string')
+    expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
+  })
+
   it("accepts a state declaring a valid `file` alone (no `mode`)", () => {
     const errors = validateDefinition({
       states: {

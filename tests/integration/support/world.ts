@@ -38,6 +38,10 @@ export class GtdWorld extends QuickPickleWorld {
   savedCommitCount: number | undefined = undefined
   /** Path to a stub agent script for `gtd-loop` scenarios (@live only). */
   stubAgentPath: string | undefined = undefined
+  /** Directory holding a fake `herdr` binary stub, when provisioned (`gtd-loop` Herdr-reporting scenarios, @live only). */
+  fakeHerdrDir: string | undefined = undefined
+  /** Path to the fake herdr binary's invocation log, when provisioned. */
+  fakeHerdrLogPath: string | undefined = undefined
 
   /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_VAR_` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
   envVars: Record<string, string> = {}
