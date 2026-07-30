@@ -94,6 +94,10 @@ handful of commands drive it:
 - **`gtd abandon`** — end the process underway without completing it: rewind to
   the commit it started from, keeping everything it produced as uncommitted
   changes (nothing is discarded).
+- **`gtd restore`** — undo the last squash (or `gtd abandon`) by hard-resetting
+  HEAD back to its retained pre-squash tip, bringing the turn-by-turn history
+  back. Refuses on a dirty working tree, when there is nothing retained to
+  restore, or when HEAD has since moved past it with commits that would be lost.
 - **`gtd visualize`** — serve an interactive diagram of the active workflow on a
   local web server (the main flow, its sub-machines, and per-state details).
 

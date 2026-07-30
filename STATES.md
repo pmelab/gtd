@@ -271,10 +271,14 @@ entering it performs, atomically:
    discarded with the turns below). A failed render (a malformed template,
    `read()` throwing for a missing path) **refuses the step and touches
    nothing** — no reset, no commit, no file discarded.
-2. **Soft-reset** to the process's start parent (the commit before the process's
+2. **Retain** the pre-squash tip (HEAD, before anything below moves it) on the
+   per-worktree retained-history ref (see "Undoing a squash or abandon" below; a
+   no-op for an empty process, where the tip already equals the start parent).
+3. **Soft-reset** to the process's start parent (the commit before the process's
    first turn — `EMPTY_TREE` if the process covers the whole history) and write
-   **one** commit with the rendered message, verbatim as its subject/body.
-3. **Discard** everything still left uncommitted — the message-template file
+   **one** commit with the rendered message plus a `Gtd-History: <hash>` trailer
+   pointing at the retained tip, otherwise verbatim as its subject/body.
+4. **Discard** everything still left uncommitted — the message-template file
    included; it never enters history.
 
 The net effect: every intermediate `gtd(<actor>): <state>` commit the process
@@ -306,6 +310,21 @@ worse tool); a process whose first commit is the repository's root commit is the
 one refusal, since there is no earlier commit to rewind to. Like the squash,
 this lives entirely at the edge (`src/program.ts`) — the pure engine has no
 notion of abandoning.
+
+**Undoing a squash or abandon.** Both a squash and `gtd abandon` first record
+the pre-collapse tip on the per-worktree `refs/worktree/gtd/history` ref
+(`src/RetainedHistory.ts`) before they act — a rolling ref, so a later
+squash/abandon simply overwrites it with its own tip, and self-cleaning: git
+drops it along with the worktree, same per-worktree `refs/worktree/*` namespace
+rationale as the review checkout window's own refs (§11). **`gtd restore`** is
+the way back: it hard-resets HEAD to that retained tip and clears the ref,
+refusing on a dirty working tree, when there is no retained history, or when
+HEAD has since advanced past the tip with commits that would be discarded
+(checked by `restorability`, which accepts either a freshly-landed squash commit
+— HEAD's own `Gtd-History:` trailer still points at the tip — or a cleaned
+abandon/fast-forward where HEAD is an ancestor of the tip). Like the squash and
+abandon, this lives entirely at the edge (`src/program.ts`) — the pure engine
+has no notion of restoring.
 
 ## 9. Validation
 

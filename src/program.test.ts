@@ -31,6 +31,8 @@ const failingGitLayer = Layer.succeed(GitService, {
   hasCommits: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   lastCommitSubject: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
+  lastCommitMessage: () =>
+    Effect.fail(new Error("GitService must not be called for --version/--help")),
   resolveRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   readFileAtRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   readRefOption: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
@@ -50,6 +52,7 @@ const failingGitLayer = Layer.succeed(GitService, {
   updateRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   deleteRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   mixedResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  hardResetTo: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   restoreStagedFrom: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
   addIntentToAdd: () =>

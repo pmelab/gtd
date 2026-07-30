@@ -30,6 +30,12 @@ Commands:
                    the commit the process started from, keeping everything it
                    produced as uncommitted changes. A no-op when no process is
                    underway
+  restore          Hard-reset HEAD back to the pre-squash tip retained by the
+                   last squash/abandon (refs/worktree/gtd/history), undoing a
+                   squash or bringing back an abandoned process's turns.
+                   Refuses on a dirty working tree, when there is no retained
+                   history, or when HEAD has advanced past the squash with
+                   commits that would be lost
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   status           Print the resolved rest's state/actor and which declared
@@ -294,6 +300,47 @@ hash HEAD now points at:
 ```
 
 The no-op reports `{"state": "idle", "abandoned": false}` and still exits 0.
+
+## `gtd restore [--json]`
+
+Undoes the last squash or `gtd abandon` by hard-resetting HEAD back to the
+pre-squash tip that either one retains, before acting, on the per-worktree
+`refs/worktree/gtd/history` ref
+([STATES.md §8](../STATES.md#8-the-squash-lifecycle)):
+
+```
+restored the retained history — HEAD is back at 1a2b3c4 ("gtd(agent): drafting
+→ working"), resting at "await-review". Resume with the loop, or `git reset`
+to any earlier turn to restart from there.
+```
+
+Refuses on a dirty working tree — commit, stash, or discard your changes first.
+Refuses when there is no retained history to restore (nothing has been squashed
+or abandoned yet, or a previous `restore` already consumed it). Refuses when
+HEAD has advanced past the retained tip with commits that would be discarded by
+resetting:
+
+```
+gtd restore: HEAD has advanced past the squash — restoring would discard
+commits built on top of it — HEAD 4d5e6f7 is ahead of the retained tip
+1a2b3c4.
+```
+
+Takes no positional argument (extra arguments are a usage error).
+
+`--json` emits `{state, restored, to, from}` — `state` is the resolved rest
+after the reset, `restored` always `true` (a refusal exits non-zero instead),
+`to` the full hash HEAD was reset to, and `from` the state the machine rested at
+before the reset:
+
+```json
+{
+  "state": "await-review",
+  "restored": true,
+  "to": "1a2b3c4…",
+  "from": "idle"
+}
+```
 
 ## `gtd next [--json]`
 
