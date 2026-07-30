@@ -77,6 +77,44 @@ Feature: Commit-state squash — a process collapses to one commit at its final 
     And "DRAFT.md" exists
     And "COMMIT_MSG.md" does not exist
 
+  Scenario: squashing retains the pre-squash tip on the history ref and trailer
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "go"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "write COMMIT_MSG.md"
+            on:
+              "A COMMIT_MSG.md": done
+              "M COMMIT_MSG.md": done
+          done:
+            commit: '<%~ it.read("COMMIT_MSG.md") %>'
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      note
+      """
+    And I mark the current commit as "tip"
+    And a file "COMMIT_MSG.md" with:
+      """
+      feat: finish
+
+      Body.
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "feat: finish"
+    And the git ref "refs/worktree/gtd/history" exists
+    And the last commit body contains the hash of "tip"
+
   Scenario: squashing discards any other uncommitted changes, not just the message file
     Given a test project
     And a gtd config file at ".gtdrc" with:

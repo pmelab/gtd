@@ -320,3 +320,197 @@ Feature: gtd-loop — the packaged reference loop driver (v3)
     When I run gtd-loop
     Then it fails
     And stderr contains "no progress at 'working'"
+
+  # The scenarios below prove bin/gtd-loop's Herdr pane reporting (see its
+  # `herdr_ok`/`herdr_report`/`herdr_notify`/`herdr_release` helpers): it shells
+  # out to a `herdr` CLI only when HERDR_ENV=1, HERDR_PANE_ID is set, and
+  # `herdr` resolves on PATH — "Given a fake herdr binary" provisions exactly
+  # that (a logging stub on PATH plus the two env vars), and every scenario
+  # ABOVE this comment (none of which use that step) is the proof of the
+  # complement: with no fake herdr binary, gtd-loop's behavior is unchanged —
+  # it never even tries to invoke a `herdr` command.
+
+  Scenario: Reports working then idle/release to Herdr for an agent turn that settles cleanly
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And a fake herdr binary
+    When I run gtd-loop
+    Then it succeeds
+    And stdout contains "--- Settled (checking: check passed, nothing to do) ---"
+    And the fake herdr log contains, in order:
+      """
+      pane report-agent --source herdr:gtd --agent gtd --state working --message working test-pane
+      pane report-agent --source herdr:gtd --agent gtd --state idle --message checking test-pane
+      pane release-agent --source herdr:gtd --agent gtd test-pane
+      """
+
+  Scenario: Reports blocked and notifies Herdr when halting at a human gate
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": done
+          done:
+            commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And a fake herdr binary
+    When I run gtd-loop
+    Then it succeeds
+    And stdout contains "--- Your turn (idle) ---"
+    And the fake herdr log contains, in order:
+      """
+      pane report-agent --source herdr:gtd --agent gtd --state blocked --message idle test-pane
+      notification show gtd needs you
+      """
+
+  Scenario: Reports idle and releases the pane to Herdr when a script rest settles cleanly
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": watching
+          watching:
+            actor: check
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": idle
+      """
+    And a commit "gtd(check): watching" that adds "NOTE.md" with:
+      """
+      note
+      """
+    And a fake herdr binary
+    When I run gtd-loop
+    Then it succeeds
+    And stdout contains "--- Settled (watching: check passed, nothing to do) ---"
+    And the fake herdr log contains, in order:
+      """
+      pane report-agent --source herdr:gtd --agent gtd --state idle --message watching test-pane
+      pane release-agent --source herdr:gtd --agent gtd test-pane
+      """
+
+  Scenario: Reports blocked and notifies Herdr via the exit trap when the loop stops on failure
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": working
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      : # does nothing — the build prompt is never acted on
+      """
+    And a fake herdr binary
+    When I run gtd-loop
+    Then it fails
+    And stderr contains "no progress at 'working'"
+    And the fake herdr log contains, in order:
+      """
+      pane report-agent --source herdr:gtd --agent gtd --state blocked --message working: exited 1 test-pane
+      notification show gtd stopped
+      """

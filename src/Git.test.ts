@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs"
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs"
 import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
 import { execSync } from "node:child_process"
@@ -447,6 +447,53 @@ for (const [tierName, makeTier] of tiers) {
         // second.txt still shows as a change (staged-new or untracked depending on tier)
         const status = t.statusPorcelain()
         expect(status).toContain("second.txt")
+      })
+    })
+
+    // -----------------------------------------------------------------------
+    describe("hardResetTo", () => {
+      it("moves HEAD, index, and working tree content back to the target ref", async () => {
+        const firstHash = t.resolveRef("HEAD")
+        t.commit("feat: second", { "readme.txt": "modified content" })
+
+        await t.run(Effect.flatMap(GitService, (g) => g.hardResetTo(firstHash)))
+
+        // HEAD is back at the first commit
+        expect(t.resolveRef("HEAD")).toBe(firstHash)
+
+        // index and working tree are both clean against the target ref — no
+        // pending changes at all (unlike softResetTo/mixedResetTo, which would
+        // surface readme.txt as a change)
+        expect(t.statusPorcelain()).toBe("")
+
+        // Live only: the working tree content itself reverted on disk to what
+        // it was at firstHash — this is what distinguishes a hard reset from
+        // softResetTo (worktree AND index untouched) and mixedResetTo
+        // (worktree untouched); a clean `status --porcelain` alone wouldn't
+        // catch a reset that moved HEAD/index but left stale file content on
+        // disk with matching mtimes.
+        if (tierName === "Live") {
+          expect(readFileSync(join(repoDir, "readme.txt"), "utf8")).toBe("hello")
+        }
+      })
+    })
+
+    // -----------------------------------------------------------------------
+    describe("lastCommitMessage", () => {
+      it("returns the full commit message (subject + body) of HEAD", async () => {
+        t.commit("feat: add thing\n\nA body explaining why.")
+
+        const message = await t.run(Effect.flatMap(GitService, (g) => g.lastCommitMessage()))
+
+        expect(message).toBe("feat: add thing\n\nA body explaining why.")
+      })
+
+      it("returns just the subject when HEAD carries no body", async () => {
+        t.commit("feat: subject only")
+
+        const message = await t.run(Effect.flatMap(GitService, (g) => g.lastCommitMessage()))
+
+        expect(message).toBe("feat: subject only")
       })
     })
 

@@ -834,6 +834,80 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     }
   })
 
+  it("compiles a `label` string through onto the state", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          working: {
+            actor: "agent",
+            label: "Build",
+            prompt: "do the thing",
+            initial: true,
+            on: { "* *": "done" },
+          },
+          done: { commit: "chore: done" },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states["working"]!.label).toBe("Build")
+  })
+
+  it("omits `label` entirely when the state declares none", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          working: {
+            actor: "agent",
+            prompt: "do the thing",
+            initial: true,
+            on: { "* *": "done" },
+          },
+          done: { commit: "chore: done" },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states["working"]).not.toHaveProperty("label")
+  })
+
+  it("rejects a non-string `label` as a config-shape error", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          states: {
+            a: { actor: "human", message: "hi", initial: true, label: 42 },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "label" must be a string/)
+  })
+
+  it("aggregates a bad `label` alongside an unrelated config-shape error", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          states: {
+            a: {
+              actor: "human",
+              message: "hi",
+              initial: true,
+              label: 42,
+              on: { "* **": "nowhere" },
+            },
+          },
+        },
+        "/dir",
+      )
+      throw new Error("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain('state "a": "label" must be a string')
+      expect(message).toContain('state "a": "on" target "nowhere" is not a defined state')
+    }
+  })
+
   it("compiles `file`/`mode` strings through onto the state", () => {
     const { definition } = compileWorkflowConfig(
       {

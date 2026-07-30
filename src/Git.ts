@@ -15,6 +15,8 @@ export interface GitReaderOperations {
   readonly diffHead: (exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   /** The subject of `ref`'s commit (`ref` defaults to `HEAD`). */
   readonly lastCommitSubject: (ref?: string) => Effect.Effect<string, Error>
+  /** `git log -1 --pretty=%B` — the full commit message (subject + body) of HEAD. Mirrors `lastCommitSubject`'s `--pretty=%s`, but keeps the body — needed to read back a `Gtd-History:` trailer (see `RetainedHistory.ts`'s `parseHistoryTrailer`). */
+  readonly lastCommitMessage: () => Effect.Effect<string, Error>
   readonly hasCommits: () => Effect.Effect<boolean, Error>
   /**
    * `git diff <ref> HEAD`, optionally with `:(exclude)` pathspecs. Exclusions
@@ -124,6 +126,8 @@ export interface GitWriterOperations {
   readonly deleteRef: (ref: string) => Effect.Effect<void, Error>
   /** `git reset --mixed <ref>` — HEAD and index move to `ref`, the working tree is untouched (so committed work re-surfaces as pending changes). The open/close primitive of the review checkout window. */
   readonly mixedResetTo: (ref: string) => Effect.Effect<void, Error>
+  /** `git reset --hard <ref>` — HEAD, the index, AND the working tree all move to `ref` (unlike `softResetTo`/`mixedResetTo`, which leave the working tree — and for `softResetTo` the index too — untouched). */
+  readonly hardResetTo: (ref: string) => Effect.Effect<void, Error>
   /**
    * `git restore --staged --source=<source> -- <paths…>` — set the index
    * entries under each path to their state at `source` (including removals),
@@ -313,6 +317,9 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
 
     lastCommitSubject: (ref = "HEAD") =>
       exec("git", "log", "-1", "--pretty=%s", ref).pipe(Effect.map((s) => s.trim())),
+
+    lastCommitMessage: () =>
+      exec("git", "log", "-1", "--pretty=%B").pipe(Effect.map((s) => s.trim())),
 
     hasCommits: () =>
       exec("git", "rev-parse", "--verify", "HEAD").pipe(
@@ -547,6 +554,8 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     deleteRef: (ref: string) => exec("git", "update-ref", "-d", ref).pipe(Effect.asVoid),
 
     mixedResetTo: (ref: string) => exec("git", "reset", "--mixed", ref).pipe(Effect.asVoid),
+
+    hardResetTo: (ref: string) => exec("git", "reset", "--hard", ref).pipe(Effect.asVoid),
 
     restoreStagedFrom: (source: string, paths: ReadonlyArray<string>) =>
       paths.length === 0

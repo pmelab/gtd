@@ -122,10 +122,11 @@ submachines:
   # (checking/fixing/escalate -> reviewing) and the advanced package loop
   # (adv-checking/adv-fixing/adv-escalate -> spec-review).
   makeGreen:
-    params: [onGreen, escalateDescribe]
+    params: [onGreen, escalateDescribe, checkLabel, fixLabel, escalateLabel]
     states:
       check:
         actor: check
+        label: $checkLabel
         script: |
           #!/usr/bin/env bash
           # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
@@ -157,6 +158,7 @@ submachines:
           "C": $onGreen
       fix:
         actor: agent
+        label: $fixLabel
         file: <%= it.vars.feedbackFile %>
         model: <%= it.vars.coderModel %>
         memory: fix
@@ -178,6 +180,7 @@ submachines:
           "* **": check
       escalate:
         actor: human
+        label: $escalateLabel
         file: <%= it.vars.feedbackFile %>
         message: |
           The agent could not get the check to pass after repeated attempts.
@@ -198,10 +201,11 @@ submachines:
   # that into "halt at blocked" vs "proceed to $onGreen". The script and blocked
   # message/describe differ per entry, so they ride in as `with:` params.
   assertGreen:
-    params: [onGreen, checkScript, blockedMessage, blockedDescribe]
+    params: [onGreen, checkScript, blockedMessage, blockedDescribe, checkLabel, blockedLabel]
     states:
       check:
         actor: check
+        label: $checkLabel
         script: $checkScript
         on:
           "A .gtd/FEEDBACK.md": blocked
@@ -210,6 +214,7 @@ submachines:
           "C": $onGreen
       blocked:
         actor: human
+        label: $blockedLabel
         file: <%= it.vars.feedbackFile %>
         message: $blockedMessage
         on:
@@ -223,10 +228,21 @@ submachines:
   # advances or sends it back. Invoked for the product (adv-grilling) and
   # technical (architecting) phases of the advanced flow.
   qaLoop:
-    params: [authorFile, authorPrompt, answerMessage, onAdvance, advanceDescribe, editDescribe]
+    params:
+      [
+        authorFile,
+        authorPrompt,
+        answerMessage,
+        onAdvance,
+        advanceDescribe,
+        editDescribe,
+        authorLabel,
+        answerLabel,
+      ]
     states:
       author:
         actor: agent
+        label: $authorLabel
         file: $authorFile
         mode: qa
         model: <%= it.vars.plannerModel %>
@@ -236,6 +252,7 @@ submachines:
           "* **": answer
       answer:
         actor: human
+        label: $answerLabel
         file: $authorFile
         mode: qa
         answerGate: true
@@ -254,6 +271,7 @@ submachines:
     states:
       planning:
         actor: agent
+        label: Refining the plan
         file: <%= it.vars.todoFile %>
         model: <%= it.vars.plannerModel %>
         memory: plan
@@ -287,6 +305,7 @@ submachines:
 
       plan-review:
         actor: human
+        label: Awaiting your review
         file: <%= it.vars.todoFile %>
         message: |
           `<%= it.vars.todoFile %>` holds the proposed implementation plan. Read it,
@@ -315,6 +334,7 @@ submachines:
     states:
       reviewing:
         actor: agent
+        label: Reviewing
         file: <%= it.vars.reviewFile %>
         mode: review
         model: <%= it.vars.plannerModel %>
@@ -359,6 +379,7 @@ submachines:
 
       await-review:
         actor: human
+        label: Awaiting your review
         file: <%= it.vars.reviewFile %>
         mode: review
         # While the cycle rests here, gtd opens a "review checkout window": raw HEAD
@@ -399,6 +420,7 @@ submachines:
 
       review-deciding:
         actor: check
+        label: Reviewing
         file: <%= it.vars.reviewFile %>
         mode: review
         # Anchors the INCREMENTAL review base: its most-recent in-process commit is
@@ -468,6 +490,7 @@ submachines:
 
       feedback-collecting:
         actor: agent
+        label: Collecting your feedback
         file: <%= it.vars.reviewFeedbackFile %>
         model: <%= it.vars.plannerModel %>
         memory: review
@@ -519,6 +542,7 @@ submachines:
 
       feedback-building:
         actor: agent
+        label: Addressing your feedback
         file: <%= it.vars.reviewFeedbackFile %>
         model: <%= it.vars.coderModel %>
         memory: build
@@ -562,6 +586,7 @@ submachines:
     states:
       spec-review:
         actor: agent
+        label: Reviewing the package
         model: <%= it.vars.plannerModel %>
         memory: review
         # Bounded per cycle: once entered `max` times, a transition into it is
@@ -609,6 +634,7 @@ submachines:
 
       spec-fix:
         actor: agent
+        label: Fixing review feedback
         file: <%= it.vars.specFeedbackFile %>
         model: <%= it.vars.coderModel %>
         memory: fix
@@ -633,6 +659,7 @@ submachines:
     states:
       picking:
         actor: check
+        label: Picking the next package
         script: |
           #!/usr/bin/env bash
           # gtd check turn (the package queue arbiter) — the loop driver executes
@@ -660,6 +687,7 @@ submachines:
 
       adv-building:
         actor: agent
+        label: Building
         model: <%= it.vars.coderModel %>
         memory: build
         prompt: |
@@ -685,6 +713,7 @@ submachines:
 
       closing:
         actor: check
+        label: Closing out the package
         script: |
           #!/usr/bin/env bash
           # gtd check turn (the package closer) — remove the just-reviewed package
@@ -709,6 +738,9 @@ use:
       escalateDescribe: >-
         Fix the failure yourself — edit the code and/or `.gtd/FEEDBACK.md` —
         to re-run the check (**checking**).
+      checkLabel: Running checks
+      fixLabel: Fixing the check
+      escalateLabel: Escalating to a human
   # Advanced package health triple: adv-checking/adv-fixing/adv-escalate -> spec-review.
   - submachine: makeGreen
     name: pkg
@@ -718,6 +750,9 @@ use:
       escalateDescribe: >-
         Fix the failure yourself — edit the code and/or
         `.gtd/FEEDBACK.md` — to re-run the check (**adv-checking**).
+      checkLabel: Running checks
+      fixLabel: Fixing the check
+      escalateLabel: Escalating to a human
 
   # Green-baseline gate: simple flow entry.
   - submachine: assertGreen
@@ -762,6 +797,8 @@ use:
         re-run the baseline check (**start-check**). To repair the baseline as
         its own separate reviewed commit instead, abandon this start and run
         `gtd fix` from a clean `idle`.
+      checkLabel: Checking the baseline
+      blockedLabel: Baseline is red
 
   # Green-baseline gate: advanced flow entry.
   - submachine: assertGreen
@@ -806,6 +843,8 @@ use:
         re-run the baseline check (**adv-start-check**). To repair the baseline
         as its own separate reviewed commit instead, abandon this start and run
         `gtd fix` from a clean `idle`.
+      checkLabel: Checking the baseline
+      blockedLabel: Baseline is red
 
   # Green-baseline gate: `gtd review` entry (reviewEntry -> reviewing).
   - submachine: assertGreen
@@ -850,6 +889,8 @@ use:
       blockedDescribe: >-
         Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
         re-run the baseline check (**review-start-check**).
+      checkLabel: Checking the baseline
+      blockedLabel: Baseline is red
 
   # Advanced flow: product Q&A loop (adv-grilling/adv-grilling-answer -> architecting).
   - submachine: qaLoop
@@ -919,6 +960,8 @@ use:
         your own) to send the plan back for the agent to fold your answers in
         (**adv-grilling**). Delete a question to skip it, or delete the whole
         `## Open Questions` section to accept the plan as-is.
+      authorLabel: Refining the product plan
+      answerLabel: Awaiting your answers
 
   # Advanced flow: technical Q&A loop (architecting/architecting-answer -> decompose).
   - submachine: qaLoop
@@ -983,6 +1026,8 @@ use:
         your own) to send the plan back for the agent to fold your answers in
         (**architecting**). Delete a question to skip it, or delete the whole
         `## Open Questions` section to accept the plan as-is.
+      authorLabel: Refining the technical plan
+      answerLabel: Awaiting your answers
 
   # Simple flow plan-iteration loop (planning/plan-review -> building).
   - submachine: planLoop
@@ -1009,6 +1054,7 @@ states:
   idle:
     actor: human
     initial: true
+    label: Idle
     # Every human-gate `message:` below closes with the same rendered "What
     # each change does next" list, built from `it.edges` (the resting state's
     # own `on` edges — each edge's `describe:` is the single source of truth).
@@ -1046,6 +1092,7 @@ states:
   # ── Simple flow: monolithic build (plan loop is the `planLoop` sub-machine) ─
   building:
     actor: agent
+    label: Building
     file: <%= it.vars.todoFile %>
     model: <%= it.vars.coderModel %>
     memory: build
@@ -1069,6 +1116,7 @@ states:
   # ── Advanced flow: decomposition (Q&A loops are the `qaLoop` sub-machine) ───
   decompose:
     actor: agent
+    label: Decomposing into packages
     model: <%= it.vars.coderModel %>
     memory: build
     prompt: |
@@ -1105,6 +1153,7 @@ states:
   fix-check:
     actor: check
     fixEntry: true
+    label: Checking the baseline
     script: |
       #!/usr/bin/env bash
       # gtd check turn — run the suite to find what needs fixing; a red run
@@ -1138,6 +1187,7 @@ states:
   # ── Shared tail: squash finale (review loop is the `humanReview` sub-machine) ─
   squashing:
     actor: agent
+    label: Squashing
     file: <%= it.vars.commitMsgFile %>
     model: <%= it.vars.coderModel %>
     memory: build

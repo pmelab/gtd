@@ -248,6 +248,74 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout does not contain "\"memory\""
 
+  Scenario: gtd next --json carries the state's declared label, and gtd status shows it too
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            label: "Doing the work"
+            prompt: "do the work described in NOTE.md"
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"working\""
+    And stdout contains "\"label\":\"Doing the work\""
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "State: working"
+    And stdout contains "Label: Doing the work"
+    When I run gtd status with "--json"
+    Then it succeeds
+    And stdout contains "\"label\":\"Doing the work\""
+
+  Scenario: gtd next --json and gtd status --json omit "label" entirely when the state declares none
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "do the work described in NOTE.md"
+            on:
+              "* **": idle
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"working\""
+    And stdout does not contain "\"label\""
+    When I run gtd status
+    Then it succeeds
+    And stdout does not contain "Label:"
+    When I run gtd status with "--json"
+    Then it succeeds
+    And stdout does not contain "\"label\""
+
   Scenario: gtd status --json reports the same pattern matches structurally
     Given a test project
     And a gtd config file at ".gtdrc" with:

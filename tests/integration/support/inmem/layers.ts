@@ -106,6 +106,11 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
     return subject !== null ? Effect.succeed(subject) : Effect.fail(new Error("No commits"))
   },
 
+  lastCommitMessage: () => {
+    const message = repo.lastCommitMessage()
+    return message !== null ? Effect.succeed(message) : Effect.fail(new Error("No commits"))
+  },
+
   resolveRef: (ref: string) => {
     const hash = repo.resolveRef(ref)
     return hash !== null
@@ -183,6 +188,8 @@ const makeGitWriterOps = (repo: InMemRepo): GitWriterOperations => ({
   deleteRef: (ref: string) => tryCatch(() => repo.deleteRef(ref)),
 
   mixedResetTo: (ref: string) => tryCatch(() => repo.mixedResetTo(ref)),
+
+  hardResetTo: (ref: string) => tryCatch(() => repo.hardResetTo(ref)),
 
   restoreStagedFrom: (source: string, paths: ReadonlyArray<string>) =>
     tryCatch(() => repo.restoreStagedFrom(source, paths)),

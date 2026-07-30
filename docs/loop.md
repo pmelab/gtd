@@ -18,13 +18,18 @@ DRIVER runs the emitted `content` and then steps that state's own actor.
 A loop is a simple cycle:
 
 1. Run `gtd next --json` — see [`cli.md`](cli.md#gtd-next---json) for the exact
-   `{state, actor, kind, content, model?, memory?}` field shape. `kind` is the
-   dispatch key: `"message"` → halt (a human rest); `"script"` → execute
+   `{state, actor, kind, content, model?, memory?, label?}` field shape. `kind`
+   is the dispatch key: `"message"` → halt (a human rest); `"script"` → execute
    `content` verbatim (ignoring its exit code), then `gtd step <actor>` to
    capture the outcome; `"prompt"` → feed `content` to the agent, then
    `gtd step <actor>` yourself once it's done acting. The optional `model` is an
    opaque string the workflow author chose, which you map onto your own
-   harness's model selection if you use one.
+   harness's model selection if you use one. The optional `label` is a
+   human-readable display name for the resolved state, present only when that
+   state declares `label:` in the workflow; when it's absent, a driver that
+   wants to show something falls back to `state` itself (that fallback lives in
+   the driver, not gtd core — see `bin/gtd-loop`'s
+   `label="$(jq -r '.label // .state' <<<"$next_json")"`).
 2. Repeat until a `"message"` rest halts the loop, or a zero-commit script step
    at idle settles it (the green terminal signal).
 
@@ -162,3 +167,35 @@ example, to drive a different agent CLI:
 ```bash
 GTD_LOOP_AGENT_CMD='my-agent-cli --prompt "$GTD_LOOP_PROMPT"' gtd-loop
 ```
+
+## Herdr integration (optional)
+
+`bin/gtd-loop` optionally reports its lifecycle to [Herdr](https://herdr.dev) (a
+terminal multiplexer for coding agents) via a `herdr` CLI binary, entirely at
+the driver's edge — gtd core never talks to Herdr. Every call is best-effort
+(guarded, output discarded, `|| true`), so a missing/failing `herdr` binary
+never blocks, slows, or fails the loop.
+
+The reporting is a no-op unless all three guard conditions hold: `HERDR_ENV=1`,
+a non-empty `$HERDR_PANE_ID`, and `herdr` on `$PATH`. When they do, `gtd-loop`
+makes three kinds of calls:
+
+- `herdr pane report-agent --source herdr:gtd --agent gtd --state <state> --message <label> "$HERDR_PANE_ID"`
+- `herdr pane release-agent --source herdr:gtd --agent gtd "$HERDR_PANE_ID"`
+- `herdr notification show <title> --body <label> --sound request`
+
+mapped onto the loop's states like this:
+
+| Loop moment                                                                          | Call(s)                                                                  |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| Top of every non-`"message"` iteration                                               | `report-agent --state working`                                           |
+| Right before halting at a `"message"` (human) gate                                   | `report-agent --state blocked` + `notification show`                     |
+| Right before a clean settle (a script rest, zero new commits)                        | `report-agent --state idle` + `release-agent`                            |
+| Any non-zero exit (stall guard, validate-cap, `gtd next` failure, unhandled failure) | `report-agent --state blocked` + `notification show`, via an `EXIT` trap |
+
+`working`/`blocked` reports use the resolved rest's `label` (falling back to
+`state`, per the field above); the trap falls back to `$GTD_LAST_LABEL`, the
+label tracked from the last completed iteration, when it fires outside the
+normal per-iteration flow. `report-agent` claims display authority for the
+`herdr:gtd` source, so `working` is re-reported every lap rather than once, to
+stay fresh against Herdr's own heuristic detection of the inner agent process.

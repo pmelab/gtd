@@ -16,6 +16,7 @@ import {
   type WorkflowDefinition,
 } from "./PatternMachine.js"
 import { renderStateTemplate, type TemplateContext, type TemplateEdge } from "./PatternTemplates.js"
+import { retainHistory, withHistoryTrailer } from "./RetainedHistory.js"
 
 /**
  * The v3 Effect edge (see `docs/design/pattern-machine-plan.md`, "Phase 3:
@@ -452,6 +453,8 @@ export interface RenderedRest {
   readonly model?: string
   /** The resolved rest's `memory` scope label, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
   readonly memory?: string
+  /** The resolved rest's `label`, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
+  readonly label?: string
   /** The resolved rest's `file:` steering file, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
   readonly file?: string
   /** The resolved rest's `mode:` hint, verbatim (a closed literal — never Eta-rendered) — omitted when the state declares none. */
@@ -499,6 +502,24 @@ export const renderMemory = (
   })
 
 /**
+ * Render a state's declared `label:` (if any) through the SAME template
+ * context as its content/`model` — see `renderModel`'s doc comment; a plain
+ * label (e.g. `"planning"`) passes through unchanged, while
+ * `label: "<%= it.vars.labelName %>"` resolves against the merged `it.vars`.
+ * The render-failure semantics are identical (propagates as a thrown/rejected
+ * error, same call site as `gtd next`/`gtd status`).
+ */
+export const renderLabel = (
+  stateDef: StateDef,
+  context: TemplateContext,
+): Effect.Effect<string | undefined, Error> =>
+  Effect.try({
+    try: () =>
+      stateDef.label !== undefined ? renderStateTemplate(stateDef.label, context) : undefined,
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  })
+
+/**
  * Render a state's declared `file:` steering-file template (if any) through
  * the SAME template context as its content/`model` — see `renderModel`'s doc
  * comment; the render-failure semantics are identical (propagates as a
@@ -514,7 +535,18 @@ export const renderFile = (
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
-/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state) plus its `model:`/`memory:`/`file:` hints, if declared (see `renderModel`/`renderMemory`/`renderFile`). `mode:` is a closed literal, never Eta-rendered — passed through verbatim. */
+// Drops undefined-valued entries so optional hint fields are OMITTED (not
+// `undefined`-valued) on the rendered result — see `RenderedRest`'s doc
+// comment on `model`/`memory`/`label`/`file`/`mode` for why that distinction
+// matters to `--json` callers.
+const omitUndefined = <T extends Record<string, unknown>>(
+  obj: T,
+): { [K in keyof T]?: Exclude<T[K], undefined> } =>
+  Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as {
+    [K in keyof T]?: Exclude<T[K], undefined>
+  }
+
+/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state) plus its `model:`/`memory:`/`label:`/`file:` hints, if declared (see `renderModel`/`renderMemory`/`renderLabel`/`renderFile`). `mode:` is a closed literal, never Eta-rendered — passed through verbatim. */
 export const renderRest = (
   rest: ResolvedRest,
   context: TemplateContext,
@@ -532,18 +564,19 @@ export const renderRest = (
       try: () => renderStateTemplate(template, context),
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
-    const model = yield* renderModel(rest.stateDef, context)
-    const memory = yield* renderMemory(rest.stateDef, context)
-    const file = yield* renderFile(rest.stateDef, context)
+    const hints = {
+      model: yield* renderModel(rest.stateDef, context),
+      memory: yield* renderMemory(rest.stateDef, context),
+      label: yield* renderLabel(rest.stateDef, context),
+      file: yield* renderFile(rest.stateDef, context),
+      mode: rest.stateDef.mode,
+    }
     return {
       state: rest.state,
       actor: rest.actor,
       kind,
       content,
-      ...(model !== undefined ? { model } : {}),
-      ...(memory !== undefined ? { memory } : {}),
-      ...(file !== undefined ? { file } : {}),
-      ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
+      ...omitUndefined(hints),
       edges: toTemplateEdges(rest.stateDef.on),
     }
   })
@@ -565,13 +598,15 @@ export type ExecutableDecision = Extract<StepDecision, { kind: "commit" | "squas
  * `Gtd-Cost: <cost>[ <model>]` trailer (the invocation's `--cost`/`--model`,
  * persisted in the git log); a `"squash"` decision renders the commit-state
  * template against the PENDING tree — a render failure REFUSES the step,
- * touching nothing — then soft-resets to the process's start parent, writes
- * ONE commit with the rendered message (via `commitAsIs`, so the
- * still-uncommitted template file is excluded), and discards everything left
- * pending (the template file included). A squash records no trailer of its own
- * — the whole-process total and per-model breakdown reach the message through
- * `it.processCost`/`it.processCostByModel` in the rendered template. A
- * `"noop"` performs no IO.
+ * touching nothing — then records the pre-squash tip on the retained-history
+ * ref (`retainHistory`, a no-op for an empty process) before soft-resetting to
+ * the process's start parent, writes ONE commit with the rendered message
+ * plus a `Gtd-History: <hash>` trailer pointing at that tip (via
+ * `withHistoryTrailer`/`commitAsIs`, so the still-uncommitted template file is
+ * excluded), and discards everything left pending (the template file
+ * included). The whole-process total and per-model breakdown reach the
+ * message through `it.processCost`/`it.processCostByModel` in the rendered
+ * template. A `"noop"` performs no IO.
  */
 export const executeDecision = (
   git: GitOperations,
@@ -597,8 +632,10 @@ export const executeDecision = (
               }`,
             ),
         })
+        const tip = yield* git.resolveRef("HEAD")
+        yield* retainHistory(git, tip, run.startParentHash)
         yield* git.softResetTo(run.startParentHash)
-        yield* git.commitAsIs(message)
+        yield* git.commitAsIs(withHistoryTrailer(message, tip))
         yield* git.discardPending()
         return { kind: "squash", subject: subjectOf(message) }
       }

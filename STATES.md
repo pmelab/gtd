@@ -30,6 +30,7 @@ A workflow is a set of named **states**. Each state declares:
 | `retry`                                       | Optional `{ max, otherwise }` — redirects a transition into this state to `otherwise` once this state has already been entered `max` times within the current process (see §7).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `model`                                       | Optional, opaque string — a harness hint (e.g. `smart`, `fast`, or a concrete model id) emitted alongside the state's content for the driving loop to map onto its agent harness. **Rendered as an Eta template through the same `it.vars`-carrying context as content** (a plain string with no Eta tags passes through unchanged) — see [Configuration](docs/configuration.md#model--the-opaque-harness-hint-template-rendered). gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state** (never at rest, emits nothing).                                                                                                                                                                                                                                                                                                   |
 | `memory`                                      | Optional, opaque string — a **memory-scope label** emitted alongside the state's content for a memory-aware driving loop to compare, not act on literally: consecutive agent turns emitting the **same** label share a memory scope (the driver retains the agent's memory across them); a change in value — or the first agent turn — is where it starts fresh. This lets a loop that keeps re-entering one state (a planning or fix loop) retain memory across its laps, while crossing to a differently-labelled state at a phase boundary clears it. **Rendered as an Eta template**, exactly like `model`; gtd never interprets the rendered value; unset means "use the harness's default". **Forbidden on a commit state.** See [Configuration](docs/configuration.md#memory--the-memory-scope-label-template-rendered) and the loop driver contract in `skills/loop/SKILL.md`. |
+| `label`                                       | Optional, opaque string — a display name emitted alongside the state's content for a driver/viewer to show in place of the raw state name. **Rendered as an Eta template**, exactly like `model`/`memory`; gtd never interprets the rendered value; unset means the state has no display name. **Forbidden on a commit state.** A driver/viewer choosing to fall back to the raw state name when unset is that consumer's own fallback, not something gtd itself does. See [Configuration](docs/configuration.md#label--the-opaque-display-name-template-rendered).                                                                                                                                                                                                                                                                                                                    |
 | `file`                                        | Optional — THE steering file this state is about: the file a human/editor should look at while the machine rests here. An **Eta template**, rendered exactly like `model` (must render non-empty). **Forbidden on a commit state.** Multiple states may share one `file:`. gtd itself never reads a path out of this string — only `gtd lsp` (`src/Lsp.ts`) interprets it, to map rendered paths to `mode` — see [Configuration](docs/configuration.md#filemode--the-steering-file-association).                                                                                                                                                                                                                                                                                                                                                                                       |
 | `mode`                                        | Optional, requires `file:`. The associated file's FORMAT: the name of a **steering-file mode** — one of the two built-ins (`qa` \| `review`) or one the workflow declares in `modes:` (a `format:`/`validate:` pair of shell commands — see §12). gtd formats and validates the file with that mode at `gtd validate` and at the `gtd step` capture gate; `gtd lsp` dispatches document symbols/code actions/diagnostics on the built-in names only. A name nothing defines is a load error. Like `model`, this is opaque emitted data — the ENGINE never branches on it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                             |
 | `reviewWindow: true`                          | Optional boolean. While the machine RESTS at this state, gtd opens a **review checkout window** — HEAD and the index are rewound to the review base with the working tree untouched, so the whole `base..HEAD` diff surfaces as ordinary uncommitted changes in the editor's git integration; it closes automatically once the machine rests anywhere else (see §11). The pure engine never observes it. **Forbidden on a commit state.**                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -39,15 +40,15 @@ A workflow is a set of named **states**. Each state declares:
 | `fixEntry: true`                              | Optional boolean. Marks the (at most one) state `gtd fix` enters to start a BRAND NEW process that goes straight into repairing the current failing tests (§10). Same rule family as `reviewEntry` — the pure engine never reads it, and `gtd fix` REQUIRES resting at the initial state before it acts — but simpler: it needs NO diff-base trailer (the fix process reviews its own fixes from the ordinary process start), so the whole mechanism is just the empty entry commit `gtd fix` writes at the edge. **Forbidden on a commit state and on the initial state.**                                                                                                                                                                                                                                                                                                            |
 
 **Emission:** `gtd next --json`/`gtd status --json` gain optional `memory`
-(rendered), `file` (rendered) and `mode` (verbatim) keys, omitted — never `null`
-— when unset, exactly like `model`; plain `gtd status` prints
-`Memory:`/`File:`/`Mode:` lines (after `Model:`) when set. Both also emit an
-`edges` array — the resting state's `on` edges as
+(rendered), `label` (rendered), `file` (rendered) and `mode` (verbatim) keys,
+omitted — never `null` — when unset, exactly like `model`; plain `gtd status`
+prints `Memory:`/`File:`/`Mode:` lines (after `Model:`) when set. Both also emit
+an `edges` array — the resting state's `on` edges as
 `{ pattern, target, describe? }` (the same list a `message:` template sees as
 `it.edges`, see §3) — omitted only when the state has no `on` (a commit state);
 a per-edge `describe` key is likewise omitted when that edge declares none.
 Plain-text output carries none of these structured keys (JSON-only, exactly like
-`model`/`memory`/`file`/`mode`).
+`model`/`memory`/`label`/`file`/`mode`).
 
 A state is either a **rest** (has an `actor` — `gtd` halts there and awaits that
 actor's next step) or a **commit state** (has `commit:` instead of an
@@ -271,10 +272,14 @@ entering it performs, atomically:
    discarded with the turns below). A failed render (a malformed template,
    `read()` throwing for a missing path) **refuses the step and touches
    nothing** — no reset, no commit, no file discarded.
-2. **Soft-reset** to the process's start parent (the commit before the process's
+2. **Retain** the pre-squash tip (HEAD, before anything below moves it) on the
+   per-worktree retained-history ref (see "Undoing a squash or abandon" below; a
+   no-op for an empty process, where the tip already equals the start parent).
+3. **Soft-reset** to the process's start parent (the commit before the process's
    first turn — `EMPTY_TREE` if the process covers the whole history) and write
-   **one** commit with the rendered message, verbatim as its subject/body.
-3. **Discard** everything still left uncommitted — the message-template file
+   **one** commit with the rendered message plus a `Gtd-History: <hash>` trailer
+   pointing at the retained tip, otherwise verbatim as its subject/body.
+4. **Discard** everything still left uncommitted — the message-template file
    included; it never enters history.
 
 The net effect: every intermediate `gtd(<actor>): <state>` commit the process
@@ -306,6 +311,21 @@ worse tool); a process whose first commit is the repository's root commit is the
 one refusal, since there is no earlier commit to rewind to. Like the squash,
 this lives entirely at the edge (`src/program.ts`) — the pure engine has no
 notion of abandoning.
+
+**Undoing a squash or abandon.** Both a squash and `gtd abandon` first record
+the pre-collapse tip on the per-worktree `refs/worktree/gtd/history` ref
+(`src/RetainedHistory.ts`) before they act — a rolling ref, so a later
+squash/abandon simply overwrites it with its own tip, and self-cleaning: git
+drops it along with the worktree, same per-worktree `refs/worktree/*` namespace
+rationale as the review checkout window's own refs (§11). **`gtd restore`** is
+the way back: it hard-resets HEAD to that retained tip and clears the ref,
+refusing on a dirty working tree, when there is no retained history, or when
+HEAD has since advanced past the tip with commits that would be discarded
+(checked by `restorability`, which accepts either a freshly-landed squash commit
+— HEAD's own `Gtd-History:` trailer still points at the tip — or a cleaned
+abandon/fast-forward where HEAD is an ancestor of the tip). Like the squash and
+abandon, this lives entirely at the edge (`src/program.ts`) — the pure engine
+has no notion of restoring.
 
 ## 9. Validation
 
@@ -420,27 +440,27 @@ is a free-form plan with no `mode:`, so there is nothing to validate there.
 **Entry + shared states** (the simple-flow gate, the shared health/tail, and the
 `gtd review`/`gtd fix` gates — everything the entries share):
 
-| State                  | Actor | Content | `on`                                                                                                           | Retry              | Model   | Memory   | File / Mode                  |
-| ---------------------- | ----- | ------- | -------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | -------- | ---------------------------- |
-| `idle` (initial)       | human | message | `* .gtd/REQUIREMENTS.md` → `adv-start-check`; `* **` → `start-check`                                           | —                  | —       | —        | —                            |
-| `start-check`          | check | script  | `A`/`M .gtd/FEEDBACK.md` → `start-blocked`; `D .gtd/FEEDBACK.md` → `planning`; `C` → `planning`                | —                  | —       | —        | —                            |
-| `start-blocked`        | human | message | `* **` → `start-check`                                                                                         | —                  | —       | —        | `vars.feedbackFile`          |
-| `planning`             | agent | prompt  | `* **` → `plan-review`                                                                                         | —                  | `smart` | `plan`   | `vars.todoFile`              |
-| `plan-review`          | human | message | `C` → `building`; `* **` → `planning`                                                                          | —                  | —       | —        | `vars.todoFile`              |
-| `building`             | agent | prompt  | `* **` → `checking`                                                                                            | —                  | `base`  | `build`  | `vars.todoFile`              |
-| `checking`             | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`                     | —                  | —       | —        | —                            |
-| `fixing`               | agent | prompt  | `* **` → `checking`                                                                                            | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile`          |
-| `escalate`             | human | message | `* **` → `checking`                                                                                            | —                  | —       | —        | `vars.feedbackFile`          |
-| `review-start-check`   | check | script  | `A`/`M .gtd/FEEDBACK.md` → `review-start-blocked`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`       | —                  | —       | —        | —                            |
-| `review-start-blocked` | human | message | `* **` → `review-start-check`                                                                                  | —                  | —       | —        | `vars.feedbackFile`          |
-| `fix-check`            | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `idle`; `C` → `idle`                               | —                  | —       | —        | —                            |
-| `reviewing`            | agent | prompt  | `* **` → `await-review`                                                                                        | —                  | `smart` | `review` | `vars.reviewFile` / `review` |
-| `await-review`         | human | message | `* **` → `review-deciding` (+ edge sign-off gate: refuses a deleted `REVIEW.md` / an unticked-no-comment step) | —                  | —       | —        | `vars.reviewFile` / `review` |
-| `review-deciding`      | check | script  | `A`/`M .gtd/REVIEW_RAW.md` → `feedback-collecting`; `D .gtd/REVIEW.md` → `squashing`                           | —                  | —       | —        | `vars.reviewFile` / `review` |
-| `feedback-collecting`  | agent | prompt  | `A`/`M .gtd/REVIEW_FEEDBACK.md` → `feedback-building`                                                          | —                  | `smart` | `review` | `vars.reviewFeedbackFile`    |
-| `feedback-building`    | agent | prompt  | `* **` → `checking` (+ edge `requireProgress` gate: refuses a work-free delete of the instructions file)       | —                  | `base`  | `build`  | `vars.reviewFeedbackFile`    |
-| `squashing`            | agent | prompt  | `A`/`M .gtd/COMMIT_MSG.md` → `done`                                                                            | —                  | `base`  | `build`  | `vars.commitMsgFile`         |
-| `done`                 | —     | commit  | — (commit state: squash ends the process)                                                                      | —                  | —       | —        | —                            |
+| State                  | Label                        | Actor | Content | `on`                                                                                                           | Retry              | Model   | Memory   | File / Mode                  |
+| ---------------------- | ---------------------------- | ----- | ------- | -------------------------------------------------------------------------------------------------------------- | ------------------ | ------- | -------- | ---------------------------- |
+| `idle` (initial)       | Idle                         | human | message | `* .gtd/REQUIREMENTS.md` → `adv-start-check`; `* **` → `start-check`                                           | —                  | —       | —        | —                            |
+| `start-check`          | Checking the baseline        | check | script  | `A`/`M .gtd/FEEDBACK.md` → `start-blocked`; `D .gtd/FEEDBACK.md` → `planning`; `C` → `planning`                | —                  | —       | —        | —                            |
+| `start-blocked`        | Baseline is red              | human | message | `* **` → `start-check`                                                                                         | —                  | —       | —        | `vars.feedbackFile`          |
+| `planning`             | Refining the plan            | agent | prompt  | `* **` → `plan-review`                                                                                         | —                  | `smart` | `plan`   | `vars.todoFile`              |
+| `plan-review`          | Awaiting your review         | human | message | `C` → `building`; `* **` → `planning`                                                                          | —                  | —       | —        | `vars.todoFile`              |
+| `building`             | Building                     | agent | prompt  | `* **` → `checking`                                                                                            | —                  | `base`  | `build`  | `vars.todoFile`              |
+| `checking`             | Running checks               | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`                     | —                  | —       | —        | —                            |
+| `fixing`               | Fixing the check             | agent | prompt  | `* **` → `checking`                                                                                            | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile`          |
+| `escalate`             | Escalating to a human        | human | message | `* **` → `checking`                                                                                            | —                  | —       | —        | `vars.feedbackFile`          |
+| `review-start-check`   | Checking the baseline        | check | script  | `A`/`M .gtd/FEEDBACK.md` → `review-start-blocked`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`       | —                  | —       | —        | —                            |
+| `review-start-blocked` | Baseline is red              | human | message | `* **` → `review-start-check`                                                                                  | —                  | —       | —        | `vars.feedbackFile`          |
+| `fix-check`            | Checking the baseline        | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `idle`; `C` → `idle`                               | —                  | —       | —        | —                            |
+| `reviewing`            | Reviewing                    | agent | prompt  | `* **` → `await-review`                                                                                        | —                  | `smart` | `review` | `vars.reviewFile` / `review` |
+| `await-review`         | Awaiting your review         | human | message | `* **` → `review-deciding` (+ edge sign-off gate: refuses a deleted `REVIEW.md` / an unticked-no-comment step) | —                  | —       | —        | `vars.reviewFile` / `review` |
+| `review-deciding`      | Reviewing                    | check | script  | `A`/`M .gtd/REVIEW_RAW.md` → `feedback-collecting`; `D .gtd/REVIEW.md` → `squashing`                           | —                  | —       | —        | `vars.reviewFile` / `review` |
+| `feedback-collecting`  | Collecting your feedback     | agent | prompt  | `A`/`M .gtd/REVIEW_FEEDBACK.md` → `feedback-building`                                                          | —                  | `smart` | `review` | `vars.reviewFeedbackFile`    |
+| `feedback-building`    | Addressing your feedback     | agent | prompt  | `* **` → `checking` (+ edge `requireProgress` gate: refuses a work-free delete of the instructions file)       | —                  | `base`  | `build`  | `vars.reviewFeedbackFile`    |
+| `squashing`            | Squashing                    | agent | prompt  | `A`/`M .gtd/COMMIT_MSG.md` → `done`                                                                            | —                  | `base`  | `build`  | `vars.commitMsgFile`         |
+| `done`                 | — (commit state: no `label`) | —     | commit  | — (commit state: squash ends the process)                                                                      | —                  | —       | —        | —                            |
 
 `await-review` declares **`reviewWindow: true`** and `review-deciding`
 **`reviewBase: true`** (§11); `review-start-check` declares
@@ -449,23 +469,23 @@ is a free-form plan with no `mode:`, so there is nothing to validate there.
 **Advanced-flow states** (reached only via the `.gtd/REQUIREMENTS.md` entry, and
 each fronted by the `adv-start-check` green-baseline gate):
 
-| State                 | Actor | Content | `on`                                                                                                                                 | Retry                  | Model   | Memory   | File / Mode                    |
-| --------------------- | ----- | ------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | ------- | -------- | ------------------------------ |
-| `adv-start-check`     | check | script  | `A`/`M .gtd/FEEDBACK.md` → `adv-start-blocked`; `D .gtd/FEEDBACK.md` → `adv-grilling`; `C` → `adv-grilling`                          | —                      | —       | —        | —                              |
-| `adv-start-blocked`   | human | message | `* **` → `adv-start-check`                                                                                                           | —                      | —       | —        | `vars.feedbackFile`            |
-| `adv-grilling`        | agent | prompt  | `* **` → `adv-grilling-answer`                                                                                                       | —                      | `smart` | `plan`   | `vars.requirementsFile` / `qa` |
-| `adv-grilling-answer` | human | message | `C` → `architecting`; `* **` → `adv-grilling` (+ edge `answerGate`: refuses a step while any open question isn't exactly-one-ticked) | —                      | —       | —        | `vars.requirementsFile` / `qa` |
-| `architecting`        | agent | prompt  | `* **` → `architecting-answer`                                                                                                       | —                      | `smart` | `plan`   | `vars.architectureFile` / `qa` |
-| `architecting-answer` | human | message | `C` → `decompose`; `* **` → `architecting` (+ edge `answerGate`: refuses a step while any open question isn't exactly-one-ticked)    | —                      | —       | —        | `vars.architectureFile` / `qa` |
-| `decompose`           | agent | prompt  | `* .gtd/packages/**` → `picking`                                                                                                     | —                      | `base`  | `build`  | —                              |
-| `picking`             | check | script  | `D .gtd/NEXT.md` → `reviewing`; `* .gtd/NEXT.md` → `adv-building`; `C` → `reviewing`                                                 | —                      | —       | —        | —                              |
-| `adv-building`        | agent | prompt  | `* **` → `adv-checking`                                                                                                              | —                      | `base`  | `build`  | —                              |
-| `adv-checking`        | check | script  | `A`/`M .gtd/FEEDBACK.md` → `adv-fixing`; `D .gtd/FEEDBACK.md` → `spec-review`; `C` → `spec-review`                                   | —                      | —       | —        | —                              |
-| `adv-fixing`          | agent | prompt  | `* **` → `adv-checking`                                                                                                              | max 3 → `adv-escalate` | `base`  | `fix`    | `vars.feedbackFile`            |
-| `adv-escalate`        | human | message | `* **` → `adv-checking`                                                                                                              | —                      | —       | —        | `vars.feedbackFile`            |
-| `spec-review`         | agent | prompt  | `A`/`M .gtd/SPEC_FEEDBACK.md` → `spec-fix`; `D .gtd/SPEC_FEEDBACK.md` → `closing`; `C` → `closing`                                   | max 3 → `closing`      | `smart` | `review` | —                              |
-| `spec-fix`            | agent | prompt  | `* **` → `adv-checking`                                                                                                              | —                      | `base`  | `fix`    | `vars.specFeedbackFile`        |
-| `closing`             | check | script  | `* **` → `picking`                                                                                                                   | —                      | —       | —        | —                              |
+| State                 | Label                       | Actor | Content | `on`                                                                                                                                 | Retry                  | Model   | Memory   | File / Mode                    |
+| --------------------- | --------------------------- | ----- | ------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | ------- | -------- | ------------------------------ |
+| `adv-start-check`     | Checking the baseline       | check | script  | `A`/`M .gtd/FEEDBACK.md` → `adv-start-blocked`; `D .gtd/FEEDBACK.md` → `adv-grilling`; `C` → `adv-grilling`                          | —                      | —       | —        | —                              |
+| `adv-start-blocked`   | Baseline is red             | human | message | `* **` → `adv-start-check`                                                                                                           | —                      | —       | —        | `vars.feedbackFile`            |
+| `adv-grilling`        | Refining the product plan   | agent | prompt  | `* **` → `adv-grilling-answer`                                                                                                       | —                      | `smart` | `plan`   | `vars.requirementsFile` / `qa` |
+| `adv-grilling-answer` | Awaiting your answers       | human | message | `C` → `architecting`; `* **` → `adv-grilling` (+ edge `answerGate`: refuses a step while any open question isn't exactly-one-ticked) | —                      | —       | —        | `vars.requirementsFile` / `qa` |
+| `architecting`        | Refining the technical plan | agent | prompt  | `* **` → `architecting-answer`                                                                                                       | —                      | `smart` | `plan`   | `vars.architectureFile` / `qa` |
+| `architecting-answer` | Awaiting your answers       | human | message | `C` → `decompose`; `* **` → `architecting` (+ edge `answerGate`: refuses a step while any open question isn't exactly-one-ticked)    | —                      | —       | —        | `vars.architectureFile` / `qa` |
+| `decompose`           | Decomposing into packages   | agent | prompt  | `* .gtd/packages/**` → `picking`                                                                                                     | —                      | `base`  | `build`  | —                              |
+| `picking`             | Picking the next package    | check | script  | `D .gtd/NEXT.md` → `reviewing`; `* .gtd/NEXT.md` → `adv-building`; `C` → `reviewing`                                                 | —                      | —       | —        | —                              |
+| `adv-building`        | Building                    | agent | prompt  | `* **` → `adv-checking`                                                                                                              | —                      | `base`  | `build`  | —                              |
+| `adv-checking`        | Running checks              | check | script  | `A`/`M .gtd/FEEDBACK.md` → `adv-fixing`; `D .gtd/FEEDBACK.md` → `spec-review`; `C` → `spec-review`                                   | —                      | —       | —        | —                              |
+| `adv-fixing`          | Fixing the check            | agent | prompt  | `* **` → `adv-checking`                                                                                                              | max 3 → `adv-escalate` | `base`  | `fix`    | `vars.feedbackFile`            |
+| `adv-escalate`        | Escalating to a human       | human | message | `* **` → `adv-checking`                                                                                                              | —                      | —       | —        | `vars.feedbackFile`            |
+| `spec-review`         | Reviewing the package       | agent | prompt  | `A`/`M .gtd/SPEC_FEEDBACK.md` → `spec-fix`; `D .gtd/SPEC_FEEDBACK.md` → `closing`; `C` → `closing`                                   | max 3 → `closing`      | `smart` | `review` | —                              |
+| `spec-fix`            | Fixing review feedback      | agent | prompt  | `* **` → `adv-checking`                                                                                                              | —                      | `base`  | `fix`    | `vars.specFeedbackFile`        |
+| `closing`             | Closing out the package     | check | script  | `* **` → `picking`                                                                                                                   | —                      | —       | —        | —                              |
 
 ### Walkthrough — the simple flow and the shared tail
 

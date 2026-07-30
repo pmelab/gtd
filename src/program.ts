@@ -14,6 +14,7 @@ import {
   executeDecision,
   pendingChanges,
   renderFile,
+  renderLabel,
   renderMemory,
   renderModel,
   renderRest,
@@ -34,6 +35,12 @@ import {
   reviewBaseHash,
   REVIEW_HEAD_REF,
 } from "./ReviewWindow.js"
+import {
+  clearRetainedHistory,
+  readRetainedHistory,
+  restorability,
+  retainHistory,
+} from "./RetainedHistory.js"
 import { startLspServer } from "./Lsp.js"
 import {
   buildCurrentStateModel,
@@ -100,6 +107,12 @@ Commands:
                    the commit the process started from, keeping everything it
                    produced as uncommitted changes. A no-op when no process is
                    underway
+  restore          Hard-reset HEAD back to the pre-squash tip retained by the
+                   last squash/abandon (refs/worktree/gtd/history), undoing a
+                   squash or bringing back an abandoned process's turns.
+                   Refuses on a dirty working tree, when there is no retained
+                   history, or when HEAD has advanced past the squash with
+                   commits that would be lost
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
   status           Print the resolved rest's state/actor and which declared
@@ -708,6 +721,9 @@ const runAbandonCommand = (
       )
     }
 
+    const tip = yield* git.resolveRef("HEAD")
+    yield* retainHistory(git, tip, run.startParentHash)
+
     yield* git.mixedResetTo(run.startParentHash)
     const subject = yield* git.lastCommitSubject()
     if (json) {
@@ -725,6 +741,75 @@ const runAbandonCommand = (
           `${run.startParentHash.slice(0, 7)} ("${subject}"), resting at "${initial}".\n` +
           `Everything the process produced is kept as uncommitted changes (\`git status\`); ` +
           `discard them with \`git checkout -- . && git clean -fd .gtd\` for a clean tree.\n`,
+      )
+    }
+  })
+
+/**
+ * `gtd restore`: hard-reset HEAD back to the pre-squash tip a squash or
+ * `gtd abandon` retained (`RetainedHistory.ts`'s `HISTORY_REF`), undoing
+ * either. Unlike `gtd abandon` (which rewinds a process still underway),
+ * restore reaches BACK past a completed squash — or re-applies an abandon's
+ * own retained tip — to bring the turn-by-turn history back.
+ *
+ * Guarded by `restorability` so it never discards work it didn't create:
+ * refuses on a dirty working tree, when there is no retained history, and
+ * when HEAD has advanced past the retained tip with commits that would be
+ * lost by resetting.
+ */
+const runRestoreCommand = (
+  argv: readonly string[],
+  json: boolean,
+  write: (chunk: string) => void,
+): Effect.Effect<void, Error, ProgramRequirements> =>
+  Effect.gen(function* () {
+    yield* rejectExtraArgs("restore", argv)
+
+    const git = yield* GitService
+
+    const changes = yield* pendingChanges(git)
+    if (changes.length > 0) {
+      return yield* Effect.fail(
+        new Error(
+          "gtd restore: refuses on a dirty working tree — commit, stash, or discard your changes first.",
+        ),
+      )
+    }
+
+    const retained = yield* readRetainedHistory(git)
+    if (Option.isNone(retained)) {
+      return yield* Effect.fail(new Error("gtd restore: no retained history to restore."))
+    }
+    const tip = retained.value
+
+    const before = yield* resolveRest()
+    const headHash = yield* git.resolveRef("HEAD")
+    const headMessage = yield* git.lastCommitMessage()
+    const check = yield* restorability(git, headHash, headMessage, tip)
+    if (!check.ok) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd restore: ${check.reason} — HEAD ${headHash.slice(0, 7)} is ahead of the ` +
+            `retained tip ${tip.slice(0, 7)}.`,
+        ),
+      )
+    }
+
+    yield* git.hardResetTo(tip)
+    yield* clearRetainedHistory(git)
+
+    const after = yield* resolveRest()
+    const subject = yield* git.lastCommitSubject()
+
+    if (json) {
+      write(
+        JSON.stringify({ state: after.state, restored: true, to: tip, from: before.state }) + "\n",
+      )
+    } else {
+      write(
+        `restored the retained history — HEAD is back at ${tip.slice(0, 7)} ("${subject}"), ` +
+          `resting at "${after.state}". Resume with the loop, or \`git reset\` to any earlier ` +
+          `turn to restart from there.\n`,
       )
     }
   })
@@ -760,6 +845,7 @@ const nextJsonOutput = (rendered: RenderedRest): string =>
     content: rendered.content,
     ...(rendered.model !== undefined ? { model: rendered.model } : {}),
     ...(rendered.memory !== undefined ? { memory: rendered.memory } : {}),
+    ...(rendered.label !== undefined ? { label: rendered.label } : {}),
     ...(rendered.file !== undefined ? { file: rendered.file } : {}),
     ...(rendered.mode !== undefined ? { mode: rendered.mode } : {}),
     ...(rendered.edges.length > 0 ? { edges: rendered.edges } : {}),
@@ -1190,13 +1276,14 @@ const costStatusLines = (cost: number, byModel: readonly ModelCost[]): string[] 
   return lines
 }
 
-/** `gtd status --json`'s emission — `{state, actor, changes, model?, memory?, file?, mode?, cost?, costByModel?, edges?}`. */
+/** `gtd status --json`'s emission — `{state, actor, changes, model?, memory?, label?, file?, mode?, cost?, costByModel?, edges?}`. */
 const writeStatusJson = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
   statusChanges: readonly StatusChange[],
   model: string | undefined,
   memory: string | undefined,
+  label: string | undefined,
   file: string | undefined,
   cost: number,
   costByModel: readonly ModelCost[],
@@ -1209,6 +1296,7 @@ const writeStatusJson = (
       changes: statusChanges,
       ...(model !== undefined ? { model } : {}),
       ...(memory !== undefined ? { memory } : {}),
+      ...(label !== undefined ? { label } : {}),
       ...(file !== undefined ? { file } : {}),
       ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
       ...(cost > 0 ? { cost } : {}),
@@ -1218,18 +1306,20 @@ const writeStatusJson = (
   )
 }
 
-/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Model:`/`Memory:`/`File:`/`Mode:`/`Cost:`/`Pending:` lines. */
+/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Label:`/`Model:`/`Memory:`/`File:`/`Mode:`/`Cost:`/`Pending:` lines. */
 const writeStatusPlain = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
   statusChanges: readonly StatusChange[],
   model: string | undefined,
   memory: string | undefined,
+  label: string | undefined,
   file: string | undefined,
   cost: number,
   costByModel: readonly ModelCost[],
 ): void => {
   const lines = [`State: ${rest.state}`, `Awaits: ${rest.actor}`]
+  if (label !== undefined) lines.push(`Label: ${label}`)
   if (model !== undefined) lines.push(`Model: ${model}`)
   if (memory !== undefined) lines.push(`Memory: ${memory}`)
   if (file !== undefined) lines.push(`File: ${file}`)
@@ -1259,6 +1349,7 @@ const runStatusCommand = (
     const changes = yield* pendingChanges(git)
     const model = yield* renderModel(rest.stateDef, context)
     const memory = yield* renderMemory(rest.stateDef, context)
+    const label = yield* renderLabel(rest.stateDef, context)
     const file = yield* renderFile(rest.stateDef, context)
     const statusChanges = computeStatusChanges(rest.stateDef.on ?? [], changes)
     if (json) {
@@ -1268,6 +1359,7 @@ const runStatusCommand = (
         statusChanges,
         model,
         memory,
+        label,
         file,
         context.processCost,
         context.processCostByModel,
@@ -1279,6 +1371,7 @@ const runStatusCommand = (
         statusChanges,
         model,
         memory,
+        label,
         file,
         context.processCost,
         context.processCostByModel,
@@ -1419,6 +1512,7 @@ const KNOWN_SUBCOMMANDS = [
   "review",
   "fix",
   "abandon",
+  "restore",
   "next",
   "status",
   "validate",
@@ -1545,6 +1639,8 @@ const dispatchKnownSubcommand = (
       return runFixCommand(argv, json, write)
     case "abandon":
       return runAbandonCommand(argv, json, write)
+    case "restore":
+      return runRestoreCommand(argv, json, write)
     case "next":
       return runNextCommand(json, write)
     case "status":
