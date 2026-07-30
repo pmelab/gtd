@@ -183,18 +183,21 @@ GTD_LOOP_AGENT_CMD='my-agent-cli --prompt "$GTD_LOOP_PROMPT"' gtd
 
 ## Herdr integration (optional)
 
-`bin/gtd-loop` optionally reports its lifecycle to [Herdr](https://herdr.dev) (a
+`bin/gtd` optionally reports its lifecycle to [Herdr](https://herdr.dev) (a
 terminal multiplexer for coding agents) via a `herdr` CLI binary, entirely at
 the driver's edge — gtd core never talks to Herdr. Every call is best-effort
 (guarded, output discarded, `|| true`), so a missing/failing `herdr` binary
-never blocks, slows, or fails the loop.
+never blocks, slows, or fails the loop. Because that guard also hides a herdr
+CLI-signature mismatch, set `GTD_HERDR_DEBUG=1` to surface every `herdr` call
+and its exit code on stderr instead.
 
 The reporting is a no-op unless all three guard conditions hold: `HERDR_ENV=1`,
-a non-empty `$HERDR_PANE_ID`, and `herdr` on `$PATH`. When they do, `gtd-loop`
-makes three kinds of calls:
+a non-empty `$HERDR_PANE_ID`, and `herdr` on `$PATH`. When they do, `gtd` makes
+three kinds of calls (note the positional `<PANE_ID>` comes BEFORE the options —
+herdr's `pane` subcommands reject a trailing pane id):
 
-- `herdr pane report-agent --source herdr:gtd --agent gtd --state <state> --message <label> "$HERDR_PANE_ID"`
-- `herdr pane release-agent --source herdr:gtd --agent gtd "$HERDR_PANE_ID"`
+- `herdr pane report-agent "$HERDR_PANE_ID" --source herdr:gtd --agent gtd --state <state> --message <label>`
+- `herdr pane release-agent "$HERDR_PANE_ID" --source herdr:gtd --agent gtd`
 - `herdr notification show <title> --body <label> --sound request`
 
 mapped onto the loop's states like this:

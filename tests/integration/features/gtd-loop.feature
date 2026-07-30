@@ -454,9 +454,9 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And stdout contains "--- Settled (checking: check passed, nothing to do) ---"
     And the fake herdr log contains, in order:
       """
-      pane report-agent --source herdr:gtd --agent gtd --state working --message working test-pane
-      pane report-agent --source herdr:gtd --agent gtd --state idle --message checking test-pane
-      pane release-agent --source herdr:gtd --agent gtd test-pane
+      pane report-agent test-pane --source herdr:gtd --agent gtd --state working --message working
+      pane report-agent test-pane --source herdr:gtd --agent gtd --state idle --message checking
+      pane release-agent test-pane --source herdr:gtd --agent gtd
       """
 
   Scenario: Reports blocked and notifies Herdr when halting at a human gate
@@ -512,7 +512,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And stdout contains "--- Your turn (idle) ---"
     And the fake herdr log contains, in order:
       """
-      pane report-agent --source herdr:gtd --agent gtd --state blocked --message idle test-pane
+      pane report-agent test-pane --source herdr:gtd --agent gtd --state blocked --message idle
       notification show gtd needs you
       """
 
@@ -544,8 +544,8 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And stdout contains "--- Settled (watching: check passed, nothing to do) ---"
     And the fake herdr log contains, in order:
       """
-      pane report-agent --source herdr:gtd --agent gtd --state idle --message watching test-pane
-      pane release-agent --source herdr:gtd --agent gtd test-pane
+      pane report-agent test-pane --source herdr:gtd --agent gtd --state idle --message watching
+      pane release-agent test-pane --source herdr:gtd --agent gtd
       """
 
   Scenario: Reports blocked and notifies Herdr via the exit trap when the loop stops on failure
@@ -585,6 +585,6 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And stderr contains "no progress at 'working'"
     And the fake herdr log contains, in order:
       """
-      pane report-agent --source herdr:gtd --agent gtd --state blocked --message working: exited 1 test-pane
+      pane report-agent test-pane --source herdr:gtd --agent gtd --state blocked --message working: exited 1
       notification show gtd stopped
       """

@@ -29,13 +29,26 @@ Given("a stub agent script that responds to prompts with:", (world: GtdWorld, sc
 // mere presence on world is what `gtdLoopEnv` uses to decide whether to
 // provision the Herdr environment at all. The stub logs every invocation's
 // arguments as one space-joined line (however bash's `"$@"` renders them) to
-// a log file, then exits 0, so scenarios can assert on the exact sequence of
-// calls gtd made without a real Herdr install.
+// a log file, so scenarios can assert on the exact sequence of calls gtd made
+// without a real Herdr install.
+//
+// The stub also emulates the one bit of real herdr arg-parsing gtd got wrong
+// once (the positional <PANE_ID> must precede the options on a `pane`
+// subcommand — a trailing pane id makes real herdr reject the first option as
+// `unknown option`, exit 2): a `pane <subcmd>` whose first argument after the
+// subcommand starts with `-` exits 2, so re-introducing the old pane-id-last
+// order fails these scenarios instead of silently no-op'ing.
 Given("a fake herdr binary", (world: GtdWorld) => {
   const dir = mkdtempSync(join(tmpdir(), "gtd-loop-herdr-"))
   const logPath = join(dir, "herdr.log")
   const herdrPath = join(dir, "herdr")
-  writeFileSync(herdrPath, `#!/usr/bin/env bash\necho "$@" >> "${logPath}"\nexit 0\n`)
+  writeFileSync(
+    herdrPath,
+    `#!/usr/bin/env bash\n` +
+      `echo "$@" >> "${logPath}"\n` +
+      `if [ "$1" = pane ] && [ "\${3:0:1}" = - ]; then exit 2; fi\n` +
+      `exit 0\n`,
+  )
   chmodSync(herdrPath, 0o755)
   world.fakeHerdrDir = dir
   world.fakeHerdrLogPath = logPath

@@ -67,20 +67,38 @@ fi
 # `--resume`/`--session-id`. An adapter that ignores them keeps working.
 herdr_ok() { [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1; }
 
+# Run a `herdr` invocation best-effort. Normally output is discarded and a
+# failure is swallowed (`|| true`) so a missing/incompatible herdr never blocks
+# the loop. Set GTD_HERDR_DEBUG=1 to instead surface every call and its exit
+# code on stderr — the escape hatch that makes a silent CLI-signature mismatch
+# (e.g. an arg herdr rejects) visible again.
+herdr_run() {
+  if [ "${GTD_HERDR_DEBUG:-}" = 1 ]; then
+    printf 'gtd/herdr: %s\n' "$*" >&2
+    herdr "$@" >&2
+    printf 'gtd/herdr: exit=%s\n' "$?" >&2
+  else
+    herdr "$@" >/dev/null 2>&1 || true
+  fi
+}
+
+# NOTE: herdr requires the positional <PANE_ID> BEFORE the options for
+# `pane` subcommands — passing it last makes herdr reject the first option as
+# `unknown option` (exit 2). Keep the pane id first here.
 herdr_report() {  # $1=state (working|blocked|idle)  $2=message
   herdr_ok || return 0
-  herdr pane report-agent --source herdr:gtd --agent gtd \
-    --state "$1" --message "$2" "$HERDR_PANE_ID" >/dev/null 2>&1 || true
+  herdr_run pane report-agent "$HERDR_PANE_ID" \
+    --source herdr:gtd --agent gtd --state "$1" --message "$2"
 }
 
 herdr_notify() {  # $1=title  $2=body
   herdr_ok || return 0
-  herdr notification show "$1" --body "$2" --sound request >/dev/null 2>&1 || true
+  herdr_run notification show "$1" --body "$2" --sound request
 }
 
 herdr_release() {  # hand the pane back to Herdr's normal detection
   herdr_ok || return 0
-  herdr pane release-agent --source herdr:gtd --agent gtd "$HERDR_PANE_ID" >/dev/null 2>&1 || true
+  herdr_run pane release-agent "$HERDR_PANE_ID" --source herdr:gtd --agent gtd
 }
 
 trap 'code=$?; if [ "$code" -ne 0 ]; then
