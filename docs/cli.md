@@ -546,13 +546,15 @@ Serve an interactive diagram of the ACTIVE workflow on a local web server: the
 main flow as a graph (each sub-machine invocation collapsed into a single opaque
 black-box node — click it to jump to that sub-machine's own diagram, rendered
 separately below with its true member states/shapes/colours and a muted ghost
-node for any edge leaving the group), a click-through inspector with each
-state's actor, content kind, model/memory, steering file+mode, retry, flags, and
+node for any edge leaving the group; every diagram supports scroll-to-zoom,
+drag-to-pan, and a corner `+`/`−`/fit control cluster), a click-through
+inspector with each state's actor, content kind, its own raw
+prompt/message/script text, model/memory, steering file+mode, retry, flags, and
 outgoing/incoming edges, and — read ONCE at page load, never polled — a "Current
-state" panel showing where the active process rests and which `on` pattern (or
-retry redirect) currently leads where, with the resting node highlighted in the
-diagrams. This is the replacement for the removed `gtd mermaid` — a live viewer
-instead of a static diagram dump.
+state" panel showing where the active process rests, its pending changes, and
+which `on` pattern (or retry redirect) currently leads where, with the resting
+node highlighted in the diagrams. This is the replacement for the removed
+`gtd mermaid` — a live viewer instead of a static diagram dump.
 
 ```
 $ gtd visualize
@@ -571,9 +573,11 @@ or an older server; the browser tolerates either). It runs until interrupted
 - `--json` — print the workflow model to stdout and exit WITHOUT starting a
   server (unchanged shape — live state is a server-only concern). The model is
   `{ states, initial, groups, vars }`; each state carries its
-  `actor`/`kind`/`model`/`memory`/`file`/`mode`/`retry`/`flags`, its `on` edges,
-  its computed `incoming` edges, and its sub-machine `group`. `groups` lists
-  each sub-machine invocation and the concrete states it produced.
+  `actor`/`kind`/`content`/`model`/`memory`/`file`/`mode`/`retry`/`flags`
+  (`content` is the state's own raw script/prompt/message text, omitted for a
+  commit state), its `on` edges, its computed `incoming` edges, and its
+  sub-machine `group`. `groups` lists each sub-machine invocation and the
+  concrete states it produced.
 
 Dispatched before the repository-root guard and the config-reading path's review
 window — it reads the active workflow (the built-in default when none is

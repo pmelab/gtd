@@ -76,6 +76,13 @@ describe("buildVizModel", () => {
     expect(planning.on).toEqual([{ pattern: "* **", to: "done" }])
   })
 
+  it("carries a prompt/message/script state's raw content, omits it for a commit state", () => {
+    expect(stateNamed("planning").content).toBe("plan")
+    expect(stateNamed("idle").content).toBe("idle")
+    expect(stateNamed("start-check").content).toBe("run")
+    expect(stateNamed("done").content).toBeUndefined()
+  })
+
   it("groups states by their sub-machine invocation (using its `name`)", () => {
     expect(model.groups).toContainEqual({
       name: "start",

@@ -343,18 +343,58 @@
         content: "\2212";
       }
       .dia-scroll {
-        overflow-x: auto;
+        position: relative;
+        overflow: hidden;
         background: var(--dia-bg);
-        padding: 18px 16px;
+        height: 460px;
+        cursor: grab;
+        touch-action: none;
+      }
+      .dia-scroll.pz-dragging {
+        cursor: grabbing;
       }
       .dia-scroll .mflow {
-        min-width: min-content;
-        display: flex;
-        justify-content: center;
+        position: absolute;
+        top: 0;
+        left: 0;
+        padding: 18px 16px;
+        transform-origin: 0 0;
       }
       .dia-scroll .mflow svg {
         max-width: none;
         height: auto;
+        display: block;
+      }
+      .pz-controls {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        display: flex;
+        gap: 6px;
+        z-index: 5;
+      }
+      .pz-btn {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text-dim);
+        cursor: pointer;
+        font-size: 15px;
+        font-family: var(--mono);
+        display: grid;
+        place-items: center;
+        box-shadow: var(--shadow-sm);
+        padding: 0;
+      }
+      .pz-btn:hover {
+        color: var(--text);
+        border-color: var(--border-strong);
+      }
+      .pz-btn:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
       }
       .dia-msg {
         padding: 22px 18px;
@@ -379,6 +419,11 @@
         overflow-x: auto;
         color: var(--text-dim);
         max-height: 260px;
+      }
+      .state-content {
+        max-height: 340px;
+        white-space: pre-wrap;
+        word-break: break-word;
       }
 
       /* sub-machines */
@@ -484,6 +529,35 @@
         padding: 1px 7px;
         border-radius: 999px;
         margin-left: auto;
+      }
+
+      /* pending-changes readout in the current-state panel */
+      .pending-list {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        font-family: var(--mono);
+        font-size: 12.5px;
+        margin-bottom: 14px;
+      }
+      .pending-list .pc {
+        display: flex;
+        gap: 9px;
+      }
+      .pending-list .st {
+        font-weight: 700;
+        width: 1ch;
+        flex: none;
+      }
+      .pending-list .path {
+        color: var(--text-dim);
+        word-break: break-all;
+      }
+      .pending-clean {
+        color: var(--text-faint);
+        font-style: italic;
+        font-size: 12.5px;
+        margin-bottom: 14px;
       }
 
       /* mermaid black-box / ghost node labels (rendered inside the SVG via htmlLabels) */
@@ -1495,7 +1569,8 @@
         `<span class="mono">on</span> pattern (first match wins); dashed edges are ` +
         `<span class="mono">retry</span> redirects. A sub-machine invocation collapses into a single ` +
         `dark box (click it to jump to its own diagram below); an edge label is dropped when several ` +
-        `patterns collapse onto the same box-to-box edge. Scrolls horizontally if wide.`
+        `patterns collapse onto the same box-to-box edge. Scroll/pinch or drag to pan and zoom; use the ` +
+        `<span class="mono">+</span>/<span class="mono">−</span>/<span class="mono">⤢</span> controls in the corner.`
 
       // ── diagram render (theme-aware, offline-tolerant) ─────────────────
       async function loadMermaid() {
@@ -1653,6 +1728,7 @@
           }
         })
         applyCurrentHighlight(renderId, host, "main")
+        attachPanZoom(host)
       }
 
       function wireSubmachineDiagramClicks(renderId, host, gi) {
@@ -1672,6 +1748,147 @@
           }
         })
         applyCurrentHighlight(renderId, host, "submachine", gi)
+        attachPanZoom(host)
+      }
+
+      // ── diagram pan & zoom (hand-rolled — no pan-zoom dependency, see plan) ──
+      // `host` is a `.dia-scroll` element whose content mermaid just replaced
+      // wholesale (`renderInto`'s `host.innerHTML = ...`), so old listeners on
+      // its previous children are already gone — this re-creates the control
+      // cluster and re-attaches fresh listeners on every render, never
+      // accumulating stale ones.
+      const REDUCED_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches
+      const clampScale = (s) => Math.min(3, Math.max(0.4, s))
+
+      function attachPanZoom(host) {
+        const flow = host.querySelector(".mflow")
+        const svg = flow && flow.querySelector("svg")
+        if (!flow || !svg) return
+
+        const controls = document.createElement("div")
+        controls.className = "pz-controls"
+        controls.innerHTML =
+          `<button class="pz-btn" data-act="in" title="Zoom in" aria-label="Zoom in">+</button>` +
+          `<button class="pz-btn" data-act="out" title="Zoom out" aria-label="Zoom out">−</button>` +
+          `<button class="pz-btn" data-act="fit" title="Fit to width" aria-label="Fit to width">⤢</button>`
+        host.appendChild(controls)
+
+        const box = svg.getBBox ? svg.getBBox() : { width: 0, height: 0 }
+        const naturalWidth = box.width || svg.clientWidth || 1
+        const naturalHeight = box.height || svg.clientHeight || 1
+
+        const state = { scale: 1, tx: 0, ty: 0 }
+        const apply = () => {
+          flow.style.transform = `translate(${state.tx}px, ${state.ty}px) scale(${state.scale})`
+        }
+        // Fit-to-width, capped at 1× so a small workflow renders at its
+        // natural size (the pre-pan/zoom default) instead of being blown up.
+        const fit = () => {
+          const r = host.getBoundingClientRect()
+          state.scale = clampScale(Math.min(1, Math.max(r.width - 32, 40) / naturalWidth))
+          state.tx = (r.width - naturalWidth * state.scale) / 2
+          state.ty = (r.height - naturalHeight * state.scale) / 2
+          apply()
+        }
+        const zoomBy = (factor, cx, cy) => {
+          const r = host.getBoundingClientRect()
+          const px = cx == null ? r.width / 2 : cx
+          const py = cy == null ? r.height / 2 : cy
+          const next = clampScale(state.scale * factor)
+          const ratio = next / state.scale
+          state.tx = px - (px - state.tx) * ratio
+          state.ty = py - (py - state.ty) * ratio
+          state.scale = next
+          apply()
+        }
+        // Animate only a button-triggered zoom/fit (an explicit, discrete
+        // action) — wheel/drag stay instant so the transform tracks the
+        // cursor/finger with no lag. Skipped entirely under
+        // prefers-reduced-motion.
+        const animated = (fn) => {
+          if (REDUCED_MOTION) return fn()
+          flow.style.transition = "transform 0.18s ease"
+          fn()
+          flow.addEventListener("transitionend", () => (flow.style.transition = ""), {
+            once: true,
+          })
+        }
+        fit()
+
+        host.addEventListener(
+          "wheel",
+          (e) => {
+            e.preventDefault()
+            flow.style.transition = "none"
+            const r = host.getBoundingClientRect()
+            zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top)
+          },
+          { passive: false },
+        )
+
+        // Drag-to-pan: a small movement threshold before a pointerdown counts
+        // as a drag (rather than a click), and — once it does — the resulting
+        // synthetic `click` is swallowed so dragging over a node never opens
+        // its drawer. Pointer capture is deferred until that threshold is
+        // actually crossed: a captured pointer retargets its WHOLE mouse-event
+        // sequence (including the eventual `click`) to `host`, so capturing
+        // eagerly on every pointerdown would silently break a plain click on
+        // any node (or the zoom/fit buttons) — not just an actual drag.
+        let drag = null
+        host.addEventListener("pointerdown", (e) => {
+          if (e.button !== 0 || e.target.closest(".pz-controls")) return
+          drag = { x: e.clientX, y: e.clientY, tx: state.tx, ty: state.ty, moved: false }
+          flow.style.transition = "none"
+        })
+        host.addEventListener("pointermove", (e) => {
+          if (!drag) return
+          const dx = e.clientX - drag.x
+          const dy = e.clientY - drag.y
+          if (!drag.moved && Math.hypot(dx, dy) > 4) {
+            drag.moved = true
+            host.classList.add("pz-dragging")
+            host.setPointerCapture(e.pointerId)
+          }
+          if (drag.moved) {
+            state.tx = drag.tx + dx
+            state.ty = drag.ty + dy
+            apply()
+          }
+        })
+        const endDrag = () => {
+          if (!drag) return
+          if (drag.moved) {
+            host.classList.remove("pz-dragging")
+            host.addEventListener(
+              "click",
+              (ev) => {
+                ev.stopPropagation()
+                ev.preventDefault()
+              },
+              { capture: true, once: true },
+            )
+          }
+          drag = null
+        }
+        host.addEventListener("pointerup", endDrag)
+        host.addEventListener("pointercancel", endDrag)
+
+        controls.querySelector('[data-act="in"]').onclick = (e) => {
+          e.stopPropagation()
+          animated(() => zoomBy(1.25))
+        }
+        controls.querySelector('[data-act="out"]').onclick = (e) => {
+          e.stopPropagation()
+          animated(() => zoomBy(1 / 1.25))
+        }
+        controls.querySelector('[data-act="fit"]').onclick = (e) => {
+          e.stopPropagation()
+          animated(fit)
+        }
+
+        // Exposed so a collapsed sub-machine `<details>` panel can re-fit once
+        // it's actually opened (its content renders at zero width while hidden).
+        host.__pz = { fit, zoomBy }
       }
 
       // ── main flow ────────────────────────────────────────────────────────
@@ -1711,6 +1928,14 @@
             (renderId, host) => wireSubmachineDiagramClicks(renderId, host, i),
             { mode: "submachine", gi: i },
           )
+          // A collapsed <details> renders its content at zero width, so the
+          // pan/zoom "fit" computed while hidden is wrong — recompute it once
+          // the panel is actually opened.
+          card.addEventListener("toggle", () => {
+            if (!card.open) return
+            const host = card.querySelector(`#smDia${i}`)
+            if (host && host.__pz) host.__pz.fit()
+          })
         })
       })()
 
@@ -1728,6 +1953,29 @@
       })()
 
       // ── current-state panel ─────────────────────────────────────────────
+      // Status-letter colour reuses existing actor tokens rather than adding new
+      // theme variables: A (added) reads as the check colour, M (modified) as
+      // the accent, D (deleted) as the engine/commit colour.
+      const PENDING_STATUS_COLOR = {
+        A: "var(--check-fg)",
+        M: "var(--accent)",
+        D: "var(--engine-fg)",
+      }
+      function pendingListHtml(pending) {
+        if (!pending || !pending.length) {
+          return `<p class="pending-clean">working tree clean</p>`
+        }
+        return (
+          `<div class="pending-list">` +
+          pending
+            .map(
+              (c) =>
+                `<div class="pc"><span class="st" style="color:${PENDING_STATUS_COLOR[c.status] || "var(--text-dim)"}">${esc(c.status)}</span><span class="path">${esc(c.path)}</span></div>`,
+            )
+            .join("") +
+          `</div>`
+        )
+      }
       function renderCurrentPanel() {
         const panel = document.getElementById("currentPanel")
         if (!CURRENT || !CURRENT.state) {
@@ -1754,7 +2002,8 @@
           `<div class="cur-head"><span class="cur-name">${esc(CURRENT.state)}</span>` +
           `${pill(a)}<span class="kind">${esc(CURRENT.kind)}</span>` +
           `${CURRENT.group ? `<span class="flow-tag">${esc(CURRENT.group)}</span>` : ""}</div>` +
-          `<div class="edges" style="margin-top:14px">${
+          `<div style="margin-top:14px">${pendingListHtml(CURRENT.pending)}</div>` +
+          `<div class="edges">${
             rows || retryRow ? rows + retryRow : '<p class="none">No outgoing edges declared.</p>'
           }</div>`
         panel.querySelector(".cur-head").onclick = () => navigateTo(CURRENT.state)
@@ -1917,6 +2166,10 @@
           ])
         if (s.group) kv.push(["group", esc(s.group)])
 
+        const contentBlock = s.content
+          ? `<div class="field"><div class="k">content — ${esc(s.kind)}</div><pre class="dia-src state-content">${esc(s.content)}</pre></div>`
+          : ""
+
         const flags = s.flags || []
         const flagBlock = flags.length
           ? `<div class="field"><div class="k">flags & gates</div><div class="flag-list">${flags
@@ -1983,6 +2236,7 @@
           `<div class="field"><div class="k">definition</div><dl class="kv">${kv
             .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`)
             .join("")}</dl></div>` +
+          contentBlock +
           flagBlock +
           edgesBlock +
           retryOut +

@@ -311,6 +311,10 @@ export const contentKindOf = (state: StateDef): ContentKind | undefined => {
 /** True when a state is a commit (final, squash) state. */
 export const isCommitState = (state: StateDef): boolean => state.commit !== undefined
 
+/** The raw template source a state's own content kind carries — `script`/`prompt`/`message`, or `undefined` for a commit state (never at rest, no template a viewer could show). */
+export const contentOf = (state: StateDef): string | undefined =>
+  state.script ?? state.prompt ?? state.message
+
 /** True when a rest at `state` should open the review checkout window (see `StateDef.reviewWindow`). Safe for an unknown state name (returns `false`). */
 export const isReviewWindowState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.reviewWindow === true

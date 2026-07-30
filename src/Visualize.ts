@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http"
 import { spawn } from "node:child_process"
 import {
   contentKindOf,
+  contentOf,
   initialStateOf,
   matchesPattern,
   parsePattern,
@@ -24,18 +25,23 @@ import visualizeHtml from "./visualize.html"
  * sub-machine invocation collapsed into a single opaque black-box node — the
  * "one box per invocation" diagram — plus a separate, real Mermaid diagram per
  * sub-machine (its own member states, true shapes/colours, and a muted ghost
- * node for any edge leaving the group) rendered below, and a per-state
- * inspector.
+ * node for any edge leaving the group) rendered below (each diagram supporting
+ * scroll/drag pan-zoom), and a per-state inspector whose drawer also shows the
+ * state's own raw `script`/`prompt`/`message` source (`VizState.content`,
+ * omitted for a commit state) — the text that actually instructs the actor,
+ * not just the state's shape.
  *
  * A third route, `/state.json`, serves best-effort CURRENT-STATE info: the
  * `CurrentStateModel` built by `buildCurrentStateModel` — where the active
  * process rests right now, which `on` edge would fire on its pending changes,
- * and its retry redirect. The browser fetches it ONCE at page load (no
- * polling — a refresh re-reads) to render a "Current state" panel and
- * highlight the resting node in both the main flow and its sub-machine
- * diagram. This route is served by a caller-supplied `resolveCurrent`
- * callback (`startVizServer`'s 4th argument) so this module stays git/Effect-free;
- * `program.ts`'s `runVisualizeCommand` supplies one backed by `resolveRest`.
+ * its retry redirect, and the pending changes themselves. The browser fetches
+ * it ONCE at page load (no polling — a refresh re-reads) to render a "Current
+ * state" panel — including a readout of those pending changes, explaining
+ * which edge is about to fire and why — and highlight the resting node in
+ * both the main flow and its sub-machine diagram. This route is served by a
+ * caller-supplied `resolveCurrent` callback (`startVizServer`'s 4th argument)
+ * so this module stays git/Effect-free; `program.ts`'s `runVisualizeCommand`
+ * supplies one backed by `resolveRest`.
  *
  * Everything here is a plain function of its inputs — no Effect, no git — so the
  * model builders and the request handler unit-test directly; `program.ts` wires
@@ -56,6 +62,8 @@ export interface VizState {
   readonly actor?: string
   /** `script` | `prompt` | `message` | `commit` | `unknown` (a malformed state). */
   readonly kind: string
+  /** The state's raw template source (script/prompt/message), verbatim — omitted for a commit state. */
+  readonly content?: string
   readonly initial?: boolean
   readonly model?: string
   readonly memory?: string
@@ -116,6 +124,7 @@ const toVizState = (
     name,
     actor: def.actor,
     kind: contentKindOf(def) ?? "unknown",
+    content: contentOf(def),
     initial: def.initial === true ? true : undefined,
     model: def.model,
     memory: def.memory,

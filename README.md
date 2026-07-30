@@ -100,10 +100,12 @@ handful of commands drive it:
   restore, or when HEAD has since moved past it with commits that would be lost.
 - **`gtd visualize`** — serve an interactive diagram of the active workflow on a
   local web server: the main flow (each sub-machine collapsed to one box, with
-  its own diagram below), per-state details, and a "Current state" panel showing
-  where the active process rests and which action leads where. The panel and
-  diagram highlight refresh live (~every 3s) while the page is open, so
-  advancing the process elsewhere shows up without a manual refresh.
+  its own diagram below — pan/zoom with scroll, drag, or the corner controls),
+  per-state details including the state's own raw prompt/message/ script text,
+  and a "Current state" panel showing where the active process rests, its
+  pending changes, and which action leads where. The panel and diagram highlight
+  refresh live (~every 3s) while the page is open, so advancing the process
+  elsewhere shows up without a manual refresh.
 
 `gtd version` (or `gtd --version`/`-v`) prints the installed version and exits;
 `gtd help` (or `gtd --help`/`-h`) prints the command list. Both short-circuit
