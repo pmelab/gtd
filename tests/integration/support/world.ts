@@ -52,6 +52,8 @@ export class GtdWorld extends QuickPickleWorld {
   gtdLoopLogOverride: string | undefined = undefined
   /** A stray `$GIT_DIR` value a scenario wants injected into the spawned bin/gtd's env — proving per-worktree state (log, memory marker) stays keyed to the cwd worktree, never the inherited GIT_DIR (@live only). */
   gitDirOverride: string | undefined = undefined
+  /** A leaked `$GTD_LOOP_LOG` (as the loop driver exports when running the suite as its own check) to seed into the spawned env BEFORE the hermetic GTD_LOOP_* strip — proving the strip neutralises it so the spawned gtd resolves its own log, not the driver's (@live only). */
+  leakedGtdLoopLog: string | undefined = undefined
   /** Explicit `$NO_COLOR` value a scenario wants exported (loop rendering scenarios, @live only). */
   noColorOverride: string | undefined = undefined
 

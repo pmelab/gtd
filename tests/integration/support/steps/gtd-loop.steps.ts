@@ -82,6 +82,18 @@ function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
   // provisioned one (via the shared "$EDITOR is a script..."/"...no-op
   // script" steps in edit.steps.ts), sets $EDITOR to the fake editor script.
   const env = editorEnv(world, { ...process.env })
+  // Simulate the loop driver having exported GTD_LOOP_LOG into the environment
+  // the suite inherits when it runs as the driver's own check (see the strip
+  // below and hooks.ts's global scrub).
+  if (world.leakedGtdLoopLog !== undefined) env["GTD_LOOP_LOG"] = world.leakedGtdLoopLog
+  // Hermetic: drop any inherited GTD_LOOP_* runtime state before applying the
+  // scenario's explicit overrides, so a spawned bin/gtd resolves its OWN log
+  // path rather than the driver's. Mirrors hooks.ts's process.env scrub at the
+  // spawn boundary; keeping it here exercises the guard in CI (where no loop
+  // driver set the var) via the leak-injection step above.
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("GTD_LOOP_")) delete env[key]
+  }
   const overrides: Record<string, string | undefined> = {
     GTD_NO_EDIT: noEditValue(world),
     GTD_LOOP_AGENT_CMD: world.stubAgentPath ? `bash "${world.stubAgentPath}"` : undefined,
@@ -112,6 +124,15 @@ Given("GTD_NO_EDIT is set to {string}", (world: GtdWorld, value: string) => {
 // the same relative path string.
 Given("GTD_LOOP_LOG is set to {string}", (world: GtdWorld, value: string) => {
   world.gtdLoopLogOverride = value
+})
+
+// Seeds a LEAKED $GTD_LOOP_LOG into the spawned env — modelling the loop driver
+// having exported its own log path (bin/gtd's `export GTD_LOOP_LOG`) into the
+// environment the suite inherits when it runs as that driver's check. Distinct
+// from "GTD_LOOP_LOG is set to" (an intentional per-scenario override): this
+// value must be STRIPPED, not honoured, so a spawned gtd resolves its own log.
+Given("the loop driver leaked GTD_LOOP_LOG as {string}", (world: GtdWorld, value: string) => {
+  world.leakedGtdLoopLog = value
 })
 
 // Injects a stray `$GIT_DIR` pointing at a SEPARATE (valid, but unrelated) git
