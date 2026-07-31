@@ -33,17 +33,19 @@ by hand first. So:
 
 1. Peek once with `gtd next --json` (it never mutates anything).
 2. **Only if** that peek reports `"kind":"message"` (the machine rests at a
-   human gate), run `gtd step human` to commit whatever the human left pending,
-   then continue into the loop below from the resulting state. A clean gate is a
-   harmless no-op; a human edit is captured as their turn (e.g. accepting a plan
-   with no edit advances past `plan-review`).
+   human gate), act on it exactly as "Halting on a human gate" below describes
+   for a `"message"` rest — by default that opens an editor on the gate's file
+   (or the repo root) and blocks until it exits, then steps; under
+   `--no-edit`/`GTD_NO_EDIT` it steps immediately with no editor instead. Only
+   when the resulting `gtd step human` captures a new commit do you continue
+   into the loop below from the resulting state (e.g. accepting a plan with no
+   edit still advances past `plan-review`, since that state's accept is itself a
+   clean-tree pattern); a clean tree with nothing to capture, or a refusal,
+   halts right there per "Halting on a human gate".
 3. If the peek reports any other `kind`, do **not** step human — the machine is
    mid-cycle at an agent/check rest (a restart after a crash, say), where
    `gtd step human` would refuse out-of-turn. Just enter the loop and resume
    driving.
-
-If that `gtd step human` refuses (a malformed steering file, or an edit no `on`
-pattern accepts), surface the message and stop rather than driving past it.
 
 ## The loop
 
@@ -57,7 +59,8 @@ Repeat this cycle until it halts:
    interprets this string itself. There is also an optional `"memory"` — the
    agent-memory scope; see "Agent memory scope" below for how to act on it.
    **`kind` is the dispatch key**:
-   - `"message"` (a human rest): halt — see "Halting on a human gate" below.
+   - `"message"` (a human rest): act on the gate — see "Halting on a human gate"
+     below.
    - `"script"` (a check rest): `content` is an executable wrapper shell script.
      Execute it verbatim (e.g. `bash -c "$content"`), ignoring its exit code —
      the outcome lives in the tree, not the exit status — then run
@@ -138,10 +141,40 @@ by hand — but as the `--json` driver, you own the gate.)
 
 ## Halting on a human gate
 
-When `gtd next --json` reports `"kind":"message"`, stop driving the loop. Tell
-the user plainly what gtd is waiting on: the reported `state`, and (if you want
-the human-readable phrasing) run `gtd next` without `--json` to get the same
-message rendered for a person. Do not attempt to act on the human's behalf.
+When `gtd next --json` reports `"kind":"message"` (the machine rests at a human
+gate) — whether at the opening peek above or on any later loop iteration — what
+happens next depends on whether editing is enabled.
+
+By default (editing ON), open `${VISUAL:-$EDITOR}` on the gate's `.file` field
+(or the repo root `.` when the state declares no `file:`), blocking until the
+editor exits, then run `gtd step human` to capture whatever the human left in
+the tree:
+
+- A **new commit** captured (including a clean-tree accept a state declares via
+  its own `C` pattern, e.g. accepting a plan with no edit) means the editor
+  session was the human's turn: keep driving — go back into the loop from the
+  resulting state.
+- **Zero commits** captured (the tree was clean when the editor closed) means
+  there was nothing to do: halt (exit 0) — done for now. This is the same
+  halt-and-stop outcome as before, just reached after an editor session instead
+  of before one.
+- A **refusal** (non-zero exit from `gtd step human` — e.g. a malformed steering
+  file, or an edit matching no declared `on` pattern) surfaces the refusal
+  message verbatim and halts with non-zero exit, same as any other step refusal.
+
+Pass `--no-edit` (as a bare flag, or immediately after `loop`) or set
+`GTD_NO_EDIT` to any non-empty value to disable the editor for the run: gtd
+reverts to the previous behavior instead — print the gate's message plainly (the
+reported `state`, and, if you want the human-readable phrasing, run `gtd next`
+without `--json` for the same message rendered for a person) and halt
+immediately (exit 0) without touching an editor or stepping. The human then
+edits and re-runs the loop by hand, exactly as before this feature existed. Do
+not attempt to act on the human's behalf either way.
+
+None of this touches the `kind`-dispatch contract (`"message"` / `"script"` /
+`"prompt"`), stall detection, or the `gtd validate` self-validation gate after a
+producing agent turn — editor-at-gate only changes what happens at a `"message"`
+rest.
 
 ## Stall detection
 

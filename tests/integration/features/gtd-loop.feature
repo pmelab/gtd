@@ -395,6 +395,261 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     Then it succeeds
     And stdout contains "State: idle"
 
+  # The scenarios below prove bin/gtd's editor-at-gate behaviour (see
+  # handle_human_gate and the --no-edit/GTD_NO_EDIT dispatch at the top of
+  # bin/gtd): with editing on (the default) a human gate opens the fake
+  # editor before stepping human, so an edit matching the gate's `on` pattern
+  # lets the loop keep driving, while a no-op editor halts exactly like
+  # today's edit-disabled behaviour. `reviewing` is a second, mid-cycle human
+  # gate (distinct from the opening `idle` gate) so these scenarios prove the
+  # MAIN LOOP's gate handling, not just the opening move's. `idle` here is a
+  # silent check-actor no-op (not a message gate) so that, once the cycle
+  # reaches `done` and falls back to the workflow's initial state, the loop
+  # settles quietly instead of re-opening the editor a second time.
+
+  Scenario: With editing on, an edit matching the gate's pattern lets the loop drive past a human gate
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: check
+            initial: true
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": idle
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": reviewing
+          reviewing:
+            actor: human
+            file: .gtd/REVIEW.md
+            message: "sign off on the build"
+            on:
+              "A .gtd/REVIEW.md": done
+          done:
+            commit: "chore: build reviewed"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And $EDITOR is a script that appends "Looks good." to the opened file
+    When I run bare gtd
+    Then it succeeds
+    And the fake editor was opened on ".gtd/REVIEW.md"
+    And the git log contains "chore: build reviewed"
+    And stdout contains "--- Settled (idle: check passed, nothing to do) ---"
+
+  Scenario: With editing on, a no-op editor halts the loop at the gate instead of looping forever
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: check
+            initial: true
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": idle
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": reviewing
+          reviewing:
+            actor: human
+            file: .gtd/REVIEW.md
+            message: "sign off on the build"
+            on:
+              "A .gtd/REVIEW.md": done
+          done:
+            commit: "chore: build reviewed"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And $EDITOR is a no-op script
+    When I run bare gtd
+    Then it succeeds
+    And the fake editor was opened on ".gtd/REVIEW.md"
+    And stdout contains "--- Done for now (reviewing: nothing captured) ---"
+    And ".gtd/REVIEW.md" does not exist
+
+  Scenario: --no-edit restores the halt-at-gate behaviour, never launching the editor
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: check
+            initial: true
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": idle
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": reviewing
+          reviewing:
+            actor: human
+            file: .gtd/REVIEW.md
+            message: "sign off on the build"
+            on:
+              "A .gtd/REVIEW.md": done
+          done:
+            commit: "chore: build reviewed"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And $EDITOR is a script that appends "should never be seen" to the opened file
+    When I run gtd loop --no-edit
+    Then it succeeds
+    And stdout contains "--- Your turn (reviewing) ---"
+    And the fake editor was not invoked
+
+  Scenario: GTD_NO_EDIT set to a non-empty value behaves identically to --no-edit
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: check
+            initial: true
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": idle
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": reviewing
+          reviewing:
+            actor: human
+            file: .gtd/REVIEW.md
+            message: "sign off on the build"
+            on:
+              "A .gtd/REVIEW.md": done
+          done:
+            commit: "chore: build reviewed"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And $EDITOR is a script that appends "should never be seen" to the opened file
+    And GTD_NO_EDIT is set to "1"
+    When I run bare gtd
+    Then it succeeds
+    And stdout contains "--- Your turn (reviewing) ---"
+    And the fake editor was not invoked
+
   # The scenarios below prove bin/gtd's Herdr pane reporting (see its
   # `herdr_ok`/`herdr_report`/`herdr_notify`/`herdr_release` helpers): it shells
   # out to a `herdr` CLI only when HERDR_ENV=1, HERDR_PANE_ID is set, and

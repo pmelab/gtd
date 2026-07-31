@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
+import { editorEnv } from "./edit.steps.js"
 
 const execFile = promisify(execFileCb)
 
@@ -54,22 +55,47 @@ Given("a fake herdr binary", (world: GtdWorld) => {
   world.fakeHerdrLogPath = logPath
 })
 
+// Resolves $GTD_NO_EDIT for a loop subprocess. An explicit override wins (a
+// scenario asserting on the env var's own effect); otherwise, when no fake
+// editor was provisioned, "1" keeps every OTHER scenario on the pre-existing
+// halt-at-gate behavior it asserts on — without it, a real ambient editor
+// would launch against a tty-less subprocess and hang until the spawn timeout.
+function noEditValue(world: GtdWorld): string | undefined {
+  if (world.gtdNoEditOverride !== undefined) return world.gtdNoEditOverride
+  if (!world.fakeEditorPath) return "1"
+  return undefined
+}
+
+// Adds the fake-herdr wiring: the stub binary must be discoverable on PATH for
+// bin/gtd's `herdr_ok` to fire its Herdr-reporting calls (alongside HERDR_ENV +
+// a non-empty HERDR_PANE_ID). bin/gtd self-locates its bundle, so no `gtd` PATH
+// shim is needed.
+function applyHerdrEnv(env: NodeJS.ProcessEnv, world: GtdWorld): void {
+  if (!world.fakeHerdrDir) return
+  env["PATH"] = `${world.fakeHerdrDir}:${process.env["PATH"]}`
+  env["HERDR_ENV"] = "1"
+  env["HERDR_PANE_ID"] = "test-pane"
+}
+
 function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env }
-  // bin/gtd self-locates its bundle, so no `gtd` PATH shim is needed; the
-  // fake herdr binary, however, must be discoverable on PATH for herdr_ok.
-  if (world.fakeHerdrDir) {
-    env["PATH"] = `${world.fakeHerdrDir}:${process.env["PATH"]}`
-  }
-  if (world.stubAgentPath) {
-    env["GTD_LOOP_AGENT_CMD"] = `bash "${world.stubAgentPath}"`
-  }
-  if (world.fakeHerdrDir) {
-    env["HERDR_ENV"] = "1"
-    env["HERDR_PANE_ID"] = "test-pane"
-  }
+  // editorEnv strips any ambient $EDITOR/$VISUAL and, when a scenario
+  // provisioned one (via the shared "$EDITOR is a script..."/"...no-op
+  // script" steps in edit.steps.ts), sets $EDITOR to the fake editor script.
+  const env = editorEnv(world, { ...process.env })
+  const noEdit = noEditValue(world)
+  if (noEdit !== undefined) env["GTD_NO_EDIT"] = noEdit
+  if (world.stubAgentPath) env["GTD_LOOP_AGENT_CMD"] = `bash "${world.stubAgentPath}"`
+  applyHerdrEnv(env, world)
   return env
 }
+
+// Sets $GTD_NO_EDIT explicitly (a non-empty value disables the loop's
+// automatic editor launching, identically to passing --no-edit) — for
+// scenarios asserting on the env-var form of that switch specifically,
+// distinct from the --no-edit flag itself.
+Given("GTD_NO_EDIT is set to {string}", (world: GtdWorld, value: string) => {
+  world.gtdNoEditOverride = value
+})
 
 function toFailedResult(err: unknown): { exitCode: number; stdout: string; stderr: string } {
   const e = err as { code?: unknown; stdout?: string; stderr?: string }

@@ -86,6 +86,10 @@ Commands:
                    an agent through gtd next/gtd step calls until the
                    workflow returns to its initial state again. A bare gtd
                    invocation and gtd loop both launch it identically
+  edit [path]      Open \${VISUAL:-$EDITOR} on <path>, or — with no path — on
+                   the resolved rest's declared file (or the repo directory
+                   if it declares none). Handled entirely by bin/gtd, not
+                   this bundle
   init             Scaffold a minimal .gtdrc.json for this repo, seeding the
                    default variables you are most likely to change (the test
                    command) and a Prettier formatting suggestion. gtd runs its
