@@ -32,6 +32,7 @@ export default defineConfig({
             "./tests/integration/support/steps/formatting.steps.ts",
             "./tests/integration/support/steps/gtd-loop.steps.ts",
             "./tests/integration/support/steps/lsp.steps.ts",
+            "./tests/integration/support/steps/review-signoff.steps.ts",
             "./tests/integration/support/steps/review-window.steps.ts",
           ],
           testTimeout: 300_000,

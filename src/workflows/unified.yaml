@@ -436,7 +436,9 @@ submachines:
           # gate refuses an incomplete step, so review-deciding is entered exactly
           # once per round — nothing commits in between). It is FEEDBACK when the
           # human left a comment: a note in REVIEW.md (any edit beyond a "[ ]"->"[x]"
-          # tick) OR a hand-edit to any non-.gtd/ file this round. Otherwise it is a
+          # tick) OR a hand-edit to any file this round other than `.gtd/` or the
+          # state's own reviewFile (which is var-configurable and may live outside
+          # `.gtd/`, e.g. a root-level REVIEW.md — issue #128). Otherwise it is a
           # clean sign-off. This turn only CAPTURES the raw material into REVIEW_RAW.md
           # (the `feedback-collecting` agent then turns it into instructions); it does
           # NOT interpret it. Either way, remove REVIEW.md; what the resulting diff
@@ -452,8 +454,11 @@ submachines:
           # everything is plain bash.
           reviewFile="<%~ it.vars.reviewFile %>"
           reviewRawFile="<%~ it.vars.reviewRawFile %>"
-          # Which non-.gtd/ files did the human hand-edit this round?
-          codeFiles=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -v '^\.gtd/')
+          # Which files did the human hand-edit this round, besides .gtd/ and the
+          # reviewFile itself (var-configurable — may live outside .gtd/, so it is
+          # excluded by exact path, not just the .gtd/ prefix)?
+          codeFiles=$(git diff-tree --no-commit-id --name-only -r HEAD \
+            | grep -v '^\.gtd/' | grep -vxF "$reviewFile")
           # A note is any REVIEW.md change beyond a checkbox flip: normalize every
           # "[ ]"/"[x]" to a placeholder, then compare the agent's original (HEAD^)
           # against the human's version (HEAD).
