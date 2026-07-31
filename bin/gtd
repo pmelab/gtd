@@ -3,9 +3,17 @@ set -euo pipefail
 
 # This file is the single published `bin` entry: `bin/gtd`. Before anything
 # else, it dispatches on $1:
+#   - `--no-edit` (bare, or immediately after `loop`) -> stripped here and
+#     disables the loop's automatic editor launching for this run (see
+#     `edit_disabled`/`GTD_NO_EDIT` below); dispatch then continues on the
+#     remaining arguments as if it had never been given.
+#   - `edit [path]` -> handled entirely here in bash, never forwarded to the
+#     bundle: opens `${VISUAL:-$EDITOR}` on `path`, or (no `path` given) on the
+#     resolved rest's `.file` (or `.` when absent).
 #   - no arguments, or exactly `loop` with no further arguments -> fall through
 #     into the loop body below (the loop protocol comment further down).
-#   - `loop` with additional arguments -> usage error, exit 2.
+#   - `loop` with additional arguments (other than a lone `--no-edit`) ->
+#     usage error, exit 2.
 #   - anything else -> hand off to the bundle via `run_gtd`, forwarding all
 #     arguments unchanged (e.g. `bin/gtd status`, `bin/gtd step human`).
 # `run_gtd` is the ONE place that knows how to invoke "the bundle": by default
@@ -25,6 +33,55 @@ run_gtd() {
   fi
 }
 
+# Shared editor-launch helper — used by both the `edit` subcommand below and
+# the loop's human-gate flow further down. Resolves the editor git-style
+# ($VISUAL, then $EDITOR — no fallback to `vi`), then launches it blocking in
+# the foreground with the target path passed as a positional parameter
+# (never string-spliced into the command), so a multi-word command
+# (`code --wait`) and a path with special characters both work. A launch
+# failure (bad/missing editor binary) is a plain non-zero return, propagating
+# under `set -e`; the editor's own exit code is otherwise ignored entirely —
+# the outcome is judged from tree state afterward, not from this function.
+launch_editor() {
+  local target="$1" editor="${VISUAL:-${EDITOR:-}}"
+  if [[ -z "$editor" ]]; then
+    echo "gtd: no editor configured — set \$EDITOR (or \$VISUAL)" >&2
+    return 1
+  fi
+  bash -c "$editor \"\$1\"" gtd-edit "$target"
+}
+
+# --no-edit / GTD_NO_EDIT govern only the loop's automatic editor launching at
+# human gates (see handle_human_gate further down) — `gtd edit` itself never
+# reads either. `--no-edit` is recognised in exactly the two sanctioned
+# positions (bare, or right after `loop`) and stripped before anything below
+# looks at "$@", so the bundle's own unknown-option guard never sees it.
+edit_disabled=0
+[[ -n "${GTD_NO_EDIT:-}" ]] && edit_disabled=1
+if [[ "${1:-}" == "--no-edit" && $# -eq 1 ]]; then
+  edit_disabled=1
+  shift
+elif [[ "${1:-}" == "loop" && "${2:-}" == "--no-edit" && $# -eq 2 ]]; then
+  edit_disabled=1
+  set -- loop
+fi
+
+if [[ "${1:-}" == "edit" ]]; then
+  shift
+  if [[ $# -gt 0 ]]; then
+    launch_editor "$1"
+  else
+    if ! peek_json="$(run_gtd next --json 2>&1)"; then
+      echo "gtd edit: could not determine the next step:" >&2
+      echo "$peek_json" >&2
+      exit 1
+    fi
+    file="$(jq -r '.file // empty' <<<"$peek_json")"
+    launch_editor "${file:-.}"
+  fi
+  exit 0
+fi
+
 if [[ $# -gt 0 && "$1" != "loop" ]]; then
   run_gtd "$@"
   exit $?
@@ -33,12 +90,16 @@ if [[ "${1:-}" == "loop" && $# -gt 1 ]]; then
   echo "gtd: 'loop' takes no arguments" >&2
   exit 2
 fi
-# otherwise ($# -eq 0, or exactly "loop" with no further args): fall through
-# into the existing loop body below, unchanged in behavior.
+# otherwise ($# -eq 0, or exactly "loop" with no further args, --no-edit
+# already stripped above): fall through into the existing loop body below,
+# unchanged in behavior.
 
 # Drives the v3 pattern-machine loop (see docs/loop.md): each iteration asks
 # `gtd next --json` who's up and what they should do, dispatching on `kind`:
-#   - "message" (a human rest)  -> halt, tell the user what gtd is waiting on.
+#   - "message" (a human rest)  -> see handle_human_gate above: with editing on
+#     (the default) open the editor at the gate and step human, driving on a
+#     captured commit; with editing off (--no-edit/GTD_NO_EDIT), halt and tell
+#     the user what gtd is waiting on, unchanged from before this feature.
 #   - "script"  (a check rest) -> execute `content` (the emitted wrapper
 #     script) verbatim via bash — exit code deliberately ignored, the outcome
 #     lives in the tree — then `gtd step <actor>` to capture it; zero new
@@ -81,6 +142,57 @@ herdr_notify() {  # $1=title  $2=body
 herdr_release() {  # hand the pane back to Herdr's normal detection
   herdr_ok || return 0
   herdr pane release-agent --source herdr:gtd --agent gtd "$HERDR_PANE_ID" >/dev/null 2>&1 || true
+}
+
+# Shared human-gate handler for a "message" (human) rest — used both by the
+# opening move (when editing is on) and by every "message" rest the main loop
+# encounters. $1 is the rest's `next --json` blob.
+#
+# Editing OFF ($edit_disabled): today's behavior, unchanged — print the gate
+# and exit 0 without touching an editor.
+#
+# Editing ON (the default): open the editor on the rest's `.file` (or `.` when
+# absent), wait for it to exit, then run `gtd step human`:
+#   - a NEW commit was authored -> return normally so the caller keeps driving.
+#   - ZERO commits were authored -> halt, exit 0 (closing the editor without a
+#     capturable change means "done for now" — and keeps a gate with no `C`
+#     pattern, e.g. idle, from being reopened forever).
+#   - the step REFUSES (non-zero exit: malformed steering file, unfinished
+#     review) -> surface it verbatim and halt, exit non-zero — the same
+#     wording an opening-move refusal already used before this function
+#     existed.
+handle_human_gate() {
+  local json="$1" file label state step_out head_before head_after
+  label="$(jq -r '.label // .state' <<<"$json")"
+  state="$(jq -r .state <<<"$json")"
+
+  if [[ "$edit_disabled" == 1 ]]; then
+    herdr_report blocked "$label"
+    herdr_notify "gtd needs you — $(basename "$PWD")" "$label"
+    echo "--- Your turn ($state) ---"
+    run_gtd next
+    exit 0
+  fi
+
+  file="$(jq -r '.file // empty' <<<"$json")"
+  herdr_report working "$label"
+  launch_editor "${file:-.}"
+
+  head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
+  if ! step_out="$(run_gtd step human 2>&1)"; then
+    echo "gtd-loop: could not capture your changes at the human gate:" >&2
+    echo "$step_out" >&2
+    echo "Fix the reported issue and re-run gtd-loop." >&2
+    exit 1
+  fi
+  head_after="$(git rev-parse HEAD 2>/dev/null || echo none)"
+  if [[ "$head_before" == "$head_after" ]]; then
+    herdr_report idle "$label"
+    herdr_release
+    echo "--- Done for now ($state: nothing captured) ---"
+    exit 0
+  fi
+  # else: a new commit was captured — return normally, caller keeps driving.
 }
 
 trap 'code=$?; if [ "$code" -ne 0 ]; then
@@ -136,6 +248,12 @@ run_agent_turn() {
 # a harmless no-op; a genuine refusal there (a malformed steering file, or an
 # edit no `on` pattern accepts) is surfaced and stops the loop rather than being
 # driven past.
+#
+# Editing ON: route through the exact same gate logic the main loop uses below
+# (open the editor there first, THEN step) instead of blindly stepping human
+# and moving on. Editing OFF: unchanged from before this function existed —
+# step silently, refusal surfaced and halts, a clean/committed gate just falls
+# into the loop below.
 if ! peek_json="$(run_gtd next --json 2>&1)"; then
   echo "gtd-loop: could not determine the next step:" >&2
   echo "$peek_json" >&2
@@ -143,11 +261,15 @@ if ! peek_json="$(run_gtd next --json 2>&1)"; then
   exit 1
 fi
 if [[ "$(jq -r .kind <<<"$peek_json")" == "message" ]]; then
-  if ! step_out="$(run_gtd step human 2>&1)"; then
-    echo "gtd-loop: could not capture your changes at the human gate:" >&2
-    echo "$step_out" >&2
-    echo "Fix the reported issue and re-run gtd-loop." >&2
-    exit 1
+  if [[ "$edit_disabled" == 1 ]]; then
+    if ! step_out="$(run_gtd step human 2>&1)"; then
+      echo "gtd-loop: could not capture your changes at the human gate:" >&2
+      echo "$step_out" >&2
+      echo "Fix the reported issue and re-run gtd-loop." >&2
+      exit 1
+    fi
+  else
+    handle_human_gate "$peek_json"
   fi
 fi
 
@@ -168,17 +290,14 @@ while true; do
   label="$(jq -r '.label // .state' <<<"$next_json")"
   GTD_LAST_LABEL="$label"
 
-  if [[ "$kind" != "message" ]]; then
-    herdr_report working "$label"
+  if [[ "$kind" == "message" ]]; then
+    # handle_human_gate exits 0/non-zero itself on a halt/refusal; it only
+    # returns here when a new commit was captured, so we keep driving.
+    handle_human_gate "$next_json"
+    continue
   fi
 
-  if [[ "$kind" == "message" ]]; then
-    herdr_report blocked "$label"
-    herdr_notify "gtd needs you — $(basename "$PWD")" "$label"
-    echo "--- Your turn ($state) ---"
-    run_gtd next
-    exit 0
-  fi
+  herdr_report working "$label"
 
   if [[ "$kind" == "script" ]]; then
     head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"

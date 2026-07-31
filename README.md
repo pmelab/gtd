@@ -106,6 +106,9 @@ handful of commands drive it:
   pending changes, and which action leads where. The panel and diagram highlight
   refresh live (~every 3s) while the page is open, so advancing the process
   elsewhere shows up without a manual refresh.
+- **`gtd edit [path]`** — open `<path>` (or, with no argument, the current
+  resting state's steering file, or the repo dir) in `${VISUAL:-$EDITOR}`,
+  blocking until it exits.
 
 `gtd version` (or `gtd --version`/`-v`) prints the installed version and exits;
 `gtd help` (or `gtd --help`/`-h`) prints the command list. Both short-circuit
@@ -169,10 +172,13 @@ state.
 
 Bare `gtd` (or `gtd loop`) is a ready-to-run driver for the whole protocol —
 point it at a repo and it runs the loop until it's your turn. It is the only
-command you run: at a gate you edit files (answer a plan question, tick a review
-box, fix code) and re-launch it, and it captures your edit as its opening move
-before driving on — so you never run `gtd step human` by hand. See
-[Driving the loop](docs/loop.md).
+command you run: at a human gate it now opens `${VISUAL:-$EDITOR}` on the gate's
+file for you automatically (answer a plan question, tick a review box, fix
+code), waits for you to save and exit, then captures your edit itself and keeps
+driving — or halts if you left nothing changed — so you never run
+`gtd step human` by hand. Pass `--no-edit` (or set `GTD_NO_EDIT`) to fall back
+to halting and printing the gate instead, if you'd rather edit and re-launch it
+yourself. See [Driving the loop](docs/loop.md).
 
 Before wiring gtd into a repo, note the
 [repository requirements](docs/cli.md#repository-requirements) — most

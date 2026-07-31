@@ -42,6 +42,12 @@ export class GtdWorld extends QuickPickleWorld {
   fakeHerdrDir: string | undefined = undefined
   /** Path to the fake herdr binary's invocation log, when provisioned. */
   fakeHerdrLogPath: string | undefined = undefined
+  /** Path to a fake `$EDITOR` script standing in for a real editor (`gtd edit`/loop-gate scenarios, @live only). Absent means no editor is configured. */
+  fakeEditorPath: string | undefined = undefined
+  /** Path to the fake editor's invocation log (one line per call — the target path it opened), when provisioned. */
+  fakeEditorLogPath: string | undefined = undefined
+  /** Explicit `$GTD_NO_EDIT` value a scenario wants exported, overriding the tier's usual default (`gtd-loop` scenarios only). */
+  gtdNoEditOverride: string | undefined = undefined
 
   /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_VAR_` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
   envVars: Record<string, string> = {}

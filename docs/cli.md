@@ -45,6 +45,10 @@ Commands:
                    commits that would be lost
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
+  edit [path]      Open <path> (repo-relative) in $VISUAL/$EDITOR, blocking
+                   until the editor exits. With no argument, opens the
+                   resolved rest's declared file (or the repo root if it
+                   declares none). Never reads --no-edit/GTD_NO_EDIT
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   validate         Format and validate the steering file the resolved rest
@@ -63,6 +67,8 @@ Options:
   --no-open        (gtd visualize only) do not open the browser
   --cost=<n>       (gtd step only) record the invocation's token cost
   --model=<name>   (gtd step only, with --cost) tag that cost's model
+  --no-edit        (bare gtd or gtd loop only) disable the loop's automatic
+                   editor launching at human gates
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 ```
@@ -79,12 +85,32 @@ history relative to cwd, so it refuses with a clear error if invoked from a
 subdirectory.
 
 `--json`, `--cost=<n>`, and `--model=<name>` (the latter two only for
-`gtd step`) are the only long options. Any other `--` option (including a typo
-like `--jsn`) is rejected with a usage error rather than silently ignored, so a
-mistyped flag can never degrade a JSON caller to plain-text mode. A bare
-`--cost`/`--model` with no value, a non-numeric or negative `--cost`, an empty
-`--model`, `--model` without `--cost`, or either flag on any command other than
-`gtd step` are all usage errors.
+`gtd step`) are the only long options the compiled bundle recognizes. Any other
+`--` option (including a typo like `--jsn`) is rejected with a usage error
+rather than silently ignored, so a mistyped flag can never degrade a JSON caller
+to plain-text mode. A bare `--cost`/`--model` with no value, a non-numeric or
+negative `--cost`, an empty `--model`, `--model` without `--cost`, or either
+flag on any command other than `gtd step` are all usage errors.
+
+`--no-edit` is a separate, bash-level flag handled entirely by `bin/gtd` itself,
+stripped before anything reaches the bundle — see [`--no-edit`](#--no-edit)
+below.
+
+## `--no-edit`
+
+A flag on the loop driver only — bare `gtd --no-edit` or `gtd loop --no-edit`
+(the two are equivalent, since bare `gtd` and `gtd loop` are themselves
+equivalent). Recognized in exactly those two positions; any other
+placement/combination (e.g. `gtd step --no-edit`, or combined with any other
+argument) is a usage error. The `GTD_NO_EDIT` environment variable (any
+non-empty value) does the same thing.
+
+Disables the loop's default behavior of launching an editor at human gates,
+restoring the previous halt-and-print-and-exit behavior with no editor involved.
+It governs only the loop's own automatic launching — `gtd edit` invoked directly
+never reads it (see [`gtd edit`](#gtd-edit-path) above). See
+[Driving the loop](loop.md) and `skills/loop/SKILL.md` for the full gate-flow
+description.
 
 ## `gtd init`
 
@@ -407,6 +433,40 @@ which are JSON-only. `--json` emits
   human-readable `describe`) alongside the rendered text. **Omitted entirely**
   when the state has no `on` (a commit state); a per-edge `describe` is likewise
   omitted when that edge declares none.
+
+## `gtd edit [path]`
+
+Handled entirely in `bin/gtd`'s own bash — unlike every other subcommand, it is
+**never forwarded** to the compiled bundle (`dist/gtd.bundle.mjs`).
+
+With `<path>` given (repo-relative), opens it in `${VISUAL:-$EDITOR}` (git's own
+precedence — `$VISUAL` first, then `$EDITOR`; no fallback to `vi`), blocking in
+the foreground until the editor exits. It creates nothing if `<path>` doesn't
+exist — the path is handed straight to the editor command verbatim. The editor's
+own exit code is ignored entirely; success is judged from tree state afterward,
+not from this command.
+
+With no argument, it peeks with `gtd next --json` to find the resolved rest's
+declared `.file`, and opens that (repo-relative), or the repo directory (`.`)
+when the resolved state declares no `file:`. If `gtd next --json` itself fails
+(e.g. not in a repo), it prints an error and exits non-zero without attempting
+to open an editor:
+
+```
+gtd edit: could not determine the next step:
+<gtd next --json's own error output>
+```
+
+`gtd edit` **never** reads `--no-edit`/`GTD_NO_EDIT` — those two govern only the
+loop's own automatic editor launching at human gates (see
+[Driving the loop](loop.md) and `skills/loop/SKILL.md`), not this command.
+Invoked directly, `gtd edit` always launches, unconditionally.
+
+If neither `$VISUAL` nor `$EDITOR` is set, no editor is launched:
+
+```
+gtd: no editor configured — set $EDITOR (or $VISUAL)
+```
 
 ## Running `script` rests (no `gtd` subcommand)
 
