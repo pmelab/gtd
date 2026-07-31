@@ -165,10 +165,14 @@ The driver — not the prompt text — owns ending the agent's turn
 prompt says explicitly not to run `gtd step agent` itself.
 
 `bin/gtd log` opens the current repo/worktree's loop logfile —
-`"$(git rev-parse --git-dir)/gtd-loop.log"` by default, or `$GTD_LOOP_LOG`
-verbatim when set — in `${VISUAL:-$EDITOR}`, the same editor resolution
-`bin/gtd edit` uses. It takes no arguments and errors out (rather than opening
-an empty buffer) if no loop has produced a log yet.
+`"$(worktree_git_dir)/gtd-loop.log"` by default, or `$GTD_LOOP_LOG` verbatim
+when set — in `${VISUAL:-$EDITOR}`, the same editor resolution `bin/gtd edit`
+uses. It takes no arguments and errors out (rather than opening an empty buffer)
+if no loop has produced a log yet. `worktree_git_dir` derives the git dir from
+the cwd with `GIT_DIR`/`GIT_WORK_TREE` scrubbed, so an inherited `GIT_DIR`
+(leaked from a parent git process, a hook, or another worktree's shell) can
+never key the log — or the loop's memory marker — to a different worktree; two
+worktrees looping at once each keep their own log.
 
 ## Rendered output and logging
 

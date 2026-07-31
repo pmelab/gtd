@@ -50,6 +50,8 @@ export class GtdWorld extends QuickPickleWorld {
   gtdNoEditOverride: string | undefined = undefined
   /** Explicit `$GTD_LOOP_LOG` value a scenario wants exported (`gtd log`/loop logging scenarios, @live only). */
   gtdLoopLogOverride: string | undefined = undefined
+  /** A stray `$GIT_DIR` value a scenario wants injected into the spawned bin/gtd's env — proving per-worktree state (log, memory marker) stays keyed to the cwd worktree, never the inherited GIT_DIR (@live only). */
+  gitDirOverride: string | undefined = undefined
   /** Explicit `$NO_COLOR` value a scenario wants exported (loop rendering scenarios, @live only). */
   noColorOverride: string | undefined = undefined
 

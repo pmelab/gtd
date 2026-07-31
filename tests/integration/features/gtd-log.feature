@@ -5,9 +5,12 @@ Feature: gtd log — opening the current loop's log file in the editor
   bash-level convenience command, dispatched before anything reaches the
   bundle: it opens `${VISUAL:-$EDITOR}` on the current repo/worktree's loop
   logfile, resolved the same way the loop itself resolves it —
-  `"$(git rev-parse --git-dir)/gtd-loop.log"`, or `$GTD_LOOP_LOG` verbatim when
-  set. It takes no arguments, and refuses rather than opening an empty buffer
-  when no loop has produced a log yet.
+  `"$(worktree_git_dir)/gtd-loop.log"`, or `$GTD_LOOP_LOG` verbatim when set.
+  `worktree_git_dir` derives the git dir from the cwd with GIT_DIR/GIT_WORK_TREE
+  scrubbed, so an inherited GIT_DIR can never key the log to a DIFFERENT
+  worktree (two concurrently looping worktrees must not collide on one log). It
+  takes no arguments, and refuses rather than opening an empty buffer when no
+  loop has produced a log yet.
 
   Scenario: gtd log refuses when no loop has produced a log yet
     Given a test project
@@ -40,6 +43,18 @@ Feature: gtd log — opening the current loop's log file in the editor
     When I run "log" via gtd
     Then it succeeds
     And the fake editor was opened on "notes/custom.log"
+
+  Scenario: gtd log keys the log to this worktree, ignoring an inherited GIT_DIR
+    Given a test project
+    And GIT_DIR points at a separate git dir
+    And a file ".git/gtd-loop.log" with:
+      """
+      this worktree's own loop log
+      """
+    And $EDITOR is a no-op script
+    When I run "log" via gtd
+    Then it succeeds
+    And the fake editor was opened on ".git/gtd-loop.log"
 
   Scenario: gtd log rejects an extra argument as a usage error, never opening the editor
     Given a test project
