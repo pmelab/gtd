@@ -1,7 +1,10 @@
 {
   "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
   "vars": {
-    "testCommand": "npm test"
+    "testCommand": "npm test",
+    "todoFile": "TODO.md",
+    "requirementsFile": "REQUIREMENTS.md",
+    "reviewFile": "REVIEW.md"
   },
   "modes": {
     "qa": {
