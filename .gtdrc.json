@@ -3,7 +3,9 @@
   "vars": {
     "testCommand": "npm test",
     "todoFile": "TODO.md",
-    "requirementsFile": "REQUIREMENTS.md"
+    "requirementsFile": "REQS.md",
+    "architectureFile": "ARCH.md",
+    "reviewFile": "REVIEW.md"
   },
   "modes": {
     "qa": {
