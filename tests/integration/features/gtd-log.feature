@@ -56,6 +56,22 @@ Feature: gtd log — opening the current loop's log file in the editor
     Then it succeeds
     And the fake editor was opened on ".git/gtd-loop.log"
 
+  Scenario: an inherited GTD_LOOP_LOG from an outer loop driver never leaks into a spawned gtd
+    # When the suite runs AS a gtd loop's own check, the driver has exported
+    # GTD_LOOP_LOG (the outer worktree's log path). A spawned gtd must resolve
+    # ITS OWN log, not inherit the driver's — else every log-path assertion
+    # breaks. The harness strips inherited GTD_LOOP_* at the spawn boundary.
+    Given a test project
+    And the loop driver leaked GTD_LOOP_LOG as "/somewhere/else/.git/gtd-loop.log"
+    And a file ".git/gtd-loop.log" with:
+      """
+      this repo's own loop log
+      """
+    And $EDITOR is a no-op script
+    When I run "log" via gtd
+    Then it succeeds
+    And the fake editor was opened on ".git/gtd-loop.log"
+
   Scenario: gtd log rejects an extra argument as a usage error, never opening the editor
     Given a test project
     And $EDITOR is a script that appends "should never be seen" to the opened file
