@@ -1,5 +1,5 @@
 import { Given, Then, When } from "quickpickle"
-import { execFile as execFileCb } from "node:child_process"
+import { execFile as execFileCb, execFileSync } from "node:child_process"
 import { promisify } from "node:util"
 import { writeFileSync, mkdtempSync, chmodSync, readFileSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -86,6 +86,7 @@ function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
     GTD_NO_EDIT: noEditValue(world),
     GTD_LOOP_AGENT_CMD: world.stubAgentPath ? `bash "${world.stubAgentPath}"` : undefined,
     GTD_LOOP_LOG: world.gtdLoopLogOverride,
+    GIT_DIR: world.gitDirOverride,
     NO_COLOR: world.noColorOverride,
   }
   for (const [key, value] of Object.entries(overrides)) {
@@ -111,6 +112,19 @@ Given("GTD_NO_EDIT is set to {string}", (world: GtdWorld, value: string) => {
 // the same relative path string.
 Given("GTD_LOOP_LOG is set to {string}", (world: GtdWorld, value: string) => {
   world.gtdLoopLogOverride = value
+})
+
+// Injects a stray `$GIT_DIR` pointing at a SEPARATE (valid, but unrelated) git
+// dir — modelling the leak that broke issue-#118-class per-worktree isolation:
+// an ambient GIT_DIR (from a parent git process, a hook, or another worktree's
+// shell) would divert bin/gtd's `git rev-parse --git-dir` away from the cwd
+// worktree. A real bare dir (not a bogus path) so a regressed bin/gtd fails as
+// a clean wrong-path, not a git fatal. Lives inside repoDir so the After hook's
+// repoDir cleanup removes it too.
+Given("GIT_DIR points at a separate git dir", (world: GtdWorld) => {
+  const separate = join(world.repoDir, "separate.git")
+  execFileSync("git", ["init", "--bare", "-q", separate], { encoding: "utf-8" })
+  world.gitDirOverride = separate
 })
 
 // Sets $NO_COLOR explicitly, for scenarios proving the plain-ASCII rendering
