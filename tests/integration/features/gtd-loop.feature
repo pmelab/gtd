@@ -848,6 +848,280 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And stdout contains "[you]  reviewing"
     And the fake editor was not invoked
 
+  Scenario: --edit overrides an ambient GTD_NO_EDIT, forcing the editor open at the human gate anyway
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: check
+            initial: true
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": idle
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": reviewing
+          reviewing:
+            actor: human
+            file: .gtd/REVIEW.md
+            message: "sign off on the build"
+            on:
+              "A .gtd/REVIEW.md": done
+          done:
+            commit: "chore: build reviewed"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And $EDITOR is a script that appends "Looks good." to the opened file
+    And GTD_NO_EDIT is set to "1"
+    When I run "--edit" via gtd
+    Then it succeeds
+    And the fake editor was opened on ".gtd/REVIEW.md"
+    And the git log contains "chore: build reviewed"
+    And stdout contains "[done] settled — nothing left to do"
+
+  Scenario: --edit says so and keeps driving when the current rest isn't a human gate
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": done
+          done:
+            commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And $EDITOR is a no-op script
+    When I run "--edit" via gtd
+    Then it succeeds
+    And stdout contains "--edit: not at a human gate yet — continuing to drive"
+    And "src/calc.ts" exists
+    And the git log contains "chore: calculator done"
+    And stdout contains "[you] done for now (nothing captured)"
+
+  Scenario: --edit and --once combine freely, forcing one human gate open and stopping right after
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: check
+            initial: true
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": idle
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": reviewing
+          reviewing:
+            actor: human
+            file: .gtd/REVIEW.md
+            message: "sign off on the build"
+            on:
+              "A .gtd/REVIEW.md": done
+          done:
+            commit: "chore: build reviewed"
+      """
+    And a commit "gtd(check): checking → reviewing" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And $EDITOR is a script that appends "Looks good." to the opened file
+    When I run "--edit --once" via gtd
+    Then it succeeds
+    And the fake editor was opened on ".gtd/REVIEW.md"
+    And the git log contains "chore: build reviewed"
+    And stdout does not contain "settled"
+
+  Scenario: --edit combined with --no-edit is a usage error rather than picking one silently
+    Given a test project
+    And the workflow
+    When I run "--edit --no-edit" via gtd
+    Then it fails
+    And stderr contains "unknown option"
+
+  # The scenarios below prove bin/gtd's --once flag (see once_mode in bin/gtd):
+  # it restricts the loop to exactly one beat — one script check+step, or one
+  # agent prompt+step, or one human gate — then exits, rather than driving all
+  # the way to idle/settled. `checking` here self-loops on retry (two runs
+  # needed to reach `done`), so a script-beat scenario can prove --once stops
+  # after the FIRST run without ever reaching `done`.
+
+  Scenario: --once stops after exactly one script check+step, without settling the whole cycle
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              mkdir -p .gtd
+              c=".git/testcount"
+              n=$(cat "$c" 2>/dev/null || echo 0)
+              n=$((n + 1))
+              echo "$n" > "$c"
+              if [ "$n" -lt 2 ]; then echo "retry" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": checking
+              "M .gtd/FEEDBACK.md": checking
+              "D .gtd/FEEDBACK.md": done
+              "C": done
+          done:
+            commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working → checking" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    When I run "--once" via gtd
+    Then it succeeds
+    And stdout contains "gtd(check): checking"
+    And the git log does not contain "chore: calculator done"
+
+  Scenario: --once stops after exactly one agent prompt+step, never reaching the check that follows
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": done
+          done:
+            commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run "--once" via gtd
+    Then it succeeds
+    And "src/calc.ts" exists
+    And stdout contains "working → checking"
+    And the git log does not contain "gtd(check)"
+    And the git log does not contain "chore: calculator done"
+
   # The scenarios below prove bin/gtd's Herdr pane reporting (see its
   # `herdr_ok`/`herdr_report`/`herdr_notify`/`herdr_release` helpers): it shells
   # out to a `herdr` CLI only when HERDR_ENV=1, HERDR_PANE_ID is set, and

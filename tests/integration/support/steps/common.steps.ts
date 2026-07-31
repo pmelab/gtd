@@ -255,6 +255,11 @@ Then("the git log contains {string}", (world: GtdWorld, subject: string) => {
   assert.ok(log.includes(subject), `Expected git log to contain "${subject}". Got:\n${log}`)
 })
 
+Then("the git log does not contain {string}", (world: GtdWorld, subject: string) => {
+  const log = world.gitLog()
+  assert.ok(!log.includes(subject), `Expected git log NOT to contain "${subject}". Got:\n${log}`)
+})
+
 // The last commit's body (everything after the subject line) — where a
 // `Gtd-Cost:` trailer lands, and where a squash template's rendered body sits.
 Then("the last commit body contains {string}", (world: GtdWorld, text: string) => {

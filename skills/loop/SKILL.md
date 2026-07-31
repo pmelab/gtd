@@ -171,6 +171,18 @@ immediately (exit 0) without touching an editor or stepping. The human then
 edits and re-runs the loop by hand, exactly as before this feature existed. Do
 not attempt to act on the human's behalf either way.
 
+`--edit` (`-e`, same two positions) is the mirror: it forces the editor open at
+the gate for this run, overriding an ambient `GTD_NO_EDIT`/`--no-edit`. It only
+means something when the machine is actually resting at a human gate — at any
+other rest, gtd prints a note that it isn't at one yet and just keeps driving,
+rather than pretending to force an edit that isn't well-defined there. `--edit`
+and `--no-edit` are mutually exclusive; passing both is a usage error.
+
+`--once` (same two positions) restricts the run to exactly one beat — one human
+gate, one script check+step, or one agent prompt+step — then exits, instead of
+driving all the way back to idle/settled. It combines freely with
+`--edit`/`--no-edit`.
+
 None of this touches the `kind`-dispatch contract (`"message"` / `"script"` /
 `"prompt"`), stall detection, or the `gtd validate` self-validation gate after a
 producing agent turn — editor-at-gate only changes what happens at a `"message"`

@@ -66,10 +66,24 @@ the state declares none), blocking until the editor exits, then runs
   exactly as a manual `gtd step human` refusal would.
 
 Set `GTD_NO_EDIT` (any non-empty value), or pass `--no-edit` — see
-[`cli.md`'s `--no-edit`](cli.md#--no-edit) for its exact syntax and positioning
+[`cli.md`](cli.md#--no-edit---edit---once) for its exact syntax and positioning
 — to disable this and restore the original halt-and-print behavior: the loop
 prints the gate via `gtd next` and exits 0 without touching an editor, leaving
 the human to edit and re-launch the loop themselves.
+
+Pass `--edit` (`-e`) to force the editor open at the current human gate right
+now, overriding an ambient `GTD_NO_EDIT`/`--no-edit` for this one run — useful
+when a shell profile sets `GTD_NO_EDIT` by default but you want to edit
+interactively just this once. It only means something when the machine is
+actually resting at a human gate: at any other rest, `bin/gtd` prints a note
+that it isn't at one yet and simply keeps driving, rather than pretending to
+force something undefined.
+
+Pass `--once` to restrict the loop to exactly one beat — one human gate, one
+script check+step, or one agent prompt+step — then exit, instead of driving all
+the way to idle/settled. It combines freely with `--edit`/`--no-edit` (e.g.
+`gtd --edit --once` forces the editor at the current gate, captures the edit,
+and stops right there rather than continuing to drive).
 
 ```bash
 gtd next --json   # ask who's up and what they should do
@@ -92,18 +106,21 @@ when the machine rests at a `"message"` gate — so `gtd` is the only command a
 human runs. `bin/gtd` is the packaged entry point: invoked bare, or with `loop`
 as its first argument, it runs this exact script; any other first argument (e.g.
 `next`, `step`, `status`) hands off to `node dist/gtd.bundle.mjs` instead. The
-loop body it runs adds five things on top of the reference script above: it
-opens an editor at every `"message"` gate instead of just printing it (see
-"Editing is on by default" above; `--no-edit`/`GTD_NO_EDIT` fall back to the
-reference script's plain print-and-exit); it stops with a diagnostic if the same
-`"prompt"` state/content repeat with no progress (see `skills/loop/SKILL.md`'s
-"Stall detection"); it lets `GTD_LOOP_AGENT_CMD` swap in any coding agent CLI in
-place of the default `claude -p`, receiving the prompt via `$GTD_LOOP_PROMPT`;
-it exports the resolved state's optional `model` hint as `$GTD_LOOP_MODEL`,
-appending `--model "$GTD_LOOP_MODEL"` to the default `claude -p` invocation
-whenever it's non-empty; and it acts on the optional `memory` scope hint (see
-"Agent memory scope" below) — continuing one agent session across consecutive
-same-scope turns and starting fresh when the scope changes.
+loop body it runs adds six things on top of the reference script above: it opens
+an editor at every `"message"` gate instead of just printing it (see "Editing is
+on by default" above; `--no-edit`/`GTD_NO_EDIT` fall back to the reference
+script's plain print-and-exit, while `--edit`/`-e` forces it on for this run
+even over an ambient `GTD_NO_EDIT`); it can restrict itself to exactly one beat
+via `--once` instead of driving to idle/settled; it stops with a diagnostic if
+the same `"prompt"` state/content repeat with no progress (see
+`skills/loop/SKILL.md`'s "Stall detection"); it lets `GTD_LOOP_AGENT_CMD` swap
+in any coding agent CLI in place of the default `claude -p`, receiving the
+prompt via `$GTD_LOOP_PROMPT`; it exports the resolved state's optional `model`
+hint as `$GTD_LOOP_MODEL`, appending `--model "$GTD_LOOP_MODEL"` to the default
+`claude -p` invocation whenever it's non-empty; and it acts on the optional
+`memory` scope hint (see "Agent memory scope" below) — continuing one agent
+session across consecutive same-scope turns and starting fresh when the scope
+changes.
 
 `bin/gtd` resolves both its bundle hand-off and the loop's own internal `gtd`
 calls against `dist/gtd.bundle.mjs` next to its own location. Set `GTD_BIN` — a
