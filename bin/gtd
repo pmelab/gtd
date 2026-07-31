@@ -3,21 +3,29 @@ set -euo pipefail
 
 # This file is the single published `bin` entry: `bin/gtd`. Before anything
 # else, it dispatches on $1:
-#   - `--no-edit` (bare, or immediately after `loop`) -> stripped here and
-#     disables the loop's automatic editor launching for this run (see
-#     `edit_disabled`/`GTD_NO_EDIT` below); dispatch then continues on the
-#     remaining arguments as if it had never been given.
+#   - `--no-edit` / `--edit` (`-e`) / `--once` (bare, or immediately after
+#     `loop`, in any order/combination — see the flag-parsing block below) ->
+#     stripped here; `--no-edit` disables the loop's automatic editor
+#     launching for this run, `--edit` forces it on for this run (overriding
+#     an ambient `GTD_NO_EDIT`/`--no-edit` — the two are mutually exclusive),
+#     and `--once` restricts the loop to exactly one beat (one human gate, one
+#     script check+step, or one agent prompt+step) before exiting. Dispatch
+#     then continues on the remaining arguments as if none of them had ever
+#     been given.
 #   - `edit [path]` -> handled entirely here in bash, never forwarded to the
 #     bundle: opens `${VISUAL:-$EDITOR}` on `path`, or (no `path` given) on the
-#     resolved rest's `.file` (or `.` when absent).
+#     resolved rest's `.file` (or `.` when absent). Low-level plumbing now that
+#     `--edit` covers the common "force an edit, then keep driving" case; this
+#     subcommand remains for opening a specific path, or the current rest's
+#     file, WITHOUT driving the loop afterward.
 #   - `log` -> handled entirely here in bash, never forwarded to the bundle:
 #     opens `${VISUAL:-$EDITOR}` on the current repo/worktree's loop logfile
 #     (see `resolve_log_path`), refusing rather than opening an empty buffer
 #     when no loop has produced one yet.
-#   - no arguments, or exactly `loop` with no further arguments -> fall through
-#     into the loop body below (the loop protocol comment further down).
-#   - `loop` with additional arguments (other than a lone `--no-edit`) ->
-#     usage error, exit 2.
+#   - no arguments, or exactly `loop` with no further arguments (other than the
+#     flags above) -> fall through into the loop body below (the loop protocol
+#     comment further down).
+#   - `loop` with an unrecognised extra argument -> usage error, exit 2.
 #   - anything else -> hand off to the bundle via `run_gtd`, forwarding all
 #     arguments unchanged (e.g. `bin/gtd status`, `bin/gtd step human`).
 # `run_gtd` is the ONE place that knows how to invoke "the bundle": by default
@@ -206,19 +214,59 @@ resolve_log_path() {
   fi
 }
 
-# --no-edit / GTD_NO_EDIT govern only the loop's automatic editor launching at
-# human gates (see handle_human_gate further down) — `gtd edit` itself never
-# reads either. `--no-edit` is recognised in exactly the two sanctioned
-# positions (bare, or right after `loop`) and stripped before anything below
-# looks at "$@", so the bundle's own unknown-option guard never sees it.
+# --no-edit / --edit (-e) / --once govern only the loop driver, recognised in
+# exactly two positions — bare (e.g. `gtd --edit --once`) or immediately after
+# `loop` (e.g. `gtd loop --once`) — in any order, each at most once. `--edit`
+# and `--no-edit` are mutually exclusive (forcing and suppressing the editor
+# in the same run is not a coherent request). A recognised, valid combination
+# is stripped here before anything below looks at "$@", so the bundle's own
+# unknown-option guard never sees it; anything else (an unknown flag, a
+# duplicate/conflicting one, or a flag mixed with a real subcommand) is left
+# untouched and falls through to the existing dispatch below, which forwards a
+# non-flag first argument to the bundle (whose own unknown-option guard
+# rejects it) or rejects a `loop` invocation carrying an unrecognised extra
+# argument.
 edit_disabled=0
+edit_forced=0
+once_mode=0
 [[ -n "${GTD_NO_EDIT:-}" ]] && edit_disabled=1
-if [[ "${1:-}" == "--no-edit" && $# -eq 1 ]]; then
-  edit_disabled=1
-  shift
-elif [[ "${1:-}" == "loop" && "${2:-}" == "--no-edit" && $# -eq 2 ]]; then
-  edit_disabled=1
-  set -- loop
+
+if [[ "${1:-}" == "loop" ]]; then
+  loop_form=1
+  loop_flag_args=("${@:2}")
+else
+  loop_form=0
+  loop_flag_args=("$@")
+fi
+
+valid_combo=1
+n_no_edit=0
+n_edit=0
+n_once=0
+for a in ${loop_flag_args[@]+"${loop_flag_args[@]}"}; do
+  case "$a" in
+  --no-edit) n_no_edit=$((n_no_edit + 1)) ;;
+  --edit | -e) n_edit=$((n_edit + 1)) ;;
+  --once) n_once=$((n_once + 1)) ;;
+  *) valid_combo=0 ;;
+  esac
+done
+if ((n_no_edit > 1 || n_edit > 1 || n_once > 1 || (n_no_edit >= 1 && n_edit >= 1))); then
+  valid_combo=0
+fi
+
+if [[ "$valid_combo" == 1 ]]; then
+  ((n_no_edit >= 1)) && edit_disabled=1
+  ((n_edit >= 1)) && edit_forced=1
+  ((n_once >= 1)) && once_mode=1
+  # --edit overrides an ambient GTD_NO_EDIT/--no-edit for THIS run — the
+  # explicit ask to force the editor wins over the suppressing default.
+  ((edit_forced)) && edit_disabled=0
+  if [[ "$loop_form" == 1 ]]; then
+    set -- loop
+  else
+    set --
+  fi
 fi
 
 if [[ "${1:-}" == "edit" ]]; then
@@ -382,8 +430,12 @@ Fix the reported issue and re-run gtd-loop."
     exit 0
   fi
   # A new commit was captured — render it, then return normally so the
-  # caller keeps driving.
+  # caller keeps driving, unless --once says this one human gate is the whole
+  # run.
   report_commits "$head_before"
+  if [[ "$once_mode" == 1 ]]; then
+    exit 0
+  fi
 }
 
 trap 'code=$?; if [ "$code" -ne 0 ]; then
@@ -456,7 +508,10 @@ run_agent_turn() {
 # (open the editor there first, THEN step) instead of blindly stepping human
 # and moving on. Editing OFF: unchanged from before this function existed —
 # step silently, refusal surfaced and halts, a clean/committed gate just falls
-# into the loop below.
+# into the loop below. Either way, --once treats a captured commit here as the
+# run's one beat and exits (see handle_human_gate's own once-mode exit for the
+# editing-ON path); a clean/no-op gate captures nothing, so it isn't a beat —
+# it falls into the loop below exactly as it would without --once.
 if ! peek_json="$(run_gtd next --json 2>&1)"; then
   emit_error "could not determine the next step:
 $peek_json
@@ -464,8 +519,10 @@ Run \`gtd status\` to inspect the repo."
   emit_log_pointer
   exit 1
 fi
-if [[ "$(jq -r .kind <<<"$peek_json")" == "message" ]]; then
+peek_kind="$(jq -r .kind <<<"$peek_json")"
+if [[ "$peek_kind" == "message" ]]; then
   if [[ "$edit_disabled" == 1 ]]; then
+    opening_head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
     if ! step_out="$(run_gtd step human 2>&1)"; then
       emit_error "could not capture your changes at the human gate:
 $step_out
@@ -473,8 +530,20 @@ Fix the reported issue and re-run gtd-loop."
       emit_log_pointer
       exit 1
     fi
+    if [[ "$once_mode" == 1 && "$opening_head_before" != "$(git rev-parse HEAD 2>/dev/null || echo none)" ]]; then
+      exit 0
+    fi
   else
     handle_human_gate "$peek_json"
+  fi
+elif [[ "$edit_forced" == 1 ]]; then
+  # Honesty caveat: a forced edit only means something at a human gate — the
+  # machine isn't resting at one right now, so say so instead of pretending,
+  # and just keep driving.
+  if [[ "$FANCY" == 1 ]]; then
+    printf '%sℹ️  --edit: not at a human gate yet — continuing to drive%s\n' "$C_DIM" "$C_RESET"
+  else
+    printf '%s--edit: not at a human gate yet — continuing to drive%s\n' "$C_DIM" "$C_RESET"
   fi
 fi
 
@@ -527,6 +596,9 @@ while true; do
     fi
     prev_state=""
     prev_content=""
+    if [[ "$once_mode" == 1 ]]; then
+      exit 0
+    fi
     continue
   fi
 
@@ -610,4 +682,7 @@ Stopping rather than stepping with a malformed steering file."
   # zero commits here — report_commits returns non-zero, and that's fine: the
   # NEXT iteration's stall check is what catches unchanged state/content.
   report_commits "$head_before" || true
+  if [[ "$once_mode" == 1 ]]; then
+    exit 0
+  fi
 done
