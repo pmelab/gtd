@@ -181,7 +181,11 @@ code), waits for you to save and exit, then captures your edit itself and keeps
 driving — or halts if you left nothing changed — so you never run
 `gtd step human` by hand. Pass `--no-edit` (or set `GTD_NO_EDIT`) to fall back
 to halting and printing the gate instead, if you'd rather edit and re-launch it
-yourself. See [Driving the loop](docs/loop.md).
+yourself. Bare `gtd` prints one line per event — colored and emoji on a real
+terminal, plain ASCII under `NO_COLOR` or when piped — and redirects the noisier
+agent/check/step subprocess output to a per-repo/per-worktree log file.
+`gtd log` opens that logfile in your editor. See
+[Driving the loop](docs/loop.md).
 
 Before wiring gtd into a repo, note the
 [repository requirements](docs/cli.md#repository-requirements) — most
