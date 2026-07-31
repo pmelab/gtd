@@ -77,23 +77,25 @@ function applyHerdrEnv(env: NodeJS.ProcessEnv, world: GtdWorld): void {
   env["HERDR_PANE_ID"] = "test-pane"
 }
 
+// Drops any inherited GTD_LOOP_* runtime state from a spawn env so a spawned
+// bin/gtd resolves its OWN log path, not the loop driver's (which exports
+// GTD_LOOP_LOG when running the suite as its check). Mirrors hooks.ts's global
+// process.env scrub at the spawn boundary; `world.leakedGtdLoopLog` seeds a
+// simulated leak first so the regression scenario exercises the strip in CI
+// (where no real loop driver set the var).
+function scrubInheritedLoopEnv(env: NodeJS.ProcessEnv, world: GtdWorld): void {
+  if (world.leakedGtdLoopLog !== undefined) env["GTD_LOOP_LOG"] = world.leakedGtdLoopLog
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("GTD_LOOP_")) delete env[key]
+  }
+}
+
 function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
   // editorEnv strips any ambient $EDITOR/$VISUAL and, when a scenario
   // provisioned one (via the shared "$EDITOR is a script..."/"...no-op
   // script" steps in edit.steps.ts), sets $EDITOR to the fake editor script.
   const env = editorEnv(world, { ...process.env })
-  // Simulate the loop driver having exported GTD_LOOP_LOG into the environment
-  // the suite inherits when it runs as the driver's own check (see the strip
-  // below and hooks.ts's global scrub).
-  if (world.leakedGtdLoopLog !== undefined) env["GTD_LOOP_LOG"] = world.leakedGtdLoopLog
-  // Hermetic: drop any inherited GTD_LOOP_* runtime state before applying the
-  // scenario's explicit overrides, so a spawned bin/gtd resolves its OWN log
-  // path rather than the driver's. Mirrors hooks.ts's process.env scrub at the
-  // spawn boundary; keeping it here exercises the guard in CI (where no loop
-  // driver set the var) via the leak-injection step above.
-  for (const key of Object.keys(env)) {
-    if (key.startsWith("GTD_LOOP_")) delete env[key]
-  }
+  scrubInheritedLoopEnv(env, world)
   const overrides: Record<string, string | undefined> = {
     GTD_NO_EDIT: noEditValue(world),
     GTD_LOOP_AGENT_CMD: world.stubAgentPath ? `bash "${world.stubAgentPath}"` : undefined,
