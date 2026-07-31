@@ -347,8 +347,10 @@ submachines:
         # reviewing/await-review/feedback machinery over <commitish>..HEAD.
         prompt: |
           You are an autonomous coding agent. `.gtd/` holds this workflow's own
-          state — never create, edit, or delete anything under `.gtd/` except
-          `<%= it.vars.reviewFile %>`, which this prompt tells you to write.
+          state — never create, edit, or delete anything under `.gtd/`. The one
+          file this prompt tells you to write is `<%= it.vars.reviewFile %>`;
+          write it at exactly that path (it may live outside `.gtd/`), and touch
+          nothing else under `.gtd/`.
 
           Write `<%= it.vars.reviewFile %>` to help a human review the diff below in
           this EXACT format:

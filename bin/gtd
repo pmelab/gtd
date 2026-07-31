@@ -74,27 +74,41 @@ if [[ "$FANCY" == 1 ]]; then
   C_RESET=$'\e[0m'; C_BOLD=$'\e[1m'; C_DIM=$'\e[2m'
   C_CYAN=$'\e[36m'; C_GREEN=$'\e[32m'; C_YELLOW=$'\e[33m'; C_RED=$'\e[31m'
   M_TRANS="➡️"; M_AGENT="🤖"; M_CHECK="🔧"; M_HUMAN="✍️"
-  M_FIX="🔁"; M_COMMIT="✅"; M_SETTLE="🎉"; M_ERROR="❌"
+  M_FIX="🔁"; M_COMMIT="✅"; M_SETTLE="🎉"; M_ERROR="❌"; M_ELLIPSIS="…"
 else
   C_RESET=""; C_BOLD=""; C_DIM=""
   C_CYAN=""; C_GREEN=""; C_YELLOW=""; C_RED=""
   M_TRANS="->"; M_AGENT="[agent]"; M_CHECK="[check]"; M_HUMAN="[you]"
-  M_FIX="[fix]"; M_COMMIT="[commit]"; M_SETTLE="[done]"; M_ERROR="[err]"
+  M_FIX="[fix]"; M_COMMIT="[commit]"; M_SETTLE="[done]"; M_ERROR="[err]"; M_ELLIPSIS="..."
 fi
+
+# emit_file_rows <files> — render a commit's changed files as dim, indented
+# rows BELOW the transition/commit line: at most 3, then a "… (N more)" row
+# when there are more. <files> is a newline-separated list (git diff-tree
+# --name-only output); empty input prints nothing.
+emit_file_rows() {
+  local files="$1" f shown=0 total=0
+  [[ -z "$files" ]] && return 0
+  while IFS= read -r f; do [[ -n "$f" ]] && total=$((total + 1)); done <<<"$files"
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    if ((shown >= 3)); then
+      printf '   %s%s (%d more)%s\n' "$C_DIM" "$M_ELLIPSIS" "$((total - 3))" "$C_RESET"
+      break
+    fi
+    printf '   %s%s%s\n' "$C_DIM" "$f" "$C_RESET"
+    shown=$((shown + 1))
+  done <<<"$files"
+}
 
 # emit_transition <from> <to> <files> — a captured state-to-state move. The
 # "→" separator is literal (not FANCY-dependent) — the same separator the
 # engine's commit grammar itself uses, per the package spec.
 emit_transition() {
   local from="$1" to="$2" files="$3"
-  if [[ -n "$files" ]]; then
-    printf '%s  %s%s → %s%s  (%s%s%s)\n' \
-      "$M_TRANS" "$C_BOLD$C_CYAN" "$from" "$to" "$C_RESET" \
-      "$C_DIM" "$files" "$C_RESET"
-  else
-    printf '%s  %s%s → %s%s\n' \
-      "$M_TRANS" "$C_BOLD$C_CYAN" "$from" "$to" "$C_RESET"
-  fi
+  printf '%s %s%s → %s%s\n' \
+    "$M_TRANS" "$C_BOLD$C_CYAN" "$from" "$to" "$C_RESET"
+  emit_file_rows "$files"
 }
 
 # emit_action <marker> <label> — the heartbeat printed before a turn runs.
@@ -107,12 +121,8 @@ emit_action() {
 # self-loop, or the squash's agent-authored final commit).
 emit_commit() {
   local subject="$1" files="$2"
-  if [[ -n "$files" ]]; then
-    printf '%s %s%s%s  (%s%s%s)\n' "$M_COMMIT" "$C_GREEN" "$subject" "$C_RESET" \
-      "$C_DIM" "$files" "$C_RESET"
-  else
-    printf '%s %s%s%s\n' "$M_COMMIT" "$C_GREEN" "$subject" "$C_RESET"
-  fi
+  printf '%s %s%s%s\n' "$M_COMMIT" "$C_GREEN" "$subject" "$C_RESET"
+  emit_file_rows "$files"
 }
 
 # emit_gate <state> <message> — the human-instruction line at a message rest.
@@ -180,7 +190,7 @@ report_commits() {
     [[ -z "$sha" ]] && continue
     reported=1
     subject="$(git log -1 --format=%s "$sha")"
-    files="$(git diff-tree --no-commit-id --name-only -r "$sha" | paste -sd, - | sed 's/,/, /g')"
+    files="$(git diff-tree --no-commit-id --name-only -r "$sha")"
     parse_subject "$subject"
     case "$S_KIND" in
       transition) emit_transition "$S_FROM" "$S_TO" "$files" ;;
@@ -411,8 +421,9 @@ handle_human_gate() {
   fi
 
   file="$(jq -r '.file // empty' <<<"$json")"
-  herdr_report working "$label"
+  herdr_report blocked "$label"
   launch_editor "${file:-.}"
+  herdr_report working "$label"
 
   head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
   if ! step_out="$(run_gtd step human 2>&1)"; then

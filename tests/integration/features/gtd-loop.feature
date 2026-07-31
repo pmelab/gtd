@@ -358,6 +358,91 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And "src/calc.ts" exists
     And the git log contains "chore: calculator done"
 
+  Scenario: Caps a transition's changed-file rows at 3, with an overflow row for the rest
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write four files."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": working
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      mkdir -p src
+      echo a > src/a.ts
+      echo b > src/b.ts
+      echo c > src/c.ts
+      echo d > src/d.ts
+      """
+    When I run bare gtd
+    Then it succeeds
+    And stdout contains "-> working → checking"
+    And stdout contains "src/a.ts"
+    And stdout contains "src/b.ts"
+    And stdout contains "src/c.ts"
+    And stdout contains "(1 more)"
+    And stdout does not contain "src/d.ts"
+
+  Scenario: Exactly three changed files show all three rows and no overflow marker
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write three files."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": working
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      mkdir -p src
+      echo a > src/a.ts
+      echo b > src/b.ts
+      echo c > src/c.ts
+      """
+    When I run bare gtd
+    Then it succeeds
+    And stdout contains "src/a.ts"
+    And stdout contains "src/b.ts"
+    And stdout contains "src/c.ts"
+    And stdout does not contain "more)"
+
   Scenario: Redirects the check script's own output to the log file instead of the terminal
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -1315,3 +1400,74 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       pane report-agent test-pane --source herdr:gtd --agent gtd --state blocked --message working: exited 1
       notification show gtd stopped
       """
+
+  Scenario: Reports blocked to Herdr while the loop's editor is open at a human gate, then working once it closes
+    # Same shape as "With editing on, an edit matching the gate's pattern lets
+    # the loop drive past a human gate" above — `reviewing` is the mid-loop
+    # human gate `handle_human_gate` opens the editor for. `idle` stays a
+    # silent check-actor no-op so settling back to it after `done` never
+    # reopens the editor a second time.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: check
+            initial: true
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": idle
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": reviewing
+          reviewing:
+            actor: human
+            file: .gtd/REVIEW.md
+            message: "sign off on the build"
+            on:
+              "A .gtd/REVIEW.md": done
+          done:
+            commit: "chore: build reviewed"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And a fake herdr binary
+    And $EDITOR is a script that appends "Looks good." to the opened file
+    When I run bare gtd
+    Then it succeeds
+    And the fake editor was opened on ".gtd/REVIEW.md"
+    And the fake herdr log contains, in order:
+      """
+      pane report-agent test-pane --source herdr:gtd --agent gtd --state blocked --message reviewing
+      pane report-agent test-pane --source herdr:gtd --agent gtd --state working --message reviewing
+      """
+    And the git log contains "chore: build reviewed"

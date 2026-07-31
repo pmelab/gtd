@@ -204,9 +204,11 @@ A Herdr-aware driver MAY additionally report its lifecycle to a Herdr pane —
 top of each iteration/gate/settle (the pane id is positional and comes before
 the options), and `herdr notification show` at a human gate or on abnormal exit
 (see `bin/gtd` and `docs/loop.md`'s "Herdr integration" section for the exact
-mapping). This is purely additive: it never changes the dispatch contract above
-(`kind` → message/script/prompt), never gates a step, and is a complete no-op
-outside Herdr.
+mapping). A human-gate editor session (editing on) is reported `blocked` for the
+duration of the edit, flipping back to `working` once the editor closes and the
+loop resumes driving. This is purely additive: it never changes the dispatch
+contract above (`kind` → message/script/prompt), never gates a step, and is a
+complete no-op outside Herdr.
 
 ## Notes
 

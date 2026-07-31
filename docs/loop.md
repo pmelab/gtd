@@ -270,7 +270,8 @@ mapped onto the loop's states like this:
 | Loop moment                                                                          | Call(s)                                                                  |
 | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | Top of every non-`"message"` iteration                                               | `report-agent --state working`                                           |
-| Right before halting at a `"message"` (human) gate                                   | `report-agent --state blocked` + `notification show`                     |
+| Right before halting at a `"message"` (human) gate (editing off)                     | `report-agent --state blocked` + `notification show`                     |
+| While the editor is open at a human gate (editing on)                                | `report-agent --state blocked`, flipped back to `working` once it closes |
 | Right before a clean settle (a script rest, zero new commits)                        | `report-agent --state idle` + `release-agent`                            |
 | Any non-zero exit (stall guard, validate-cap, `gtd next` failure, unhandled failure) | `report-agent --state blocked` + `notification show`, via an `EXIT` trap |
 
