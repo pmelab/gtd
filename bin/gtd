@@ -10,6 +10,10 @@ set -euo pipefail
 #   - `edit [path]` -> handled entirely here in bash, never forwarded to the
 #     bundle: opens `${VISUAL:-$EDITOR}` on `path`, or (no `path` given) on the
 #     resolved rest's `.file` (or `.` when absent).
+#   - `log` -> handled entirely here in bash, never forwarded to the bundle:
+#     opens `${VISUAL:-$EDITOR}` on the current repo/worktree's loop logfile
+#     (see `resolve_log_path`), refusing rather than opening an empty buffer
+#     when no loop has produced one yet.
 #   - no arguments, or exactly `loop` with no further arguments -> fall through
 #     into the loop body below (the loop protocol comment further down).
 #   - `loop` with additional arguments (other than a lone `--no-edit`) ->
@@ -51,6 +55,147 @@ launch_editor() {
   bash -c "$editor \"\$1\"" gtd-edit "$target"
 }
 
+# ── Rendering primitives (capability detection, palette/markers, emitters) ──
+# Additive: nothing below calls these yet. `FANCY=1` only when stdout (fd 1)
+# is a real terminal AND `NO_COLOR` is unset — any pipe/redirect/non-tty
+# stdout, or `NO_COLOR` set to any value, gives plain ASCII with no escape
+# codes, per the NO_COLOR convention (https://no-color.org).
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then FANCY=1; else FANCY=0; fi
+
+if [[ "$FANCY" == 1 ]]; then
+  C_RESET=$'\e[0m'; C_BOLD=$'\e[1m'; C_DIM=$'\e[2m'
+  C_CYAN=$'\e[36m'; C_GREEN=$'\e[32m'; C_YELLOW=$'\e[33m'; C_RED=$'\e[31m'
+  M_TRANS="➡️"; M_AGENT="🤖"; M_CHECK="🔧"; M_HUMAN="✍️"
+  M_FIX="🔁"; M_COMMIT="✅"; M_SETTLE="🎉"; M_ERROR="❌"
+else
+  C_RESET=""; C_BOLD=""; C_DIM=""
+  C_CYAN=""; C_GREEN=""; C_YELLOW=""; C_RED=""
+  M_TRANS="->"; M_AGENT="[agent]"; M_CHECK="[check]"; M_HUMAN="[you]"
+  M_FIX="[fix]"; M_COMMIT="[commit]"; M_SETTLE="[done]"; M_ERROR="[err]"
+fi
+
+# emit_transition <from> <to> <files> — a captured state-to-state move. The
+# "→" separator is literal (not FANCY-dependent) — the same separator the
+# engine's commit grammar itself uses, per the package spec.
+emit_transition() {
+  local from="$1" to="$2" files="$3"
+  if [[ -n "$files" ]]; then
+    printf '%s  %s%s → %s%s  (%s%s%s)\n' \
+      "$M_TRANS" "$C_BOLD$C_CYAN" "$from" "$to" "$C_RESET" \
+      "$C_DIM" "$files" "$C_RESET"
+  else
+    printf '%s  %s%s → %s%s\n' \
+      "$M_TRANS" "$C_BOLD$C_CYAN" "$from" "$to" "$C_RESET"
+  fi
+}
+
+# emit_action <marker> <label> — the heartbeat printed before a turn runs.
+emit_action() {
+  local marker="$1" label="$2"
+  printf '%s %s%s\n' "$marker" "$label" "$C_RESET"
+}
+
+# emit_commit <subject> <files> — a non-transition capture (a bare-subject
+# self-loop, or the squash's agent-authored final commit).
+emit_commit() {
+  local subject="$1" files="$2"
+  if [[ -n "$files" ]]; then
+    printf '%s %s%s%s  (%s%s%s)\n' "$M_COMMIT" "$C_GREEN" "$subject" "$C_RESET" \
+      "$C_DIM" "$files" "$C_RESET"
+  else
+    printf '%s %s%s%s\n' "$M_COMMIT" "$C_GREEN" "$subject" "$C_RESET"
+  fi
+}
+
+# emit_gate <state> <message> — the human-instruction line at a message rest.
+emit_gate() {
+  local message="$2"
+  printf '%s  %s%s%s\n' "$M_HUMAN" "$C_BOLD$C_YELLOW" "$message" "$C_RESET"
+}
+
+# emit_settled <state> — the terminal "nothing left to do" signal.
+emit_settled() {
+  printf '%s %ssettled — nothing left to do%s\n' "$M_SETTLE" "$C_GREEN" "$C_RESET"
+}
+
+# emit_error <message> — refusals/stalls/failures, to stderr; <message> may be
+# multi-line and is passed through verbatim.
+emit_error() {
+  local message="$1"
+  printf '%s %s%s%s\n' "$M_ERROR" "$C_RED" "$message" "$C_RESET" >&2
+}
+
+# emit_log_pointer — the "see the log" line printed right after every
+# emit_error call, to stderr: suppression must never hide a failure, so every
+# error points at where the redirected subprocess output actually went.
+emit_log_pointer() {
+  if [[ "$FANCY" == 1 ]]; then
+    printf '%s📄 see %s%s\n' "$C_DIM" "$GTD_LOOP_LOG" "$C_RESET" >&2
+  else
+    printf '%ssee %s%s\n' "$C_DIM" "$GTD_LOOP_LOG" "$C_RESET" >&2
+  fi
+}
+
+# ── Git-derivation helpers (parse_subject, report_commits) ──────────────────
+# Additive: nothing below calls these yet. Replaces today's
+# head_before/head_after string comparisons in a later change.
+
+# parse_subject <subject> — sets S_ACTOR / S_FROM / S_TO / S_KIND. Patterns are
+# held in variables (rather than inlined) so bash's [[ =~ ]] doesn't need the
+# literal parens/spaces quoted inline.
+parse_subject() {
+  local subject="$1"
+  local transition_re='^gtd\(([^)]+)\): (.+) → (.+)$'
+  local capture_re='^gtd\(([^)]+)\): (.+)$'
+  S_ACTOR="" S_FROM="" S_TO="" S_KIND=""
+  if [[ "$subject" =~ $transition_re ]]; then
+    S_KIND=transition
+    S_ACTOR="${BASH_REMATCH[1]}"
+    S_FROM="${BASH_REMATCH[2]}"
+    S_TO="${BASH_REMATCH[3]}"
+  elif [[ "$subject" =~ $capture_re ]]; then
+    S_KIND=capture
+    S_ACTOR="${BASH_REMATCH[1]}"
+    S_TO="${BASH_REMATCH[2]}"
+  else
+    S_KIND=squash
+    S_TO="$subject"
+  fi
+}
+
+# report_commits <head_before> — walks <head_before>..HEAD in order, emitting
+# a transition/commit line per new commit; returns non-zero (having emitted
+# nothing) when there were no new commits.
+report_commits() {
+  local head_before="$1" sha subject files reported=0
+  while IFS= read -r sha; do
+    [[ -z "$sha" ]] && continue
+    reported=1
+    subject="$(git log -1 --format=%s "$sha")"
+    files="$(git diff-tree --no-commit-id --name-only -r "$sha" | paste -sd, - | sed 's/,/, /g')"
+    parse_subject "$subject"
+    case "$S_KIND" in
+      transition) emit_transition "$S_FROM" "$S_TO" "$files" ;;
+      capture | squash) emit_commit "$subject" "$files" ;;
+    esac
+  done < <(git rev-list --reverse "$head_before"..HEAD)
+  [[ "$reported" == 1 ]]
+}
+
+# ── Log file (resolve_log_path, gtd log) ────────────────────────────────────
+
+# resolve_log_path — echoes the loop's logfile path: $GTD_LOOP_LOG verbatim if
+# set, else "$(git rev-parse --git-dir)/gtd-loop.log" (per-repository AND
+# per-worktree automatically, since a linked worktree's git-dir is its own
+# private .git/worktrees/<name>).
+resolve_log_path() {
+  if [[ -n "${GTD_LOOP_LOG:-}" ]]; then
+    echo "$GTD_LOOP_LOG"
+  else
+    echo "$(git rev-parse --git-dir)/gtd-loop.log"
+  fi
+}
+
 # --no-edit / GTD_NO_EDIT govern only the loop's automatic editor launching at
 # human gates (see handle_human_gate further down) — `gtd edit` itself never
 # reads either. `--no-edit` is recognised in exactly the two sanctioned
@@ -79,6 +224,21 @@ if [[ "${1:-}" == "edit" ]]; then
     file="$(jq -r '.file // empty' <<<"$peek_json")"
     launch_editor "${file:-.}"
   fi
+  exit 0
+fi
+
+if [[ "${1:-}" == "log" ]]; then
+  shift
+  if [[ $# -gt 0 ]]; then
+    echo "gtd log: takes no arguments" >&2
+    exit 2
+  fi
+  log_path="$(resolve_log_path)"
+  if [[ ! -f "$log_path" ]]; then
+    echo "gtd log: no loop log yet at $log_path" >&2
+    exit 1
+  fi
+  launch_editor "$log_path"
   exit 0
 fi
 
@@ -166,8 +326,8 @@ herdr_release() {  # hand the pane back to Herdr's normal detection
 # opening move (when editing is on) and by every "message" rest the main loop
 # encounters. $1 is the rest's `next --json` blob.
 #
-# Editing OFF ($edit_disabled): today's behavior, unchanged — print the gate
-# and exit 0 without touching an editor.
+# Editing OFF ($edit_disabled): today's behavior, unchanged — render the gate
+# via emit_gate and exit 0 without touching an editor.
 #
 # Editing ON (the default): open the editor on the rest's `.file` (or `.` when
 # absent), wait for it to exit, then run `gtd step human`:
@@ -187,7 +347,7 @@ handle_human_gate() {
   if [[ "$edit_disabled" == 1 ]]; then
     herdr_report blocked "$label"
     herdr_notify "gtd needs you — $(basename "$PWD")" "$label"
-    echo "--- Your turn ($state) ---"
+    emit_gate "$state" "$label"
     run_gtd next
     exit 0
   fi
@@ -198,19 +358,22 @@ handle_human_gate() {
 
   head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
   if ! step_out="$(run_gtd step human 2>&1)"; then
-    echo "gtd-loop: could not capture your changes at the human gate:" >&2
-    echo "$step_out" >&2
-    echo "Fix the reported issue and re-run gtd-loop." >&2
+    emit_error "could not capture your changes at the human gate:
+$step_out
+Fix the reported issue and re-run gtd-loop."
+    emit_log_pointer
     exit 1
   fi
   head_after="$(git rev-parse HEAD 2>/dev/null || echo none)"
   if [[ "$head_before" == "$head_after" ]]; then
     herdr_report idle "$label"
     herdr_release
-    echo "--- Done for now ($state: nothing captured) ---"
+    emit_action "$M_HUMAN" "done for now (nothing captured)"
     exit 0
   fi
-  # else: a new commit was captured — return normally, caller keeps driving.
+  # A new commit was captured — render it, then return normally so the
+  # caller keeps driving.
+  report_commits "$head_before"
 }
 
 trap 'code=$?; if [ "$code" -ne 0 ]; then
@@ -223,6 +386,17 @@ prev_content=""
 # Where the last "prompt" turn's `memory` scope + session id are remembered
 # across iterations and across restarts. In the git dir, never the work tree.
 memory_marker="$(git rev-parse --git-dir 2>/dev/null || echo .git)/gtd-loop-memory"
+
+# Truncated once here (not every iteration), so the file always reflects the
+# current run but survives after the loop exits for a later `gtd log`.
+log_path="$(resolve_log_path)"
+: >"$log_path"
+export GTD_LOOP_LOG="$log_path"
+if [[ "$FANCY" == 1 ]]; then
+  printf '%s📄 log: %s  (tail -f to follow)%s\n' "$C_DIM" "$log_path" "$C_RESET"
+else
+  printf '%slog: %s  (tail -f to follow)%s\n' "$C_DIM" "$log_path" "$C_RESET"
+fi
 
 # Swappable agent adapter: GTD_LOOP_AGENT_CMD lets any coding agent CLI stand
 # in for the default, receiving the prompt via $GTD_LOOP_PROMPT, the state's
@@ -249,7 +423,8 @@ run_agent_turn() {
     cmd="$cmd"' --dangerously-skip-permissions'
   fi
   GTD_LOOP_PROMPT="$prompt" GTD_LOOP_MODEL="$model" GTD_LOOP_MEMORY="$memory" \
-    GTD_LOOP_SESSION_ID="$session_id" GTD_LOOP_MEMORY_RESUME="$do_resume" bash -c "$cmd"
+    GTD_LOOP_SESSION_ID="$session_id" GTD_LOOP_MEMORY_RESUME="$do_resume" bash -c "$cmd" \
+    >>"${GTD_LOOP_LOG:-/dev/null}" 2>&1
 }
 
 # Opening move: capture the human's pending edit so gtd-loop is the ONLY command
@@ -273,17 +448,19 @@ run_agent_turn() {
 # step silently, refusal surfaced and halts, a clean/committed gate just falls
 # into the loop below.
 if ! peek_json="$(run_gtd next --json 2>&1)"; then
-  echo "gtd-loop: could not determine the next step:" >&2
-  echo "$peek_json" >&2
-  echo "Run \`gtd status\` to inspect the repo." >&2
+  emit_error "could not determine the next step:
+$peek_json
+Run \`gtd status\` to inspect the repo."
+  emit_log_pointer
   exit 1
 fi
 if [[ "$(jq -r .kind <<<"$peek_json")" == "message" ]]; then
   if [[ "$edit_disabled" == 1 ]]; then
     if ! step_out="$(run_gtd step human 2>&1)"; then
-      echo "gtd-loop: could not capture your changes at the human gate:" >&2
-      echo "$step_out" >&2
-      echo "Fix the reported issue and re-run gtd-loop." >&2
+      emit_error "could not capture your changes at the human gate:
+$step_out
+Fix the reported issue and re-run gtd-loop."
+      emit_log_pointer
       exit 1
     fi
   else
@@ -318,18 +495,24 @@ while true; do
   herdr_report working "$label"
 
   if [[ "$kind" == "script" ]]; then
+    emit_action "$M_CHECK" "$label"
     head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
     # Execute the emitted wrapper verbatim; its exit code is deliberately
     # ignored (`|| true` under `set -e`) — the script encodes its outcome in
     # the tree, and `gtd step` captures whatever it left there via the state's
-    # own `on` patterns.
-    bash -c "$content" || true
-    run_gtd step "$actor" >/dev/null
-    head_after="$(git rev-parse HEAD 2>/dev/null || echo none)"
-    if [[ "$head_before" == "$head_after" ]]; then
+    # own `on` patterns. Its own output goes to the log, not the terminal.
+    bash -c "$content" >>"$GTD_LOOP_LOG" 2>&1 || true
+    if ! step_out="$(run_gtd step "$actor" 2>&1)"; then
+      printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
+      emit_error "$step_out"
+      emit_log_pointer
+      exit 1
+    fi
+    printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
+    if ! report_commits "$head_before"; then
       herdr_report idle "$label"
       herdr_release
-      echo "--- Settled ($state: check passed, nothing to do) ---"
+      emit_settled "$state"
       exit 0
     fi
     prev_state=""
@@ -341,8 +524,10 @@ while true; do
   # agent-owned state and content repeating means the last dispatch made no
   # progress; stop rather than spin on it.
   if [[ "$state" == "$prev_state" && "$content" == "$prev_content" ]]; then
-    echo "gtd-loop: no progress at '$state' — the agent's last turn changed nothing. Stopping to avoid spinning." >&2
-    run_gtd next >&2
+    next_out="$(run_gtd next 2>&1)" || true
+    emit_error "no progress at '$state' — the agent's last turn changed nothing. Stopping to avoid spinning.
+$next_out"
+    emit_log_pointer
     exit 1
   fi
   prev_state="$state"
@@ -382,23 +567,37 @@ while true; do
   # cap) before stepping — the plain-`gtd next` self-validation instruction's
   # driver-side equivalent, so the next rest is only ever handed a well-formed
   # file. gtd itself never validates at step time — this is the loop's job.
+  emit_action "$M_AGENT" "$label"
+  head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
   run_agent_turn "$content" "$resume"
 
   fix_attempt=0
   while ! validate_out="$(run_gtd validate 2>&1)"; do
     fix_attempt=$((fix_attempt + 1))
     if ((fix_attempt > 3)); then
-      echo "gtd-loop: '$state' still fails \`gtd validate\` after 3 fix attempts:" >&2
-      echo "$validate_out" >&2
-      echo "Stopping rather than stepping with a malformed steering file." >&2
+      emit_error "'$state' still fails \`gtd validate\` after 3 fix attempts:
+$validate_out
+Stopping rather than stepping with a malformed steering file."
+      emit_log_pointer
       exit 1
     fi
     # Resume the same session when there is one (the agent just wrote the file);
     # otherwise a fresh invocation still gets the findings via the prompt.
     fix_resume=0
     [[ -n "$session_id" ]] && fix_resume=1
+    emit_action "$M_FIX" "attempt $fix_attempt"
     run_agent_turn "$content"$'\n\n'"Your last turn does not pass \`gtd validate\`. Fix these format violations, then finish:"$'\n'"$validate_out" "$fix_resume"
   done
 
-  run_gtd step "$actor" >/dev/null
+  if ! step_out="$(run_gtd step "$actor" 2>&1)"; then
+    printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
+    emit_error "$step_out"
+    emit_log_pointer
+    exit 1
+  fi
+  printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
+  # A no-op step (nothing matched a declared pattern on a clean tree) reports
+  # zero commits here — report_commits returns non-zero, and that's fine: the
+  # NEXT iteration's stall check is what catches unchanged state/content.
+  report_commits "$head_before" || true
 done

@@ -1,7 +1,7 @@
 import { Given, Then, When } from "quickpickle"
 import { execFile as execFileCb } from "node:child_process"
 import { promisify } from "node:util"
-import { writeFileSync, mkdtempSync, chmodSync, readFileSync } from "node:fs"
+import { writeFileSync, mkdtempSync, chmodSync, readFileSync, existsSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import assert from "node:assert"
@@ -82,9 +82,15 @@ function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
   // provisioned one (via the shared "$EDITOR is a script..."/"...no-op
   // script" steps in edit.steps.ts), sets $EDITOR to the fake editor script.
   const env = editorEnv(world, { ...process.env })
-  const noEdit = noEditValue(world)
-  if (noEdit !== undefined) env["GTD_NO_EDIT"] = noEdit
-  if (world.stubAgentPath) env["GTD_LOOP_AGENT_CMD"] = `bash "${world.stubAgentPath}"`
+  const overrides: Record<string, string | undefined> = {
+    GTD_NO_EDIT: noEditValue(world),
+    GTD_LOOP_AGENT_CMD: world.stubAgentPath ? `bash "${world.stubAgentPath}"` : undefined,
+    GTD_LOOP_LOG: world.gtdLoopLogOverride,
+    NO_COLOR: world.noColorOverride,
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value !== undefined) env[key] = value
+  }
   applyHerdrEnv(env, world)
   return env
 }
@@ -95,6 +101,25 @@ function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
 // distinct from the --no-edit flag itself.
 Given("GTD_NO_EDIT is set to {string}", (world: GtdWorld, value: string) => {
   world.gtdNoEditOverride = value
+})
+
+// Sets $GTD_LOOP_LOG explicitly — the single-explicit-path override
+// `resolve_log_path` uses verbatim instead of deriving
+// "$(git rev-parse --git-dir)/gtd-loop.log". `value` is resolved relative to
+// the repo root by the subprocess itself (its cwd), exactly like the plain
+// "a file ..." step resolves paths, so scenarios can seed/assert on it with
+// the same relative path string.
+Given("GTD_LOOP_LOG is set to {string}", (world: GtdWorld, value: string) => {
+  world.gtdLoopLogOverride = value
+})
+
+// Sets $NO_COLOR explicitly, for scenarios proving the plain-ASCII rendering
+// path specifically — the spawned subprocess already has no tty (execFile
+// pipes stdout/stderr), so FANCY is always 0 regardless, but this makes a
+// scenario's intent to exercise that path explicit and documents the
+// NO_COLOR convention (https://no-color.org) alongside the piped-stdout case.
+Given("NO_COLOR is set to {string}", (world: GtdWorld, value: string) => {
+  world.noColorOverride = value
 })
 
 function toFailedResult(err: unknown): { exitCode: number; stdout: string; stderr: string } {
@@ -168,4 +193,42 @@ Then("the fake herdr log contains, in order:", (world: GtdWorld, block: string) 
     )
     cursor = idx + line.length
   }
+})
+
+// Resolves the loop's log file path the same way bin/gtd's resolve_log_path
+// does: $GTD_LOOP_LOG verbatim when a scenario overrode it, else the default
+// ".git/gtd-loop.log" (every gtd-loop.feature scenario runs against a plain,
+// non-worktree test project, so its git-dir is always ".git").
+function loopLogPath(world: GtdWorld): string {
+  return world.gtdLoopLogOverride ?? ".git/gtd-loop.log"
+}
+
+// Asserts on the loop's log file — where the agent turn, the check script,
+// and `gtd step`'s own output now land instead of the terminal.
+Then("the log file contains {string}", (world: GtdWorld, text: string) => {
+  const path = join(world.repoDir, loopLogPath(world))
+  const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
+  assert.ok(
+    content.includes(text),
+    `Expected the log file ("${loopLogPath(world)}") to contain "${text}". Got:\n${content}`,
+  )
+})
+
+// The plain-ASCII rendering proof: no ANSI escape sequence (ESC "[") anywhere.
+// Built from a char code rather than a regex literal to avoid embedding a
+// literal control character in source.
+const ANSI_ESCAPE = String.fromCharCode(0x1b) + "["
+
+Then("stdout has no ANSI escape codes", (world: GtdWorld) => {
+  assert.ok(
+    !world.lastResult.stdout.includes(ANSI_ESCAPE),
+    `Expected stdout to contain no ANSI escape codes. Got:\n${JSON.stringify(world.lastResult.stdout)}`,
+  )
+})
+
+Then("stderr has no ANSI escape codes", (world: GtdWorld) => {
+  assert.ok(
+    !world.lastResult.stderr.includes(ANSI_ESCAPE),
+    `Expected stderr to contain no ANSI escape codes. Got:\n${JSON.stringify(world.lastResult.stderr)}`,
+  )
 })

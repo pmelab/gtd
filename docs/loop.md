@@ -137,7 +137,7 @@ while true; do
   content="$(jq -r .content <<<"$next_json")"
 
   if [[ "$kind" == "message" ]]; then
-    echo "--- Your turn ($state) ---"
+    echo "your turn ($state)"    # bin/gtd renders this via emit_gate instead
     gtd next
     exit 0
   fi
@@ -148,7 +148,7 @@ while true; do
     gtd step "$actor" >/dev/null # capture whatever it left in the tree
     head_after="$(git rev-parse HEAD 2>/dev/null || echo none)"
     if [[ "$head_before" == "$head_after" ]]; then
-      echo "--- Settled ($state: check passed, nothing to do) ---"
+      echo "settled ($state: check passed, nothing to do)"   # bin/gtd renders this via emit_settled instead
       exit 0
     fi
     continue
@@ -163,6 +163,29 @@ done
 The driver — not the prompt text — owns ending the agent's turn
 (`gtd step "$actor"` right after the agent acts): every default-workflow agent
 prompt says explicitly not to run `gtd step agent` itself.
+
+`bin/gtd log` opens the current repo/worktree's loop logfile —
+`"$(git rev-parse --git-dir)/gtd-loop.log"` by default, or `$GTD_LOOP_LOG`
+verbatim when set — in `${VISUAL:-$EDITOR}`, the same editor resolution
+`bin/gtd edit` uses. It takes no arguments and errors out (rather than opening
+an empty buffer) if no loop has produced a log yet.
+
+## Rendered output and logging
+
+`bin/gtd` detects its output capability once at startup (`FANCY`, true when
+stdout is a real terminal AND `NO_COLOR` is unset): on a real terminal it prints
+one colored/emoji line per event, and under `NO_COLOR` or a piped/redirected
+stdout it prints the same events as plain ASCII with no escape codes, per the
+[NO_COLOR convention](https://no-color.org). Normal events (a state transition,
+a captured commit, an agent/check turn starting, settling at idle) render to
+stdout; refusals, stalls, and validate-cap halts render to stderr, each followed
+by a `📄 see <log>` pointer (plain: `see <log>`).
+
+The three previously terminal-visible subprocess streams — the agent turn's own
+output, the check script's own output, and `gtd step`'s own output — are no
+longer printed directly: they're appended to the per-repo/per-worktree log file
+(truncated once at the start of the run) instead, and surfaced with
+`bin/gtd log` above.
 
 ## Agent memory scope
 

@@ -63,7 +63,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       """
     When I run bare gtd
     Then it succeeds
-    And stdout contains "--- Your turn (idle) ---"
+    And stdout contains "[you]  idle"
     And the git log contains "chore: calculator done"
     And "src/calc.ts" exists
 
@@ -150,7 +150,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       """
     When I run bare gtd
     Then it succeeds
-    And stdout contains "--- Settled (watching: check passed, nothing to do) ---"
+    And stdout contains "[done] settled — nothing left to do"
 
   Scenario: Carries the memory scope across a loop and clears it at a phase boundary
     # Two agent phases: `working` (scope "work") then a fixing loop (scope
@@ -224,10 +224,10 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       """
     When I run bare gtd
     Then it succeeds
-    And stdout contains "AGENT MEMORY=work RESUME=0"
-    And stdout contains "AGENT MEMORY=fix RESUME=0"
-    And stdout contains "AGENT MEMORY=fix RESUME=1"
-    And stdout contains "--- Your turn (idle) ---"
+    And the log file contains "AGENT MEMORY=work RESUME=0"
+    And the log file contains "AGENT MEMORY=fix RESUME=0"
+    And the log file contains "AGENT MEMORY=fix RESUME=1"
+    And stdout contains "[you]  idle"
 
   Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed
     # `planning` declares file:/mode: (.gtd/PLAN.md as `qa`), so its output has
@@ -287,9 +287,160 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       """
     When I run bare gtd
     Then it succeeds
-    And stdout contains "AGENT: first draft"
-    And stdout contains "AGENT: fixing the plan"
+    And the log file contains "AGENT: first draft"
+    And the log file contains "AGENT: fixing the plan"
+    And stdout contains "[fix] attempt 1"
     And the git log contains "chore: planned"
+
+  Scenario: Renders a transition line and a bare self-loop capture line, logging what gtd step committed
+    # `working -> checking` differs (a real transition), while `checking`'s own
+    # "A .gtd/FEEDBACK.md": checking pattern targets itself (a self-loop, the
+    # bare `gtd(check): checking` capture form) before the second check attempt
+    # finally settles into `done`.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              mkdir -p .gtd
+              c=".git/testcount"
+              n=$(cat "$c" 2>/dev/null || echo 0)
+              n=$((n + 1))
+              echo "$n" > "$c"
+              if [ "$n" -lt 2 ]; then echo "retry" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": checking
+              "M .gtd/FEEDBACK.md": checking
+              "D .gtd/FEEDBACK.md": done
+              "C": done
+          done:
+            commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run bare gtd
+    Then it succeeds
+    And stdout contains "working → checking"
+    And stdout contains "gtd(check): checking"
+    And the log file contains "committed: gtd(agent): working → checking"
+    And the log file contains "committed: gtd(check): checking"
+    And "src/calc.ts" exists
+    And the git log contains "chore: calculator done"
+
+  Scenario: Redirects the check script's own output to the log file instead of the terminal
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": watching
+          watching:
+            actor: check
+            script: |
+              echo "CHECK: verifying the tree"
+              true
+            on:
+              "A .gtd/FEEDBACK.md": idle
+      """
+    And a commit "gtd(check): watching" that adds "NOTE.md" with:
+      """
+      note
+      """
+    When I run bare gtd
+    Then it succeeds
+    And stdout does not contain "CHECK: verifying the tree"
+    And the log file contains "CHECK: verifying the tree"
+
+  Scenario: Renders plain ASCII markers with no ANSI escape codes under NO_COLOR
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": done
+          done:
+            commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And NO_COLOR is set to "1"
+    When I run bare gtd
+    Then it succeeds
+    And stdout contains "[agent]"
+    And stdout contains "[you]"
+    And stdout has no ANSI escape codes
+    And stderr has no ANSI escape codes
 
   Scenario: Stops instead of spinning when the agent's turn makes no progress
     Given a test project
@@ -325,7 +476,54 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     When I run bare gtd
     Then it fails
     And stderr contains "no progress at 'working'"
+    And stderr contains "see .git/gtd-loop.log"
 
+  Scenario: Stops instead of stepping when a steering file still fails gtd validate after 3 fix attempts
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": planning
+          planning:
+            actor: agent
+            file: .gtd/PLAN.md
+            mode: qa
+            prompt: "Write .gtd/PLAN.md with the plan."
+            on:
+              "* **": done
+          done:
+            commit: "chore: planned"
+      """
+    And a commit "gtd(agent): planning" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      mkdir -p .gtd
+      cat > .gtd/PLAN.md <<'PLAN'
+      Plan: build the calculator.
+
+      ## Open Questions
+
+      ###
+
+      Forgot to write the question.
+      PLAN
+      """
+    When I run bare gtd
+    Then it fails
+    And stdout contains "[fix] attempt 3"
+    And stderr contains "'planning' still fails"
+    And stderr contains "after 3 fix attempts"
+    And stderr contains "Stopping rather than stepping with a malformed steering file."
+    And stderr contains "see .git/gtd-loop.log"
 
   Scenario: gtd loop with no further arguments behaves identically to bare gtd
     Given a test project
@@ -376,7 +574,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       """
     When I run gtd loop
     Then it succeeds
-    And stdout contains "--- Your turn (idle) ---"
+    And stdout contains "[you]  idle"
     And the git log contains "chore: calculator done"
     And "src/calc.ts" exists
 
@@ -466,7 +664,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     Then it succeeds
     And the fake editor was opened on ".gtd/REVIEW.md"
     And the git log contains "chore: build reviewed"
-    And stdout contains "--- Settled (idle: check passed, nothing to do) ---"
+    And stdout contains "[done] settled — nothing left to do"
 
   Scenario: With editing on, a no-op editor halts the loop at the gate instead of looping forever
     Given a test project
@@ -526,7 +724,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     When I run bare gtd
     Then it succeeds
     And the fake editor was opened on ".gtd/REVIEW.md"
-    And stdout contains "--- Done for now (reviewing: nothing captured) ---"
+    And stdout contains "[you] done for now (nothing captured)"
     And ".gtd/REVIEW.md" does not exist
 
   Scenario: --no-edit restores the halt-at-gate behaviour, never launching the editor
@@ -586,7 +784,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And $EDITOR is a script that appends "should never be seen" to the opened file
     When I run gtd loop --no-edit
     Then it succeeds
-    And stdout contains "--- Your turn (reviewing) ---"
+    And stdout contains "[you]  reviewing"
     And the fake editor was not invoked
 
   Scenario: GTD_NO_EDIT set to a non-empty value behaves identically to --no-edit
@@ -647,7 +845,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And GTD_NO_EDIT is set to "1"
     When I run bare gtd
     Then it succeeds
-    And stdout contains "--- Your turn (reviewing) ---"
+    And stdout contains "[you]  reviewing"
     And the fake editor was not invoked
 
   # The scenarios below prove bin/gtd's Herdr pane reporting (see its
@@ -706,7 +904,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a fake herdr binary
     When I run bare gtd
     Then it succeeds
-    And stdout contains "--- Settled (checking: check passed, nothing to do) ---"
+    And stdout contains "[done] settled — nothing left to do"
     And the fake herdr log contains, in order:
       """
       pane report-agent test-pane --source herdr:gtd --agent gtd --state working --message working
@@ -764,7 +962,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a fake herdr binary
     When I run bare gtd
     Then it succeeds
-    And stdout contains "--- Your turn (idle) ---"
+    And stdout contains "[you]  idle"
     And the fake herdr log contains, in order:
       """
       pane report-agent test-pane --source herdr:gtd --agent gtd --state blocked --message idle
@@ -796,7 +994,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And a fake herdr binary
     When I run bare gtd
     Then it succeeds
-    And stdout contains "--- Settled (watching: check passed, nothing to do) ---"
+    And stdout contains "[done] settled — nothing left to do"
     And the fake herdr log contains, in order:
       """
       pane report-agent test-pane --source herdr:gtd --agent gtd --state idle --message watching

@@ -48,6 +48,10 @@ export class GtdWorld extends QuickPickleWorld {
   fakeEditorLogPath: string | undefined = undefined
   /** Explicit `$GTD_NO_EDIT` value a scenario wants exported, overriding the tier's usual default (`gtd-loop` scenarios only). */
   gtdNoEditOverride: string | undefined = undefined
+  /** Explicit `$GTD_LOOP_LOG` value a scenario wants exported (`gtd log`/loop logging scenarios, @live only). */
+  gtdLoopLogOverride: string | undefined = undefined
+  /** Explicit `$NO_COLOR` value a scenario wants exported (loop rendering scenarios, @live only). */
+  noColorOverride: string | undefined = undefined
 
   /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_VAR_` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
   envVars: Record<string, string> = {}
