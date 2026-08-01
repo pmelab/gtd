@@ -57,7 +57,7 @@ export class GtdWorld extends QuickPickleWorld {
   /** Explicit `$NO_COLOR` value a scenario wants exported (loop rendering scenarios, @live only). */
   noColorOverride: string | undefined = undefined
 
-  /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_VAR_` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
+  /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_<UPPERCASE-name>` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
   envVars: Record<string, string> = {}
 
   /** Dispatch: routes to the live or in-process implementation based on this.tier. */
