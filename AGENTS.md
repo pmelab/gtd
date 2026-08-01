@@ -69,9 +69,12 @@ touches `src/PatternMachine.ts` (types + `validateDefinition`),
 A new steering-file FORMAT is neither: `mode:` names a pluggable mode, so a
 workflow declares its own `modes:` entry (a `format:`/`validate:` shell command
 pair) — no gtd change at all. Only the two built-in VALIDATORS (`qa`/`review`)
-live in code, because `gtd lsp` needs their parsers in process; gtd ships no
-formatter at all (there is no `gtd format` subcommand and no bundled prettier —
-a project plugs its own into a mode's `format:`).
+live in code, because `gtd lsp` needs their parsers in process; a third built-in
+name, `prose`, is recognized with no code of its own — a format-only mode (no
+validator) the simple flow's plan file uses (see
+`PatternMachine.isKnownBuiltInMode`). gtd ships no formatter at all (there is no
+`gtd format` subcommand and no bundled prettier — a project plugs its own into a
+mode's `format:`).
 
 ### The Pattern-Machine Module Map
 

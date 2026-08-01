@@ -447,7 +447,9 @@ Steering-file formats (`.gtd/REQUIREMENTS.md`/`.gtd/ARCHITECTURE.md` open
 questions — the advanced flow only, `.gtd/REVIEW.md` checkboxes) are checkable
 but validation is not a state in the machine: the producing agent self-validates
 with `gtd validate` before finishing (see §12). The simple flow's `.gtd/TODO.md`
-is a free-form plan with no `mode:`, so there is nothing to validate there.
+is a free-form plan under the format-only `prose` mode: it still runs a
+`modes:`-declared `format:` command before either `planning`/`plan-review`
+steps, but there is no gtd-side schema to validate against.
 
 **Entry + shared states** (the simple-flow gate, the shared health/tail, and the
 `gtd review`/`gtd fix` gates — everything the entries share):
@@ -457,8 +459,8 @@ is a free-form plan with no `mode:`, so there is nothing to validate there.
 | `idle` (initial)       | Idle                         | human | message | `* .gtd/REQUIREMENTS.md` → `adv-start-check`; `* **` → `start-check`                                           | —                  | —       | —        | —                            |
 | `start-check`          | Checking the baseline        | check | script  | `A`/`M .gtd/FEEDBACK.md` → `start-blocked`; `D .gtd/FEEDBACK.md` → `planning`; `C` → `planning`                | —                  | —       | —        | —                            |
 | `start-blocked`        | Baseline is red              | human | message | `* **` → `start-check`                                                                                         | —                  | —       | —        | `vars.feedbackFile`          |
-| `planning`             | Refining the plan            | agent | prompt  | `* **` → `plan-review`                                                                                         | —                  | `smart` | `plan`   | `vars.todoFile`              |
-| `plan-review`          | Awaiting your review         | human | message | `C` → `building`; `* **` → `planning`                                                                          | —                  | —       | —        | `vars.todoFile`              |
+| `planning`             | Refining the plan            | agent | prompt  | `* **` → `plan-review`                                                                                         | —                  | `smart` | `plan`   | `vars.todoFile` / `prose`    |
+| `plan-review`          | Awaiting your review         | human | message | `C` → `building`; `* **` → `planning`                                                                          | —                  | —       | —        | `vars.todoFile` / `prose`    |
 | `building`             | Building                     | agent | prompt  | `* **` → `checking`                                                                                            | —                  | `base`  | `build`  | `vars.todoFile`              |
 | `checking`             | Running checks               | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`                     | —                  | —       | —        | —                            |
 | `fixing`               | Fixing the check             | agent | prompt  | `* **` → `checking`                                                                                            | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile`          |
@@ -876,9 +878,18 @@ workflow without being declared — and they are validators ONLY: **gtd ships no
 formatter**, so `qa`/`review` reformat nothing until a project gives them a
 `format:` command. `gtd init` seeds one by default: the scaffolded `.gtdrc.json`
 carries a top-level `modes:` block suggesting `npx prettier --write` as the
-`format:` for both (validation still gtd's own) — an ordinary declared layer the
-project edits or drops, not privileged machinery (see
+`format:` for all three built-ins (validation still gtd's own for `qa`/`review`)
+— an ordinary declared layer the project edits or drops, not privileged
+machinery (see
 [docs/configuration.md](docs/configuration.md#modes--pluggable-steering-file-modes)).
+
+There is a third built-in mode, **`prose`** — a known name a state's `mode:` may
+use with no `modes:` declaration at all, but it ships **no validator**: it
+resolves to "format if a `modes:` layer gives it one, validate nothing"
+(`PatternMachine.isKnownBuiltInMode`/`FORMAT_ONLY_BUILT_IN_MODES`). It exists
+for a curated, free-form document with no gtd-side schema — the simple flow's
+plan file (see §10) — where a validator would either misapply a schema or have
+nothing to check.
 
 The two halves resolve **independently**, each from the first layer that
 provides it (`resolveSteeringMode` in `src/SteeringMode.ts`) — so extending a
@@ -940,19 +951,21 @@ In the unified template (§10) this covers `adv-grilling` (REQUIREMENTS.md/`qa`)
 `architecting` (ARCHITECTURE.md/`qa`) and `reviewing` (REVIEW.md/`review`) — the
 states that author a steering file — and, through the `gtd step` gate, the human
 gates `adv-grilling-answer`, `architecting-answer` and `await-review` that edit
-those same files. (The simple flow's `planning` authors `.gtd/TODO.md` with no
-`mode:`, so it is not gated here.) It replaced the old in-machine
+those same files. The simple flow's `planning`/`plan-review` are gated too, on
+the format-only `prose` mode (§10): a `modes:` `format:` command still runs and
+still blocks the step on a hard tooling failure, but there is no validator to
+fail on content. It replaced the old in-machine
 `todo-validating`/`review-validating` states and their `.gtd/FORMAT.md` bounce
 loop (see
 [docs/design/steering-file-validation-command.md](docs/design/steering-file-validation-command.md));
 modes became pluggable afterwards (see
 [docs/design/pluggable-steering-modes.md](docs/design/pluggable-steering-modes.md)).
 
-**Known limitation — the editor sees only the built-ins.** `gtd lsp` publishes
-diagnostics, document symbols and code actions for `qa`/`review` files only: gtd
-never runs a mode's shell command per keystroke over an unsaved buffer. A
-custom-mode file is still formatted and validated by `gtd validate` and the
-`gtd step` gate.
+**Known limitation — the editor sees only the validator built-ins.** `gtd lsp`
+publishes diagnostics, document symbols and code actions for `qa`/`review` files
+only: gtd never runs a mode's shell command per keystroke over an unsaved
+buffer. A `prose` file (the format-only built-in) and a custom-mode file are
+both still formatted and validated by `gtd validate` and the `gtd step` gate.
 
 ## 13. Sub-machines (compile-time expansion)
 

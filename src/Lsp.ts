@@ -35,9 +35,11 @@
  * `qa`-format file; a custom workflow that wants qa validation on TODO.md
  * declares it with `file:`+`mode: qa`, which the config-driven map covers.)
  *
- * KNOWN LIMITATION — this server understands only the two BUILT-IN modes
- * (`qa`/`review`, whose parsers it owns). A workflow-declared mode (a `modes:`
- * entry, whose validation is a shell command — see `src/SteeringMode.ts`)
+ * KNOWN LIMITATION — this server understands only the two VALIDATOR built-in
+ * modes (`qa`/`review`, whose parsers it owns). A workflow-declared mode (a
+ * `modes:` entry, whose validation is a shell command — see
+ * `src/SteeringMode.ts`) — and the third built-in, `prose` (a format-only
+ * name with no in-process parser — see `PatternMachine.isKnownBuiltInMode`) —
  * dispatches to no symbols, no code actions, and an empty diagnostic list: gtd
  * never runs a mode's command per keystroke over an unsaved buffer. Such a
  * file is still formatted and validated by `gtd validate` and the `gtd step`

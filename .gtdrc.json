@@ -13,6 +13,9 @@
     },
     "review": {
       "format": "npx prettier --write <%= it.file %>"
+    },
+    "prose": {
+      "format": "npx prettier --write <%= it.file %>"
     }
   }
 }

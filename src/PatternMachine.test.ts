@@ -1021,6 +1021,31 @@ describe("validateDefinition", () => {
     expect(errors).toEqual([])
   })
 
+  it("accepts a state declaring `mode: prose` with no `modes:` declaration", () => {
+    const errors = validateDefinition({
+      states: {
+        a: {
+          actor: "h",
+          message: "x",
+          initial: true,
+          file: ".gtd/TODO.md",
+          mode: "prose",
+          on: [],
+        },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects `mode: prose` without a sibling `file`", () => {
+    const errors = validateDefinition({
+      states: {
+        a: { actor: "h", message: "x", initial: true, mode: "prose", on: [] },
+      },
+    })
+    expect(errors).toContain('state "a": "mode" requires "file"')
+  })
+
   it("rejects an empty-string `file`", () => {
     const errors = validateDefinition({
       states: {
@@ -1054,7 +1079,7 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain(
-      'state "a": "mode" must name a built-in mode (qa, review) or one declared in "modes" (none declared) (got "yolo")',
+      'state "a": "mode" must name a built-in mode (qa, review, prose) or one declared in "modes" (none declared) (got "yolo")',
     )
   })
 
@@ -1074,7 +1099,7 @@ describe("validateDefinition", () => {
       },
     })
     expect(rejected).toContain(
-      'state "a": "mode" must name a built-in mode (qa, review) or one declared in "modes" (adr) (got "adrs")',
+      'state "a": "mode" must name a built-in mode (qa, review, prose) or one declared in "modes" (adr) (got "adrs")',
     )
   })
 
@@ -1297,7 +1322,7 @@ describe("validateDefinition", () => {
     })
     expect(errors).toContain('state "a": "file" must be a non-empty string')
     expect(errors).toContain(
-      'state "a": "mode" must name a built-in mode (qa, review) or one declared in "modes" (none declared) (got "yolo")',
+      'state "a": "mode" must name a built-in mode (qa, review, prose) or one declared in "modes" (none declared) (got "yolo")',
     )
     expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
   })
