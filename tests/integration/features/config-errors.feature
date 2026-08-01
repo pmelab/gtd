@@ -114,7 +114,7 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
     When I run gtd status
     Then it fails
     And stderr contains "workflow config:"
-    And stderr contains "\"mode\" must name a built-in mode (qa, review)"
+    And stderr contains "\"mode\" must name a built-in mode (qa, review, prose)"
     And stderr contains "declared in \"modes\" (adr)"
     And stderr contains "got \"adrs\""
 

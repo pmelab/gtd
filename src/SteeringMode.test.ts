@@ -100,8 +100,21 @@ describe("resolveSteeringMode", () => {
     const def = commandsDef({ adr: { validate: "adr-lint" } })
     expect(resolveSteeringMode(def, "nope")).toBeUndefined()
     expect(unknownModeMessage(def, "drafting", "nope")).toBe(
-      'state "drafting": mode "nope" is not defined by the active workflow (known modes: qa, review, adr)',
+      'state "drafting": mode "nope" is not defined by the active workflow (known modes: qa, review, prose, adr)',
     )
+  })
+
+  it("resolves `prose` with no declared mode to a validator-less, formatter-less mode", () => {
+    const def: WorkflowDefinition = { states: {} }
+    expect(resolveSteeringMode(def, "prose")).toEqual({ mode: "prose" })
+  })
+
+  it("adds a formatter to `prose` without adding any validation", () => {
+    const def = commandsDef({ prose: { format: "npx prettier --write <%= it.file %>" } })
+    expect(resolveSteeringMode(def, "prose")).toEqual({
+      mode: "prose",
+      format: "npx prettier --write <%= it.file %>",
+    })
   })
 })
 

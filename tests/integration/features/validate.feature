@@ -18,10 +18,12 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   dedicated state, the producing agent self-validates before finishing, so a
   human gate is only ever handed a well-formed file.
 
-  In the bundled template only the ADVANCED flow uses the `qa` mode
+  In the bundled template the ADVANCED flow uses the `qa` mode
   (`.gtd/REQUIREMENTS.md` at adv-grilling, `.gtd/ARCHITECTURE.md` at
   architecting). The SIMPLE flow's `.gtd/TODO.md` iterates on a free-form plan
-  with no `mode:`, so there is nothing to validate at planning/plan-review.
+  under the format-only `prose` mode: it validates cleanly regardless of
+  content (there is no validator to fail), but still formats on a declared
+  `format:` command — formatting.feature covers that.
 
   Scenario: a well-formed REQUIREMENTS.md at adv-grilling validates cleanly
     Given a test project
@@ -109,9 +111,10 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
 
-  Scenario: the simple flow's TODO.md declares no mode — nothing to validate at planning
+  Scenario: the simple flow's TODO.md is `prose`-moded — it validates cleanly with no findings to check
     # The SIMPLE flow iterates on a free-form plan; planning declares `file:`
-    # but no `mode:`, so validate has nothing to check.
+    # + `mode: prose`, a format-only built-in with no validator, so any
+    # content validates cleanly.
     Given a test project
     And the workflow
     And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
@@ -120,7 +123,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd with args "validate"
     Then it succeeds
-    And stdout contains "nothing to validate at \"planning\""
+    And stdout contains ".gtd/TODO.md: valid"
 
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
     Given a test project

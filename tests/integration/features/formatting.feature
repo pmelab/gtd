@@ -140,6 +140,67 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     When I commit with message "review: test formatting"
     Then ".gtd/REVIEW.md" has no lines longer than 80 characters
 
+  Scenario: prettier plugged into the bundled default's plan mode via a top-level modes: key formats the agent-authored plan at planning
+    # No `workflow:` re-declaration: the bundled default already gives
+    # `planning`/`plan-review` `mode: prose` (see unified.yaml); a top-level
+    # `modes:` key alone is enough to plug a formatter into it.
+    Given a test project
+    And prettier is available in the test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      modes:
+        prose:
+          format: "npx prettier --write <%= it.file %>"
+      """
+    And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
+      """
+      This is a deliberately long single prose line for the plan file that clearly exceeds the eighty character print width.
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "gtd(agent): planning → plan-review"
+    And ".gtd/TODO.md" has no lines longer than 80 characters
+
+  Scenario: prettier plugged into the bundled default's plan mode formats the human-edited plan at plan-review
+    Given a test project
+    And prettier is available in the test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      modes:
+        prose:
+          format: "npx prettier --write <%= it.file %>"
+      """
+    And a commit "gtd(agent): plan-review" that adds ".gtd/TODO.md" with:
+      """
+      A plan.
+      """
+    And ".gtd/TODO.md" is modified to:
+      """
+      A plan. This edited line is deliberately far longer than eighty characters so the formatter has to rewrap it before the turn is captured.
+      """
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): plan-review → planning"
+    And ".gtd/TODO.md" has no lines longer than 80 characters
+
+  Scenario: gtd validate formats the plan file and reports it valid — prose has no validator to fail
+    Given a test project
+    And prettier is available in the test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      modes:
+        prose:
+          format: "npx prettier --write <%= it.file %>"
+      """
+    And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
+      """
+      This is a deliberately long single prose line for the plan file that clearly exceeds the eighty character print width.
+      """
+    When I run gtd with args "validate"
+    Then it succeeds
+    And stdout contains ".gtd/TODO.md: valid"
+    And ".gtd/TODO.md" has no lines longer than 80 characters
+
   Scenario: Pre-commit hook does not modify other markdown files
     Given a test project
     And prettier is available in the test project

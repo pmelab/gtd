@@ -277,17 +277,36 @@ export type BuiltInMode = "qa" | "review"
 
 const BUILT_IN_MODES: readonly BuiltInMode[] = ["qa", "review"]
 
+/**
+ * Built-in mode names that ship NO validator at all — just a recognized name a
+ * state's `mode:` may use without a `modes:` declaration, so it resolves to
+ * "format if a `modes:` layer gives it one, validate nothing" (see
+ * `src/SteeringMode.ts`'s `resolveSteeringMode`). `prose` is the one entry: a
+ * curated free-form document with no gtd-side schema (the simple flow's plan
+ * file), distinct from the schema'd `qa`/`review` built-ins.
+ */
+const FORMAT_ONLY_BUILT_IN_MODES = ["prose"] as const
+
+/** Every built-in mode name — the validator tier (`BUILT_IN_MODES`) plus the format-only tier (`FORMAT_ONLY_BUILT_IN_MODES`) — used where a `mode:` just needs to be a KNOWN name, not necessarily one with a validator. */
+const KNOWN_BUILT_IN_MODES: readonly StateMode[] = [
+  ...BUILT_IN_MODES,
+  ...FORMAT_ONLY_BUILT_IN_MODES,
+]
+
 /** True when `mode` names one of gtd's own in-process implementations (see `BUILT_IN_MODES`) — the edge's dispatch, and a type guard so it can pick the parser. */
 export const isBuiltInMode = (mode: StateMode): mode is BuiltInMode =>
   (BUILT_IN_MODES as readonly StateMode[]).includes(mode)
+
+/** True when `mode` names any built-in — validator tier or format-only tier (see `KNOWN_BUILT_IN_MODES`) — without implying a validator exists. */
+export const isKnownBuiltInMode = (mode: StateMode): boolean => KNOWN_BUILT_IN_MODES.includes(mode)
 
 /** The mode names the definition declares in `modes:` (empty when it declares none). */
 const declaredModes = (def: WorkflowDefinition): readonly StateMode[] =>
   Object.keys(def.modes ?? {})
 
-/** Every mode name a state's `mode:` may legally name under `def`: the built-ins plus the declared ones (a declared name shadowing a built-in appears once). */
+/** Every mode name a state's `mode:` may legally name under `def`: the built-ins (validator and format-only tiers) plus the declared ones (a declared name shadowing a built-in appears once). */
 export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
-  Array.from(new Set([...BUILT_IN_MODES, ...declaredModes(def)]))
+  Array.from(new Set([...KNOWN_BUILT_IN_MODES, ...declaredModes(def)]))
 
 /** A workflow: named states, plus the optional steering-file `modes:` they may name. Exactly one state must declare `initial: true`. */
 export interface WorkflowDefinition {
@@ -902,7 +921,7 @@ const validateMode = (def: WorkflowDefinition, name: string, state: StateDef): s
   const errors: string[] = []
   if (!knownModes(def).includes(state.mode)) {
     errors.push(
-      `state "${name}": "mode" must name a built-in mode (${BUILT_IN_MODES.join(", ")}) or one declared in "modes" (${
+      `state "${name}": "mode" must name a built-in mode (${KNOWN_BUILT_IN_MODES.join(", ")}) or one declared in "modes" (${
         declaredModes(def).length > 0 ? declaredModes(def).join(", ") : "none declared"
       }) (got "${state.mode}")`,
     )

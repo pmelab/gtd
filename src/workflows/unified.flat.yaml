@@ -200,6 +200,7 @@ states:
     actor: agent
     label: Refining the plan
     file: <%= it.vars.todoFile %>
+    mode: prose
     model: <%= it.vars.plannerModel %>
     memory: plan
     prompt: |
@@ -234,6 +235,7 @@ states:
     actor: human
     label: Awaiting your review
     file: <%= it.vars.todoFile %>
+    mode: prose
     message: |
       `<%= it.vars.todoFile %>` holds the proposed implementation plan. Read it,
       then either accept it as-is or edit it — rewrite a step, add a
