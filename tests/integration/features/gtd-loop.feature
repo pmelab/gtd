@@ -67,6 +67,68 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And the git log contains "chore: calculator done"
     And "src/calc.ts" exists
 
+  Scenario: A check script's own cleanup mechanic (a sole swept deletion) advances the cycle instead of stalling
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b), and also leave a leaked.md scratch file behind."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              rm -f leaked.md
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "* **": reviewing
+              "C": reviewing
+          reviewing:
+            actor: human
+            message: "sign off to finish"
+            on:
+              "* **": done
+          done:
+            commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          echo "scratch notes" > leaked.md
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run bare gtd
+    Then it succeeds
+    And stdout contains "[you]  reviewing"
+    And the last commit subject is "gtd(check): checking → reviewing"
+    And "leaked.md" does not exist
+    And "src/calc.ts" exists
+
   Scenario: Captures the human's pending edit at the opening gate, so the human only runs gtd
     # The machine rests at the initial human gate `idle` (no gtd commit — the
     # test project's "chore: initial commit" resolves to the initial state) with

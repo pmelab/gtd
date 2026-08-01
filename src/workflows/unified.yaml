@@ -132,21 +132,31 @@ submachines:
       check:
         actor: check
         label: $checkLabel
-        # Anchored here and aliased by `assertGreen` (the green-baseline gate,
-        # ×3) and `fix-check` (`gtd fix` entry): one suite-check script shared
-        # by all six call sites instead of five source copies.
-        script: &suiteCheck |
+        # NOT the shared `&suiteCheck` anchor (that lives on `assertGreen`,
+        # aliased by it and by `fix-check`): this script also sweeps spent
+        # steering files (`todoFile`, `reviewRawFile`, `reviewFeedbackFile`) —
+        # a mechanic the entry/fix gates must NOT run, since they execute
+        # before planning, while a fresh sketch legitimately still exists.
+        script: |
           #!/usr/bin/env bash
           # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
           # green run cleans it up. The `on` rules decide what that means.
           set +e
           mkdir -p "<%~ it.vars.stateDir %>"
-          # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
-          # newline after an interpolation tag, so no tag may be the last token on
-          # a line — it would glue the next line's `else`/`fi` onto it and break
+          # Hoist every path once, at the TOP: Eta's autoTrim eats the newline
+          # after an interpolation tag, so no tag may be the last token on a
+          # line — it would glue the next line's `else`/`fi` onto it and break
           # the script. Below this point everything is plain bash.
           feedback="<%~ it.vars.feedbackFile %>"
           mkdir -p "$(dirname "$feedback")"
+          # Sweep steering files spent by the states that led here: the plan
+          # (building), the raw review capture (feedback-collecting), and the
+          # feedback instructions (feedback-building) — each `rm -f` is a
+          # no-op when the file is already gone or never existed on this path.
+          todo="<%~ it.vars.todoFile %>"
+          reviewRaw="<%~ it.vars.reviewRawFile %>"
+          reviewFeedback="<%~ it.vars.reviewFeedbackFile %>"
+          rm -f "$todo" "$reviewRaw" "$reviewFeedback"
           <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
           code=$?
           if [ "$code" -ne 0 ]; then
@@ -163,7 +173,7 @@ submachines:
         on:
           "A <%= it.vars.feedbackFile %>": fix
           "M <%= it.vars.feedbackFile %>": fix
-          "D <%= it.vars.feedbackFile %>": $onGreen
+          "* **": $onGreen
           "C": $onGreen
       fix:
         actor: agent
@@ -218,7 +228,37 @@ submachines:
       check:
         actor: check
         label: $checkLabel
-        script: *suiteCheck
+        # Anchored here and aliased by `fix-check` (`gtd fix` entry): one
+        # suite-check script shared by all four call sites (this submachine's
+        # ×3 uses plus `fix-check`) instead of four source copies. These gates
+        # run BEFORE planning, so — unlike `makeGreen.check` — they must NOT
+        # sweep `todoFile`/`requirementsFile`: the human's fresh sketch still
+        # legitimately exists here.
+        script: &suiteCheck |
+          #!/usr/bin/env bash
+          # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
+          # green run cleans it up. The `on` rules decide what that means.
+          set +e
+          mkdir -p "<%~ it.vars.stateDir %>"
+          # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
+          # newline after an interpolation tag, so no tag may be the last token on
+          # a line — it would glue the next line's `else`/`fi` onto it and break
+          # the script. Below this point everything is plain bash.
+          feedback="<%~ it.vars.feedbackFile %>"
+          mkdir -p "$(dirname "$feedback")"
+          <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            if [ -s <%~ it.vars.stateDir %>/.check-output ]; then
+              mv <%~ it.vars.stateDir %>/.check-output "$feedback"
+            else
+              rm -f <%~ it.vars.stateDir %>/.check-output
+              printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
+            fi
+          else
+            rm -f <%~ it.vars.stateDir %>/.check-output
+            rm -f "$feedback"
+          fi
         on:
           "A <%= it.vars.feedbackFile %>": blocked
           "M <%= it.vars.feedbackFile %>": blocked
@@ -704,6 +744,12 @@ submachines:
           # it would glue the next line's `else`/`fi` onto it and break the script.
           # Below this point everything is plain bash.
           nextFile="<%~ it.vars.nextFile %>"
+          # Sweep the advanced flow's spent Q&A steering files: requirementsFile
+          # is consumed by architecting, architectureFile by decompose — both are
+          # gone by the time the package queue starts. No-op if already removed.
+          requirements="<%~ it.vars.requirementsFile %>"
+          architecture="<%~ it.vars.architectureFile %>"
+          rm -f "$requirements" "$architecture"
           next=$(ls <%~ it.vars.packagesDir %>/*.md 2>/dev/null | head -n 1)
           if [ -n "$next" ]; then
             mkdir -p "$(dirname "$nextFile")"

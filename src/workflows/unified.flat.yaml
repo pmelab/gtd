@@ -561,6 +561,12 @@ states:
       # it would glue the next line's `else`/`fi` onto it and break the script.
       # Below this point everything is plain bash.
       nextFile="<%~ it.vars.nextFile %>"
+      # Sweep the advanced flow's spent Q&A steering files: requirementsFile
+      # is consumed by architecting, architectureFile by decompose — both are
+      # gone by the time the package queue starts. No-op if already removed.
+      requirements="<%~ it.vars.requirementsFile %>"
+      architecture="<%~ it.vars.architectureFile %>"
+      rm -f "$requirements" "$architecture"
       next=$(ls <%~ it.vars.packagesDir %>/*.md 2>/dev/null | head -n 1)
       if [ -n "$next" ]; then
         mkdir -p "$(dirname "$nextFile")"
@@ -609,12 +615,20 @@ states:
       # green run cleans it up. The `on` rules decide what that means.
       set +e
       mkdir -p "<%~ it.vars.stateDir %>"
-      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
-      # newline after an interpolation tag, so no tag may be the last token on
-      # a line — it would glue the next line's `else`/`fi` onto it and break
+      # Hoist every path once, at the TOP: Eta's autoTrim eats the newline
+      # after an interpolation tag, so no tag may be the last token on a
+      # line — it would glue the next line's `else`/`fi` onto it and break
       # the script. Below this point everything is plain bash.
       feedback="<%~ it.vars.feedbackFile %>"
       mkdir -p "$(dirname "$feedback")"
+      # Sweep steering files spent by the states that led here: the plan
+      # (building), the raw review capture (feedback-collecting), and the
+      # feedback instructions (feedback-building) — each `rm -f` is a
+      # no-op when the file is already gone or never existed on this path.
+      todo="<%~ it.vars.todoFile %>"
+      reviewRaw="<%~ it.vars.reviewRawFile %>"
+      reviewFeedback="<%~ it.vars.reviewFeedbackFile %>"
+      rm -f "$todo" "$reviewRaw" "$reviewFeedback"
       <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
@@ -631,7 +645,7 @@ states:
     on:
       "A <%= it.vars.feedbackFile %>": adv-fixing
       "M <%= it.vars.feedbackFile %>": adv-fixing
-      "D <%= it.vars.feedbackFile %>": spec-review
+      "* **": spec-review
       "C": spec-review
 
   adv-fixing:
@@ -778,12 +792,20 @@ states:
       # green run cleans it up. The `on` rules decide what that means.
       set +e
       mkdir -p "<%~ it.vars.stateDir %>"
-      # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
-      # newline after an interpolation tag, so no tag may be the last token on
-      # a line — it would glue the next line's `else`/`fi` onto it and break
+      # Hoist every path once, at the TOP: Eta's autoTrim eats the newline
+      # after an interpolation tag, so no tag may be the last token on a
+      # line — it would glue the next line's `else`/`fi` onto it and break
       # the script. Below this point everything is plain bash.
       feedback="<%~ it.vars.feedbackFile %>"
       mkdir -p "$(dirname "$feedback")"
+      # Sweep steering files spent by the states that led here: the plan
+      # (building), the raw review capture (feedback-collecting), and the
+      # feedback instructions (feedback-building) — each `rm -f` is a
+      # no-op when the file is already gone or never existed on this path.
+      todo="<%~ it.vars.todoFile %>"
+      reviewRaw="<%~ it.vars.reviewRawFile %>"
+      reviewFeedback="<%~ it.vars.reviewFeedbackFile %>"
+      rm -f "$todo" "$reviewRaw" "$reviewFeedback"
       <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
@@ -800,7 +822,7 @@ states:
     on:
       "A <%= it.vars.feedbackFile %>": fixing
       "M <%= it.vars.feedbackFile %>": fixing
-      "D <%= it.vars.feedbackFile %>": reviewing
+      "* **": reviewing
       "C": reviewing
 
   fixing:
