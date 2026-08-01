@@ -159,6 +159,31 @@ loudly at load time rather than silently misinterpreting.
 or agent harness, upgrading the `gtd` binary also means re-copying that skill
 from this release.
 
+## Unreleased: bundled prompts no longer name `.gtd/`; a new `stateDir` var
+
+The bundled template's agent prompts used to open with a sentence naming `.gtd/`
+as the directory the agent must never touch except its own owned file. That
+framing broke down once a project repointed a steering-file var (e.g.
+`reviewFile`) outside `.gtd/`: the prompt still pointed the agent at a directory
+that no longer held the file it was writing. Every prompt's opener now states a
+path-agnostic principle instead — "this workflow steers itself through its own
+state files — treat them as its private scratchpad, never as project code or
+documentation" — and names only the specific file(s) its `vars:` entry owns.
+
+The check scripts also gained a new `vars.stateDir` (default `.gtd`) —
+independent of the per-file vars — naming only where they keep their own
+scratch/bookkeeping (the `.check-output` temp file, `review-deciding`'s
+exclusion of gtd's other state files). Each script now also creates its target
+file's own parent directory (`mkdir -p "$(dirname "$feedback")"`, etc.), so a
+per-file var repointed outside `stateDir` (or to a nested path with no existing
+parent) no longer fails to write.
+
+**Fully backward-compatible: no config change is needed.** Both `stateDir` and
+every per-file var keep their existing `.gtd/…` defaults, so an unconfigured
+repo renders byte-identical scripts and behavior to before. A repo that already
+relocated a steering-file var outside `.gtd/` (working around issue #128 for
+`reviewFile`) can keep its override as-is; nothing further to change.
+
 ## The var-override env prefix is now `GTD_<UPPERCASE-name>`, not `GTD_VAR_<name>`
 
 The environment-variable layer of `it.vars` (see

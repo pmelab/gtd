@@ -78,6 +78,10 @@
 
 vars:
   testCommand: npm test
+  # Where gtd keeps its own scratch/bookkeeping (the check scripts' temp output
+  # file, review-deciding's state-file exclusion). Independent of the per-file
+  # vars below — relocating a file wholesale means setting both.
+  stateDir: .gtd
   todoFile: .gtd/TODO.md
   requirementsFile: .gtd/REQUIREMENTS.md
   architectureFile: .gtd/ARCHITECTURE.md
@@ -111,11 +115,11 @@ states:
 
       To start one, create a steering file describing what you want built:
 
-      - `.gtd/TODO.md` — a short sketch — starts the SIMPLE flow (plan, build,
-        review).
-      - `.gtd/REQUIREMENTS.md` — the product requirements — starts the ADVANCED
-        flow (product + technical Q&A, package decomposition, parallel build,
-        per-package agentic review).
+      - `<%= it.vars.todoFile %>` — a short sketch — starts the SIMPLE flow
+        (plan, build, review).
+      - `<%= it.vars.requirementsFile %>` — the product requirements — starts
+        the ADVANCED flow (product + technical Q&A, package decomposition,
+        parallel build, per-package agentic review).
 
       What each change does next (then run `gtd step human`):
       <% it.edges.forEach(function (e) { if (e.describe) { %>
@@ -149,23 +153,24 @@ states:
       # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
       # green run cleans it up. The `on` rules decide what that means.
       set +e
-      mkdir -p .gtd
+      mkdir -p "<%~ it.vars.stateDir %>"
       # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
       # newline after an interpolation tag, so no tag may be the last token on
       # a line — it would glue the next line's `else`/`fi` onto it and break
       # the script. Below this point everything is plain bash.
       feedback="<%~ it.vars.feedbackFile %>"
-      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+      mkdir -p "$(dirname "$feedback")"
+      <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
-        if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output "$feedback"
+        if [ -s <%~ it.vars.stateDir %>/.check-output ]; then
+          mv <%~ it.vars.stateDir %>/.check-output "$feedback"
         else
-          rm -f .gtd/.check-output
+          rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
       else
-        rm -f .gtd/.check-output
+        rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"
       fi
     on:
@@ -204,9 +209,11 @@ states:
     model: <%= it.vars.plannerModel %>
     memory: plan
     prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.todoFile %>`, which this prompt tells you to develop.
+      You are an autonomous coding agent. This workflow steers itself
+      through its own state files — treat them as its private scratchpad,
+      never as project code or documentation. The only state file this
+      turn touches is `<%= it.vars.todoFile %>`; develop it into the plan.
+      Do not create other files to hold notes or output.
 
       `<%= it.vars.todoFile %>` holds a short sketch of what to build — or, on a
       return lap, the plan you already wrote plus the human's edits and comments
@@ -264,10 +271,11 @@ states:
     model: <%= it.vars.coderModel %>
     memory: build
     prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create or edit anything under `.gtd/` except deleting
-      `<%= it.vars.todoFile %>`, which this prompt tells you to delete once its
-      work is complete.
+      You are an autonomous coding agent. This workflow steers itself through
+      its own state files — treat them as its private scratchpad, never as
+      project code or documentation. The only state file this turn touches is
+      `<%= it.vars.todoFile %>`; delete it once its work is complete. Do not
+      create other files to hold notes or output.
 
       The plan to implement is: <%~ it.read(it.vars.todoFile) %>
 
@@ -289,23 +297,24 @@ states:
       # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
       # green run cleans it up. The `on` rules decide what that means.
       set +e
-      mkdir -p .gtd
+      mkdir -p "<%~ it.vars.stateDir %>"
       # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
       # newline after an interpolation tag, so no tag may be the last token on
       # a line — it would glue the next line's `else`/`fi` onto it and break
       # the script. Below this point everything is plain bash.
       feedback="<%~ it.vars.feedbackFile %>"
-      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+      mkdir -p "$(dirname "$feedback")"
+      <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
-        if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output "$feedback"
+        if [ -s <%~ it.vars.stateDir %>/.check-output ]; then
+          mv <%~ it.vars.stateDir %>/.check-output "$feedback"
         else
-          rm -f .gtd/.check-output
+          rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
       else
-        rm -f .gtd/.check-output
+        rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"
       fi
     on:
@@ -344,9 +353,11 @@ states:
     model: <%= it.vars.plannerModel %>
     memory: plan
     prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.requirementsFile %>`, which this prompt tells you to develop.
+      You are an autonomous coding agent. This workflow steers itself
+      through its own state files — treat them as its private scratchpad,
+      never as project code or documentation. The only state file this turn
+      touches is `<%= it.vars.requirementsFile %>`; develop it. Do not
+      create other files to hold notes or output.
 
       `<%= it.vars.requirementsFile %>` holds the product requirements (or the
       plan you already wrote plus the human's answers on a return lap). Read it,
@@ -427,10 +438,12 @@ states:
     model: <%= it.vars.plannerModel %>
     memory: plan
     prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.architectureFile %>` and `<%= it.vars.requirementsFile %>`,
-      which this prompt tells you to write and delete respectively.
+      You are an autonomous coding agent. This workflow steers itself
+      through its own state files — treat them as its private scratchpad,
+      never as project code or documentation. The only state files this
+      turn touches are `<%= it.vars.architectureFile %>` (write it) and
+      `<%= it.vars.requirementsFile %>` (delete it once its content is
+      folded in). Do not create other files to hold notes or output.
 
       Read `<%= it.vars.requirementsFile %>` (the converged product plan) and
       develop `<%= it.vars.architectureFile %>` from it in this one turn:
@@ -504,11 +517,12 @@ states:
     model: <%= it.vars.coderModel %>
     memory: build
     prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except the
-      package files this prompt tells you to write (under
-      `<%= it.vars.packagesDir %>/`), and `<%= it.vars.architectureFile %>`,
-      which it tells you to delete.
+      You are an autonomous coding agent. This workflow steers itself through
+      its own state files — treat them as its private scratchpad, never as
+      project code or documentation. The only state files this turn touches
+      are the package files it writes under `<%= it.vars.packagesDir %>/` and
+      `<%= it.vars.architectureFile %>`, which it deletes. Do not create other
+      files to hold notes or output.
 
       Read `<%= it.vars.architectureFile %>` (the converged technical plan) and
       decompose it into an ordered set of WORK PACKAGES, one file each under
@@ -549,6 +563,7 @@ states:
       nextFile="<%~ it.vars.nextFile %>"
       next=$(ls <%~ it.vars.packagesDir %>/*.md 2>/dev/null | head -n 1)
       if [ -n "$next" ]; then
+        mkdir -p "$(dirname "$nextFile")"
         printf '%s' "$next" > "$nextFile"
       else
         rm -f "$nextFile"
@@ -564,11 +579,12 @@ states:
     model: <%= it.vars.coderModel %>
     memory: build
     prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/`; in
-      particular do NOT delete the package file (the `spec-review` gate reads it
-      after you) and never touch `<%= it.vars.nextFile %>` — the `picking` state
-      owns it.
+      You are an autonomous coding agent. This workflow steers itself
+      through its own state files — treat them as its private scratchpad,
+      never as project code or documentation. This turn writes no state
+      file: do NOT delete the package file (the `spec-review` gate reads
+      it after you) and never touch `<%= it.vars.nextFile %>` — the
+      `picking` state owns it.
 
       The package to implement is: <%~ it.read(it.vars.nextFile) %>
 
@@ -592,23 +608,24 @@ states:
       # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
       # green run cleans it up. The `on` rules decide what that means.
       set +e
-      mkdir -p .gtd
+      mkdir -p "<%~ it.vars.stateDir %>"
       # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
       # newline after an interpolation tag, so no tag may be the last token on
       # a line — it would glue the next line's `else`/`fi` onto it and break
       # the script. Below this point everything is plain bash.
       feedback="<%~ it.vars.feedbackFile %>"
-      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+      mkdir -p "$(dirname "$feedback")"
+      <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
-        if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output "$feedback"
+        if [ -s <%~ it.vars.stateDir %>/.check-output ]; then
+          mv <%~ it.vars.stateDir %>/.check-output "$feedback"
         else
-          rm -f .gtd/.check-output
+          rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
       else
-        rm -f .gtd/.check-output
+        rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"
       fi
     on:
@@ -627,9 +644,12 @@ states:
       max: 3
       otherwise: adv-escalate
     prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.feedbackFile %>`, which this prompt tells you to address.
+      You are an autonomous coding agent. This workflow steers itself
+      through its own state files — treat them as its private scratchpad,
+      never as project code or documentation. The only state file this
+      turn touches is `<%= it.vars.feedbackFile %>`; fix it per its
+      contents, or delete it if the feedback turns out to be wrong. Do not
+      create other files to hold notes or output.
 
       Read `<%= it.vars.feedbackFile %>` (the failing test output) and fix the
       code so the suite passes. Keep the change focused — do not refactor
@@ -675,10 +695,12 @@ states:
       otherwise: closing
     prompt: |
       You are an autonomous coding agent reviewing a freshly-built work package
-      against its own spec. `.gtd/` holds this workflow's own state — never
-      create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.specFeedbackFile %>`, which this prompt tells you to write
-      when — and only when — you find problems.
+      against its own spec. This workflow steers itself through its own
+      state files — treat them as its private scratchpad, never as project
+      code or documentation. The only state file this turn touches is
+      `<%= it.vars.specFeedbackFile %>`; write it only when — and only
+      when — you find problems. Do not create other files to hold notes or
+      output.
 
       The package spec is: <%~ it.read(it.vars.nextFile) %>
 
@@ -714,10 +736,11 @@ states:
     model: <%= it.vars.coderModel %>
     memory: fix
     prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.specFeedbackFile %>`, which this prompt tells you to address
-      and then delete.
+      You are an autonomous coding agent. This workflow steers itself
+      through its own state files — treat them as its private scratchpad,
+      never as project code or documentation. The only state file this
+      turn touches is `<%= it.vars.specFeedbackFile %>`; address it, then
+      delete it. Do not create other files to hold notes or output.
 
       Read `<%= it.vars.specFeedbackFile %>` (the reviewer's concerns about the
       current package) and the package spec (`<%= it.read(it.vars.nextFile) %>`),
@@ -754,23 +777,24 @@ states:
       # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
       # green run cleans it up. The `on` rules decide what that means.
       set +e
-      mkdir -p .gtd
+      mkdir -p "<%~ it.vars.stateDir %>"
       # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
       # newline after an interpolation tag, so no tag may be the last token on
       # a line — it would glue the next line's `else`/`fi` onto it and break
       # the script. Below this point everything is plain bash.
       feedback="<%~ it.vars.feedbackFile %>"
-      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+      mkdir -p "$(dirname "$feedback")"
+      <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
-        if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output "$feedback"
+        if [ -s <%~ it.vars.stateDir %>/.check-output ]; then
+          mv <%~ it.vars.stateDir %>/.check-output "$feedback"
         else
-          rm -f .gtd/.check-output
+          rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
       else
-        rm -f .gtd/.check-output
+        rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"
       fi
     on:
@@ -789,9 +813,12 @@ states:
       max: 3
       otherwise: escalate
     prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.feedbackFile %>`, which this prompt tells you to address.
+      You are an autonomous coding agent. This workflow steers itself
+      through its own state files — treat them as its private scratchpad,
+      never as project code or documentation. The only state file this
+      turn touches is `<%= it.vars.feedbackFile %>`; fix it per its
+      contents, or delete it if the feedback turns out to be wrong. Do not
+      create other files to hold notes or output.
 
       Read `<%= it.vars.feedbackFile %>` (the failing test output) and fix the
       code so the suite passes. Keep the change focused — do not refactor
@@ -835,23 +862,24 @@ states:
       # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
       # green run cleans it up. The `on` rules decide what that means.
       set +e
-      mkdir -p .gtd
+      mkdir -p "<%~ it.vars.stateDir %>"
       # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
       # newline after an interpolation tag, so no tag may be the last token on
       # a line — it would glue the next line's `else`/`fi` onto it and break
       # the script. Below this point everything is plain bash.
       feedback="<%~ it.vars.feedbackFile %>"
-      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+      mkdir -p "$(dirname "$feedback")"
+      <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
-        if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output "$feedback"
+        if [ -s <%~ it.vars.stateDir %>/.check-output ]; then
+          mv <%~ it.vars.stateDir %>/.check-output "$feedback"
         else
-          rm -f .gtd/.check-output
+          rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
       else
-        rm -f .gtd/.check-output
+        rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"
       fi
     on:
@@ -892,23 +920,24 @@ states:
       # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
       # green run cleans it up. The `on` rules decide what that means.
       set +e
-      mkdir -p .gtd
+      mkdir -p "<%~ it.vars.stateDir %>"
       # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
       # newline after an interpolation tag, so no tag may be the last token on
       # a line — it would glue the next line's `else`/`fi` onto it and break
       # the script. Below this point everything is plain bash.
       feedback="<%~ it.vars.feedbackFile %>"
-      <%~ it.vars.testCommand %> > .gtd/.check-output 2>&1
+      mkdir -p "$(dirname "$feedback")"
+      <%~ it.vars.testCommand %> > <%~ it.vars.stateDir %>/.check-output 2>&1
       code=$?
       if [ "$code" -ne 0 ]; then
-        if [ -s .gtd/.check-output ]; then
-          mv .gtd/.check-output "$feedback"
+        if [ -s <%~ it.vars.stateDir %>/.check-output ]; then
+          mv <%~ it.vars.stateDir %>/.check-output "$feedback"
         else
-          rm -f .gtd/.check-output
+          rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
       else
-        rm -f .gtd/.check-output
+        rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"
       fi
     on:
@@ -932,11 +961,11 @@ states:
     # process's oldest), so everything below still reuses the same
     # reviewing/await-review/feedback machinery over <commitish>..HEAD.
     prompt: |
-      You are an autonomous coding agent. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/`. The one
-      file this prompt tells you to write is `<%= it.vars.reviewFile %>`;
-      write it at exactly that path (it may live outside `.gtd/`), and touch
-      nothing else under `.gtd/`.
+      You are an autonomous coding agent. This workflow steers itself
+      through its own state files — treat them as its private scratchpad,
+      never as project code or documentation. The only state file this
+      turn touches is `<%= it.vars.reviewFile %>`; write it at exactly
+      that path. Do not create other files to hold notes or output.
 
       Write `<%= it.vars.reviewFile %>` to help a human review the diff below in
       this EXACT format:
@@ -1035,18 +1064,19 @@ states:
       # also deletes REVIEW.md) is captured as feedback, not mistaken for a
       # sign-off.
       set +e
-      mkdir -p .gtd
       # Hoist the paths once, at the TOP: Eta's autoTrim eats the newline after
       # an interpolation tag, so no tag may be the last token on a line — it
       # would glue the next line onto it and break the script. Below this point
       # everything is plain bash.
+      stateDir="<%~ it.vars.stateDir %>"
       reviewFile="<%~ it.vars.reviewFile %>"
       reviewRawFile="<%~ it.vars.reviewRawFile %>"
-      # Which files did the human hand-edit this round, besides .gtd/ and the
-      # reviewFile itself (var-configurable — may live outside .gtd/, so it is
-      # excluded by exact path, not just the .gtd/ prefix)?
+      mkdir -p "$(dirname "$reviewRawFile")"
+      # Which files did the human hand-edit this round, besides stateDir and the
+      # reviewFile itself (var-configurable — may live outside stateDir, so it is
+      # excluded by exact path, not just the stateDir prefix)?
       codeFiles=$(git diff-tree --no-commit-id --name-only -r HEAD \
-        | grep -v '^\.gtd/' | grep -vxF "$reviewFile")
+        | grep -v "^$stateDir/" | grep -vxF "$reviewFile")
       # A note is any REVIEW.md change beyond a checkbox flip: normalize every
       # "[ ]"/"[x]" to a placeholder, then compare the agent's original (HEAD^)
       # against the human's version (HEAD).
@@ -1089,11 +1119,12 @@ states:
     memory: review
     prompt: |
       You are an autonomous coding agent turning raw review feedback into an
-      explicit instruction list for a builder. `.gtd/` holds this workflow's own
-      state — never create, edit, or delete anything under `.gtd/` except
-      `<%= it.vars.reviewRawFile %>` (delete it when done) and
-      `<%= it.vars.reviewFeedbackFile %>` (write it). Do NOT change any other
-      file — you classify, you do not build.
+      explicit instruction list for a builder. This workflow steers itself
+      through its own state files — treat them as its private scratchpad,
+      never as project code or documentation. The only state files this
+      turn touches are `<%= it.vars.reviewRawFile %>` (read it, then
+      delete it) and `<%= it.vars.reviewFeedbackFile %>` (write it) — do
+      NOT change any other file, you classify, you do not build.
 
       The raw review material is: <%~ it.read(it.vars.reviewRawFile) %>
 
@@ -1146,10 +1177,12 @@ states:
     # which legitimately makes no code change). The pure engine carries it inert.
     requireProgress: true
     prompt: |
-      You are an autonomous coding agent addressing review feedback. `.gtd/`
-      holds this workflow's own state — never create, edit, or delete anything
-      under `.gtd/` except `<%= it.vars.reviewFeedbackFile %>`, which this
-      prompt tells you to address and then delete.
+      You are an autonomous coding agent addressing review feedback. This
+      workflow steers itself through its own state files — treat them as
+      its private scratchpad, never as project code or documentation. The
+      only state file this turn touches is
+      `<%= it.vars.reviewFeedbackFile %>`; address it, then delete it. Do
+      not create other files to hold notes or output.
 
       The instructions to implement are: <%~ it.read(it.vars.reviewFeedbackFile) %>
 
@@ -1180,10 +1213,11 @@ states:
     model: <%= it.vars.coderModel %>
     memory: build
     prompt: |
-      You are an autonomous coding agent. The cycle is approved and done.
-      `.gtd/` holds this workflow's own state — never create, edit, or delete
-      anything under `.gtd/` except `<%= it.vars.commitMsgFile %>`, which this
-      prompt tells you to write.
+      You are an autonomous coding agent. The cycle is approved and done. This
+      workflow steers itself through its own state files — treat them as its
+      private scratchpad, never as project code or documentation. The only
+      state file this turn touches is `<%= it.vars.commitMsgFile %>`; write
+      it. Do not create other files to hold notes or output.
 
       Leave `<%= it.vars.commitMsgFile %>` uncommitted and finish your turn —
       entering this file squashes everything this process retains into one

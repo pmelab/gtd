@@ -744,6 +744,15 @@ alongside every other config-shape finding (see
 ["Validation and errors"](#validation-and-errors)). Environment values are
 already strings.
 
+The bundled template also declares `stateDir: .gtd` — where its check scripts
+keep their own scratch/bookkeeping (the `.check-output` temp file,
+`review-deciding`'s exclusion of gtd's other state files when deciding whether
+the human hand-edited code this round). It is independent of the per-file vars
+(`todoFile`, `feedbackFile`, `reviewFile`, …): relocating one steering file
+outside `stateDir` needs no `stateDir` change (each check script creates that
+file's own parent directory as needed), and a project relocating its state
+wholesale sets both `stateDir` and the file vars it cares about.
+
 ```yaml
 # .gtdrc — overriding the unified template's testCommand
 vars:

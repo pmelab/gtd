@@ -451,6 +451,22 @@ is a free-form plan under the format-only `prose` mode: it still runs a
 `modes:`-declared `format:` command before either `planning`/`plan-review`
 steps, but there is no gtd-side schema to validate against.
 
+Every path in the tables below and in each agent prompt is a per-file `vars:`
+default (`vars.todoFile`, `vars.feedbackFile`, …), never a literal the machine
+special-cases — repointing a var reroutes every `on` pattern, script, and prompt
+that reads/writes it. A separate `vars.stateDir` (default `.gtd`) names only
+where the check scripts keep their OWN scratch/bookkeeping (the `.check-output`
+temp file, `review-deciding`'s exclusion of gtd's other state files from "did
+the human hand-edit code this round?") — independent of the per-file vars, so
+relocating one steering file outside `stateDir` (e.g. a root-level `REVIEW.md`,
+issue #128) needs no `stateDir` change, and each check script's
+`mkdir -p "$(dirname "$feedback")"` (etc.) creates that file's own parent
+directory regardless of where it lives. Each agent prompt's opening guard no
+longer names a directory either: it states the path-agnostic principle ("this
+workflow steers itself through its own state files — treat them as its private
+scratchpad, never as project code or documentation") and then names only the
+specific file(s) this turn's `vars:` entry owns.
+
 **Entry + shared states** (the simple-flow gate, the shared health/tail, and the
 `gtd review`/`gtd fix` gates — everything the entries share):
 
