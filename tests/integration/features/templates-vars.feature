@@ -146,6 +146,19 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     Then it succeeds
     And stdout contains "npm test > .gtd/.check-output"
 
+  Scenario: a "GTD_VAR_stateDir" override relocates the check script's scratch output path
+    Given a test project
+    And the workflow
+    And a commit "gtd(agent): checking" that adds "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And an environment variable "GTD_VAR_stateDir" set to ".wf"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "npm test > .wf/.check-output"
+    And stdout does not contain ".gtd/.check-output"
+
   Scenario: a top-level "vars:" overrides the workflow's own testCommand default
     Given a test project
     And a gtd config file at ".gtdrc" with:
