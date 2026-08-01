@@ -169,11 +169,10 @@ workflow is just `.gtdrc` config — edit it or write your own (see
 [Configuration](docs/configuration.md)). Every agent state routes its model
 through two `vars` tiers — `plannerModel` (heavier planning and review) and
 `coderModel` (the coding turns) — so you can repoint the models globally in one
-place (a `vars:` edit or a `GTD_VAR_plannerModel` override) instead of per
-state. Steering-file path vars (`feedbackFile`, `reviewFile`, …) work the same
-way, and now propagate to the `on` patterns that route on them too — a repointed
-path var actually reroutes the machine, not just the templates that read/write
-the file.
+place (a `vars:` edit or a `GTD_PLANNERMODEL` override) instead of per state.
+Steering-file path vars (`feedbackFile`, `reviewFile`, …) work the same way, and
+now propagate to the `on` patterns that route on them too — a repointed path var
+actually reroutes the machine, not just the templates that read/write the file.
 
 Bare `gtd` (or `gtd loop`) is a ready-to-run driver for the whole protocol —
 point it at a repo and it runs the loop until it's your turn. It is the only

@@ -90,7 +90,7 @@ vars:
   specFeedbackFile: .gtd/SPEC_FEEDBACK.md
   commitMsgFile: .gtd/COMMIT_MSG.md
   # The two opaque model tiers every agent state draws from — repoint them here
-  # (or via a top-level `.gtdrc` `vars:` key / a `GTD_VAR_plannerModel` env var)
+  # (or via a top-level `.gtdrc` `vars:` key / a `GTD_PLANNERMODEL` env var)
   # to change every state on that tier at once. `plannerModel` (default "smart")
   # is the heavier tier for the one-shot planning/architecting/review turns;
   # `coderModel` (default "base") is the tier for the build/fix turns.

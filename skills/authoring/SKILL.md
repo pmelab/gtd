@@ -231,7 +231,7 @@ well-formed files. It is a no-op when the file is absent.
 ## Variables
 
 `it.vars` merges three layers (later wins): `workflow.vars` (the workflow's own
-defaults) → top-level `.gtdrc` `vars:` → `GTD_VAR_<name>` environment variables.
+defaults) → top-level `.gtdrc` `vars:` → `GTD_<NAME>` environment variables.
 Values are scalars only (objects/arrays are rejected). gtd blesses **no** names
 — `testCommand`, `plannerModel`, etc. in the bundled templates are ordinary
 authored data, not keys gtd interprets. Use `vars:` to make one value (a test

@@ -616,31 +616,34 @@ describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)"
     ).toEqual({ testCommand: "npm run check", reviewer: "alice" })
   })
 
-  it("a `GTD_VAR_`-prefixed environment variable beats both the workflow default and the rc value", () => {
+  it("a `GTD_<UPPERCASE>` environment variable beats both the workflow default and the rc value", () => {
     expect(
       resolveVars(
         { testCommand: "npm test" },
         { testCommand: "npm run check" },
-        { GTD_VAR_testCommand: "echo env-wins" },
+        { GTD_TESTCOMMAND: "echo env-wins" },
       ),
     ).toEqual({ testCommand: "echo env-wins" })
   })
 
-  it("an env var may introduce a name neither config layer declared", () => {
-    expect(resolveVars({}, {}, { GTD_VAR_brandNew: "hello" })).toEqual({ brandNew: "hello" })
+  it("ignores a `GTD_*` env var whose uppercased name matches no declared var", () => {
+    expect(resolveVars({}, {}, { GTD_BRANDNEW: "hello" })).toEqual({})
   })
 
-  it("matches the `GTD_VAR_` prefix by exact remaining case — `testCommand`, not `testcommand`", () => {
-    expect(resolveVars({}, {}, { GTD_VAR_testCommand: "a", GTD_VAR_TESTCOMMAND: "b" })).toEqual({
-      testCommand: "a",
-      TESTCOMMAND: "b",
-    })
-  })
-
-  it("ignores env entries without the `GTD_VAR_` prefix, and an unset (`undefined`-valued) entry", () => {
+  it("matches only the fully-uppercased name — `GTD_TestCommand` (not all-caps) does not override", () => {
     expect(
-      resolveVars({}, {}, { PATH: "/usr/bin", GTD_VAR_kept: "yes", GTD_VAR_unset: undefined }),
-    ).toEqual({ kept: "yes" })
+      resolveVars({ testCommand: "npm test" }, {}, { GTD_TestCommand: "not-uppercase" }),
+    ).toEqual({ testCommand: "npm test" })
+  })
+
+  it("ignores env entries matching no declared var (e.g. the loop driver's own GTD_LOOP_LOG), and skips an unset (`undefined`-valued) entry for a declared var", () => {
+    expect(
+      resolveVars(
+        { kept: "default", unset: "default" },
+        {},
+        { PATH: "/usr/bin", GTD_KEPT: "yes", GTD_LOOP_LOG: "/tmp/log", GTD_UNSET: undefined },
+      ),
+    ).toEqual({ kept: "yes", unset: "default" })
   })
 })
 

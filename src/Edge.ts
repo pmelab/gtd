@@ -307,24 +307,20 @@ export const computeProcessRun = (
 
 // ── Variables (`it.vars`) ────────────────────────────────────────────────────
 
-/** The `GTD_VAR_`-prefix stripped, exact-case, from every matching entry — the highest-precedence `it.vars` layer. A `value === undefined` entry (a name declared-but-unset in the environment) is skipped, never coerced to the string `"undefined"`. */
-const envVarsFrom = (env: Readonly<Record<string, string | undefined>>): Record<string, string> => {
-  const PREFIX = "GTD_VAR_"
-  const out: Record<string, string> = {}
-  for (const [key, value] of Object.entries(env)) {
-    if (value === undefined || !key.startsWith(PREFIX)) continue
-    out[key.slice(PREFIX.length)] = value
-  }
-  return out
-}
+const PREFIX = "GTD_"
 
 /**
  * Assemble the merged `it.vars` map every template sees, from three layers
  * (later wins): the active workflow's own declared `vars:` defaults
  * (`ConfigOperations.workflowVars`), the top-level `.gtdrc` `vars:` key
- * (`ConfigOperations.rcVars`), and every `GTD_VAR_`-prefixed environment
- * variable (exact-case name match after the prefix) — the only layer that
- * may introduce a name neither config layer declared. Pure: `env` is
+ * (`ConfigOperations.rcVars`), and — for each name declared by either of
+ * those two layers — a `GTD_<UPPERCASE-name>` environment variable, if
+ * defined. Unlike the first two layers, the environment can only OVERRIDE a
+ * name some config layer already declared; it can never introduce a new one
+ * (an uppercased env key can't round-trip back to an arbitrary camelCase
+ * name), so a `GTD_*` var matching no declared name is silently ignored. A
+ * `value === undefined` entry (a name declared-but-unset in the environment)
+ * is skipped, never coerced to the string `"undefined"`. Pure: `env` is
  * whatever the caller's `EnvVars` service handed it, never `process.env`
  * read directly here.
  */
@@ -332,7 +328,14 @@ export const resolveVars = (
   workflowVars: Record<string, string>,
   rcVars: Record<string, string>,
   env: Readonly<Record<string, string | undefined>>,
-): Record<string, string> => ({ ...workflowVars, ...rcVars, ...envVarsFrom(env) })
+): Record<string, string> => {
+  const merged = { ...workflowVars, ...rcVars }
+  for (const name of Object.keys(merged)) {
+    const value = env[PREFIX + name.toUpperCase()]
+    if (value !== undefined) merged[name] = value
+  }
+  return merged
+}
 
 // ── Template context ─────────────────────────────────────────────────────────
 

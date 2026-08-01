@@ -99,8 +99,10 @@ export interface TemplateContext {
    * assembled by `src/Edge.ts`'s `resolveVars` from three layers (later
    * wins): the workflow's own declared `vars:` defaults
    * (`CompiledWorkflowConfig.vars`), the top-level `.gtdrc` `vars:` key, and
-   * `GTD_VAR_`-prefixed environment variables (exact-case match after the
-   * prefix). Always a flat `Record<string, string>` — every source value is
+   * `GTD_<UPPERCASE-name>` environment variables, matched case-insensitively
+   * against each declared name (an env var can only override a name some
+   * config layer already declares, never introduce one). Always a flat
+   * `Record<string, string>` — every source value is
    * coerced to a string at load time (env vars are naturally strings; YAML
    * scalars in the first two layers are coerced by `PatternConfig.ts`'s
    * `compileVarsMap`). No name is blessed by the engine: `it.vars` is empty

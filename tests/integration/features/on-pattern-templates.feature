@@ -4,7 +4,7 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
   Pins that an `on` pattern key is rendered against `it.vars` at the edge
   (`src/Edge.ts`'s `renderOnEdges`) before the pure engine ever matches it —
   see `STATES.md` §3 and `docs/configuration.md`'s "on:" section. Repointing a
-  path var (a top-level `.gtdrc` `vars:` key, or a `GTD_VAR_` override) reroutes
+  path var (a top-level `.gtdrc` `vars:` key, or a `GTD_` override) reroutes
   a templated `on` pattern along with any `file:`/content template reading or
   writing the same path, instead of desyncing the machine.
 
@@ -83,7 +83,7 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
     Then it fails
     And stderr contains "RENAMED.md"
 
-  Scenario: a "GTD_VAR_" override reroutes a templated "on" pattern the same way
+  Scenario: a "GTD_" override reroutes a templated "on" pattern the same way
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -115,7 +115,7 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
       """
       the env-repointed output
       """
-    And an environment variable "GTD_VAR_outFile" set to "ENV_OUT.md"
+    And an environment variable "GTD_OUTFILE" set to "ENV_OUT.md"
     When I run gtd step agent
     Then it succeeds
     And the last commit subject is "gtd(agent): working → captured"

@@ -4,7 +4,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
   Pins the merged `it.vars` map (see `src/Edge.ts`'s `resolveVars` and
   `docs/configuration.md`'s "Variables" section): a workflow's own declared
   `vars:` defaults, overridden by a top-level `.gtdrc` `vars:` key, overridden
-  by a `GTD_VAR_<name>` environment variable — later wins, and `model:` is
+  by a `GTD_<NAME>` environment variable — later wins, and `model:` is
   now rendered through the same `it.vars`-carrying template context as
   content.
 
@@ -71,7 +71,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     And stdout contains "Assigned reviewer: bob"
     And stdout does not contain "alice"
 
-  Scenario: a "GTD_VAR_" environment variable beats both the workflow default and the ".gtdrc" value
+  Scenario: a "GTD_" environment variable beats both the workflow default and the ".gtdrc" value
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -99,14 +99,14 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       """
       a note
       """
-    And an environment variable "GTD_VAR_reviewer" set to "carol"
+    And an environment variable "GTD_REVIEWER" set to "carol"
     When I run gtd next
     Then it succeeds
     And stdout contains "Assigned reviewer: carol"
     And stdout does not contain "alice"
     And stdout does not contain "bob"
 
-  Scenario: an environment variable may introduce a name neither config layer declared
+  Scenario: an environment variable matching no declared var name is ignored, not introduced
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -130,10 +130,10 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       """
       a note
       """
-    And an environment variable "GTD_VAR_brandNew" set to "hello"
+    And an environment variable "GTD_BRANDNEW" set to "hello"
     When I run gtd next
     Then it succeeds
-    And stdout contains "Brand new: hello"
+    And stdout does not contain "hello"
 
   Scenario: the simple workflow's "checking" script renders "npm test" from its own declared default
     Given a test project
@@ -182,14 +182,14 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     And stdout contains "echo overridden"
     And stdout does not contain "npm test >"
 
-  Scenario: a "GTD_VAR_testCommand" environment variable overrides the simple workflow's own testCommand
+  Scenario: a "GTD_TESTCOMMAND" environment variable overrides the simple workflow's own testCommand
     Given a test project
     And the workflow
     And a commit "gtd(agent): checking" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """
-    And an environment variable "GTD_VAR_testCommand" set to "echo env-wins"
+    And an environment variable "GTD_TESTCOMMAND" set to "echo env-wins"
     When I run gtd next
     Then it succeeds
     And stdout contains "echo env-wins"
@@ -311,14 +311,14 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     And stdout contains "\"state\":\"building\""
     And stdout contains "\"model\":\"base\""
 
-  Scenario: a "GTD_VAR_plannerModel" override repoints every planner-tier state at once
+  Scenario: a "GTD_PLANNERMODEL" override repoints every planner-tier state at once
     Given a test project
     And the workflow
     And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
       """
       a sketch
       """
-    And an environment variable "GTD_VAR_plannerModel" set to "opus"
+    And an environment variable "GTD_PLANNERMODEL" set to "opus"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"model\":\"opus\""
