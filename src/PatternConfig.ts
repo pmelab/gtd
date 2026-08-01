@@ -53,7 +53,7 @@ import { expandSubmachines } from "./Submachines.js"
  * A sibling `vars:` key INSIDE the `workflow:` value declares the workflow's
  * OWN defaults for the merged `it.vars` template map (see
  * `PatternTemplates.TemplateContext.vars`) — the lowest-precedence of its
- * three layers (a top-level `.gtdrc` `vars:` key, then `GTD_VAR_`-prefixed
+ * three layers (a top-level `.gtdrc` `vars:` key, then `GTD_<UPPERCASE-name>`
  * environment variables, both assembled by `src/Edge.ts`'s `resolveVars`,
  * override it here). Every value must be a YAML scalar (string/number/
  * boolean) — `compileVarsMap` coerces it to a string; an object/array value

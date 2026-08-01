@@ -281,3 +281,9 @@ label tracked from the last completed iteration, when it fires outside the
 normal per-iteration flow. `report-agent` claims display authority for the
 `herdr:gtd` source, so `working` is re-reported every lap rather than once, to
 stay fresh against Herdr's own heuristic detection of the inner agent process.
+
+Set `GTD_NO_NOTIFY` (any non-empty value) or pass `--no-notify` to suppress the
+two `notification show` calls above (the human-gate halt and the exit trap) for
+this run — the OS popup + sound only. `report-agent`/`release-agent` (the silent
+Herdr sidebar status) are untouched either way, mirroring
+`--no-edit`/`GTD_NO_EDIT`'s flag/env shape.

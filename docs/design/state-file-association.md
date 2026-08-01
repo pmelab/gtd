@@ -63,10 +63,10 @@ Prompts and scripts that already name these files switch to the vars
 (`<%~ it.vars.todoFile %>` etc.) so each filename has ONE source of truth in
 templates. **Known limitation, documented:** `on` pattern keys are NOT Eta
 templates — the default's patterns keep literal `.gtd/…` paths, so repointing a
-filename var (`.gtdrc`/`GTD_VAR_`) without also overriding the workflow's
-patterns desyncs the machine. The vars are a DRY mechanism inside templates and
-the state↔file association, not a rename switch. (Making pattern keys var-aware
-at compile time is noted as possible future work.)
+filename var (`.gtdrc`/`GTD_`) without also overriding the workflow's patterns
+desyncs the machine. The vars are a DRY mechanism inside templates and the
+state↔file association, not a rename switch. (Making pattern keys var-aware at
+compile time is noted as possible future work.)
 
 The advanced flow of the bundled unified template (see STATES.md §10) gains the
 same `file:`/`mode:` annotations (it is the LSP-heavy flow), including
@@ -81,8 +81,8 @@ same `file:`/`mode:` annotations (it is the LSP-heavy flow), including
   code path. Config is (re)loaded lazily per request (it is small); no watcher
   needed for v1.
 - **Path→mode dispatch:** compile the definition, render every state's `file:`
-  (vars-layer context; the LSP process's env supplies `GTD_VAR_` overrides like
-  any invocation), and build a map of absolute rendered paths → mode. Document
+  (vars-layer context; the LSP process's env supplies `GTD_` overrides like any
+  invocation), and build a map of absolute rendered paths → mode. Document
   features dispatch on that map: `qa` files get question symbols + parser-error
   diagnostics; `review` files get one headline symbol per chunk that still has
   an unchecked hunk (an outline of the packages left to review — no hunk

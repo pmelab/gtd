@@ -170,11 +170,10 @@ workflow is just `.gtdrc` config — edit it or write your own (see
 [Configuration](docs/configuration.md)). Every agent state routes its model
 through two `vars` tiers — `plannerModel` (heavier planning and review) and
 `coderModel` (the coding turns) — so you can repoint the models globally in one
-place (a `vars:` edit or a `GTD_VAR_plannerModel` override) instead of per
-state. Steering-file path vars (`feedbackFile`, `reviewFile`, …) work the same
-way, and now propagate to the `on` patterns that route on them too — a repointed
-path var actually reroutes the machine, not just the templates that read/write
-the file.
+place (a `vars:` edit or a `GTD_PLANNERMODEL` override) instead of per state.
+Steering-file path vars (`feedbackFile`, `reviewFile`, …) work the same way, and
+now propagate to the `on` patterns that route on them too — a repointed path var
+actually reroutes the machine, not just the templates that read/write the file.
 
 Bare `gtd` (or `gtd loop`) is a ready-to-run driver for the whole protocol —
 point it at a repo and it runs the loop until it's your turn. It is the only
@@ -187,11 +186,12 @@ to halting and printing the gate instead, if you'd rather edit and re-launch it
 yourself; pass `--edit`/`-e` to force the editor open at the gate right now,
 overriding an ambient `GTD_NO_EDIT`/`--no-edit`. Pass `--once` to restrict a run
 to exactly one beat — one human gate, one check, or one agent turn — instead of
-driving all the way to idle; it combines freely with `--edit`/`--no-edit`. Bare
-`gtd` prints one line per event — colored and emoji on a real terminal, plain
-ASCII under `NO_COLOR` or when piped — and redirects the noisier
-agent/check/step subprocess output to a per-repo/per-worktree log file.
-`gtd log` opens that logfile in your editor. See
+driving all the way to idle; it combines freely with `--edit`/`--no-edit`. Pass
+`--no-notify` (or set `GTD_NO_NOTIFY`) to suppress Herdr desktop notifications
+while keeping Herdr sidebar state reporting on. Bare `gtd` prints one line per
+event — colored and emoji on a real terminal, plain ASCII under `NO_COLOR` or
+when piped — and redirects the noisier agent/check/step subprocess output to a
+per-repo/per-worktree log file. `gtd log` opens that logfile in your editor. See
 [Driving the loop](docs/loop.md).
 
 Before wiring gtd into a repo, note the

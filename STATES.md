@@ -533,8 +533,8 @@ discipline, deletes `.gtd/TODO.md`, and steps to `checking`.
 
 `checking` is a `script` state: the driver runs its inline test wrapper
 (`<%~ it.vars.testCommand %>`, default `npm test` — overridable via a top-level
-`.gtdrc` `vars:` key or `GTD_VAR_testCommand`) and steps the `check` actor. A
-red run leaves `.gtd/FEEDBACK.md` (`A`/`M` → `fixing`); a green run moves to
+`.gtdrc` `vars:` key or `GTD_TESTCOMMAND`) and steps the `check` actor. A red
+run leaves `.gtd/FEEDBACK.md` (`A`/`M` → `fixing`); a green run moves to
 `reviewing` (`D .gtd/FEEDBACK.md` cleaning a prior red run, or `C`). `fixing`'s
 `retry: { max: 3, otherwise: escalate }` redirects the fourth consecutive entry
 to the `escalate` human gate.
@@ -702,7 +702,7 @@ green.
 **Models and memory.** Every agent state draws its `model` from one of two
 `vars` tiers (`plannerModel` default `smart` for planning/architecting/review
 turns, `coderModel` default `base` for build/fix turns), repointable in one
-place (a `vars:` edit or a `GTD_VAR_` override). Each also declares a `memory:`
+place (a `vars:` edit or a `GTD_` override). Each also declares a `memory:`
 scope label (`plan`/`build`/`fix`/`review`) — an opaque hint the `--json`
 commands emit verbatim so a memory-aware driver retains an agent's memory within
 a loop (same label across laps) and clears it at a phase boundary. gtd never

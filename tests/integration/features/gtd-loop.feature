@@ -1328,6 +1328,121 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       notification show gtd needs you
       """
 
+  Scenario: GTD_NO_NOTIFY set to a non-empty value suppresses the human-gate notification but still reports blocked
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": done
+          done:
+            commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And a fake herdr binary
+    And GTD_NO_NOTIFY is set to "1"
+    When I run bare gtd
+    Then it succeeds
+    And stdout contains "[you]  idle"
+    And the fake herdr log contains, in order:
+      """
+      pane report-agent test-pane --source herdr:gtd --agent gtd --state blocked --message idle
+      """
+    And the fake herdr log does not contain "notification show"
+
+  Scenario: --no-notify suppresses the human-gate notification but still reports blocked
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              if [ -f src/calc.ts ] && grep -q add src/calc.ts; then rm -f .gtd/FEEDBACK.md; else mkdir -p .gtd && echo "missing add" > .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": working
+              "M .gtd/FEEDBACK.md": working
+              "C": done
+          done:
+            commit: "chore: calculator done"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Build the package described below"*)
+          mkdir -p src
+          cat > src/calc.ts <<'CALC'
+      export const add = (a, b) => a + b
+      CALC
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And a fake herdr binary
+    When I run gtd loop --no-notify
+    Then it succeeds
+    And stdout contains "[you]  idle"
+    And the fake herdr log contains, in order:
+      """
+      pane report-agent test-pane --source herdr:gtd --agent gtd --state blocked --message idle
+      """
+    And the fake herdr log does not contain "notification show"
+
   Scenario: Reports idle and releases the pane to Herdr when a script rest settles cleanly
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -1400,6 +1515,47 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       pane report-agent test-pane --source herdr:gtd --agent gtd --state blocked --message working: exited 1
       notification show gtd stopped
       """
+
+  Scenario: --no-notify suppresses the exit-trap notification
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: "true"
+            on:
+              "A .gtd/FEEDBACK.md": working
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      : # does nothing — the build prompt is never acted on
+      """
+    And a fake herdr binary
+    When I run gtd loop --no-notify
+    Then it fails
+    And stderr contains "no progress at 'working'"
+    And the fake herdr log contains, in order:
+      """
+      pane report-agent test-pane --source herdr:gtd --agent gtd --state blocked --message working: exited 1
+      """
+    And the fake herdr log does not contain "notification show"
 
   Scenario: Reports blocked to Herdr while the loop's editor is open at a human gate, then working once it closes
     # Same shape as "With editing on, an edit matching the gate's pattern lets

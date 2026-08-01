@@ -208,7 +208,9 @@ mapping). A human-gate editor session (editing on) is reported `blocked` for the
 duration of the edit, flipping back to `working` once the editor closes and the
 loop resumes driving. This is purely additive: it never changes the dispatch
 contract above (`kind` → message/script/prompt), never gates a step, and is a
-complete no-op outside Herdr.
+complete no-op outside Herdr. The `notification show` calls are suppressible via
+`GTD_NO_NOTIFY`/`--no-notify`, so a custom driver honoring the same contract
+knows notifications (unlike pane reporting) are opt-out.
 
 ## Notes
 

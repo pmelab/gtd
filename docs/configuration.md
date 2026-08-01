@@ -365,7 +365,7 @@ a filename var the same way `file:`/content does — e.g.
 every pattern's key against `it.vars` ALONE (no diffs/commit hashes — a pattern
 only ever needs to name a path) before handing the edges to the pure engine,
 which only ever matches plain, already-rendered strings. This is what lets a
-repointed filename var (`.gtdrc`'s top-level `vars:`, or a `GTD_VAR_` override)
+repointed filename var (`.gtdrc`'s top-level `vars:`, or a `GTD_` override)
 reroute the machine consistently: `file:` (and any template reading/ writing
 that path) and the `on` map that decides what a change to it MEANS both follow
 the same var. A pattern written with a literal `.gtd/…` path instead of the var
@@ -730,11 +730,13 @@ layers, **later wins**:
    inside it) — per-repo tuning without redefining the whole workflow. Subject
    to the same cwd→home deep merge as everything else in `.gtdrc` (innermost
    wins per-key).
-3. **`GTD_VAR_<name>` environment variables** — highest precedence, checked at
-   every invocation. The prefix is stripped and the REMAINING CASE matched
-   exactly: `GTD_VAR_testCommand` sets `testCommand`, not `TESTCOMMAND` or
-   `testcommand`. This is the only layer that may introduce a name neither
-   config layer declared.
+3. **`GTD_<UPPERCASE-name>` environment variables** — highest precedence,
+   checked at every invocation, case-insensitively against each name already
+   declared by layer 1 or 2: `GTD_TESTCOMMAND` overrides `testCommand`. Unlike
+   the other two layers, the environment can only OVERRIDE a name a config layer
+   already declared — an uppercased env key can't round-trip back to an
+   arbitrary camelCase name, so a `GTD_*` var matching no declared name is
+   silently ignored.
 
 Values in layers 1–2 must be YAML scalars (string/number/boolean) — coerced to
 strings at load time; an object or array value is a load error, collected
@@ -752,7 +754,7 @@ vars:
 # highest precedence — beats both the workflow default and the .gtdrc value above.
 # The var is read at render time, so it shows up in the script `gtd next` prints
 # (and in what the loop driver then executes).
-GTD_VAR_testCommand="npm run test -- --bail" gtd next
+GTD_TESTCOMMAND="npm run test -- --bail" gtd next
 ```
 
 A template reads any of it as `it.vars.<name>`:
@@ -765,7 +767,7 @@ workflow:
     working:
       actor: agent
       prompt: "Assigned reviewer: <%= it.vars.reviewer %>"
-      model: "<%= it.vars.reviewModel %>" # a GTD_VAR_reviewModel override, or a .gtdrc vars: entry
+      model: "<%= it.vars.reviewModel %>" # a GTD_REVIEWMODEL override, or a .gtdrc vars: entry
       on:
         "* **": done
 ```
