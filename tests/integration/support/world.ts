@@ -48,6 +48,8 @@ export class GtdWorld extends QuickPickleWorld {
   fakeEditorLogPath: string | undefined = undefined
   /** Explicit `$GTD_NO_EDIT` value a scenario wants exported, overriding the tier's usual default (`gtd-loop` scenarios only). */
   gtdNoEditOverride: string | undefined = undefined
+  /** Explicit `$GTD_NO_NOTIFY` value a scenario wants exported (`gtd-loop` Herdr-notification scenarios only). */
+  gtdNoNotifyOverride: string | undefined = undefined
   /** Explicit `$GTD_LOOP_LOG` value a scenario wants exported (`gtd log`/loop logging scenarios, @live only). */
   gtdLoopLogOverride: string | undefined = undefined
   /** A stray `$GIT_DIR` value a scenario wants injected into the spawned bin/gtd's env — proving per-worktree state (log, memory marker) stays keyed to the cwd worktree, never the inherited GIT_DIR (@live only). */

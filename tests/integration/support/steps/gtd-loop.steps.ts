@@ -98,6 +98,7 @@ function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
   scrubInheritedLoopEnv(env, world)
   const overrides: Record<string, string | undefined> = {
     GTD_NO_EDIT: noEditValue(world),
+    GTD_NO_NOTIFY: world.gtdNoNotifyOverride,
     GTD_LOOP_AGENT_CMD: world.stubAgentPath ? `bash "${world.stubAgentPath}"` : undefined,
     GTD_LOOP_LOG: world.gtdLoopLogOverride,
     GIT_DIR: world.gitDirOverride,
@@ -116,6 +117,14 @@ function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
 // distinct from the --no-edit flag itself.
 Given("GTD_NO_EDIT is set to {string}", (world: GtdWorld, value: string) => {
   world.gtdNoEditOverride = value
+})
+
+// Sets $GTD_NO_NOTIFY explicitly (a non-empty value disables the loop's
+// Herdr desktop notifications, identically to passing --no-notify) — for
+// scenarios asserting on the env-var form of that switch specifically,
+// distinct from the --no-notify flag itself.
+Given("GTD_NO_NOTIFY is set to {string}", (world: GtdWorld, value: string) => {
+  world.gtdNoNotifyOverride = value
 })
 
 // Sets $GTD_LOOP_LOG explicitly — the single-explicit-path override
@@ -230,6 +239,22 @@ Then("the fake herdr log contains, in order:", (world: GtdWorld, block: string) 
     )
     cursor = idx + line.length
   }
+})
+
+// Asserts a substring never appears anywhere in the fake herdr log — the
+// negative counterpart to "contains, in order", for scenarios proving a
+// suppressed call (e.g. --no-notify) never reached herdr at all.
+Then("the fake herdr log does not contain {string}", (world: GtdWorld, needle: string) => {
+  if (!world.fakeHerdrLogPath) {
+    throw new Error(
+      'no fake herdr binary was provisioned for this scenario — add "Given a fake herdr binary"',
+    )
+  }
+  const log = readFileSync(world.fakeHerdrLogPath, "utf-8")
+  assert.ok(
+    !log.includes(needle),
+    `Expected fake herdr log NOT to contain "${needle}".\nFull log:\n${log}`,
+  )
 })
 
 // Resolves the loop's log file path the same way bin/gtd's resolve_log_path
