@@ -135,7 +135,9 @@ steering-file entries are chosen by which file you create:
   agent develops your sketch into a concrete plan — deciding open points itself
   rather than asking questions — and hands it back for you to accept as-is or
   edit. Editing sends it round again; accepting builds the plan in one turn and
-  runs your tests (looping on failures).
+  runs your tests (looping on failures) — the check run also mechanically sweeps
+  `.gtd/TODO.md` and other spent steering files, so a plan that's left in place
+  by mistake never leaks into the review diff or the final squash.
 - Create **`.gtd/REQUIREMENTS.md`** to start the **advanced** flow: two-phase
   product then technical Q&A (`.gtd/REQUIREMENTS.md` → `.gtd/ARCHITECTURE.md`) —
   each open question offers a couple of candidate answers plus a

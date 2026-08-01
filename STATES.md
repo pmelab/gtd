@@ -478,7 +478,7 @@ specific file(s) this turn's `vars:` entry owns.
 | `planning`             | Refining the plan            | agent | prompt  | `* **` → `plan-review`                                                                                         | —                  | `smart` | `plan`   | `vars.todoFile` / `prose`    |
 | `plan-review`          | Awaiting your review         | human | message | `C` → `building`; `* **` → `planning`                                                                          | —                  | —       | —        | `vars.todoFile` / `prose`    |
 | `building`             | Building                     | agent | prompt  | `* **` → `checking`                                                                                            | —                  | `base`  | `build`  | `vars.todoFile`              |
-| `checking`             | Running checks               | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`                     | —                  | —       | —        | —                            |
+| `checking`             | Running checks               | check | script  | `A`/`M .gtd/FEEDBACK.md` → `fixing`; `* **` → `reviewing`; `C` → `reviewing`                                   | —                  | —       | —        | —                            |
 | `fixing`               | Fixing the check             | agent | prompt  | `* **` → `checking`                                                                                            | max 3 → `escalate` | `base`  | `fix`    | `vars.feedbackFile`          |
 | `escalate`             | Escalating to a human        | human | message | `* **` → `checking`                                                                                            | —                  | —       | —        | `vars.feedbackFile`          |
 | `review-start-check`   | Checking the baseline        | check | script  | `A`/`M .gtd/FEEDBACK.md` → `review-start-blocked`; `D .gtd/FEEDBACK.md` → `reviewing`; `C` → `reviewing`       | —                  | —       | —        | —                            |
@@ -510,7 +510,7 @@ each fronted by the `adv-start-check` green-baseline gate):
 | `decompose`           | Decomposing into packages   | agent | prompt  | `* .gtd/packages/**` → `picking`                                                                                                     | —                      | `base`  | `build`  | —                              |
 | `picking`             | Picking the next package    | check | script  | `D .gtd/NEXT.md` → `reviewing`; `* .gtd/NEXT.md` → `adv-building`; `C` → `reviewing`                                                 | —                      | —       | —        | —                              |
 | `adv-building`        | Building                    | agent | prompt  | `* **` → `adv-checking`                                                                                                              | —                      | `base`  | `build`  | —                              |
-| `adv-checking`        | Running checks              | check | script  | `A`/`M .gtd/FEEDBACK.md` → `adv-fixing`; `D .gtd/FEEDBACK.md` → `spec-review`; `C` → `spec-review`                                   | —                      | —       | —        | —                              |
+| `adv-checking`        | Running checks              | check | script  | `A`/`M .gtd/FEEDBACK.md` → `adv-fixing`; `* **` → `spec-review`; `C` → `spec-review`                                                 | —                      | —       | —        | —                              |
 | `adv-fixing`          | Fixing the check            | agent | prompt  | `* **` → `adv-checking`                                                                                                              | max 3 → `adv-escalate` | `base`  | `fix`    | `vars.feedbackFile`            |
 | `adv-escalate`        | Escalating to a human       | human | message | `* **` → `adv-checking`                                                                                                              | —                      | —       | —        | `vars.feedbackFile`            |
 | `spec-review`         | Reviewing the package       | agent | prompt  | `A`/`M .gtd/SPEC_FEEDBACK.md` → `spec-fix`; `D .gtd/SPEC_FEEDBACK.md` → `closing`; `C` → `closing`                                   | max 3 → `closing`      | `smart` | `review` | —                              |
@@ -549,11 +549,20 @@ discipline, deletes `.gtd/TODO.md`, and steps to `checking`.
 
 `checking` is a `script` state: the driver runs its inline test wrapper
 (`<%~ it.vars.testCommand %>`, default `npm test` — overridable via a top-level
-`.gtdrc` `vars:` key or `GTD_TESTCOMMAND`) and steps the `check` actor. A red
-run leaves `.gtd/FEEDBACK.md` (`A`/`M` → `fixing`); a green run moves to
-`reviewing` (`D .gtd/FEEDBACK.md` cleaning a prior red run, or `C`). `fixing`'s
-`retry: { max: 3, otherwise: escalate }` redirects the fourth consecutive entry
-to the `escalate` human gate.
+`.gtdrc` `vars:` key or `GTD_TESTCOMMAND`) and steps the `check` actor. Before
+the suite runs, the same script mechanically sweeps every steering file spent by
+the states that lead here — `.gtd/TODO.md` (from `building`),
+`.gtd/REVIEW_RAW.md` (from `feedback-collecting`), `.gtd/REVIEW_FEEDBACK.md`
+(from `feedback-building`) — with an idempotent `rm -f`, so a leaked plan or
+raw-feedback file never rides into the review diff or the final squash even when
+the producing agent's own delete instruction was skipped (the prompts' delete
+instructions are best-effort, not the guarantee). A red run leaves
+`.gtd/FEEDBACK.md` (`A`/`M` → `fixing`); a green run moves to `reviewing`
+(`* **` catches any sweep the script performed, and a bare `C` covers a
+sweep-free green run) — because the only red signal at this state is
+`.gtd/FEEDBACK.md`, so any other pending change is by construction the script's
+own cleanup. `fixing`'s `retry: { max: 3, otherwise: escalate }` redirects the
+fourth consecutive entry to the `escalate` human gate.
 
 **Review — REVIEW.md checkboxes.** `reviewing` (agent, `plannerModel`) writes
 `.gtd/REVIEW.md` grouping the diff into reviewable chunks in the exact
@@ -674,13 +683,17 @@ agent finalize lap, so the answers are always merged before advancing).
 A clean step moves to `decompose`, which reads `.gtd/ARCHITECTURE.md` and writes
 an ordered set of **work packages** under `.gtd/packages/` (one file each), then
 deletes `.gtd/ARCHITECTURE.md`. Each package file describes a set of
-**independent** tasks. `picking` is the deterministic queue arbiter: it takes
-the first package file (by name) into `.gtd/NEXT.md`, or removes `.gtd/NEXT.md`
-when the queue is empty (`D .gtd/NEXT.md` → `reviewing`, closing out to the
-shared tail). `adv-building` reads the package in `.gtd/NEXT.md` and implements
-ALL its tasks in one turn, **fanning the independent tasks out to parallel
-subagents** — gtd stays a single-branch serial machine; the parallelism is the
-agent's, inside one turn. It leaves the package file in place for review.
+**independent** tasks. `picking` is the deterministic queue arbiter: before
+picking, its script also mechanically sweeps `.gtd/REQUIREMENTS.md` and
+`.gtd/ARCHITECTURE.md` — spent by `architecting` and `decompose` respectively by
+the time the package queue starts — with an idempotent `rm -f`, the same
+best-effort-prompt-plus-mechanical-guarantee pattern `checking` uses. It then
+takes the first package file (by name) into `.gtd/NEXT.md`, or removes
+`.gtd/NEXT.md` when the queue is empty (`D .gtd/NEXT.md` → `reviewing`, closing
+out to the shared tail). `adv-building` reads the package in `.gtd/NEXT.md` and
+implements ALL its tasks in one turn, **fanning the independent tasks out to
+parallel subagents** — gtd stays a single-branch serial machine; the parallelism
+is the agent's, inside one turn. It leaves the package file in place for review.
 
 `adv-checking` runs the suite (a red run → `adv-fixing`, capped to
 `adv-escalate`); a green run reaches the per-package `spec-review` gate. There

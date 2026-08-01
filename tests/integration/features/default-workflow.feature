@@ -273,6 +273,23 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And the last commit subject is "gtd(check): checking → reviewing"
     And ".gtd/FEEDBACK.md" does not exist
 
+  Scenario: a green check run mechanically sweeps a leaked TODO.md and still moves on to reviewing (sole D .gtd/TODO.md)
+    Given a test project
+    And the workflow
+    And a commit "gtd(agent): building" that adds "src/thing.ts" with:
+      """
+      export const thing = 1
+      """
+    And a commit "gtd(agent): checking" that adds ".gtd/TODO.md" with:
+      """
+      Build a thing.
+      """
+    Given the file ".gtd/TODO.md" is deleted
+    When I run gtd step check
+    Then it succeeds
+    And the last commit subject is "gtd(check): checking → reviewing"
+    And ".gtd/TODO.md" does not exist
+
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached
     Given a test project
     And the workflow
