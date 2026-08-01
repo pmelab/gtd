@@ -4,6 +4,7 @@ import { parseOpenQuestions } from "./OpenQuestions.js"
 import { parseReviewDoc } from "./ReviewDoc.js"
 import {
   isBuiltInMode,
+  isKnownBuiltInMode,
   knownModes,
   type BuiltInMode,
   type StateMode,
@@ -30,14 +31,18 @@ import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
  *   script of its own and plugs it into whichever mode it wants formatted. No
  *   command, no formatting.
  * - **validate** — a `modes:` entry's `validate:` command if declared;
- *   otherwise, for the two BUILT-IN names (`PatternMachine.BuiltInMode`), gtd's
- *   own pure parser: `qa` → `src/OpenQuestions.ts`, `review` →
+ *   otherwise, for the two VALIDATOR built-in names (`PatternMachine.BuiltInMode`),
+ *   gtd's own pure parser: `qa` → `src/OpenQuestions.ts`, `review` →
  *   `src/ReviewDoc.ts`. Those stay in process because `gtd lsp` publishes the
- *   same parsers as live diagnostics.
+ *   same parsers as live diagnostics. A third built-in, `prose`
+ *   (`PatternMachine.isKnownBuiltInMode`), is FORMAT-ONLY: it is a known mode
+ *   name with no in-process parser, so it validates nothing unless a `modes:`
+ *   entry declares its own `validate:` command.
  *
  * That per-half layering is what makes a built-in mode EXTENSIBLE rather than
  * all-or-nothing: `modes: { qa: { format: "npx prettier --write <%= it.file %>" } }`
- * adds formatting to `qa` and keeps gtd's open-questions validation.
+ * adds formatting to `qa` and keeps gtd's open-questions validation; the same
+ * shape on `prose` adds formatting with no validation to add or keep.
  *
  * A command is an Eta template rendered with `it.file` bound to the rendered
  * steering-file path, then executed verbatim via `bash -c`. The contract is the
@@ -65,18 +70,22 @@ export interface ResolvedMode {
 
 /**
  * Resolve a `mode:` name, half by half: a declared `format:`/`validate:` wins,
- * and an undeclared `validate:` falls back to the built-in parser of the same
- * name. `undefined` for a name that is neither declared nor built in —
- * `validateDefinition` rejects that at load time, so the edge only ever sees it
- * as a defensive case.
+ * and an undeclared `validate:` falls back to the built-in PARSER of the same
+ * name — only `qa`/`review` have one (`isBuiltInMode`). `prose` is a known
+ * built-in NAME with no parser (`isKnownBuiltInMode`), so it resolves without
+ * a declaration to `{ mode: "prose" }` — no format, no validate — and gains
+ * formatting only, never validation, from a `modes:` layer. `undefined` for a
+ * name that is neither declared nor a known built-in — `validateDefinition`
+ * rejects that at load time, so the edge only ever sees it as a defensive
+ * case.
  */
 export const resolveSteeringMode = (
   def: WorkflowDefinition,
   mode: StateMode,
 ): ResolvedMode | undefined => {
   const declared = def.modes?.[mode]
+  if (declared === undefined && !isKnownBuiltInMode(mode)) return undefined
   const builtIn = isBuiltInMode(mode)
-  if (declared === undefined && !builtIn) return undefined
   const validate: ResolvedValidator | undefined =
     declared?.validate !== undefined
       ? { kind: "command", command: declared.validate }

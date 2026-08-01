@@ -997,7 +997,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
         },
         "/dir",
       ),
-    ).toThrowError(/"mode" must name a built-in mode \(qa, review\).*\(got "yolo"\)/)
+    ).toThrowError(/"mode" must name a built-in mode \(qa, review, prose\).*\(got "yolo"\)/)
   })
 
   it("rejects a malformed `retry` block", () => {

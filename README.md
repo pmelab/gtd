@@ -61,15 +61,16 @@ gtd init
 This writes a minimal `.gtdrc.json` seeding the one variable most projects
 change — the test command (`vars.testCommand`, defaulting to `npm test`) — plus
 a top-level `modes:` block suggesting **Prettier** as the steering-file
-formatter (`npx prettier --write` for the built-in `qa`/`review` modes — format
-only, so gtd still validates); edit or drop either freely (point `testCommand`
-at your suite, swap Prettier for dprint or a script, delete a key). It writes
-**no** `workflow:` key — the machine is built in — so review and commit the file
-before your first `gtd step`. `gtd init` takes no argument and refuses to
-clobber an existing config; it may also run in a plain parent directory (not a
-git repo) to seed a shared config a nested repo picks up. To customize the
-machine itself, add a `workflow:` key (there is no default fallback to merge
-over — a `workflow:` is the whole definition). See
+formatter (`npx prettier --write` for the built-in `qa`/`review`/`prose` modes —
+format only, so gtd still validates the `qa`/`review` ones; `prose`, used by the
+simple flow's plan file, has no validator to begin with); edit or drop either
+freely (point `testCommand` at your suite, swap Prettier for dprint or a script,
+delete a key). It writes **no** `workflow:` key — the machine is built in — so
+review and commit the file before your first `gtd step`. `gtd init` takes no
+argument and refuses to clobber an existing config; it may also run in a plain
+parent directory (not a git repo) to seed a shared config a nested repo picks
+up. To customize the machine itself, add a `workflow:` key (there is no default
+fallback to merge over — a `workflow:` is the whole definition). See
 [Configuration](docs/configuration.md#gtd-init) for the details.
 
 ## How it works
@@ -169,13 +170,13 @@ workflow is just `.gtdrc` config — edit it or write your own (see
 [Configuration](docs/configuration.md)). Every agent state routes its model
 through two `vars` tiers — `plannerModel` (heavier planning and review) and
 `coderModel` (the coding turns) — so you can repoint the models globally in one
-place (a `vars:` edit or a `GTD_VAR_plannerModel` override) instead of per
-state. Steering-file path vars (`feedbackFile`, `reviewFile`, …) work the same
-way, and now propagate to the `on` patterns that route on them too — a repointed
-path var actually reroutes the machine, not just the templates that read/write
-the file. A separate `stateDir` var (default `.gtd`) names only where the check
-scripts keep their own scratch/bookkeeping, independent of the per-file vars —
-relocate one steering file without touching it.
+place (a `vars:` edit or a `GTD_PLANNERMODEL` override) instead of per state.
+Steering-file path vars (`feedbackFile`, `reviewFile`, …) work the same way, and
+now propagate to the `on` patterns that route on them too — a repointed path var
+actually reroutes the machine, not just the templates that read/write the file.
+A separate `stateDir` var (default `.gtd`) names only where the check scripts
+keep their own scratch/bookkeeping, independent of the per-file vars — relocate
+one steering file without touching it.
 
 Bare `gtd` (or `gtd loop`) is a ready-to-run driver for the whole protocol —
 point it at a repo and it runs the loop until it's your turn. It is the only
@@ -188,11 +189,12 @@ to halting and printing the gate instead, if you'd rather edit and re-launch it
 yourself; pass `--edit`/`-e` to force the editor open at the gate right now,
 overriding an ambient `GTD_NO_EDIT`/`--no-edit`. Pass `--once` to restrict a run
 to exactly one beat — one human gate, one check, or one agent turn — instead of
-driving all the way to idle; it combines freely with `--edit`/`--no-edit`. Bare
-`gtd` prints one line per event — colored and emoji on a real terminal, plain
-ASCII under `NO_COLOR` or when piped — and redirects the noisier
-agent/check/step subprocess output to a per-repo/per-worktree log file.
-`gtd log` opens that logfile in your editor. See
+driving all the way to idle; it combines freely with `--edit`/`--no-edit`. Pass
+`--no-notify` (or set `GTD_NO_NOTIFY`) to suppress Herdr desktop notifications
+while keeping Herdr sidebar state reporting on. Bare `gtd` prints one line per
+event — colored and emoji on a real terminal, plain ASCII under `NO_COLOR` or
+when piped — and redirects the noisier agent/check/step subprocess output to a
+per-repo/per-worktree log file. `gtd log` opens that logfile in your editor. See
 [Driving the loop](docs/loop.md).
 
 Before wiring gtd into a repo, note the
@@ -208,12 +210,16 @@ diagnostics for both (live as you edit), and a `gtd.openSteeringFile` command
 that jumps to the current state's steering file. Config-driven via each state's
 `file:`/`mode:` (see [CLI reference](docs/cli.md#gtd-lsp)) — falls back to
 basename dispatch (`REVIEW.md` → `review`) with no config in sight. `qa` and
-`review` are gtd's built-in steering-file MODES — validators, not formatters: a
-mode's `format:` and `validate:` are shell commands a workflow (or a project's
-`.gtdrc`) declares for itself, so you bring your own formatter and your own
-checkers (see
-[Configuration](docs/configuration.md#modes--pluggable-steering-file-modes)).
-Both halves are enforced by `gtd validate` and the `gtd step` gate.
+`review` are gtd's built-in steering-file MODES with a VALIDATOR gtd itself
+implements; a mode's `format:` and `validate:` are shell commands a workflow (or
+a project's `.gtdrc`) declares for itself, so you bring your own formatter and
+your own checkers (see
+[Configuration](docs/configuration.md#modes--pluggable-steering-file-modes)). A
+third built-in, `prose` — format-only, no validator, used by the simple flow's
+plan file — has no live editor support: `gtd lsp` publishes no symbols or
+diagnostics for it, though `gtd validate` and the `gtd step` gate still format
+and validate it like any other mode. Both halves are enforced by `gtd validate`
+and the `gtd step` gate.
 
 Herdr integration: a workflow state can declare an optional `label:` — a
 human-readable display name surfaced in `gtd next --json`/`gtd status`. The

@@ -190,10 +190,10 @@ errors as load errors, closing gap #8 without executing anything impure
 
 One step further, the **undefined-variable lint**: scan template source for
 `it.vars.<name>` references and compare against the merged
-workflow-`vars:`/rc-`vars:` keys. Because a third layer (`GTD_VAR_*` env vars)
-can legitimately supply a name at run time, an unknown name is a **warning**,
-not an error. (A full "render with a tracking proxy and record misses" approach
-also works but executes template code at load — scanning the source is safer and
+workflow-`vars:`/rc-`vars:` keys. Because a third layer (`GTD_*` env vars) can
+legitimately supply a name at run time, an unknown name is a **warning**, not an
+error. (A full "render with a tracking proxy and record misses" approach also
+works but executes template code at load — scanning the source is safer and
 catches the common typo just as well.)
 
 ### 3.7 Domain cross-checks (gtd-specific lints)

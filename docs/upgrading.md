@@ -42,7 +42,7 @@ upgrading.
   [Configuration](configuration.md)). A check's command now lives inline in its
   own `script:` content, reading a workflow-declared `it.vars` entry (the
   unified template's `testCommand`, overridable via the top-level `vars:` key or
-  a `GTD_VAR_testCommand` environment variable — see
+  a `GTD_TESTCOMMAND` environment variable — see
   [Configuration's "Variables"](configuration.md#variables)) rather than a
   blessed `testCommand` config key; squashing is a `commit:` state instead of a
   boolean flag; there is no learning phase, no decision log, and no model
@@ -183,6 +183,22 @@ every per-file var keep their existing `.gtd/…` defaults, so an unconfigured
 repo renders byte-identical scripts and behavior to before. A repo that already
 relocated a steering-file var outside `.gtd/` (working around issue #128 for
 `reviewFile`) can keep its override as-is; nothing further to change.
+
+## The var-override env prefix is now `GTD_<UPPERCASE-name>`, not `GTD_VAR_<name>`
+
+The environment-variable layer of `it.vars` (see
+[Configuration's "Variables"](configuration.md#variables)) changed its naming
+scheme: the exact-case `GTD_VAR_<name>` prefix is gone, replaced by
+`GTD_<UPPERCASE-name>` matched case-insensitively against each name already
+declared by the workflow's own `vars:` or the top-level `.gtdrc` `vars:` key.
+`GTD_VAR_testCommand` becomes `GTD_TESTCOMMAND`; `GTD_VAR_plannerModel` becomes
+`GTD_PLANNERMODEL`.
+
+This is also a narrowing, not just a rename: because an uppercased env key can't
+round-trip back to an arbitrary camelCase name, the environment can no longer
+introduce a var no config layer declared — a `GTD_*` env var matching no
+declared name is now silently ignored, where it previously appeared verbatim
+under its post-prefix name.
 
 ## 7.4: `gtd-loop` is gone — bare `gtd` and `gtd loop` run it directly
 

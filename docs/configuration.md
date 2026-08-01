@@ -88,7 +88,7 @@ workflow:
       model: <string> # optional, opaque harness hint — forbidden on a commit state
       memory: <string> # optional, opaque memory-scope label — forbidden on a commit state
       file: <string> # optional, an Eta template naming the state's steering file — forbidden on a commit state
-      mode: <modeName> # optional, requires "file" — a built-in (qa/review) or a `modes:` entry; forbidden on a commit state
+      mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry; forbidden on a commit state
 ```
 
 See [STATES.md](../STATES.md#1-the-model) for what each field means to the
@@ -332,10 +332,17 @@ implements itself:
 | `qa`     | The open-questions format (`## Open Questions` near the top and `## Answered Questions` at the bottom, one `###` sub-heading per question with a free-form body; status is positional, no marker line). The bundled advanced flow additionally writes each open question as a checkbox list (candidate answers + a `- [ ] _your answer_` slot) and gates the human's answer step with `answerGate` (exactly one tick per question) — but that convention + gate live in the workflow/edge, not in this validator, which only checks the structure above. |
 | `review` | The checkbox review format (`# Review: <hash>` header, `<!-- base: <hash> -->` comment, `##` chunks, `- [ ]` pointers).                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
+A THIRD name, `prose`, is also built in but ships **no validator at all** — a
+known mode name a state's `mode:` may use with no `modes:` declaration, that
+formats (once a `modes:` layer gives it a `format:` command) but never
+validates. It is for a curated, free-form document with no gtd-side schema — the
+bundled template's simple-flow plan file (`.gtd/TODO.md` at
+`planning`/`plan-review`) uses it.
+
 Any other name must be declared in a `modes:` map (next section) — as must a
-`format:` command for these two, since gtd ships no formatter. A `mode:` naming
-neither a built-in nor a declared mode is a load error listing both sets (typos
-must not silently disable the format gate or editor support).
+`format:` command for any of the three built-ins, since gtd ships no formatter.
+A `mode:` naming neither a built-in nor a declared mode is a load error listing
+both sets (typos must not silently disable the format gate or editor support).
 
 What a mode buys the state: before capturing a turn out of it, `gtd step`
 formats that file in place and validates it, refusing the step when it is
@@ -358,7 +365,7 @@ a filename var the same way `file:`/content does — e.g.
 every pattern's key against `it.vars` ALONE (no diffs/commit hashes — a pattern
 only ever needs to name a path) before handing the edges to the pure engine,
 which only ever matches plain, already-rendered strings. This is what lets a
-repointed filename var (`.gtdrc`'s top-level `vars:`, or a `GTD_VAR_` override)
+repointed filename var (`.gtdrc`'s top-level `vars:`, or a `GTD_` override)
 reroute the machine consistently: `file:` (and any template reading/ writing
 that path) and the `on` map that decides what a change to it MEANS both follow
 the same var. A pattern written with a literal `.gtd/…` path instead of the var
@@ -416,9 +423,12 @@ declares it:
 1. the top-level `.gtdrc` `modes:` key (the project's own layer, cwd→home
    deep-merged like any other config key);
 2. the active workflow's own `modes:` map;
-3. for the two built-in NAMES only, gtd's in-process validator — `qa` →
-   `src/OpenQuestions.ts`, `review` → `src/ReviewDoc.ts`. There is no built-in
-   formatter at this layer: **gtd ships no formatter**, so bring your own.
+3. for the two VALIDATOR built-in names only, gtd's in-process validator — `qa`
+   → `src/OpenQuestions.ts`, `review` → `src/ReviewDoc.ts`. The third built-in,
+   `prose`, has no in-process validator to fall back to, so it validates nothing
+   unless a `modes:` layer above declares its own `validate:`. There is no
+   built-in formatter at this layer for any of the three: **gtd ships no
+   formatter**, so bring your own.
 
 So for a state declaring `mode: qa`:
 
@@ -444,6 +454,7 @@ edit or drop it to taste. It is what a scaffolded `.gtdrc.json` contains
   "modes": {
     "qa": { "format": "npx prettier --write <%= it.file %>" },
     "review": { "format": "npx prettier --write <%= it.file %>" },
+    "prose": { "format": "npx prettier --write <%= it.file %>" },
   },
 }
 ```
@@ -451,7 +462,8 @@ edit or drop it to taste. It is what a scaffolded `.gtdrc.json` contains
 **Known limitation — no live editor support for a custom mode.** `gtd lsp`
 publishes diagnostics, document symbols and code actions for the built-in
 `qa`/`review` formats only (gtd never runs a mode command per keystroke over an
-unsaved buffer). A file whose validation is a command is still formatted and
+unsaved buffer). A file whose validation is a command — and a `prose` file,
+which has no validator to publish diagnostics for — is still formatted and
 validated by `gtd validate` and the `gtd step` capture gate.
 
 ### `reviewWindow:`/`reviewBase:` — the review checkout window
@@ -718,11 +730,13 @@ layers, **later wins**:
    inside it) — per-repo tuning without redefining the whole workflow. Subject
    to the same cwd→home deep merge as everything else in `.gtdrc` (innermost
    wins per-key).
-3. **`GTD_VAR_<name>` environment variables** — highest precedence, checked at
-   every invocation. The prefix is stripped and the REMAINING CASE matched
-   exactly: `GTD_VAR_testCommand` sets `testCommand`, not `TESTCOMMAND` or
-   `testcommand`. This is the only layer that may introduce a name neither
-   config layer declared.
+3. **`GTD_<UPPERCASE-name>` environment variables** — highest precedence,
+   checked at every invocation, case-insensitively against each name already
+   declared by layer 1 or 2: `GTD_TESTCOMMAND` overrides `testCommand`. Unlike
+   the other two layers, the environment can only OVERRIDE a name a config layer
+   already declared — an uppercased env key can't round-trip back to an
+   arbitrary camelCase name, so a `GTD_*` var matching no declared name is
+   silently ignored.
 
 Values in layers 1–2 must be YAML scalars (string/number/boolean) — coerced to
 strings at load time; an object or array value is a load error, collected
@@ -749,7 +763,7 @@ vars:
 # highest precedence — beats both the workflow default and the .gtdrc value above.
 # The var is read at render time, so it shows up in the script `gtd next` prints
 # (and in what the loop driver then executes).
-GTD_VAR_testCommand="npm run test -- --bail" gtd next
+GTD_TESTCOMMAND="npm run test -- --bail" gtd next
 ```
 
 A template reads any of it as `it.vars.<name>`:
@@ -762,7 +776,7 @@ workflow:
     working:
       actor: agent
       prompt: "Assigned reviewer: <%= it.vars.reviewer %>"
-      model: "<%= it.vars.reviewModel %>" # a GTD_VAR_reviewModel override, or a .gtdrc vars: entry
+      model: "<%= it.vars.reviewModel %>" # a GTD_REVIEWMODEL override, or a .gtdrc vars: entry
       on:
         "* **": done
 ```
@@ -861,15 +875,18 @@ mode the default workflow uses:
 ```jsonc
 "modes": {
   "qa": { "format": "npx prettier --write <%= it.file %>" },
-  "review": { "format": "npx prettier --write <%= it.file %>" }
+  "review": { "format": "npx prettier --write <%= it.file %>" },
+  "prose": { "format": "npx prettier --write <%= it.file %>" }
 }
 ```
 
 Only `format:` is declared, so gtd's built-in `qa`/`review` validators still do
-the validating (the two halves layer independently). gtd ships no formatter, so
-this is the one default it suggests: a fresh repo auto-formats its steering
-files out of the box, and you edit or drop the block freely (swap Prettier for
-dprint, point at a script, or delete the key).
+the validating, and `prose` (a format-only built-in with no validator of its own
+— see the `mode:` section above) still validates nothing (the two halves layer
+independently). gtd ships no formatter, so this is the one default it suggests:
+a fresh repo auto-formats its steering files out of the box, and you edit or
+drop the block freely (swap Prettier for dprint, point at a script, or delete
+the key).
 
 The built-in default workflow has three entry points into a shared review/squash
 tail (all walked through in

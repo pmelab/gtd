@@ -69,9 +69,12 @@ touches `src/PatternMachine.ts` (types + `validateDefinition`),
 A new steering-file FORMAT is neither: `mode:` names a pluggable mode, so a
 workflow declares its own `modes:` entry (a `format:`/`validate:` shell command
 pair) — no gtd change at all. Only the two built-in VALIDATORS (`qa`/`review`)
-live in code, because `gtd lsp` needs their parsers in process; gtd ships no
-formatter at all (there is no `gtd format` subcommand and no bundled prettier —
-a project plugs its own into a mode's `format:`).
+live in code, because `gtd lsp` needs their parsers in process; a third built-in
+name, `prose`, is recognized with no code of its own — a format-only mode (no
+validator) the simple flow's plan file uses (see
+`PatternMachine.isKnownBuiltInMode`). gtd ships no formatter at all (there is no
+`gtd format` subcommand and no bundled prettier — a project plugs its own into a
+mode's `format:`).
 
 ### The Pattern-Machine Module Map
 
@@ -212,13 +215,13 @@ module-global registry (no v2-style `activeWorkflow()`/`setActiveWorkflow`):
 `ConfigOperations { workflow, workflowVars, rcVars }` flows through the
 `ConfigService` Context tag like any other Effect dependency, read fresh each
 invocation — nothing to reset between tests. `src/Edge.ts`'s `resolveVars`
-merges `workflowVars`/`rcVars` with a third layer — every `GTD_VAR_`-prefixed
-entry of an injected `EnvVars` Context tag (mirroring `Cwd`/`WorktreeReader`,
-never `process.env` read directly) — into the flat `Record<string, string>`
-every template sees as `it.vars`. The engine still blesses NO variable NAMES:
-`testCommand` (the bundled templates' own `vars:` entry, read by `checking`'s
-script) is workflow-authored data like any other `it.vars` key, not a name gtd
-itself interprets.
+merges `workflowVars`/`rcVars` with a third layer — for each declared var name,
+a `GTD_<UPPERCASE-name>` entry of an injected `EnvVars` Context tag (mirroring
+`Cwd`/`WorktreeReader`, never `process.env` read directly), if defined — into
+the flat `Record<string, string>` every template sees as `it.vars`. The engine
+still blesses NO variable NAMES: `testCommand` (the bundled templates' own
+`vars:` entry, read by `checking`'s script) is workflow-authored data like any
+other `it.vars` key, not a name gtd itself interprets.
 
 The commit grammar's closed actor set still DERIVES from the active definition
 (`declaredActors` in `src/PatternMachine.ts`), so custom actor names parse

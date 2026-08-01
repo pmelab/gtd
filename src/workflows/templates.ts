@@ -26,11 +26,13 @@ export const INIT_VARS = {
 /**
  * The top-level `modes:` block `gtd init` seeds into the scaffolded
  * `.gtdrc.json` as a ready-to-edit suggestion: a `format:` command for each
- * built-in steering-file mode the bundled default uses (`qa` for the plan /
- * open-questions files, `review` for REVIEW.md), so a fresh project's steering
- * files are auto-formatted with Prettier before gtd validates them. Only
- * `format:` is declared — gtd's built-in `qa`/`review` validators still do the
- * validating (the two halves layer independently — see STATES.md §12 /
+ * built-in steering-file mode the bundled default uses (`qa` for the
+ * open-questions files, `review` for REVIEW.md, `prose` for the simple flow's
+ * plan file), so a fresh project's steering files are auto-formatted with
+ * Prettier before gtd validates them. Only `format:` is declared — gtd's
+ * built-in `qa`/`review` validators still do the validating, and `prose` (a
+ * format-only built-in — see `PatternMachine.isKnownBuiltInMode`) still
+ * validates nothing (the two halves layer independently — see STATES.md §12 /
  * docs/configuration.md `modes:`). gtd ships no formatter, so this is the one
  * place a default is suggested; a project edits or drops it freely (swap
  * Prettier for dprint, point at a script, delete the key).
@@ -38,6 +40,7 @@ export const INIT_VARS = {
 export const MODES_SUGGESTION = {
   qa: { format: "npx prettier --write <%= it.file %>" },
   review: { format: "npx prettier --write <%= it.file %>" },
+  prose: { format: "npx prettier --write <%= it.file %>" },
 } as const
 
 /**

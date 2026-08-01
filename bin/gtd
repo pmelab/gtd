@@ -3,15 +3,17 @@ set -euo pipefail
 
 # This file is the single published `bin` entry: `bin/gtd`. Before anything
 # else, it dispatches on $1:
-#   - `--no-edit` / `--edit` (`-e`) / `--once` (bare, or immediately after
-#     `loop`, in any order/combination — see the flag-parsing block below) ->
-#     stripped here; `--no-edit` disables the loop's automatic editor
-#     launching for this run, `--edit` forces it on for this run (overriding
-#     an ambient `GTD_NO_EDIT`/`--no-edit` — the two are mutually exclusive),
-#     and `--once` restricts the loop to exactly one beat (one human gate, one
-#     script check+step, or one agent prompt+step) before exiting. Dispatch
-#     then continues on the remaining arguments as if none of them had ever
-#     been given.
+#   - `--no-edit` / `--edit` (`-e`) / `--once` / `--no-notify` (bare, or
+#     immediately after `loop`, in any order/combination — see the
+#     flag-parsing block below) -> stripped here; `--no-edit` disables the
+#     loop's automatic editor launching for this run, `--edit` forces it on
+#     for this run (overriding an ambient `GTD_NO_EDIT`/`--no-edit` — the two
+#     are mutually exclusive), `--once` restricts the loop to exactly one beat
+#     (one human gate, one script check+step, or one agent prompt+step) before
+#     exiting, and `--no-notify` (or `GTD_NO_NOTIFY`) suppresses the loop's
+#     Herdr desktop notifications for this run while leaving its silent Herdr
+#     pane-state reporting untouched. Dispatch then continues on the
+#     remaining arguments as if none of them had ever been given.
 #   - `edit [path]` -> handled entirely here in bash, never forwarded to the
 #     bundle: opens `${VISUAL:-$EDITOR}` on `path`, or (no `path` given) on the
 #     resolved rest's `.file` (or `.` when absent). Low-level plumbing now that
@@ -224,22 +226,25 @@ resolve_log_path() {
   fi
 }
 
-# --no-edit / --edit (-e) / --once govern only the loop driver, recognised in
-# exactly two positions — bare (e.g. `gtd --edit --once`) or immediately after
-# `loop` (e.g. `gtd loop --once`) — in any order, each at most once. `--edit`
-# and `--no-edit` are mutually exclusive (forcing and suppressing the editor
-# in the same run is not a coherent request). A recognised, valid combination
-# is stripped here before anything below looks at "$@", so the bundle's own
-# unknown-option guard never sees it; anything else (an unknown flag, a
-# duplicate/conflicting one, or a flag mixed with a real subcommand) is left
-# untouched and falls through to the existing dispatch below, which forwards a
-# non-flag first argument to the bundle (whose own unknown-option guard
-# rejects it) or rejects a `loop` invocation carrying an unrecognised extra
-# argument.
+# --no-edit / --edit (-e) / --once / --no-notify govern only the loop driver,
+# recognised in exactly two positions — bare (e.g. `gtd --edit --once`) or
+# immediately after `loop` (e.g. `gtd loop --once`) — in any order, each at
+# most once. `--edit` and `--no-edit` are mutually exclusive (forcing and
+# suppressing the editor in the same run is not a coherent request);
+# `--no-notify` conflicts with nothing (it's orthogonal to editing and to
+# `--once`). A recognised, valid combination is stripped here before anything
+# below looks at "$@", so the bundle's own unknown-option guard never sees it;
+# anything else (an unknown flag, a duplicate/conflicting one, or a flag mixed
+# with a real subcommand) is left untouched and falls through to the existing
+# dispatch below, which forwards a non-flag first argument to the bundle
+# (whose own unknown-option guard rejects it) or rejects a `loop` invocation
+# carrying an unrecognised extra argument.
 edit_disabled=0
 edit_forced=0
 once_mode=0
+notify_disabled=0
 [[ -n "${GTD_NO_EDIT:-}" ]] && edit_disabled=1
+[[ -n "${GTD_NO_NOTIFY:-}" ]] && notify_disabled=1
 
 if [[ "${1:-}" == "loop" ]]; then
   loop_form=1
@@ -253,15 +258,17 @@ valid_combo=1
 n_no_edit=0
 n_edit=0
 n_once=0
+n_no_notify=0
 for a in ${loop_flag_args[@]+"${loop_flag_args[@]}"}; do
   case "$a" in
   --no-edit) n_no_edit=$((n_no_edit + 1)) ;;
   --edit | -e) n_edit=$((n_edit + 1)) ;;
   --once) n_once=$((n_once + 1)) ;;
+  --no-notify) n_no_notify=$((n_no_notify + 1)) ;;
   *) valid_combo=0 ;;
   esac
 done
-if ((n_no_edit > 1 || n_edit > 1 || n_once > 1 || (n_no_edit >= 1 && n_edit >= 1))); then
+if ((n_no_edit > 1 || n_edit > 1 || n_once > 1 || n_no_notify > 1 || (n_no_edit >= 1 && n_edit >= 1))); then
   valid_combo=0
 fi
 
@@ -269,6 +276,7 @@ if [[ "$valid_combo" == 1 ]]; then
   ((n_no_edit >= 1)) && edit_disabled=1
   ((n_edit >= 1)) && edit_forced=1
   ((n_once >= 1)) && once_mode=1
+  ((n_no_notify >= 1)) && notify_disabled=1
   # --edit overrides an ambient GTD_NO_EDIT/--no-edit for THIS run — the
   # explicit ask to force the editor wins over the suppressing default.
   ((edit_forced)) && edit_disabled=0
@@ -380,7 +388,11 @@ herdr_report() {  # $1=state (working|blocked|idle)  $2=message
     --source herdr:gtd --agent gtd --state "$1" --message "$2"
 }
 
+# Suppressible via GTD_NO_NOTIFY/--no-notify (set into $notify_disabled at
+# parse time, above) — the OS popup this call makes is the only thing that
+# opts out; herdr_report/herdr_release (silent sidebar status) are unaffected.
 herdr_notify() {  # $1=title  $2=body
+  [[ "$notify_disabled" == 1 ]] && return 0
   herdr_ok || return 0
   herdr_run notification show "$1" --body "$2" --sound request
 }
