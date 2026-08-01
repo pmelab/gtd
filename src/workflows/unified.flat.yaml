@@ -146,8 +146,8 @@ states:
     label: Checking the baseline
     script: |
       #!/usr/bin/env bash
-      # gtd check turn — run the suite before starting new work; a red run
-      # records .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed).
+      # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
+      # green run cleans it up. The `on` rules decide what that means.
       set +e
       mkdir -p .gtd
       # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
@@ -284,8 +284,8 @@ states:
     label: Checking the baseline
     script: |
       #!/usr/bin/env bash
-      # gtd check turn — run the suite before starting the advanced flow; a red
-      # run records .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed).
+      # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
+      # green run cleans it up. The `on` rules decide what that means.
       set +e
       mkdir -p .gtd
       # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
@@ -830,8 +830,8 @@ states:
     label: Checking the baseline
     script: |
       #!/usr/bin/env bash
-      # gtd check turn — run the suite before reviewing; a red run records
-      # .gtd/FEEDBACK.md (halt), a green run cleans it up (proceed to reviewing).
+      # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
+      # green run cleans it up. The `on` rules decide what that means.
       set +e
       mkdir -p .gtd
       # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
@@ -887,8 +887,8 @@ states:
     label: Checking the baseline
     script: |
       #!/usr/bin/env bash
-      # gtd check turn — run the suite to find what needs fixing; a red run
-      # records .gtd/FEEDBACK.md (-> fixing), a green run cleans it up (-> idle).
+      # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
+      # green run cleans it up. The `on` rules decide what that means.
       set +e
       mkdir -p .gtd
       # Hoist the feedback path once, at the TOP: Eta's autoTrim eats the
