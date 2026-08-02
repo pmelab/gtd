@@ -107,16 +107,10 @@ handful of commands drive it:
   and a "Current state" panel showing where the active process rests, its
   pending changes, and which action leads where. The panel and diagram highlight
   refresh live (~every 3s) while the page is open, so advancing the process
-  elsewhere shows up without a manual refresh.
-- **`gtd edit [path]`** — open `<path>` (or, with no argument, the current
-  resting state's steering file, or the repo dir) in `${VISUAL:-$EDITOR}`,
-  blocking until it exits. Low-level plumbing — for "force an edit at the
-  current human gate, then keep driving", pass `--edit` to the loop instead (see
-  below).
-
-`gtd version` (or `gtd --version`/`-v`) prints the installed version and exits;
-`gtd help` (or `gtd --help`/`-h`) prints the command list. Both short-circuit
-before any repo work, so they run anywhere.
+  elsewhere shows up without a manual refresh. `gtd version` (or
+  `gtd --version`/`-v`) prints the installed version and exits; `gtd help` (or
+  `gtd --help`/`-h`) prints the command list. Both short-circuit before any repo
+  work, so they run anywhere.
 
 The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
 `"message"` means it's a human's move (stop and hand off); `"script"` means the
@@ -183,23 +177,20 @@ keep their own scratch/bookkeeping, independent of the per-file vars — relocat
 one steering file without touching it.
 
 Bare `gtd` (or `gtd loop`) is a ready-to-run driver for the whole protocol —
-point it at a repo and it runs the loop until it's your turn. It is the only
-command you run: at a human gate it now opens `${VISUAL:-$EDITOR}` on the gate's
-file for you automatically (answer a plan question, tick a review box, fix
-code), waits for you to save and exit, then captures your edit itself and keeps
-driving — or halts if you left nothing changed — so you never run
-`gtd step human` by hand. Pass `--no-edit` (or set `GTD_NO_EDIT`) to fall back
-to halting and printing the gate instead, if you'd rather edit and re-launch it
-yourself; pass `--edit`/`-e` to force the editor open at the gate right now,
-overriding an ambient `GTD_NO_EDIT`/`--no-edit`. Pass `--once` to restrict a run
-to exactly one beat — one human gate, one check, or one agent turn — instead of
-driving all the way to idle; it combines freely with `--edit`/`--no-edit`. Pass
-`--no-notify` (or set `GTD_NO_NOTIFY`) to suppress Herdr desktop notifications
-while keeping Herdr sidebar state reporting on. Bare `gtd` prints one line per
-event — colored and emoji on a real terminal, plain ASCII under `NO_COLOR` or
-when piped — and redirects the noisier agent/check/step subprocess output to a
-per-repo/per-worktree log file. `gtd log` opens that logfile in your editor. See
-[Driving the loop](docs/loop.md).
+point it at a repo and it runs the loop until it's your turn. It drives the
+autonomous states (agent turns, check runs) and stops at the first
+non-autonomous one: reaching a human gate it prints the gate and exits. You act
+by editing files (answer a plan question, tick a review box, fix code) and
+re-launching it — its opening move captures whatever you left, so you never run
+`gtd step human` by hand. Anything richer at that boundary — opening your
+editor, desktop notifications, terminal-multiplexer status — is the job of an
+outer wrapper around `gtd`, not of the loop itself. Pass `--once` to restrict a
+run to exactly one beat — one human-gate capture, one check, or one agent turn —
+instead of driving all the way to idle. Bare `gtd` prints one line per event —
+colored and emoji on a real terminal, plain ASCII under `NO_COLOR` or when piped
+— and redirects the noisier agent/check/step subprocess output to a
+per-repo/per-worktree log file (its path is the run's first output line, ready
+to `tail -f`). See [Driving the loop](docs/loop.md).
 
 Before wiring gtd into a repo, note the
 [repository requirements](docs/cli.md#repository-requirements) — most
@@ -225,14 +216,10 @@ diagnostics for it, though `gtd validate` and the `gtd step` gate still format
 and validate it like any other mode. Both halves are enforced by `gtd validate`
 and the `gtd step` gate.
 
-Herdr integration: a workflow state can declare an optional `label:` — a
-human-readable display name surfaced in `gtd next --json`/`gtd status`. The
-reference `bin/gtd` driver uses it to report its lifecycle
-(working/blocked/idle) to a [Herdr](https://herdr.dev) pane sidebar via the
-`herdr` CLI when running under Herdr (`HERDR_ENV=1`, a pane ID, and `herdr` on
-`$PATH`); outside Herdr this is a complete no-op. See
-[Driving the loop](docs/loop.md#herdr-integration-optional) for the full
-reporting contract.
+A workflow state can declare an optional `label:` — a human-readable display
+name surfaced in `gtd next --json`/`gtd status`. The reference `bin/gtd` driver
+uses it for its per-beat progress lines; an outer wrapper (a terminal
+multiplexer, a notifier) can use it the same way.
 
 ## Documentation
 

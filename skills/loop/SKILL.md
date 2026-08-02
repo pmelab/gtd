@@ -33,15 +33,14 @@ by hand first. So:
 
 1. Peek once with `gtd next --json` (it never mutates anything).
 2. **Only if** that peek reports `"kind":"message"` (the machine rests at a
-   human gate), act on it exactly as "Halting on a human gate" below describes
-   for a `"message"` rest — by default that opens an editor on the gate's file
-   (or the repo root) and blocks until it exits, then steps; under
-   `--no-edit`/`GTD_NO_EDIT` it steps immediately with no editor instead. Only
-   when the resulting `gtd step human` captures a new commit do you continue
-   into the loop below from the resulting state (e.g. accepting a plan with no
-   edit still advances past `plan-review`, since that state's accept is itself a
-   clean-tree pattern); a clean tree with nothing to capture, or a refusal,
-   halts right there per "Halting on a human gate".
+   human gate), run `gtd step human` once to capture whatever the human left in
+   the tree, then continue into the loop below from the resulting state (e.g.
+   accepting a plan with no edit still advances past `plan-review`, since that
+   state's accept is itself a clean-tree pattern). A clean gate with nothing to
+   capture is a harmless no-op — the loop below will halt at the same gate. A
+   refusal (non-zero exit — a malformed steering file, or an edit matching no
+   declared `on` pattern) surfaces the refusal message verbatim and halts
+   non-zero rather than being driven past.
 3. If the peek reports any other `kind`, do **not** step human — the machine is
    mid-cycle at an agent/check rest (a restart after a crash, say), where
    `gtd step human` would refuse out-of-turn. Just enter the loop and resume
@@ -141,52 +140,20 @@ by hand — but as the `--json` driver, you own the gate.)
 
 ## Halting on a human gate
 
-When `gtd next --json` reports `"kind":"message"` (the machine rests at a human
-gate) — whether at the opening peek above or on any later loop iteration — what
-happens next depends on whether editing is enabled.
+When `gtd next --json` reports `"kind":"message"` on a loop iteration (after the
+opening move above already had its chance to capture), the machine rests at a
+NON-AUTONOMOUS state: print the gate's message plainly (the reported `state`,
+and, if you want the human-readable phrasing, run `gtd next` without `--json`
+for the same message rendered for a person) and halt immediately (exit 0)
+without stepping. The human then edits and re-runs the loop. Do not attempt to
+act on the human's behalf. Anything richer at this boundary — opening an editor
+on the gate's file, sending a notification — belongs to an OUTER wrapper around
+the loop, never to the loop itself.
 
-By default (editing ON), open `${VISUAL:-$EDITOR}` on the gate's `.file` field
-(or the repo root `.` when the state declares no `file:`), blocking until the
-editor exits, then run `gtd step human` to capture whatever the human left in
-the tree:
-
-- A **new commit** captured (including a clean-tree accept a state declares via
-  its own `C` pattern, e.g. accepting a plan with no edit) means the editor
-  session was the human's turn: keep driving — go back into the loop from the
-  resulting state.
-- **Zero commits** captured (the tree was clean when the editor closed) means
-  there was nothing to do: halt (exit 0) — done for now. This is the same
-  halt-and-stop outcome as before, just reached after an editor session instead
-  of before one.
-- A **refusal** (non-zero exit from `gtd step human` — e.g. a malformed steering
-  file, or an edit matching no declared `on` pattern) surfaces the refusal
-  message verbatim and halts with non-zero exit, same as any other step refusal.
-
-Pass `--no-edit` (as a bare flag, or immediately after `loop`) or set
-`GTD_NO_EDIT` to any non-empty value to disable the editor for the run: gtd
-reverts to the previous behavior instead — print the gate's message plainly (the
-reported `state`, and, if you want the human-readable phrasing, run `gtd next`
-without `--json` for the same message rendered for a person) and halt
-immediately (exit 0) without touching an editor or stepping. The human then
-edits and re-runs the loop by hand, exactly as before this feature existed. Do
-not attempt to act on the human's behalf either way.
-
-`--edit` (`-e`, same two positions) is the mirror: it forces the editor open at
-the gate for this run, overriding an ambient `GTD_NO_EDIT`/`--no-edit`. It only
-means something when the machine is actually resting at a human gate — at any
-other rest, gtd prints a note that it isn't at one yet and just keeps driving,
-rather than pretending to force an edit that isn't well-defined there. `--edit`
-and `--no-edit` are mutually exclusive; passing both is a usage error.
-
-`--once` (same two positions) restricts the run to exactly one beat — one human
-gate, one script check+step, or one agent prompt+step — then exits, instead of
-driving all the way back to idle/settled. It combines freely with
-`--edit`/`--no-edit`.
-
-None of this touches the `kind`-dispatch contract (`"message"` / `"script"` /
-`"prompt"`), stall detection, or the `gtd validate` self-validation gate after a
-producing agent turn — editor-at-gate only changes what happens at a `"message"`
-rest.
+`--once` (as a bare flag, or immediately after `loop`) restricts a `bin/gtd` run
+to exactly one beat — one human-gate capture, one script check+step, or one
+agent prompt+step — then exits, instead of driving all the way back to
+idle/settled.
 
 ## Stall detection
 
@@ -196,21 +163,6 @@ stuck — do not spin on it. (A zero-commit script step at idle is NOT a stall �
 it is the green terminal signal.) Halt and escalate to the user with what you
 observed (state, content, and that it repeated) instead of retrying
 indefinitely.
-
-## Herdr reporting (optional, driver-side)
-
-A Herdr-aware driver MAY additionally report its lifecycle to a Herdr pane —
-`herdr pane report-agent "$HERDR_PANE_ID" --state working|blocked|idle` at the
-top of each iteration/gate/settle (the pane id is positional and comes before
-the options), and `herdr notification show` at a human gate or on abnormal exit
-(see `bin/gtd` and `docs/loop.md`'s "Herdr integration" section for the exact
-mapping). A human-gate editor session (editing on) is reported `blocked` for the
-duration of the edit, flipping back to `working` once the editor closes and the
-loop resumes driving. This is purely additive: it never changes the dispatch
-contract above (`kind` → message/script/prompt), never gates a step, and is a
-complete no-op outside Herdr. The `notification show` calls are suppressible via
-`GTD_NO_NOTIFY`/`--no-notify`, so a custom driver honoring the same contract
-knows notifications (unlike pane reporting) are opt-out.
 
 ## Notes
 

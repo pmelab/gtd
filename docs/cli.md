@@ -7,8 +7,9 @@ Commands:
   (no command), loop
                    Launch the loop driver (bin/gtd), which repeatedly drives
                    an agent through gtd next/gtd step calls until the
-                   workflow returns to its initial state again. A bare gtd
-                   invocation and gtd loop both launch it identically
+                   workflow rests at a human gate (a non-autonomous state)
+                   or settles. A bare gtd invocation and gtd loop both
+                   launch it identically
   init             Scaffold a minimal .gtdrc.json for this repo, seeding the
                    default variables you are most likely to change (the test
                    command) and a Prettier formatting suggestion. gtd runs its
@@ -45,12 +46,6 @@ Commands:
                    commits that would be lost
   next             Print the resolved rest's rendered script/prompt/message
                    (no mutation)
-  edit [path]      Open <path> (repo-relative) in $VISUAL/$EDITOR, blocking
-                   until the editor exits. With no argument, opens the
-                   resolved rest's declared file (or the repo root if it
-                   declares none). Never reads --no-edit/--edit/GTD_NO_EDIT.
-                   Low-level plumbing — --edit covers the common "force an
-                   edit, then keep driving" case
   status           Print the resolved rest's state/actor and which declared
                    pattern (if any) each pending change matches (no mutation)
   validate         Format and validate the steering file the resolved rest
@@ -69,15 +64,9 @@ Options:
   --no-open        (gtd visualize only) do not open the browser
   --cost=<n>       (gtd step only) record the invocation's token cost
   --model=<name>   (gtd step only, with --cost) tag that cost's model
-  --no-edit        (bare gtd or gtd loop only) disable the loop's automatic
-                   editor launching at human gates
-  --edit, -e       (bare gtd or gtd loop only) force the editor open at the
-                   current human gate, overriding --no-edit/GTD_NO_EDIT; a
-                   no-op note (not an error) when not at a human gate
   --once           (bare gtd or gtd loop only) run exactly one loop beat (one
-                   human gate, one script check+step, or one agent
-                   prompt+step), then exit — combines freely with
-                   --edit/--no-edit
+                   human-gate capture, one script check+step, or one agent
+                   prompt+step), then exit
   --version, -v    Print version and exit
   --help, -h       Print this help and exit
 ```
@@ -101,51 +90,30 @@ to plain-text mode. A bare `--cost`/`--model` with no value, a non-numeric or
 negative `--cost`, an empty `--model`, `--model` without `--cost`, or either
 flag on any command other than `gtd step` are all usage errors.
 
-`--no-edit`, `--edit`/`-e`, and `--once` are separate, bash-level flags handled
-entirely by `bin/gtd` itself, stripped before anything reaches the bundle — see
-below.
+`--once` is a separate, bash-level flag handled entirely by `bin/gtd` itself,
+stripped before anything reaches the bundle — see below.
 
-## `--no-edit`, `--edit`, `--once`
+## `--once`
 
-Three flags on the loop driver only (`--edit` also has the short form `-e`),
-each recognized bare (`gtd --no-edit`) or immediately after `loop`
-(`gtd loop --no-edit`) — the two positions are equivalent, since bare `gtd` and
-`gtd loop` are themselves equivalent. All three combine freely with each other,
-in any order (e.g. `gtd --edit --once`, `gtd loop --once --edit`), except
-`--edit`/`--no-edit` together, which conflict (forcing and suppressing the
-editor in the same run is not a coherent request): naming both, in either
-position, is rejected right in `bin/gtd` with a dedicated usage error
-(`gtd: --edit and --no-edit are mutually exclusive`, exit 2) — it never reaches
-the compiled bundle. Any other placement (e.g. `gtd step --once`) or a
-duplicated flag (`gtd --once --once`) is still a usage error, but surfaced via
-whatever guard the misplaced argument first reaches (the compiled bundle's own
-unknown-option/unknown-command rejection for a misplaced flag, or
+A flag on the loop driver only, recognized bare (`gtd --once`) or immediately
+after `loop` (`gtd loop --once`) — the two positions are equivalent, since bare
+`gtd` and `gtd loop` are themselves equivalent. Any other placement (e.g.
+`gtd step --once`) or a duplicated flag (`gtd --once --once`) is a usage error,
+surfaced via whatever guard the misplaced argument first reaches (the compiled
+bundle's own unknown-option/unknown-command rejection for a misplaced flag, or
 `gtd: 'loop' takes no arguments` for one misplaced after `loop`) — never
-silently ignored or silently resolved one way.
+silently ignored.
 
-**`--no-edit`** (or the `GTD_NO_EDIT` environment variable, any non-empty value)
-disables the loop's default behavior of launching an editor at human gates,
-restoring the halt-and-print-and-exit behavior with no editor involved.
-
-**`--edit`** (`-e`) is `--no-edit`'s mirror: it forces the editor open at the
-current human gate, overriding an ambient `GTD_NO_EDIT`/`--no-edit` default for
-this one run. It is only meaningful when the machine currently rests at a human
-gate — the honesty caveat: at any other rest, forcing an edit is undefined, so
-`bin/gtd` prints a note that it isn't at a human gate yet and simply keeps
-driving, rather than pretending to force something. Both flags govern only the
-loop's own automatic launching — `gtd edit` invoked directly never reads either
-(see [`gtd edit`](#gtd-edit-path) above).
-
-**`--once`** restricts the loop to exactly one beat — one human gate, one script
-check+step, or one agent prompt+step — then exits, instead of driving all the
-way back to idle/settled. Precisely: at most one commit/transition is made;
-whichever of the three kinds the currently-resolved rest is, that one gets
+**`--once`** restricts the loop to exactly one beat — one human-gate capture,
+one script check+step, or one agent prompt+step — then exits, instead of driving
+all the way back to idle/settled. Precisely: at most one commit/transition is
+made; whichever of the three kinds the currently-resolved rest is, that one gets
 processed (including any internal `gtd validate` fix-reprompt rounds a producing
 agent turn needs — those are all part of finishing the ONE prompt beat, not
 separate beats) and the loop exits 0 immediately after, without re-peeking at
 what comes next. A clean human gate with nothing to capture (the opening move's
-silent capture attempt under `--no-edit`, or a no-op editor session) is not a
-beat and falls through to the driver's ordinary halt, same as without `--once`.
+silent capture attempt) is not a beat and falls through to the driver's ordinary
+halt, same as without `--once`.
 
 See [Driving the loop](loop.md) and `skills/loop/SKILL.md` for the full
 gate-flow description.
@@ -471,46 +439,6 @@ which are JSON-only. `--json` emits
   human-readable `describe`) alongside the rendered text. **Omitted entirely**
   when the state has no `on` (a commit state); a per-edge `describe` is likewise
   omitted when that edge declares none.
-
-## `gtd edit [path]`
-
-Low-level plumbing: for the common case of "force an edit at the current human
-gate, then keep driving the loop", use `--edit` (below) instead. `gtd edit`
-itself only opens an editor on a path — it never drives anything afterward,
-which makes it the right tool for opening a SPECIFIC path (or peeking at the
-current rest's file) without starting a loop.
-
-Handled entirely in `bin/gtd`'s own bash — unlike every other subcommand, it is
-**never forwarded** to the compiled bundle (`dist/gtd.bundle.mjs`).
-
-With `<path>` given (repo-relative), opens it in `${VISUAL:-$EDITOR}` (git's own
-precedence — `$VISUAL` first, then `$EDITOR`; no fallback to `vi`), blocking in
-the foreground until the editor exits. It creates nothing if `<path>` doesn't
-exist — the path is handed straight to the editor command verbatim. The editor's
-own exit code is ignored entirely; success is judged from tree state afterward,
-not from this command.
-
-With no argument, it peeks with `gtd next --json` to find the resolved rest's
-declared `.file`, and opens that (repo-relative), or the repo directory (`.`)
-when the resolved state declares no `file:`. If `gtd next --json` itself fails
-(e.g. not in a repo), it prints an error and exits non-zero without attempting
-to open an editor:
-
-```
-gtd edit: could not determine the next step:
-<gtd next --json's own error output>
-```
-
-`gtd edit` **never** reads `--no-edit`/`--edit`/`GTD_NO_EDIT` — those govern
-only the loop's own automatic editor launching at human gates (see
-[Driving the loop](loop.md) and `skills/loop/SKILL.md`), not this command.
-Invoked directly, `gtd edit` always launches, unconditionally.
-
-If neither `$VISUAL` nor `$EDITOR` is set, no editor is launched:
-
-```
-gtd: no editor configured — set $EDITOR (or $VISUAL)
-```
 
 ## Running `script` rests (no `gtd` subcommand)
 
