@@ -38,19 +38,7 @@ export class GtdWorld extends QuickPickleWorld {
   savedCommitCount: number | undefined = undefined
   /** Path to a stub agent script for `gtd-loop` scenarios (@live only). */
   stubAgentPath: string | undefined = undefined
-  /** Directory holding a fake `herdr` binary stub, when provisioned (`gtd-loop` Herdr-reporting scenarios, @live only). */
-  fakeHerdrDir: string | undefined = undefined
-  /** Path to the fake herdr binary's invocation log, when provisioned. */
-  fakeHerdrLogPath: string | undefined = undefined
-  /** Path to a fake `$EDITOR` script standing in for a real editor (`gtd edit`/loop-gate scenarios, @live only). Absent means no editor is configured. */
-  fakeEditorPath: string | undefined = undefined
-  /** Path to the fake editor's invocation log (one line per call — the target path it opened), when provisioned. */
-  fakeEditorLogPath: string | undefined = undefined
-  /** Explicit `$GTD_NO_EDIT` value a scenario wants exported, overriding the tier's usual default (`gtd-loop` scenarios only). */
-  gtdNoEditOverride: string | undefined = undefined
-  /** Explicit `$GTD_NO_NOTIFY` value a scenario wants exported (`gtd-loop` Herdr-notification scenarios only). */
-  gtdNoNotifyOverride: string | undefined = undefined
-  /** Explicit `$GTD_LOOP_LOG` value a scenario wants exported (`gtd log`/loop logging scenarios, @live only). */
+  /** Explicit `$GTD_LOOP_LOG` value a scenario wants exported (loop logging scenarios, @live only). */
   gtdLoopLogOverride: string | undefined = undefined
   /** A stray `$GIT_DIR` value a scenario wants injected into the spawned bin/gtd's env — proving per-worktree state (log, memory marker) stays keyed to the cwd worktree, never the inherited GIT_DIR (@live only). */
   gitDirOverride: string | undefined = undefined

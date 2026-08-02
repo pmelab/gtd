@@ -52,38 +52,17 @@ capture happens within the same run or a later one. A review nobody is going to
 finish is ended with [`gtd abandon`](cli.md#gtd-abandon---json), which drops the
 process's commits and keeps their content as uncommitted changes.
 
-**Editing is on by default.** Reaching a `"message"` rest, `bin/gtd` opens
-`${VISUAL:-$EDITOR}` on the rest's declared `.file` (or the repo root `.` when
-the state declares none), blocking until the editor exits, then runs
-`gtd step human` to capture whatever changed:
+**The loop drives only the autonomous states.** Reaching a `"message"` rest, it
+prints the gate via `gtd next` and exits 0 — the human edits and re-launches the
+loop, whose opening move captures what they left. Anything richer at that
+boundary (opening an editor on the gate's file, desktop notifications,
+terminal-multiplexer status) is deliberately an OUTER wrapper's responsibility,
+not `bin/gtd`'s.
 
-- a new commit was captured → the loop keeps driving on its own; re-launching is
-  never necessary;
-- zero commits were captured (a clean tree once the editor closed) → the loop
-  halts, exit 0 — "done for now";
-- the step refuses (a malformed steering file, or an edit matching no declared
-  pattern) → the refusal is surfaced verbatim and the loop halts non-zero,
-  exactly as a manual `gtd step human` refusal would.
-
-Set `GTD_NO_EDIT` (any non-empty value), or pass `--no-edit` — see
-[`cli.md`](cli.md#--no-edit---edit---once) for its exact syntax and positioning
-— to disable this and restore the original halt-and-print behavior: the loop
-prints the gate via `gtd next` and exits 0 without touching an editor, leaving
-the human to edit and re-launch the loop themselves.
-
-Pass `--edit` (`-e`) to force the editor open at the current human gate right
-now, overriding an ambient `GTD_NO_EDIT`/`--no-edit` for this one run — useful
-when a shell profile sets `GTD_NO_EDIT` by default but you want to edit
-interactively just this once. It only means something when the machine is
-actually resting at a human gate: at any other rest, `bin/gtd` prints a note
-that it isn't at one yet and simply keeps driving, rather than pretending to
-force something undefined.
-
-Pass `--once` to restrict the loop to exactly one beat — one human gate, one
-script check+step, or one agent prompt+step — then exit, instead of driving all
-the way to idle/settled. It combines freely with `--edit`/`--no-edit` (e.g.
-`gtd --edit --once` forces the editor at the current gate, captures the edit,
-and stops right there rather than continuing to drive).
+Pass `--once` — see [`cli.md`](cli.md#--once) for its exact syntax and
+positioning — to restrict the loop to exactly one beat — one human-gate capture,
+one script check+step, or one agent prompt+step — then exit, instead of driving
+all the way to idle/settled.
 
 ```bash
 gtd next --json   # ask who's up and what they should do
@@ -106,21 +85,17 @@ when the machine rests at a `"message"` gate — so `gtd` is the only command a
 human runs. `bin/gtd` is the packaged entry point: invoked bare, or with `loop`
 as its first argument, it runs this exact script; any other first argument (e.g.
 `next`, `step`, `status`) hands off to `node dist/gtd.bundle.mjs` instead. The
-loop body it runs adds six things on top of the reference script above: it opens
-an editor at every `"message"` gate instead of just printing it (see "Editing is
-on by default" above; `--no-edit`/`GTD_NO_EDIT` fall back to the reference
-script's plain print-and-exit, while `--edit`/`-e` forces it on for this run
-even over an ambient `GTD_NO_EDIT`); it can restrict itself to exactly one beat
-via `--once` instead of driving to idle/settled; it stops with a diagnostic if
-the same `"prompt"` state/content repeat with no progress (see
-`skills/loop/SKILL.md`'s "Stall detection"); it lets `GTD_LOOP_AGENT_CMD` swap
-in any coding agent CLI in place of the default `claude -p`, receiving the
-prompt via `$GTD_LOOP_PROMPT`; it exports the resolved state's optional `model`
-hint as `$GTD_LOOP_MODEL`, appending `--model "$GTD_LOOP_MODEL"` to the default
-`claude -p` invocation whenever it's non-empty; and it acts on the optional
-`memory` scope hint (see "Agent memory scope" below) — continuing one agent
-session across consecutive same-scope turns and starting fresh when the scope
-changes.
+loop body it runs adds five things on top of the reference script above: it can
+restrict itself to exactly one beat via `--once` instead of driving to
+idle/settled; it stops with a diagnostic if the same `"prompt"` state/content
+repeat with no progress (see `skills/loop/SKILL.md`'s "Stall detection"); it
+lets `GTD_LOOP_AGENT_CMD` swap in any coding agent CLI in place of the default
+`claude -p`, receiving the prompt via `$GTD_LOOP_PROMPT`; it exports the
+resolved state's optional `model` hint as `$GTD_LOOP_MODEL`, appending
+`--model "$GTD_LOOP_MODEL"` to the default `claude -p` invocation whenever it's
+non-empty; and it acts on the optional `memory` scope hint (see "Agent memory
+scope" below) — continuing one agent session across consecutive same-scope turns
+and starting fresh when the scope changes.
 
 `bin/gtd` resolves both its bundle hand-off and the loop's own internal `gtd`
 calls against `dist/gtd.bundle.mjs` next to its own location. Set `GTD_BIN` — a
@@ -181,11 +156,8 @@ The driver — not the prompt text — owns ending the agent's turn
 (`gtd step "$actor"` right after the agent acts): every default-workflow agent
 prompt says explicitly not to run `gtd step agent` itself.
 
-`bin/gtd log` opens the current repo/worktree's loop logfile —
-`"$(worktree_git_dir)/gtd-loop.log"` by default, or `$GTD_LOOP_LOG` verbatim
-when set — in `${VISUAL:-$EDITOR}`, the same editor resolution `bin/gtd edit`
-uses. It takes no arguments and errors out (rather than opening an empty buffer)
-if no loop has produced a log yet. `worktree_git_dir` derives the git dir from
+The loop's logfile lives at `"$(worktree_git_dir)/gtd-loop.log"` by default, or
+`$GTD_LOOP_LOG` verbatim when set. `worktree_git_dir` derives the git dir from
 the cwd with `GIT_DIR`/`GIT_WORK_TREE` scrubbed, so an inherited `GIT_DIR`
 (leaked from a parent git process, a hook, or another worktree's shell) can
 never key the log — or the loop's memory marker — to a different worktree; two
@@ -205,8 +177,8 @@ by a `📄 see <log>` pointer (plain: `see <log>`).
 The three previously terminal-visible subprocess streams — the agent turn's own
 output, the check script's own output, and `gtd step`'s own output — are no
 longer printed directly: they're appended to the per-repo/per-worktree log file
-(truncated once at the start of the run) instead, and surfaced with
-`bin/gtd log` above.
+(truncated once at the start of the run) instead — the loop prints the log's
+path as its first line, ready to `tail -f`.
 
 ## Agent memory scope
 
@@ -245,45 +217,3 @@ example, to drive a different agent CLI:
 ```bash
 GTD_LOOP_AGENT_CMD='my-agent-cli --prompt "$GTD_LOOP_PROMPT"' gtd
 ```
-
-## Herdr integration (optional)
-
-`bin/gtd` optionally reports its lifecycle to [Herdr](https://herdr.dev) (a
-terminal multiplexer for coding agents) via a `herdr` CLI binary, entirely at
-the driver's edge — gtd core never talks to Herdr. Every call is best-effort
-(guarded, output discarded, `|| true`), so a missing/failing `herdr` binary
-never blocks, slows, or fails the loop. Because that guard also hides a herdr
-CLI-signature mismatch, set `GTD_HERDR_DEBUG=1` to surface every `herdr` call
-and its exit code on stderr instead.
-
-The reporting is a no-op unless all three guard conditions hold: `HERDR_ENV=1`,
-a non-empty `$HERDR_PANE_ID`, and `herdr` on `$PATH`. When they do, `gtd` makes
-three kinds of calls (note the positional `<PANE_ID>` comes BEFORE the options —
-herdr's `pane` subcommands reject a trailing pane id):
-
-- `herdr pane report-agent "$HERDR_PANE_ID" --source herdr:gtd --agent gtd --state <state> --message <label>`
-- `herdr pane release-agent "$HERDR_PANE_ID" --source herdr:gtd --agent gtd`
-- `herdr notification show <title> --body <label> --sound request`
-
-mapped onto the loop's states like this:
-
-| Loop moment                                                                          | Call(s)                                                                  |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| Top of every non-`"message"` iteration                                               | `report-agent --state working`                                           |
-| Right before halting at a `"message"` (human) gate (editing off)                     | `report-agent --state blocked` + `notification show`                     |
-| While the editor is open at a human gate (editing on)                                | `report-agent --state blocked`, flipped back to `working` once it closes |
-| Right before a clean settle (a script rest, zero new commits)                        | `report-agent --state idle` + `release-agent`                            |
-| Any non-zero exit (stall guard, validate-cap, `gtd next` failure, unhandled failure) | `report-agent --state blocked` + `notification show`, via an `EXIT` trap |
-
-`working`/`blocked` reports use the resolved rest's `label` (falling back to
-`state`, per the field above); the trap falls back to `$GTD_LAST_LABEL`, the
-label tracked from the last completed iteration, when it fires outside the
-normal per-iteration flow. `report-agent` claims display authority for the
-`herdr:gtd` source, so `working` is re-reported every lap rather than once, to
-stay fresh against Herdr's own heuristic detection of the inner agent process.
-
-Set `GTD_NO_NOTIFY` (any non-empty value) or pass `--no-notify` to suppress the
-two `notification show` calls above (the human-gate halt and the exit trap) for
-this run — the OS popup + sound only. `report-agent`/`release-agent` (the silent
-Herdr sidebar status) are untouched either way, mirroring
-`--no-edit`/`GTD_NO_EDIT`'s flag/env shape.

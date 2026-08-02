@@ -6,7 +6,6 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
-import { editorEnv } from "./edit.steps.js"
 
 const execFile = promisify(execFileCb)
 
@@ -24,59 +23,6 @@ Given("a stub agent script that responds to prompts with:", (world: GtdWorld, sc
   world.stubAgentPath = scriptPath
 })
 
-// A fake `herdr` binary standing in for the real Herdr CLI — bin/gtd's
-// `herdr_ok` only fires its Herdr-reporting calls when `herdr` resolves on
-// PATH (alongside HERDR_ENV=1 + a non-empty HERDR_PANE_ID), so this step's
-// mere presence on world is what `gtdLoopEnv` uses to decide whether to
-// provision the Herdr environment at all. The stub logs every invocation's
-// arguments as one space-joined line (however bash's `"$@"` renders them) to
-// a log file, so scenarios can assert on the exact sequence of calls gtd made
-// without a real Herdr install.
-//
-// The stub also emulates the one bit of real herdr arg-parsing gtd got wrong
-// once (the positional <PANE_ID> must precede the options on a `pane`
-// subcommand — a trailing pane id makes real herdr reject the first option as
-// `unknown option`, exit 2): a `pane <subcmd>` whose first argument after the
-// subcommand starts with `-` exits 2, so re-introducing the old pane-id-last
-// order fails these scenarios instead of silently no-op'ing.
-Given("a fake herdr binary", (world: GtdWorld) => {
-  const dir = mkdtempSync(join(tmpdir(), "gtd-loop-herdr-"))
-  const logPath = join(dir, "herdr.log")
-  const herdrPath = join(dir, "herdr")
-  writeFileSync(
-    herdrPath,
-    `#!/usr/bin/env bash\n` +
-      `echo "$@" >> "${logPath}"\n` +
-      `if [ "$1" = pane ] && [ "\${3:0:1}" = - ]; then exit 2; fi\n` +
-      `exit 0\n`,
-  )
-  chmodSync(herdrPath, 0o755)
-  world.fakeHerdrDir = dir
-  world.fakeHerdrLogPath = logPath
-})
-
-// Resolves $GTD_NO_EDIT for a loop subprocess. An explicit override wins (a
-// scenario asserting on the env var's own effect); otherwise, when no fake
-// editor was provisioned, "1" keeps every OTHER scenario on the pre-existing
-// halt-at-gate behavior it asserts on — without it, a real ambient editor
-// would launch against a tty-less subprocess and hang until the spawn timeout.
-function noEditValue(world: GtdWorld): string | undefined {
-  if (world.gtdNoEditOverride !== undefined) return world.gtdNoEditOverride
-  if (!world.fakeEditorPath) return "1"
-  return undefined
-}
-
-// Adds the fake-herdr wiring: the stub binary must be discoverable on PATH for
-// bin/gtd's `herdr_ok` to fire its Herdr-reporting calls (alongside HERDR_ENV +
-// a non-empty HERDR_PANE_ID). bin/gtd self-locates its bundle, so no `gtd` PATH
-// shim is needed.
-function applyHerdrEnv(env: NodeJS.ProcessEnv, world: GtdWorld): void {
-  if (!world.fakeHerdrDir) return
-  env["PATH"] = `${world.fakeHerdrDir}:${process.env["PATH"]}`
-  env["HERDR_ENV"] = "1"
-  env["HERDR_PANE_ID"] = "test-pane"
-}
-
 // Drops any inherited GTD_LOOP_* runtime state from a spawn env so a spawned
 // bin/gtd resolves its OWN log path, not the loop driver's (which exports
 // GTD_LOOP_LOG when running the suite as its check). Mirrors hooks.ts's global
@@ -91,14 +37,9 @@ function scrubInheritedLoopEnv(env: NodeJS.ProcessEnv, world: GtdWorld): void {
 }
 
 function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
-  // editorEnv strips any ambient $EDITOR/$VISUAL and, when a scenario
-  // provisioned one (via the shared "$EDITOR is a script..."/"...no-op
-  // script" steps in edit.steps.ts), sets $EDITOR to the fake editor script.
-  const env = editorEnv(world, { ...process.env })
+  const env = { ...process.env }
   scrubInheritedLoopEnv(env, world)
   const overrides: Record<string, string | undefined> = {
-    GTD_NO_EDIT: noEditValue(world),
-    GTD_NO_NOTIFY: world.gtdNoNotifyOverride,
     GTD_LOOP_AGENT_CMD: world.stubAgentPath ? `bash "${world.stubAgentPath}"` : undefined,
     GTD_LOOP_LOG: world.gtdLoopLogOverride,
     GIT_DIR: world.gitDirOverride,
@@ -108,25 +49,8 @@ function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
   for (const [key, value] of Object.entries(overrides)) {
     if (value !== undefined) env[key] = value
   }
-  applyHerdrEnv(env, world)
   return env
 }
-
-// Sets $GTD_NO_EDIT explicitly (a non-empty value disables the loop's
-// automatic editor launching, identically to passing --no-edit) — for
-// scenarios asserting on the env-var form of that switch specifically,
-// distinct from the --no-edit flag itself.
-Given("GTD_NO_EDIT is set to {string}", (world: GtdWorld, value: string) => {
-  world.gtdNoEditOverride = value
-})
-
-// Sets $GTD_NO_NOTIFY explicitly (a non-empty value disables the loop's
-// Herdr desktop notifications, identically to passing --no-notify) — for
-// scenarios asserting on the env-var form of that switch specifically,
-// distinct from the --no-notify flag itself.
-Given("GTD_NO_NOTIFY is set to {string}", (world: GtdWorld, value: string) => {
-  world.gtdNoNotifyOverride = value
-})
 
 // Sets $GTD_LOOP_LOG explicitly — the single-explicit-path override
 // `resolve_log_path` uses verbatim instead of deriving
@@ -224,47 +148,6 @@ When("I run gtd loop {word}", async (world: GtdWorld, extraArg: string) => {
 // arguments — e.g. "status" via gtd, or "step human" via gtd.
 When("I run {string} via gtd", async (world: GtdWorld, args: string) => {
   await runBinGtd(world, args.split(" "))
-})
-
-// Asserts each non-empty docstring line appears as a substring of the fake
-// herdr log, IN ORDER — later lines must be found strictly after where the
-// previous one ended, so the check proves call sequence, not just presence.
-Then("the fake herdr log contains, in order:", (world: GtdWorld, block: string) => {
-  if (!world.fakeHerdrLogPath) {
-    throw new Error(
-      'no fake herdr binary was provisioned for this scenario — add "Given a fake herdr binary"',
-    )
-  }
-  const log = readFileSync(world.fakeHerdrLogPath, "utf-8")
-  const expectedLines = block
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-  let cursor = 0
-  for (const line of expectedLines) {
-    const idx = log.indexOf(line, cursor)
-    assert.ok(
-      idx !== -1,
-      `Expected fake herdr log to contain "${line}" at or after position ${cursor}, in order.\nFull log:\n${log}`,
-    )
-    cursor = idx + line.length
-  }
-})
-
-// Asserts a substring never appears anywhere in the fake herdr log — the
-// negative counterpart to "contains, in order", for scenarios proving a
-// suppressed call (e.g. --no-notify) never reached herdr at all.
-Then("the fake herdr log does not contain {string}", (world: GtdWorld, needle: string) => {
-  if (!world.fakeHerdrLogPath) {
-    throw new Error(
-      'no fake herdr binary was provisioned for this scenario — add "Given a fake herdr binary"',
-    )
-  }
-  const log = readFileSync(world.fakeHerdrLogPath, "utf-8")
-  assert.ok(
-    !log.includes(needle),
-    `Expected fake herdr log NOT to contain "${needle}".\nFull log:\n${log}`,
-  )
 })
 
 // Resolves the loop's log file path the same way bin/gtd's resolve_log_path

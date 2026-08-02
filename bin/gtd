@@ -3,34 +3,19 @@ set -euo pipefail
 
 # This file is the single published `bin` entry: `bin/gtd`. Before anything
 # else, it dispatches on $1:
-#   - `--no-edit` / `--edit` (`-e`) / `--once` / `--no-notify` (bare, or
-#     immediately after `loop`, in any order/combination — see the
-#     flag-parsing block below) -> stripped here; `--no-edit` disables the
-#     loop's automatic editor launching for this run, `--edit` forces it on
-#     for this run (overriding an ambient `GTD_NO_EDIT`/`--no-edit` — the two
-#     are mutually exclusive: naming both together is a dedicated usage error,
-#     exit 2), `--once` restricts the loop to exactly one beat
-#     (one human gate, one script check+step, or one agent prompt+step) before
-#     exiting, and `--no-notify` (or `GTD_NO_NOTIFY`) suppresses the loop's
-#     Herdr desktop notifications for this run while leaving its silent Herdr
-#     pane-state reporting untouched. Dispatch then continues on the
-#     remaining arguments as if none of them had ever been given.
-#   - `edit [path]` -> handled entirely here in bash, never forwarded to the
-#     bundle: opens `${VISUAL:-$EDITOR}` on `path`, or (no `path` given) on the
-#     resolved rest's `.file` (or `.` when absent). Low-level plumbing now that
-#     `--edit` covers the common "force an edit, then keep driving" case; this
-#     subcommand remains for opening a specific path, or the current rest's
-#     file, WITHOUT driving the loop afterward.
-#   - `log` -> handled entirely here in bash, never forwarded to the bundle:
-#     opens `${VISUAL:-$EDITOR}` on the current repo/worktree's loop logfile
-#     (see `resolve_log_path`), refusing rather than opening an empty buffer
-#     when no loop has produced one yet.
-#   - no arguments, or exactly `loop` with no further arguments (other than the
-#     flags above) -> fall through into the loop body below (the loop protocol
-#     comment further down).
+#   - `--once` (bare, or immediately after `loop`) -> stripped here; restricts
+#     the loop to exactly one beat (one human-gate capture, one script
+#     check+step, or one agent prompt+step) before exiting. Dispatch then
+#     continues on the remaining arguments as if it had never been given.
+#   - no arguments, or exactly `loop` with no further arguments -> fall through
+#     into the loop body below (the loop protocol comment further down).
 #   - `loop` with an unrecognised extra argument -> usage error, exit 2.
 #   - anything else -> hand off to the bundle via `run_gtd`, forwarding all
 #     arguments unchanged (e.g. `bin/gtd status`, `bin/gtd step human`).
+# The loop's whole job is to drive the process until it rests at a
+# NON-AUTONOMOUS state (a human gate) or settles. Everything beyond that —
+# editors, desktop notifications, terminal-multiplexer status — is an OUTER
+# wrapper's responsibility, deliberately not this script's.
 # `run_gtd` is the ONE place that knows how to invoke "the bundle": by default
 # it resolves `dist/gtd.bundle.mjs` relative to this script's own location
 # (not cwd), but `GTD_BIN` (a dev/test override for the whole invocation
@@ -48,29 +33,11 @@ run_gtd() {
   fi
 }
 
-# Shared editor-launch helper — used by both the `edit` subcommand below and
-# the loop's human-gate flow further down. Resolves the editor git-style
-# ($VISUAL, then $EDITOR — no fallback to `vi`), then launches it blocking in
-# the foreground with the target path passed as a positional parameter
-# (never string-spliced into the command), so a multi-word command
-# (`code --wait`) and a path with special characters both work. A launch
-# failure (bad/missing editor binary) is a plain non-zero return, propagating
-# under `set -e`; the editor's own exit code is otherwise ignored entirely —
-# the outcome is judged from tree state afterward, not from this function.
-launch_editor() {
-  local target="$1" editor="${VISUAL:-${EDITOR:-}}"
-  if [[ -z "$editor" ]]; then
-    echo "gtd: no editor configured — set \$EDITOR (or \$VISUAL)" >&2
-    return 1
-  fi
-  bash -c "$editor \"\$1\"" gtd-edit "$target"
-}
-
 # ── Rendering primitives (capability detection, palette/markers, emitters) ──
-# Additive: nothing below calls these yet. `FANCY=1` only when stdout (fd 1)
-# is a real terminal AND `NO_COLOR` is unset — any pipe/redirect/non-tty
-# stdout, or `NO_COLOR` set to any value, gives plain ASCII with no escape
-# codes, per the NO_COLOR convention (https://no-color.org).
+# `FANCY=1` only when stdout (fd 1) is a real terminal AND `NO_COLOR` is unset
+# — any pipe/redirect/non-tty stdout, or `NO_COLOR` set to any value, gives
+# plain ASCII with no escape codes, per the NO_COLOR convention
+# (https://no-color.org).
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then FANCY=1; else FANCY=0; fi
 
 if [[ "$FANCY" == 1 ]]; then
@@ -158,8 +125,6 @@ emit_log_pointer() {
 }
 
 # ── Git-derivation helpers (parse_subject, report_commits) ──────────────────
-# Additive: nothing below calls these yet. Replaces today's
-# head_before/head_after string comparisons in a later change.
 
 # parse_subject <subject> — sets S_ACTOR / S_FROM / S_TO / S_KIND. Patterns are
 # held in variables (rather than inlined) so bash's [[ =~ ]] doesn't need the
@@ -209,7 +174,7 @@ report_commits() {
   [[ "$reported" == 1 ]]
 }
 
-# ── Log file (resolve_log_path, gtd log) ────────────────────────────────────
+# ── Log file (resolve_log_path) ─────────────────────────────────────────────
 
 # worktree_git_dir — the git dir of the working tree gtd is operating in,
 # derived purely from the cwd. GIT_DIR/GIT_WORK_TREE are scrubbed for this one
@@ -233,27 +198,16 @@ resolve_log_path() {
   fi
 }
 
-# --no-edit / --edit (-e) / --once / --no-notify govern only the loop driver,
-# recognised in exactly two positions — bare (e.g. `gtd --edit --once`) or
-# immediately after `loop` (e.g. `gtd loop --once`) — in any order, each at
-# most once. `--edit` and `--no-edit` are mutually exclusive (forcing and
-# suppressing the editor in the same run is not a coherent request): naming
-# both, with no other unrecognised token present, is rejected right here with
-# a dedicated usage error (exit 2) — it never reaches the bundle's own
-# unknown-option guard. `--no-notify` conflicts with nothing (it's orthogonal
-# to editing and to `--once`). A recognised, valid combination is stripped
-# here before anything below looks at "$@", so the bundle's own unknown-option
-# guard never sees it; anything else (an unknown flag, a duplicate flag, or a
-# flag mixed with a real subcommand) is left untouched and falls through to
-# the existing dispatch below, which forwards a non-flag first argument to the
-# bundle (whose own unknown-option guard rejects it) or rejects a `loop`
-# invocation carrying an unrecognised extra argument.
-edit_disabled=0
-edit_forced=0
+# --once governs only the loop driver, recognised in exactly two positions —
+# bare (`gtd --once`) or immediately after `loop` (`gtd loop --once`) — at
+# most once. When recognised it is stripped here before anything below looks
+# at "$@", so the bundle's own unknown-option guard never sees it; anything
+# else (an unknown flag, a duplicate --once, or --once mixed with a real
+# subcommand) is left untouched and falls through to the existing dispatch
+# below, which forwards a non-flag first argument to the bundle (whose own
+# unknown-option guard rejects it) or rejects a `loop` invocation carrying an
+# unrecognised extra argument.
 once_mode=0
-notify_disabled=0
-[[ -n "${GTD_NO_EDIT:-}" ]] && edit_disabled=1
-[[ -n "${GTD_NO_NOTIFY:-}" ]] && notify_disabled=1
 
 if [[ "${1:-}" == "loop" ]]; then
   loop_form=1
@@ -264,75 +218,22 @@ else
 fi
 
 valid_combo=1
-saw_unknown=0
-n_no_edit=0
-n_edit=0
 n_once=0
-n_no_notify=0
 for a in ${loop_flag_args[@]+"${loop_flag_args[@]}"}; do
   case "$a" in
-  --no-edit) n_no_edit=$((n_no_edit + 1)) ;;
-  --edit | -e) n_edit=$((n_edit + 1)) ;;
   --once) n_once=$((n_once + 1)) ;;
-  --no-notify) n_no_notify=$((n_no_notify + 1)) ;;
-  *) saw_unknown=1 ;;
+  *) valid_combo=0 ;;
   esac
 done
-# A pure loop-flag invocation (no unrecognised token) naming both --edit and
-# --no-edit gets a dedicated usage error here, rather than falling through to
-# the bundle's own unknown-option rejection below.
-if [[ "$saw_unknown" == 0 ]] && ((n_edit >= 1 && n_no_edit >= 1)); then
-  echo "gtd: --edit and --no-edit are mutually exclusive" >&2
-  exit 2
-fi
-if ((saw_unknown == 1 || n_no_edit > 1 || n_edit > 1 || n_once > 1 || n_no_notify > 1)); then
-  valid_combo=0
-fi
+((n_once > 1)) && valid_combo=0
 
-if [[ "$valid_combo" == 1 ]]; then
-  ((n_no_edit >= 1)) && edit_disabled=1
-  ((n_edit >= 1)) && edit_forced=1
-  ((n_once >= 1)) && once_mode=1
-  ((n_no_notify >= 1)) && notify_disabled=1
-  # --edit overrides an ambient GTD_NO_EDIT/--no-edit for THIS run — the
-  # explicit ask to force the editor wins over the suppressing default.
-  ((edit_forced)) && edit_disabled=0
+if [[ "$valid_combo" == 1 && "$n_once" == 1 ]]; then
+  once_mode=1
   if [[ "$loop_form" == 1 ]]; then
     set -- loop
   else
     set --
   fi
-fi
-
-if [[ "${1:-}" == "edit" ]]; then
-  shift
-  if [[ $# -gt 0 ]]; then
-    launch_editor "$1"
-  else
-    if ! peek_json="$(run_gtd next --json 2>&1)"; then
-      echo "gtd edit: could not determine the next step:" >&2
-      echo "$peek_json" >&2
-      exit 1
-    fi
-    file="$(jq -r '.file // empty' <<<"$peek_json")"
-    launch_editor "${file:-.}"
-  fi
-  exit 0
-fi
-
-if [[ "${1:-}" == "log" ]]; then
-  shift
-  if [[ $# -gt 0 ]]; then
-    echo "gtd log: takes no arguments" >&2
-    exit 2
-  fi
-  log_path="$(resolve_log_path)"
-  if [[ ! -f "$log_path" ]]; then
-    echo "gtd log: no loop log yet at $log_path" >&2
-    exit 1
-  fi
-  launch_editor "$log_path"
-  exit 0
 fi
 
 if [[ $# -gt 0 && "$1" != "loop" ]]; then
@@ -343,16 +244,14 @@ if [[ "${1:-}" == "loop" && $# -gt 1 ]]; then
   echo "gtd: 'loop' takes no arguments" >&2
   exit 2
 fi
-# otherwise ($# -eq 0, or exactly "loop" with no further args, --no-edit
-# already stripped above): fall through into the existing loop body below,
-# unchanged in behavior.
+# otherwise ($# -eq 0, or exactly "loop" with no further args, --once already
+# stripped above): fall through into the loop body below.
 
 # Drives the v3 pattern-machine loop (see docs/loop.md): each iteration asks
 # `gtd next --json` who's up and what they should do, dispatching on `kind`:
-#   - "message" (a human rest)  -> see handle_human_gate above: with editing on
-#     (the default) open the editor at the gate and step human, driving on a
-#     captured commit; with editing off (--no-edit/GTD_NO_EDIT), halt and tell
-#     the user what gtd is waiting on, unchanged from before this feature.
+#   - "message" (a human rest)  -> the non-autonomous halt: print the gate and
+#     exit 0. Acting on it (opening an editor, notifying, whatever) is an
+#     outer wrapper's job; this loop only ever drives the AUTONOMOUS states.
 #   - "script"  (a check rest) -> execute `content` (the emitted wrapper
 #     script) verbatim via bash — exit code deliberately ignored, the outcome
 #     lives in the tree — then `gtd step <actor>` to capture it; zero new
@@ -379,109 +278,6 @@ fi
 # resume-or-fresh flag are exported as $GTD_LOOP_MEMORY / $GTD_LOOP_SESSION_ID
 # / $GTD_LOOP_MEMORY_RESUME; the default adapter turns them into
 # `--resume`/`--session-id`. An adapter that ignores them keeps working.
-herdr_ok() { [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_PANE_ID:-}" ] && command -v herdr >/dev/null 2>&1; }
-
-# Run a `herdr` invocation best-effort. Normally output is discarded and a
-# failure is swallowed (`|| true`) so a missing/incompatible herdr never blocks
-# the loop. Set GTD_HERDR_DEBUG=1 to instead surface every call and its exit
-# code on stderr — the escape hatch that makes a silent CLI-signature mismatch
-# (e.g. an arg herdr rejects) visible again.
-herdr_run() {
-  if [ "${GTD_HERDR_DEBUG:-}" = 1 ]; then
-    printf 'gtd/herdr: %s\n' "$*" >&2
-    herdr "$@" >&2
-    printf 'gtd/herdr: exit=%s\n' "$?" >&2
-  else
-    herdr "$@" >/dev/null 2>&1 || true
-  fi
-}
-
-# NOTE: herdr requires the positional <PANE_ID> BEFORE the options for
-# `pane` subcommands — passing it last makes herdr reject the first option as
-# `unknown option` (exit 2). Keep the pane id first here.
-herdr_report() {  # $1=state (working|blocked|idle)  $2=message
-  herdr_ok || return 0
-  herdr_run pane report-agent "$HERDR_PANE_ID" \
-    --source herdr:gtd --agent gtd --state "$1" --message "$2"
-}
-
-# Suppressible via GTD_NO_NOTIFY/--no-notify (set into $notify_disabled at
-# parse time, above) — the OS popup this call makes is the only thing that
-# opts out; herdr_report/herdr_release (silent sidebar status) are unaffected.
-herdr_notify() {  # $1=title  $2=body
-  [[ "$notify_disabled" == 1 ]] && return 0
-  herdr_ok || return 0
-  herdr_run notification show "$1" --body "$2" --sound request
-}
-
-herdr_release() {  # hand the pane back to Herdr's normal detection
-  herdr_ok || return 0
-  herdr_run pane release-agent "$HERDR_PANE_ID" --source herdr:gtd --agent gtd
-}
-
-# Shared human-gate handler for a "message" (human) rest — used both by the
-# opening move (when editing is on) and by every "message" rest the main loop
-# encounters. $1 is the rest's `next --json` blob.
-#
-# Editing OFF ($edit_disabled): today's behavior, unchanged — render the gate
-# via emit_gate and exit 0 without touching an editor.
-#
-# Editing ON (the default): open the editor on the rest's `.file` (or `.` when
-# absent), wait for it to exit, then run `gtd step human`:
-#   - a NEW commit was authored -> return normally so the caller keeps driving.
-#   - ZERO commits were authored -> halt, exit 0 (closing the editor without a
-#     capturable change means "done for now" — and keeps a gate with no `C`
-#     pattern, e.g. idle, from being reopened forever).
-#   - the step REFUSES (non-zero exit: malformed steering file, unfinished
-#     review) -> surface it verbatim and halt, exit non-zero — the same
-#     wording an opening-move refusal already used before this function
-#     existed.
-handle_human_gate() {
-  local json="$1" file label state step_out head_before head_after
-  label="$(jq -r '.label // .state' <<<"$json")"
-  state="$(jq -r .state <<<"$json")"
-
-  if [[ "$edit_disabled" == 1 ]]; then
-    herdr_report blocked "$label"
-    herdr_notify "gtd needs you — $(basename "$PWD")" "$label"
-    emit_gate "$state" "$label"
-    run_gtd next
-    exit 0
-  fi
-
-  file="$(jq -r '.file // empty' <<<"$json")"
-  herdr_report blocked "$label"
-  launch_editor "${file:-.}"
-  herdr_report working "$label"
-
-  head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
-  if ! step_out="$(run_gtd step human 2>&1)"; then
-    emit_error "could not capture your changes at the human gate:
-$step_out
-Fix the reported issue and re-run gtd-loop."
-    emit_log_pointer
-    exit 1
-  fi
-  head_after="$(git rev-parse HEAD 2>/dev/null || echo none)"
-  if [[ "$head_before" == "$head_after" ]]; then
-    herdr_report idle "$label"
-    herdr_release
-    emit_action "$M_HUMAN" "done for now (nothing captured)"
-    exit 0
-  fi
-  # A new commit was captured — render it, then return normally so the
-  # caller keeps driving, unless --once says this one human gate is the whole
-  # run.
-  report_commits
-  if [[ "$once_mode" == 1 ]]; then
-    exit 0
-  fi
-}
-
-trap 'code=$?; if [ "$code" -ne 0 ]; then
-        herdr_report blocked "${GTD_LAST_LABEL:-stopped}: exited $code"
-        herdr_notify "gtd stopped — $(basename "$PWD")" "${GTD_LAST_LABEL:-loop} failed (exit $code)"
-      fi' EXIT
 
 prev_state=""
 prev_content=""
@@ -491,7 +287,7 @@ prev_head=""
 memory_marker="$(worktree_git_dir 2>/dev/null || echo .git)/gtd-loop-memory"
 
 # Truncated once here (not every iteration), so the file always reflects the
-# current run but survives after the loop exits for a later `gtd log`.
+# current run but survives after the loop exits.
 log_path="$(resolve_log_path)"
 : >"$log_path"
 export GTD_LOOP_LOG="$log_path"
@@ -549,16 +345,9 @@ reported_head="$(git rev-parse HEAD 2>/dev/null || echo none)"
 # and a mid-cycle restart must simply resume driving, not fail. A clean gate is
 # a harmless no-op; a genuine refusal there (a malformed steering file, or an
 # edit no `on` pattern accepts) is surfaced and stops the loop rather than being
-# driven past.
-#
-# Editing ON: route through the exact same gate logic the main loop uses below
-# (open the editor there first, THEN step) instead of blindly stepping human
-# and moving on. Editing OFF: unchanged from before this function existed —
-# step silently, refusal surfaced and halts, a clean/committed gate just falls
-# into the loop below. Either way, --once treats a captured commit here as the
-# run's one beat and exits (see handle_human_gate's own once-mode exit for the
-# editing-ON path); a clean/no-op gate captures nothing, so it isn't a beat —
-# it falls into the loop below exactly as it would without --once.
+# driven past. --once treats a captured commit here as the run's one beat and
+# exits; a clean/no-op gate captures nothing, so it isn't a beat — it falls
+# into the loop below exactly as it would without --once.
 if ! peek_json="$(run_gtd next --json 2>&1)"; then
   emit_error "could not determine the next step:
 $peek_json
@@ -568,33 +357,20 @@ Run \`gtd status\` to inspect the repo."
 fi
 peek_kind="$(jq -r .kind <<<"$peek_json")"
 if [[ "$peek_kind" == "message" ]]; then
-  if [[ "$edit_disabled" == 1 ]]; then
-    opening_head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
-    if ! step_out="$(run_gtd step human 2>&1)"; then
-      emit_error "could not capture your changes at the human gate:
+  opening_head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
+  if ! step_out="$(run_gtd step human 2>&1)"; then
+    emit_error "could not capture your changes at the human gate:
 $step_out
 Fix the reported issue and re-run gtd-loop."
-      emit_log_pointer
-      exit 1
-    fi
-    # This branch reports nothing today — advance the marker past whatever was
-    # just (silently) captured so the first loop-body beat below doesn't newly
-    # print it.
-    reported_head="$(git rev-parse HEAD 2>/dev/null || echo none)"
-    if [[ "$once_mode" == 1 && "$opening_head_before" != "$reported_head" ]]; then
-      exit 0
-    fi
-  else
-    handle_human_gate "$peek_json"
+    emit_log_pointer
+    exit 1
   fi
-elif [[ "$edit_forced" == 1 ]]; then
-  # Honesty caveat: a forced edit only means something at a human gate — the
-  # machine isn't resting at one right now, so say so instead of pretending,
-  # and just keep driving.
-  if [[ "$FANCY" == 1 ]]; then
-    printf '%sℹ️  --edit: not at a human gate yet — continuing to drive%s\n' "$C_DIM" "$C_RESET"
-  else
-    printf '%s--edit: not at a human gate yet — continuing to drive%s\n' "$C_DIM" "$C_RESET"
+  # This branch reports nothing — advance the marker past whatever was just
+  # (silently) captured so the first loop-body beat below doesn't newly
+  # print it.
+  reported_head="$(git rev-parse HEAD 2>/dev/null || echo none)"
+  if [[ "$once_mode" == 1 && "$opening_head_before" != "$reported_head" ]]; then
+    exit 0
   fi
 fi
 
@@ -613,16 +389,15 @@ while true; do
   model="$(jq -r '.model // empty' <<<"$next_json")"
   memory="$(jq -r '.memory // empty' <<<"$next_json")"
   label="$(jq -r '.label // .state' <<<"$next_json")"
-  GTD_LAST_LABEL="$label"
 
   if [[ "$kind" == "message" ]]; then
-    # handle_human_gate exits 0/non-zero itself on a halt/refusal; it only
-    # returns here when a new commit was captured, so we keep driving.
-    handle_human_gate "$next_json"
-    continue
+    # The non-autonomous halt: print the gate, hand off, exit 0. The human
+    # (or an outer wrapper) edits and re-launches; the opening move above
+    # captures what they left.
+    emit_gate "$state" "$label"
+    run_gtd next
+    exit 0
   fi
-
-  herdr_report working "$label"
 
   if [[ "$kind" == "script" ]]; then
     emit_action "$M_CHECK" "$label"
@@ -639,8 +414,6 @@ while true; do
     fi
     printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
     if ! report_commits; then
-      herdr_report idle "$label"
-      herdr_release
       emit_settled "$state"
       exit 0
     fi
@@ -656,8 +429,8 @@ while true; do
   # agent-owned state and content repeating, WITH NO COMMIT authored since the
   # last time we saw this beat, means the last dispatch made no progress; stop
   # rather than spin on it. The HEAD check is what distinguishes a genuine
-  # stall from a return lap through a human gate (e.g. plan-review ->
-  # planning): a static prompt looks identical to last time, but a commit
+  # stall from a return lap back into the same state (e.g. checking ->
+  # fixing): a static prompt looks identical to last time, but a commit
   # landed in between, so HEAD has moved and this isn't a stall.
   cur_head="$(git rev-parse HEAD 2>/dev/null || echo none)"
   if [[ "$state" == "$prev_state" && "$content" == "$prev_content" && "$cur_head" == "$prev_head" ]]; then
