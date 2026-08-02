@@ -58,6 +58,8 @@ export class GtdWorld extends QuickPickleWorld {
   leakedGtdLoopLog: string | undefined = undefined
   /** Explicit `$NO_COLOR` value a scenario wants exported (loop rendering scenarios, @live only). */
   noColorOverride: string | undefined = undefined
+  /** Explicit `$GTD_TESTCOMMAND` value a scenario wants exported — overrides the bundled template's `vars.testCommand` for a real `checking`/`fix-check` script run (`gtd-loop` @live scenarios only). */
+  gtdTestCommandOverride: string | undefined = undefined
 
   /** Environment variables the in-memory tier's `EnvVars` layer exposes (`it.vars`'s highest-precedence `GTD_<UPPERCASE-name>` layer) — never mutates the real `process.env`. Set by `Given an environment variable "..." set to "..."`. */
   envVars: Record<string, string> = {}

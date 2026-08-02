@@ -65,6 +65,7 @@ import {
   isReviewWindowState,
   matchesPattern,
   parsePattern,
+  parseStateSubject,
   reviewEntryStateOf,
   stateSubject,
   step,
@@ -495,6 +496,25 @@ const stepAsActor = (
     // human step while any open question is not answered (exactly one tick each)
     // — the advanced flow's adv-grilling-answer/architecting-answer gates.
     yield* enforceAnswerCompletenessGate(worktree.read, invoker, rest, context, decision.kind)
+    if (decision.kind === "commit") {
+      const target = parseStateSubject(decision.subject)?.state
+      if (
+        target === initialStateOf(rest.def) &&
+        context.retainedDiff.trim() === "" &&
+        run.startParentHash !== EMPTY_TREE
+      ) {
+        // A process that returns to its initial state having kept nothing (a
+        // green `gtd fix`: an empty entry commit + a green check that changed
+        // nothing) leaves no useful history — mixed-reset past its commits
+        // like `gtd abandon` rather than committing a `→ idle` turn, so a
+        // no-op probe never dirties the log. Pure engine is oblivious; this is
+        // an edge concern like the review window and the steering gate.
+        const tip = yield* git.resolveRef("HEAD")
+        yield* retainHistory(git, tip, run.startParentHash)
+        yield* git.mixedResetTo(run.startParentHash)
+        return { state: target, subject: null, cost: null, model: null }
+      }
+    }
     const outcome = yield* executeDecision(git, run, executable, context, cost, model)
     return {
       state: rest.state,

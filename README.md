@@ -90,8 +90,9 @@ handful of commands drive it:
   `<commitish>..HEAD` (e.g. a colleague's PR branch), reusing the workflow's
   existing review/feedback machinery over that diff.
 - **`gtd fix`** — start a brand new process that goes straight into repairing
-  the current failing tests, then runs the shared review/squash tail (a no-op if
-  the suite is already green).
+  the current failing tests, then runs the shared review/squash tail. If the
+  suite is already green there is nothing to fix, and the log is left untouched
+  — no commit is left behind.
 - **`gtd abandon`** — end the process underway without completing it: rewind to
   the commit it started from, keeping everything it produced as uncommitted
   changes (nothing is discarded).
@@ -166,7 +167,8 @@ squash keeps and describes only the fixes made _during_ the review (not the
 reviewed changeset); a clean sign-off with no fixes becomes an empty
 `chore: human review` commit. A fourth entry, `gtd fix`, starts from a clean
 `idle` and goes straight into repairing a red baseline — repair, review, and
-squash into one commit (a no-op if the suite is already green). See
+squash into one commit. If the suite is already green there is nothing to fix,
+and the log is left untouched — no commit is left behind. See
 [STATES.md](STATES.md#10-the-bundled-workflow-template) for the full shape. The
 workflow is just `.gtdrc` config — edit it or write your own (see
 [Configuration](docs/configuration.md)). Every agent state routes its model
