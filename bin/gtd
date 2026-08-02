@@ -8,7 +8,8 @@ set -euo pipefail
 #     flag-parsing block below) -> stripped here; `--no-edit` disables the
 #     loop's automatic editor launching for this run, `--edit` forces it on
 #     for this run (overriding an ambient `GTD_NO_EDIT`/`--no-edit` — the two
-#     are mutually exclusive), `--once` restricts the loop to exactly one beat
+#     are mutually exclusive: naming both together is a dedicated usage error,
+#     exit 2), `--once` restricts the loop to exactly one beat
 #     (one human gate, one script check+step, or one agent prompt+step) before
 #     exiting, and `--no-notify` (or `GTD_NO_NOTIFY`) suppresses the loop's
 #     Herdr desktop notifications for this run while leaving its silent Herdr
@@ -183,11 +184,14 @@ parse_subject() {
   fi
 }
 
-# report_commits <head_before> — walks <head_before>..HEAD in order, emitting
-# a transition/commit line per new commit; returns non-zero (having emitted
-# nothing) when there were no new commits.
+# report_commits — walks "$reported_head"..HEAD in order, emitting a
+# transition/commit line per new commit, and advances $reported_head to HEAD
+# when it reported at least one; returns non-zero (having emitted nothing,
+# and leaving $reported_head unchanged) when there were no new commits. Global
+# rather than per-beat so the review checkout window's HEAD rewinds between
+# beats never cause an already-reported commit to replay.
 report_commits() {
-  local head_before="$1" sha subject files reported=0
+  local sha subject files reported=0
   while IFS= read -r sha; do
     [[ -z "$sha" ]] && continue
     reported=1
@@ -198,7 +202,10 @@ report_commits() {
       transition) emit_transition "$S_FROM" "$S_TO" "$files" ;;
       capture | squash) emit_commit "$subject" "$files" ;;
     esac
-  done < <(git rev-list --reverse "$head_before"..HEAD)
+  done < <(git rev-list --reverse "$reported_head"..HEAD)
+  if [[ "$reported" == 1 ]]; then
+    reported_head="$(git rev-parse HEAD)"
+  fi
   [[ "$reported" == 1 ]]
 }
 
@@ -230,15 +237,17 @@ resolve_log_path() {
 # recognised in exactly two positions — bare (e.g. `gtd --edit --once`) or
 # immediately after `loop` (e.g. `gtd loop --once`) — in any order, each at
 # most once. `--edit` and `--no-edit` are mutually exclusive (forcing and
-# suppressing the editor in the same run is not a coherent request);
-# `--no-notify` conflicts with nothing (it's orthogonal to editing and to
-# `--once`). A recognised, valid combination is stripped here before anything
-# below looks at "$@", so the bundle's own unknown-option guard never sees it;
-# anything else (an unknown flag, a duplicate/conflicting one, or a flag mixed
-# with a real subcommand) is left untouched and falls through to the existing
-# dispatch below, which forwards a non-flag first argument to the bundle
-# (whose own unknown-option guard rejects it) or rejects a `loop` invocation
-# carrying an unrecognised extra argument.
+# suppressing the editor in the same run is not a coherent request): naming
+# both, with no other unrecognised token present, is rejected right here with
+# a dedicated usage error (exit 2) — it never reaches the bundle's own
+# unknown-option guard. `--no-notify` conflicts with nothing (it's orthogonal
+# to editing and to `--once`). A recognised, valid combination is stripped
+# here before anything below looks at "$@", so the bundle's own unknown-option
+# guard never sees it; anything else (an unknown flag, a duplicate flag, or a
+# flag mixed with a real subcommand) is left untouched and falls through to
+# the existing dispatch below, which forwards a non-flag first argument to the
+# bundle (whose own unknown-option guard rejects it) or rejects a `loop`
+# invocation carrying an unrecognised extra argument.
 edit_disabled=0
 edit_forced=0
 once_mode=0
@@ -255,6 +264,7 @@ else
 fi
 
 valid_combo=1
+saw_unknown=0
 n_no_edit=0
 n_edit=0
 n_once=0
@@ -265,10 +275,17 @@ for a in ${loop_flag_args[@]+"${loop_flag_args[@]}"}; do
   --edit | -e) n_edit=$((n_edit + 1)) ;;
   --once) n_once=$((n_once + 1)) ;;
   --no-notify) n_no_notify=$((n_no_notify + 1)) ;;
-  *) valid_combo=0 ;;
+  *) saw_unknown=1 ;;
   esac
 done
-if ((n_no_edit > 1 || n_edit > 1 || n_once > 1 || n_no_notify > 1 || (n_no_edit >= 1 && n_edit >= 1))); then
+# A pure loop-flag invocation (no unrecognised token) naming both --edit and
+# --no-edit gets a dedicated usage error here, rather than falling through to
+# the bundle's own unknown-option rejection below.
+if [[ "$saw_unknown" == 0 ]] && ((n_edit >= 1 && n_no_edit >= 1)); then
+  echo "gtd: --edit and --no-edit are mutually exclusive" >&2
+  exit 2
+fi
+if ((saw_unknown == 1 || n_no_edit > 1 || n_edit > 1 || n_once > 1 || n_no_notify > 1)); then
   valid_combo=0
 fi
 
@@ -455,7 +472,7 @@ Fix the reported issue and re-run gtd-loop."
   # A new commit was captured — render it, then return normally so the
   # caller keeps driving, unless --once says this one human gate is the whole
   # run.
-  report_commits "$head_before"
+  report_commits
   if [[ "$once_mode" == 1 ]]; then
     exit 0
   fi
@@ -468,6 +485,7 @@ trap 'code=$?; if [ "$code" -ne 0 ]; then
 
 prev_state=""
 prev_content=""
+prev_head=""
 # Where the last "prompt" turn's `memory` scope + session id are remembered
 # across iterations and across restarts. In the git dir, never the work tree.
 memory_marker="$(worktree_git_dir 2>/dev/null || echo .git)/gtd-loop-memory"
@@ -512,6 +530,12 @@ run_agent_turn() {
     >>"${GTD_LOOP_LOG:-/dev/null}" 2>&1
 }
 
+# The furthest commit already reported to the terminal by report_commits (see
+# its own comment) — a global high-water mark rather than a per-beat
+# head_before, so a review checkout window's HEAD rewind between beats never
+# causes an already-printed transition to replay.
+reported_head="$(git rev-parse HEAD 2>/dev/null || echo none)"
+
 # Opening move: capture the human's pending edit so gtd-loop is the ONLY command
 # a human runs. A human acts at a gate by editing files (a plan answer, a review
 # tick, a code fix) and re-launching the loop — they should never have to run
@@ -553,7 +577,11 @@ Fix the reported issue and re-run gtd-loop."
       emit_log_pointer
       exit 1
     fi
-    if [[ "$once_mode" == 1 && "$opening_head_before" != "$(git rev-parse HEAD 2>/dev/null || echo none)" ]]; then
+    # This branch reports nothing today — advance the marker past whatever was
+    # just (silently) captured so the first loop-body beat below doesn't newly
+    # print it.
+    reported_head="$(git rev-parse HEAD 2>/dev/null || echo none)"
+    if [[ "$once_mode" == 1 && "$opening_head_before" != "$reported_head" ]]; then
       exit 0
     fi
   else
@@ -598,7 +626,6 @@ while true; do
 
   if [[ "$kind" == "script" ]]; then
     emit_action "$M_CHECK" "$label"
-    head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
     # Execute the emitted wrapper verbatim; its exit code is deliberately
     # ignored (`|| true` under `set -e`) — the script encodes its outcome in
     # the tree, and `gtd step` captures whatever it left there via the state's
@@ -611,7 +638,7 @@ while true; do
       exit 1
     fi
     printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
-    if ! report_commits "$head_before"; then
+    if ! report_commits; then
       herdr_report idle "$label"
       herdr_release
       emit_settled "$state"
@@ -626,9 +653,14 @@ while true; do
   fi
 
   # kind == "prompt": stall detection (skills/loop/SKILL.md) — the same
-  # agent-owned state and content repeating means the last dispatch made no
-  # progress; stop rather than spin on it.
-  if [[ "$state" == "$prev_state" && "$content" == "$prev_content" ]]; then
+  # agent-owned state and content repeating, WITH NO COMMIT authored since the
+  # last time we saw this beat, means the last dispatch made no progress; stop
+  # rather than spin on it. The HEAD check is what distinguishes a genuine
+  # stall from a return lap through a human gate (e.g. plan-review ->
+  # planning): a static prompt looks identical to last time, but a commit
+  # landed in between, so HEAD has moved and this isn't a stall.
+  cur_head="$(git rev-parse HEAD 2>/dev/null || echo none)"
+  if [[ "$state" == "$prev_state" && "$content" == "$prev_content" && "$cur_head" == "$prev_head" ]]; then
     next_out="$(run_gtd next 2>&1)" || true
     emit_error "no progress at '$state' — the agent's last turn changed nothing. Stopping to avoid spinning.
 $next_out"
@@ -637,6 +669,7 @@ $next_out"
   fi
   prev_state="$state"
   prev_content="$content"
+  prev_head="$cur_head"
 
   # Agent-memory scope: compare this turn's `memory` label against the last
   # prompt turn's (persisted in $memory_marker). Same non-empty label AND a
@@ -673,7 +706,6 @@ $next_out"
   # driver-side equivalent, so the next rest is only ever handed a well-formed
   # file. gtd itself never validates at step time — this is the loop's job.
   emit_action "$M_AGENT" "$label"
-  head_before="$(git rev-parse HEAD 2>/dev/null || echo none)"
   run_agent_turn "$content" "$resume"
 
   fix_attempt=0
@@ -704,7 +736,7 @@ Stopping rather than stepping with a malformed steering file."
   # A no-op step (nothing matched a declared pattern on a clean tree) reports
   # zero commits here — report_commits returns non-zero, and that's fine: the
   # NEXT iteration's stall check is what catches unchanged state/content.
-  report_commits "$head_before" || true
+  report_commits || true
   if [[ "$once_mode" == 1 ]]; then
     exit 0
   fi
