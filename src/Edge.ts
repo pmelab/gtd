@@ -24,8 +24,7 @@ import {
 import { retainHistory, withHistoryTrailer } from "./RetainedHistory.js"
 
 /**
- * The v3 Effect edge (see `docs/design/pattern-machine-plan.md`, "Phase 3:
- * default workflow re-authoring + CLI"). Everything git/filesystem-shaped
+ * The v3 Effect edge. Everything git/filesystem-shaped
  * lives here — `program.ts` calls this module and never touches `GitService`
  * or `PatternMachine`'s pure functions directly.
  *

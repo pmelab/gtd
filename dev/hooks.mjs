@@ -2,7 +2,7 @@
 //   - resolve relative `./Foo.js` specifiers to the on-disk `./Foo.ts`
 //     (the build uses `allowImportingTsExtensions`; native Node does not)
 //   - import `*.yaml` files as their raw text default export, mirroring
-//     tsdown's `loader: { ".yaml": "text" }` (src/workflows/default.yaml)
+//     tsdown's `loader: { ".yaml": "text" }` (src/workflows/unified.yaml)
 // Node strips the TypeScript types natively; these hooks only fill the two
 // gaps tsdown would otherwise cover.
 import { existsSync } from "node:fs"

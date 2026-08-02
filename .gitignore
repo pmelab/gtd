@@ -1,4 +1,4 @@
-# dependencies (bun install)
+# dependencies
 node_modules
 .gtd-session
 dist
@@ -34,15 +34,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Finder (MacOS) folder config
 .DS_Store
 
-# test sandbox
-test
-test/
-
 .fallow/
 
 # stryker
 .stryker-tmp/
 stryker-incremental.json
-stryker-incremental.scenarios.json
-stryker-incremental.io-edge.json
 reports/

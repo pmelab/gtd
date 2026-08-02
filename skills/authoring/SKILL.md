@@ -19,9 +19,8 @@ state. There is no engine to trace through — **a workflow is data**, compiled
 from the `.gtdrc` `workflow:` key.
 
 Your job here is to produce or edit that data so it compiles cleanly and does
-what the user wants. This skill is the authoring contract;
-`skills/loop/SKILL.md` is the separate contract for _driving_ a workflow once it
-exists.
+what the user wants. Driving a workflow once it exists is a separate concern —
+that is what the `bin/gtd` loop driver does.
 
 ## Golden rule: start from the built-in default, edit incrementally
 
@@ -269,11 +268,12 @@ almost certainly a bug.
 The workflow definition is validated at **config load**, so any state command
 surfaces compile/validation errors — but two commands are best for authoring:
 
-1. **`gtd mermaid`** — emits the compiled workflow as a Mermaid state diagram
-   (nodes, initial marker, every `on` edge labeled with its pattern, actor/kind/
-   retry notes). It compiles the config first, so a broken definition prints the
-   error here. Eyeball the diagram to confirm the shape, edges, and reachability
-   match intent. Pipe it into a `.mmd`/`.md` file or a Mermaid renderer.
+1. **`gtd visualize --json`** — compiles the workflow and prints the resulting
+   model (every state with its actor/kind/retry details and every `on` edge with
+   its pattern and target), then exits. It compiles the config first, so a
+   broken definition prints the error here. Check the shape, edges, and
+   reachability against intent. Drop `--json` to serve the same model as an
+   interactive diagram in a browser instead.
 2. **`gtd status`** — resolves the current HEAD to a state and dry-runs the
    pattern report without mutating anything. Confirms the config loads and shows
    how the current tree would route.
@@ -320,8 +320,9 @@ states:
         describe: Edit the plan to send it back for another round.
 ```
 
-Then verify: `gtd mermaid` shows `plan-review → approve-plan → building`,
-`approve-plan` is reachable, and no state is orphaned.
+Then verify: `gtd visualize --json` shows
+`plan-review → approve-plan → building`, `approve-plan` is reachable, and no
+state is orphaned.
 
 ## Notes
 
@@ -329,5 +330,5 @@ Then verify: `gtd mermaid` shows `plan-review → approve-plan → building`,
   upgraded, re-copy it from the new version's `skills/authoring/SKILL.md` so the
   authoring contract stays in sync with the compiler it targets.
 - Where this file and the code disagree, the code wins: `src/PatternMachine.ts`
-  (engine + `validateDefinition`), `src/PatternConfig.ts` (compiler). Deeper
-  reference: `STATES.md` and `docs/configuration.md`.
+  (engine + `validateDefinition`), `src/PatternConfig.ts` (compiler),
+  `src/workflows/unified.yaml` (the bundled workflow, heavily commented).

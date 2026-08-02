@@ -32,8 +32,8 @@ export const INIT_VARS = {
  * Prettier before gtd validates them. Only `format:` is declared — gtd's
  * built-in `qa`/`review` validators still do the validating, and `prose` (a
  * format-only built-in — see `PatternMachine.isKnownBuiltInMode`) still
- * validates nothing (the two halves layer independently — see STATES.md §12 /
- * docs/configuration.md `modes:`). gtd ships no formatter, so this is the one
+ * validates nothing (the two halves layer independently — see
+ * `src/SteeringMode.ts`). gtd ships no formatter, so this is the one
  * place a default is suggested; a project edits or drops it freely (swap
  * Prettier for dprint, point at a script, delete the key).
  */

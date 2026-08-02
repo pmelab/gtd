@@ -13,52 +13,46 @@
 
 ## Architecture
 
-v3 ("the pattern machine" — see `docs/design/pattern-machine-plan.md`) deleted
-the entire v2 definition model (gates, guard functions, actor kinds,
-interrupt/fallback ladders, capture rules, turn/routing rules, counters,
-conflicts, the review checkout window). A workflow is now just named states —
-see [STATES.md](STATES.md) for the model. The sections below describe what
-replaced the old machinery; if you're looking for `TurnGate`, `captureRules`,
-`Gtd-Counters`, or `WorkflowConfig` guards, they no longer exist.
+Read the code for the architecture — every module carries a doc comment
+describing its own job. The two boundaries that are decisions rather than
+description, and must be preserved:
 
-The review checkout window is the one item on that deleted list that has since
-RETURNED — not as hardwired machinery but as a declarative state property
-(`reviewWindow: true`, plus an optional `reviewBase: true`), opened/closed
-entirely at the edge in `src/ReviewWindow.ts` and oblivious to the pure engine
-(see STATES.md §11).
+- **`src/PatternMachine.ts` is pure.** Definition types, the pattern grammar,
+  HEAD resolution, and the step decision. No git, no filesystem, no Effect —
+  every export is a plain function of its arguments. Keep it that way.
+- **Everything IO-shaped lives at the edge.** `src/Edge.ts` (git/templates),
+  `src/SteeringMode.ts` (mode commands), `src/ReviewWindow.ts` (the checkout
+  window). `src/program.ts` calls the edge; it never reaches into `GitService`
+  directly. The review window and the steering-file gate are deliberately
+  invisible to the pure engine — don't "simplify" them back into it.
 
-### Changing the Workflow
+A workflow is DATA, not code: there is no engine-side wiring to trace when a
+workflow's shape changes.
 
-There is no engine-side wiring left to trace through when a workflow's shape
-changes — a workflow (the bundled default or a custom one) is DATA, not code.
-gtd ships ONE bundled template, `unified.yaml`, as its BUILT-IN DEFAULT: a state
-command with no `workflow:` configured falls back to it (`Config.ts`'s
-`toOperations` returns `defaultWorkflowDefinition`/`defaultWorkflowVars` from
-`templates.ts`), so gtd works out of the box with no config. `gtd init` seeds
-only `vars.testCommand` + a `modes:` formatting suggestion, never the workflow.
-The unified template is a single machine with two file-keyed entry points
-(`.gtd/TODO.md` → the simple flow, `.gtd/REQUIREMENTS.md` → the advanced flow)
-converging on a shared review-and-squash tail. To change what it does, edit
-`src/workflows/unified.yaml` (states, `actor`, exactly one content kind, `on`
-edges, `retry`, `model`, `file`/`mode`, `reviewWindow`/`reviewBase`) —
-`src/workflows/templates.ts` compiles/renders it through the same
+### Changing the workflow
+
+gtd ships ONE bundled template, `src/workflows/unified.yaml`, as its BUILT-IN
+DEFAULT — a state command with no `workflow:` configured falls back to it, so
+gtd works out of the box with no config. `gtd init` seeds only
+`vars.testCommand` + a `modes:` formatting suggestion, never the workflow.
+
+To change what it does, edit `src/workflows/unified.yaml` (states, `actor`,
+exactly one content kind, `on` edges, `retry`, `model`, `file`/`mode`,
+`reviewWindow`/`reviewBase`). It compiles through the same
 `compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through, so it
-never needs its own logic. After editing the template, update:
+never needs its own logic. After editing, update:
 
-- **STATES.md §10** — the unified-template table and walkthrough
+- **`src/workflows/unified.flat.yaml`** — the frozen flat reference
+  `golden.test.ts` pins the template against; update both deliberately, never
+  weaken the test
 - **e2e feature files** that assert on the bundled template's shape (they set it
   up with the `Given the workflow` step —
   `tests/integration/features/default-workflow.feature` (simple flow),
   `unified-advanced-flow.feature` (advanced flow), `gtd-loop.feature`,
-  `driver-json-status.feature`, `smoke.feature`, `mermaid.feature`,
-  `validate.feature`, `init.feature`, `review-window.feature`,
-  `initial-state-entry.feature`, `templates-vars.feature`, `entry-gate.feature`
-  (the green-baseline gate on every entry), `fix-entry.feature` (`gtd fix`),
-  `review-entry.feature`)
-- **`skills/loop/SKILL.md`** only if the change affects the driver contract
-  itself (dispatch on `kind`, stall detection, the `gtd validate` gate after a
-  producing agent turn) — not a template's own states, which the skill never
-  names
+  `driver-json-status.feature`, `smoke.feature`, `validate.feature`,
+  `init.feature`, `review-window.feature`, `initial-state-entry.feature`,
+  `templates-vars.feature`, `entry-gate.feature` (the green-baseline gate on
+  every entry), `fix-entry.feature` (`gtd fix`), `review-entry.feature`)
 
 A genuinely new engine capability (a new content kind, a new `on` pattern
 grammar, a new state property) is a different, much rarer kind of change — that
@@ -71,189 +65,32 @@ workflow declares its own `modes:` entry (a `format:`/`validate:` shell command
 pair) — no gtd change at all. Only the two built-in VALIDATORS (`qa`/`review`)
 live in code, because `gtd lsp` needs their parsers in process; a third built-in
 name, `prose`, is recognized with no code of its own — a format-only mode (no
-validator) the simple flow's plan file uses (see
-`PatternMachine.isKnownBuiltInMode`). gtd ships no formatter at all (there is no
-`gtd format` subcommand and no bundled prettier — a project plugs its own into a
-mode's `format:`).
+validator) the simple flow's plan file uses. gtd ships no formatter at all
+(there is no `gtd format` subcommand and no bundled prettier — a project plugs
+its own into a mode's `format:`).
 
-### The Pattern-Machine Module Map
+### Variables
 
-- **`src/PatternMachine.ts`** — the pure engine. Definition types
-  (`WorkflowDefinition`, `StateDef`, `ContentKind`), the pattern grammar's
-  parser (`parsePattern`) and matcher (`matchesPattern`/`globToRegExp`), HEAD
-  resolution (`resolveState` — subject grammar + the closed-world actor check
-  - initial-state fallback), the step decision (`step` — refusals, no-op,
-    commit, squash, retry redirection via `applyRetry`), and
-    `validateDefinition`. No git, no filesystem, no Effect — every export is a
-    plain function of its arguments.
-- **`src/PatternConfig.ts`** — compiles the raw `.gtdrc` `workflow:` YAML value
-  into a `WorkflowDefinition` (`compileWorkflowConfig`): per-state field
-  compilers, `./`/`../` file-reference auto-inlining, the `vars:` compiler
-  (`compileVarsMap` — scalar coercion, object/array rejection; shared with
-  `Config.ts`'s top-level `vars:` key so both layers validate identically),
-  config-shape validation collected alongside `validateDefinition`'s findings.
-  File references resolve against **the declaring `.gtdrc`'s own directory**,
-  not the cwd: `Config.ts`'s `loadMerged` inlines each config level via the
-  exported `inlineWorkflowFileRefs` (keyed on `dirname(result.filepath)`) BEFORE
-  the cwd→home deep-merge collapses provenance, then compiles the merged result
-  with `compileWorkflowConfig(..., inlineFileRefs=false)` so already-inlined
-  content is never re-resolved. This is what lets a `.gtdrc` + its
-  `gtd-prompts/` sit in a parent dir while gtd runs from a child repo.
-- **`src/PatternTemplates.ts`** — Eta rendering (`renderStateTemplate`) over
-  `TemplateContext`. Pure-ISH: every impure value (hashes, diffs, the `read`
-  callback) is injected by the caller: this module never touches git or the
-  filesystem.
-- **`src/Edge.ts`** — the Effect edge: `resolveRest` (HEAD → state via
-  `(yield* ConfigService).load`'s `workflow` + `resolveState`),
-  `computeProcessRun` (walks first-parent history for the current process's
-  start/trace, stopping — EXCLUDING the boundary commit itself — at either a
-  non-workflow commit or a workflow commit entering the definition's OWN initial
-  state, e.g. the unified template's `gtd(human): idle`; the unified template
-  ends each cycle in a `squash` (`done`) whose commit carries the agent-authored
-  message — a NON-workflow subject — so that squash commit is the process
-  boundary keeping one cycle's `retry` counts/diffs from pooling into the next),
-  `buildTemplateContext`, `renderRest`, `executeDecision` (performs a `"commit"`
-  or `"squash"` `StepDecision` — the only place a turn is actually written or a
-  squash actually performed).
-- **`src/SteeringMode.ts`** — the steering-file MODE edge (see STATES.md §12):
-  `resolveSteeringMode` (a state's `mode:` → its two halves, each from the first
-  layer that declares it: the `modes:` map's `format:`/`validate:` commands,
-  then — for `validate` only — gtd's built-in `qa`/`review` parser; so declaring
-  just a `format:` for `qa` keeps gtd's validation),
-  `formatSteeringFile`/`validateSteeringFile`/`formatAndValidateSteeringFile`
-  (the format-then-validate pair `gtd validate` and the `gtd step` gate share).
-  A mode command is an Eta template over the state context plus `it.file`, run
-  through `bash -c` with its output captured; exit code 0/non-zero IS the
-  verdict. The pure engine carries `modes:` as inert data and only validates its
-  shape.
-- **`src/ReviewWindow.ts`** — the review checkout window edge (see STATES.md
-  §11): `openReviewWindow`/`closeReviewWindow` (the `git reset --mixed`
-  open/close bracketing every state subcommand, keyed on the resolved rest's
-  `reviewWindow: true` and on `refs/worktree/gtd/review-head` existence) and
-  `reviewBaseHash` (the `reviewBase`-state diff-base derivation). The window's
-  refs live in git's PER-WORKTREE `refs/worktree/*` namespace so linked
-  worktrees sharing one `.git` never clobber each other (issue #118); the
-  pre-7.2 SHARED `refs/gtd/*` pair is read-only legacy (`openWindowRefs`),
-  closed only when HEAD is contained in the saved head. Pure engine is
-  oblivious; `program.ts` calls it, it calls `GitService`/`Edge.ts`.
-- **`src/program.ts`** — CLI dispatch
-  (`init`/`step`/`review`/`fix`/`abandon`/`next`/`status`/`validate`; `lsp`,
-  `init`, and `visualize` dispatched BEFORE the config-reading path's
-  git/repo-root/review-window bracket — `lsp`/`init` need no config at all,
-  `visualize` reads the workflow but no git state). `runInitCommand` writes
-  `renderInitScaffold()` to `.gtdrc.json` (uncommitted) — a MINIMAL config
-  seeding `vars.testCommand` and a top-level `modes:` Prettier suggestion
-  (`MODES_SUGGESTION`), NO `workflow:` key (the machine is built in) — guarded
-  by `configPresentAt` (no clobber) + `assertInitLocation`. Unlike the state
-  commands, init derives no git state, so `assertInitLocation` permits a repo
-  root OR any directory OUTSIDE a repository (to seed a shared parent-dir config
-  a nested repo finds by walking up), refusing only a repository SUBDIRECTORY
-  (config below the root is never found by the upward walk); it returns `inRepo`
-  so init tailors its "commit before starting" guidance. Calls `Edge.ts` for
-  everything IO-shaped; calls `PatternMachine.ts`'s pure
-  `step`/`matchesPattern`/`parsePattern` directly where no IO is needed (e.g.
-  `gtd status`'s per-change pattern report). `runAbandonCommand` is the human
-  counterpart to a squash: it mixed-resets to `computeProcessRun`'s
-  `startParentHash` (the window already closed by the shared bracket), keeping
-  every dropped commit's content as pending changes — a no-op success at the
-  initial state.
-- **`src/Visualize.ts` (+ `src/visualize.html`)** — the `gtd visualize` viewer:
-  `buildVizModel` describes the active workflow as JSON (the flat compiled
-  states with their edges/details, PLUS the sub-machine grouping via
-  `Submachines.collectGroups` over `ConfigService`'s `rawWorkflow` — the only
-  place the grouping survives `compileWorkflowConfig`'s flattening);
-  `buildCurrentStateModel` describes where the active process rests right now (a
-  `ResolvedRest` + pending changes → state/actor/kind/group, each `on` edge
-  flagged with whether it currently matches, plus the retry redirect) for the
-  browser's one-shot "Current state" panel/highlight — never polled.
-  `handleVizRequest` routes `/` (the bundled `visualize.html` page, imported as
-  text) and `/workflow.json`; `startVizServer` runs the local HTTP server and,
-  given a `resolveCurrent` callback, an async `/state.json` route backing the
-  current-state panel (`{}` when the callback is absent or resolves `null`).
-  Pure functions of their inputs (no Effect/git); `program.ts`'s
-  `runVisualizeCommand` wires them into the runtime, supplying `resolveCurrent`
-  from `resolveRest`/`pendingChanges` (best-effort — any failure resolves to
-  `null`), preferring the review checkout window's saved head
-  (`REVIEW_HEAD_REF`) over HEAD since this command reads state before the
-  review-window bracket. In the browser, `visualize.html` collapses each
-  sub-machine invocation into a single opaque black-box node in the main flow
-  and renders a separate, real Mermaid diagram per sub-machine below it (true
-  shapes/colours for its own states, a muted ghost node for any edge leaving the
-  group) — replaces the deleted Mermaid emitter (see docs/upgrading.md).
-- **`src/workflows/unified.yaml` + `templates.ts`** — the single bundled
-  workflow template gtd runs as its BUILT-IN DEFAULT (`Config.ts` falls back to
-  it when no `workflow:` is configured), plus `templates.ts`:
-  `defaultWorkflowDefinition`/`defaultWorkflowVars` (the compiled default
-  `Config.ts` and the in-memory test layer fall back to); `renderInitScaffold`
-  (the minimal `vars`+`modes` `.gtdrc.json` write — seeding `MODES_SUGGESTION`,
-  no workflow); `renderInitConfig` (materializes the full default into a
-  `workflow:` config — the eject/customize starting point and the hermetic,
-  modes-free `Given the workflow` test fixture); and `compileTemplate`
-  (tests/mermaid). All compiled through the exact same `compileWorkflowConfig`
-  path, no privileged code path. Every content string in the template MUST be
-  inline (no `./`-relative file references): it ships inside the single-file
-  `dist/gtd.bundle.mjs` build, so it can't reach out to sibling files on disk at
-  runtime.
+The engine blesses NO variable NAMES. `testCommand` is the bundled template's
+own `vars:` entry, workflow-authored data like any other `it.vars` key — not a
+name gtd interprets. Don't add a blessed config key for one.
 
-### The Configurable Machine (`workflow:` and `vars:` in .gtdrc)
-
-`src/Config.ts`'s `ConfigService` reads `.gtdrc` (cosmiconfig, deep-merged
-cwd→home), decodes it against `src/ConfigSchema.ts` (two keys: `workflow` and
-`vars`, both `Schema.Unknown` — the shape is validated structurally by the
-compiler, not by `effect/schema`), and compiles the `workflow:` value through
-`compileWorkflowConfig`. An absent `workflow:` falls back to the BUILT-IN
-DEFAULT (`defaultWorkflowDefinition`/`defaultWorkflowVars` from `templates.ts`,
-with the top-level `modes:` merged over via `mergeModes`) — never an error. The
-load is exposed as a DEFERRED effect — `ConfigService` provides
-`{ load: Effect<ConfigOperations> }`, not the ops directly — because the layer
-is provided to the whole program and built eagerly (`main.ts`), so if it
-loaded/failed at build time a CUSTOM-workflow validation error would break
-`gtd init`/`gtd lsp` too; consumers do `yield* (yield* ConfigService).load`
-(Edge/program/ReviewWindow/Lsp). The top-level `vars:` value compiles through
-the same `compileVarsMap` (see `Config.ts`'s `compileRcVars`). There is no
-module-global registry (no v2-style `activeWorkflow()`/`setActiveWorkflow`):
-`ConfigOperations { workflow, workflowVars, rcVars }` flows through the
-`ConfigService` Context tag like any other Effect dependency, read fresh each
-invocation — nothing to reset between tests. `src/Edge.ts`'s `resolveVars`
-merges `workflowVars`/`rcVars` with a third layer — for each declared var name,
-a `GTD_<UPPERCASE-name>` entry of an injected `EnvVars` Context tag (mirroring
-`Cwd`/`WorktreeReader`, never `process.env` read directly), if defined — into
-the flat `Record<string, string>` every template sees as `it.vars`. The engine
-still blesses NO variable NAMES: `testCommand` (the bundled templates' own
-`vars:` entry, read by `checking`'s script) is workflow-authored data like any
-other `it.vars` key, not a name gtd itself interprets.
-
-The commit grammar's closed actor set still DERIVES from the active definition
-(`declaredActors` in `src/PatternMachine.ts`), so custom actor names parse
-exactly like built-in ones — same backward-compatibility mechanism as before,
-generalized: any subject naming a state or actor outside the active workflow's
-declared sets is inert and resolves to the initial state (see `resolveState`,
-STATES.md §5). This is also the whole v1/v2/v3 upgrade story — nothing extra
-needed to keep old history inert.
-
-### The Scripted Check Actor (No In-Process Execution)
+### Scripted checks (no in-process execution)
 
 Checks are just an ordinary actor's turns at a `script`-content state (the
-bundled templates' `checking` state, awaited by the `check` actor) — the engine
-NEVER executes anything itself. The command lives INLINE in that state's own
-`script:` content (no BLESSED `testCommand` config key — see `docs/upgrading.md`
-— though the templates' script does read its own `vars.testCommand`,
-workflow-authored data like any other `it.vars` entry, not a name the engine
-special-cases). `gtd next` renders and prints the script; the DRIVER (`bin/gtd`,
-or any loop harness) executes that rendered `content` verbatim via `bash` — gtd
-itself never runs a workflow script (the only place gtd spawns a subprocess at
-all is a steering-file mode's own `format:`/`validate:` command, see
-`src/SteeringMode.ts`). The driver then runs `gtd step <actor>` for that state's
-own actor to capture the outcome from whatever the script left in the tree (e.g.
-an `on` pattern matching `A .gtd/FEEDBACK.md` vs `C`). Mechanics belong in the
-script; which `on` pattern the resulting diff matches is the only thing that
-decides the outcome — there is no separate capture-rule layer to keep in sync.
-In e2e, simulate a check's outcome by writing the output file (e.g.
-`Given a file "FEEDBACK.md" with:`) and running `gtd step check` — `@inmem`
-scenarios never execute scripts; only `@live` scenarios (the `bin/gtd` driver in
-`gtd-loop.feature`) actually run them.
+bundled template's `checking` state, awaited by the `check` actor) — **the
+engine NEVER executes anything itself**. `gtd next` renders and prints the
+script; the DRIVER (`bin/gtd`, or any loop harness) executes it verbatim via
+`bash`. The only place gtd spawns a subprocess at all is a steering-file mode's
+own `format:`/`validate:` command.
 
-## CLI Design
+Mechanics belong in the script; which `on` pattern the resulting diff matches is
+the only thing that decides the outcome. In e2e, simulate a check's outcome by
+writing the output file (e.g. `Given a file "FEEDBACK.md" with:`) and running
+`gtd step check` — `@inmem` scenarios never execute scripts; only `@live`
+scenarios actually run them.
+
+## CLI design
 
 - Keep CLI flags orthogonal: each flag controls exactly one concern and no flag
   implies another, so users can combine them freely
@@ -265,7 +102,7 @@ scenarios never execute scripts; only `@live` scenarios (the `bin/gtd` driver in
   output-mode flag) without wiring it to a real, tested concern; the flags must
   never exist only in the help text
 
-## Step Capture
+## Step capture
 
 - Capture is pattern-driven, not rule-driven: `PatternMachine.step` matches the
   awaited state's `on` patterns against the pending diff (first match wins) and
@@ -286,13 +123,8 @@ scenarios never execute scripts; only `@live` scenarios (the `bin/gtd` driver in
   map
 - **Steering-file gate (edge, not engine):** capturing a commit out of a state
   that declares `file:`+`mode:` first formats that file in place and validates
-  it per its `mode:` (`gtd validate`'s shared logic — `enforceSteeringGate` in
-  `src/program.ts` over `src/SteeringMode.ts`), and REFUSES the step when it is
-  invalid, so a malformed steering file is never committed (an agent's draft or
-  a human's gate edit alike). Formatting only happens if some `modes:` layer
-  declared a `format:` command (gtd ships none); validation is that mode's
-  `validate:` command, or gtd's built-in `qa`/`review` parser — same gate either
-  way. It is a no-op when the file is absent (a deletion) or the state declares
-  no `file:`/`mode:`, and a squash skips it. The pure engine
-  (`PatternMachine.step`) never sees this — like the review window, it lives at
-  the edge. See STATES.md §12
+  it per its `mode:` (`enforceSteeringGate` in `src/program.ts` over
+  `src/SteeringMode.ts`), and REFUSES the step when it is invalid, so a
+  malformed steering file is never committed (an agent's draft or a human's gate
+  edit alike). It is a no-op when the file is absent (a deletion) or the state
+  declares no `file:`/`mode:`, and a squash skips it

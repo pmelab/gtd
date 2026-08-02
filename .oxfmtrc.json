@@ -5,14 +5,7 @@
   "trailingComma": "all",
   "printWidth": 100,
   "sortPackageJson": false,
-  "ignorePatterns": [
-    "src/prompts/**/*.md",
-    ".stryker-tmp/",
-    "stryker-incremental.json",
-    "stryker-incremental.scenarios.json",
-    "stryker-incremental.io-edge.json",
-    "reports/"
-  ],
+  "ignorePatterns": [".stryker-tmp/", "stryker-incremental.json", "reports/"],
   "overrides": [
     {
       "files": ["*.md"],

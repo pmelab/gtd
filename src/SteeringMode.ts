@@ -14,8 +14,7 @@ import { renderModeCommand, type TemplateContext } from "./PatternTemplates.js"
 
 /**
  * The steering-file MODE edge: resolving a state's `mode:` to a format/validate
- * pair and performing it (see STATES.md §12 and
- * `docs/design/pluggable-steering-modes.md`).
+ * pair and performing it.
  *
  * A mode is a pair of operations over ONE file:
  *

@@ -1,8 +1,7 @@
 import { Eta } from "eta"
 
 /**
- * The v3 template layer (see `docs/design/pattern-machine-plan.md`, decision
- * 8 and "Phase 2: Config + templates"). Renders a state's content string
+ * The v3 template layer. Renders a state's content string
  * (`script`/`prompt`/`message`/`commit`, already auto-inlined by
  * `./PatternConfig.js`) as an Eta template over the agreed variable set.
  *
