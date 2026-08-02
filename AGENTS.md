@@ -90,6 +90,21 @@ writing the output file (e.g. `Given a file "FEEDBACK.md" with:`) and running
 `gtd step check` — `@inmem` scenarios never execute scripts; only `@live`
 scenarios actually run them.
 
+### The Claude Code plugin (`plugins/gtd/`)
+
+`plugins/gtd/` is a Claude Code plugin driving the exact same pinned loop
+protocol as `bin/gtd` (see README "Driving the loop"), just from inside a Claude
+Code session instead of a standalone process — skills carry the protocol on
+CLI/desktop/web alike, hooks add CLI/desktop-only hardening (see
+`plugins/gtd/README.md`). It shares no code with gtd core — no engine change
+flows into it automatically. It depends on three surfaces staying stable, so a
+change to any of them must update the plugin (and
+`tests/integration/features/claude-plugin.feature`) too: (a)
+`gtd next --json`/`gtd status --json`'s field shapes (`state`, `actor`, `kind`,
+`content`, `changes`, ...), (b) the built-in `qa`/`review` steering-file formats
+the gate skill parses and transcribes into, and (c) the armed-marker filename
+`gtd-claude-loop` inside the git dir.
+
 ## CLI design
 
 - Keep CLI flags orthogonal: each flag controls exactly one concern and no flag

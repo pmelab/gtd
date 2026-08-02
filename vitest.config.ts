@@ -10,7 +10,7 @@ export default defineConfig({
         plugins: [rawMd()],
         test: {
           name: "unit",
-          include: ["src/**/*.test.ts"],
+          include: ["src/**/*.test.ts", "tests/*.test.ts"],
           exclude: ["**/*.integration.test.ts"],
           testTimeout: 30_000,
           hookTimeout: 30_000,
@@ -26,6 +26,7 @@ export default defineConfig({
           setupFiles: [
             "./tests/integration/support/world.ts",
             "./tests/integration/support/hooks.ts",
+            "./tests/integration/support/steps/claude-plugin.steps.ts",
             "./tests/integration/support/steps/common.steps.ts",
             "./tests/integration/support/steps/config.steps.ts",
             "./tests/integration/support/steps/formatting.steps.ts",

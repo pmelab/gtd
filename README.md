@@ -276,6 +276,14 @@ name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
 per-beat progress lines; an outer wrapper (a terminal multiplexer, a notifier)
 can use it the same way.
 
+Prefer driving the loop from inside a Claude Code session instead of a terminal?
+The repo ships an install-and-forget [Claude Code plugin](plugins/gtd/README.md)
+implementing this same pinned protocol as skills (CLI, desktop, and Claude Code
+web alike), with human gates rendered as native conversation, push notifications
+at gates, and optional hook-based hardening. Never run it and bare `gtd` against
+the same repository at the same time — each expects to be the only driver
+stepping the machine.
+
 ## Configuration
 
 gtd reads an optional `.gtdrc` config file via
