@@ -413,8 +413,9 @@ start gate:
 A third entry, `gtd review <commitish>`, enters `review-start-check`
 (`reviewEntry: true`) and, once green, `reviewing`. A fourth, `gtd fix`, enters
 `fix-check` (`fixEntry: true`): a red suite drops straight into the shared
-`fixing` loop and out through the review + squash tail; a green suite is a no-op
-back to `idle` (nothing to fix).
+`fixing` loop and out through the review + squash tail; a green suite leaves the
+log untouched — nothing to fix, so the empty `gtd(human): fix-check` entry
+commit is collapsed away rather than left as a permanent no-op probe (§11).
 
 The four entries converge at `reviewing` → `await-review`. Ticking a `- [ ]` box
 means only "I reviewed this hunk"; a **comment** — not an unticked box — is what
@@ -561,8 +562,15 @@ instructions are best-effort, not the guarantee). A red run leaves
 (`* **` catches any sweep the script performed, and a bare `C` covers a
 sweep-free green run) — because the only red signal at this state is
 `.gtd/FEEDBACK.md`, so any other pending change is by construction the script's
-own cleanup. `fixing`'s `retry: { max: 3, otherwise: escalate }` redirects the
-fourth consecutive entry to the `escalate` human gate.
+own cleanup. A red run also STAMPS `.gtd/FEEDBACK.md` with an HTML comment
+carrying the current (pre-check) HEAD short hash: HEAD always advances between
+two checks (a `fixing`/`escalate` commit sits between them), so a still-red
+re-run whose test output is otherwise byte-identical to the last committed
+`.gtd/FEEDBACK.md` still registers as an `M` — without the stamp, git would see
+no diff at all (content, not exit code, is what `git diff` sees) and the clean
+tree would false-green into `reviewing`. `fixing`'s
+`retry: { max: 3, otherwise: escalate }` redirects the fourth consecutive entry
+to the `escalate` human gate.
 
 **Review — REVIEW.md checkboxes.** `reviewing` (agent, `plannerModel`) writes
 `.gtd/REVIEW.md` grouping the diff into reviewable chunks in the exact
@@ -723,10 +731,12 @@ ordinary process start). `fix-check` runs the suite: a **red** run leaves
 `.gtd/FEEDBACK.md` and drops straight into the shared `fixing` loop (→
 `checking` → the review + squash tail), so a broken baseline is repaired,
 reviewed, and squashed into one commit; a **green** run
-(`C`/`D .gtd/FEEDBACK.md`) is a no-op back to `idle` — there was nothing to fix.
-This is the standalone counterpart to the entry gates: the gates REFUSE to start
-new work on a red baseline, and `gtd fix` is the dedicated way to get back to
-green.
+(`C`/`D .gtd/FEEDBACK.md`) leaves the log untouched — there was nothing to fix,
+so the empty entry commit (and the no-op check that follows it) is collapsed
+away at the edge exactly like `gtd abandon`, rather than left as a permanent
+`gtd(check): fix-check → idle` bookkeeping commit (§11). This is the standalone
+counterpart to the entry gates: the gates REFUSE to start new work on a red
+baseline, and `gtd fix` is the dedicated way to get back to green.
 
 **Models and memory.** Every agent state draws its `model` from one of two
 `vars` tiers (`plannerModel` default `smart` for planning/architecting/review
@@ -864,6 +874,20 @@ so `computeProcessRun` reads it back unchanged.
 `.gtd/` workflow plumbing (the review doc, plan/feedback files) is pinned back
 to the real head's index while the window is open, so the editor's unstaged view
 shows only the actual code changes.
+
+**Collapsing a no-op return to the initial state.** A related edge behavior, not
+the review window itself but the same "engine oblivious, edge decides" shape:
+when a `gtd step` commit would return the machine to the workflow's initial
+state while the process retains no changes at all (`it.retainedDiff` empty), gtd
+mixed-resets past every commit that process made — exactly like `gtd abandon` —
+instead of writing that commit. The bundled template's only affected edge is
+`fix-check`'s green outcome (§10): a green `gtd fix` writes an empty
+`gtd(human): fix-check` entry commit and then finds nothing to fix, so without
+this collapse it would leave two permanent no-op commits
+(`gtd(human): fix-check` + `gtd(check): fix-check → idle`) behind on every
+probe. The pure engine still decides the target state and produces an ordinary
+`"commit"` decision; only whether that commit is actually WRITTEN is an edge
+concern.
 
 ## 12. Steering-file modes (`gtd validate`)
 

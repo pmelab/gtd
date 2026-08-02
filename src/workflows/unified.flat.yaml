@@ -169,6 +169,12 @@ states:
           rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
+        # A repeat identical failure would otherwise leave FEEDBACK.md
+        # byte-identical to its committed copy — no diff, so the check would
+        # look GREEN. Stamp each red run with the current HEAD (which always
+        # advances between checks) so a still-red re-run always re-registers
+        # as an M/A edit and takes the red edge.
+        printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> "$feedback"
       else
         rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"
@@ -313,6 +319,12 @@ states:
           rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
+        # A repeat identical failure would otherwise leave FEEDBACK.md
+        # byte-identical to its committed copy — no diff, so the check would
+        # look GREEN. Stamp each red run with the current HEAD (which always
+        # advances between checks) so a still-red re-run always re-registers
+        # as an M/A edit and takes the red edge.
+        printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> "$feedback"
       else
         rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"
@@ -638,6 +650,12 @@ states:
           rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
+        # A repeat identical failure would otherwise leave FEEDBACK.md
+        # byte-identical to its committed copy — no diff, so the check would
+        # look GREEN. Stamp each red run with the current HEAD (which always
+        # advances between checks) so a still-red re-run always re-registers
+        # as an M/A edit and takes the red edge.
+        printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> "$feedback"
       else
         rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"
@@ -815,6 +833,12 @@ states:
           rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
+        # A repeat identical failure would otherwise leave FEEDBACK.md
+        # byte-identical to its committed copy — no diff, so the check would
+        # look GREEN. Stamp each red run with the current HEAD (which always
+        # advances between checks) so a still-red re-run always re-registers
+        # as an M/A edit and takes the red edge.
+        printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> "$feedback"
       else
         rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"
@@ -900,6 +924,12 @@ states:
           rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
+        # A repeat identical failure would otherwise leave FEEDBACK.md
+        # byte-identical to its committed copy — no diff, so the check would
+        # look GREEN. Stamp each red run with the current HEAD (which always
+        # advances between checks) so a still-red re-run always re-registers
+        # as an M/A edit and takes the red edge.
+        printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> "$feedback"
       else
         rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"
@@ -958,6 +988,12 @@ states:
           rm -f <%~ it.vars.stateDir %>/.check-output
           printf 'the test command failed with exit code %s and produced no output.' "$code" > "$feedback"
         fi
+        # A repeat identical failure would otherwise leave FEEDBACK.md
+        # byte-identical to its committed copy — no diff, so the check would
+        # look GREEN. Stamp each red run with the current HEAD (which always
+        # advances between checks) so a still-red re-run always re-registers
+        # as an M/A edit and takes the red edge.
+        printf '\n<!-- gtd check %s -->\n' "$(git rev-parse --short HEAD 2>/dev/null || echo pending)" >> "$feedback"
       else
         rm -f <%~ it.vars.stateDir %>/.check-output
         rm -f "$feedback"

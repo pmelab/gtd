@@ -1689,3 +1689,44 @@ Feature: gtd loop — the packaged reference loop driver (v3)
       pane report-agent test-pane --source herdr:gtd --agent gtd --state working --message reviewing
       """
     And the git log contains "chore: build reviewed"
+
+  Scenario: A still-red suite whose output repeats identically across checks never false-greens into review
+    # Drives the REAL bundled unified template (not a custom .gtdrc) through
+    # `gtd fix`: a suite that always fails with byte-identical output must
+    # never be mistaken for green just because a re-run produces no diff.
+    Given a test project
+    And the workflow
+    And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"the failing test output"*)
+          echo x >> scratch.txt
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run "fix" via gtd
+    Then it succeeds
+    When I run bare gtd
+    Then it succeeds
+    And stdout contains "[you]  Escalating to a human"
+    And the git log does not contain "checking → reviewing"
+
+  Scenario: gtd fix on a green baseline leaves the log untouched
+    # A green suite is nothing to fix: the empty `gtd(human): fix-check` entry
+    # commit and the no-op check are collapsed away rather than left as
+    # permanent bookkeeping commits.
+    Given a test project
+    And the workflow
+    And GTD_TESTCOMMAND is set to "true"
+    And I record the commit count
+    When I run "fix" via gtd
+    Then it succeeds
+    When I run bare gtd
+    Then it succeeds
+    And the commit count is unchanged
+    And stdout contains "[done] settled — nothing left to do"

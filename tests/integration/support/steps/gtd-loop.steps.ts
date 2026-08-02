@@ -103,6 +103,7 @@ function gtdLoopEnv(world: GtdWorld): NodeJS.ProcessEnv {
     GTD_LOOP_LOG: world.gtdLoopLogOverride,
     GIT_DIR: world.gitDirOverride,
     NO_COLOR: world.noColorOverride,
+    GTD_TESTCOMMAND: world.gtdTestCommandOverride,
   }
   for (const [key, value] of Object.entries(overrides)) {
     if (value !== undefined) env[key] = value
@@ -166,6 +167,15 @@ Given("GIT_DIR points at a separate git dir", (world: GtdWorld) => {
 // NO_COLOR convention (https://no-color.org) alongside the piped-stdout case.
 Given("NO_COLOR is set to {string}", (world: GtdWorld, value: string) => {
   world.noColorOverride = value
+})
+
+// Sets $GTD_TESTCOMMAND explicitly — the bundled template's `checking`/
+// `fix-check` script reads `it.vars.testCommand`, whose highest-precedence
+// layer is this env var (see src/Edge.ts's `resolveVars`), so this reroutes
+// the real check script at a controlled, deterministic suite instead of the
+// default "npm test".
+Given("GTD_TESTCOMMAND is set to {string}", (world: GtdWorld, value: string) => {
+  world.gtdTestCommandOverride = value
 })
 
 function toFailedResult(err: unknown): { exitCode: number; stdout: string; stderr: string } {

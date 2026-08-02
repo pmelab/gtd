@@ -21,13 +21,18 @@ Feature: gtd fix — start a process that goes straight into repairing failing t
     And the last commit subject is "gtd(human): fix-check"
 
   Scenario: a green suite is a no-op back to idle — nothing to fix
+    Given I record the commit count
     When I run gtd with args "fix"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-check"
-    # A clean tree at the gate = tests pass = nothing to fix -> idle.
+    # A clean tree at the gate = tests pass = nothing to fix -> idle. The
+    # empty entry commit and the no-op check are collapsed away entirely — a
+    # no-op probe must never dirty the log.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): fix-check → idle"
+    And the commit count is unchanged
+    And the git status is clean
+    And the git log does not contain "gtd("
 
   Scenario: a red suite drops into the shared fixing loop and out through checking to reviewing
     When I run gtd with args "fix"
