@@ -12,5 +12,6 @@
   "homepage": "https://github.com/pmelab/gtd",
   "repository": "https://github.com/pmelab/gtd",
   "license": "MIT",
-  "keywords": ["workflow", "automation", "git"]
+  "keywords": ["workflow", "automation", "git"],
+  "hooks": "./hooks/hooks.json"
 }
