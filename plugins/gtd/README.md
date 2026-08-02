@@ -27,7 +27,10 @@ The plugin is two layers, and they don't overlap:
   denying an agent-authored `git commit` while the loop is armed, injecting
   ambient `gtd status` context, firing a desktop notification at a gate. None of
   it is load-bearing for the protocol itself; remove the hooks and the skills
-  still drive the loop correctly, just without the extra guardrails.
+  still drive the loop correctly, just without the extra guardrails. To get the
+  guardrails on web anyway, `/gtd:setup` can vendor the hook scripts into the
+  project's own `.claude/hooks/gtd/` + `.claude/settings.json` — project hooks,
+  unlike plugin hooks, do run in web sessions once committed.
 
 ## What ships
 
@@ -35,7 +38,7 @@ The plugin is two layers, and they don't overlap:
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/gtd:go`               | The driver skill — runs the gtd loop (dispatching on `gtd next --json`'s `kind`) until it settles or hits a human gate.                                                                                                                              |
 | `/gtd:gate`             | The human-gate skill — renders the current steering file as a conversation (AskUserQuestion), writes the answer back into the file, then resumes the loop.                                                                                           |
-| `/gtd:setup`            | A manual, opt-in helper that offers to install the status line and permission allowlist entries needed to run the loop unattended.                                                                                                                   |
+| `/gtd:setup`            | A manual, opt-in helper that offers to install the status line, the permission allowlist entries needed to run the loop unattended, and project-vendored hooks so the hardening layer also runs on Claude Code web.                                  |
 | `gtd-worker` subagent   | Executes one `"prompt"` beat per the driver skill's memory contract, so long-running agent turns don't pollute the driving session's own context.                                                                                                    |
 | Hooks                   | `Stop` enforcement (block on invalid steering file or an unfinished armed loop), `SessionStart` context injection (`gtd status`), a `PreToolUse` commit guard (deny `git commit`/`rebase`/`reset` while armed), and desktop notifications at a gate. |
 | `scripts/statusline.sh` | Renders the resolved state (e.g. `gtd: building ⇦ agent (2 pending)`) as a Claude Code status line.                                                                                                                                                  |

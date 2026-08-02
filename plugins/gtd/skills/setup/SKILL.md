@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Setting up the gtd plugin
 
 This skill is manual-only (`/gtd:setup`) — it never triggers on its own from a
-conversation. It makes three independent offers. Confirm each one with the user,
+conversation. It makes four independent offers. Confirm each one with the user,
 separately, before writing anything; a "yes" to one is not a "yes" to the
 others.
 
@@ -95,10 +95,90 @@ prompt on every single invocation.
 - List exactly the entries you're about to add and get an explicit yes before
   writing. Don't add anything already present in `permissions.allow`.
 
-## Doing all three
+## 4. Web-session hooks (project settings)
+
+The plugin's own hooks (`Stop` enforcement, the `PreToolUse` commit guard,
+`SessionStart` context) run on CLI/desktop only — a plugin's hooks never execute
+on Claude Code web. Hooks checked into the PROJECT (`.claude/ settings.json`
+plus scripts in the repository) DO run in web sessions. So offer to vendor the
+plugin's hardening layer into the project, for users who drive gtd from Claude
+Code web:
+
+- Copy the plugin's hook scripts —
+  `${CLAUDE_PLUGIN_ROOT}/hooks/scripts/{lib.sh,session-start.sh,stop-gate.sh,pre-tool-guard.sh,notify.sh}`
+  — into `.claude/hooks/gtd/` at the repository root, preserving their
+  executable bits. The scripts resolve everything (the gtd binary, the repo
+  root, the armed marker) from the hook payload's own `cwd` at runtime, so they
+  run from a project copy unchanged.
+- Read-merge-write `.claude/settings.json` (missing file treated as `{}`, every
+  existing key — and every existing hook entry — preserved), appending to
+  `hooks`:
+
+  ```json
+  {
+    "hooks": {
+      "SessionStart": [
+        {
+          "matcher": "startup|resume",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/gtd/session-start.sh",
+              "timeout": 20
+            }
+          ]
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/gtd/stop-gate.sh",
+              "timeout": 120
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/gtd/pre-tool-guard.sh",
+              "timeout": 15
+            }
+          ]
+        }
+      ]
+    }
+  }
+  ```
+
+  `$CLAUDE_PROJECT_DIR` (not an absolute path) is what makes this portable into
+  a web container's fresh clone. Skip any entry whose command already points at
+  the same script.
+
+- Remind the user to COMMIT both `.claude/hooks/gtd/` and
+  `.claude/settings.json` — a web session starts from a fresh clone, so only
+  checked-in hooks exist there.
+
+Two caveats to state when offering this:
+
+- **On CLI/desktop both registrations fire** — the plugin's own hooks AND the
+  project copies. That is safe by design: the guards are idempotent (a second
+  identical deny/block is the same decision, and the Stop hook's marker
+  self-heal makes the second invocation at a gate silent); the only cosmetic
+  effect is `SessionStart` context appearing twice.
+- **The copies do not auto-update with the plugin.** After a plugin update,
+  re-run `/gtd:setup` — when the vendored copies differ from the plugin's
+  current scripts, offer to refresh them (show a diff summary first).
+
+## Doing all four
 
 If the user asks for "everything" or "just set it up", still walk through the
-three offers in order, one confirmation each — the point of separating them is
-that a user may want the statusline but not the wider permission grant, or vice
-versa, and install-check is worth surfacing even when they decline both of the
-others.
+four offers in order, one confirmation each — the point of separating them is
+that a user may want the statusline but not the wider permission grant or the
+vendored hooks, or vice versa, and install-check is worth surfacing even when
+they decline all of the others.

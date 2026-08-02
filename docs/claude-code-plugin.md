@@ -50,6 +50,13 @@ The plugin is two layers, and they don't overlap:
   skills fully able to drive the loop correctly on their own — just without the
   extra guardrails. None of them ever call `gtd step`.
 
+Want the guardrails on web too? Hooks checked into the **project** (scripts in
+the repository plus `.claude/settings.json` entries) do run in web sessions,
+unlike a plugin's own hooks — `/gtd:setup`'s fourth offer vendors the plugin's
+hook scripts into `.claude/hooks/gtd/` and registers them project-relatively
+(`$CLAUDE_PROJECT_DIR/...`), so a committed copy hardens every session,
+including a web container's fresh clone. See "The setup skill" below.
+
 ## A full cycle, walked through
 
 1. **Arm.** You ask Claude to run gtd (or invoke `/gtd:go` directly). The `go`
@@ -91,14 +98,25 @@ The plugin is two layers, and they don't overlap:
 
 ## The setup skill
 
-`/gtd:setup` is manual-only — it never triggers on its own — and makes three
+`/gtd:setup` is manual-only — it never triggers on its own — and makes four
 independent, individually-confirmed offers: verify gtd is actually installed and
 the repo is gtd-active; install `scripts/statusline.sh` as the project's Claude
-Code status line (`.claude/settings.json`'s `statusLine`, read-merge- written so
-nothing else in that file is touched); and add a permission allowlist
+Code status line (`.claude/settings.json`'s `statusLine`, read-merge-written so
+nothing else in that file is touched); add a permission allowlist
 (`gtd next/step/status/validate`, plus the project's own `vars.testCommand` if
 one is configured) so the loop's autonomous beats don't prompt for approval on
-every single invocation. Each offer asks before writing anything.
+every single invocation; and vendor the hook scripts into the project
+(`.claude/hooks/gtd/` + `$CLAUDE_PROJECT_DIR`-relative `hooks` entries in
+`.claude/settings.json`) so the hardening layer also runs in web sessions, where
+plugin hooks don't. Each offer asks before writing anything.
+
+Two things to know about the vendored web hooks: on CLI/desktop both
+registrations fire (the plugin's own hooks and the project copies) — safe by
+design, since the guards are idempotent and the Stop hook self-heals the marker,
+with duplicated `SessionStart` context the only cosmetic effect; and the copies
+don't auto-update with the plugin, so re-run `/gtd:setup` after an update to
+refresh them (they only take effect on web once committed — a web session starts
+from a fresh clone).
 
 ## The armed marker
 
