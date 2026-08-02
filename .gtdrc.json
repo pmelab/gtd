@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
+  "$schema": "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json",
   "vars": {
     "testCommand": "npm test",
     "todoFile": "TODO.md",

@@ -287,7 +287,7 @@ describe("ConfigService", () => {
     writeFileSync(
       join(projectDir, ".gtdrc.json"),
       JSON.stringify({
-        $schema: "https://raw.githubusercontent.com/pmelab/gtd/main/schema.json",
+        $schema: "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json",
         workflow: {
           states: { idle: { actor: "human", initial: true, message: "x", on: {} } },
         },

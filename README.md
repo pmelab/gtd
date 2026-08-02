@@ -307,7 +307,16 @@ all. Supported filenames (searched in this order):
   re-declaring that mode on the workflow itself.
 - **`$schema`** (string, optional) — stripped before validation, so it never
   counts as an unknown key. Point it at the published schema for editor-backed
-  autocompletion; `schema.json` ships with the package.
+  autocompletion (this is what `gtd init` writes):
+
+  ```
+  https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json
+  ```
+
+  That URL serves `schema.json` straight out of the published npm tarball, so it
+  always matches the latest release. Pin it to a major with
+  `@pmelab/gtd@8/schema.json`, or point at your own install
+  (`./node_modules/@pmelab/gtd/schema.json`) to work offline.
 
 Any other top-level key is **rejected**. The engine blesses no VARIABLE NAMES
 either — `testCommand` is workflow-authored data like any other `it.vars` entry,
@@ -413,8 +422,8 @@ Those findings include the **semantic graph checks**: every `on` target and
 **stderr**, never stdout.
 
 Many of these problems never reach gtd at all if your editor validates against
-the published schema: `schema.json` fully types the `workflow:` key. The rules
-JSON Schema cannot express — exactly one content kind, exactly one
+the [published schema](#schema), which fully types the `workflow:` key. The
+rules JSON Schema cannot express — exactly one content kind, exactly one
 `initial: true`, targets naming defined states, reachability — remain the
 compiler's job at load time.
 

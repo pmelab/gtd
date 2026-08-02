@@ -58,7 +58,7 @@ workflow: # optional — the whole machine (states + its own vars/modes)
   states: { ... } # the named states
 vars: { ... } # optional — project layer over workflow.vars (higher precedence)
 modes: { ... } # optional — project layer over workflow.modes
-$schema: "..." # optional — point at the shipped schema.json for editor autocomplete
+$schema: "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json" # optional — editor autocomplete
 ```
 
 gtd ships a **built-in default** workflow (the unified template), used when no
