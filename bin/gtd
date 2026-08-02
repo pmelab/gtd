@@ -247,7 +247,7 @@ fi
 # otherwise ($# -eq 0, or exactly "loop" with no further args, --once already
 # stripped above): fall through into the loop body below.
 
-# Drives the v3 pattern-machine loop (see docs/loop.md): each iteration asks
+# Drives the v3 pattern-machine loop: each iteration asks
 # `gtd next --json` who's up and what they should do, dispatching on `kind`:
 #   - "message" (a human rest)  -> the non-autonomous halt: print the gate and
 #     exit 0. Acting on it (opening an editor, notifying, whatever) is an
@@ -264,8 +264,7 @@ fi
 # adapter invoked at a "prompt" rest; the default adapter appends `--model
 # "$GTD_LOOP_MODEL"` only when it's non-empty.
 #
-# `.memory` (optional, opaque — see skills/loop/SKILL.md "Agent memory scope")
-# is the agent-memory scope label. gtd never interprets it; the driver does:
+# `.memory` (optional, opaque) is the agent-memory scope label. gtd never interprets it; the driver does:
 # consecutive "prompt" turns emitting the SAME label continue ONE agent
 # session (so the agent still remembers its previous turn), and a changed
 # label — or the first turn, or an unset label — starts fresh. That is what
@@ -425,7 +424,7 @@ while true; do
     continue
   fi
 
-  # kind == "prompt": stall detection (skills/loop/SKILL.md) — the same
+  # kind == "prompt": stall detection — the same
   # agent-owned state and content repeating, WITH NO COMMIT authored since the
   # last time we saw this beat, means the last dispatch made no progress; stop
   # rather than spin on it. The HEAD check is what distinguishes a genuine

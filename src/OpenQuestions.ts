@@ -2,7 +2,7 @@
  * Pure parser/validator for the "open questions" structure the ADVANCED flow's
  * steering files (`.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md`) follow in the
  * unified template's `adv-grilling`/`architecting` Q&A loops (see
- * `src/workflows/unified.yaml` and `docs/design/steering-file-loops.md` §1) —
+ * `src/workflows/unified.yaml`) —
  * and for any custom workflow that reuses the same file/format. (The SIMPLE
  * flow's `.gtd/TODO.md` plan loop no longer uses this format — it iterates on a
  * plan directly, with no `qa` mode.)

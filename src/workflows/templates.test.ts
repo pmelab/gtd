@@ -23,8 +23,7 @@ describe("the bundled unified workflow template", () => {
     // The cycle runs to a human review gate, so it must declare exactly one
     // `reviewWindow: true` state (the gate that opens the editor's checkout
     // window) and exactly one `reviewEntry: true` state (the
-    // `gtd review <commitish>` entry point) — see src/ReviewWindow.ts /
-    // STATES.md §11.
+    // `gtd review <commitish>` entry point) — see src/ReviewWindow.ts.
     const { definition } = compileTemplate()
     const states = Object.values(definition.states)
     expect(states.filter((s) => s.reviewWindow === true)).toHaveLength(1)

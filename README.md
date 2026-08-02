@@ -70,55 +70,19 @@ review and commit the file before your first `gtd step`. `gtd init` takes no
 argument and refuses to clobber an existing config; it may also run in a plain
 parent directory (not a git repo) to seed a shared config a nested repo picks
 up. To customize the machine itself, add a `workflow:` key (there is no default
-fallback to merge over — a `workflow:` is the whole definition). See
-[Configuration](docs/configuration.md#gtd-init) for the details.
+fallback to merge over — a `workflow:` is the whole definition).
 
 ## How it works
 
 gtd is a small **pattern machine**: named states, each awaiting one actor and
 carrying one piece of content (a script, a prompt, a message, or a squash commit
-template), with an ordered set of change-patterns routing to the next state. A
-handful of commands drive it:
-
-- **`gtd step <actor>`** — authenticate as `<actor>` and perform the one
-  transition the pending changes match.
-- **`gtd next [--json]`** — print whichever actor is awaited and what they
-  should do, without mutating anything.
-- **`gtd status`** — a dry-run report of the resolved state and which pattern
-  each pending change matches.
-- **`gtd review <commitish>`** — start a brand new review process reviewing
-  `<commitish>..HEAD` (e.g. a colleague's PR branch), reusing the workflow's
-  existing review/feedback machinery over that diff.
-- **`gtd fix`** — start a brand new process that goes straight into repairing
-  the current failing tests, then runs the shared review/squash tail. If the
-  suite is already green there is nothing to fix, and the log is left untouched
-  — no commit is left behind.
-- **`gtd abandon`** — end the process underway without completing it: rewind to
-  the commit it started from, keeping everything it produced as uncommitted
-  changes (nothing is discarded).
-- **`gtd restore`** — undo the last squash (or `gtd abandon`) by hard-resetting
-  HEAD back to its retained pre-squash tip, bringing the turn-by-turn history
-  back. Refuses on a dirty working tree, when there is nothing retained to
-  restore, or when HEAD has since moved past it with commits that would be lost.
-- **`gtd visualize`** — serve an interactive diagram of the active workflow on a
-  local web server: the main flow (each sub-machine collapsed to one box, with
-  its own diagram below — pan/zoom with scroll, drag, or the corner controls),
-  per-state details including the state's own raw prompt/message/ script text,
-  and a "Current state" panel showing where the active process rests, its
-  pending changes, and which action leads where. The panel and diagram highlight
-  refresh live (~every 3s) while the page is open, so advancing the process
-  elsewhere shows up without a manual refresh. `gtd version` (or
-  `gtd --version`/`-v`) prints the installed version and exits; `gtd help` (or
-  `gtd --help`/`-h`) prints the command list. Both short-circuit before any repo
-  work, so they run anywhere.
+template), with an ordered set of change-patterns routing to the next state.
 
 The loop is one beat, repeated: run `gtd next --json` and dispatch on `kind` —
 `"message"` means it's a human's move (stop and hand off); `"script"` means the
 driver runs `content` itself, then steps its actor; `"prompt"` means feed
 `content` to your agent, then run `gtd step <actor>` once it's done. gtd itself
-never executes anything — the driver owns running scripts. See
-[STATES.md](STATES.md) for the model and [Driving the loop](docs/loop.md) for
-the full protocol.
+never executes anything — the driver owns running scripts.
 
 The unified workflow has **entry points behind a green-baseline gate, into one
 shared tail**. Every entry first runs your test suite and only starts once it's
@@ -154,27 +118,139 @@ dropped — a build turn that addresses nothing is refused). Ticking every box
 with no comment is the sign-off, which collapses the whole cycle into one commit
 (a **squash finale** whose message an agent drafts). Stepping with a box still
 unticked and no comment is refused (finish reviewing first), as is deleting
-`.gtd/REVIEW.md`. The same review tail also has a direct entry point —
-`gtd review <commitish>` starts a brand new process reviewing
-`<commitish>..HEAD` with no cycle of its own, e.g. a colleague's PR branch. Its
-squash keeps and describes only the fixes made _during_ the review (not the
-reviewed changeset); a clean sign-off with no fixes becomes an empty
-`chore: human review` commit. A fourth entry, `gtd fix`, starts from a clean
-`idle` and goes straight into repairing a red baseline — repair, review, and
-squash into one commit. If the suite is already green there is nothing to fix,
-and the log is left untouched — no commit is left behind. See
-[STATES.md](STATES.md#10-the-bundled-workflow-template) for the full shape. The
-workflow is just `.gtdrc` config — edit it or write your own (see
-[Configuration](docs/configuration.md)). Every agent state routes its model
-through two `vars` tiers — `plannerModel` (heavier planning and review) and
-`coderModel` (the coding turns) — so you can repoint the models globally in one
-place (a `vars:` edit or a `GTD_PLANNERMODEL` override) instead of per state.
-Steering-file path vars (`feedbackFile`, `reviewFile`, …) work the same way, and
-now propagate to the `on` patterns that route on them too — a repointed path var
-actually reroutes the machine, not just the templates that read/write the file.
-A separate `stateDir` var (default `.gtd`) names only where the check scripts
-keep their own scratch/bookkeeping, independent of the per-file vars — relocate
-one steering file without touching it.
+`.gtd/REVIEW.md`.
+
+The same review tail also has a direct entry point — `gtd review <commitish>`
+starts a brand new process reviewing `<commitish>..HEAD` with no cycle of its
+own, e.g. a colleague's PR branch. Its squash keeps and describes only the fixes
+made _during_ the review (not the reviewed changeset); a clean sign-off with no
+fixes becomes an empty `chore: human review` commit. A fourth entry, `gtd fix`,
+starts from a clean `idle` and goes straight into repairing a red baseline —
+repair, review, and squash into one commit. If the suite is already green there
+is nothing to fix, and the log is left untouched — no commit is left behind.
+
+Every agent state routes its model through two `vars` tiers — `plannerModel`
+(heavier planning and review) and `coderModel` (the coding turns) — so you can
+repoint the models globally in one place (a `vars:` edit or a `GTD_PLANNERMODEL`
+override) instead of per state. Steering-file path vars (`feedbackFile`,
+`reviewFile`, …) work the same way, and propagate to the `on` patterns that
+route on them too — a repointed path var actually reroutes the machine, not just
+the templates that read/write the file. A separate `stateDir` var (default
+`.gtd`) names only where the check scripts keep their own scratch/bookkeeping,
+independent of the per-file vars — relocate one steering file without touching
+it.
+
+To inspect or change the machine itself, see [Configuration](#configuration) —
+the workflow is just `.gtdrc` config.
+
+## Commands
+
+```
+Usage: gtd [command] [options]
+
+Commands:
+  (no command), loop
+                   Launch the loop driver (bin/gtd), which repeatedly drives
+                   an agent through gtd next/gtd step calls until the
+                   workflow rests at a human gate (a non-autonomous state)
+                   or settles. A bare gtd invocation and gtd loop both
+                   launch it identically
+  init             Scaffold a minimal .gtdrc.json for this repo, seeding the
+                   default variables you are most likely to change (the test
+                   command) and a Prettier formatting suggestion. gtd runs its
+                   built-in workflow by default, so no workflow is written —
+                   add a workflow: key only to customize the machine itself.
+                   Takes no argument. Run once per repo; refuses if a gtd
+                   config already exists. Leaves the file uncommitted for you
+                   to review and commit
+  step <actor>     Authenticate as <actor>, match the resolved rest's
+                   declared patterns against the pending changes, and commit
+                   (or squash) the one resulting transition. Pass
+                   --cost=<n> (optionally --model=<name>) to record the
+                   just-finished invocation's token cost and model on the
+                   turn commit (summed into it.processCost/processCostByModel)
+  review <commitish>
+                   Start a NEW review process at the workflow's declared
+                   review-entry state (reviewEntry: true), reviewing
+                   <commitish>..HEAD — e.g. a colleague's PR branch. Requires
+                   a clean tree resting at the workflow's initial state
+  fix              Start a NEW process at the workflow's declared fix-entry
+                   state (fixEntry: true) that goes straight into repairing the
+                   current failing tests. Requires a clean tree resting at the
+                   workflow's initial state
+  abandon          End the process currently underway without completing it:
+                   close any open review checkout window, then rewind HEAD to
+                   the commit the process started from, keeping everything it
+                   produced as uncommitted changes. A no-op when no process is
+                   underway
+  restore          Hard-reset HEAD back to the pre-squash tip retained by the
+                   last squash/abandon (refs/worktree/gtd/history), undoing a
+                   squash or bringing back an abandoned process's turns.
+                   Refuses on a dirty working tree, when there is no retained
+                   history, or when HEAD has advanced past the squash with
+                   commits that would be lost
+  next             Print the resolved rest's rendered script/prompt/message
+                   (no mutation)
+  status           Print the resolved rest's state/actor and which declared
+                   pattern (if any) each pending change matches (no mutation)
+  validate         Format and validate the steering file the resolved rest
+                   declares, with its mode's commands (its file:/mode:);
+                   exits non-zero with the findings when it is invalid
+  lsp              Start the LSP server for .gtd/ steering files (stdio)
+  visualize        Serve an interactive diagram of the active workflow on a
+                   local web server (--port <n>, --no-open; --json prints the
+                   model and exits)
+  version          Print version and exit
+  help             Print this help and exit
+
+Options:
+  --json           Output structured JSON instead of plain text
+  --port=<n>       (gtd visualize only) port to serve on (default: a free port)
+  --no-open        (gtd visualize only) do not open the browser
+  --cost=<n>       (gtd step only) record the invocation's token cost
+  --model=<name>   (gtd step only, with --cost) tag that cost's model
+  --once           (bare gtd or gtd loop only) run exactly one loop beat (one
+                   human-gate capture, one script check+step, or one agent
+                   prompt+step), then exit
+  --version, -v    Print version and exit
+  --help, -h       Print this help and exit
+```
+
+`--version` (`-v`) / `gtd version` and `--help` (`-h`) / `gtd help`
+short-circuit before any git or repository-state work — they run outside a repo
+and in any repo state. Bare `gtd` (no subcommand) and `gtd loop` both launch the
+loop driver immediately — neither is a usage error. Any other, truly unknown
+subcommand is a usage error: it prints the help text and exits 1 without
+touching the repository. Every other (recognized) command must be run from the
+**repository root** — gtd derives the workflow, pending changes, and process
+history relative to cwd, so it refuses with a clear error if invoked from a
+subdirectory.
+
+`--json`, `--cost=<n>`, and `--model=<name>` (the latter two only for
+`gtd step`) are the only long options the compiled bundle recognizes. Any other
+`--` option (including a typo like `--jsn`) is rejected with a usage error
+rather than silently ignored, so a mistyped flag can never degrade a JSON caller
+to plain-text mode. A bare `--cost`/`--model` with no value, a non-numeric or
+negative `--cost`, an empty `--model`, `--model` without `--cost`, or either
+flag on any command other than `gtd step` are all usage errors.
+
+`--once` is a separate, bash-level flag handled entirely by the `bin/gtd` driver
+itself, stripped before anything reaches the bundle.
+
+### Error envelope
+
+Every command, in `--json` mode, reports a failure as a machine-readable
+envelope on **stdout**, and still exits 1:
+
+```json
+{ "state": "error", "prompt": "<message>" }
+```
+
+A human-readable `gtd: <message>` line is still written to **stderr** regardless
+of `--json` — the envelope adds a structured stdout channel, it does not replace
+the plain-text one.
+
+## Driving the loop
 
 Bare `gtd` (or `gtd loop`) is a ready-to-run driver for the whole protocol —
 point it at a repo and it runs the loop until it's your turn. It drives the
@@ -182,58 +258,238 @@ autonomous states (agent turns, check runs) and stops at the first
 non-autonomous one: reaching a human gate it prints the gate and exits. You act
 by editing files (answer a plan question, tick a review box, fix code) and
 re-launching it — its opening move captures whatever you left, so you never run
-`gtd step human` by hand. Anything richer at that boundary — opening your
-editor, desktop notifications, terminal-multiplexer status — is the job of an
-outer wrapper around `gtd`, not of the loop itself. Pass `--once` to restrict a
-run to exactly one beat — one human-gate capture, one check, or one agent turn —
-instead of driving all the way to idle. Bare `gtd` prints one line per event —
-colored and emoji on a real terminal, plain ASCII under `NO_COLOR` or when piped
-— and redirects the noisier agent/check/step subprocess output to a
-per-repo/per-worktree log file (its path is the run's first output line, ready
-to `tail -f`). See [Driving the loop](docs/loop.md).
+`gtd step human` by hand.
 
-Before wiring gtd into a repo, note the
-[repository requirements](docs/cli.md#repository-requirements) — most
-importantly: gitignore everything your scripts write.
+Anything richer at that boundary — opening your editor, desktop notifications,
+terminal-multiplexer status — is the job of an outer wrapper around `gtd`, not
+of the loop itself. Pass `--once` to restrict a run to exactly one beat — one
+human-gate capture, one check, or one agent turn — instead of driving all the
+way to idle.
 
-Editor integration: `gtd lsp` starts an LSP server over stdio for `.gtd/`
-steering files — a symbol per `review`-mode chunk that still has an unchecked
-hunk (an outline of the packages left to review) plus check/uncheck actions over
-those chunks, go-to-definition from a `review`-mode hunk line into the file it
-points at (at its `#line`), symbols over a `qa`-mode file's open questions,
-diagnostics for both (live as you edit), and a `gtd.openSteeringFile` command
-that jumps to the current state's steering file. Config-driven via each state's
-`file:`/`mode:` (see [CLI reference](docs/cli.md#gtd-lsp)) — falls back to
-basename dispatch (`REVIEW.md` → `review`) with no config in sight. `qa` and
-`review` are gtd's built-in steering-file MODES with a VALIDATOR gtd itself
-implements; a mode's `format:` and `validate:` are shell commands a workflow (or
-a project's `.gtdrc`) declares for itself, so you bring your own formatter and
-your own checkers (see
-[Configuration](docs/configuration.md#modes--pluggable-steering-file-modes)). A
-third built-in, `prose` — format-only, no validator, used by the simple flow's
-plan file — has no live editor support: `gtd lsp` publishes no symbols or
-diagnostics for it, though `gtd validate` and the `gtd step` gate still format
-and validate it like any other mode. Both halves are enforced by `gtd validate`
-and the `gtd step` gate.
+Bare `gtd` prints one line per event — colored and emoji on a real terminal,
+plain ASCII under `NO_COLOR` or when piped — and redirects the noisier
+agent/check/step subprocess output to a per-repo/per-worktree log file (its path
+is the run's first output line, ready to `tail -f`).
 
 A workflow state can declare an optional `label:` — a human-readable display
-name surfaced in `gtd next --json`/`gtd status`. The reference `bin/gtd` driver
-uses it for its per-beat progress lines; an outer wrapper (a terminal
-multiplexer, a notifier) can use it the same way.
+name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
+per-beat progress lines; an outer wrapper (a terminal multiplexer, a notifier)
+can use it the same way.
 
-## Documentation
+## Configuration
 
-- [STATES.md](STATES.md) — the full pattern-machine specification: the model,
-  the pattern grammar, resolution, retry, the squash lifecycle, reusable
-  sub-machines, and the bundled workflow template
-- [CLI reference](docs/cli.md) — every command, exit codes, JSON schemas,
-  repository requirements
-- [Driving the loop](docs/loop.md) — the reference loop driver,
-  `gtd`/`gtd loop`, custom agents
-- [Configuration](docs/configuration.md) — `gtd init`, the `.gtdrc` `workflow:`
-  schema, lookup
-- [Upgrading](docs/upgrading.md) — breaking changes and migration
-- [Development](docs/development.md) — building, testing, releasing
+gtd reads an optional `.gtdrc` config file via
+[cosmiconfig](https://github.com/cosmiconfig/cosmiconfig). With no `workflow:`
+configured anywhere in the cwd→home config chain, the bundled unified workflow
+is used automatically, so a state command works out of the box with no config at
+all. Supported filenames (searched in this order):
+
+- `.gtdrc`
+- `.gtdrc.json`
+- `.gtdrc.yaml`
+- `.gtdrc.yml`
+- `gtd.config.json`
+- `gtd.config.yaml`
+
+### Schema
+
+`.gtdrc` has exactly three blessed top-level keys:
+
+- **`workflow`** (object, optional) — the whole machine definition (its states,
+  plus its own `vars:` defaults and `modes:`). Absent = gtd's built-in default
+  is used. Declare it to fully REPLACE that default with your own machine (there
+  is no `extends`/merge).
+- **`vars`** (object, optional) — a flat `name -> scalar` map, one layer of the
+  merged `it.vars` every template sees.
+- **`modes`** (object, optional) — steering-file modes (`format:`/`validate:`
+  shell commands), layered over the active workflow's own `modes:` and gtd's
+  built-in validators, so a project can plug in its formatter or linter without
+  re-declaring that mode on the workflow itself.
+- **`$schema`** (string, optional) — stripped before validation, so it never
+  counts as an unknown key. Point it at the published schema for editor-backed
+  autocompletion; `schema.json` ships with the package.
+
+Any other top-level key is **rejected**. The engine blesses no VARIABLE NAMES
+either — `testCommand` is workflow-authored data like any other `it.vars` entry,
+not a special key gtd interprets.
+
+### The `workflow:` key
+
+A declared `workflow:` key fully REPLACES gtd's built-in default. The built-in
+default is itself a YAML asset (`src/workflows/unified.yaml`) compiled through
+the exact same compiler your own `workflow:` value goes through — no privileged
+code path. Its shape:
+
+```yaml
+workflow:
+  vars: # optional — the workflow's own declared `it.vars` defaults
+    anyKey: anyScalarValue
+  modes: # optional — steering-file modes a state's `mode:` may name
+    <name>:
+      format: <shell command> # at least one of format/validate
+      validate: <shell command>
+  states:
+    <name>:
+      actor: <string> # forbidden on a commit state, required otherwise
+      script: <string> # exactly one of script/prompt/message/commit
+      prompt: <string>
+      message: <string>
+      commit: <string>
+      on: # a mapping, DECLARATION ORDER PRESERVED
+        "<pattern>": <targetState> # short form
+        "<pattern>": { to: <targetState>, describe: <sentence> } # with a route description
+      initial: true # exactly one state across the whole workflow
+      retry:
+        max: <number>
+        otherwise: <targetState>
+      model: <string> # optional, opaque harness hint — forbidden on a commit state
+      memory: <string> # optional, opaque memory-scope label — forbidden on a commit state
+      file: <string> # optional, an Eta template naming the state's steering file
+      mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry
+```
+
+Authoring or editing a workflow with a coding agent? `skills/authoring/SKILL.md`
+is the agent-facing contract for producing a valid `workflow:` — the state
+model, pattern grammar, load-time rules, and how to verify a change compiles.
+
+### Variables
+
+Every template — `script`/`prompt`/`message`/`commit`, and
+`model`/`memory`/`file` — sees `it.vars`: a flat `Record<string, string>`
+assembled from three layers, **later wins**:
+
+1. **The workflow's own `vars:` key** (sibling to `states:`) — the workflow
+   author's declared defaults. The unified template declares
+   `vars: { testCommand: "npm test" }`, read by `checking`'s script as
+   `<%~ it.vars.testCommand %>`.
+2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
+   inside it) — per-repo tuning without redefining the whole workflow.
+3. **`GTD_<UPPERCASE-name>` environment variables** — highest precedence,
+   checked at every invocation, case-insensitively against each name already
+   declared by layer 1 or 2: `GTD_TESTCOMMAND` overrides `testCommand`. The
+   environment can only OVERRIDE a name a config layer already declared — a
+   `GTD_*` var matching no declared name is silently ignored.
+
+Values in layers 1–2 must be YAML scalars (string/number/boolean), coerced to
+strings at load time; an object or array value is a load error.
+
+```yaml
+# .gtdrc — overriding the unified template's testCommand
+vars:
+  testCommand: npm run test:ci
+```
+
+```bash
+# highest precedence — beats both the workflow default and the .gtdrc value above
+GTD_TESTCOMMAND="npm run test -- --bail" gtd next
+```
+
+### Lookup and precedence
+
+gtd walks from the current working directory **up to your home directory** (or
+to the filesystem root when cwd is outside home), collecting every `.gtdrc` it
+finds along the way. All found levels are **deep-merged**, with the **innermost
+(cwd) config winning** on conflicts — so a shared `.gtdrc` in a worktree-parent
+directory cascades to every checkout beneath it, while any individual checkout
+can still override with its own `.gtdrc`.
+
+### Validation and errors
+
+Config-shape problems (unknown keys, wrong types, unreadable file references)
+are collected together; if the shape is clean, the assembled definition is
+additionally run through the engine's own validation. A bad config throws
+**one** error listing every finding, at load time — before anything touches the
+repository — never partially, and never deferred to step time:
+
+```
+workflow config:
+  - state "idle": must declare exactly one of script/prompt/message/commit (found 2)
+  - state "idle": "on" target "nowhere" is not a defined state
+```
+
+Those findings include the **semantic graph checks**: every `on` target and
+`retry.otherwise` must name a defined state, and every state must be
+**reachable** from the initial state. All load failures exit **1** and write to
+**stderr**, never stdout.
+
+Many of these problems never reach gtd at all if your editor validates against
+the published schema: `schema.json` fully types the `workflow:` key. The rules
+JSON Schema cannot express — exactly one content kind, exactly one
+`initial: true`, targets naming defined states, reachability — remain the
+compiler's job at load time.
+
+## Repository requirements
+
+- **Single writer, linear branch.** A process's history is walked via
+  **first-parent** commits only.
+- **Test/build artifacts must be gitignored.** This is **load-bearing**, not a
+  style preference: every step decision detects "clean" via
+  `git diff --name-status HEAD` (tracked changes) unioned with
+  `git ls-files --others --exclude-standard` (untracked files), which silently
+  omits anything matched by `.gitignore`. If a `script` state's command (or the
+  build it triggers) writes output — a `dist/`, a coverage report, a log file —
+  into the working tree, the tree never goes clean after a green run, and the
+  check's `"C"` pattern never fires. Gitignore every path your scripts write
+  before wiring gtd into a repo.
+- **Repository root invocation.** Every state subcommand must run from the git
+  repository root. `--help`/`--version` (and the `help`/`version` subcommands),
+  `lsp`, and `visualize` skip this guard entirely (`visualize` still reads the
+  `.gtdrc` workflow, but needs no git state).
+- **Linked worktrees are independent.** N `git worktree` worktrees of one
+  repository (sharing a single `.git`) each run their own gtd process: state is
+  derived from that worktree's own HEAD, and the review checkout window's refs
+  live in git's per-worktree `refs/worktree/gtd/*` namespace, so a review
+  resting in one worktree neither blocks nor rewrites any other.
+
+## Editor integration
+
+`gtd lsp` starts an LSP server over stdio for `.gtd/` steering files — a symbol
+per `review`-mode chunk that still has an unchecked hunk (an outline of the
+packages left to review) plus check/uncheck actions over those chunks,
+go-to-definition from a `review`-mode hunk line into the file it points at (at
+its `#line`), symbols over a `qa`-mode file's open questions, diagnostics for
+both (live as you edit), and a `gtd.openSteeringFile` command that jumps to the
+current state's steering file.
+
+It is config-driven via each state's `file:`/`mode:`, and falls back to basename
+dispatch (`REVIEW.md` → `review`) with no config in sight. `qa` and `review` are
+gtd's built-in steering-file MODES with a VALIDATOR gtd itself implements; a
+mode's `format:` and `validate:` are shell commands a workflow (or a project's
+`.gtdrc`) declares for itself, so you bring your own formatter and your own
+checkers. A third built-in, `prose` — format-only, no validator, used by the
+simple flow's plan file — has no live editor support: `gtd lsp` publishes no
+symbols or diagnostics for it, though `gtd validate` and the `gtd step` gate
+still format and validate it like any other mode.
+
+## Development
+
+```bash
+npm install
+npm run dev          # run from source, no build (node dev/run.mjs)
+npm run build        # tsdown → dist/gtd.bundle.mjs
+npm test             # format:check, typecheck, lint, unit + e2e tests, fallow
+npm run test:unit    # vitest unit tests (the pure resolver) — --project unit
+npm run test:e2e     # gherkin e2e via vitest + quickpickle — --project e2e
+npm run test:mutation # StrykerJS mutation testing (manual only, ~10 min)
+npm run typecheck
+npm run lint
+```
+
+A pre-commit hook is installed automatically via the `prepare` script when you
+run `npm install` on a fresh clone — it runs
+[lint-staged](https://github.com/lint-staged/lint-staged) with
+[oxfmt](https://oxc.rs/docs/guide/usage/formatter.html), mirroring the
+`format:check` step enforced in CI.
+
+The decision core is pure and IO-free: the pattern machine's shape (states,
+patterns, retry) is a plain-data `WorkflowDefinition` (`src/PatternMachine.ts`),
+and the same module's `resolveState`/`step` are the pure resolver/interpreter
+over it — so the whole engine is trivially unit-testable in isolation. All
+git/filesystem/template IO is confined to the edge (`src/Edge.ts`).
+
+Releases are automatic: push releasable Conventional Commits (`fix:`, `feat:`,
+or breaking changes) to `main` and semantic-release computes the next version,
+builds the bundle, tags it, and publishes.
 
 ## License
 

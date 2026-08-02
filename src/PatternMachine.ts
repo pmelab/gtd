@@ -1,7 +1,6 @@
 /**
  * The v3 "pattern machine": gtd's ground-up rewrite of the state-machine
- * core (see `docs/design/pattern-machine-plan.md`). Phase 1 scope only —
- * this module is the pure engine: definition types, the pattern grammar's
+ * core. This module is the pure engine: definition types, the pattern grammar's
  * parser/matcher, HEAD resolution, and step decisions (refusals, no-ops,
  * commits, retry redirection, and the commit-state squash decision).
  *
@@ -54,7 +53,7 @@ export interface RetryDef {
  * to share a pattern string.
  *
  * `describe` is INERT to the engine — `step`/`resolveState`/`matchesPattern`
- * never read it, and it is NEVER Eta-rendered (see STATES.md §3). The pattern
+ * never read it, and it is NEVER Eta-rendered. The pattern
  * key itself is different: THIS module (the pure engine) only ever sees a
  * plain string here too, but the edge (`src/Edge.ts`'s `renderOnEdges`)
  * renders it as an Eta template against `it.vars` BEFORE handing it to

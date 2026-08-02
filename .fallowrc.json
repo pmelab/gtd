@@ -9,9 +9,7 @@
     "tests/vitest.reporter.ts",
 
     // Vitest config for Stryker mutation testing — loaded by Stryker CLI, not imported.
-    "vitest.stryker.config.ts",
-    // Vitest config for Stryker scenario tests — loaded via npx vitest --config, not imported.
-    "vitest.stryker.scenarios.config.ts"
+    "vitest.stryker.config.ts"
   ],
   "duplicates": {
     // Hide pair-only clones; focus on widespread copy-paste worth refactoring.

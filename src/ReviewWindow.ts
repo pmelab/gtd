@@ -12,8 +12,7 @@ import { computeProcessRun, type ProcessRun } from "./Edge.js"
 import type { GitOperations } from "./Git.js"
 
 /**
- * The review checkout window (v3 re-introduction — see
- * `docs/design/pattern-machine-plan.md`'s follow-up note and STATES.md §11).
+ * The review checkout window (v3 re-introduction).
  * While a process RESTS at a state declaring `reviewWindow: true` (the
  * bundled default's `await-review`), HEAD and the index are temporarily
  * rewound to the review base with the working tree untouched, so the entire

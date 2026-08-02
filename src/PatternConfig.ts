@@ -12,12 +12,11 @@ import {
 import { expandSubmachines } from "./Submachines.js"
 
 /**
- * The v3 `.gtdrc` `workflow:` config compiler (see
- * `docs/design/pattern-machine-plan.md`, "Phase 2: Config + templates"). This
+ * The v3 `.gtdrc` `workflow:` config compiler. This
  * module turns the raw, unknown-shaped YAML value of the `workflow:` key into
  * a `PatternMachine` `WorkflowDefinition` — the ONLY definition source in v3
  * (no `extends`, no merge-over-a-built-in: the bundled default workflow is
- * itself a YAML asset compiled through this same function, a Phase 3
+ * itself a YAML asset compiled through this same function, a
  * concern). Purely a compiler: no git, no Effect, no CLI wiring — those are
  * later phases.
  *

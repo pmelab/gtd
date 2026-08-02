@@ -19,7 +19,7 @@
  * output so the rest of the compiler (and `KNOWN_TOP_KEYS`) only ever sees the
  * familiar `{ vars?, states, modes? }` shape. The pure engine (`PatternMachine`)
  * is entirely unaware sub-machines exist: expansion is a source-authoring
- * convenience with NO runtime footprint (see STATES.md, "Sub-machines"). Aliasing
+ * convenience with NO runtime footprint. Aliasing
  * each invocation's local state names (via `as:`) to the exact concrete names a
  * hand-written workflow would use makes the expanded definition BYTE-IDENTICAL to
  * the flat one — the guarantee the bundled template's golden test pins

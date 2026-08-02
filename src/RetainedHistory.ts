@@ -2,12 +2,9 @@ import { Effect, Option } from "effect"
 import type { GitOperations } from "./Git.js"
 
 /**
- * Retention of a squashed (or abandoned) process's turn-by-turn history —
- * Task C of `docs/design/pattern-machine-plan.md`'s follow-up note (see
- * `.gtd/packages/01-retention-primitives.md`). Squashing collapses a whole
- * cycle's turn commits into one; this module records the pre-squash tip so a
- * later `gtd restore` (a separate, not-yet-built command-layer piece of work)
- * can bring those turns back.
+ * Retention of a squashed (or abandoned) process's turn-by-turn history.
+ * Squashing collapses a whole cycle's turn commits into one; this module
+ * records the pre-squash tip so `gtd restore` can bring those turns back.
  */
 
 /**

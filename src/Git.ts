@@ -102,8 +102,7 @@ export interface GitWriterOperations {
    * `git commit --allow-empty -m <message>` — commits whatever is CURRENTLY
    * STAGED, verbatim, without an implicit `git add` first (unlike
    * `commitAllWithPrefix`). This is the second half of the v3 pattern
-   * machine's squash mechanics (`docs/design/pattern-machine-plan.md`
-   * decision 7): after `softResetTo` moves HEAD back without touching the
+   * machine's squash mechanics: after `softResetTo` moves HEAD back without touching the
    * index, a plain commit here re-commits the index exactly as it stood at
    * the pre-reset HEAD — so an UNTRACKED message-template file (never
    * staged) is automatically excluded from the squashed commit's tree.

@@ -590,7 +590,7 @@ const runStepCommand = (
  *
  * a. The machine must currently rest at the workflow's INITIAL state — a
  *    plain non-gtd branch (the normal case) resolves there via the
- *    inert-subject rule (STATES.md §5); a process already underway refuses.
+ *    inert-subject rule (see `resolveState`); a process already underway refuses.
  * b. The working tree must be clean.
  * c. The active workflow must declare a `reviewEntry: true` state.
  * d. `<commitish>` must resolve to a commit, be an ancestor of HEAD, and
@@ -876,7 +876,7 @@ const runRestoreCommand = (
  * output (for a human or a simple driver who reads the prompt and hands it to
  * an agent, so the agent self-validates); withheld from `gtd next --json`,
  * where the driving loop instead runs `gtd validate` after the turn and
- * re-prompts on findings (see `bin/gtd-loop` / `skills/loop/SKILL.md`). This is
+ * re-prompts on findings (see the `bin/gtd` loop driver). This is
  * advisory: `gtd step` runs the same format-and-validate gate and REFUSES a
  * turn whose steering file is invalid (see `stepAsActor`), so a malformed file
  * is never captured whether or not this instruction was followed.
@@ -1653,7 +1653,7 @@ const assertRunningFromRepoRoot = (
  * so unlike the state commands it need not sit in a git repository at all. It
  * may run EITHER at a repository root OR in a directory outside any repository —
  * the latter scaffolds a shared config a nested repo picks up by walking up the
- * cwd→home chain (see the parent-dir layout in docs/configuration.md). The one
+ * cwd→home chain. The one
  * placement it must refuse is a repository SUBDIRECTORY: gtd runs from the repo
  * root and discovers config by walking UP, so a config written below the root
  * would silently never be found. Returns whether cwd is inside a repository (at
@@ -1732,8 +1732,7 @@ export interface RunOptions {
  * captures stdout via the `write` callback.
  *
  * v3 command surface: `step <actor>` / `review <commitish>` / `fix` / `next` /
- * `status` / `validate` (see `src/Edge.ts` and
- * `docs/design/pattern-machine-plan.md` §3),
+ * `status` / `validate` (see `src/Edge.ts`),
  * plus `lsp` and `init` — both dispatched before the config-reading
  * path since neither needs to touch the config. Bare `gtd` or an
  * unknown subcommand is a usage error. Shared setup (argv parsing, the

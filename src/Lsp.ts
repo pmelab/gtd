@@ -18,7 +18,7 @@
  * 1-based (a bare `./path` lands at the top of the file); the target file is
  * not stat-ed, so a stale pointer still jumps and the editor reports the miss.
  *
- * CONFIG-DRIVEN (see `docs/design/state-file-association.md` §3): the server
+ * CONFIG-DRIVEN: the server
  * locates the active gtd config the SAME way the CLI does (`ConfigService`'s
  * cosmiconfig search — no second config code path), from the `initialize`
  * request's `workspaceFolders`/`rootUri`, falling back to the open document's

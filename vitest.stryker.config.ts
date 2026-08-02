@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [rawMd(), quickpickle({ stepTimeout: 30_000, skipTags: ["@skip", "@live"] })],
   test: {
     include: ["src/**/*.test.ts", "tests/integration/features/**/*.feature"],
-    exclude: ["**/*.integration.test.ts", "src/Perf.test.ts", "src/Machine.property.test.ts"],
+    exclude: ["**/*.integration.test.ts"],
     setupFiles: [
       "./tests/integration/support/world.ts",
       "./tests/integration/support/hooks.ts",
@@ -15,6 +15,7 @@ export default defineConfig({
       "./tests/integration/support/steps/formatting.steps.ts",
       "./tests/integration/support/steps/gtd-loop.steps.ts",
       "./tests/integration/support/steps/lsp.steps.ts",
+      "./tests/integration/support/steps/review-signoff.steps.ts",
       "./tests/integration/support/steps/review-window.steps.ts",
     ],
     testTimeout: 300_000,
