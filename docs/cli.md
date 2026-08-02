@@ -113,10 +113,12 @@ each recognized bare (`gtd --no-edit`) or immediately after `loop`
 `gtd loop` are themselves equivalent. All three combine freely with each other,
 in any order (e.g. `gtd --edit --once`, `gtd loop --once --edit`), except
 `--edit`/`--no-edit` together, which conflict (forcing and suppressing the
-editor in the same run is not a coherent request). Any other placement (e.g.
-`gtd step --once`), a duplicated flag (`gtd --once --once`), or the
-`--edit`/`--no-edit` conflict is a usage error, surfaced via whatever guard the
-misplaced argument first reaches (the compiled bundle's own
+editor in the same run is not a coherent request): naming both, in either
+position, is rejected right in `bin/gtd` with a dedicated usage error
+(`gtd: --edit and --no-edit are mutually exclusive`, exit 2) — it never reaches
+the compiled bundle. Any other placement (e.g. `gtd step --once`) or a
+duplicated flag (`gtd --once --once`) is still a usage error, but surfaced via
+whatever guard the misplaced argument first reaches (the compiled bundle's own
 unknown-option/unknown-command rejection for a misplaced flag, or
 `gtd: 'loop' takes no arguments` for one misplaced after `loop`) — never
 silently ignored or silently resolved one way.

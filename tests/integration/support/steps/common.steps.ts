@@ -218,6 +218,27 @@ Then("stdout does not contain {string}", (world: GtdWorld, text: string) => {
   )
 })
 
+// Counts NON-OVERLAPPING occurrences of `text` in stdout — used to prove a
+// transition line was printed exactly once even when the review checkout
+// window rewinds HEAD between beats (see the report_commits monotonic marker).
+Then(
+  "stdout contains {string} exactly {int} times",
+  (world: GtdWorld, text: string, count: number) => {
+    const stdout = world.lastResult.stdout
+    let actual = 0
+    let idx = 0
+    while ((idx = stdout.indexOf(text, idx)) !== -1) {
+      actual++
+      idx += text.length
+    }
+    assert.strictEqual(
+      actual,
+      count,
+      `Expected stdout to contain "${text}" exactly ${count} times, found ${actual}. Got:\n${stdout}`,
+    )
+  },
+)
+
 Then("stderr matches {string}", (world: GtdWorld, pattern: string) => {
   assert.ok(
     new RegExp(pattern).test(world.lastResult.stderr),

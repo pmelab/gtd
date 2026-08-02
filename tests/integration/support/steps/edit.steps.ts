@@ -48,6 +48,37 @@ Given(
   },
 )
 
+// Stateful across invocations within one scenario: opens 1 appends `text` to
+// the opened file, every later open is a no-op (still logged) — proves a
+// human-gate return lap (edit, then a later clean accept) without a second
+// step. The open count is tracked in a counter file living alongside the fake
+// editor script itself (same pattern as the --once scenario's .git/testcount).
+Given(
+  "$EDITOR is a script that appends {string} on its first open only",
+  (world: GtdWorld, text: string) => {
+    writeFakeEditor(
+      world,
+      [
+        `c="$(dirname -- "$0")/opencount"`,
+        `n=$(cat "$c" 2>/dev/null || echo 0)`,
+        `n=$((n + 1))`,
+        `echo "$n" > "$c"`,
+        `if [ "$n" -eq 1 ]; then`,
+        `  mkdir -p "$(dirname -- "$1")"`,
+        `  printf '%s\\n' ${shQuote(text)} >> "$1"`,
+        `fi`,
+      ].join("\n"),
+    )
+  },
+)
+
+// Deletes the opened file outright — the review checkout window's sign-off
+// gate (a plain `D <file>` pattern) is triggered by deleting the steering
+// file, not editing it.
+Given("$EDITOR is a script that deletes the opened file", (world: GtdWorld) => {
+  writeFakeEditor(world, `rm -f -- "$1"`)
+})
+
 // The "closed the editor without changing anything" case: it still records
 // that it ran (for the invocation-log assertions below), but never touches
 // the target path.

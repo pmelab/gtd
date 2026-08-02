@@ -625,6 +625,71 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And stderr contains "no progress at 'working'"
     And stderr contains "see .git/gtd-loop.log"
 
+  Scenario: A human-gate return lap runs the agent's fold turn instead of false-stalling
+    # planning's prompt is STATIC (no rendered diff/hash in it), so a return lap
+    # through plan-review back to planning presents the identical state+content
+    # the driver last saw — without HEAD tracking, the stall check mistakes that
+    # for no progress, even though a commit (plan-review -> planning) landed in
+    # between.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": planning
+          planning:
+            actor: agent
+            file: .gtd/PLAN.md
+            prompt: "Refine the plan in .gtd/PLAN.md."
+            on:
+              "* **": plan-review
+          plan-review:
+            actor: human
+            file: .gtd/PLAN.md
+            message: "review the plan"
+            on:
+              "C": building
+              "* **": planning
+          building:
+            actor: agent
+            prompt: "Build it: write src/app.ts."
+            on:
+              "* **": done
+          done:
+            commit: "chore: plan built"
+      """
+    And a commit "gtd(human): idle → planning" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Refine the plan"*)
+          mkdir -p .gtd
+          echo "- refined" >> .gtd/PLAN.md
+          ;;
+        *"Build it"*)
+          mkdir -p src
+          echo "export const app = () => {}" > src/app.ts
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And $EDITOR is a script that appends "looks good, one tweak" on its first open only
+    When I run bare gtd
+    Then it succeeds
+    And the git log contains "chore: plan built"
+    And stderr does not contain "no progress at 'planning'"
+
   Scenario: Stops instead of stepping when a steering file still fails gtd validate after 3 fix attempts
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -1162,8 +1227,97 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     Given a test project
     And the workflow
     When I run "--edit --no-edit" via gtd
-    Then it fails
-    And stderr contains "unknown option"
+    Then the exit code is 2
+    And stderr contains "--edit and --no-edit are mutually exclusive"
+
+  Scenario: --edit combined with --no-edit after loop is a usage error rather than picking one silently
+    Given a test project
+    And the workflow
+    When I run "loop --edit --no-edit" via gtd
+    Then the exit code is 2
+    And stderr contains "--edit and --no-edit are mutually exclusive"
+
+  Scenario: Prints each transition once even after the review checkout window rewinds HEAD
+    # await-review opens a real review checkout window (reviewWindow: true, no
+    # `mode: review` so the plain "D .gtd/REVIEW.md" pattern is the sign-off,
+    # not the sign-off gate). While the window is open report_commits sees a
+    # rewound HEAD; deciding is a non-squash check between the sign-off and the
+    # squash, keeping the earlier transitions reachable at the window-close
+    # beat — a driver with a per-beat head_before would re-print them there.
+    # `idle` stays a silent check-actor no-op (same idiom as the herdr-report
+    # scenario above) so settling back to it after `done` never reopens the
+    # editor a second time — the fake editor here DELETES its target, which
+    # would abort the run if reopened on "." at idle.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: check
+            initial: true
+            script: "true"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "Write src/app.ts."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: "true"
+            on:
+              "C": reviewing
+          reviewing:
+            actor: agent
+            file: .gtd/REVIEW.md
+            prompt: "Write .gtd/REVIEW.md listing the changes to review."
+            on:
+              "* **": await-review
+          await-review:
+            actor: human
+            file: .gtd/REVIEW.md
+            message: "sign off by deleting .gtd/REVIEW.md"
+            reviewWindow: true
+            on:
+              "D .gtd/REVIEW.md": deciding
+          deciding:
+            actor: check
+            script: "true"
+            on:
+              "C": done
+          done:
+            commit: "chore: reviewed"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      case "$GTD_LOOP_PROMPT" in
+        *"Write src/app.ts"*)
+          mkdir -p src
+          echo "export const app = () => {}" > src/app.ts
+          ;;
+        *"Write .gtd/REVIEW.md"*)
+          mkdir -p .gtd
+          echo "- added src/app.ts" > .gtd/REVIEW.md
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    And $EDITOR is a script that deletes the opened file
+    When I run bare gtd
+    Then it succeeds
+    And the git log contains "chore: reviewed"
+    And stdout contains "working → checking" exactly 1 times
+    And stdout contains "checking → reviewing" exactly 1 times
+    And stdout contains "reviewing → await-review" exactly 1 times
 
   # The scenarios below prove bin/gtd's --once flag (see once_mode in bin/gtd):
   # it restricts the loop to exactly one beat — one script check+step, or one
