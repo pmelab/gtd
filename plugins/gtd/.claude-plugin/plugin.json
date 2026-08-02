@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "gtd",
+  "displayName": "git-things-done",
+  "version": "0.1.0",
+  "description": "Turns a Claude Code session into a driver for gtd's plan/build/review workflow: skills run the loop protocol (CLI, desktop, and web alike), and CLI/desktop hooks harden it further.",
+  "author": {
+    "name": "pmelab",
+    "email": "philipp.melab@amazee.io",
+    "url": "https://github.com/pmelab"
+  },
+  "homepage": "https://github.com/pmelab/gtd",
+  "repository": "https://github.com/pmelab/gtd",
+  "license": "MIT",
+  "keywords": ["workflow", "automation", "git"]
+}

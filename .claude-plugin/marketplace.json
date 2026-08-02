@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace-manifest.json",
+  "name": "gtd",
+  "description": "Marketplace for the gtd Claude Code plugin, which turns a Claude Code session into a driver for gtd's autonomous plan/build/review workflow.",
+  "owner": {
+    "name": "pmelab",
+    "email": "philipp.melab@amazee.io",
+    "url": "https://github.com/pmelab"
+  },
+  "plugins": [
+    {
+      "name": "gtd",
+      "displayName": "git-things-done",
+      "source": "./plugins/gtd",
+      "description": "Drives gtd's git-native plan/build/review loop from any Claude Code session — CLI, desktop, or web — running autonomous beats unattended and surfacing human gates as conversation.",
+      "category": "productivity",
+      "keywords": ["workflow", "automation", "git"],
+      "license": "MIT",
+      "repository": "https://github.com/pmelab/gtd"
+    }
+  ]
+}
