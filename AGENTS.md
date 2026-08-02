@@ -42,9 +42,9 @@ exactly one content kind, `on` edges, `retry`, `model`, `file`/`mode`,
 `compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through, so it
 never needs its own logic. After editing, update:
 
-- **`src/workflows/unified.flat.yaml`** — the frozen flat reference
-  `golden.test.ts` pins the template against; update both deliberately, never
-  weaken the test
+- **`src/workflows/templates.test.ts`** — the invariants the compiled template
+  must keep (one initial state, one review window, one review/fix entry, the two
+  entry-file forks)
 - **e2e feature files** that assert on the bundled template's shape (they set it
   up with the `Given the workflow` step —
   `tests/integration/features/default-workflow.feature` (simple flow),

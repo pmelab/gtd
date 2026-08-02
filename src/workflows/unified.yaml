@@ -17,14 +17,14 @@
 #
 # ── Authored with SUB-MACHINES (Option C) ──────────────────────────────────
 #
-# This template is written with `submachines:`/`use:` (see src/Submachines.ts
-# and STATES.md). Expansion is a compile-time raw → raw pre-pass with NO runtime
-# footprint: the pure engine only ever sees the flat concrete states, and each
-# invocation's `as:` rename map reproduces the exact state names the flat
-# template used — so the compiled `WorkflowDefinition` is BYTE-IDENTICAL to the
-# frozen `unified.flat.yaml` (pinned by src/workflows/golden.test.ts). The
-# sub-machines split into DEDUP (a gate/loop authored once, invoked several
-# times) and ENCAPSULATION (a single-instance cluster grouped for reading):
+# This template is written with `submachines:`/`use:` (see src/Submachines.ts).
+# Expansion is a compile-time raw → raw pre-pass with NO runtime footprint: the
+# pure engine only ever sees the flat concrete states, and each invocation's
+# `as:` rename map spells out the concrete state name every expanded state gets,
+# so the compiled `WorkflowDefinition` is exactly what a hand-written flat
+# workflow would produce. The sub-machines split into DEDUP (a gate/loop
+# authored once, invoked several times) and ENCAPSULATION (a single-instance
+# cluster grouped for reading):
 #
 #   * makeGreen (dedup ×2)    — the check/fix/escalate health triple shared by
 #                               the simple build tail and the advanced package
