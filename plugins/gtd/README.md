@@ -40,10 +40,8 @@ The plugin is two layers, and they don't overlap:
 | Hooks                   | `Stop` enforcement (block on invalid steering file or an unfinished armed loop), `SessionStart` context injection (`gtd status`), a `PreToolUse` commit guard (deny `git commit`/`rebase`/`reset` while armed), and desktop notifications at a gate. |
 | `scripts/statusline.sh` | Renders the resolved state (e.g. `gtd: building ⇦ agent (2 pending)`) as a Claude Code status line.                                                                                                                                                  |
 
-The skills, agent, and hooks are all part of this same plugin's ongoing
-implementation (see `docs/design/claude-code-plugin-plan.md` for the full work
-package breakdown) — this README describes the finished shape, not just what's
-landed so far.
+See `docs/design/claude-code-plugin-plan.md` for the work-package breakdown this
+plugin was built from.
 
 ## Requirements
 
