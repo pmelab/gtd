@@ -49,9 +49,8 @@ Otherwise pull out:
 When the resolved rest declares a review checkout window (the bundled template's
 `await-review`), the diff under review is already sitting in the working tree as
 ordinary uncommitted changes — the window rewinds HEAD to the review base so an
-editor's git integration shows the whole cycle as a normal dirty tree (see
-STATES.md §11). Before asking the user anything, give them a compact view of
-what's there:
+editor's git integration shows the whole cycle as a normal dirty tree. Before
+asking the user anything, give them a compact view of what's there:
 
 ```
 git status --short
@@ -96,10 +95,9 @@ their own answer.
 ### `mode: review` — the review doc (e.g. `.gtd/REVIEW.md`)
 
 The file groups the diff into chunks, each hunk pointer a
-`- [ ] ./path#line — description` line under a `## Chunk Title` heading (see
-STATES.md §10 for the format `src/ReviewDoc.ts` defines). Lead with the
-top-level decision, using the gate's own `edges[].describe` texts as the option
-labels when present:
+`- [ ] ./path#line — description` line under a `## Chunk Title` heading (the
+format gtd's `src/ReviewDoc.ts` defines). Lead with the top-level decision,
+using the gate's own `edges[].describe` texts as the option labels when present:
 
 - **Approve everything** — sign off with no comment.
 - **Give feedback** — something needs to change.

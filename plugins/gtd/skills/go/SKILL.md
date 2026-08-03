@@ -8,8 +8,8 @@ description: >-
 
 # Driving the gtd loop
 
-This skill is the pinned loop-driver protocol (gtd's `docs/loop.md`) restated
-for a Claude Code session acting as the driver.
+This skill is the pinned loop-driver protocol (the gtd README's "Driving the
+loop") restated for a Claude Code session acting as the driver.
 
 The session driving this skill is the loop driver. It never acts on a beat's
 instructions itself — autonomous work always goes to a subagent (see "The loop"
