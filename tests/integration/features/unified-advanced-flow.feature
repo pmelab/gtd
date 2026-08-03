@@ -3,20 +3,20 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
 
   Coverage of the ADVANCED entry of `src/workflows/unified.yaml` (started by
   creating `.gtd/REQUIREMENTS.md`): the two-phase product/technical Q&A
-  (adv-grilling ⇄ answer, architecting ⇄ answer), package decomposition, the
-  per-package build loop (picking → adv-building → adv-checking), the
+  (product-qa ⇄ answer, technical-qa ⇄ answer), package decomposition, the
+  per-package build loop (picking → package-building → package-checking), the
   per-package agentic `spec-review` gate (issues → spec-fix → re-check →
   re-review; clean = approval → closing), and the queue closing out to the
   SHARED tail (`reviewing`) once every package is done.
 
   The Q&A phases use the qa checkbox format: the agent surfaces each open
   question with candidate-answer checkboxes plus a `- [ ] _your answer_` slot,
-  and the `answerGate` on adv-grilling-answer/architecting-answer refuses a step
+  and the `answerGate` on product-answer/technical-answer refuses a step
   while any open question lacks exactly one tick. Ticking loops back to the
   agent (which folds answers in); a clean step advances only when no open
   questions remain (agent surfaced none, or the human deleted the section).
 
-  Check-actor states (picking, adv-checking, closing, review-deciding) are
+  Check-actor states (picking, package-checking, closing, review-deciding) are
   simulated by writing their verdict files directly and running
   `gtd step check` — @inmem never executes the scripts themselves.
 
@@ -29,7 +29,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → adv-start-check"
+    And the last commit subject is "gtd(human): idle → spec-precheck"
 
   Scenario: idle forks on the entry file — TODO.md (anything else) starts the simple flow gate
     Given a test project
@@ -40,12 +40,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → start-check"
+    And the last commit subject is "gtd(human): idle → plan-precheck"
 
   Scenario: the answer gate refuses an unanswered open question, then ticking loops back and a converged plan advances
     Given a test project
     And the workflow
-    And a commit "gtd(agent): adv-grilling-answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(agent): product-answer" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget.
 
@@ -62,7 +62,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
     Then it fails
     And stderr contains "not answered"
     And stderr contains "Which storage backend?"
-    # tick exactly one option -> loops back to adv-grilling to fold the answer in
+    # tick exactly one option -> loops back to product-qa to fold the answer in
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a widget.
@@ -77,12 +77,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): adv-grilling-answer → adv-grilling"
+    And the last commit subject is "gtd(human): product-answer → product-qa"
 
   Scenario: the accept-all escape — deleting the whole Open Questions section is allowed and loops to the agent to finalize
     Given a test project
     And the workflow
-    And a commit "gtd(agent): adv-grilling-answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(agent): product-answer" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget.
 
@@ -101,12 +101,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): adv-grilling-answer → adv-grilling"
+    And the last commit subject is "gtd(human): product-answer → product-qa"
 
   Scenario: a ticked free-text slot with text is a valid answer; the placeholder alone is refused
     Given a test project
     And the workflow
-    And a commit "gtd(agent): architecting-answer" that adds ".gtd/ARCHITECTURE.md" with:
+    And a commit "gtd(agent): technical-answer" that adds ".gtd/ARCHITECTURE.md" with:
       """
       Modules: widget.ts, store.ts.
 
@@ -122,7 +122,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
     When I run gtd step human
     Then it fails
     And stderr contains "not answered"
-    # replace the placeholder with real text -> answered, loops to architecting
+    # replace the placeholder with real text -> answered, loops to technical-qa
     Given ".gtd/ARCHITECTURE.md" is modified to:
       """
       Modules: widget.ts, store.ts.
@@ -137,7 +137,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): architecting-answer → architecting"
+    And the last commit subject is "gtd(human): technical-answer → technical-qa"
 
   Scenario: the advanced flow runs product + technical Q&A, decomposes into a package, builds it, fails and passes the spec-review gate, then closes out to review
     Given a test project
@@ -148,28 +148,28 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → adv-start-check"
+    And the last commit subject is "gtd(human): idle → spec-precheck"
 
-    # adv-start-check: green baseline gate — a clean tree (tests pass) -> adv-grilling
+    # spec-precheck: green baseline gate — a clean tree (tests pass) -> product-qa
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): adv-start-check → adv-grilling"
+    And the last commit subject is "gtd(check): spec-precheck → product-qa"
 
-    # adv-grilling: develops the product plan in REQUIREMENTS.md
+    # product-qa: develops the product plan in REQUIREMENTS.md
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a widget. Product plan: it exposes a `widget()` factory.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): adv-grilling → adv-grilling-answer"
+    And the last commit subject is "gtd(agent): product-qa → product-answer"
 
-    # adv-grilling-answer: accept with a clean step -> architecting
+    # product-answer: accept with a clean step -> technical-qa
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): adv-grilling-answer → architecting"
+    And the last commit subject is "gtd(human): product-answer → technical-qa"
 
-    # architecting: writes ARCHITECTURE.md, deletes REQUIREMENTS.md
+    # technical-qa: writes ARCHITECTURE.md, deletes REQUIREMENTS.md
     Given the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
@@ -177,12 +177,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): architecting → architecting-answer"
+    And the last commit subject is "gtd(agent): technical-qa → technical-answer"
 
-    # architecting-answer: accept with a clean step -> decompose
+    # technical-answer: accept with a clean step -> decompose
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): architecting-answer → decompose"
+    And the last commit subject is "gtd(human): technical-answer → decompose"
 
     # decompose: writes one package file, deletes ARCHITECTURE.md
     Given the file ".gtd/ARCHITECTURE.md" is deleted
@@ -202,21 +202,21 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): picking → adv-building"
+    And the last commit subject is "gtd(check): picking → package-building"
 
-    # adv-building: implements the package's tasks, leaving the package file
+    # package-building: implements the package's tasks, leaving the package file
     Given a file "src/widget.ts" with:
       """
       export const widget = () => ({})
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): adv-building → adv-checking"
+    And the last commit subject is "gtd(agent): package-building → package-checking"
 
-    # adv-checking (green): a clean step moves to the spec-review gate
+    # package-checking (green): a clean step moves to the spec-review gate
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): adv-checking → spec-review"
+    And the last commit subject is "gtd(check): package-checking → spec-review"
 
     # spec-review (issues): the reviewer writes SPEC_FEEDBACK.md -> spec-fix
     Given a file ".gtd/SPEC_FEEDBACK.md" with:
@@ -227,7 +227,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
     Then it succeeds
     And the last commit subject is "gtd(agent): spec-review → spec-fix"
 
-    # spec-fix: addresses the concern, deletes SPEC_FEEDBACK.md -> adv-checking
+    # spec-fix: addresses the concern, deletes SPEC_FEEDBACK.md -> package-checking
     Given the file ".gtd/SPEC_FEEDBACK.md" is deleted
     And "src/widget.ts" is modified to:
       """
@@ -235,12 +235,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): spec-fix → adv-checking"
+    And the last commit subject is "gtd(agent): spec-fix → package-checking"
 
-    # adv-checking (green) -> spec-review again
+    # package-checking (green) -> spec-review again
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): adv-checking → spec-review"
+    And the last commit subject is "gtd(check): package-checking → spec-review"
 
     # spec-review (clean = approval): the reviewer writes nothing -> closing
     When I run gtd step agent

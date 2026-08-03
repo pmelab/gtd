@@ -10,7 +10,7 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
   template's `reviewing` → `await-review` → feedback laps, and the
   `await-review` review checkout window) then operates over that diff with no
   duplicated logic. The unified template declares `reviewEntry: true` on
-  `review-start-check` — the green-baseline gate that runs the suite and, once
+  `review-precheck` — the green-baseline gate that runs the suite and, once
   green, transitions to `reviewing`.
 
   Background:
@@ -25,13 +25,13 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
       """
     When I run gtd with args "review base"
     Then it succeeds
-    And the last commit subject is "gtd(human): review-start-check"
+    And the last commit subject is "gtd(human): review-precheck"
     And the last commit body contains "Gtd-Review-Base:"
     And the last commit body contains the hash of "base"
     # The green-baseline gate: a clean tree (tests pass) advances to reviewing.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-start-check → reviewing"
+    And the last commit subject is "gtd(check): review-precheck → reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "## Full diff under review"

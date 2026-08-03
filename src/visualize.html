@@ -989,6 +989,11 @@
         border-radius: 6px;
         white-space: nowrap;
       }
+      .edge .act {
+        font-size: 12.5px;
+        font-weight: 700;
+        color: var(--accent);
+      }
       .edge .arr {
         color: var(--text-faint);
       }
@@ -1518,7 +1523,7 @@
         states.forEach((s) => {
           ;(s.on || []).forEach((e) => {
             if (!inSet.has(e.to) || !byName[e.to]) return
-            addEdge(solid, unitId(s.name), unitId(e.to), e.pattern)
+            addEdge(solid, unitId(s.name), unitId(e.to), e.action || e.pattern)
           })
           if (s.retry && inSet.has(s.retry.otherwise)) {
             addEdge(dashed, unitId(s.name), unitId(s.retry.otherwise), "retry ×" + s.retry.max)
@@ -1535,7 +1540,7 @@
               emittedGhosts.add(e.to)
               lines.push(ghostLine(target))
             }
-            lines.push(`  ${idFor(s.name)} -->|${mlabel(e.pattern)}| e${idFor(e.to)}`)
+            lines.push(`  ${idFor(s.name)} -->|${mlabel(e.action || e.pattern)}| e${idFor(e.to)}`)
           })
           if (s.retry && byName[s.retry.otherwise] && !inSet.has(s.retry.otherwise)) {
             const target = byName[s.retry.otherwise]
@@ -1984,19 +1989,22 @@
         }
         panel.classList.remove("hidden")
         const a = CURRENT.actor
-        const edgeRow = (pattern, to, matched, retryOf) => {
+        const edgeRow = (pattern, to, matched, retryOf, action) => {
           const t = byName[to]
           return (
             `<div class="edge${matched ? " cur-matched" : ""}"><div class="er">` +
+            `${action ? `<span class="act">${esc(action)}</span>` : ""}` +
             `<span class="pat">${retryOf ? "after " + esc(retryOf) + " tries" : "if " + esc(pattern)}</span>` +
             `<span class="arr">→</span>` +
             `<button class="goto" data-actor="${t ? actorOf(t) : "unknown"}" data-to="${esc(to)}">${esc(to)}</button>` +
             `${matched ? '<span class="cur-tag">current match</span>' : ""}</div></div>`
           )
         }
-        const rows = (CURRENT.edges || []).map((e) => edgeRow(e.pattern, e.to, e.matched)).join("")
+        const rows = (CURRENT.edges || [])
+          .map((e) => edgeRow(e.pattern, e.to, e.matched, undefined, e.action))
+          .join("")
         const retryRow = CURRENT.retry
-          ? edgeRow(null, CURRENT.retry.otherwise, false, CURRENT.retry.max)
+          ? edgeRow(null, CURRENT.retry.otherwise, false, CURRENT.retry.max, undefined)
           : ""
         panel.innerHTML =
           `<div class="cur-head"><span class="cur-name">${esc(CURRENT.state)}</span>` +
@@ -2187,7 +2195,9 @@
                 const t = byName[e.to]
                 const ta = t ? actorOf(t) : "unknown"
                 return (
-                  `<div class="edge"><div class="er"><span class="pat">${esc(e.pattern)}</span><span class="arr">→</span>` +
+                  `<div class="edge"><div class="er">${
+                    e.action ? `<span class="act">${esc(e.action)}</span>` : ""
+                  }<span class="pat">${esc(e.pattern)}</span><span class="arr">→</span>` +
                   `<button class="goto" data-actor="${ta}" data-to="${esc(e.to)}">${esc(e.to)}</button></div>` +
                   `${e.describe ? `<div class="em">${esc(e.describe)}</div>` : ""}</div>`
                 )

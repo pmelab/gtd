@@ -142,7 +142,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
 
   Scenario: prettier plugged into the bundled default's plan mode via a top-level modes: key formats the agent-authored plan at planning
     # No `workflow:` re-declaration: the bundled default already gives
-    # `planning`/`plan-review` `mode: prose` (see unified.yaml); a top-level
+    # `planning`/`await-plan` `mode: prose` (see unified.yaml); a top-level
     # `modes:` key alone is enough to plug a formatter into it.
     Given a test project
     And prettier is available in the test project
@@ -158,10 +158,10 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): planning → plan-review"
+    And the last commit subject is "gtd(agent): planning → await-plan"
     And ".gtd/TODO.md" has no lines longer than 80 characters
 
-  Scenario: prettier plugged into the bundled default's plan mode formats the human-edited plan at plan-review
+  Scenario: prettier plugged into the bundled default's plan mode formats the human-edited plan at await-plan
     Given a test project
     And prettier is available in the test project
     And a gtd config file at ".gtdrc" with:
@@ -170,7 +170,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
         prose:
           format: "npx prettier --write <%= it.file %>"
       """
-    And a commit "gtd(agent): plan-review" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(agent): await-plan" that adds ".gtd/TODO.md" with:
       """
       A plan.
       """
@@ -180,7 +180,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): plan-review → planning"
+    And the last commit subject is "gtd(human): await-plan → planning"
     And ".gtd/TODO.md" has no lines longer than 80 characters
 
   Scenario: gtd validate formats the plan file and reports it valid — prose has no validator to fail

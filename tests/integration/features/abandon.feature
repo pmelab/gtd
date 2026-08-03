@@ -24,10 +24,10 @@ Feature: gtd abandon — end the process underway without completing it
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → start-check"
+    And the last commit subject is "gtd(human): idle → plan-precheck"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): start-check → planning"
+    And the last commit subject is "gtd(check): plan-precheck → planning"
     When I run gtd with args "abandon"
     Then it succeeds
     And stdout contains "abandoned the process resting at \"planning\""
@@ -72,7 +72,7 @@ Feature: gtd abandon — end the process underway without completing it
     Then it succeeds
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-start-check → reviewing"
+    And the last commit subject is "gtd(check): review-precheck → reviewing"
     Given a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -107,7 +107,7 @@ Feature: gtd abandon — end the process underway without completing it
     When I run gtd with args "abandon --json"
     Then it succeeds
     And stdout contains "\"abandoned\":true"
-    And stdout contains "\"from\":\"start-check\""
+    And stdout contains "\"from\":\"plan-precheck\""
     And stdout contains "\"state\":\"idle\""
 
   Scenario: --json reports the no-op too, without an error envelope

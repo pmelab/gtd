@@ -132,6 +132,8 @@ const expandOn = (raw: unknown, ctx: ExpansionContext, errors: string[]): unknow
       if (typeof value["to"] === "string") next["to"] = resolveTarget(value["to"], ctx, errors)
       if (typeof value["describe"] === "string")
         next["describe"] = substituteScalar(value["describe"], ctx, errors)
+      if (typeof value["action"] === "string")
+        next["action"] = substituteScalar(value["action"], ctx, errors)
       out[pattern] = next
     } else {
       out[pattern] = value

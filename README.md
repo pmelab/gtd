@@ -84,6 +84,14 @@ driver runs `content` itself, then steps its actor; `"prompt"` means feed
 `content` to your agent, then run `gtd step <actor>` once it's done. gtd itself
 never executes anything — the driver owns running scripts.
 
+An `on` edge may also carry a short imperative `action` (e.g. `Accept plan`)
+alongside its existing `describe` sentence — a human-facing name for the choice
+itself, not just the underlying glob pattern. `gtd status` (plain and `--json`)
+and `gtd visualize`'s diagram and inspector all render the two composed
+together: the `action` leads when the edge declares one, with the raw pattern
+(and `describe`) still shown alongside it, so a human choosing between routes
+reads intent first, glob second.
+
 The unified workflow has **entry points behind a green-baseline gate, into one
 shared tail**. Every entry first runs your test suite and only starts once it's
 green — you never build (or review) on top of a red baseline; a red run halts
@@ -237,6 +245,21 @@ flag on any command other than `gtd step` are all usage errors.
 `--once` is a separate, bash-level flag handled entirely by the `bin/gtd` driver
 itself, stripped before anything reaches the bundle.
 
+### `gtd status`'s `Next:`/`next`
+
+Both plain and `--json` output include a headline preview of what would happen
+next: the first declared `on` edge whose pattern matches the pending changes AS
+A WHOLE (the same first-match-wins semantics `gtd step` itself uses), using its
+`action` when the edge declares one, else its raw pattern, alongside its target
+state. Plain output prints a `Next: <action-or-pattern> → <target>` line (or
+`Next: (no match — nothing would happen)`); `--json`'s `next` key mirrors it as
+`{ action?, pattern, target }`, or `null` on no match.
+
+This reports the **declared** route only: a capped `retry` may redirect
+elsewhere at real step time, which `Next:`/`next` does not apply — it previews
+what the declared `on` patterns would match, not a guarantee of where a real
+`gtd step` lands.
+
 ### Error envelope
 
 Every command, in `--json` mode, reports a failure as a machine-readable
@@ -346,7 +369,11 @@ workflow:
       commit: <string>
       on: # a mapping, DECLARATION ORDER PRESERVED
         "<pattern>": <targetState> # short form
-        "<pattern>": { to: <targetState>, describe: <sentence> } # with a route description
+        "<pattern>": {
+            to: <targetState>,
+            describe: <sentence>,
+            action: <label>,
+          } # description/action
       initial: true # exactly one state across the whole workflow
       retry:
         max: <number>

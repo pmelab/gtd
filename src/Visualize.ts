@@ -54,6 +54,7 @@ export interface VizEdge {
   readonly pattern: string
   readonly to: string
   readonly describe?: string
+  readonly action?: string
 }
 
 /** One state, described for the viewer. */
@@ -105,8 +106,8 @@ const FLAG_KEYS = [
 // carried as its own `VizState.initial` field.
 const flagsOf = (def: StateDef): string[] => FLAG_KEYS.filter((k) => def[k] === true)
 
-const edgeToViz = ([pattern, to, describe]: OnEdge): VizEdge =>
-  describe !== undefined ? { pattern, to, describe } : { pattern, to }
+const edgeToViz = ([pattern, to, describe, action]: OnEdge): VizEdge =>
+  stripUndefined({ pattern, to, describe, action }) as unknown as VizEdge
 
 /** Drop keys whose value is `undefined` (so `exactOptionalPropertyTypes` optionals stay absent, not `undefined`). */
 const stripUndefined = (o: Record<string, unknown>): Record<string, unknown> => {
@@ -148,7 +149,7 @@ const renderPatternOrRaw = (pattern: string, vars: Record<string, string>): stri
   }
 }
 
-/** Render every `on` edge of every state against `vars` (pattern key only — `target`/`describe` pass through verbatim), keyed by state name. */
+/** Render every `on` edge of every state against `vars` (pattern key only — `target`/`describe`/`action` pass through verbatim), keyed by state name. */
 const renderedOnByState = (
   workflow: WorkflowDefinition,
   vars: Record<string, string>,
@@ -156,12 +157,13 @@ const renderedOnByState = (
   new Map(
     Object.entries(workflow.states).map(([name, def]) => [
       name,
-      (def.on ?? []).map(
-        ([pattern, target, describe]): OnEdge =>
-          describe !== undefined
-            ? [renderPatternOrRaw(pattern, vars), target, describe]
-            : [renderPatternOrRaw(pattern, vars), target],
-      ),
+      (def.on ?? []).map(([pattern, target, describe, action]): OnEdge => {
+        const renderedPattern = renderPatternOrRaw(pattern, vars)
+        if (action !== undefined) return [renderedPattern, target, describe, action]
+        return describe !== undefined
+          ? [renderedPattern, target, describe]
+          : [renderedPattern, target]
+      }),
     ]),
   )
 
@@ -220,6 +222,7 @@ export interface CurrentStateEdge {
   readonly pattern: string
   readonly to: string
   readonly matched: boolean
+  readonly action?: string
 }
 
 /** Where the active process rests right now, for the viewer's "Current state" panel — resolved once at page load, never polled. */
@@ -255,7 +258,12 @@ export const buildCurrentStateModel = (
     const parsed = parsePattern(patternStr)
     return parsed !== undefined && matchesPattern(parsed, changes)
   })
-  const edges = onEdges.map(([pattern, to], i) => ({ pattern, to, matched: i === matchedIndex }))
+  const edges = onEdges.map(([pattern, to, , action], i) => ({
+    pattern,
+    to,
+    matched: i === matchedIndex,
+    ...(action !== undefined ? { action } : {}),
+  }))
   return stripUndefined({
     state: rest.state,
     actor: rest.actor,

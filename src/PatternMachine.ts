@@ -61,8 +61,22 @@ export interface RetryDef {
  * `"A <%= it.vars.feedbackFile %>"` and the engine still only ever matches a
  * literal string. `describe` exists only to be emitted verbatim so the
  * driving loop / a `message:` template can present it to a human.
+ *
+ * `action` is a fourth, OPTIONAL slot with the exact same discipline as
+ * `describe`: an imperative label (e.g. `"Accept plan"`) that is INERT to the
+ * engine — never read by `step`/`resolveState`/`matchesPattern`, and NEVER
+ * Eta-rendered. It exists only to be emitted verbatim to a consumer (a CLI
+ * message, `gtd status --json`, a visualization) — none of which are wired up
+ * yet; this type is pure plumbing. Because this is a positional tuple and not
+ * an object, an edge that wants an `action` but no `describe` must still pass
+ * an explicit placeholder in slot 3 (e.g. `undefined`) to reach slot 4.
  */
-export type OnEdge = readonly [pattern: string, target: StateName, describe?: string]
+export type OnEdge = readonly [
+  pattern: string,
+  target: StateName,
+  describe?: string | undefined,
+  action?: string,
+]
 
 /**
  * One state's declaration. Exactly one of `script`/`prompt`/`message`/
@@ -221,7 +235,7 @@ export interface StateDef {
    * question in its `qa`-mode `file:` is answered — EXACTLY ONE checkbox ticked
    * per question (and, when the ticked one is the trailing free-text slot, its
    * text is non-empty). This is what makes the advanced flow's answer gates
-   * (`adv-grilling-answer`/`architecting-answer`) require a decision on every
+   * (`product-answer`/`technical-answer`) require a decision on every
    * question before looping back or advancing. Like the review sign-off gate,
    * the PURE engine never reads it: the check lives at the edge
    * (`enforceAnswerCompletenessGate` in `src/program.ts`, over

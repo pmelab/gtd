@@ -341,7 +341,30 @@ export const inlineWorkflowFileRefs = (
 
 // ── Per-state field compilers ────────────────────────────────────────────────
 
-const KNOWN_EDGE_KEYS: ReadonlySet<string> = new Set(["to", "describe"])
+const KNOWN_EDGE_KEYS: ReadonlySet<string> = new Set(["to", "describe", "action"])
+
+/** A missing/malformed field's failure sentinel, distinct from a legitimate `undefined` value. */
+const INVALID = Symbol("invalid edge field")
+
+/**
+ * Validate one optional string field (`describe` or `action`) off an edge
+ * object, pushing a finding and returning `INVALID` when it's present but not
+ * a string.
+ */
+const compileOptionalEdgeField = (
+  value: unknown,
+  pattern: string,
+  name: string,
+  field: "describe" | "action",
+  errors: string[],
+): string | undefined | typeof INVALID => {
+  if (value === undefined) return undefined
+  if (typeof value !== "string") {
+    errors.push(`state "${name}": "on.${pattern}.${field}" must be a string`)
+    return INVALID
+  }
+  return value
+}
 
 /**
  * Compile one `on` row's value into an `OnEdge` (or `undefined`, pushing a
@@ -369,16 +392,20 @@ const compileOnEdge = (
       `state "${name}": "on" entry for pattern "${pattern}" has unknown key(s) ${unknownKeys.join(", ")}`,
     )
   }
-  const { to, describe } = value
+  const { to, describe, action } = value
   if (typeof to !== "string") {
     errors.push(`state "${name}": "on.${pattern}.to" must be a target state name (string)`)
     return undefined
   }
-  if (describe !== undefined && typeof describe !== "string") {
-    errors.push(`state "${name}": "on.${pattern}.describe" must be a string`)
-    return undefined
-  }
-  return describe !== undefined ? [pattern, to, describe] : [pattern, to]
+  const describeField = compileOptionalEdgeField(describe, pattern, name, "describe", errors)
+  if (describeField === INVALID) return undefined
+  const actionField = compileOptionalEdgeField(action, pattern, name, "action", errors)
+  if (actionField === INVALID) return undefined
+  // `describe` may be `undefined` here even though `action` is set (an edge
+  // wanting an `action` but no `describe` passes an explicit `undefined`
+  // placeholder in slot 3 — see `OnEdge`'s positional-coupling doc).
+  if (actionField !== undefined) return [pattern, to, describeField, actionField]
+  return describeField !== undefined ? [pattern, to, describeField] : [pattern, to]
 }
 
 /**

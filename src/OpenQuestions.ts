@@ -1,7 +1,7 @@
 /**
  * Pure parser/validator for the "open questions" structure the ADVANCED flow's
  * steering files (`.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md`) follow in the
- * unified template's `adv-grilling`/`architecting` Q&A loops (see
+ * unified template's `product-qa`/`technical-qa` Q&A loops (see
  * `src/workflows/unified.yaml`) —
  * and for any custom workflow that reuses the same file/format. (The SIMPLE
  * flow's `.gtd/TODO.md` plan loop no longer uses this format — it iterates on a
@@ -28,7 +28,7 @@
  *
  * A question is answered/accepted by MOVING its `###` block from
  * `## Open Questions` down into `## Answered Questions` — the agent does this on
- * the next `adv-grilling`/`architecting` lap (a human leaving a suggestion untouched IS acceptance;
+ * the next `product-qa`/`technical-qa` lap (a human leaving a suggestion untouched IS acceptance;
  * an edit IS the answer — either way the whole batch resolves). Nothing here
  * enforces the move or the section order; that is the producing agent's prompt
  * contract, and this parser only reports the resulting status.

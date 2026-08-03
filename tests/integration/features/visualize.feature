@@ -43,3 +43,28 @@ Feature: gtd visualize — an interactive diagram of the active workflow
     When I run gtd with args "visualize --port abc"
     Then it fails
     And stderr contains "--port must be an integer"
+
+  Scenario: --json labels an edge by its declared action, falling back to the raw pattern when none is declared
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **":
+                to: reviewing
+                action: "Accept the plan"
+          reviewing:
+            actor: agent
+            prompt: "review NOTE.md"
+            on:
+              "A FEEDBACK.md": idle
+      """
+    When I run gtd with args "visualize --json"
+    Then it succeeds
+    And stdout contains "Accept the plan"
+    And stdout contains "A FEEDBACK.md"

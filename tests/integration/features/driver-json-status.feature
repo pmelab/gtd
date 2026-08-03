@@ -112,6 +112,78 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And stdout contains "A DONE.md -> A DONE.md"
     And stdout contains "A scratch.txt -> (no match)"
 
+  Scenario: gtd status previews the declared edge that would fire next, action included, and gtd status --json carries the same in "next"
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "go"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "..."
+            on:
+              "A DONE.md":
+                to: done
+                action: "Finish up"
+          done:
+            commit: "chore: done"
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    And a file "DONE.md" with:
+      """
+      done!
+      """
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "Next: Finish up → done"
+    When I run gtd status with "--json"
+    Then it succeeds
+    And stdout contains "\"next\":{\"action\":\"Finish up\",\"pattern\":\"A DONE.md\",\"target\":\"done\"}"
+
+  Scenario: gtd status reports no match in "next" when the pending change matches no declared pattern
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "go"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            prompt: "..."
+            on:
+              "A DONE.md": done
+          done:
+            commit: "chore: done"
+      """
+    And a commit "gtd(human): working" that adds "NOTE.md" with:
+      """
+      a note
+      """
+    And a file "scratch.txt" with:
+      """
+      not matched by any pattern
+      """
+    When I run gtd status
+    Then it succeeds
+    And stdout contains "Next: (no match — nothing would happen)"
+    When I run gtd status with "--json"
+    Then it succeeds
+    And stdout contains "\"next\":null"
+
   Scenario: gtd next --json carries the state's declared model hint, and gtd status shows it too
     Given a test project
     And a gtd config file at ".gtdrc" with:

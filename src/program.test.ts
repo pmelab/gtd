@@ -21,8 +21,10 @@ import {
   classifyFeedbackProgress,
   classifyReviewSignoff,
   cliErrorLine,
+  computeNextMatch,
   makeProgram,
 } from "./program.js"
+import type { OnEdge, PendingChange } from "./PatternMachine.js"
 import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
 import { inMemoryLayers } from "../tests/integration/support/inmem/layers.js"
 
@@ -365,9 +367,9 @@ describe("gtd review <commitish> — subcommand guards", () => {
     }
   })
 
-  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the unified template's review-entry state (review-start-check)", async () => {
+  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the unified template's review-entry state (review-precheck)", async () => {
     const repo = seededRepo()
-    // Pin the bundled unified template (whose `review-start-check` state
+    // Pin the bundled unified template (whose `review-precheck` state
     // declares `reviewEntry: true`) explicitly and commit it — this is the same
     // machine gtd runs as its built-in default, materialized via
     // `renderInitConfig` (see src/workflows/templates.ts).
@@ -382,9 +384,9 @@ describe("gtd review <commitish> — subcommand guards", () => {
 
     const { output, exit } = await runReview(repo, base)
     expect(Exit.isSuccess(exit)).toBe(true)
-    expect(output).toContain("committed: gtd(human): review-start-check")
+    expect(output).toContain("committed: gtd(human): review-precheck")
     expect(repo.commitHistory()).toHaveLength(before + 1)
-    expect(repo.lastCommitSubject()).toBe("gtd(human): review-start-check")
+    expect(repo.lastCommitSubject()).toBe("gtd(human): review-precheck")
     const message = repo.commitHistory().at(-1)!.message
     expect(message).toContain(`Gtd-Review-Base: ${base}`)
   })
@@ -392,7 +394,7 @@ describe("gtd review <commitish> — subcommand guards", () => {
 
 describe("gtd fix — subcommand guards", () => {
   // Like `gtd review`, `gtd fix`'s guards need a real (in-memory) repo to
-  // resolve against. Full happy-path coverage (fix-check running the suite,
+  // resolve against. Full happy-path coverage (fix-precheck running the suite,
   // dropping into the shared fixing loop or no-op'ing back to idle) lives in
   // tests/integration/features/fix-entry.feature.
 
@@ -486,16 +488,16 @@ describe("gtd fix — subcommand guards", () => {
     }
   })
 
-  it("the happy path writes one empty entry commit resting at the unified template's fix-entry state (fix-check)", async () => {
+  it("the happy path writes one empty entry commit resting at the unified template's fix-entry state (fix-precheck)", async () => {
     const repo = seededRepo()
     repo.writeFile(".gtdrc.json", renderInitConfig())
     repo.commitAllWithPrefix("chore: init gtd workflow")
     const before = repo.commitHistory().length
     const { output, exit } = await runFix(repo)
     expect(Exit.isSuccess(exit)).toBe(true)
-    expect(output).toContain("committed: gtd(human): fix-check")
+    expect(output).toContain("committed: gtd(human): fix-precheck")
     expect(repo.commitHistory()).toHaveLength(before + 1)
-    expect(repo.lastCommitSubject()).toBe("gtd(human): fix-check")
+    expect(repo.lastCommitSubject()).toBe("gtd(human): fix-precheck")
   })
 })
 
@@ -606,6 +608,159 @@ describe("gtd next --json / gtd status — label emission", () => {
     expect(Exit.isSuccess(exit)).toBe(true)
     const parsed = JSON.parse(output) as Record<string, unknown>
     expect(parsed).not.toHaveProperty("label")
+  })
+})
+
+describe("computeNextMatch", () => {
+  // Pure unit coverage — mirrors `PatternMachine.step`'s own `matchOn`
+  // first-match-wins semantics, but over the WHOLE change list at once
+  // (unlike `computeStatusChanges`, which checks each change in isolation).
+
+  it("picks the first matching edge in declaration order, ignoring later matches", () => {
+    const onEdges: readonly OnEdge[] = [
+      ["* NOTE.md", "first-target", undefined, "First action"],
+      ["M **/*.md", "second-target", undefined, "Second action"],
+    ]
+    const changes: readonly PendingChange[] = [{ status: "M", path: "NOTE.md" }]
+    expect(computeNextMatch(onEdges, changes)).toEqual({
+      action: "First action",
+      pattern: "* NOTE.md",
+      target: "first-target",
+    })
+  })
+
+  it("returns null when no declared pattern matches the pending changes", () => {
+    const onEdges: readonly OnEdge[] = [["A NOTE.md", "planned"]]
+    const changes: readonly PendingChange[] = [{ status: "M", path: "OTHER.md" }]
+    expect(computeNextMatch(onEdges, changes)).toBeNull()
+  })
+
+  it("returns null on a clean tree when the state declares no `C` row", () => {
+    const onEdges: readonly OnEdge[] = [["A NOTE.md", "planned"]]
+    expect(computeNextMatch(onEdges, [])).toBeNull()
+  })
+
+  it("matches a declared `C` row against a clean tree", () => {
+    const onEdges: readonly OnEdge[] = [["C", "idle", undefined, "Loop"]]
+    expect(computeNextMatch(onEdges, [])).toEqual({
+      action: "Loop",
+      pattern: "C",
+      target: "idle",
+    })
+  })
+})
+
+describe("gtd status — Next: preview", () => {
+  // Exercises `computeNextMatch` wired through `gtd status`'s plain-text
+  // `Next:` line and `--json`'s `next` key, using the same InMemRepo +
+  // inMemoryLayers + runProgram precedent as the label-emission block above.
+  // The workflow below carries one edge with an `action`, one without (falls
+  // back to the raw `pattern`), and leaves a third change unmatched by either.
+
+  const workflowWithNextEdges = [
+    "workflow:",
+    "  states:",
+    "    idle:",
+    "      actor: human",
+    "      initial: true",
+    "      message: write NOTE.md to start a cycle",
+    "      on:",
+    '        "* **": working',
+    "    working:",
+    "      actor: agent",
+    "      prompt: do the work described in NOTE.md",
+    "      on:",
+    '        "A PLAN.md":',
+    "          to: accepted",
+    "          action: Accept plan",
+    '        "M REVIEW.md": idle',
+    "    accepted:",
+    "      actor: human",
+    "      message: plan accepted",
+    "",
+  ].join("\n")
+
+  const seededRepoAt = (workflowYaml: string): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gitignore", "node_modules\n")
+    repo.writeFile("README.md", "# test project\n")
+    repo.writeFile(".gtdrc.yaml", workflowYaml)
+    repo.writeFile("REVIEW.md", "old review\n")
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix("gtd(human): working")
+    return repo
+  }
+
+  const runProgram = async (
+    repo: InMemRepo,
+    ...args: string[]
+  ): Promise<{ output: string; exit: Exit.Exit<void, Error> }> => {
+    let output = ""
+    const write = (chunk: string) => {
+      output += chunk
+    }
+    const argv = ["node", "gtd.js", ...args]
+    const exit = await Effect.runPromiseExit(
+      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+    )
+    return { output, exit }
+  }
+
+  it("gtd status shows `Next:` with the action when the matched edge carries one", async () => {
+    const repo = seededRepoAt(workflowWithNextEdges)
+    repo.writeFile("PLAN.md", "the plan\n")
+    const { output, exit } = await runProgram(repo, "status")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(output).toContain("Next: Accept plan → accepted")
+  })
+
+  it("gtd status --json's `next` carries the action when the matched edge has one", async () => {
+    const repo = seededRepoAt(workflowWithNextEdges)
+    repo.writeFile("PLAN.md", "the plan\n")
+    const { output, exit } = await runProgram(repo, "status", "--json")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(parsed.next).toEqual({
+      action: "Accept plan",
+      pattern: "A PLAN.md",
+      target: "accepted",
+    })
+  })
+
+  it("gtd status falls back to the raw pattern when the matched edge carries no action", async () => {
+    const repo = seededRepoAt(workflowWithNextEdges)
+    repo.writeFile("REVIEW.md", "an updated review\n")
+    const { output, exit } = await runProgram(repo, "status")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(output).toContain("Next: M REVIEW.md → idle")
+  })
+
+  it("gtd status --json's `next` omits `action` and falls back to `pattern` when the matched edge has none", async () => {
+    const repo = seededRepoAt(workflowWithNextEdges)
+    repo.writeFile("REVIEW.md", "an updated review\n")
+    const { output, exit } = await runProgram(repo, "status", "--json")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(parsed.next).toEqual({ pattern: "M REVIEW.md", target: "idle" })
+  })
+
+  it("gtd status shows the no-match line when the pending change matches no declared pattern", async () => {
+    const repo = seededRepoAt(workflowWithNextEdges)
+    repo.writeFile("OTHER.md", "unrelated\n")
+    const { output, exit } = await runProgram(repo, "status")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(output).toContain("Next: (no match — nothing would happen)")
+  })
+
+  it("gtd status --json's `next` is present-but-null (never omitted) on no match", async () => {
+    const repo = seededRepoAt(workflowWithNextEdges)
+    repo.writeFile("OTHER.md", "unrelated\n")
+    const { output, exit } = await runProgram(repo, "status", "--json")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(parsed).toHaveProperty("next")
+    expect(parsed.next).toBeNull()
   })
 })
 
@@ -743,7 +898,7 @@ describe("classifyFeedbackProgress", () => {
 })
 
 describe("classifyAnswerCompleteness", () => {
-  const base = { file: ".gtd/REQUIREMENTS.md", stateName: "adv-grilling-answer", invoker: "human" }
+  const base = { file: ".gtd/REQUIREMENTS.md", stateName: "product-answer", invoker: "human" }
   const doc = (options: readonly string[]): string =>
     ["Build a thing.", "", "## Open Questions", "", "### Which API?", "", ...options, ""].join("\n")
 

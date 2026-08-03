@@ -235,3 +235,63 @@ describe("expandSubmachines — passthrough and errors", () => {
     expect(errors.some((e) => e.includes('unbound param "$missing"'))).toBe(true)
   })
 })
+
+// ── `action` field survives expansion (parity with `describe`) ──────────────
+
+describe("expandSubmachines — action field", () => {
+  it("a literal `action` string on an on-entry survives expansion unchanged", () => {
+    const errors: string[] = []
+    const out = expandSubmachines(
+      {
+        submachines: {
+          gate: {
+            params: ["onGreen"],
+            states: {
+              check: {
+                actor: "check",
+                script: "s",
+                on: { C: { to: "$onGreen", action: "Accept plan" } },
+              },
+            },
+          },
+        },
+        use: [{ submachine: "gate", as: { check: "c" }, with: { onGreen: "next" } }],
+        states: { next: { actor: "agent", prompt: "p", on: { "* **": "c" } } },
+      },
+      errors,
+    ) as { states: Record<string, Record<string, unknown>> }
+    expect(errors).toEqual([])
+    expect(out.states["c"]!.on).toEqual({ C: { to: "next", action: "Accept plan" } })
+  })
+
+  it("`action: $param` is substituted like `describe: $param`", () => {
+    const errors: string[] = []
+    const out = expandSubmachines(
+      {
+        submachines: {
+          gate: {
+            params: ["onGreen", "actionLabel"],
+            states: {
+              check: {
+                actor: "check",
+                script: "s",
+                on: { C: { to: "$onGreen", action: "$actionLabel" } },
+              },
+            },
+          },
+        },
+        use: [
+          {
+            submachine: "gate",
+            as: { check: "c" },
+            with: { onGreen: "next", actionLabel: "Accept plan" },
+          },
+        ],
+        states: { next: { actor: "agent", prompt: "p", on: { "* **": "c" } } },
+      },
+      errors,
+    ) as { states: Record<string, Record<string, unknown>> }
+    expect(errors).toEqual([])
+    expect(out.states["c"]!.on).toEqual({ C: { to: "next", action: "Accept plan" } })
+  })
+})
