@@ -21,14 +21,15 @@ import { Eta } from "eta"
  * One resolved `on` edge, as a `message:`/`prompt:` template sees it in
  * `it.edges`: the raw pattern, its target state, and the optional
  * human-readable `describe` sentence the workflow author attached (see
- * `PatternMachine.OnEdge`). All three are LITERAL strings — none is
- * Eta-rendered (the pattern key never was; `describe` follows the same rule),
- * so a template renders `describe` verbatim, typically with `<%~ %>`.
+ * `PatternMachine.OnEdge`). All are LITERAL strings — none is Eta-rendered
+ * (the pattern key never was; `describe` and `action` follow the same rule),
+ * so a template renders `describe`/`action` verbatim, typically with `<%~ %>`.
  */
 export interface TemplateEdge {
   readonly pattern: string
   readonly target: string
   readonly describe?: string
+  readonly action?: string
 }
 
 /**

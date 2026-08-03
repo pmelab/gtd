@@ -96,10 +96,10 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       """
       chore: initial commit
       chore: init gtd workflow
-      gtd(human): idle → start-check
-      gtd(check): start-check → planning
-      gtd(agent): planning → plan-review
-      gtd(human): plan-review → building
+      gtd(human): idle → plan-precheck
+      gtd(check): plan-precheck → planning
+      gtd(agent): planning → await-plan
+      gtd(human): await-plan → building
       gtd(agent): building → checking
       gtd(check): checking → reviewing
       gtd(agent): reviewing → await-review
@@ -140,7 +140,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
     Then it succeeds
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): start-check → planning"
+    And the last commit subject is "gtd(check): plan-precheck → planning"
 
     When I run gtd with args "abandon"
     Then it succeeds
@@ -153,7 +153,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
 
     When I run gtd with args "restore"
     Then it succeeds
-    And the last commit subject is "gtd(check): start-check → planning"
+    And the last commit subject is "gtd(check): plan-precheck → planning"
     And the git ref "refs/worktree/gtd/history" does not exist
 
   Scenario: work-on-top refusal — a commit made after the squash is never discarded
@@ -382,10 +382,10 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       chore: initial commit
       chore: init gtd workflow
       feat: cycle one
-      gtd(human): idle → start-check
-      gtd(check): start-check → planning
-      gtd(agent): planning → plan-review
-      gtd(human): plan-review → building
+      gtd(human): idle → plan-precheck
+      gtd(check): plan-precheck → planning
+      gtd(agent): planning → await-plan
+      gtd(human): await-plan → building
       gtd(agent): building → checking
       gtd(check): checking → reviewing
       gtd(agent): reviewing → await-review
@@ -402,7 +402,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
     Then it succeeds
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): start-check → planning"
+    And the last commit subject is "gtd(check): plan-precheck → planning"
 
     When I run gtd with args "abandon"
     Then it succeeds

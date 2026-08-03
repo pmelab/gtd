@@ -668,6 +668,29 @@ describe("toTemplateEdges — OnEdge tuples to the `{ pattern, target, describe?
     const [edge] = toTemplateEdges([["* **", "next"]])
     expect("describe" in edge!).toBe(false)
   })
+
+  it("carries `action` alongside `describe` when both are present", () => {
+    expect(toTemplateEdges([["C", "building", "Change nothing.", "Accept plan"]])).toEqual([
+      { pattern: "C", target: "building", describe: "Change nothing.", action: "Accept plan" },
+    ])
+  })
+
+  it("carries `action` with no `describe` (the placeholder-in-slot-3 case)", () => {
+    expect(toTemplateEdges([["C", "building", undefined, "Accept plan"]])).toEqual([
+      { pattern: "C", target: "building", action: "Accept plan" },
+    ])
+  })
+
+  it("omits both describe and action keys entirely when neither is present", () => {
+    const [edge] = toTemplateEdges([["C", "building"]])
+    expect("describe" in edge!).toBe(false)
+    expect("action" in edge!).toBe(false)
+  })
+
+  it("omits the action key entirely (never `undefined`) when an edge carries none, even with a describe", () => {
+    const [edge] = toTemplateEdges([["C", "building", "Change nothing."]])
+    expect("action" in edge!).toBe(false)
+  })
 })
 
 describe("renderOnEdges — `on` pattern keys rendered against `it.vars`", () => {
@@ -691,6 +714,24 @@ describe("renderOnEdges — `on` pattern keys rendered against `it.vars`", () =>
       { feedbackFile: ".gtd/FEEDBACK.md" },
     )
     expect(rendered).toEqual([["A .gtd/FEEDBACK.md", "fixing", "Feedback was left."]])
+  })
+
+  it("preserves an edge's `action` alongside `describe`, never rendering it", () => {
+    const rendered = renderOnEdges(
+      [["A <%= it.vars.feedbackFile %>", "fixing", "Feedback was left.", "Accept plan"]],
+      { feedbackFile: ".gtd/FEEDBACK.md" },
+    )
+    expect(rendered).toEqual([
+      ["A .gtd/FEEDBACK.md", "fixing", "Feedback was left.", "Accept plan"],
+    ])
+  })
+
+  it("preserves an edge's `action` with no `describe` (the placeholder-in-slot-3 case)", () => {
+    const rendered = renderOnEdges(
+      [["A <%= it.vars.feedbackFile %>", "fixing", undefined, "Accept plan"]],
+      { feedbackFile: ".gtd/FEEDBACK.md" },
+    )
+    expect(rendered).toEqual([["A .gtd/FEEDBACK.md", "fixing", undefined, "Accept plan"]])
   })
 
   it("returns an empty list for `undefined` (a commit state's `on`)", () => {

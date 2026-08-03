@@ -94,7 +94,7 @@ Given("NO_COLOR is set to {string}", (world: GtdWorld, value: string) => {
 })
 
 // Sets $GTD_TESTCOMMAND explicitly — the bundled template's `checking`/
-// `fix-check` script reads `it.vars.testCommand`, whose highest-precedence
+// `fix-precheck` script reads `it.vars.testCommand`, whose highest-precedence
 // layer is this env var (see src/Edge.ts's `resolveVars`), so this reroutes
 // the real check script at a controlled, deterministic suite instead of the
 // default "npm test".

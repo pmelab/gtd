@@ -32,7 +32,7 @@
 #   * assertGreen (dedup ×3)  — the green-baseline gate (check + human blocked)
 #                               guarding the simple, advanced and review entries.
 #   * qaLoop (dedup ×2)       — the checkbox Q&A author/answer loop shared by the
-#                               product (adv-grilling) and technical (architecting)
+#                               product (product-qa) and technical (technical-qa)
 #                               phases of the advanced flow.
 #   * planLoop (encap)        — the simple flow's plan-iteration loop.
 #   * humanReview (encap)     — the shared review tail (reviewing → await-review →
@@ -44,22 +44,22 @@
 #
 # EVERY entry first runs the test suite and only proceeds when it is GREEN — you
 # never start new work (or a review) on top of a red baseline. A red run halts
-# at a human `*-start-blocked` gate (fix the failures and re-run, exactly like
+# at a human `*-blocked` gate (fix the failures and re-run, exactly like
 # the `escalate` states), or is what `gtd fix` exists to repair.
 #
 # The initial `idle` state FORKS on which steering file the human creates,
 # routing into that flow's OWN start gate:
 #
 #   * the configured requirementsFile (default .gtd/REQUIREMENTS.md) ->
-#     `adv-start-check` -> the ADVANCED flow (product + technical Q&A, package
+#     `spec-precheck` -> the ADVANCED flow (product + technical Q&A, package
 #     decomposition, per-package parallel build + agentic spec-review).
 #   * anything else (e.g. the configured todoFile, default .gtd/TODO.md) ->
-#     `start-check` -> the SIMPLE flow (one grilling Q&A loop, a monolithic
+#     `plan-precheck` -> the SIMPLE flow (one grilling Q&A loop, a monolithic
 #     build, no decomposition, no agentic review).
 #
-# A third entry, `gtd review <commitish>`, jumps to `review-start-check`
+# A third entry, `gtd review <commitish>`, jumps to `review-precheck`
 # (reviewEntry) and, once green, to `reviewing` to review a foreign branch
-# through the same shared tail. A fourth, `gtd fix`, jumps to `fix-check`
+# through the same shared tail. A fourth, `gtd fix`, jumps to `fix-precheck`
 # (fixEntry): a red suite drops straight into the shared `fixing` loop and out
 # through the review + squash tail; a green suite is a no-op back to `idle`.
 #
@@ -85,7 +85,7 @@
 # The shared health segment (`checking`/`fixing`/`escalate`) serves the simple
 # build and the feedback loop — its green edge targets
 # `reviewing`. The advanced per-package loop keeps its OWN health triple
-# (`adv-checking`/`adv-fixing`/`adv-escalate`) because its green edge targets
+# (`package-checking`/`package-fixing`/`package-escalate`) because its green edge targets
 # the per-package `spec-review` gate instead.
 #
 # Every `on` pattern's path below is written as the matching var's Eta
@@ -113,7 +113,7 @@ vars:
   # The two opaque model tiers every agent state draws from — repoint them here
   # (or via a top-level `.gtdrc` `vars:` key / a `GTD_PLANNERMODEL` env var)
   # to change every state on that tier at once. `plannerModel` (default "smart")
-  # is the heavier tier for the one-shot planning/architecting/review turns;
+  # is the heavier tier for the one-shot planning/technical-qa/review turns;
   # `coderModel` (default "base") is the tier for the build/fix turns.
   plannerModel: smart
   coderModel: base
@@ -125,7 +125,7 @@ submachines:
   # The `on` rules turn that into "fix" vs "$onGreen". The fix turn retries up to
   # 3× before escalating to a human. Invoked for the shared build tail
   # (checking/fixing/escalate -> reviewing) and the advanced package loop
-  # (adv-checking/adv-fixing/adv-escalate -> spec-review).
+  # (package-checking/package-fixing/package-escalate -> spec-review).
   makeGreen:
     params: [onGreen, escalateDescribe, checkLabel, fixLabel, escalateLabel]
     states:
@@ -133,7 +133,7 @@ submachines:
         actor: check
         label: $checkLabel
         # NOT the shared `&suiteCheck` anchor (that lives on `assertGreen`,
-        # aliased by it and by `fix-check`): this script also sweeps spent
+        # aliased by it and by `fix-precheck`): this script also sweeps spent
         # steering files (`todoFile`, `reviewRawFile`, `reviewFeedbackFile`) —
         # a mechanic the entry/fix gates must NOT run, since they execute
         # before planning, while a fresh sketch legitimately still exists.
@@ -216,11 +216,12 @@ submachines:
 
           What each change does next (then run `gtd step human`):
           <% it.edges.forEach(function (e) { if (e.describe) { %>
-          <%~ "- " + e.describe + "\n" %>
+          <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
           <% } }) %>
         on:
           "* **":
             to: check
+            action: Retry check
             describe: $escalateDescribe
 
   # ── DEDUP: the green-baseline gate ─────────────────────────────────────────
@@ -234,9 +235,9 @@ submachines:
       check:
         actor: check
         label: $checkLabel
-        # Anchored here and aliased by `fix-check` (`gtd fix` entry): one
+        # Anchored here and aliased by `fix-precheck` (`gtd fix` entry): one
         # suite-check script shared by all four call sites (this submachine's
-        # ×3 uses plus `fix-check`) instead of four source copies. These gates
+        # ×3 uses plus `fix-precheck`) instead of four source copies. These gates
         # run BEFORE planning, so — unlike `makeGreen.check` — they must NOT
         # sweep `todoFile`/`requirementsFile`: the human's fresh sketch still
         # legitimately exists here.
@@ -284,13 +285,14 @@ submachines:
         on:
           "* **":
             to: check
+            action: Retry check
             describe: $blockedDescribe
 
   # ── DEDUP: the checkbox Q&A author/answer loop ─────────────────────────────
   # The agent develops a plan file, surfacing `## Open Questions` as checkbox
   # lists; the human answers (answerGate refuses an unanswered step) and either
-  # advances or sends it back. Invoked for the product (adv-grilling) and
-  # technical (architecting) phases of the advanced flow.
+  # advances or sends it back. Invoked for the product (product-qa) and
+  # technical (technical-qa) phases of the advanced flow.
   qaLoop:
     params:
       [
@@ -324,9 +326,11 @@ submachines:
         on:
           "C":
             to: $onAdvance
+            action: Accept answers
             describe: $advanceDescribe
           "* **":
             to: author
+            action: Revise answers
             describe: $editDescribe
 
   # ── ENCAPSULATION: the simple flow's plan-iteration loop ───────────────────
@@ -368,9 +372,9 @@ submachines:
           not commit, and do not run `gtd step agent` yourself; the harness does
           that.
         on:
-          "* **": plan-review
+          "* **": await-plan
 
-      plan-review:
+      await-plan:
         actor: human
         label: Awaiting your review
         file: <%= it.vars.todoFile %>
@@ -382,19 +386,20 @@ submachines:
 
           What each change does next (then run `gtd step human`):
           <% it.edges.forEach(function (e) { if (e.describe) { %>
-          <%~ "- " + e.describe + "\n" %>
+          <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
           <% } }) %>
         on:
           "C":
             to: $onAccept
+            action: Accept plan
             describe: >-
-              Change nothing to accept the plan as-is and move on to implementation
-              (**building**).
+              change nothing to move on to implementation (**building**).
           "* **":
             to: planning
+            action: Revise plan
             describe: >-
-              Edit the plan — rewrite a step, add a constraint, or leave an inline
-              comment — to send it back for another round (**planning**).
+              rewrite a step, add a constraint, or leave an inline comment to
+              send it back for another round (**planning**).
 
   # ── ENCAPSULATION: the shared review tail ──────────────────────────────────
   humanReview:
@@ -408,7 +413,7 @@ submachines:
         model: <%= it.vars.plannerModel %>
         memory: review
         # `gtd review <commitish>` (a plain non-gtd branch, e.g. a colleague's PR)
-        # does NOT enter here directly — it enters `review-start-check` (reviewEntry)
+        # does NOT enter here directly — it enters `review-precheck` (reviewEntry)
         # first, which runs the green-baseline gate and, once green, transitions
         # here. The `Gtd-Review-Base:` trailer rides on that entry commit (the
         # process's oldest), so everything below still reuses the same
@@ -474,10 +479,10 @@ submachines:
 
           When you've been through the whole diff, run `gtd step human`:
 
-          - Tick EVERY box and leave no comment — no note in
-            `<%= it.vars.reviewFile %>`, no code edit — to sign off and collapse the
-            cycle into one commit (**squashing**).
-          - Leave a comment to request changes — a note on a
+          - **Sign off** — tick EVERY box and leave no comment — no note in
+            `<%= it.vars.reviewFile %>`, no code edit — to collapse the cycle into
+            one commit (**squashing**).
+          - **Request changes** — leave a comment: a note on a
             `<%= it.vars.reviewFile %>` line, or a direct code edit — to send it to a
             build + re-review round (**review-deciding** → **feedback-building**). A
             code edit counts as your own fix: the agent completes the follow-through
@@ -733,7 +738,7 @@ submachines:
           Delete `<%= it.vars.specFeedbackFile %>` once every concern is addressed.
           Leave everything else uncommitted and finish your turn.
         on:
-          "* **": adv-checking
+          "* **": package-checking
 
   # ── ENCAPSULATION: the advanced flow's per-package build queue ─────────────
   packageLoop:
@@ -757,7 +762,7 @@ submachines:
           # Below this point everything is plain bash.
           nextFile="<%~ it.vars.nextFile %>"
           # Sweep the advanced flow's spent Q&A steering files: requirementsFile
-          # is consumed by architecting, architectureFile by decompose — both are
+          # is consumed by technical-qa, architectureFile by decompose — both are
           # gone by the time the package queue starts. No-op if already removed.
           requirements="<%~ it.vars.requirementsFile %>"
           architecture="<%~ it.vars.architectureFile %>"
@@ -771,10 +776,10 @@ submachines:
           fi
         on:
           "D <%= it.vars.nextFile %>": $onDrained
-          "* <%= it.vars.nextFile %>": adv-building
+          "* <%= it.vars.nextFile %>": package-building
           "C": $onDrained
 
-      adv-building:
+      package-building:
         actor: agent
         label: Building
         model: <%= it.vars.coderModel %>
@@ -799,7 +804,7 @@ submachines:
           Leave the package file in place and everything else uncommitted, then
           finish your turn.
         on:
-          "* **": adv-checking
+          "* **": package-checking
 
       closing:
         actor: check
@@ -826,28 +831,26 @@ use:
     with:
       onGreen: reviewing
       escalateDescribe: >-
-        Fix the failure yourself — edit the code and/or `.gtd/FEEDBACK.md` —
-        to re-run the check (**checking**).
+        edit the code and/or `.gtd/FEEDBACK.md` yourself (**checking**).
       checkLabel: Running checks
       fixLabel: Fixing the check
       escalateLabel: Escalating to a human
-  # Advanced package health triple: adv-checking/adv-fixing/adv-escalate -> spec-review.
+  # Advanced package health triple: package-checking/package-fixing/package-escalate -> spec-review.
   - submachine: makeGreen
-    name: pkg
-    as: { check: adv-checking, fix: adv-fixing, escalate: adv-escalate }
+    name: package
+    as: { check: package-checking, fix: package-fixing, escalate: package-escalate }
     with:
       onGreen: spec-review
       escalateDescribe: >-
-        Fix the failure yourself — edit the code and/or
-        `.gtd/FEEDBACK.md` — to re-run the check (**adv-checking**).
+        edit the code and/or `.gtd/FEEDBACK.md` yourself (**package-checking**).
       checkLabel: Running checks
       fixLabel: Fixing the check
       escalateLabel: Escalating to a human
 
   # Green-baseline gate: simple flow entry.
   - submachine: assertGreen
-    name: start
-    as: { check: start-check, blocked: start-blocked }
+    name: plan
+    as: { check: plan-precheck, blocked: plan-blocked }
     with:
       onGreen: planning
       blockedMessage: |
@@ -856,42 +859,42 @@ use:
 
         What each change does next (then run `gtd step human`):
         <% it.edges.forEach(function (e) { if (e.describe) { %>
-        <%~ "- " + e.describe + "\n" %>
+        <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
         <% } }) %>
       blockedDescribe: >-
-        Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
-        re-run the baseline check (**start-check**). To repair the baseline as
-        its own separate reviewed commit instead, abandon this start and run
-        `gtd fix` from a clean `idle`.
+        edit the code and/or `.gtd/FEEDBACK.md` to fix the failing tests
+        (**plan-precheck**). To repair the baseline as its own separate
+        reviewed commit instead, abandon this start and run `gtd fix` from a
+        clean `idle`.
       checkLabel: Checking the baseline
       blockedLabel: Baseline is red
 
   # Green-baseline gate: advanced flow entry.
   - submachine: assertGreen
-    name: adv-start
-    as: { check: adv-start-check, blocked: adv-start-blocked }
+    name: spec
+    as: { check: spec-precheck, blocked: spec-blocked }
     with:
-      onGreen: adv-grilling
+      onGreen: product-qa
       blockedMessage: |
         The test baseline is red — gtd will not start new work on a broken suite.
         `<%= it.vars.feedbackFile %>` holds the failing output.
 
         What each change does next (then run `gtd step human`):
         <% it.edges.forEach(function (e) { if (e.describe) { %>
-        <%~ "- " + e.describe + "\n" %>
+        <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
         <% } }) %>
       blockedDescribe: >-
-        Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
-        re-run the baseline check (**adv-start-check**). To repair the baseline
-        as its own separate reviewed commit instead, abandon this start and run
-        `gtd fix` from a clean `idle`.
+        edit the code and/or `.gtd/FEEDBACK.md` to fix the failing tests
+        (**spec-precheck**). To repair the baseline as its own separate
+        reviewed commit instead, abandon this start and run `gtd fix` from a
+        clean `idle`.
       checkLabel: Checking the baseline
       blockedLabel: Baseline is red
 
   # Green-baseline gate: `gtd review` entry (reviewEntry -> reviewing).
   - submachine: assertGreen
-    name: review-start
-    as: { check: review-start-check, blocked: review-start-blocked }
+    name: review
+    as: { check: review-precheck, blocked: review-blocked }
     set:
       check: { reviewEntry: true }
     with:
@@ -902,21 +905,21 @@ use:
 
         What each change does next (then run `gtd step human`):
         <% it.edges.forEach(function (e) { if (e.describe) { %>
-        <%~ "- " + e.describe + "\n" %>
+        <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
         <% } }) %>
       blockedDescribe: >-
-        Fix the failing tests — edit the code and/or `.gtd/FEEDBACK.md` — to
-        re-run the baseline check (**review-start-check**).
+        edit the code and/or `.gtd/FEEDBACK.md` to fix the failing tests
+        (**review-precheck**).
       checkLabel: Checking the baseline
       blockedLabel: Baseline is red
 
-  # Advanced flow: product Q&A loop (adv-grilling/adv-grilling-answer -> architecting).
+  # Advanced flow: product Q&A loop (product-qa/product-answer -> technical-qa).
   - submachine: qaLoop
-    name: grill
-    as: { author: adv-grilling, answer: adv-grilling-answer }
+    name: product
+    as: { author: product-qa, answer: product-answer }
     with:
       authorFile: <%= it.vars.requirementsFile %>
-      onAdvance: architecting
+      onAdvance: technical-qa
       authorPrompt: |
         You are an autonomous coding agent. This workflow steers itself
         through its own state files — treat them as its private scratchpad,
@@ -969,24 +972,24 @@ use:
 
         What each change does next (then run `gtd step human`):
         <% it.edges.forEach(function (e) { if (e.describe) { %>
-        <%~ "- " + e.describe + "\n" %>
+        <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
         <% } }) %>
       advanceDescribe: >-
-        With no open questions left (the agent surfaced none, or you deleted
-        the section and it finalized the plan), change nothing to accept the
-        product plan and move on to technical architecting (**architecting**).
+        with no open questions left (the agent surfaced none, or you deleted
+        the section and it finalized the plan), change nothing to move on to
+        technical Q&A (**technical-qa**).
       editDescribe: >-
-        Tick exactly one option per open question (replace `_your answer_` for
+        tick exactly one option per open question (replace `_your answer_` for
         your own) to send the plan back for the agent to fold your answers in
-        (**adv-grilling**). Delete a question to skip it, or delete the whole
+        (**product-qa**). Delete a question to skip it, or delete the whole
         `## Open Questions` section to accept the plan as-is.
       authorLabel: Refining the product plan
       answerLabel: Awaiting your answers
 
-  # Advanced flow: technical Q&A loop (architecting/architecting-answer -> decompose).
+  # Advanced flow: technical Q&A loop (technical-qa/technical-answer -> decompose).
   - submachine: qaLoop
-    name: arch
-    as: { author: architecting, answer: architecting-answer }
+    name: technical
+    as: { author: technical-qa, answer: technical-answer }
     with:
       authorFile: <%= it.vars.architectureFile %>
       onAdvance: decompose
@@ -1036,22 +1039,21 @@ use:
 
         What each change does next (then run `gtd step human`):
         <% it.edges.forEach(function (e) { if (e.describe) { %>
-        <%~ "- " + e.describe + "\n" %>
+        <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
         <% } }) %>
       advanceDescribe: >-
-        With no open questions left (the agent surfaced none, or you deleted
-        the section and it finalized the plan), change nothing to accept the
-        technical plan and move on to decomposing the work into packages
-        (**decompose**).
+        with no open questions left (the agent surfaced none, or you deleted
+        the section and it finalized the plan), change nothing to move on to
+        decomposing the work into packages (**decompose**).
       editDescribe: >-
-        Tick exactly one option per open question (replace `_your answer_` for
+        tick exactly one option per open question (replace `_your answer_` for
         your own) to send the plan back for the agent to fold your answers in
-        (**architecting**). Delete a question to skip it, or delete the whole
+        (**technical-qa**). Delete a question to skip it, or delete the whole
         `## Open Questions` section to accept the plan as-is.
       authorLabel: Refining the technical plan
       answerLabel: Awaiting your answers
 
-  # Simple flow plan-iteration loop (planning/plan-review -> building).
+  # Simple flow plan-iteration loop (planning/await-plan -> building).
   - submachine: planLoop
     with:
       onAccept: building
@@ -1066,7 +1068,7 @@ use:
     with:
       onApproved: closing
 
-  # Advanced per-package build queue (picking/adv-building/closing -> reviewing).
+  # Advanced per-package build queue (picking/package-building/closing -> reviewing).
   - submachine: packageLoop
     with:
       onDrained: reviewing
@@ -1093,23 +1095,25 @@ states:
 
       What each change does next (then run `gtd step human`):
       <% it.edges.forEach(function (e) { if (e.describe) { %>
-      <%~ "- " + e.describe + "\n" %>
+      <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
       <% } }) %>
     on:
       "* <%= it.vars.requirementsFile %>":
-        to: adv-start-check
+        to: spec-precheck
+        action: Start advanced flow
         describe: >-
-          Save the product requirements to `.gtd/REQUIREMENTS.md` to start the
-          ADVANCED flow — gtd first checks the test baseline is green, then the
-          agent develops them through product then technical Q&A, decomposes the
-          work into packages, and builds each in parallel (**adv-start-check**).
+          save the product requirements to `.gtd/REQUIREMENTS.md` — gtd first
+          checks the test baseline is green, then the agent develops them
+          through product then technical Q&A, decomposes the work into
+          packages, and builds each in parallel (**spec-precheck**).
       "* **":
-        to: start-check
+        to: plan-precheck
+        action: Start simple flow
         describe: >-
-          Save a short sketch to `.gtd/TODO.md` (or any other change) to start
-          the SIMPLE flow — gtd first checks the test baseline is green, then the
-          agent reads it, explores the codebase, and develops it into a concrete
-          implementation plan (**start-check**).
+          save a short sketch to `.gtd/TODO.md` (or any other change) — gtd
+          first checks the test baseline is green, then the agent reads it,
+          explores the codebase, and develops it into a concrete
+          implementation plan (**plan-precheck**).
 
   # ── Simple flow: monolithic build (plan loop is the `planLoop` sub-machine) ─
   building:
@@ -1174,7 +1178,7 @@ states:
   # `gtd fix` enters HERE (fixEntry): run the suite, then a red run drops
   # straight into the shared `fixing` loop (-> checking -> review + squash
   # tail); a green run is a no-op back to `idle` (nothing to fix).
-  fix-check:
+  fix-precheck:
     actor: check
     fixEntry: true
     label: Checking the baseline

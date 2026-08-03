@@ -338,34 +338,39 @@ export const resolveVars = (
 
 // ── Template context ─────────────────────────────────────────────────────────
 
-/** Map a state's raw `on` edges to the `{ pattern, target, describe? }` shape templates see as `it.edges`. `undefined` (a commit state, no `on`) yields an empty list. Callers pass already-rendered edges (see `renderOnEdges`) — this never renders anything itself. */
+/** Map a state's raw `on` edges to the `{ pattern, target, describe?, action? }` shape templates see as `it.edges`. `action` follows the same presence discipline as `describe` — included only when defined, never set to `undefined` — so an edge with an `action` but no `describe` (the slot-3 placeholder case) yields `{ pattern, target, action }` with no `describe` key at all. `undefined` (a commit state, no `on`) yields an empty list. Callers pass already-rendered edges (see `renderOnEdges`) — this never renders anything itself. */
 export const toTemplateEdges = (edges: readonly OnEdge[] | undefined): readonly TemplateEdge[] =>
-  (edges ?? []).map(([pattern, target, describe]) =>
-    describe !== undefined ? { pattern, target, describe } : { pattern, target },
-  )
+  (edges ?? []).map(([pattern, target, describe, action]) => ({
+    pattern,
+    target,
+    ...(describe !== undefined ? { describe } : {}),
+    ...(action !== undefined ? { action } : {}),
+  }))
 
 /**
  * Render every `on` edge's pattern key as an Eta template over `vars` ONLY
  * (`PatternTemplates.varsOnlyContext`) — a pattern names a path; it never
  * needs diffs/commit hashes, and restricting to `vars` avoids an ordering
  * circularity (the full `TemplateContext`'s `it.edges` is itself derived from
- * these same `on` edges). `target`/`describe` pass through verbatim —
- * `describe` is inert to the engine and is never rendered, unlike the pattern
- * key. Throws whatever Eta throws on a malformed pattern template; the caller
- * turns that into a step refusal / command error, exactly like a content
- * render failure.
+ * these same `on` edges). `target`/`describe`/`action` pass through verbatim —
+ * both `describe` and `action` are inert to the engine and are never
+ * rendered, unlike the pattern key; an edge carrying an `action` but no
+ * `describe` round-trips through the same slot-3 `undefined` placeholder
+ * `PatternConfig.compileOnEdge` produces. Throws whatever Eta throws on a
+ * malformed pattern template; the caller turns that into a step refusal /
+ * command error, exactly like a content render failure.
  */
 export const renderOnEdges = (
   edges: readonly OnEdge[] | undefined,
   vars: Record<string, string>,
 ): readonly OnEdge[] => {
   const ctx = varsOnlyContext(vars)
-  return (edges ?? []).map(
-    ([pattern, target, describe]): OnEdge =>
-      describe !== undefined
-        ? [renderStateTemplate(pattern, ctx), target, describe]
-        : [renderStateTemplate(pattern, ctx), target],
-  )
+  return (edges ?? []).map(([pattern, target, describe, action]): OnEdge => {
+    const renderedPattern = renderStateTemplate(pattern, ctx)
+    if (action !== undefined) return [renderedPattern, target, describe, action]
+    if (describe !== undefined) return [renderedPattern, target, describe]
+    return [renderedPattern, target]
+  })
 }
 
 /**

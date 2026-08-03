@@ -686,6 +686,76 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     ).toThrowError(/state "a": "on" entry for pattern "\* \*" has unknown key\(s\) explain/)
   })
 
+  it("compiles the `action` field through onto the edge's fourth element, alongside `describe`", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          gate: {
+            actor: "human",
+            message: "choose",
+            initial: true,
+            on: {
+              C: {
+                to: "accept",
+                describe: "Change nothing to accept and proceed.",
+                action: "Accept plan",
+              },
+              "* **": "revise",
+            },
+          },
+          accept: { commit: "chore: accept" },
+          revise: {
+            actor: "agent",
+            prompt: "revise",
+            on: { "* **": "gate" },
+          },
+        },
+      },
+      "/config-dir",
+    )
+    expect(definition.states["gate"]!.on).toEqual([
+      ["C", "accept", "Change nothing to accept and proceed.", "Accept plan"],
+      ["* **", "revise"],
+    ])
+  })
+
+  it("compiles an `action`-without-`describe` edge, placing an explicit `undefined` in the third slot", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        states: {
+          gate: {
+            actor: "human",
+            message: "choose",
+            initial: true,
+            on: { C: { to: "accept", action: "Accept plan" } },
+          },
+          accept: { commit: "chore: accept" },
+        },
+      },
+      "/config-dir",
+    )
+    expect(definition.states["gate"]!.on).toEqual([["C", "accept", undefined, "Accept plan"]])
+  })
+
+  it('rejects an object `on` entry whose "action" is not a string', () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          states: {
+            a: {
+              actor: "human",
+              message: "hi",
+              initial: true,
+              on: { "* *": { to: "b", action: 5 } },
+            },
+            b: { commit: "chore: b" },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "on.\* \*.action" must be a string/)
+  })
+
   it("compiles a `model` string through onto the state", () => {
     const { definition } = compileWorkflowConfig(
       {

@@ -960,7 +960,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And the git log does not contain "checking → reviewing"
 
   Scenario: gtd fix on a green baseline leaves the log untouched
-    # A green suite is nothing to fix: the empty `gtd(human): fix-check` entry
+    # A green suite is nothing to fix: the empty `gtd(human): fix-precheck` entry
     # commit and the no-op check are collapsed away rather than left as
     # permanent bookkeeping commits.
     Given a test project

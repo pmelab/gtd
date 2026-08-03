@@ -3,7 +3,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
 
   Comprehensive coverage of the SIMPLE entry of `src/workflows/unified.yaml`
   (started by creating `.gtd/TODO.md`) through the SHARED tail: the
-  planning/plan-review iteration loop, a check/fix round, the fix-retry-escalate
+  planning/await-plan iteration loop, a check/fix round, the fix-retry-escalate
   path once `fixing`'s cap (max 3) is reached, the human review gate and its
   `review-deciding` arbiter (a COMMENT — a note or a code edit — is feedback; an
   all-ticked no-comment step is sign-off), the sign-off gate's refusals (an
@@ -15,7 +15,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
   editing it — no `qa` mode, no open-questions Q&A (that lives in the ADVANCED
   flow). REVIEW.md checkboxes aren't validated by an in-machine state either —
   the producing agent self-validates via `gtd validate` (covered in
-  validate.feature), so `planning` hands straight to `plan-review` and
+  validate.feature), so `planning` hands straight to `await-plan` and
   `reviewing` straight to `await-review`. The remaining `check`-actor states
   here (`checking`, `review-deciding`) are simulated by writing their verdict
   files directly and running `gtd step check` — @inmem never executes the
@@ -30,14 +30,14 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → start-check"
+    And the last commit subject is "gtd(human): idle → plan-precheck"
 
-    # start-check: green baseline gate — a clean tree (tests pass) -> planning
+    # plan-precheck: green baseline gate — a clean tree (tests pass) -> planning
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): start-check → planning"
+    And the last commit subject is "gtd(check): plan-precheck → planning"
 
-    # planning: develops the sketch into a concrete plan and hands to plan-review
+    # planning: develops the sketch into a concrete plan and hands to await-plan
     Given ".gtd/TODO.md" is modified to:
       """
       Build a thing. Implementation plan: add src/thing.ts exporting `thing`,
@@ -45,12 +45,12 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): planning → plan-review"
+    And the last commit subject is "gtd(agent): planning → await-plan"
 
-    # plan-review: accept the plan as-is with a clean step -> building
+    # await-plan: accept the plan as-is with a clean step -> building
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): plan-review → building"
+    And the last commit subject is "gtd(human): await-plan → building"
 
     # building: implements the plan directly, deletes TODO.md when done
     Given the file ".gtd/TODO.md" is deleted
@@ -393,8 +393,8 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "Tick EVERY box and leave no comment"
-    And stdout contains "Leave a comment to request changes"
+    And stdout contains "**Sign off** — tick EVERY box and leave no comment"
+    And stdout contains "**Request changes** — leave a comment"
     And stdout contains "no comment is refused"
 
   Scenario: a code edit at await-review is feedback — it routes to review-deciding (which turns it into a fix + re-review round)
@@ -460,20 +460,20 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → start-check"
+    And the last commit subject is "gtd(human): idle → plan-precheck"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): start-check → planning"
+    And the last commit subject is "gtd(check): plan-precheck → planning"
     Given ".gtd/TODO.md" is modified to:
       """
       Build a second thing. Plan: add src/thing2.ts exporting `thing2`.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): planning → plan-review"
+    And the last commit subject is "gtd(agent): planning → await-plan"
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): plan-review → building"
+    And the last commit subject is "gtd(human): await-plan → building"
     Given a file "src/thing2.ts" with:
       """
       export const thing2 = 1

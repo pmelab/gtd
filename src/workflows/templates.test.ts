@@ -40,16 +40,16 @@ describe("the bundled unified workflow template", () => {
     // idle routes `.gtd/REQUIREMENTS.md` to the advanced flow's start gate and
     // everything else (e.g. `.gtd/TODO.md`) to the simple flow's start gate —
     // the REQUIREMENTS row is declared first so it wins. Each gate runs the
-    // suite before proceeding to planning/adv-grilling.
+    // suite before proceeding to planning/product-qa.
     const { definition } = compileTemplate()
     const idle = definition.states.idle!
     const targets = (idle.on ?? []).map(([, to]) => to)
-    expect(targets).toContain("adv-start-check")
-    expect(targets).toContain("start-check")
+    expect(targets).toContain("spec-precheck")
+    expect(targets).toContain("plan-precheck")
     // The gates proceed to the planning states once green.
-    expect((definition.states["start-check"]!.on ?? []).map(([, to]) => to)).toContain("planning")
-    expect((definition.states["adv-start-check"]!.on ?? []).map(([, to]) => to)).toContain(
-      "adv-grilling",
+    expect((definition.states["plan-precheck"]!.on ?? []).map(([, to]) => to)).toContain("planning")
+    expect((definition.states["spec-precheck"]!.on ?? []).map(([, to]) => to)).toContain(
+      "product-qa",
     )
   })
 

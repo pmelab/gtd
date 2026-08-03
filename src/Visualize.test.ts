@@ -8,7 +8,7 @@ import {
   type CurrentStateModel,
 } from "./Visualize.js"
 import type { ResolvedRest } from "./Edge.js"
-import type { PendingChange } from "./PatternMachine.js"
+import type { OnEdge, PendingChange } from "./PatternMachine.js"
 
 // A small workflow authored with a sub-machine, so we exercise both the
 // compiled (flat) states AND the raw sub-machine grouping.
@@ -143,6 +143,40 @@ describe("buildVizModel", () => {
     })
   })
 
+  it("carries an on-edge's action when present, omits it when absent — all 4 describe/action combinations", () => {
+    const rawWithAction = {
+      states: {
+        a: {
+          actor: "human",
+          message: "a",
+          initial: true,
+          on: {
+            C: "b",
+            "A file1.md": { to: "b", describe: "d1" },
+            "A file2.md": { to: "b", action: "act2" },
+            "A file3.md": { to: "b", describe: "d3", action: "act3" },
+          },
+        },
+        b: { commit: "chore: b" },
+      },
+    }
+    const actionModel = buildVizModel(
+      compileWorkflowConfig(rawWithAction, "/dir").definition,
+      rawWithAction,
+      {},
+    )
+    const edges = actionModel.states.find((s) => s.name === "a")!.on
+    expect(edges).toEqual([
+      { pattern: "C", to: "b" },
+      { pattern: "A file1.md", to: "b", describe: "d1" },
+      { pattern: "A file2.md", to: "b", action: "act2" },
+      { pattern: "A file3.md", to: "b", describe: "d3", action: "act3" },
+    ])
+    // neither/describe-only edges must OMIT the `action` key entirely, not set it to `undefined`
+    expect(edges[0]).not.toHaveProperty("action")
+    expect(edges[1]).not.toHaveProperty("action")
+  })
+
   it("falls back to the raw pattern string when it fails to render", () => {
     const badRaw = {
       states: {
@@ -221,6 +255,27 @@ describe("buildCurrentStateModel", () => {
     expect(
       buildCurrentStateModel(restAt("planning"), [], onEdgesAt("planning")).retry,
     ).toBeUndefined()
+  })
+
+  it("carries an edge's action on both the matched AND an unmatched edge, omits it when absent", () => {
+    const onEdges: OnEdge[] = [
+      ["A .gtd/FEEDBACK.md", "start-blocked", undefined, "Reject"],
+      ["C", "planning", undefined, "Approve"],
+    ]
+    const changes: PendingChange[] = [{ status: "A", path: ".gtd/FEEDBACK.md" }]
+    const withAction = buildCurrentStateModel(restAt("start-check"), changes, onEdges)
+    expect(withAction.edges).toEqual([
+      { pattern: "A .gtd/FEEDBACK.md", to: "start-blocked", matched: true, action: "Reject" },
+      { pattern: "C", to: "planning", matched: false, action: "Approve" },
+    ])
+
+    const withoutAction = buildCurrentStateModel(
+      restAt("start-check"),
+      [],
+      onEdgesAt("start-check"),
+    )
+    // no source edge carries an action — the key must be OMITTED, not `action: undefined`
+    for (const edge of withoutAction.edges) expect(edge).not.toHaveProperty("action")
   })
 
   it("passes pending changes through", () => {

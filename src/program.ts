@@ -491,7 +491,7 @@ const stepAsActor = (
     yield* enforceFeedbackProgressGate(invoker, rest, context, changes, decision.kind)
     // Answer-completeness gate (edge): at an `answerGate` qa state, refuse a
     // human step while any open question is not answered (exactly one tick each)
-    // — the advanced flow's adv-grilling-answer/architecting-answer gates.
+    // — the advanced flow's product-answer/technical-answer gates.
     yield* enforceAnswerCompletenessGate(worktree.read, invoker, rest, context, decision.kind)
     if (decision.kind === "commit") {
       const target = parseStateSubject(decision.subject)?.state
@@ -1209,7 +1209,7 @@ export const classifyAnswerCompleteness = (input: {
 /**
  * The answer-completeness gate (edge, like the sign-off gate above). At an
  * `answerGate: true` state with `mode: qa` (the unified template's
- * `adv-grilling-answer`/`architecting-answer`), a human step is refused unless
+ * `product-answer`/`technical-answer`), a human step is refused unless
  * every open question in the file is answered — the pure
  * `classifyAnswerCompleteness` decides over the WORKING-TREE contents. A no-op
  * when the state is not an answer gate (so the agent's own authoring step, which
@@ -1313,6 +1313,37 @@ const computeStatusChanges = (
     return { status: change.status, path: change.path, pattern: matchedRow?.[0] ?? null }
   })
 
+/** The first declared `on` edge that WOULD fire for `gtd next`/`gtd step` right now, for `gtd status` to preview. */
+interface NextMatch {
+  readonly action: string | undefined
+  readonly pattern: string
+  readonly target: string
+}
+
+/**
+ * First declared `on` edge (in declaration order) whose pattern matches the
+ * WHOLE pending change list — mirroring `PatternMachine.step`'s own
+ * first-match-wins semantics (`matchOn`) exactly, unlike `computeStatusChanges`
+ * above which matches each change independently. `null` when no edge matches,
+ * covering both a clean tree with no declared `C` row and a dirty tree
+ * matching none of the declared patterns.
+ *
+ * This reports the DECLARED route only: a capped `retry` target may redirect
+ * elsewhere at real step time (`applyRetry` in `PatternMachine.ts`), which
+ * this does not apply — same pre-retry, pure-over-already-fetched-inputs
+ * contract as `computeStatusChanges`.
+ */
+export const computeNextMatch = (
+  onEdges: readonly OnEdge[],
+  changes: readonly PendingChange[],
+): NextMatch | null => {
+  for (const [pattern, target, , action] of onEdges) {
+    const parsed = parsePattern(pattern)
+    if (parsed !== undefined && matchesPattern(parsed, changes)) return { action, pattern, target }
+  }
+  return null
+}
+
 /**
  * True when the per-model breakdown adds information beyond the `Cost:` total:
  * more than one model, or a single model that carries an actual `--model` tag
@@ -1331,12 +1362,45 @@ const costStatusLines = (cost: number, byModel: readonly ModelCost[]): string[] 
   return lines
 }
 
-/** `gtd status --json`'s emission — `{state, actor, changes, model?, memory?, label?, file?, mode?, cost?, costByModel?, edges?}`. `renderedOn` is the resting state's `on` edges already rendered against `it.vars` (`renderOnEdges`), so the emitted `edges[].pattern` carries the same rendered path as `changes[].pattern`. */
+/** Builds `{[key]: value}` for each entry whose value isn't `undefined` — the shared "omit absent optional fields" shape behind both `writeStatusJson` and `writeStatusPlain`. */
+const definedFields = (
+  entries: readonly (readonly [string, unknown])[],
+): Record<string, unknown> => {
+  const result: Record<string, unknown> = {}
+  for (const [key, value] of entries) if (value !== undefined) result[key] = value
+  return result
+}
+
+/** `gtd status --json`'s `next` key — `null` on no match, else the matched edge's pattern/target plus its `action` when declared. */
+const nextField = (
+  next: NextMatch | null,
+): { action?: string; pattern: string; target: string } | null =>
+  next === null
+    ? null
+    : { ...definedFields([["action", next.action]]), pattern: next.pattern, target: next.target }
+
+/** `gtd status`'s `Next:` line — the plain-text counterpart to `nextField`. */
+const nextStatusLine = (next: NextMatch | null): string =>
+  next === null
+    ? "Next: (no match — nothing would happen)"
+    : `Next: ${next.action ?? next.pattern} → ${next.target}`
+
+/** `gtd status`'s `Pending:` block — `(clean)` when nothing is pending, else one indented line per change. */
+const pendingStatusLines = (statusChanges: readonly StatusChange[]): string[] =>
+  statusChanges.length === 0
+    ? ["Pending: (clean)"]
+    : [
+        "Pending:",
+        ...statusChanges.map((c) => `  ${c.status} ${c.path} -> ${c.pattern ?? "(no match)"}`),
+      ]
+
+/** `gtd status --json`'s emission — `{state, actor, changes, next, model?, memory?, label?, file?, mode?, cost?, costByModel?, edges?}`. `renderedOn` is the resting state's `on` edges already rendered against `it.vars` (`renderOnEdges`), so the emitted `edges[].pattern` carries the same rendered path as `changes[].pattern`. `next` is ALWAYS present (an object, or `null` on no match) — the headline conclusion, never omit-vs-null, same as `changes`. */
 const writeStatusJson = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
   statusChanges: readonly StatusChange[],
   renderedOn: readonly OnEdge[],
+  next: NextMatch | null,
   model: string | undefined,
   memory: string | undefined,
   label: string | undefined,
@@ -1345,28 +1409,33 @@ const writeStatusJson = (
   costByModel: readonly ModelCost[],
 ): void => {
   const edges = toTemplateEdges(renderedOn)
+  const hasCost = cost > 0
   write(
     JSON.stringify({
       state: rest.state,
       actor: rest.actor,
       changes: statusChanges,
-      ...(model !== undefined ? { model } : {}),
-      ...(memory !== undefined ? { memory } : {}),
-      ...(label !== undefined ? { label } : {}),
-      ...(file !== undefined ? { file } : {}),
-      ...(rest.stateDef.mode !== undefined ? { mode: rest.stateDef.mode } : {}),
-      ...(cost > 0 ? { cost } : {}),
-      ...(cost > 0 ? { costByModel } : {}),
-      ...(edges.length > 0 ? { edges } : {}),
+      next: nextField(next),
+      ...definedFields([
+        ["model", model],
+        ["memory", memory],
+        ["label", label],
+        ["file", file],
+        ["mode", rest.stateDef.mode],
+        ["cost", hasCost ? cost : undefined],
+        ["costByModel", hasCost ? costByModel : undefined],
+        ["edges", edges.length > 0 ? edges : undefined],
+      ]),
     }) + "\n",
   )
 }
 
-/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Label:`/`Model:`/`Memory:`/`File:`/`Mode:`/`Cost:`/`Pending:` lines. */
+/** `gtd status`'s plain-text emission — `State:`/`Awaits:`/`Label:`/`Model:`/`Memory:`/`File:`/`Mode:`/`Cost:`/`Pending:`/`Next:` lines. */
 const writeStatusPlain = (
   write: (chunk: string) => void,
   rest: ResolvedRest,
   statusChanges: readonly StatusChange[],
+  next: NextMatch | null,
   model: string | undefined,
   memory: string | undefined,
   label: string | undefined,
@@ -1374,21 +1443,21 @@ const writeStatusPlain = (
   cost: number,
   costByModel: readonly ModelCost[],
 ): void => {
-  const lines = [`State: ${rest.state}`, `Awaits: ${rest.actor}`]
-  if (label !== undefined) lines.push(`Label: ${label}`)
-  if (model !== undefined) lines.push(`Model: ${model}`)
-  if (memory !== undefined) lines.push(`Memory: ${memory}`)
-  if (file !== undefined) lines.push(`File: ${file}`)
-  if (rest.stateDef.mode !== undefined) lines.push(`Mode: ${rest.stateDef.mode}`)
-  lines.push(...costStatusLines(cost, costByModel))
-  if (statusChanges.length === 0) {
-    lines.push("Pending: (clean)")
-  } else {
-    lines.push("Pending:")
-    for (const c of statusChanges) {
-      lines.push(`  ${c.status} ${c.path} -> ${c.pattern ?? "(no match)"}`)
-    }
-  }
+  const optional = definedFields([
+    ["Label", label],
+    ["Model", model],
+    ["Memory", memory],
+    ["File", file],
+    ["Mode", rest.stateDef.mode],
+  ])
+  const lines = [
+    `State: ${rest.state}`,
+    `Awaits: ${rest.actor}`,
+    ...Object.entries(optional).map(([key, value]) => `${key}: ${value}`),
+    ...costStatusLines(cost, costByModel),
+    ...pendingStatusLines(statusChanges),
+    nextStatusLine(next),
+  ]
   write(lines.join("\n") + "\n")
 }
 
@@ -1408,12 +1477,14 @@ const runStatusCommand = (
     const label = yield* renderLabel(rest.stateDef, context)
     const file = yield* renderFile(rest.stateDef, context)
     const statusChanges = computeStatusChanges(renderedOn, changes)
+    const next = computeNextMatch(renderedOn, changes)
     if (json) {
       writeStatusJson(
         write,
         rest,
         statusChanges,
         renderedOn,
+        next,
         model,
         memory,
         label,
@@ -1426,6 +1497,7 @@ const runStatusCommand = (
         write,
         rest,
         statusChanges,
+        next,
         model,
         memory,
         label,
