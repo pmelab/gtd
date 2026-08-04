@@ -34,9 +34,9 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
     And the last commit subject is "gtd(check): review-precheck → reviewing"
     When I run gtd next
     Then it succeeds
-    And stdout contains "## Full diff under review"
-    And stdout contains "src/calc.ts"
-    And stdout contains "add = (a: number, b: number)"
+    And stdout contains the hash of "base"
+    And stdout does not contain "## Full diff under review"
+    And stdout does not contain "diff --git"
 
   Scenario: fails with a clear usage error when the active workflow declares no review entry state
     Given a gtd config file at ".gtdrc" with:
@@ -104,7 +104,7 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
     And stderr contains "is not an ancestor of HEAD"
     And the commit count is unchanged
 
-  Scenario: a later turn's diff still includes both the original PR change and a subsequent fix
+  Scenario: a later turn's diff base stays anchored at the reviewed base, unaffected by a later turn in the same process
     Given a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -121,19 +121,19 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "src/calc.ts"
-    And stdout contains "src/fix.ts"
+    And stdout contains the hash of "base"
 
-  Scenario: squashing a review process describes only the review's own fixes (it.retainedDiff), not the reviewed changeset
+  Scenario: squashing a review process describes only the review's own fixes (it.retainedBase), not the reviewed changeset
     # The squash resets to the process's OWN boundary (startParentHash — the
-    # reviewed commit), so its message must describe only what it keeps: the
-    # fixes made DURING the review, not the whole changeset under review. That
-    # base is never pushed back by the Gtd-Review-Base: trailer the way
-    # it.processDiff's is.
+    # reviewed commit), so the range it names must describe only what it
+    # keeps: the fixes made DURING the review, not the whole changeset under
+    # review. That base is never pushed back by the Gtd-Review-Base: trailer
+    # the way it.reviewBase/it.startCommit's is.
     Given a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
+    And I mark the current commit as "reviewed-tip"
     When I run gtd with args "review base"
     Then it succeeds
     # A fix authored during the review, then the human signs off into squashing.
@@ -144,9 +144,9 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
     And an empty commit "gtd(human): reviewing → squashing"
     When I run gtd next
     Then it succeeds
-    And stdout contains "## Retained diff"
-    And stdout contains "src/fix.ts"
-    And stdout does not contain "src/calc.ts"
+    And stdout contains the hash of "reviewed-tip"
+    And stdout does not contain the hash of "base"
+    And stdout does not contain "## Retained diff"
 
   Scenario: a clean review sign-off with no fixes squashes to a "chore: human review" commit
     Given a commit "feat: add calculator" that adds "src/calc.ts" with:

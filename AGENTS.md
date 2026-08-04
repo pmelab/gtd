@@ -52,7 +52,8 @@ never needs its own logic. After editing, update:
   `driver-json-status.feature`, `smoke.feature`, `validate.feature`,
   `init.feature`, `review-window.feature`, `initial-state-entry.feature`,
   `templates-vars.feature`, `entry-gate.feature` (the green-baseline gate on
-  every entry), `fix-entry.feature` (`gtd fix`), `review-entry.feature`)
+  every entry), `fix-entry.feature` (`gtd fix`), `review-entry.feature`,
+  `prompt-diff-ranges.feature`)
 
 A genuinely new engine capability (a new content kind, a new `on` pattern
 grammar, a new state property) is a different, much rarer kind of change — that

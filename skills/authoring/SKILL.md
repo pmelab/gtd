@@ -172,12 +172,18 @@ reference as `it.<name>`:
 - `it.vars.<name>` — the merged variable map (see "Variables").
 - `it.read(path)` — read a working-tree file by repo-relative path (throws if
   missing; that throw refuses the step, which is intended for `commit:`).
-- `it.processDiff` — the whole cycle diff (`startCommit..HEAD` + pending).
-- `it.lastDiff` — just the last transition's diff.
 - `it.startCommit` / `it.currentCommit` / `it.previousCommit` — commit hashes.
+- `it.reviewBase` — the previous review round's boundary (falls back to
+  `it.startCommit` on a first review).
+- `it.retainedBase` — the process's trace/retry boundary, what a squash actually
+  keeps.
 - `it.state` / `it.actor` — the state and actor being rendered.
 - `it.edges` — this state's `on` rows as `{ pattern, target, describe? }`.
 - `it.processCost` / `it.processCostByModel` — accumulated token cost.
+
+**No field ever carries diff content.** A prompt names a range (one of the base
+hashes above) and tells the agent to run `git diff <base>` itself — never inline
+a rendered diff into a template; the context doesn't carry one.
 
 A content value starting with `./` or `../` is a **file reference** — read
 relative to the config file at load time (a missing file is a load error).

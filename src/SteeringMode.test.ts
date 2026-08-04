@@ -29,10 +29,8 @@ const context = (vars: Record<string, string> = {}): TemplateContext => ({
   previousCommit: "ccc",
   state: "drafting",
   actor: "agent",
-  processDiff: "",
-  reviewDiff: "",
-  retainedDiff: "",
-  lastDiff: "",
+  reviewBase: "",
+  retainedBase: "",
   processCost: 0,
   processCostByModel: [],
   read: (path: string) => {

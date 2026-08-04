@@ -115,10 +115,12 @@ steering-file entries are chosen by which file you create:
   per-package **agentic review** that verifies the package against its spec.
 
 Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
-checkbox review of the diff — tick a box as you review each hunk (ticking just
-records "I read this"), and leave a **comment** to request changes: a note on a
-line, an inline `// TODO`-style comment in the code, or a direct code edit. Any
-comment sends a build + re-review round — an agent first turns your comments
+checkbox review of the diff — the prompt never inlines the diff itself; it names
+the commit the changes are based at and the agent runs `git diff` to read the
+range before writing the review. Tick a box as you review each hunk (ticking
+just records "I read this"), and leave a **comment** to request changes: a note
+on a line, an inline `// TODO`-style comment in the code, or a direct code edit.
+Any comment sends a build + re-review round — an agent first turns your comments
 into an explicit instruction list, then a build turn implements it (a re-review
 then covers only the follow-through, and a hand-edit is treated as your own fix
 the agent completes without reverting your lines; a comment can't be silently
@@ -469,6 +471,22 @@ workflow:
       file: <string> # optional, an Eta template naming the state's steering file
       mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry
 ```
+
+Besides `it.vars` (below), a `script`/`prompt`/`message`/`commit` template sees:
+
+- **`it.startCommit`** — the process's diff base (the commit the current cycle
+  started from, or a `gtd review <commitish>` entry's resolved base).
+- **`it.reviewBase`** — the previous review round's boundary, falling back to
+  `it.startCommit` on a first review.
+- **`it.retainedBase`** — the process's trace/retry boundary, what a squash
+  actually keeps (never moved by a `gtd review` entry).
+- **`it.currentCommit`** / **`it.previousCommit`** — HEAD's hash and its parent,
+  at render time.
+
+A template never sees rendered diff CONTENT — no field carries a diff. It names
+a base and leaves the agent to run `git diff <base>` itself; this keeps every
+render cheap (no diff computed on `gtd next`/`gtd status`/`gtd lsp`) and the
+prompt small and cacheable.
 
 Authoring or editing a workflow with a coding agent? `skills/authoring/SKILL.md`
 is the agent-facing contract for producing a valid `workflow:` — the state
