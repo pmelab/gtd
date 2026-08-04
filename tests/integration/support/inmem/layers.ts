@@ -7,7 +7,6 @@ import { FileSystem } from "@effect/platform"
 import { SystemError, type PlatformError } from "@effect/platform/Error"
 import { Effect, Layer, Option } from "effect"
 import { parse as parseYaml } from "yaml"
-import { renderDiff } from "../../../../src/Diff.js"
 import {
   GitService,
   type GitReaderOperations,
@@ -40,59 +39,6 @@ const tryCatch = <A>(fn: () => A): Effect.Effect<A, Error> =>
     try: fn,
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
-
-// Git's empty-tree object SHA: used as the diff base for a root commit (no parent).
-// Mirrors InMemRepo's private EMPTY_TREE constant (used there for softResetTo).
-const EMPTY_TREE_HASH = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-
-/**
- * Drop any changed path that falls under an excluded path (exact match or
- * `<excluded>/...` prefix) — shared by every diff* op below, each of which
- * only differs in which two refs it reads `before`/`after` content from.
- * An entry prefixed with `!` re-includes that path even when another entry
- * excludes it (mirrors `applyExcludes` in src/Git.ts).
- */
-function excludingPaths<T extends { path: string }>(
-  paths: ReadonlyArray<T>,
-  exclude: ReadonlyArray<string>,
-): ReadonlyArray<T> {
-  if (exclude.length === 0) return paths
-  const keeps = exclude.filter((e) => e.startsWith("!")).map((e) => e.slice(1))
-  const drops = exclude.filter((e) => !e.startsWith("!"))
-  return paths.filter(({ path }) => {
-    if (keeps.some((keep) => path === keep || path.startsWith(`${keep}/`))) return true
-    for (const ex of drops) {
-      if (path === ex || path.startsWith(`${ex}/`)) return false
-    }
-    return true
-  })
-}
-
-/**
- * Render the diff between two refs for a set of changed paths, resolving
- * each file's before/after content from `beforeRef`/`afterRef` (added files
- * have no `before`, deleted files have no `after`). Shared by `diffHead`,
- * `diffRef`, and `commitDiff`, which only differ in which refs and changed
- * paths they pass in.
- */
-function renderPathDiff(
-  repo: InMemRepo,
-  paths: ReadonlyArray<{ path: string; status: string }>,
-  exclude: ReadonlyArray<string>,
-  beforeRef: string,
-  afterRef: string,
-): string {
-  const filtered = excludingPaths(paths, exclude)
-  if (filtered.length === 0) return ""
-
-  const files = filtered.map(({ path, status }) => {
-    const before = status === "A" ? null : (repo.fileAtRef(beforeRef, path) ?? null)
-    const after = status === "D" ? null : (repo.fileAtRef(afterRef, path) ?? null)
-    return { path, before, after }
-  })
-
-  return renderDiff(files)
-}
 
 // ---------------------------------------------------------------------------
 // 1. GitReader.InMemory
@@ -136,38 +82,15 @@ const makeGitReaderOps = (repo: InMemRepo): GitReaderOperations => ({
 
   commitHistory: (base?: string) => Effect.succeed(repo.commitHistory(base)),
 
-  diffHead: (exclude: ReadonlyArray<string> = []) =>
-    Effect.sync(() => {
-      const allPaths = repo.changedPathsWorktree()
-      const filtered = excludingPaths(allPaths, exclude)
-      if (filtered.length === 0) return ""
-
-      const files = filtered.map(({ path, status }) => {
-        const before = status === "A" ? null : (repo.fileAtRef("HEAD", path) ?? null)
-        const after = status === "D" ? null : (repo["worktree"].get(path) ?? null)
-        return { path, before, after }
-      })
-
-      return renderDiff(files)
-    }),
-
-  diffRef: (ref: string, exclude: ReadonlyArray<string> = []) =>
-    Effect.sync(() => {
-      const allPaths = repo.changedPathsBetween(ref, "HEAD")
-      return renderPathDiff(repo, allPaths, exclude, ref, "HEAD")
-    }),
-
-  commitDiff: (hash: string, exclude: ReadonlyArray<string> = []) =>
-    tryCatch(() => {
-      if (repo.resolveRef(hash) === null) {
-        throw new Error(`Cannot resolve ref: ${hash}`)
-      }
-      const parent = repo.resolveRef(`${hash}~1`) ?? EMPTY_TREE_HASH
-      const allPaths = repo.changedPathsBetween(parent, hash)
-      return renderPathDiff(repo, allPaths, exclude, parent, hash)
-    }),
-
   changedPaths: () => Effect.succeed(repo.changedPathsWorktree()),
+
+  changedPathsSince: (ref: string) =>
+    tryCatch(() => {
+      if (repo.resolveRef(ref) === null) {
+        throw new Error(`Cannot resolve ref: ${ref}`)
+      }
+      return repo.changedPathsBetween(ref, "HEAD")
+    }),
 })
 
 // ---------------------------------------------------------------------------

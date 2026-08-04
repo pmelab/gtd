@@ -21,6 +21,7 @@ import {
   renderRest,
   resolveRest,
   resolveVars,
+  retainsNothing,
   toTemplateEdges,
   UNATTRIBUTED_MODEL,
   withRenderedOn,
@@ -465,6 +466,7 @@ const stepAsActor = (
       renderedState === rest.state
         ? renderedOn
         : yield* renderOnEdgesOrFail(rest.def.states[renderedState]?.on, vars)
+    const reviewBase = yield* reviewBaseHash(git, rest.def, run)
     const context = yield* buildTemplateContext(
       git,
       worktree.read,
@@ -475,6 +477,7 @@ const stepAsActor = (
       renderedStateOn,
       cost ?? 0,
       model,
+      reviewBase,
     )
     // Steering-file gate: before capturing a normal turn, format the rest
     // state's steering file in place and validate it — so whoever just acted
@@ -497,8 +500,8 @@ const stepAsActor = (
       const target = parseStateSubject(decision.subject)?.state
       if (
         target === initialStateOf(rest.def) &&
-        context.retainedDiff.trim() === "" &&
-        run.startParentHash !== EMPTY_TREE
+        run.startParentHash !== EMPTY_TREE &&
+        (yield* retainsNothing(git, run, changes))
       ) {
         // A process that returns to its initial state having kept nothing (a
         // green `gtd fix`: an empty entry commit + a green check that changed

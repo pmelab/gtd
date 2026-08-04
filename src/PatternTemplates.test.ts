@@ -9,10 +9,8 @@ const baseContext = (overrides: Partial<TemplateContext> = {}): TemplateContext 
   previousCommit: "bbb222",
   state: "building",
   actor: "agent",
-  processDiff: "diff --git a/x.ts b/x.ts\n+added\n",
-  reviewDiff: "diff --git a/x.ts b/x.ts\n+added\n",
-  retainedDiff: "diff --git a/x.ts b/x.ts\n+added\n",
-  lastDiff: "diff --git a/y.ts b/y.ts\n+last\n",
+  reviewBase: "rev999",
+  retainedBase: "ret888",
   processCost: 0,
   processCostByModel: [],
   read: (path: string) => {
@@ -40,14 +38,12 @@ describe("renderStateTemplate — the full variable set", () => {
     expect(out).toBe("start=aaa111 current=ccc333 previous=bbb222 state=building actor=agent")
   })
 
-  it("renders processDiff and lastDiff verbatim via the raw (`<%~ %>`) tag", () => {
+  it("renders reviewBase and retainedBase verbatim — bases, never diff content", () => {
     const out = renderStateTemplate(
-      "PROCESS:\n<%~ it.processDiff %>\nLAST:\n<%~ it.lastDiff %>",
+      "REVIEW:<%= it.reviewBase %> RETAINED:<%= it.retainedBase %>",
       baseContext(),
     )
-    expect(out).toBe(
-      "PROCESS:\ndiff --git a/x.ts b/x.ts\n+added\nLAST:\ndiff --git a/y.ts b/y.ts\n+last\n",
-    )
+    expect(out).toBe("REVIEW:rev999 RETAINED:ret888")
   })
 
   it("renders the merged `it.vars` map by name", () => {
@@ -164,10 +160,8 @@ describe("varsOnlyContext", () => {
     expect(ctx.startCommit).toBe("")
     expect(ctx.currentCommit).toBe("")
     expect(ctx.previousCommit).toBe("")
-    expect(ctx.processDiff).toBe("")
-    expect(ctx.reviewDiff).toBe("")
-    expect(ctx.retainedDiff).toBe("")
-    expect(ctx.lastDiff).toBe("")
+    expect(ctx.reviewBase).toBe("")
+    expect(ctx.retainedBase).toBe("")
     expect(ctx.processCost).toBe(0)
     expect(ctx.processCostByModel).toEqual([])
     expect(ctx.edges).toEqual([])

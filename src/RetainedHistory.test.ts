@@ -22,18 +22,16 @@ const notImplemented = (name: string) => () =>
   Effect.fail(new Error(`${name} should not have been called by this test`))
 
 const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
-  diffHead: notImplemented("diffHead"),
   readFileAtRef: notImplemented("readFileAtRef"),
   lastCommitSubject: notImplemented("lastCommitSubject"),
   lastCommitMessage: notImplemented("lastCommitMessage"),
   hasCommits: notImplemented("hasCommits"),
-  diffRef: notImplemented("diffRef"),
   resolveRef: notImplemented("resolveRef"),
   readRefOption: notImplemented("readRefOption"),
   isAncestor: notImplemented("isAncestor"),
   topLevel: notImplemented("topLevel"),
   commitHistory: notImplemented("commitHistory"),
-  commitDiff: notImplemented("commitDiff"),
+  changedPathsSince: notImplemented("changedPathsSince"),
   changedPaths: notImplemented("changedPaths"),
   commitAllWithPrefix: notImplemented("commitAllWithPrefix"),
   softResetTo: notImplemented("softResetTo"),

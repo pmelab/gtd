@@ -36,6 +36,16 @@ describe("the bundled unified workflow template", () => {
     expect(states.filter((s) => s.reviewBase === true)).toHaveLength(1)
   })
 
+  it("no compiled state's content mentions a deleted diff variable — prompts carry ranges, never diff content", () => {
+    const { definition } = compileTemplate()
+    const forbidden = /processDiff|reviewDiff|retainedDiff|lastDiff/
+    for (const [name, state] of Object.entries(definition.states)) {
+      for (const content of [state.script, state.prompt, state.message, state.commit]) {
+        if (content !== undefined) expect(content, `state "${name}"`).not.toMatch(forbidden)
+      }
+    }
+  })
+
   it("forks the initial state on the two entry files, each into its green-baseline gate", () => {
     // idle routes `.gtd/REQUIREMENTS.md` to the advanced flow's start gate and
     // everything else (e.g. `.gtd/TODO.md`) to the simple flow's start gate —

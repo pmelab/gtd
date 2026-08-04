@@ -1,29 +1,13 @@
 import { Command, CommandExecutor } from "@effect/platform"
-import { readFileSync, existsSync } from "node:fs"
-import { join } from "node:path"
 import { Context, Effect, Layer, Option, Stream } from "effect"
-import { renderDiff } from "./Diff.js"
 import { Cwd } from "./Cwd.js"
 
 export interface GitReaderOperations {
-  /**
-   * `git diff HEAD` including untracked files (via a transient intent-to-add),
-   * optionally with `:(exclude)` pathspecs. Exclusions match repo-root-relative
-   * paths; a directory path excludes everything under it. An entry prefixed
-   * with `!` re-includes that exact path even when a directory entry excludes it.
-   */
-  readonly diffHead: (exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   /** The subject of `ref`'s commit (`ref` defaults to `HEAD`). */
   readonly lastCommitSubject: (ref?: string) => Effect.Effect<string, Error>
   /** `git log -1 --pretty=%B` — the full commit message (subject + body) of HEAD. Mirrors `lastCommitSubject`'s `--pretty=%s`, but keeps the body — needed to read back a `Gtd-History:` trailer (see `RetainedHistory.ts`'s `parseHistoryTrailer`). */
   readonly lastCommitMessage: () => Effect.Effect<string, Error>
   readonly hasCommits: () => Effect.Effect<boolean, Error>
-  /**
-   * `git diff <ref> HEAD`, optionally with `:(exclude)` pathspecs. Exclusions
-   * match repo-root-relative paths; a directory path excludes everything under
-   * it. An entry prefixed with `!` re-includes that exact path.
-   */
-  readonly diffRef: (ref: string, exclude?: ReadonlyArray<string>) => Effect.Effect<string, Error>
   readonly resolveRef: (ref: string) => Effect.Effect<string, Error>
   /** `git rev-parse --verify --quiet <ref>` — the ref's hash if it resolves, `Option.none` if it doesn't exist (never fails). Used to detect an open review checkout window (`refs/worktree/gtd/review-head`). */
   readonly readRefOption: (ref: string) => Effect.Effect<Option.Option<string>, Error>
@@ -52,19 +36,6 @@ export interface GitReaderOperations {
     Error
   >
   /**
-   * The diff a single commit introduced: `git diff <hash>~1 <hash>`, rendered
-   * with the same renderer as `diffRef`/`diffHead` (renderDiff over per-file
-   * before/after contents), optionally filtered by `:(exclude)`-style
-   * repo-root-relative path excludes (same JS-side `applyExcludes` semantics as
-   * `diffRef`). For a root commit (no parent), diff against the empty tree —
-   * i.e. every file in the commit appears as an addition. Returns "" when the
-   * commit is empty (or fully excluded).
-   */
-  readonly commitDiff: (
-    hash: string,
-    exclude?: ReadonlyArray<string>,
-  ) => Effect.Effect<string, Error>
-  /**
    * `git show <ref>:<path>` — the verbatim contents of `path` as it stood at
    * `ref`. Fails when the path does not exist at that ref (callers that expect
    * an absent file — e.g. the review sign-off gate comparing a reviewer's edit
@@ -74,15 +45,24 @@ export interface GitReaderOperations {
   /**
    * The pending working-tree changes vs HEAD, as `{path, status}` pairs —
    * tracked modifications (`git diff --name-status HEAD`) unioned with
-   * untracked files (reported as `status: "A"`), deduplicated by path. Same
-   * path-collection logic as `diffHead`, without the content-diffing pass —
-   * the v3 pattern machine's `step`/`gtd status` only need the status/path
-   * shape, never rendered diff text, for pattern matching.
+   * untracked files (reported as `status: "A"`), deduplicated by path. The
+   * v3 pattern machine's `step`/`gtd status` only need the status/path shape,
+   * never diff content, for pattern matching.
    */
   readonly changedPaths: () => Effect.Effect<
     ReadonlyArray<{ readonly path: string; readonly status: string }>,
     Error
   >
+  /**
+   * `git diff --name-status <ref> HEAD` — the paths (and their status) changed
+   * across the committed range `ref..HEAD`, with no content pass. The
+   * paths-only counterpart of `changedPaths`, used to decide whether a process
+   * would retain anything (`Edge.ts`'s `retainsNothing`) without rendering a
+   * diff.
+   */
+  readonly changedPathsSince: (
+    ref: string,
+  ) => Effect.Effect<ReadonlyArray<{ readonly path: string; readonly status: string }>, Error>
 }
 
 export interface GitWriterOperations {
@@ -148,9 +128,6 @@ export interface GitWriterOperations {
 
 export interface GitOperations extends GitReaderOperations, GitWriterOperations {}
 
-// Git's empty-tree object SHA: used as the diff base for a root commit (no parent).
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-
 /**
  * Parse `git diff --name-status` output into `{ path, status }` pairs.
  * Status codes: A (added), D (deleted), M (modified), R (renamed), C (copied), etc.
@@ -176,47 +153,6 @@ const parseNameStatus = (out: string): Array<{ path: string; status: string }> =
     }
   }
   return result
-}
-
-/**
- * Filter paths by exclude list. A directory path `dir` excludes anything under
- * `dir/` or exactly `dir`. An entry prefixed with `!` is a re-include: the
- * named path stays even when another entry excludes it (e.g.
- * `[".gtd", "!.gtd/TODO.md"]` hides all workflow files except the plan).
- * Applied in JS so we don't pass `:(exclude)` pathspecs to git (which can
- * break on special path characters or certain git versions).
- */
-const applyExcludes = <T extends { path: string }>(
-  paths: ReadonlyArray<T>,
-  exclude: ReadonlyArray<string>,
-): Array<T> => {
-  if (exclude.length === 0) return [...paths]
-  const keeps = exclude.filter((e) => e.startsWith("!")).map((e) => e.slice(1))
-  const drops = exclude.filter((e) => !e.startsWith("!"))
-  return paths.filter(({ path }) => {
-    if (keeps.some((keep) => path === keep || path.startsWith(`${keep}/`))) return true
-    for (const ex of drops) {
-      if (path === ex || path.startsWith(`${ex}/`)) return false
-    }
-    return true
-  })
-}
-
-/**
- * Read a file from the worktree root (`root`).
- * Returns `null` if the file does not exist or is a directory (e.g. a submodule
- * gitlink whose worktree entry is a directory, not a regular file).
- */
-const readWorktreeFile = (root: string, path: string): string | null => {
-  const resolved = join(root, path)
-  if (!existsSync(resolved)) return null
-  try {
-    return readFileSync(resolved, "utf8")
-  } catch (e) {
-    // EISDIR: submodule pointer — treated as a non-text entry
-    if (e instanceof Error && "code" in e && e.code === "EISDIR") return null
-    throw e
-  }
 }
 
 /**
@@ -264,56 +200,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     )
 
   return {
-    diffHead: (exclude: ReadonlyArray<string> = []) =>
-      Effect.gen(function* () {
-        // Collect tracked changes (name-status relative to HEAD)
-        const nameStatusOut = yield* exec("git", "diff", "--name-status", "HEAD").pipe(
-          Effect.catchAll(() => Effect.succeed("")),
-        )
-        const trackedPaths = parseNameStatus(nameStatusOut)
-
-        // Collect untracked files (-z: NUL-separated, unquoted)
-        const untrackedRaw = yield* exec("git", "ls-files", "--others", "--exclude-standard", "-z")
-        const untracked = untrackedRaw
-          .split("\0")
-          .filter((s) => s.length > 0)
-          .map((path) => ({ path, status: "A" as const }))
-
-        // Union of tracked + untracked, deduplicated by path
-        const seen = new Set<string>()
-        const allPaths: Array<{ path: string; status: string }> = []
-        for (const entry of [...trackedPaths, ...untracked]) {
-          if (!seen.has(entry.path)) {
-            seen.add(entry.path)
-            allPaths.push(entry)
-          }
-        }
-
-        // Apply exclude filtering (JS-side, directory prefix matching)
-        const filtered = applyExcludes(allPaths, exclude)
-        if (filtered.length === 0) return ""
-
-        // Gather before/after content for each path
-        const files = yield* Effect.all(
-          filtered.map(({ path, status }) =>
-            Effect.gen(function* () {
-              const before =
-                status === "A"
-                  ? null
-                  : yield* exec("git", "show", `HEAD:${path}`).pipe(
-                      Effect.map((s) => s),
-                      Effect.catchAll(() => Effect.succeed<string | null>(null)),
-                    )
-              const after = status === "D" ? null : readWorktreeFile(root, path)
-              return { path, before, after }
-            }),
-          ),
-          { concurrency: "unbounded" },
-        )
-
-        return renderDiff(files)
-      }),
-
     lastCommitSubject: (ref = "HEAD") =>
       exec("git", "log", "-1", "--pretty=%s", ref).pipe(Effect.map((s) => s.trim())),
 
@@ -326,101 +212,10 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         Effect.catchAll(() => Effect.succeed(false)),
       ),
 
-    diffRef: (ref: string, exclude: ReadonlyArray<string> = []) =>
-      Effect.gen(function* () {
-        const nameStatusOut = yield* exec("git", "diff", "--name-status", ref, "HEAD").pipe(
-          Effect.catchAll(() => Effect.succeed("")),
-        )
-        const allPaths = parseNameStatus(nameStatusOut)
-        const filtered = applyExcludes(allPaths, exclude)
-        if (filtered.length === 0) return ""
-
-        const files = yield* Effect.all(
-          filtered.map(({ path, status }) =>
-            Effect.gen(function* () {
-              const before =
-                status === "A"
-                  ? null
-                  : yield* exec("git", "show", `${ref}:${path}`).pipe(
-                      Effect.catchAll(() => Effect.succeed<string | null>(null)),
-                    )
-              const after =
-                status === "D"
-                  ? null
-                  : yield* exec("git", "show", `HEAD:${path}`).pipe(
-                      Effect.catchAll(() => Effect.succeed<string | null>(null)),
-                    )
-              return { path, before, after }
-            }),
-          ),
-          { concurrency: "unbounded" },
-        )
-
-        return renderDiff(files)
-      }),
-
     readFileAtRef: (ref: string, path: string) => exec("git", "show", `${ref}:${path}`),
 
-    commitDiff: (hash: string, exclude: ReadonlyArray<string> = []) =>
-      Effect.gen(function* () {
-        // Resolve hash first so an unresolvable hash fails clearly.
-        yield* exec("git", "rev-parse", "--verify", hash)
-
-        const parent = yield* exec("git", "rev-parse", "--verify", `${hash}~1`).pipe(
-          Effect.map((s) => s.trim()),
-          Effect.catchAll(() => Effect.succeed(EMPTY_TREE)),
-        )
-
-        const nameStatusOut = yield* exec("git", "diff", "--name-status", parent, hash).pipe(
-          Effect.catchAll(() => Effect.succeed("")),
-        )
-        const allPaths = parseNameStatus(nameStatusOut)
-        const filtered = applyExcludes(allPaths, exclude)
-        if (filtered.length === 0) return ""
-
-        // A gitlink (submodule pointer) entry: `git show <ref>:<path>` fails on
-        // both sides since a gitlink is a tree entry, not a blob — resolve its
-        // pointed-at commit hash via `ls-tree` instead so a submodule bump
-        // doesn't silently collapse to "no change" (before === after === null).
-        const gitlinkPointerAt = (ref: string, path: string) =>
-          exec("git", "ls-tree", ref, "--", path).pipe(
-            Effect.map((out) => {
-              const fields = out.trim().split(/\s+/)
-              return fields[0] === "160000" && fields[2] ? `Subproject commit ${fields[2]}\n` : null
-            }),
-            Effect.catchAll(() => Effect.succeed<string | null>(null)),
-          )
-
-        const files = yield* Effect.all(
-          filtered.map(({ path, status }) =>
-            Effect.gen(function* () {
-              const before =
-                status === "A"
-                  ? null
-                  : yield* exec("git", "show", `${parent}:${path}`).pipe(
-                      Effect.catchAll(() => Effect.succeed<string | null>(null)),
-                    )
-              const after =
-                status === "D"
-                  ? null
-                  : yield* exec("git", "show", `${hash}:${path}`).pipe(
-                      Effect.catchAll(() => Effect.succeed<string | null>(null)),
-                    )
-              if (before === null && after === null && status !== "A" && status !== "D") {
-                const gitlinkBefore = yield* gitlinkPointerAt(parent, path)
-                const gitlinkAfter = yield* gitlinkPointerAt(hash, path)
-                if (gitlinkBefore !== null || gitlinkAfter !== null) {
-                  return { path, before: gitlinkBefore, after: gitlinkAfter }
-                }
-              }
-              return { path, before, after }
-            }),
-          ),
-          { concurrency: "unbounded" },
-        )
-
-        return renderDiff(files)
-      }),
+    changedPathsSince: (ref: string) =>
+      exec("git", "diff", "--name-status", ref, "HEAD").pipe(Effect.map(parseNameStatus)),
 
     changedPaths: () =>
       Effect.gen(function* () {

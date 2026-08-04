@@ -11,6 +11,7 @@ import {
   renderModel,
   renderOnEdges,
   resolveVars,
+  retainsNothing,
   costByModel,
   parseCostTrailers,
   totalCostOf,
@@ -39,18 +40,16 @@ const notImplemented = (name: string) => () =>
 
 /** A `GitOperations` stub with every method failing by default — tests override just what they exercise, so an unexpected call fails loudly instead of silently succeeding. */
 const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
-  diffHead: notImplemented("diffHead"),
   readFileAtRef: notImplemented("readFileAtRef"),
   lastCommitSubject: notImplemented("lastCommitSubject"),
   lastCommitMessage: notImplemented("lastCommitMessage"),
   hasCommits: notImplemented("hasCommits"),
-  diffRef: notImplemented("diffRef"),
   resolveRef: notImplemented("resolveRef"),
   readRefOption: notImplemented("readRefOption"),
   isAncestor: notImplemented("isAncestor"),
   topLevel: notImplemented("topLevel"),
   commitHistory: notImplemented("commitHistory"),
-  commitDiff: notImplemented("commitDiff"),
+  changedPathsSince: notImplemented("changedPathsSince"),
   changedPaths: notImplemented("changedPaths"),
   commitAllWithPrefix: notImplemented("commitAllWithPrefix"),
   softResetTo: notImplemented("softResetTo"),
@@ -322,16 +321,43 @@ describe("pendingChanges", () => {
   })
 })
 
+describe("retainsNothing", () => {
+  const run = {
+    startHash: "s",
+    startParentHash: "p",
+    diffBase: "p",
+    trace: [],
+    costEntries: [],
+  }
+
+  it("true on a clean tree with no range changes since the trace/retry boundary", async () => {
+    const git = stubGit({ changedPathsSince: () => Effect.succeed([]) })
+    expect(await Effect.runPromise(retainsNothing(git, run, []))).toBe(true)
+  })
+
+  it("false when there are pending changes, even with no committed range changes", async () => {
+    const git = stubGit({ changedPathsSince: () => Effect.succeed([]) })
+    expect(await Effect.runPromise(retainsNothing(git, run, [{ status: "M", path: "x.ts" }]))).toBe(
+      false,
+    )
+  })
+
+  it("false when the range has changed paths, even on a clean tree", async () => {
+    const git = stubGit({
+      changedPathsSince: () => Effect.succeed([{ path: "x.ts", status: "M" }]),
+    })
+    expect(await Effect.runPromise(retainsNothing(git, run, []))).toBe(false)
+  })
+})
+
 const context = (overrides: Partial<TemplateContext> = {}): TemplateContext => ({
   startCommit: "start",
   currentCommit: "current",
   previousCommit: "previous",
   state: "squashing",
   actor: "agent",
-  processDiff: "",
-  reviewDiff: "",
-  retainedDiff: "",
-  lastDiff: "",
+  reviewBase: "",
+  retainedBase: "",
   processCost: 0,
   processCostByModel: [],
   read: () => {
