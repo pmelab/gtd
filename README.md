@@ -285,9 +285,11 @@ re-launching it — its opening move captures whatever you left, so you never ru
 
 Anything richer at that boundary — opening your editor, desktop notifications,
 terminal-multiplexer status — is the job of an outer wrapper around `gtd`, not
-of the loop itself. Pass `--once` to restrict a run to exactly one beat — one
-human-gate capture, one check, or one agent turn — instead of driving all the
-way to idle.
+of the loop itself; see
+[Terminal-multiplexer status: a herdr wrapper](#terminal-multiplexer-status-a-herdr-wrapper)
+below for a worked example. Pass `--once` to restrict a run to exactly one beat
+— one human-gate capture, one check, or one agent turn — instead of driving all
+the way to idle.
 
 Bare `gtd` prints one line per event — colored and emoji on a real terminal,
 plain ASCII under `NO_COLOR` or when piped — and redirects the noisier
@@ -303,6 +305,85 @@ A workflow state can declare an optional `label:` — a human-readable display
 name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
 per-beat progress lines; an outer wrapper (a terminal multiplexer, a notifier)
 can use it the same way.
+
+### Terminal-multiplexer status: a herdr wrapper
+
+[herdr](https://herdr.dev) shows a per-pane status in its sidebar. This wrapper
+reports `gtd`'s own lifecycle to that status without any herdr-specific
+knowledge in `gtd` itself: `working` while the loop drives, `blocked` when it
+comes to rest on a human (a gate, a stall, a non-zero exit), and `idle`
+(rendered as "done" once the pane's tab is unfocused) when a run ends without
+anything owed. It needs nothing from `gtd` beyond `gtd next --json`'s `.actor`
+field, which the loop's driver already reads at every beat.
+
+Save this as `~/.local/bin/gtdh`, `chmod +x` it, and run `gtdh` in place of
+`gtd` — it's a plain bash file, so it works from fish or any other shell, and it
+forwards every argument (`gtdh --once`, `gtdh status`, ...).
+
+```bash
+#!/usr/bin/env bash
+# Report gtd's own lifecycle to the herdr pane it runs in: working while the
+# loop drives, blocked when it rests on you, idle (shown as "done") otherwise.
+# Needs nothing from gtd but `gtd next --json`. Outside herdr it is a plain
+# passthrough. Requires `jq` — so does gtd's own loop driver.
+set -uo pipefail
+
+pane="${HERDR_PANE_ID:-}"
+
+# `--agent gtd` is deliberate: herdr only lets screen detection (or a visible
+# approval prompt) override a reported state when the reported label names a
+# KNOWN agent. "gtd" names none, so the loop's `claude -p` turns can never move
+# this pane's status.
+report() { # report <state>
+  [ -n "$pane" ] || return 0
+  herdr pane report-agent "$pane" \
+    --source custom:gtd --agent gtd --state "$1" >/dev/null 2>&1 || true
+}
+
+report working
+trap 'report blocked; exit 130' INT TERM
+
+# HERDR_PANE_ID is unset for the loop: herdr's Claude Code hook needs it, and
+# without it no `claude -p` turn reports a claude SESSION identity for this
+# pane. That is load-bearing, not cosmetic — a pane that owns one rejects every
+# later state report, so the report below would be dropped.
+env -u HERDR_PANE_ID gtd "$@"
+rc=$?
+
+# Whose turn is it now? `gtd next --json` is mutation-free. A human actor means
+# gtd is waiting on you; anything else means the run ended with nothing owed.
+actor="$(gtd next --json 2>/dev/null | jq -r '.actor // ""' 2>/dev/null || true)"
+
+if [ "$rc" -ne 0 ] || [ -z "$actor" ] || [ "$actor" = human ]; then
+  report blocked
+else
+  report idle
+fi
+
+exit $rc
+```
+
+A few things to know before relying on it:
+
+- **Give `gtd` its own pane.** Run an interactive `claude` (or any agent whose
+  herdr integration reports session identity) in the same pane and that pane
+  owns a `herdr:claude` session until the process exits; while it does, the
+  wrapper's reports are silently ignored and the sidebar stops tracking `gtd`.
+- **`blocked` covers the resting `idle` state too** — gtd's own `idle` is a
+  human gate (it waits for you to write a steering file), so a finished cycle
+  reads as "your turn", which is what it is.
+- The status **persists after the wrapper exits** — that's the point: the
+  sidebar keeps showing which worktree is waiting on you. Hand the pane back to
+  ordinary detection with
+  `herdr pane release-agent "$HERDR_PANE_ID" --source custom:gtd --agent gtd`.
+- A non-zero exit (a stall, a refusal, an error) reports `blocked`: herdr has no
+  failure state, and those all need a human.
+- Ctrl-C reports `blocked` rather than leaving a stale `working`.
+
+Optionally,
+`herdr pane report-metadata "$HERDR_PANE_ID" --source custom:gtd-display --token summary=<text>`
+sets a value renderable as `$summary` in an Agent sidebar row, if you want more
+than the state itself.
 
 ## Configuration
 
