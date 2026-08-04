@@ -159,9 +159,9 @@ describe("parseOpenQuestions", () => {
       )
       const [question] = result.questions
       expect(question!.options).toEqual([
-        { checked: false, text: "REST", freeText: false, sourceLine: 4 },
-        { checked: false, text: "GraphQL", freeText: false, sourceLine: 5 },
-        { checked: false, text: "", freeText: true, sourceLine: 6 },
+        { checked: false, text: "REST", freeText: false, sourceLine: 4, endLine: 4 },
+        { checked: false, text: "GraphQL", freeText: false, sourceLine: 5, endLine: 5 },
+        { checked: false, text: "", freeText: true, sourceLine: 6, endLine: 6 },
       ])
       expect(question!.answered).toBe(false)
     })
@@ -185,7 +185,13 @@ describe("parseOpenQuestions", () => {
       const question = result.questions[0]!
       expect(question.answered).toBe(true)
       const chosen = question.options.find((o) => o.checked)!
-      expect(chosen).toEqual({ checked: true, text: "use tRPC", freeText: true, sourceLine: 6 })
+      expect(chosen).toEqual({
+        checked: true,
+        text: "use tRPC",
+        freeText: true,
+        sourceLine: 6,
+        endLine: 6,
+      })
     })
 
     it("is unanswered when the free-text slot is ticked but still the placeholder", () => {
@@ -199,6 +205,7 @@ describe("parseOpenQuestions", () => {
         text: "",
         freeText: true,
         sourceLine: 6,
+        endLine: 6,
       })
     })
 
@@ -219,6 +226,7 @@ describe("parseOpenQuestions", () => {
         text: FREE_TEXT_PLACEHOLDER,
         freeText: false,
         sourceLine: 4,
+        endLine: 4,
       })
       expect(last!.freeText).toBe(true)
     })
@@ -230,6 +238,76 @@ describe("parseOpenQuestions", () => {
       const question = parseOpenQuestions(content).questions[0]!
       expect(question.options).toEqual([])
       expect(question.answered).toBe(false)
+    })
+  })
+
+  describe("option line span (endLine)", () => {
+    const q = (lines: readonly string[]): string =>
+      ["## Open Questions", "", "### Which API?", ...lines, ""].join("\n")
+
+    it("a single-line option's endLine equals its own sourceLine", () => {
+      const result = parseOpenQuestions(q(["", "- [ ] REST", "- [ ] GraphQL"]))
+      const [rest, graphql] = result.questions[0]!.options
+      expect(rest).toMatchObject({ sourceLine: 4, endLine: 4 })
+      expect(graphql).toMatchObject({ sourceLine: 5, endLine: 5 })
+    })
+
+    it("an indented wrap over two continuation lines extends endLine to the last one", () => {
+      const result = parseOpenQuestions(
+        q(["", "- [ ] REST, specifically", "  a JSON:API-flavored", "  REST endpoint set"]),
+      )
+      const [option] = result.questions[0]!.options
+      expect(option).toMatchObject({ sourceLine: 4, endLine: 6 })
+    })
+
+    it("an unindented (lazy) wrap gets the same span as an indented one", () => {
+      const result = parseOpenQuestions(
+        q(["", "- [ ] REST, specifically", "a JSON:API-flavored", "REST endpoint set"]),
+      )
+      const [option] = result.questions[0]!.options
+      expect(option).toMatchObject({ sourceLine: 4, endLine: 6 })
+    })
+
+    it("the next checkbox line ends the previous option's span", () => {
+      const result = parseOpenQuestions(
+        q(["", "- [ ] REST, specifically", "a wrapped line", "- [ ] GraphQL"]),
+      )
+      const [rest, graphql] = result.questions[0]!.options
+      expect(rest).toMatchObject({ sourceLine: 4, endLine: 5 })
+      expect(graphql).toMatchObject({ sourceLine: 6, endLine: 6 })
+    })
+
+    it("a blank line ends the span, so trailing prose after it stays out of the last option's span", () => {
+      const result = parseOpenQuestions(
+        q(["", "- [ ] _your answer_", "a wrapped answer", "", "some trailing prose"]),
+      )
+      const [option] = result.questions[0]!.options
+      expect(option).toMatchObject({ sourceLine: 4, endLine: 5 })
+    })
+
+    it("the last body line ends the span at the block end, with no overrun past the next heading", () => {
+      const content = [
+        "## Open Questions",
+        "",
+        "### Which API?",
+        "",
+        "- [ ] REST",
+        "a wrapped line",
+        "another wrapped line",
+      ].join("\n")
+      const result = parseOpenQuestions(content)
+      const [option] = result.questions[0]!.options
+      expect(option).toMatchObject({ sourceLine: 4, endLine: 6 })
+    })
+
+    it("answered/text stay derived from the checkbox line alone for a wrapped ticked free-text option", () => {
+      const result = parseOpenQuestions(
+        q(["", "- [ ] REST", "- [x] use tRPC", "a wrapped continuation of the answer"]),
+      )
+      const question = result.questions[0]!
+      expect(question.answered).toBe(true)
+      const chosen = question.options.find((o) => o.checked)!
+      expect(chosen).toMatchObject({ text: "use tRPC", sourceLine: 5, endLine: 6 })
     })
   })
 })

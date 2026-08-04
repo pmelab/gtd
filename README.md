@@ -483,9 +483,11 @@ compiler's job at load time.
 per `review`-mode chunk that still has an unchecked hunk (an outline of the
 packages left to review) plus check/uncheck actions over those chunks,
 go-to-definition from a `review`-mode hunk line into the file it points at (at
-its `#line`), symbols over a `qa`-mode file's open questions, diagnostics for
-both (live as you edit), and a `gtd.openSteeringFile` command that jumps to the
-current state's steering file.
+its `#line`), symbols over a `qa`-mode file's open questions plus "pick this
+option"/"uncheck this option" code actions on each option — offered anywhere on
+the option's list item, including any wrapped continuation lines, not just its
+own `- [ ]` line — diagnostics for both (live as you edit), and a
+`gtd.openSteeringFile` command that jumps to the current state's steering file.
 
 It is config-driven via each state's `file:`/`mode:`, and falls back to basename
 dispatch (`REVIEW.md` → `review`) with no config in sight. `qa` and `review` are

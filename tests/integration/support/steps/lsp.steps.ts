@@ -179,6 +179,26 @@ When(
   },
 )
 
+When(
+  "the LSP client requests code actions at line {int} in {string} containing:",
+  async (world: GtdWorld, line: number, path: string, content: string) => {
+    const client = clients.get(world)!
+    const uri = pathToFileURL(join(world.repoDir, path)).toString()
+    notify(client, "textDocument/didOpen", {
+      textDocument: { uri, languageId: "markdown", version: 1, text: content },
+    })
+    const response = await request(client, "textDocument/codeAction", {
+      textDocument: { uri },
+      range: {
+        start: { line, character: 0 },
+        end: { line, character: 0 },
+      },
+      context: { diagnostics: [] },
+    })
+    ;(world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse = response
+  },
+)
+
 Then(
   "the LSP response result points to {string} at line {int}",
   (world: GtdWorld, path: string, line: number) => {
@@ -252,6 +272,18 @@ Then(
     assert.ok(
       symbols.some((s) => s.name === name),
       `Expected a symbol named "${name}". Got: ${JSON.stringify(symbols.map((s) => s.name))}`,
+    )
+  },
+)
+
+Then(
+  "the LSP response result contains a code action titled {string}",
+  (world: GtdWorld, title: string) => {
+    const response = (world as unknown as { lspLastResponse: JsonRpcResponse }).lspLastResponse
+    const actions = response.result as ReadonlyArray<{ title: string }>
+    assert.ok(
+      actions.some((a) => a.title === title),
+      `Expected a code action titled "${title}". Got: ${JSON.stringify(actions.map((a) => a.title))}`,
     )
   },
 )
