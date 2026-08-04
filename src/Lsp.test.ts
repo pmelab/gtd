@@ -97,6 +97,30 @@ describe("questionSymbols", () => {
   it("returns no symbols when there is no Open Questions section", () => {
     expect(questionSymbols("# Plan\n\nJust prose.\n")).toEqual([])
   })
+
+  it("spans a wrapped option's range over its continuation lines while keeping selectionRange on the checkbox line", () => {
+    const doc = [
+      "## Open Questions",
+      "",
+      "### Which API?",
+      "",
+      "- [ ] REST, specifically",
+      "  the public v3 endpoint set",
+      "- [x] GraphQL",
+      "",
+    ].join("\n")
+    const symbols = questionSymbols(doc)
+    const [rest, graphql] = symbols[0]!.children!
+    expect(rest!.range).toEqual({
+      start: { line: 4, character: 0 },
+      end: { line: 5, character: "  the public v3 endpoint set".length },
+    })
+    expect(rest!.selectionRange).toEqual({
+      start: { line: 4, character: 0 },
+      end: { line: 4, character: "- [ ] REST, specifically".length },
+    })
+    expect(graphql!.range).toEqual(graphql!.selectionRange)
+  })
 })
 
 describe("questionCodeActions / toggleOptionEdit", () => {
@@ -143,6 +167,55 @@ describe("questionCodeActions / toggleOptionEdit", () => {
     expect(toggleOptionEdit(doc, 4)?.newText).toBe("x")
     expect(toggleOptionEdit(doc, 5)?.newText).toBe(" ")
     expect(toggleOptionEdit(doc, 3)).toBeUndefined() // blank line
+  })
+})
+
+describe("questionCodeActions on a wrapped multi-line option", () => {
+  const wrappedDoc = [
+    "## Open Questions",
+    "",
+    "### Which API?",
+    "",
+    "- [ ] REST, specifically",
+    "  the public v3 endpoint set",
+    "- [x] GraphQL, specifically",
+    "  the public v4 endpoint set",
+    "- [ ] _your answer_",
+    "",
+    "Some trailing prose after the list.",
+    "",
+  ].join("\n")
+  const uri = "file:///repo/.gtd/REQUIREMENTS.md"
+  const at = (
+    line: number,
+  ): { start: { line: number; character: number }; end: { line: number; character: number } } => ({
+    start: { line, character: 0 },
+    end: { line, character: 0 },
+  })
+
+  it("offers 'pick this option' from a continuation line, editing the checkbox line rather than the cursor line", () => {
+    const actions = questionCodeActions(uri, wrappedDoc, at(5)) // REST's continuation line
+    expect(actions).toHaveLength(1)
+    expect(actions[0]?.title).toBe("gtd: pick this option")
+    const edits = actions[0]?.edit?.changes?.[uri] ?? []
+    expect(edits.map((e) => e.range.start.line).sort()).toEqual([4, 6])
+    expect(edits.find((e) => e.range.start.line === 4)?.newText).toBe("x")
+    expect(edits.find((e) => e.range.start.line === 6)?.newText).toBe(" ")
+  })
+
+  it("offers 'uncheck this option' from a continuation line of the ticked option", () => {
+    const actions = questionCodeActions(uri, wrappedDoc, at(7)) // GraphQL's continuation line
+    expect(actions).toHaveLength(1)
+    expect(actions[0]?.title).toBe("gtd: uncheck this option")
+    const edits = actions[0]?.edit?.changes?.[uri] ?? []
+    expect(edits).toHaveLength(1)
+    expect(edits[0]?.range.start.line).toBe(6)
+  })
+
+  it("offers nothing on a blank line inside the option list, the ### heading, or prose separated from the list by a blank line", () => {
+    expect(questionCodeActions(uri, wrappedDoc, at(9))).toEqual([]) // blank line after the free-text option
+    expect(questionCodeActions(uri, wrappedDoc, at(2))).toEqual([]) // the ### heading
+    expect(questionCodeActions(uri, wrappedDoc, at(10))).toEqual([]) // trailing prose
   })
 })
 
