@@ -23,7 +23,16 @@ set -euo pipefail
 # Every call the loop body makes below goes through `run_gtd` too, so the loop
 # always drives the exact same build/source it was launched from — no
 # dependence on a `gtd` binary being on PATH.
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# Follow symlinks first: npm's global install exposes this script as a
+# symlink in the node prefix's bin/, and dist/ only exists next to the REAL
+# script inside the package.
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_SOURCE" ]]; do
+  SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_SOURCE")" &>/dev/null && pwd)"
+  SCRIPT_SOURCE="$(readlink "$SCRIPT_SOURCE")"
+  [[ "$SCRIPT_SOURCE" != /* ]] && SCRIPT_SOURCE="$SCRIPT_DIR/$SCRIPT_SOURCE"
+done
+SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_SOURCE")" &>/dev/null && pwd)"
 
 run_gtd() {
   if [[ -n "${GTD_BIN:-}" ]]; then
