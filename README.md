@@ -292,7 +292,12 @@ way to idle.
 Bare `gtd` prints one line per event — colored and emoji on a real terminal,
 plain ASCII under `NO_COLOR` or when piped — and redirects the noisier
 agent/check/step subprocess output to a per-repo/per-worktree log file (its path
-is the run's first output line, ready to `tail -f`).
+is the run's first output line, ready to `tail -f`). Any execution that FAILS
+also replays its last 20 lines of output inline on stderr, on top of the log
+still holding the complete record: an agent turn that fails stops the loop (it
+would fail identically next lap), while a check script that exits non-zero is
+reported as a warning and the loop carries on, because the outcome lives in the
+tree, not in the script's exit code.
 
 A workflow state can declare an optional `label:` — a human-readable display
 name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
