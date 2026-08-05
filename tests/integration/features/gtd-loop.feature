@@ -291,6 +291,87 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And the log file contains "AGENT MEMORY=fix RESUME=1"
     And stdout contains "[you]  idle"
 
+  Scenario: Recovers when the remembered session has vanished instead of stalling the loop
+    # Same "fix" scope re-entering twice as the scenario above, except the stub
+    # simulates the remembered session having vanished: on the SECOND "fixing"
+    # entry (GTD_LOOP_MEMORY_RESUME=1, the doomed resume) it prints claude's
+    # exact missing-session message and exits 1 instead of doing real work.
+    # run_agent_turn must recognise that as recoverable — warn, mint a fresh
+    # session, retry with RESUME=0 — rather than stopping the loop, so the run
+    # still reaches its human gate at "idle".
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            initial: true
+            message: "write NOTE.md to start a cycle"
+            on:
+              "* **": working
+          working:
+            actor: agent
+            memory: work
+            prompt: "Create src/fix.ts for the initial build."
+            on:
+              "* **": checking
+          checking:
+            actor: check
+            script: |
+              set +e
+              mkdir -p .gtd
+              c=".git/testcount"
+              n=$(cat "$c" 2>/dev/null || echo 0)
+              n=$((n + 1))
+              echo "$n" > "$c"
+              if [ "$n" -lt 3 ]; then echo "fail $n" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
+            on:
+              "A .gtd/FEEDBACK.md": fixing
+              "M .gtd/FEEDBACK.md": fixing
+              "D .gtd/FEEDBACK.md": done
+              "C": done
+          fixing:
+            actor: agent
+            memory: fix
+            prompt: "Fix the failing check."
+            on:
+              "* **": checking
+          done:
+            commit: "chore: fixed"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      echo "AGENT MEMORY=${GTD_LOOP_MEMORY} RESUME=${GTD_LOOP_MEMORY_RESUME}"
+      if [ "${GTD_LOOP_MEMORY_RESUME}" = "1" ]; then
+        echo "No conversation found with session ID: ${GTD_LOOP_SESSION_ID}" >&2
+        exit 1
+      fi
+      case "$GTD_LOOP_PROMPT" in
+        *"initial build"*)
+          mkdir -p src
+          echo 'export const x = 1' > src/fix.ts
+          ;;
+        *"Fix the failing"*)
+          echo "// touched at ${GTD_LOOP_MEMORY}" >> src/fix.ts
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run bare gtd
+    Then it succeeds
+    And the log file contains "AGENT MEMORY=fix RESUME=1"
+    And the log file contains "AGENT MEMORY=fix RESUME=0" 2 times
+    And stderr contains "is gone — continuing in a fresh session"
+    And stdout contains "[you]  idle"
+
   Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed
     # `planning` declares file:/mode: (.gtd/PLAN.md as `qa`), so its output has
     # a checkable format. The stub writes a MALFORMED plan first (a bare `###`
