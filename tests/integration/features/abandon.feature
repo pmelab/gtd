@@ -1,7 +1,7 @@
 @inmem
 Feature: gtd abandon — end the process underway without completing it
 
-  `gtd review`/`gtd fix` refuse while a process is underway ("finish it, or run
+  `gtd --entry <state>` refuses while a process is underway ("finish it, or run
   `gtd abandon`"), and a workflow only leaves a process through its own squash
   finale. `gtd abandon` is the way out of one nobody is going to finish: it
   closes any open review checkout window (the shared bracket every state
@@ -68,7 +68,7 @@ Feature: gtd abandon — end the process underway without completing it
       """
       export const add = (a: number, b: number) => a + b
       """
-    When I run gtd with args "review base"
+    When I run gtd with args "--entry review-gate.check --var reviewBase=base"
     Then it succeeds
     When I run gtd step check
     Then it succeeds

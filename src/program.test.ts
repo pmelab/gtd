@@ -23,6 +23,8 @@ import {
   cliErrorLine,
   computeNextMatch,
   makeProgram,
+  parseEntryFlags,
+  takeFlagValues,
 } from "./program.js"
 import type { OnEdge, PendingChange } from "./PatternMachine.js"
 import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
@@ -252,24 +254,260 @@ describe("the retired `gtd format` subcommand", () => {
   })
 })
 
-describe("gtd review <commitish> — subcommand guards", () => {
-  // Unlike the flag-only tests above, `gtd review`'s guards need a real
-  // (in-memory) repo to resolve against — a plain "must not be called"
-  // stub can't tell a clean-tree-at-idle rest from a dirty/mid-process one.
-  // Mirrors the precedent in src/Git.test.ts (InMemRepo + inMemoryLayers, no
-  // subprocess). Full happy-path coverage (the entered state, the review
-  // checkout window opening downstream, feedback laps, …) lives in
-  // tests/integration/features/review-entry.feature.
+describe("the retired `gtd review`/`gtd fix` subcommands", () => {
+  // `gtd review <commitish>`/`gtd fix` are gone with NO fallback — replaced by
+  // the generic `--entry` mechanism (see `REMOVED_SUBCOMMANDS` in
+  // src/program.ts): any declared, non-commit state can be entered directly,
+  // so gtd no longer needs to know these two workflow-specific state names by
+  // a dedicated command. Each must fail with a message pointing at the
+  // replacement — not linger as a subcommand, and not degrade to the generic
+  // "unknown command" error either. Neither touches git (mirrors the "unknown
+  // command" block above's `failingGitLayer`-backed `runFlag`) since the
+  // rejection happens in `requireKnownSubcommand`, before any GitService call.
+
+  it("`gtd review <commitish>` points at the --entry replacement, not the generic unknown-command error", async () => {
+    const { exit } = await runFlag("review", "abc123")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      const message = String(exit.cause)
+      expect(message).toContain("--entry")
+      expect(message).toContain("review-gate.check")
+      expect(message).not.toContain("unknown command")
+    }
+  })
+
+  it("`gtd fix` points at the --entry replacement, not the generic unknown-command error", async () => {
+    const { exit } = await runFlag("fix")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      const message = String(exit.cause)
+      expect(message).toContain("--entry")
+      expect(message).toContain("fix-precheck")
+      expect(message).not.toContain("unknown command")
+    }
+  })
+
+  it("is absent from --help — the old `review <commitish>`/bare `fix` command blocks are gone", async () => {
+    const { output } = await runFlag("--help")
+    expect(output).not.toContain("review <commitish>")
+  })
+
+  it("--help documents --entry/--var instead", async () => {
+    const { output } = await runFlag("--help")
+    expect(output).toContain("--entry")
+    expect(output).toContain("--var")
+  })
+})
+
+describe("positional extraction excludes --entry/--var flag values", () => {
+  // The highest-risk part of this change: `commandArgs`/the top-level
+  // `positional` lookup in makeProgram must SKIP the index an `--entry`/
+  // `--var` value occupies (it carries no `--` prefix of its own), or it's
+  // misread as a stray extra positional argument. Uses the flag-only
+  // `failingGitLayer`-backed `runFlag` — these only need to prove parsing
+  // succeeds (reaches the GitService-touching repo-root guard) rather than
+  // failing on "too many arguments"/"unknown command".
+
+  it("`gtd step human --entry foo` parses the actor as exactly 'human'", async () => {
+    const { exit } = await runFlag("step", "human", "--entry", "foo")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      const message = String(exit.cause)
+      expect(message).not.toContain("too many arguments")
+      expect(message).toContain("GitService must not be called")
+    }
+  })
+
+  it("`gtd step human --entry=foo` (= form) parses the same way", async () => {
+    const { exit } = await runFlag("step", "human", "--entry=foo")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      const message = String(exit.cause)
+      expect(message).not.toContain("too many arguments")
+      expect(message).toContain("GitService must not be called")
+    }
+  })
+
+  it("the top-level positional lookup also skips --entry's value: `gtd --entry foo` is the bare short form, not an unknown 'foo' command", async () => {
+    const { exit } = await runFlag("--entry", "foo")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      const message = String(exit.cause)
+      expect(message).not.toContain("unknown command")
+      expect(message).not.toContain("missing command")
+      expect(message).toContain("GitService must not be called")
+    }
+  })
+})
+
+describe("takeFlagValues", () => {
+  it("collects a `--flag=value` occurrence and its own index", () => {
+    const { values, consumed } = takeFlagValues(["node", "gtd.js", "--entry=foo"], "--entry")
+    expect(values).toEqual(["foo"])
+    expect(consumed).toEqual(new Set([2]))
+  })
+
+  it("collects a `--flag value` (space-separated) occurrence and BOTH its indices", () => {
+    const { values, consumed } = takeFlagValues(
+      ["node", "gtd.js", "step", "human", "--entry", "foo"],
+      "--entry",
+    )
+    expect(values).toEqual(["foo"])
+    expect(consumed).toEqual(new Set([4, 5]))
+  })
+
+  it("collects every occurrence of a repeatable flag, mixing both forms", () => {
+    const { values, consumed } = takeFlagValues(
+      ["node", "gtd.js", "--var", "a=1", "--var=b=2"],
+      "--var",
+    )
+    expect(values).toEqual(["a=1", "b=2"])
+    expect(consumed).toEqual(new Set([2, 3, 4]))
+  })
+
+  it("a trailing bare flag (no following value) still consumes its own index", () => {
+    const { values, consumed } = takeFlagValues(["node", "gtd.js", "--entry"], "--entry")
+    expect(values).toEqual([""])
+    expect(consumed).toEqual(new Set([2]))
+  })
+
+  it("ignores a different flag entirely", () => {
+    const { values, consumed } = takeFlagValues(["node", "gtd.js", "--cost=5"], "--entry")
+    expect(values).toEqual([])
+    expect(consumed.size).toBe(0)
+  })
+})
+
+describe("parseEntryFlags", () => {
+  const run = (argv: readonly string[], positional: string | undefined) =>
+    Effect.runSyncExit(parseEntryFlags(argv, positional))
+
+  it("accepts `--entry=<state>`", () => {
+    const exit = run(["node", "gtd.js", "step", "human", "--entry=side-entry"], "step")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) expect(exit.value).toEqual({ entry: "side-entry", vars: {} })
+  })
+
+  it("accepts `--entry <state>` (space-separated)", () => {
+    const exit = run(["node", "gtd.js", "step", "human", "--entry", "side-entry"], "step")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    if (Exit.isSuccess(exit)) expect(exit.value).toEqual({ entry: "side-entry", vars: {} })
+  })
+
+  it("a bare --entry with no value is a usage error", () => {
+    const exit = run(["node", "gtd.js", "step", "human", "--entry"], "step")
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) expect(String(exit.cause)).toContain("--entry requires a value")
+  })
+
+  it("a second --entry occurrence is a usage error (not last-wins)", () => {
+    const exit = run(["node", "gtd.js", "--entry", "a", "--entry", "b"], undefined)
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) expect(String(exit.cause)).toContain("--entry")
+  })
+
+  it("a duplicate --var NAME is a usage error", () => {
+    const exit = run(
+      ["node", "gtd.js", "step", "human", "--entry", "e", "--var", "a=1", "--var", "a=2"],
+      "step",
+    )
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) expect(String(exit.cause)).toContain("--var a")
+  })
+
+  it("--var present with no --entry is a usage error", () => {
+    const exit = run(["node", "gtd.js", "step", "human", "--var", "a=1"], "step")
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) expect(String(exit.cause)).toContain("--var requires --entry")
+  })
+
+  it("a --var value with no '=' is a usage error", () => {
+    const exit = run(["node", "gtd.js", "step", "human", "--entry", "e", "--var", "bogus"], "step")
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it("a multiline --var value is a usage error", () => {
+    const exit = run(["node", "gtd.js", "step", "human", "--entry", "e", "--var", "a=1\n2"], "step")
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it("--entry is valid with no positional at all (the subcommand-less short form)", () => {
+    const exit = run(["node", "gtd.js", "--entry", "e"], undefined)
+    expect(Exit.isSuccess(exit)).toBe(true)
+  })
+
+  it("--entry on a command other than step/bare is a usage error", () => {
+    const exit = run(["node", "gtd.js", "status", "--entry", "e"], "status")
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+})
+
+describe("--cost/--model combined with --entry", () => {
+  it("is a usage error naming the conflict", async () => {
+    const { exit } = await runFlag("step", "human", "--entry", "foo", "--cost=5")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      const message = String(exit.cause)
+      expect(message).toContain("--entry")
+      expect(message).toContain("--cost")
+    }
+  })
+
+  it("--model combined with --entry is likewise a usage error", async () => {
+    const { exit } = await runFlag("step", "human", "--entry", "foo", "--cost=5", "--model=gpt")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain("--entry")
+    }
+  })
+})
+
+describe("gtd step <actor> --entry <state> — a custom workflow declaring `entry: true`", () => {
+  // The generic entry mechanism that replaced `gtd review`/`gtd fix`: any
+  // declared, non-commit state may be entered directly via `--entry`, not
+  // just one flagged `entry: true` (that narrower set only seeds the
+  // workflow's OWN `entries.manual` reachability roots — see
+  // `PatternMachine.enterableStates`'s doc comment). Needs a real (in-memory)
+  // repo, like the old review/fix guard tests it replaces — mirrors the
+  // InMemRepo + inMemoryLayers precedent in src/Git.test.ts.
+
+  const CUSTOM_WORKFLOW = [
+    "workflow:",
+    "  vars:",
+    "    greeting: hello",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: go",
+    "          on:",
+    '            "* **": idle',
+    "        side-entry:",
+    "          entry: true",
+    "          actor: human",
+    "          message: entering",
+    "          on:",
+    '            "* **": working',
+    "",
+  ].join("\n")
 
   const seededRepo = (): InMemRepo => {
     const repo = new InMemRepo()
-    repo.writeFile(".gitignore", "node_modules\n")
-    repo.writeFile("README.md", "# test project\n")
-    repo.commitAllWithPrefix("chore: initial commit")
+    repo.writeFile(".gtdrc.yaml", CUSTOM_WORKFLOW)
+    repo.commitAllWithPrefix("chore: add custom workflow")
     return repo
   }
 
-  const runReview = async (
+  const runEntry = async (
     repo: InMemRepo,
     ...args: string[]
   ): Promise<{ output: string; exit: Exit.Exit<void, Error> }> => {
@@ -277,231 +515,164 @@ describe("gtd review <commitish> — subcommand guards", () => {
     const write = (chunk: string) => {
       output += chunk
     }
-    const argv = ["node", "gtd.js", "review", ...args]
+    const argv = ["node", "gtd.js", ...args]
     const exit = await Effect.runPromiseExit(
       makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
     )
     return { output, exit }
   }
 
-  it("is a known subcommand — appears in --help", async () => {
-    const { output } = await runFlag("--help")
-    expect(output).toContain("review <commitish>")
-  })
-
-  it("missing <commitish> argument is a usage error, nothing committed", async () => {
+  it("the happy path writes one turn commit resting at the entered state", async () => {
     const repo = seededRepo()
     const before = repo.commitHistory().length
-    const { exit } = await runReview(repo)
-    expect(Exit.isSuccess(exit)).toBe(false)
-    expect(repo.commitHistory()).toHaveLength(before)
+    const { output, exit } = await runEntry(repo, "step", "human", "--entry", "side-entry")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(output).toContain("committed: gtd(human): side-entry")
+    expect(repo.commitHistory()).toHaveLength(before + 1)
+    expect(repo.lastCommitSubject()).toBe("gtd(human): side-entry")
   })
 
-  it("more than one positional argument is a usage error", async () => {
+  it("--entry naming an undeclared state refuses, listing every enterable state", async () => {
     const repo = seededRepo()
-    const base = repo.commitHistory()[0]!.hash
-    const { exit } = await runReview(repo, base, "extra")
-    expect(Exit.isSuccess(exit)).toBe(false)
-  })
-
-  it("a dirty working tree refuses, nothing committed", async () => {
-    const repo = seededRepo()
-    const base = repo.commitHistory()[0]!.hash
-    repo.writeFile("scratch.txt", "uncommitted\n")
     const before = repo.commitHistory().length
-    const { exit } = await runReview(repo, base)
+    const { exit } = await runEntry(repo, "step", "human", "--entry", "bogus-state")
     expect(Exit.isSuccess(exit)).toBe(false)
     expect(repo.commitHistory()).toHaveLength(before)
+    if (Exit.isFailure(exit)) {
+      const message = String(exit.cause)
+      expect(message).toContain("enterable states")
+      expect(message).toContain("idle")
+      expect(message).toContain("side-entry")
+      expect(message).toContain("working")
+    }
   })
 
   it("a process already underway (not resting at the initial state) refuses", async () => {
     const repo = seededRepo()
-    const base = repo.commitHistory()[0]!.hash
     repo.writeFile(".gtd/TODO.md", "sketch\n")
-    repo.commitAllWithPrefix("gtd(agent): plan.planning")
+    repo.commitAllWithPrefix("gtd(agent): working")
     const before = repo.commitHistory().length
-    const { exit } = await runReview(repo, base)
+    const { exit } = await runEntry(repo, "step", "human", "--entry", "side-entry")
     expect(Exit.isSuccess(exit)).toBe(false)
     expect(repo.commitHistory()).toHaveLength(before)
-  })
-
-  it("<commitish> equal to HEAD refuses — nothing to review", async () => {
-    const repo = seededRepo()
-    const head = repo.commitHistory()[0]!.hash
-    const before = repo.commitHistory().length
-    const { exit } = await runReview(repo, head)
-    expect(Exit.isSuccess(exit)).toBe(false)
-    expect(repo.commitHistory()).toHaveLength(before)
-  })
-
-  it("a workflow declaring no reviewEntry state fails with a clear usage error", async () => {
-    const repo = seededRepo()
-    // A minimal custom workflow with no top-level `entry.review` anywhere,
-    // COMMITTED (not left pending) so the clean-tree guard passes and this
-    // test exercises the reviewEntry guard specifically.
-    repo.writeFile(
-      ".gtdrc.yaml",
-      [
-        "workflow:",
-        "  entry:",
-        "    default: root",
-        "  machines:",
-        "    root:",
-        "      entry: idle",
-        "      states:",
-        "        idle:",
-        "          actor: human",
-        "          message: hi",
-        "          on:",
-        '            "* **": working',
-        "        working:",
-        "          actor: agent",
-        "          prompt: go",
-        "          on:",
-        '            "* **": idle',
-        "",
-      ].join("\n"),
-    )
-    repo.commitAllWithPrefix("chore: add custom workflow")
-    const base = repo.commitHistory()[0]!.hash
-    const { exit } = await runReview(repo, base)
-    expect(Exit.isSuccess(exit)).toBe(false)
     if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain("declares no review entry state")
+      expect(String(exit.cause)).toContain("already underway")
     }
   })
 
-  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the unified template's review-entry state (review-gate.check)", async () => {
+  it("an undeclared --var name refuses, listing the declared names", async () => {
     const repo = seededRepo()
-    // Pin the bundled unified template (whose top-level `entry.review` names
-    // `review-gate.check`) explicitly and commit it — this is the same
-    // machine gtd runs as its built-in default, materialized via
-    // `renderInitConfig` (see src/workflows/templates.ts).
+    const before = repo.commitHistory().length
+    const { exit } = await runEntry(
+      repo,
+      "step",
+      "human",
+      "--entry",
+      "side-entry",
+      "--var",
+      "bogus=1",
+    )
+    expect(Exit.isSuccess(exit)).toBe(false)
+    expect(repo.commitHistory()).toHaveLength(before)
+    if (Exit.isFailure(exit)) {
+      const message = String(exit.cause)
+      expect(message).toContain("bogus")
+      expect(message).toContain("greeting")
+    }
+  })
+
+  it("a declared --var override is recorded as a Gtd-Var trailer on the entry commit", async () => {
+    const repo = seededRepo()
+    const { exit } = await runEntry(
+      repo,
+      "step",
+      "human",
+      "--entry",
+      "side-entry",
+      "--var",
+      "greeting=world",
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const message = repo.commitHistory().at(-1)!.message
+    expect(message).toContain("Gtd-Var: greeting=world")
+  })
+
+  it("a dirty working tree is CAPTURED, not refused (commitAllWithPrefix, unlike the old commitAsIs-based gtd review/gtd fix)", async () => {
+    const repo = seededRepo()
+    repo.writeFile("scratch.txt", "uncommitted\n")
+    const before = repo.commitHistory().length
+    const { exit } = await runEntry(repo, "step", "human", "--entry", "side-entry")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(repo.commitHistory()).toHaveLength(before + 1)
+  })
+
+  it("the subcommand-less short form `gtd --entry <state>` dispatches as human", async () => {
+    const repo = seededRepo()
+    const { output, exit } = await runEntry(repo, "--entry", "side-entry")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(output).toContain("committed: gtd(human): side-entry")
+    expect(repo.lastCommitSubject()).toBe("gtd(human): side-entry")
+  })
+})
+
+describe("gtd step <actor> --entry <state> — the bundled unified template", () => {
+  // Full downstream coverage (the review checkout window, feedback laps, the
+  // fix-precheck green-baseline gate) lives in review-entry.feature/
+  // fix-entry.feature; these pin only the entry commit itself — the same
+  // happy-path shape the old `gtd review`/`gtd fix` tests pinned.
+
+  const seededRepo = (): InMemRepo => {
+    const repo = new InMemRepo()
     repo.writeFile(".gtdrc.json", renderInitConfig())
     repo.commitAllWithPrefix("chore: init gtd workflow")
-    const base = repo.commitHistory().at(-1)!.hash
-    // A colleague's PR branch: ordinary commits on top of the base, no gtd
-    // process of its own.
-    repo.writeFile("src/calc.ts", "export const add = (a: number, b: number) => a + b\n")
-    repo.commitAllWithPrefix("feat: add calculator")
-    const before = repo.commitHistory().length
+    return repo
+  }
 
-    const { output, exit } = await runReview(repo, base)
+  const runEntry = async (
+    repo: InMemRepo,
+    ...args: string[]
+  ): Promise<{ output: string; exit: Exit.Exit<void, Error> }> => {
+    let output = ""
+    const write = (chunk: string) => {
+      output += chunk
+    }
+    const argv = ["node", "gtd.js", ...args]
+    const exit = await Effect.runPromiseExit(
+      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+    )
+    return { output, exit }
+  }
+
+  it("--entry review-gate.check --var reviewBase=<base> starts a review process anchored to that base", async () => {
+    // review-gate.check declares a template-form `reviewBase:` (fixing the
+    // whole process's diff base) — entering it requires a `--var
+    // reviewBase=<commitish>` that resolves to an ancestor of HEAD distinct
+    // from HEAD; the blank-default/no-ancestor refusals are covered in
+    // entry.feature.
+    const repo = seededRepo()
+    const base = repo.commitHistory().at(-1)!.hash
+    repo.writeFile("scratch.txt", "more work\n")
+    repo.commitAllWithPrefix("chore: more work")
+    const before = repo.commitHistory().length
+    const { output, exit } = await runEntry(
+      repo,
+      "step",
+      "human",
+      "--entry",
+      "review-gate.check",
+      "--var",
+      `reviewBase=${base}`,
+    )
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(output).toContain("committed: gtd(human): review-gate.check")
     expect(repo.commitHistory()).toHaveLength(before + 1)
     expect(repo.lastCommitSubject()).toBe("gtd(human): review-gate.check")
-    const message = repo.commitHistory().at(-1)!.message
-    expect(message).toContain(`Gtd-Review-Base: ${base}`)
-  })
-})
-
-describe("gtd fix — subcommand guards", () => {
-  // Like `gtd review`, `gtd fix`'s guards need a real (in-memory) repo to
-  // resolve against. Full happy-path coverage (fix-precheck running the suite,
-  // dropping into the shared fixing loop or no-op'ing back to idle) lives in
-  // tests/integration/features/fix-entry.feature.
-
-  const seededRepo = (): InMemRepo => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gitignore", "node_modules\n")
-    repo.writeFile("README.md", "# test project\n")
-    repo.commitAllWithPrefix("chore: initial commit")
-    return repo
-  }
-
-  const runFix = async (
-    repo: InMemRepo,
-    ...args: string[]
-  ): Promise<{ output: string; exit: Exit.Exit<void, Error> }> => {
-    let output = ""
-    const write = (chunk: string) => {
-      output += chunk
-    }
-    const argv = ["node", "gtd.js", "fix", ...args]
-    const exit = await Effect.runPromiseExit(
-      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
-    )
-    return { output, exit }
-  }
-
-  it("is a known subcommand — appears in --help", async () => {
-    const { output } = await runFlag("--help")
-    expect(output).toContain("fix ")
   })
 
-  it("takes no positional argument — extra args are a usage error", async () => {
+  it("--entry fix-precheck starts a fix process at the template's own fix-entry state", async () => {
     const repo = seededRepo()
     const before = repo.commitHistory().length
-    const { exit } = await runFix(repo, "extra")
-    expect(Exit.isSuccess(exit)).toBe(false)
-    expect(repo.commitHistory()).toHaveLength(before)
-  })
-
-  it("a dirty working tree refuses, nothing committed", async () => {
-    const repo = seededRepo()
-    // Scaffold the unified template so a fixEntry state exists — this test
-    // exercises the clean-tree guard specifically.
-    repo.writeFile(".gtdrc.json", renderInitConfig())
-    repo.commitAllWithPrefix("chore: init gtd workflow")
-    repo.writeFile("scratch.txt", "uncommitted\n")
-    const before = repo.commitHistory().length
-    const { exit } = await runFix(repo)
-    expect(Exit.isSuccess(exit)).toBe(false)
-    expect(repo.commitHistory()).toHaveLength(before)
-  })
-
-  it("a process already underway (not resting at the initial state) refuses", async () => {
-    const repo = seededRepo()
-    repo.writeFile(".gtdrc.json", renderInitConfig())
-    repo.commitAllWithPrefix("chore: init gtd workflow")
-    repo.writeFile(".gtd/TODO.md", "sketch\n")
-    repo.commitAllWithPrefix("gtd(agent): plan.planning")
-    const before = repo.commitHistory().length
-    const { exit } = await runFix(repo)
-    expect(Exit.isSuccess(exit)).toBe(false)
-    expect(repo.commitHistory()).toHaveLength(before)
-  })
-
-  it("a workflow declaring no fixEntry state fails with a clear usage error", async () => {
-    const repo = seededRepo()
-    repo.writeFile(
-      ".gtdrc.yaml",
-      [
-        "workflow:",
-        "  entry:",
-        "    default: root",
-        "  machines:",
-        "    root:",
-        "      entry: idle",
-        "      states:",
-        "        idle:",
-        "          actor: human",
-        "          message: hi",
-        "          on:",
-        '            "* **": working',
-        "        working:",
-        "          actor: agent",
-        "          prompt: go",
-        "          on:",
-        '            "* **": idle',
-        "",
-      ].join("\n"),
-    )
-    repo.commitAllWithPrefix("chore: add custom workflow")
-    const { exit } = await runFix(repo)
-    expect(Exit.isSuccess(exit)).toBe(false)
-    if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain("declares no fix entry state")
-    }
-  })
-
-  it("the happy path writes one empty entry commit resting at the unified template's fix-entry state (fix-precheck)", async () => {
-    const repo = seededRepo()
-    repo.writeFile(".gtdrc.json", renderInitConfig())
-    repo.commitAllWithPrefix("chore: init gtd workflow")
-    const before = repo.commitHistory().length
-    const { output, exit } = await runFix(repo)
+    const { output, exit } = await runEntry(repo, "step", "human", "--entry", "fix-precheck")
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(output).toContain("committed: gtd(human): fix-precheck")
     expect(repo.commitHistory()).toHaveLength(before + 1)

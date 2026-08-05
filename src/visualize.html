@@ -1281,10 +1281,8 @@
       const FLAGS = {
         initial:
           "The one initial state — an unrecognized HEAD (any non-gtd history) resolves here.",
-        reviewEntry:
-          "This state is a dedicated CLI entry point (e.g. `gtd review <ref>`) that starts a brand-new process.",
-        fixEntry:
-          "This state is the `gtd fix` entry point — a red suite drops into the fixing loop, a green suite is a no-op.",
+        entry:
+          "This state is a manual entry point (`entry: true`) — a brand-new process may start here via `gtd step <actor> --entry <state>` (or the subcommand-less `gtd --entry <state>`), in addition to the workflow's ordinary `initial` state.",
         reviewWindow:
           "While resting here, gtd opens the review checkout window: HEAD is rewound to the review base so the whole diff surfaces as ordinary uncommitted changes.",
         reviewBase:

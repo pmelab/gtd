@@ -44,11 +44,11 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     When I run gtd step check
     Then it succeeds
     And the last commit subject is "gtd(check): plan-gate.check → plan-gate.blocked"
-    # The halt message tells the human the baseline is red and names gtd fix.
+    # The halt message tells the human the baseline is red and names the fix entry.
     When I run gtd next
     Then it succeeds
     And stdout contains "test baseline is red"
-    And stdout contains "gtd fix"
+    And stdout contains "gtd --entry fix-precheck"
     # The human repairs the baseline in place: delete the feedback and land a fix.
     Given the file ".gtd/FEEDBACK.md" is deleted
     And a file "src/baseline-fix.ts" with:

@@ -68,7 +68,7 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
         ["* *", "checking"],
       ],
     })
-    expect(definition.entries).toEqual({ default: "idle" })
+    expect(definition.entries).toEqual({ default: "idle", manual: [] })
     expect(definition.states["done"]).toEqual({
       commit: "chore: <%~ it.read('COMMIT_MSG.md') %>",
     })
@@ -556,7 +556,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     ).toThrowError(/state "a": "actor" must be a string/)
   })
 
-  it("rejects a non-boolean reviewWindow/reviewBase", () => {
+  it("rejects a non-boolean reviewWindow", () => {
     expect(() =>
       compileWorkflowConfig(
         {
@@ -571,23 +571,35 @@ describe("compileWorkflowConfig — config-shape validation", () => {
         "/dir",
       ),
     ).toThrowError(/state "a": "reviewWindow" must be a boolean/)
-    expect(() =>
-      compileWorkflowConfig(
-        {
-          entry: { default: "root" },
-          machines: {
-            root: {
-              entry: "a",
-              states: { a: { actor: "human", message: "hi", reviewBase: 1 } },
+  })
+
+  it("compiles a reviewWindow boolean onto the StateDef (false omitted)", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "a",
+            states: {
+              a: { actor: "human", message: "hi", on: { "* *": "b" } },
+              b: {
+                actor: "human",
+                message: "review",
+                reviewWindow: true,
+                on: { C: "a" },
+              },
             },
           },
         },
-        "/dir",
-      ),
-    ).toThrowError(/state "a": "reviewBase" must be a boolean/)
+      },
+      "/dir",
+    )
+    expect(definition.states.b!.reviewWindow).toBe(true)
+    // `false`/absent compiles away — never lands on the StateDef.
+    expect("reviewWindow" in definition.states.a!).toBe(false)
   })
 
-  it("compiles reviewWindow/reviewBase booleans onto the StateDef (false omitted)", () => {
+  it("compiles reviewBase's boolean-or-template shape: `true` verbatim, a non-blank string verbatim", () => {
     const { definition } = compileWorkflowConfig(
       {
         entry: { default: "root" },
@@ -604,8 +616,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
               b: {
                 actor: "human",
                 message: "review",
-                reviewWindow: true,
-                reviewBase: false,
+                reviewBase: "<%= it.vars.base %>",
                 on: { C: "a" },
               },
             },
@@ -615,9 +626,21 @@ describe("compileWorkflowConfig — config-shape validation", () => {
       "/dir",
     )
     expect(definition.states.a!.reviewBase).toBe(true)
-    expect(definition.states.b!.reviewWindow).toBe(true)
-    // `false` compiles away — never lands on the StateDef.
-    expect("reviewBase" in definition.states.b!).toBe(false)
+    expect(definition.states.b!.reviewBase).toBe("<%= it.vars.base %>")
+  })
+
+  it("rejects `false`, a number, an object, and a blank string for reviewBase", () => {
+    const withReviewBase = (reviewBase: unknown) => ({
+      entry: { default: "root" },
+      machines: {
+        root: { entry: "a", states: { a: { actor: "human", message: "hi", reviewBase } } },
+      },
+    })
+    for (const bad of [false, 1, { nested: true }, ""]) {
+      expect(() => compileWorkflowConfig(withReviewBase(bad), "/dir")).toThrowError(
+        /state "a": "reviewBase" must be a boolean or a non-blank string/,
+      )
+    }
   })
 
   it("compiles a requireProgress boolean onto the StateDef", () => {
@@ -645,25 +668,71 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(definition.states.b!.requireProgress).toBe(true)
   })
 
-  it("compiles `entry.review` into `entries.review` (absent when not declared)", () => {
-    const shape = (withReview: boolean) => ({
-      entry: withReview ? { default: "root", review: "b" } : { default: "root" },
+  it("compiles a state's own `entry: true` into `entries.manual` (empty when none declared)", () => {
+    const shape = (withEntry: boolean) => ({
+      entry: { default: "root" },
       machines: {
         root: {
           entry: "a",
           states: {
             a: { actor: "human", message: "hi", on: { "* *": "b" } },
-            b: { actor: "human", message: "review", on: { C: "a" } },
+            b: { actor: "human", message: "review", entry: withEntry, on: { C: "a" } },
           },
         },
       },
     })
     const { definition: withTrue } = compileWorkflowConfig(shape(true), "/dir")
-    expect(withTrue.entries.review).toBe("b")
+    expect(withTrue.entries).toEqual({ default: "a", manual: ["b"] })
+    // `entry: true` is authoring-only — never lands on the compiled StateDef.
+    expect("entry" in withTrue.states.b!).toBe(false)
 
     const { definition: withFalse } = compileWorkflowConfig(shape(false), "/dir")
-    // Absent from `entry:` — never becomes an entry.
-    expect(withFalse.entries.review).toBeUndefined()
+    expect(withFalse.entries).toEqual({ default: "a", manual: [] })
+  })
+
+  it("rejects a non-boolean `entry` flag on a state", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: { a: { actor: "human", message: "hi", entry: "yes" } },
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/state "a": "entry" must be a boolean/)
+  })
+
+  it("collects `entry: true` from all three instantiations of a machine referenced three times, sorted", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "start",
+            states: {
+              start: { actor: "human", message: "hi", on: { "* *": "start" } },
+              c: { machine: "leaf" },
+              b: { machine: "leaf" },
+              a: { machine: "leaf" },
+            },
+          },
+          leaf: {
+            entry: "check",
+            states: { check: { actor: "human", message: "hi", entry: true, on: { C: "check" } } },
+          },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.entries).toEqual({
+      default: "start",
+      manual: ["a.check", "b.check", "c.check"],
+    })
   })
 
   it("rejects zero content keys and more than one content key", () => {
@@ -1473,6 +1542,39 @@ describe("compileWorkflowConfig — legacy shape detection & error sequencing", 
     )
   })
 
+  it("a top-level `entry.review` key throws the migration message standalone, not merged with unrelated `detectLegacyShape` findings", () => {
+    try {
+      compileWorkflowConfig({ entry: { default: "root", review: "b" } }, "/dir")
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toBe(
+        `workflow config:\n  - entry.review is no longer supported — declare \`entry: true\` on that state and enter it with \`gtd --entry <state>\``,
+      )
+    }
+  })
+
+  it("a top-level `entry.fix` key throws its own migration message", () => {
+    expect(() => compileWorkflowConfig({ entry: { default: "root", fix: "b" } }, "/dir")).toThrow(
+      "entry.fix is no longer supported — declare `entry: true` on that state and enter it with `gtd --entry <state>`",
+    )
+  })
+
+  it("both `entry.review` and `entry.fix` present together throw both migration messages in one error", () => {
+    try {
+      compileWorkflowConfig({ entry: { default: "root", review: "b", fix: "c" } }, "/dir")
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain(
+        "entry.review is no longer supported — declare `entry: true` on that state and enter it with `gtd --entry <state>`",
+      )
+      expect(message).toContain(
+        "entry.fix is no longer supported — declare `entry: true` on that state and enter it with `gtd --entry <state>`",
+      )
+    }
+  })
+
   it("a state-level `initial:` key surfaces its replacement hint instead of a bare unknown-key error", () => {
     try {
       compileWorkflowConfig(
@@ -1489,6 +1591,35 @@ describe("compileWorkflowConfig — legacy shape detection & error sequencing", 
       const message = e instanceof Error ? e.message : String(e)
       expect(message).toContain(
         'state "a": unknown key(s) initial ("initial" no longer exists — declare this state\'s qualified path in the top-level "entry.default" instead)',
+      )
+    }
+  })
+
+  it("a state-level `reviewEntry:`/`fixEntry:` key each surface the new `entry: true` hint instead of a bare unknown-key error", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: { actor: "human", message: "hi", reviewEntry: true, on: { "* *": "b" } },
+                b: { actor: "human", message: "hi", fixEntry: true, on: { "* *": "a" } },
+              },
+            },
+          },
+        },
+        "/dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain(
+        'state "a": unknown key(s) reviewEntry ("reviewEntry" no longer exists — declare "entry: true" on this state instead)',
+      )
+      expect(message).toContain(
+        'state "b": unknown key(s) fixEntry ("fixEntry" no longer exists — declare "entry: true" on this state instead)',
       )
     }
   })

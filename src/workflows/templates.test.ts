@@ -22,12 +22,12 @@ describe("the bundled unified workflow template", () => {
   it("declares exactly one review checkout window and one review entry", () => {
     // The cycle runs to a human review gate, so it must declare exactly one
     // `reviewWindow: true` state (the gate that opens the editor's checkout
-    // window) and exactly one `entries.review` state (the
-    // `gtd review <commitish>` entry point) — see src/ReviewWindow.ts.
+    // window) and exactly one manual entry named `review-gate.check` (the
+    // `gtd --entry review-gate.check` entry point) — see src/ReviewWindow.ts.
     const { definition } = compileTemplate()
     const states = Object.values(definition.states)
     expect(states.filter((s) => s.reviewWindow === true)).toHaveLength(1)
-    expect(definition.entries.review).toBeTruthy()
+    expect(definition.entries.manual).toContain("review-gate.check")
   })
 
   it("declares exactly one review-base state anchoring the incremental review window", () => {
@@ -55,16 +55,38 @@ describe("the bundled unified workflow template", () => {
     )
   })
 
-  it("resolves entry.default/.review/.fix to three distinct declared states", () => {
+  it("declares exactly the four qualified assertGreen/fix-precheck states as manual entries", () => {
+    // All three `assertGreen` instances (plan-gate/spec-gate/review-gate)
+    // declare `entry: true` on their shared `check` local — the dedup means
+    // marking one marks all three, even though only `review-gate.check`
+    // actually needs the reachability root — plus `fix-precheck`'s own.
     const { definition } = compileTemplate()
-    const { default: def, review, fix } = definition.entries
+    const { default: def, manual } = definition.entries
     expect(def).toBeTruthy()
-    expect(review).toBeTruthy()
-    expect(fix).toBeTruthy()
-    expect(new Set([def, review, fix]).size).toBe(3)
+    expect(manual).toEqual([
+      "fix-precheck",
+      "plan-gate.check",
+      "review-gate.check",
+      "spec-gate.check",
+    ])
+    expect(new Set([def, ...manual]).size).toBe(5)
     expect(definition.states[def]).toBeDefined()
-    expect(definition.states[review!]).toBeDefined()
-    expect(definition.states[fix!]).toBeDefined()
+    for (const state of manual) expect(definition.states[state]).toBeDefined()
+  })
+
+  it("compiles exactly one template-form reviewBase, and no truthy reviewBase on plan-gate/spec-gate", () => {
+    // `review-gate.check` fixes the whole process's diff base to a
+    // manually-supplied commitish (a template string, via its `$reviewBase`
+    // binding). `plan-gate.check`/`spec-gate.check` bind the same param to
+    // the literal empty string, which compiles away to "field absent".
+    const { definition } = compileTemplate()
+    const states = definition.states
+    const templateReviewBase = Object.entries(states).filter(
+      ([, s]) => typeof s.reviewBase === "string",
+    )
+    expect(templateReviewBase.map(([name]) => name)).toEqual(["review-gate.check"])
+    expect(states["plan-gate.check"]!.reviewBase).toBeUndefined()
+    expect(states["spec-gate.check"]!.reviewBase).toBeUndefined()
   })
 
   it("exposes the compiled default as the built-in fallback (definition + its own vars)", () => {

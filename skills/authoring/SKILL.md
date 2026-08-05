@@ -88,7 +88,8 @@ states:
     mode: <modeName> # optional, REQUIRES file: — qa | review | a modes: entry
     reviewWindow: true # optional — open the review checkout window at rest here
     reviewBase: true # optional — anchor the review diff base to this state
-    reviewEntry: true # optional — `gtd review <ref>` enters here (≤1 per workflow)
+    # reviewBase: <Eta template> # OR a template — see "Retry, review, and the squash finale"
+    entry: true # optional — an extra `gtd --entry <state>` reachability root (see below)
 ```
 
 `actor` is a **plain string** — no closed vocabulary. `gtd step <actor>`
@@ -217,11 +218,39 @@ well-formed files. It is a no-op when the file is absent.
   tokens forever. `otherwise` must name a defined state.
 - **`reviewWindow: true`** — while resting here, gtd rewinds HEAD/index to the
   review base (working tree untouched) so the whole cycle diff shows up as
-  uncommitted changes in the editor. `reviewBase: true` anchors that base;
-  absent one, it defaults to the process start.
-- **`reviewEntry: true`** — the (≤1) state `gtd review <commitish>` enters to
-  review an arbitrary `<commitish>..HEAD` (e.g. a colleague's PR). Forbidden on
-  the initial state and on commit states.
+  uncommitted changes in the editor. `reviewBase: true` anchors that base to
+  this state's own most-recent in-process commit; absent one, it defaults to the
+  process start.
+- **`reviewBase: <Eta template>`** — a different shape from `reviewBase: true`:
+  a string is rendered (only meaningful when the state is entered via `--entry`)
+  to a commitish that fixes the WHOLE PROCESS's diff base, not just the review
+  window's. This is how a manual entry reviews an arbitrary `<commitish>..HEAD`
+  (e.g. a colleague's PR branch) — the replacement for the old
+  `gtd review <commitish>` command:
+
+  ```yaml
+  vars:
+    reviewBase: "" # blank compiles away to "field absent" until overridden
+  states:
+    review-entry:
+      reviewBase: <%= it.vars.reviewBase %>
+      entry: true
+      # ...
+  ```
+
+  Enter it with `gtd --entry review-entry --var reviewBase=<commitish>`; the
+  template must render to a non-blank commitish that resolves to a real commit,
+  is an ancestor of HEAD, and differs from HEAD.
+
+- **`entry: true`** — marks this state an EXTRA reachability root:
+  `gtd --entry <this state's qualified name>` starts a brand-new process here
+  (any number of states may declare it; forbidden on the initial state and on
+  commit states). This is a RECORD-KEEPING flag only (it also drives a badge in
+  `gtd visualize`) — it is **not** a precondition for `--entry` to work.
+  `--entry` accepts **any** declared, non-commit state of the workflow, flagged
+  or not; declare `entry: true` only on a state that would otherwise be
+  unreachable from the initial state by ordinary `on` routing (a state `idle`
+  already reaches needs no flag to be a valid `--entry` target).
 - **Squash finale** — a `commit:` state ends the process by squashing the whole
   cycle into one commit using its rendered template as the message (see
   `unified.yaml`'s `squashing` → `done`, reached on a full review sign-off). A
@@ -253,7 +282,8 @@ before declaring a workflow done:
   commit states. `mode` names a known mode (built-in or `modes:` entry) and
   requires a sibling `file:`.
 - Every `modes:` entry declares at least one non-blank `format:`/`validate:`.
-- `reviewEntry` on ≤1 state, never on the initial or a commit state.
+- `entry: true` (any number of states) never on the initial or a commit state. A
+  `reviewBase` template (the string form) must not be blank.
 - **Every state is reachable** from the initial state by walking `on` targets
   and `retry.otherwise` redirects. An unreachable state is an ERROR (a typo'd
   rename or leftover), not a warning — there is no "manual-entry-only" state.

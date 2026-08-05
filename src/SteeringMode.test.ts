@@ -48,12 +48,12 @@ const runExit = <A, E>(eff: Effect.Effect<A, E, never>) => Effect.runPromiseExit
 const commandsDef = (modes: NonNullable<WorkflowDefinition["modes"]>): WorkflowDefinition => ({
   modes,
   states: {},
-  entries: { default: "x" },
+  entries: { default: "x", manual: [] },
 })
 
 describe("resolveSteeringMode", () => {
   it("resolves the two built-in names to their in-process validator, and to no formatter", () => {
-    const def: WorkflowDefinition = { states: {}, entries: { default: "x" } }
+    const def: WorkflowDefinition = { states: {}, entries: { default: "x", manual: [] } }
     expect(resolveSteeringMode(def, "qa")).toEqual({
       mode: "qa",
       validate: { kind: "builtin", mode: "qa" },
@@ -106,7 +106,7 @@ describe("resolveSteeringMode", () => {
   })
 
   it("resolves `prose` with no declared mode to a validator-less, formatter-less mode", () => {
-    const def: WorkflowDefinition = { states: {}, entries: { default: "x" } }
+    const def: WorkflowDefinition = { states: {}, entries: { default: "x", manual: [] } }
     expect(resolveSteeringMode(def, "prose")).toEqual({ mode: "prose" })
   })
 

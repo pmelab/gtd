@@ -95,8 +95,8 @@ reads intent first, glob second.
 The unified workflow has **entry points behind a green-baseline gate, into one
 shared tail**. Every entry first runs your test suite and only starts once it's
 green — you never build (or review) on top of a red baseline; a red run halts
-and tells you to repair it first (that's what `gtd fix` is for). The two
-steering-file entries are chosen by which file you create:
+and tells you to repair it first (that's what `gtd --entry fix-precheck` is
+for). The two steering-file entries are chosen by which file you create:
 
 - Create **`.gtd/TODO.md`** with a short sketch to start the **simple** flow: an
   agent develops your sketch into a concrete plan — deciding open points itself
@@ -128,14 +128,30 @@ with no comment is the sign-off, which collapses the whole cycle into one commit
 unticked and no comment is refused (finish reviewing first), as is deleting
 `.gtd/REVIEW.md`.
 
-The same review tail also has a direct entry point — `gtd review <commitish>`
-starts a brand new process reviewing `<commitish>..HEAD` with no cycle of its
-own, e.g. a colleague's PR branch. Its squash keeps and describes only the fixes
-made _during_ the review (not the reviewed changeset); a clean sign-off with no
-fixes becomes an empty `chore: human review` commit. A fourth entry, `gtd fix`,
-starts from a clean `idle` and goes straight into repairing a red baseline —
-repair, review, and squash into one commit. If the suite is already green there
-is nothing to fix, and the log is left untouched — no commit is left behind.
+The same review tail also has a direct entry point —
+`gtd --entry review-gate.check --var reviewBase=<commitish>` starts a brand new
+process reviewing `<commitish>..HEAD` with no cycle of its own, e.g. a
+colleague's PR branch (`review-gate.check`'s `reviewBase:` is a template bound
+to the `reviewBase` var, so supplying it via `--var` fixes the whole process's
+diff base to that commitish). Its squash keeps and describes only the fixes made
+_during_ the review (not the reviewed changeset); a clean sign-off with no fixes
+becomes an empty `chore: human review` commit. A fourth entry,
+`gtd --entry fix-precheck`, starts from a clean `idle` and goes straight into
+repairing a red baseline — repair, review, and squash into one commit. If the
+suite is already green there is nothing to fix, and the log is left untouched —
+no commit is left behind.
+
+`--entry` itself isn't limited to states flagged `entry: true` — it accepts
+**any** declared, non-commit state of the active workflow (see
+[`gtd step`](#commands)/`gtd --entry` below). `entry: true` only marks a state
+as an _extra_ reachability root (and drives a badge in `gtd visualize`) for a
+state that would otherwise be unreachable from the ordinary `idle` rest —
+`review-gate.check` and `fix-precheck` need it for exactly that reason, while
+`plan-gate.check`/`spec-gate.check` carry it too (the bundled template dedups
+the three `assertGreen` instances into one shared machine, so flagging the
+shared state flags all three) even though `idle` already reaches them the
+ordinary way. `entry: true` is not a precondition for `--entry` to target a
+state.
 
 Every agent state routes its model through two `vars` tiers — `plannerModel`
 (heavier planning and review) and `coderModel` (the coding turns) — so you can
@@ -176,16 +192,16 @@ Commands:
                    (or squash) the one resulting transition. Pass
                    --cost=<n> (optionally --model=<name>) to record the
                    just-finished invocation's token cost and model on the
-                   turn commit (summed into it.processCost/processCostByModel)
-  review <commitish>
-                   Start a NEW review process at the workflow's declared
-                   review-entry state (entry.review), reviewing
-                   <commitish>..HEAD — e.g. a colleague's PR branch. Requires
-                   a clean tree resting at the workflow's initial state
-  fix              Start a NEW process at the workflow's declared fix-entry
-                   state (entry.fix) that goes straight into repairing the
-                   current failing tests. Requires a clean tree resting at the
-                   workflow's initial state
+                   turn commit (summed into it.processCost/processCostByModel).
+                   Pass --entry <state> to start a brand NEW process at
+                   <state> instead — any declared, non-commit state (e.g.
+                   review-gate.check or fix-precheck on the bundled unified
+                   template) — with repeatable --var <name>=<value> supplying
+                   that new process's fixed it.vars overrides
+  (no command) --entry <state>
+                   Short form of 'step human --entry <state>' — starts a new
+                   process authenticated as human, e.g.
+                   'gtd --entry review-gate.check'
   abandon          End the process currently underway without completing it:
                    close any open review checkout window, then rewind HEAD to
                    the commit the process started from, keeping everything it
@@ -217,6 +233,15 @@ Options:
   --no-open        (gtd visualize only) do not open the browser
   --cost=<n>       (gtd step only) record the invocation's token cost
   --model=<name>   (gtd step only, with --cost) tag that cost's model
+  --entry <state>  (gtd step, or with no command at all) start a brand new
+                   process at <state> — any declared, non-commit state —
+                   instead of stepping the one currently resting. Not
+                   combinable with --cost/--model (an entry is not a metered
+                   agent turn)
+  --var <name>=<value>
+                   (with --entry; repeatable) supply a fixed it.vars
+                   override for the new process; the name must already be
+                   declared by the workflow's own vars: or the .gtdrc vars:
   --once           (bare gtd or gtd loop only) run exactly one loop beat (one
                    human-gate capture, one script check+step, or one agent
                    prompt+step), then exit
@@ -234,13 +259,18 @@ touching the repository. Every other (recognized) command must be run from the
 history relative to cwd, so it refuses with a clear error if invoked from a
 subdirectory.
 
-`--json`, `--cost=<n>`, and `--model=<name>` (the latter two only for
-`gtd step`) are the only long options the compiled bundle recognizes. Any other
-`--` option (including a typo like `--jsn`) is rejected with a usage error
-rather than silently ignored, so a mistyped flag can never degrade a JSON caller
-to plain-text mode. A bare `--cost`/`--model` with no value, a non-numeric or
-negative `--cost`, an empty `--model`, `--model` without `--cost`, or either
-flag on any command other than `gtd step` are all usage errors.
+`--json`, `--cost=<n>`, `--model=<name>` (the latter two only for `gtd step`),
+`--entry <state>` (`gtd step` or no command at all), and `--var <name>=<value>`
+(with `--entry`, repeatable) are the only long options the compiled bundle
+recognizes. `--entry`/`--var` accept both the `--flag=value` and the
+space-separated `--flag value` form. Any other `--` option (including a typo
+like `--jsn`) is rejected with a usage error rather than silently ignored, so a
+mistyped flag can never degrade a JSON caller to plain-text mode. `--var` with
+no `--entry`, a duplicate `--var` name, or `--cost`/`--model` combined with
+`--entry` are all usage errors too. A bare `--cost`/`--model` with no value, a
+non-numeric or negative `--cost`, an empty `--model`, `--model` without
+`--cost`, or either flag on any command other than `gtd step` are all usage
+errors.
 
 `--once` is a separate, bash-level flag handled entirely by the `bin/gtd` driver
 itself, stripped before anything reaches the bundle.
@@ -362,8 +392,6 @@ workflow:
       validate: <shell command>
   entry:
     default: <machine name> # which machine is the ROOT instance
-    review: <target> # optional — the review-entry state/reference
-    fix: <target> # optional — the fix-entry state/reference
   machines:
     <name>:
       params: [<param>, ...] # optional, advisory — documents which $params a caller may bind
@@ -389,8 +417,17 @@ workflow:
           memory: <string> # optional, opaque memory-scope label — forbidden on a commit state
           file: <string> # optional, an Eta template naming the state's steering file
           mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry
+          reviewWindow: true # optional — open the review checkout window at rest here
+          reviewBase: true # optional — anchor the review window's diff base to this state's most-recent commit
+          # reviewBase: <Eta template> # OR a template — rendered (only meaningful entering via --entry) to a commitish that fixes the WHOLE PROCESS's diff base
+          entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared, non-commit state is a valid target)
         <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
 ```
+
+The top-level `entry:` key (naming the root machine, `entry.default`) and a
+state's own `entry: true` flag are the same word at two different levels, by
+design: one selects the workflow's root machine, the other opts one state in as
+an extra manual entry point.
 
 A workflow is authored as a TREE of reusable, parameterized machines — a
 gate/loop written once and instantiated several times with different `with:`
@@ -410,13 +447,29 @@ model, pattern grammar, load-time rules, and how to verify a change compiles.
 > states under a single
 > `machines: { <name>: { entry: <initial state>, states: {...} } }` and declare
 > `entry: { default: <name> }` at the top level (moving any
-> `reviewEntry`/`fixEntry` state to `entry.review`/`entry.fix`).
+> `reviewEntry`/`fixEntry` state to a plain per-state `entry: true` flag,
+> entered via `gtd --entry <state>` — see the next note).
+
+> **Upgrading a `workflow:` that still declares `entry.review`/`entry.fix`?**
+> Those two keys, and the `gtd review <commitish>`/`gtd fix` commands that used
+> them, are gone. Replace `entry.review: <target>`/`entry.fix: <target>` with a
+> plain `entry: true` flag on that same state, and enter it with
+> `gtd step <actor> --entry <state>` (or the actor-less short form
+> `gtd --entry <state>`) instead of the removed commands.
+> `gtd review <commitish>` required a clean tree and a `<commitish>` argument;
+> the replacement instead captures whatever is pending in the working tree (just
+> like an ordinary `gtd step`) and takes the commitish as a
+> `--var reviewBase=<commitish>` override consumed by that state's own
+> template-form `reviewBase:` (see the `workflow:` shape above and
+> [`gtd --entry`](#commands)). `gtd fix` likewise becomes
+> `gtd --entry <the state that was entry.fix>` (e.g. the bundled template's
+> `gtd --entry fix-precheck`).
 
 ### Variables
 
 Every template — `script`/`prompt`/`message`/`commit`, and
 `model`/`memory`/`file` — sees `it.vars`: a flat `Record<string, string>`
-assembled from three layers, **later wins**:
+assembled from four layers, **later wins**:
 
 1. **The workflow's own `vars:` key** (sibling to `entry:`/`machines:`) — the
    workflow author's declared defaults. The unified template declares
@@ -424,14 +477,22 @@ assembled from three layers, **later wins**:
    `<%~ it.vars.testCommand %>`.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow.
-3. **`GTD_<UPPERCASE-name>` environment variables** — highest precedence,
+3. **The current process's entry `--var` overrides**, if it was started via
+   `gtd step <actor> --entry <state>`/`gtd --entry <state>` — repeatable
+   `--var <name>=<value>` flags fixed at the moment of entry and recorded as
+   `Gtd-Var: <name>=<value>` trailers on the process's oldest commit, re-parsed
+   on every turn for as long as that process is underway. Each `--var` name must
+   already be declared by layer 1 or 2; an undeclared name is a usage error, not
+   a silent no-op.
+4. **`GTD_<UPPERCASE-name>` environment variables** — highest precedence,
    checked at every invocation, case-insensitively against each name already
-   declared by layer 1 or 2: `GTD_TESTCOMMAND` overrides `testCommand`. The
-   environment can only OVERRIDE a name a config layer already declared — a
+   declared by layers 1–3: `GTD_TESTCOMMAND` overrides `testCommand`. The
+   environment can only OVERRIDE a name an earlier layer already declared — a
    `GTD_*` var matching no declared name is silently ignored.
 
 Values in layers 1–2 must be YAML scalars (string/number/boolean), coerced to
-strings at load time; an object or array value is a load error.
+strings at load time; an object or array value is a load error. A `--var` value
+(layer 3) is always a single-line string as given on the command line.
 
 ```yaml
 # .gtdrc — overriding the unified template's testCommand

@@ -36,7 +36,7 @@ const def: WorkflowDefinition = {
     checkpoint: { actor: "human", message: "c", reviewBase: true, on: [["* **", "gate"]] },
     gate: { actor: "human", message: "g", reviewWindow: true, on: [["* **", "idle"]] },
   },
-  entries: { default: "idle" },
+  entries: { default: "idle", manual: [] },
 }
 
 let repoDir: string

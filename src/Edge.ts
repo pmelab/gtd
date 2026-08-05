@@ -108,11 +108,11 @@ export const parseCostTrailers = (messages: readonly string[]): CostEntry[] => {
 
 // ── Review-base trailer ──────────────────────────────────────────────────────
 //
-// `gtd review <commitish>` (`src/program.ts`) starts a brand NEW review
-// process by writing an ordinary empty turn commit into the workflow's
-// declared review-entry state (`StateDef.reviewEntry` — see
-// `PatternMachine.reviewEntryStateOf`), carrying the resolved `<commitish>`'s
-// full hash as a `Gtd-Review-Base:` trailer. `computeProcessRun` reads that
+// `gtd step <actor> --entry <state>` (`runEntryCommand` in `src/program.ts`)
+// starts a brand NEW review process by writing an ordinary empty turn commit
+// into a state whose template-form `reviewBase:` renders to a commitish,
+// carrying that commitish's full hash as a `Gtd-Review-Base:` trailer.
+// `computeProcessRun` reads that
 // trailer back off the process's own first (oldest) commit to override the
 // run's DIFF base (`ProcessRun.diffBase`) — everything downstream that
 // renders a diff (`it.processDiff`, the review checkout window's default
@@ -132,23 +132,60 @@ const REVIEW_BASE_TRAILER_PREFIX = "Gtd-Review-Base: "
 const REVIEW_BASE_TRAILER_RE = /^Gtd-Review-Base:[ \t]*(\S+)[ \t]*$/m
 
 /**
- * Append a `Gtd-Review-Base: <base>` trailer (after a blank line) to a commit
- * `subject` — the entry commit `gtd review <commitish>` writes to start a new
- * review process. Mirrors `withCostTrailer`'s placement: the subject (first
- * line) is untouched, so `parseStateSubject`/`resolveState` read it back
- * exactly like any other turn commit.
- */
-export const withReviewBaseTrailer = (subject: string, base: string): string =>
-  `${subject}\n\n${REVIEW_BASE_TRAILER_PREFIX}${base}`
-
-/**
- * The `Gtd-Review-Base: <hash>` trailer recorded on a `gtd review <commitish>`
- * entry commit (see `withReviewBaseTrailer`), or `undefined` when `message`
- * carries none. Read back by `computeProcessRun` — ONLY off the process's
- * first (oldest) commit — to override the run's diff base.
+ * The `Gtd-Review-Base: <hash>` trailer recorded on a `gtd step <actor>
+ * --entry <state>` entry commit (see `withEntryTrailers`), or `undefined`
+ * when `message` carries none. Read back by `computeProcessRun` — ONLY off
+ * the process's first (oldest) commit — to override the run's diff base.
  */
 export const parseReviewBaseTrailer = (message: string): string | undefined =>
   REVIEW_BASE_TRAILER_RE.exec(message)?.[1]
+
+// ── Entry-var trailers ───────────────────────────────────────────────────────
+//
+// An entry commit (e.g. `gtd review <commitish>`) can carry, alongside its
+// optional `Gtd-Review-Base:` trailer, zero or more `Gtd-Var: <name>=<value>`
+// trailers — arbitrary `it.vars` overrides fixed at the moment the process
+// started, read back by `computeProcessRun` (again, ONLY off the process's
+// oldest commit — never a later turn's) into `ProcessRun.entryVars`, and
+// folded into `resolveVars`'s merge below the environment layer.
+
+const ENTRY_VAR_TRAILER_PREFIX = "Gtd-Var: "
+// One `Gtd-Var: <name>=<value>` trailer line — the value is everything after
+// the FIRST `=`, so a value containing `=` itself round-trips. Matched
+// anywhere in a commit message body (multiline), like `COST_TRAILER_RE`.
+const ENTRY_VAR_TRAILER_RE = /^Gtd-Var:[ \t]*([^=\s]+)=(.*)$/gm
+
+/**
+ * Compose, after a blank line, a `Gtd-Review-Base: <base>` line (when
+ * `opts.base !== undefined`, readable back by `parseReviewBaseTrailer`),
+ * followed by one `Gtd-Var: <name>=<value>` line per `opts.vars` entry (in
+ * `Object.entries` order) — the single place that formats either trailer, for
+ * every caller including `gtd review <commitish>`'s entry commit. Mirrors
+ * `withCostTrailer`'s "nothing to add → unchanged" shape: with no base and an
+ * empty `opts.vars`, `subject` is returned untouched.
+ */
+export const withEntryTrailers = (
+  subject: string,
+  opts: { base?: string; vars: Record<string, string> },
+): string => {
+  const lines: string[] = []
+  if (opts.base !== undefined) lines.push(`${REVIEW_BASE_TRAILER_PREFIX}${opts.base}`)
+  for (const [name, value] of Object.entries(opts.vars))
+    lines.push(`${ENTRY_VAR_TRAILER_PREFIX}${name}=${value}`)
+  return lines.length === 0 ? subject : `${subject}\n\n${lines.join("\n")}`
+}
+
+/**
+ * Every `Gtd-Var: <name>=<value>` trailer found in `message` (each value
+ * split on the FIRST `=` only, so a value containing `=` round-trips), or
+ * `{}` when `message` carries none. Read back by `computeProcessRun` — ONLY
+ * off the process's first (oldest) commit — into `ProcessRun.entryVars`.
+ */
+export const parseEntryVarTrailers = (message: string): Record<string, string> => {
+  const vars: Record<string, string> = {}
+  for (const match of message.matchAll(ENTRY_VAR_TRAILER_RE)) vars[match[1]!] = match[2]!
+  return vars
+}
 
 /** The total token cost across the given entries (`0` when none). */
 export const totalCostOf = (entries: readonly CostEntry[]): number =>
@@ -234,7 +271,7 @@ export interface ProcessRun {
    * checkout window's default base compares against: normally identical to
    * `startParentHash`, but overridden to a `Gtd-Review-Base: <hash>`
    * trailer's hash when the process's FIRST (oldest) commit carries one (see
-   * `withReviewBaseTrailer`/`parseReviewBaseTrailer` — written by
+   * `withEntryTrailers`/`parseReviewBaseTrailer` — written by
    * `gtd review <commitish>`, `src/program.ts`). The trace/retry boundary
    * itself is untouched by this; only which commit a diff/window compares
    * against moves.
@@ -244,6 +281,22 @@ export interface ProcessRun {
   readonly trace: readonly StateName[]
   /** Every `Gtd-Cost:` entry recorded on the process's turn commits — summed into `it.processCost` and grouped into `it.processCostByModel` (empty when none were recorded). */
   readonly costEntries: readonly CostEntry[]
+  /** The `Gtd-Var:` trailers recorded on the process's FIRST (oldest) commit — an entry commit's fixed `it.vars` overrides, folded into `resolveVars`'s merge (empty when the process's oldest commit carries none, or the process is empty). */
+  readonly entryVars: Record<string, string>
+}
+
+/**
+ * The `Gtd-Review-Base:`/`Gtd-Var:` overrides carried by the process's OLDEST
+ * commit (its entry commit, when `gtd review <commitish>` or a future generic
+ * entry started this process) — a later turn's message is never mistaken for
+ * it. `{reviewBase: undefined, vars: {}}` when the process has no commits yet.
+ */
+const parseEntryCommitOverrides = (
+  processCommits: ReadonlyArray<{ readonly message: string }>,
+): { readonly reviewBase: string | undefined; readonly vars: Record<string, string> } => {
+  if (processCommits.length === 0) return { reviewBase: undefined, vars: {} }
+  const message = processCommits[0]!.message
+  return { reviewBase: parseReviewBaseTrailer(message), vars: parseEntryVarTrailers(message) }
 }
 
 /**
@@ -278,6 +331,7 @@ export const computeProcessRun = (
         diffBase: EMPTY_TREE,
         trace: [],
         costEntries: [],
+        entryVars: {},
       }
 
     const initialState = initialStateOf(def)
@@ -295,13 +349,10 @@ export const computeProcessRun = (
     const startParentHash = i >= 0 ? history[i]!.hash : EMPTY_TREE
     const startHash =
       startIdx < history.length ? history[startIdx]!.hash : history[history.length - 1]!.hash
-    // Only the process's OLDEST commit (its entry commit, when `gtd review`
-    // started this process) is ever consulted for the override — a later
-    // turn's message is never mistaken for it.
-    const reviewBaseOverride =
-      processCommits.length > 0 ? parseReviewBaseTrailer(processCommits[0]!.message) : undefined
+    const { reviewBase: reviewBaseOverride, vars: entryVars } =
+      parseEntryCommitOverrides(processCommits)
     const diffBase = reviewBaseOverride ?? startParentHash
-    return { startHash, startParentHash, diffBase, trace, costEntries }
+    return { startHash, startParentHash, diffBase, trace, costEntries, entryVars }
   })
 
 // ── Variables (`it.vars`) ────────────────────────────────────────────────────
@@ -309,26 +360,32 @@ export const computeProcessRun = (
 const PREFIX = "GTD_"
 
 /**
- * Assemble the merged `it.vars` map every template sees, from three layers
+ * Assemble the merged `it.vars` map every template sees, from four layers
  * (later wins): the active workflow's own declared `vars:` defaults
  * (`ConfigOperations.workflowVars`), the top-level `.gtdrc` `vars:` key
- * (`ConfigOperations.rcVars`), and — for each name declared by either of
- * those two layers — a `GTD_<UPPERCASE-name>` environment variable, if
- * defined. Unlike the first two layers, the environment can only OVERRIDE a
- * name some config layer already declared; it can never introduce a new one
- * (an uppercased env key can't round-trip back to an arbitrary camelCase
- * name), so a `GTD_*` var matching no declared name is silently ignored. A
- * `value === undefined` entry (a name declared-but-unset in the environment)
- * is skipped, never coerced to the string `"undefined"`. Pure: `env` is
- * whatever the caller's `EnvVars` service handed it, never `process.env`
- * read directly here.
+ * (`ConfigOperations.rcVars`), the current process's entry commit's
+ * `Gtd-Var:` trailers (`ProcessRun.entryVars` — fixed overrides recorded at
+ * the moment a process like `gtd review <commitish>` started it), and — for
+ * each name declared by any of those three layers — a `GTD_<UPPERCASE-name>`
+ * environment variable, if defined. Unlike the first three layers, the
+ * environment can only OVERRIDE a name some earlier layer already declared;
+ * it can never introduce a new one (an uppercased env key can't round-trip
+ * back to an arbitrary camelCase name), so a `GTD_*` var matching no declared
+ * name is silently ignored. A `value === undefined` entry (a name
+ * declared-but-unset in the environment) is skipped, never coerced to the
+ * string `"undefined"`. `entryVars`, by contrast, needs no such filtering —
+ * it's a plain unconditional spread, so a name from an old commit that
+ * matches neither the workflow nor the rc layer still lands in the merged
+ * map (pure and total; never throws). Pure: `env` is whatever the caller's
+ * `EnvVars` service handed it, never `process.env` read directly here.
  */
 export const resolveVars = (
   workflowVars: Record<string, string>,
   rcVars: Record<string, string>,
+  entryVars: Record<string, string>,
   env: Readonly<Record<string, string | undefined>>,
 ): Record<string, string> => {
-  const merged = { ...workflowVars, ...rcVars }
+  const merged = { ...workflowVars, ...rcVars, ...entryVars }
   for (const name of Object.keys(merged)) {
     const value = env[PREFIX + name.toUpperCase()]
     if (value !== undefined) merged[name] = value

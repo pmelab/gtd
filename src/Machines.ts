@@ -16,8 +16,6 @@
  * ```yaml
  * entry:
  *   default: <machine name>     # which machine is the ROOT instance
- *   review: <target>?           # resolved through the same resolver, seeded at the root
- *   fix: <target>?
  * machines:
  *   <name>:
  *     params: [<param>, ...]?   # advisory only — documents which $params a caller may bind
@@ -75,12 +73,12 @@
  *    recurses into the child using the remainder; anything else (not a
  *    local, or a remainder against a state) is the sideways/upward refusal.
  *
- * `entry.review`/`entry.fix` (and the root machine's own `entry:`, which
- * becomes `FlattenedWorkflow.entries.default`) run through the exact same
- * resolver seeded at the ROOT instance — accepting either a bare state path
- * or an instance/reference-key path uniformly — but surface a distinctly
- * worded finding (`"entry.x" names "y", which is not a state or machine
- * reference`) since there is no single owning state to blame.
+ * The root machine's own `entry:` (which becomes `FlattenedWorkflow.entries.
+ * default`) runs through the exact same resolver seeded at the ROOT instance
+ * — accepting either a bare state path or an instance/reference-key path
+ * uniformly — but surfaces a distinctly worded finding (`"entry.default"
+ * names "y", which is not a state or machine reference`) since there is no
+ * single owning state to blame.
  *
  * The `MachineNode` tree (`FlattenedWorkflow.tree`) is a plain projection of
  * the `Instance` tree Pass 1 built — which concrete states each instance
@@ -88,7 +86,7 @@
  * `Visualize.ts`) to render; this module only produces the data.
  */
 
-import type { StateName, WorkflowEntries } from "./PatternMachine.js"
+import type { StateName } from "./PatternMachine.js"
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v)
@@ -143,8 +141,8 @@ export interface MachineNode {
 export interface FlattenedWorkflow {
   /** qualified name -> raw state def, `$param`s substituted, targets absolutized. */
   readonly states: Record<string, unknown>
-  /** Resolved concrete state names; `undefined` when `entries.default` itself failed to resolve. */
-  readonly entries: WorkflowEntries | undefined
+  /** Resolved root default entry; `undefined` when `entries.default` itself failed to resolve. */
+  readonly entries: { readonly default: string } | undefined
   /** `undefined` only when the root machine itself could not be instantiated. */
   readonly tree: MachineNode | undefined
 }
@@ -389,7 +387,7 @@ const resolveOnTarget = (
   return undefined
 }
 
-/** Resolve `entry.review`/`entry.fix`/the root machine's own `entry:`, pushing the distinct "entry" wording on failure. */
+/** Resolve the root machine's own `entry:` (`entry.default`), pushing the distinct "entry" wording on failure. */
 const resolveEntry = (
   entryKey: string,
   target: string,
@@ -512,11 +510,23 @@ const emitState = (
   }
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(stateRaw)) {
-    if (key === "on")
+    if (key === "on") {
       out[key] = emitOn(value, instance, where, instancesByPath, machinesRaw, errors)
-    else if (key === "retry")
+      continue
+    }
+    if (key === "retry") {
       out[key] = emitRetry(value, instance, where, instancesByPath, machinesRaw, errors)
-    else out[key] = substituteScalar(value, instance, where, errors)
+      continue
+    }
+    const resolved = substituteScalar(value, instance, where, errors)
+    // A whole-value `$param` that RESOLVES to the empty string compiles away
+    // to "field absent" — the normal "not anchored"/"not set" case for an
+    // instance that doesn't need this optional flag (e.g. `reviewBase: ""`
+    // bound at a dedup site that has no fixed base). A field whose SOURCE
+    // value is itself a literal blank string (never matches `PARAM_REF`)
+    // is unaffected and reaches the downstream compiler as authored.
+    if (typeof value === "string" && PARAM_REF.test(value) && resolved === "") continue
+    out[key] = resolved
   }
   return out
 }
@@ -555,23 +565,6 @@ const buildTree = (instance: Instance): MachineNode => ({
     .map(([local]) => qualify(instance.path, local)),
   children: instance.children.map(buildTree),
 })
-
-/** Resolve an optional top-level `entry.review`/`entry.fix` key (a string, `undefined`, or a shape error) against the root instance. */
-const resolveOptionalEntry = (
-  entryKey: "entry.review" | "entry.fix",
-  raw: unknown,
-  root: Instance,
-  instancesByPath: ReadonlyMap<InstancePath, Instance>,
-  machinesRaw: Record<string, unknown>,
-  errors: string[],
-): string | undefined => {
-  if (raw === undefined) return undefined
-  if (typeof raw !== "string") {
-    errors.push(`"${entryKey}" must be a string`)
-    return undefined
-  }
-  return resolveEntry(entryKey, raw, root, instancesByPath, machinesRaw, errors)
-}
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
@@ -623,25 +616,5 @@ export const flattenMachines = (raw: unknown, errors: string[]): FlattenedWorkfl
 
   if (defaultResolved === undefined) return { states, entries: undefined, tree }
 
-  const entries: { default: string; review?: string; fix?: string } = { default: defaultResolved }
-  const review = resolveOptionalEntry(
-    "entry.review",
-    entryRaw["review"],
-    root,
-    instancesByPath,
-    machinesRaw,
-    errors,
-  )
-  if (review !== undefined) entries.review = review
-  const fix = resolveOptionalEntry(
-    "entry.fix",
-    entryRaw["fix"],
-    root,
-    instancesByPath,
-    machinesRaw,
-    errors,
-  )
-  if (fix !== undefined) entries.fix = fix
-
-  return { states, entries, tree }
+  return { states, entries: { default: defaultResolved }, tree }
 }

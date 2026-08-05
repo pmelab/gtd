@@ -3,6 +3,8 @@ import fc from "fast-check"
 import {
   contentKindOf,
   contentOf,
+  entryBaseTemplateOf,
+  enterableStates,
   initialStateOf,
   isCommitState,
   isReviewBaseState,
@@ -11,8 +13,6 @@ import {
   parsePattern,
   parseStateSubject,
   resolveState,
-  reviewEntryStateOf,
-  fixEntryStateOf,
   stateSubject,
   step,
   validateDefinition,
@@ -33,7 +33,7 @@ const def = (
   entries: StateName | WorkflowEntries,
 ): WorkflowDefinition => ({
   states,
-  entries: typeof entries === "string" ? { default: entries } : entries,
+  entries: typeof entries === "string" ? { default: entries, manual: [] } : entries,
 })
 
 /** A minimal, valid three-state loop: idle → working → idle (commit). */
@@ -172,47 +172,67 @@ describe("isReviewWindowState / isReviewBaseState", () => {
   })
 })
 
-describe("reviewEntryStateOf", () => {
-  it("returns `entries.review` when declared", () => {
+describe("enterableStates", () => {
+  it("lists every non-commit state, sorted, excluding commit states", () => {
     const workflow: WorkflowDefinition = def(
       {
-        idle: { actor: "human", message: "x", on: [["* *", "review"]] },
-        review: {
-          actor: "agent",
-          prompt: "review",
-          on: [["* *", "idle"]],
-        },
+        zebra: { actor: "human", message: "x", on: [["* *", "apple"]] },
+        apple: { actor: "human", message: "y", on: [["* *", "done"]] },
+        done: { commit: "chore: done" },
       },
-      { default: "idle", review: "review" },
+      "zebra",
     )
-    expect(reviewEntryStateOf(workflow)).toBe("review")
-  })
-
-  it("is undefined when `entries.review` is absent", () => {
-    const workflow: WorkflowDefinition = def({ idle: { actor: "human", message: "x" } }, "idle")
-    expect(reviewEntryStateOf(workflow)).toBeUndefined()
+    expect(enterableStates(workflow)).toEqual(["apple", "zebra"])
   })
 })
 
-describe("fixEntryStateOf", () => {
-  it("returns `entries.fix` when declared", () => {
+describe("isReviewBaseState — pinning the string/template form as NOT a window anchor", () => {
+  it("is false when `reviewBase` is a string, even though it is set", () => {
     const workflow: WorkflowDefinition = def(
       {
-        idle: { actor: "human", message: "x", on: [["* *", "fix-check"]] },
-        "fix-check": {
-          actor: "check",
-          script: "run",
-          on: [["C", "idle"]],
-        },
+        idle: { actor: "human", message: "x", reviewBase: "main", on: [["* *", "idle"]] },
       },
-      { default: "idle", fix: "fix-check" },
+      "idle",
     )
-    expect(fixEntryStateOf(workflow)).toBe("fix-check")
+    expect(isReviewBaseState(workflow, "idle")).toBe(false)
+  })
+})
+
+describe("entryBaseTemplateOf", () => {
+  it("returns the template string when `reviewBase` is a string", () => {
+    const workflow: WorkflowDefinition = def(
+      {
+        idle: { actor: "human", message: "x", reviewBase: "main", on: [["* *", "idle"]] },
+      },
+      "idle",
+    )
+    expect(entryBaseTemplateOf(workflow, "idle")).toBe("main")
   })
 
-  it("is undefined when `entries.fix` is absent", () => {
-    const workflow: WorkflowDefinition = def({ idle: { actor: "human", message: "x" } }, "idle")
-    expect(fixEntryStateOf(workflow)).toBeUndefined()
+  it("is undefined when `reviewBase` is `true`", () => {
+    const workflow: WorkflowDefinition = def(
+      {
+        idle: { actor: "human", message: "x", reviewBase: true, on: [["* *", "idle"]] },
+      },
+      "idle",
+    )
+    expect(entryBaseTemplateOf(workflow, "idle")).toBeUndefined()
+  })
+
+  it("is undefined when `reviewBase` is absent", () => {
+    const workflow: WorkflowDefinition = def(
+      { idle: { actor: "human", message: "x", on: [["* *", "idle"]] } },
+      "idle",
+    )
+    expect(entryBaseTemplateOf(workflow, "idle")).toBeUndefined()
+  })
+
+  it("is undefined for an unknown state name", () => {
+    const workflow: WorkflowDefinition = def(
+      { idle: { actor: "human", message: "x", on: [["* *", "idle"]] } },
+      "idle",
+    )
+    expect(entryBaseTemplateOf(workflow, "ghost")).toBeUndefined()
   })
 })
 
@@ -773,14 +793,14 @@ describe("validateDefinition", () => {
   })
 
   it("requires at least one state", () => {
-    expect(validateDefinition({ entries: { default: "a" }, states: {} })).toEqual([
+    expect(validateDefinition({ entries: { default: "a", manual: [] }, states: {} })).toEqual([
       "workflow must declare at least one state",
     ])
   })
 
   it("rejects entries.default naming an undefined state", () => {
     const errors = validateDefinition({
-      entries: { default: "ghost" },
+      entries: { default: "ghost", manual: [] },
       states: { a: { actor: "h", message: "x", on: [] } },
     })
     expect(errors).toContain('entries.default "ghost" is not a defined state')
@@ -788,39 +808,50 @@ describe("validateDefinition", () => {
 
   it("rejects entries.default naming a commit state", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: { a: { commit: "chore: a" } },
     })
     expect(errors).toContain('entries.default "a" must not be a commit state')
   })
 
-  it("rejects entries.review equal to entries.default", () => {
+  it("rejects entries.manual naming an undefined state", () => {
     const errors = validateDefinition({
-      entries: { default: "a", review: "a" },
+      entries: { default: "a", manual: ["ghost"] },
       states: { a: { actor: "h", message: "x", on: [["* *", "a"]] } },
     })
-    expect(errors).toContain('entries.review "a" must not be the same state as entries.default')
+    expect(errors).toContain('entries.manual "ghost" is not a defined state')
   })
 
-  it("rejects entries.fix equal to entries.default", () => {
+  it("rejects entries.manual equal to entries.default", () => {
     const errors = validateDefinition({
-      entries: { default: "a", fix: "a" },
+      entries: { default: "a", manual: ["a"] },
       states: { a: { actor: "h", message: "x", on: [["* *", "a"]] } },
     })
-    expect(errors).toContain('entries.fix "a" must not be the same state as entries.default')
+    expect(errors).toContain('entries.manual "a" must not be the same state as entries.default')
   })
 
-  it("accepts entries with only `default` (no `review`/`fix`)", () => {
+  it("rejects a duplicate state name within entries.manual itself", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: ["b", "b"] },
+      states: {
+        a: { actor: "h", message: "x", on: [["* *", "b"]] },
+        b: { actor: "h", message: "y", on: [["* *", "a"]] },
+      },
+    })
+    expect(errors).toContain('entries.manual declares "b" more than once')
+  })
+
+  it("accepts entries with only `default` (an empty `manual`)", () => {
+    const errors = validateDefinition({
+      entries: { default: "a", manual: [] },
       states: { a: { actor: "h", message: "x", on: [["* *", "a"]] } },
     })
     expect(errors).toEqual([])
   })
 
-  it("accepts entries.default/.review/.fix all distinct and valid", () => {
+  it("accepts entries.default plus multiple entries.manual, all distinct and valid", () => {
     const errors = validateDefinition({
-      entries: { default: "a", review: "b", fix: "c" },
+      entries: { default: "a", manual: ["b", "c"] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "a"]] },
         b: { actor: "h", message: "y", on: [["* *", "a"]] },
@@ -832,13 +863,13 @@ describe("validateDefinition", () => {
 
   it("requires exactly one content kind (zero, and more than one)", () => {
     const zero = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: { a: { actor: "h", on: [] } },
     })
     expect(zero.some((e) => e.includes("exactly one of script/prompt/message/commit"))).toBe(true)
 
     const two = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: { a: { actor: "h", message: "x", script: "y", on: [] } },
     })
     expect(two.some((e) => e.includes("exactly one of script/prompt/message/commit"))).toBe(true)
@@ -846,7 +877,7 @@ describe("validateDefinition", () => {
 
   it("rejects a commit state that declares an actor or `on`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b", actor: "h" },
@@ -857,7 +888,7 @@ describe("validateDefinition", () => {
 
   it("rejects a commit state that declares `on`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b", on: [["* *", "a"]] },
@@ -868,7 +899,7 @@ describe("validateDefinition", () => {
 
   it("requires a non-commit state to declare an actor", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: { a: { message: "x", on: [] } },
     })
     expect(errors).toContain('state "a" must declare an actor (only a commit state may omit one)')
@@ -876,7 +907,7 @@ describe("validateDefinition", () => {
 
   it("rejects an unparseable pattern", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["nonsense", "a"]] },
       },
@@ -886,7 +917,7 @@ describe("validateDefinition", () => {
 
   it("rejects an `on` target that isn't a defined state", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "ghost"]] },
       },
@@ -896,7 +927,7 @@ describe("validateDefinition", () => {
 
   it("rejects a `retry.otherwise` that isn't a defined state", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: {
           actor: "h",
@@ -911,7 +942,7 @@ describe("validateDefinition", () => {
 
   it("accepts a state declaring a valid `model`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", model: "smart", on: [] },
       },
@@ -921,7 +952,7 @@ describe("validateDefinition", () => {
 
   it("rejects an empty-string `model`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", model: "", on: [] },
       },
@@ -931,7 +962,7 @@ describe("validateDefinition", () => {
 
   it("rejects a commit state that declares a `model`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b", model: "smart" },
@@ -942,7 +973,7 @@ describe("validateDefinition", () => {
 
   it("aggregates a bad `model` alongside other unrelated findings", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: {
           actor: "h",
@@ -958,7 +989,7 @@ describe("validateDefinition", () => {
 
   it("accepts a state declaring a valid `memory`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", memory: "plan", on: [] },
       },
@@ -968,7 +999,7 @@ describe("validateDefinition", () => {
 
   it("rejects an empty-string `memory`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", memory: "", on: [] },
       },
@@ -978,7 +1009,7 @@ describe("validateDefinition", () => {
 
   it("rejects a commit state that declares a `memory`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b", memory: "plan" },
@@ -989,7 +1020,7 @@ describe("validateDefinition", () => {
 
   it("aggregates a bad `memory` alongside other unrelated findings", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: {
           actor: "h",
@@ -1005,7 +1036,7 @@ describe("validateDefinition", () => {
 
   it("accepts a state declaring a valid `label`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", label: "Doing the work", on: [] },
       },
@@ -1015,7 +1046,7 @@ describe("validateDefinition", () => {
 
   it("rejects an empty-string `label`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", label: "", on: [] },
       },
@@ -1025,7 +1056,7 @@ describe("validateDefinition", () => {
 
   it("rejects a commit state that declares a `label`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b", label: "Done" },
@@ -1036,7 +1067,7 @@ describe("validateDefinition", () => {
 
   it("aggregates a bad `label` alongside other unrelated findings", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: {
           actor: "h",
@@ -1052,7 +1083,7 @@ describe("validateDefinition", () => {
 
   it("accepts a state declaring a valid `file` alone (no `mode`)", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", file: ".gtd/FEEDBACK.md", on: [] },
       },
@@ -1062,7 +1093,7 @@ describe("validateDefinition", () => {
 
   it("accepts a state declaring `file` and a valid `mode`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: {
           actor: "h",
@@ -1078,7 +1109,7 @@ describe("validateDefinition", () => {
 
   it("accepts a state declaring `mode: prose` with no `modes:` declaration", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: {
           actor: "h",
@@ -1094,7 +1125,7 @@ describe("validateDefinition", () => {
 
   it("rejects `mode: prose` without a sibling `file`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", mode: "prose", on: [] },
       },
@@ -1104,7 +1135,7 @@ describe("validateDefinition", () => {
 
   it("rejects an empty-string `file`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", file: "", on: [] },
       },
@@ -1114,7 +1145,7 @@ describe("validateDefinition", () => {
 
   it("rejects a commit state that declares a `file`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b", file: ".gtd/TODO.md" },
@@ -1125,7 +1156,7 @@ describe("validateDefinition", () => {
 
   it("rejects a `mode` no built-in and no `modes:` entry defines, naming what is available", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: {
           actor: "h",
@@ -1143,7 +1174,7 @@ describe("validateDefinition", () => {
 
   it("accepts a `mode` a `modes:` entry declares, and lists the declared names when another mode is unknown", () => {
     const accepted = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       modes: { adr: { validate: "./scripts/check-adr.sh <%= it.file %>" } },
       states: {
         a: { actor: "h", message: "x", file: "docs/adr.md", mode: "adr", on: [] },
@@ -1152,7 +1183,7 @@ describe("validateDefinition", () => {
     expect(accepted).toEqual([])
 
     const rejected = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       modes: { adr: { validate: "check" } },
       states: {
         a: { actor: "h", message: "x", file: "docs/adr.md", mode: "adrs", on: [] },
@@ -1166,7 +1197,7 @@ describe("validateDefinition", () => {
   it("lets a `modes:` entry shadow a built-in name without complaint", () => {
     expect(
       validateDefinition({
-        entries: { default: "a" },
+        entries: { default: "a", manual: [] },
         modes: {
           qa: { format: "prettier -w <%= it.file %>", validate: "my-linter <%= it.file %>" },
         },
@@ -1179,7 +1210,7 @@ describe("validateDefinition", () => {
 
   it("rejects a `modes:` entry that declares neither command, or a blank one", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       modes: { empty: {}, blank: { validate: "   " } },
       states: {
         a: { actor: "h", message: "x", on: [] },
@@ -1191,7 +1222,7 @@ describe("validateDefinition", () => {
 
   it("rejects a `mode` with no sibling `file`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", mode: "qa", on: [] },
       },
@@ -1201,7 +1232,7 @@ describe("validateDefinition", () => {
 
   it("rejects a commit state that declares a `mode`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b", file: ".gtd/TODO.md", mode: "qa" },
@@ -1212,7 +1243,7 @@ describe("validateDefinition", () => {
 
   it("accepts a non-commit state declaring `reviewWindow`/`reviewBase`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: {
           actor: "h",
@@ -1228,7 +1259,7 @@ describe("validateDefinition", () => {
 
   it("rejects a commit state that declares `reviewWindow`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b", reviewWindow: true },
@@ -1239,7 +1270,7 @@ describe("validateDefinition", () => {
 
   it("rejects a commit state that declares `reviewBase`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b", reviewBase: true },
@@ -1248,9 +1279,39 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "b": a commit state cannot declare "reviewBase"')
   })
 
-  it("accepts entries.review naming a distinct, non-commit state", () => {
+  it("accepts a non-empty string `reviewBase` (the template form)", () => {
     const errors = validateDefinition({
-      entries: { default: "a", review: "b" },
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", reviewBase: "main", on: [["* *", "a"]] },
+      },
+    })
+    expect(errors).toEqual([])
+  })
+
+  it("rejects a blank string `reviewBase` template", () => {
+    const errors = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", reviewBase: "", on: [["* *", "a"]] },
+      },
+    })
+    expect(errors).toContain('state "a": "reviewBase" template must not be blank')
+  })
+
+  it("rejects a whitespace-only string `reviewBase` template", () => {
+    const errors = validateDefinition({
+      entries: { default: "a", manual: [] },
+      states: {
+        a: { actor: "h", message: "x", reviewBase: "   ", on: [["* *", "a"]] },
+      },
+    })
+    expect(errors).toContain('state "a": "reviewBase" template must not be blank')
+  })
+
+  it("accepts entries.manual naming a distinct, non-commit state", () => {
+    const errors = validateDefinition({
+      entries: { default: "a", manual: ["b"] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { actor: "h", message: "review", on: [["C", "a"]] },
@@ -1259,20 +1320,20 @@ describe("validateDefinition", () => {
     expect(errors).toEqual([])
   })
 
-  it("rejects entries.review naming a commit state", () => {
+  it("rejects entries.manual naming a commit state", () => {
     const errors = validateDefinition({
-      entries: { default: "a", review: "b" },
+      entries: { default: "a", manual: ["b"] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b" },
       },
     })
-    expect(errors).toContain('entries.review "b" must not be a commit state')
+    expect(errors).toContain('entries.manual "b" must not be a commit state')
   })
 
   it("accepts a non-commit state declaring `requireProgress` with a `file`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { actor: "a", prompt: "p", file: ".gtd/F.md", requireProgress: true, on: [["C", "a"]] },
@@ -1283,7 +1344,7 @@ describe("validateDefinition", () => {
 
   it("rejects `requireProgress` without a `file`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { actor: "a", prompt: "p", requireProgress: true, on: [["C", "a"]] },
@@ -1294,7 +1355,7 @@ describe("validateDefinition", () => {
 
   it("rejects a commit state that declares `requireProgress`", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b", requireProgress: true },
@@ -1303,9 +1364,9 @@ describe("validateDefinition", () => {
     expect(errors).toContain('state "b": a commit state cannot declare "requireProgress"')
   })
 
-  it("accepts entries.fix naming a distinct, non-commit state", () => {
+  it("accepts entries.manual naming a distinct, non-commit script/check state", () => {
     const errors = validateDefinition({
-      entries: { default: "a", fix: "b" },
+      entries: { default: "a", manual: ["b"] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { actor: "check", script: "run", on: [["C", "a"]] },
@@ -1314,23 +1375,24 @@ describe("validateDefinition", () => {
     expect(errors).toEqual([])
   })
 
-  it("rejects entries.fix naming a commit state", () => {
+  it("rejects entries.manual naming a commit state (script/check variant)", () => {
     const errors = validateDefinition({
-      entries: { default: "a", fix: "b" },
+      entries: { default: "a", manual: ["b"] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "b"]] },
         b: { commit: "chore: b" },
       },
     })
-    expect(errors).toContain('entries.fix "b" must not be a commit state')
+    expect(errors).toContain('entries.manual "b" must not be a commit state')
   })
 
-  it("treats entries.fix as reachable even with no inbound `on`/`retry` edge (seeded as a root)", () => {
+  it("treats entries.manual as reachable even with no inbound `on`/`retry` edge (seeded as a root)", () => {
     // "fix-check" has no inbound `on`/`retry` edge from the default entry — it
-    // is entered ONLY by `gtd fix`, so seeding it as a reachability root is
-    // what keeps it from being wrongly flagged unreachable.
+    // is entered ONLY via `gtd step <actor> --entry fix-check`, so seeding it
+    // as a reachability root is what keeps it from being wrongly flagged
+    // unreachable.
     const errors = validateDefinition({
-      entries: { default: "idle", fix: "fix-check" },
+      entries: { default: "idle", manual: ["fix-check"] },
       states: {
         idle: { actor: "h", message: "x", on: [["* *", "idle"]] },
         "fix-check": { actor: "check", script: "r", on: [["C", "idle"]] },
@@ -1341,7 +1403,7 @@ describe("validateDefinition", () => {
 
   it("aggregates a bad `file`/`mode` alongside other unrelated findings", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: {
           actor: "h",
@@ -1361,7 +1423,7 @@ describe("validateDefinition", () => {
 
   it("rejects a negative or non-integer retry.max", () => {
     const negative = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: {
           actor: "h",
@@ -1374,7 +1436,7 @@ describe("validateDefinition", () => {
     expect(negative.some((e) => e.includes("retry.max must be a non-negative integer"))).toBe(true)
 
     const fractional = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: {
           actor: "h",
@@ -1391,7 +1453,7 @@ describe("validateDefinition", () => {
 
   it("rejects a state unreachable from the initial state", () => {
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "done"]] },
         orphan: { actor: "h", message: "never entered", on: [["* *", "done"]] },
@@ -1407,7 +1469,7 @@ describe("validateDefinition", () => {
     // "escalate" is entered ONLY via checking's retry redirect — it must not
     // be reported as unreachable (retryWorkflow's shape, minimized).
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "checking"]] },
         checking: {
@@ -1425,7 +1487,7 @@ describe("validateDefinition", () => {
   it("reports a whole disconnected cluster as unreachable, not just its entry", () => {
     // b and c reach each other but nothing reaches the pair from "a".
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "a"]] },
         b: { actor: "h", message: "b", on: [["* *", "c"]] },
@@ -1445,7 +1507,7 @@ describe("validateDefinition", () => {
     // from an undefined start — the reachability check must stay silent
     // rather than bury the real finding.
     const errors = validateDefinition({
-      entries: { default: "ghost" },
+      entries: { default: "ghost", manual: [] },
       states: { a: { actor: "h", message: "x", on: [] } },
     })
     expect(errors).toContain('entries.default "ghost" is not a defined state')
@@ -1458,7 +1520,7 @@ describe("validateDefinition", () => {
     // reports nothing extra for a definition whose defined states are all
     // reachable.
     const errors = validateDefinition({
-      entries: { default: "a" },
+      entries: { default: "a", manual: [] },
       states: {
         a: { actor: "h", message: "x", on: [["* *", "ghost"]] },
       },

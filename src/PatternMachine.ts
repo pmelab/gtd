@@ -12,7 +12,8 @@
  * job), an ordered `on` map of change-patterns to next states (absent on
  * commit states), and an optional `retry` cap. A `WorkflowDefinition`
  * separately declares `entries` — the state names a process may START at
- * (`default`, plus optional `review`/`fix` command entries). A definition
+ * (`default`, plus `manual` — every state declaring `entry: true`, enterable
+ * via `gtd step <actor> --entry <state>`). A definition
  * may also declare `modes:` —
  * named pairs of format/validate shell commands a state's `mode:` can point
  * at (see `ModeDef`); they are inert data here too, rendered and executed
@@ -178,15 +179,25 @@ export interface StateDef {
    */
   readonly reviewWindow?: boolean
   /**
-   * Optional. Marks a state whose most-recent in-process turn commit is the
-   * BASE of the review window's diff (`base..HEAD`) — everything committed
+   * Optional. `true` marks a state whose most-recent in-process turn commit is
+   * the BASE of the review window's diff (`base..HEAD`) — everything committed
    * after entering this state surfaces as pending while the window is open.
    * When no in-process commit entered a `reviewBase` state, the window falls
    * back to the process start (see `src/ReviewWindow.ts`). Like `reviewWindow`
-   * the ENGINE never reads it — it is history-derived edge data. Forbidden on
-   * a commit state (see `validateDefinition`).
+   * the ENGINE never reads it — it is history-derived edge data.
+   *
+   * A STRING is a different shape entirely: an Eta template rendering a
+   * commitish. Entering that state fixes the WHOLE PROCESS's diff base to the
+   * rendered value (not a window anchor) — this is how a manual entry (e.g.
+   * `gtd step <actor> --entry review --base <commitish>`) pins what the rest
+   * of the process diffs against. Rendering the template happens at the edge,
+   * not here — this module only carries the raw string (see
+   * `entryBaseTemplateOf`) and, per `isReviewBaseState`, a string value is
+   * NEVER treated as the `true`/window-anchor form.
+   *
+   * Forbidden on a commit state (see `validateDefinition`).
    */
-  readonly reviewBase?: boolean
+  readonly reviewBase?: true | string
   /**
    * Optional. When `true`, a step at this state is REFUSED if its only pending
    * change is deleting the state's own `file:` — a work-free turn that discards
@@ -293,20 +304,21 @@ export const knownModes = (def: WorkflowDefinition): readonly StateMode[] =>
 
 /**
  * The state names a process may START at. `default` is where an ordinary
- * "no active cycle" rest resumes (see `initialStateOf`). `review`, when
- * present, is where `gtd review <commitish>` (`src/program.ts`) enters to
- * start a brand new process reviewing `<commitish>..HEAD` — a DELIBERATE,
- * distinct starting point from `default` (see `reviewEntryStateOf`). `fix`,
- * when present, is where `gtd fix` enters to start a brand new process that
- * goes straight into repairing the current failing tests (see
- * `fixEntryStateOf`). `validateDefinition`'s `validateEntries` guarantees
- * each named state is defined, non-commit, and (for `review`/`fix`) distinct
- * from `default`.
+ * "no active cycle" rest resumes (see `initialStateOf`) — required, so there
+ * is always a value. `manual` is every OTHER state a process may start at:
+ * every state that declared `entry: true` in the source config, qualified and
+ * sorted by the compiler, empty when the workflow declares none. A manual
+ * entry is reached via `gtd step <actor> --entry <state>` (`src/program.ts`)
+ * — a DELIBERATE, distinct starting point from `default` (e.g. a review or a
+ * fix process that begins somewhere other than the ordinary rest).
+ * `validateDefinition`'s `validateEntries` guarantees `default` and every
+ * `manual` entry each name a defined, non-commit state, that no `manual`
+ * entry equals `default`, and that `manual` carries no duplicate.
  */
 export interface WorkflowEntries {
   readonly default: StateName
-  readonly review?: StateName
-  readonly fix?: StateName
+  /** Every state that declared `entry: true`, qualified and sorted. Empty array when none declared. */
+  readonly manual: readonly StateName[]
 }
 
 /** A workflow: named states, the entry points a process may start at, plus the optional steering-file `modes:` they may name. */
@@ -345,9 +357,18 @@ export const contentOf = (state: StateDef): string | undefined =>
 export const isReviewWindowState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.reviewWindow === true
 
-/** True when `state` anchors the review window's diff base (see `StateDef.reviewBase`). Safe for an unknown state name (returns `false`). */
+/** True when `state` anchors the review window's diff base (see `StateDef.reviewBase`). Safe for an unknown state name (returns `false`). The string/template form of `reviewBase` is NOT a window anchor — this stays narrowed to `=== true` on purpose, never truthy. */
 export const isReviewBaseState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.reviewBase === true
+
+/** The named state's `reviewBase` when it is a STRING (an Eta template rendering a commitish that fixes the whole process's diff base — see `StateDef.reviewBase`) — `undefined` when `reviewBase` is `true`, absent, or `state` doesn't exist. Pure accessor only: rendering the template is an edge concern. */
+export const entryBaseTemplateOf = (
+  def: WorkflowDefinition,
+  state: StateName,
+): string | undefined => {
+  const reviewBase = def.states[state]?.reviewBase
+  return typeof reviewBase === "string" ? reviewBase : undefined
+}
 
 /** True when a step at `state` must be refused if its only change is deleting the state's `file:` (see `StateDef.requireProgress`). Safe for an unknown state name (returns `false`). */
 export const isRequireProgressState = (def: WorkflowDefinition, state: StateName): boolean =>
@@ -357,12 +378,18 @@ export const isRequireProgressState = (def: WorkflowDefinition, state: StateName
 export const isAnswerGateState = (def: WorkflowDefinition, state: StateName): boolean =>
   def.states[state]?.answerGate === true
 
-/** The workflow's declared review-entry state name (see `WorkflowEntries.review`) — `gtd review <commitish>` (`src/program.ts`) enters this state to start a new review process. `undefined` when the workflow declares none. */
-export const reviewEntryStateOf = (def: WorkflowDefinition): StateName | undefined =>
-  def.entries.review
-
-/** The workflow's declared fix-entry state name (see `WorkflowEntries.fix`) — `gtd fix` (`src/program.ts`) enters this state to start a new fix process. `undefined` when the workflow declares none. */
-export const fixEntryStateOf = (def: WorkflowDefinition): StateName | undefined => def.entries.fix
+/**
+ * Every declared state that is NOT a commit state, sorted (plain string
+ * sort). This is intentionally ALL non-commit states, not just ones that
+ * declared `entry: true` — `entry: true` is a reachability/visualizer
+ * concern (it seeds `entries.manual`), while this drives the CLI's
+ * `--entry <state>` guard and its error message (naming every legal choice),
+ * a broader set on purpose.
+ */
+export const enterableStates = (def: WorkflowDefinition): readonly StateName[] =>
+  Object.keys(def.states)
+    .filter((name) => !isCommitState(def.states[name]!))
+    .sort()
 
 // ── Commit-subject grammar ───────────────────────────────────────────────────
 
@@ -375,8 +402,9 @@ const TRANSITION_SEP = " → "
  * state being ENTERED and `<from>` the state the authored changes were made
  * in, so the subject reads as what this commit DID, not just where the machine
  * is headed. `from` is optional: when it is omitted or equals `to` (a
- * self-loop, or a manual entry like `gtd review` that has no meaningful
- * source), the subject collapses to the bare `gtd(<actor>): <to>` form.
+ * self-loop, or a manual entry like `gtd step <actor> --entry <state>` that
+ * has no meaningful source), the subject collapses to the bare
+ * `gtd(<actor>): <to>` form.
  * `resolveState` reads back only `<to>` — the ` → ` prefix is human context.
  */
 export const stateSubject = (actor: Actor, to: StateName, from?: StateName): string =>
@@ -777,17 +805,17 @@ export const step = (
 const CONTENT_KEYS = ["script", "prompt", "message", "commit"] as const
 
 /**
- * `entries.default` names a defined, non-commit state; `entries.review`/
- * `entries.fix`, when present, each name a defined, non-commit state that is
- * not `entries.default` — a review/fix entry is a DELIBERATE, distinct
- * starting point from the workflow's ordinary "no active cycle" rest (`gtd
- * review`/`gtd fix` both require resting at the default entry before they
- * act — see `src/program.ts`), so the two must stay distinguishable.
+ * `entries.default` names a defined, non-commit state. Every entry in
+ * `entries.manual`, when present, must likewise name a defined, non-commit
+ * state distinct from `entries.default` — a manual entry is a DELIBERATE,
+ * distinct starting point from the workflow's ordinary "no active cycle"
+ * rest (a manual entry requires resting at the default entry before it acts
+ * — see `src/program.ts`), so the two must stay distinguishable — and
+ * `entries.manual` must carry no duplicate state name within itself.
  */
 const validateEntries = (def: WorkflowDefinition, names: readonly string[]): string[] => {
   const errors: string[] = []
-  const checkEntry = (key: "default" | "review" | "fix", state: StateName | undefined) => {
-    if (state === undefined) return
+  const checkEntry = (key: "default" | "manual", state: StateName) => {
     if (!names.includes(state)) {
       errors.push(`entries.${key} "${state}" is not a defined state`)
       return
@@ -800,8 +828,14 @@ const validateEntries = (def: WorkflowDefinition, names: readonly string[]): str
     }
   }
   checkEntry("default", def.entries.default)
-  checkEntry("review", def.entries.review)
-  checkEntry("fix", def.entries.fix)
+  const seen = new Set<StateName>()
+  for (const state of def.entries.manual) {
+    checkEntry("manual", state)
+    if (seen.has(state)) {
+      errors.push(`entries.manual declares "${state}" more than once`)
+    }
+    seen.add(state)
+  }
   return errors
 }
 
@@ -931,10 +965,10 @@ const validateMode = (def: WorkflowDefinition, name: string, state: StateDef): s
 }
 
 /**
- * `reviewWindow`/`reviewBase`, when present, are booleans (the compiler
- * enforces the type) — forbidden on a commit state, same rule family as
- * `model`/`file`/`mode`: a commit state is never at rest, so no window ever
- * opens or anchors there.
+ * `reviewWindow`/`reviewBase`, when present, are a boolean and a
+ * boolean-or-string respectively (the compiler enforces the type) —
+ * forbidden on a commit state, same rule family as `model`/`file`/`mode`: a
+ * commit state is never at rest, so no window ever opens or anchors there.
  */
 const validateReviewWindow = (name: string, state: StateDef): string[] => {
   if (!isCommitState(state)) return []
@@ -946,6 +980,21 @@ const validateReviewWindow = (name: string, state: StateDef): string[] => {
     errors.push(`state "${name}": a commit state cannot declare "reviewBase"`)
   }
   return errors
+}
+
+/**
+ * When `reviewBase` is a STRING (the template form — see `StateDef.reviewBase`),
+ * its source must be non-blank: a literal `reviewBase: ""` (or whitespace-only)
+ * is an authoring error, distinct from the runtime concern of the RENDERED
+ * result coming out blank (that refusal lives at the edge, at CLI time — not
+ * checked here). Deliberately does NOT check that the template mentions a
+ * declared var: a base may legitimately be a literal commitish like `main`.
+ */
+const validateReviewBaseTemplate = (name: string, state: StateDef): string[] => {
+  if (typeof state.reviewBase !== "string") return []
+  return state.reviewBase.trim() === ""
+    ? [`state "${name}": "reviewBase" template must not be blank`]
+    : []
 }
 
 /**
@@ -1019,26 +1068,25 @@ const validateRetry = (name: string, state: StateDef, names: readonly string[]):
  * Every state is reachable from an ENTRY ROOT by walking `on` targets and
  * `retry.otherwise` redirects (a redirect ENTERS its `otherwise` state exactly
  * like an `on` match enters its target — see `applyRetry` — so both are real
- * edges). The roots are `def.entries` — `default` PLUS the CLI-command entry
- * states (`review`/`fix`): a command enters those directly, so a state
- * reachable only from one of them is legitimately reachable, not dead config
- * (without seeding them, e.g. a `fix` entry check whose only inbound path is
- * `gtd fix` would be wrongly flagged). Plain BFS; targets naming undefined
- * states are skipped here (they are `validateOnEdges`/`validateRetry` findings
- * of their own). Only called when `validateEntries` found no problem: with an
- * invalid `entries` there is no well-defined start to walk from, and
- * reporting every state as unreachable would bury the real finding.
+ * edges). The roots are `def.entries` — `default` PLUS every state named in
+ * `entries.manual`: a manual entry is entered directly (`gtd step <actor>
+ * --entry <state>`), so a state reachable only from one of them is
+ * legitimately reachable, not dead config (without seeding them, e.g. a
+ * manual entry whose only inbound path is `--entry` would be wrongly
+ * flagged). Plain BFS; targets naming undefined states are skipped here (they
+ * are `validateOnEdges`/`validateRetry` findings of their own). Only called
+ * when `validateEntries` found no problem: with an invalid `entries` there is
+ * no well-defined start to walk from, and reporting every state as
+ * unreachable would bury the real finding.
  *
  * An unreachable state is an ERROR, not a warning: a workflow is bound to a
- * project and edited as a project-wide change, so "kept on purpose for manual
- * entry via a hand-authored subject" is not a supported authoring pattern —
- * an unreachable state is a typo'd rename or a leftover, and silently-dead
+ * project and edited as a project-wide change, so "kept on purpose for entry
+ * via a hand-authored subject" is not a supported authoring pattern — an
+ * unreachable state is a typo'd rename or a leftover, and silently-dead
  * config is exactly what load-time validation exists to catch.
  */
 const validateReachability = (def: WorkflowDefinition, names: readonly string[]): string[] => {
-  const roots = [def.entries.default, def.entries.review, def.entries.fix].filter(
-    (name): name is StateName => name !== undefined,
-  )
+  const roots = [def.entries.default, ...def.entries.manual]
   const visited = new Set<StateName>(roots)
   const queue: StateName[] = [...roots]
   while (queue.length > 0) {
@@ -1078,6 +1126,7 @@ const validateState = (
     ...validateFile(name, state),
     ...validateMode(def, name, state),
     ...validateReviewWindow(name, state),
+    ...validateReviewBaseTemplate(name, state),
     ...validateRequireProgress(name, state),
     ...validateAnswerGate(name, state),
   ]
@@ -1087,24 +1136,26 @@ const validateState = (
  * Validate a `WorkflowDefinition`, returning human-readable error strings
  * (empty = valid). Pure — Phase 2 calls this at config-load time. Checks:
  * at least one state; `entries.default` names a defined, non-commit state,
- * and `entries.review`/`entries.fix`, when present, each name a defined,
- * non-commit state distinct from `entries.default` (see `validateEntries`);
- * every state declares exactly one content kind; commit states carry no
- * `actor` and no `on`; non-commit states carry an `actor`; every `on`
- * pattern parses and every `on` target and `retry.otherwise` names a defined
- * state; `retry.max` is a non-negative integer; `model`, when present, is a
- * non-empty string and is never declared on a commit state; `memory`, when
- * present, is a non-empty string and is never declared on a commit state
- * (same rule family as `model`); `label`, when present, is a non-empty
+ * and every entry in `entries.manual`, when present, names a defined,
+ * non-commit state distinct from `entries.default` with no duplicate within
+ * `entries.manual` itself (see `validateEntries`); every state declares
+ * exactly one content kind; commit states carry no `actor` and no `on`;
+ * non-commit states carry an `actor`; every `on` pattern parses and every
+ * `on` target and `retry.otherwise` names a defined state; `retry.max` is a
+ * non-negative integer; `model`, when present, is a non-empty string and is
+ * never declared on a commit state; `memory`, when present, is a non-empty
  * string and is never declared on a commit state (same rule family as
- * `model`); `file`, when present, is a non-empty string and is never
- * declared on a commit state; `mode`, when present, names a mode the
- * definition knows (a built-in or a `modes:` entry — see `knownModes`),
- * requires a sibling `file`, and is never declared on a commit state; every
- * `modes:` entry declares at least one non-blank `format`/`validate`
- * command; `reviewWindow`/`reviewBase`, when present, are never declared on
- * a commit state; every state is reachable from an entry root (`def.entries`
- * — `default` plus `review`/`fix` when present) by walking `on` targets and
+ * `model`); `label`, when present, is a non-empty string and is never
+ * declared on a commit state (same rule family as `model`); `file`, when
+ * present, is a non-empty string and is never declared on a commit state;
+ * `mode`, when present, names a mode the definition knows (a built-in or a
+ * `modes:` entry — see `knownModes`), requires a sibling `file`, and is
+ * never declared on a commit state; every `modes:` entry declares at least
+ * one non-blank `format`/`validate` command; `reviewWindow`/`reviewBase`,
+ * when present, are never declared on a commit state, and a string-form
+ * `reviewBase` template must not be blank (see `validateReviewBaseTemplate`);
+ * every state is reachable from an entry root (`def.entries` — `default`
+ * plus every `entries.manual` state) by walking `on` targets and
  * `retry.otherwise` redirects (checked only when `validateEntries` itself
  * found no problem — see `validateReachability`).
  */

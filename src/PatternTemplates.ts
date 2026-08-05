@@ -96,17 +96,22 @@ export interface TemplateContext {
   readonly read: (path: string) => string
   /**
    * The merged variable map every template sees as `it.vars.<name>` —
-   * assembled by `src/Edge.ts`'s `resolveVars` from three layers (later
+   * assembled by `src/Edge.ts`'s `resolveVars` from four layers (later
    * wins): the workflow's own declared `vars:` defaults
-   * (`CompiledWorkflowConfig.vars`), the top-level `.gtdrc` `vars:` key, and
+   * (`CompiledWorkflowConfig.vars`), the top-level `.gtdrc` `vars:` key, the
+   * current process's entry commit's `Gtd-Var:` trailers
+   * (`ProcessRun.entryVars` — fixed overrides recorded at the moment a
+   * process like `gtd review <commitish>` started it), and
    * `GTD_<UPPERCASE-name>` environment variables, matched case-insensitively
    * against each declared name (an env var can only override a name some
-   * config layer already declares, never introduce one). Always a flat
-   * `Record<string, string>` — every source value is
-   * coerced to a string at load time (env vars are naturally strings; YAML
-   * scalars in the first two layers are coerced by `PatternConfig.ts`'s
-   * `compileVarsMap`). No name is blessed by the engine: `it.vars` is empty
-   * unless a workflow/config/env layer populates it.
+   * earlier layer already declares, never introduce one). The entry-var layer
+   * is the one exception: unlike env, it needs no such filter, so a name from
+   * an old commit that matches no config layer still lands in the map. Always
+   * a flat `Record<string, string>` — every source value is coerced to a
+   * string at load time (env vars are naturally strings; YAML scalars in the
+   * first two layers are coerced by `PatternConfig.ts`'s `compileVarsMap`).
+   * No name is blessed by the engine: `it.vars` is empty unless a
+   * workflow/config/entry/env layer populates it.
    */
   readonly vars: Record<string, string>
   /**

@@ -1003,8 +1003,9 @@ Feature: gtd loop — the packaged reference loop driver (v3)
 
   Scenario: A still-red suite whose output repeats identically across checks never false-greens into review
     # Drives the REAL bundled unified template (not a custom .gtdrc) through
-    # `gtd fix`: a suite that always fails with byte-identical output must
-    # never be mistaken for green just because a re-run produces no diff.
+    # `gtd --entry fix-precheck`: a suite that always fails with
+    # byte-identical output must never be mistaken for green just because a
+    # re-run produces no diff.
     Given a test project
     And the workflow
     And GTD_TESTCOMMAND is set to "sh -c 'echo boom; exit 1'"
@@ -1020,7 +1021,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
           ;;
       esac
       """
-    When I run "fix" via gtd
+    When I run "--entry fix-precheck" via gtd
     Then it succeeds
     When I run bare gtd
     Then it succeeds
@@ -1035,7 +1036,7 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And the workflow
     And GTD_TESTCOMMAND is set to "true"
     And I record the commit count
-    When I run "fix" via gtd
+    When I run "--entry fix-precheck" via gtd
     Then it succeeds
     When I run bare gtd
     Then it succeeds

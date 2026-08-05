@@ -191,6 +191,37 @@ describe("buildVizModel", () => {
     expect(edges[1]).not.toHaveProperty("action")
   })
 
+  it("flags a state that declares entry: true with the entry badge, leaves others (including the default/initial state) without it", () => {
+    const entryRaw = {
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "idle",
+          states: {
+            idle: { actor: "human", message: "idle", on: { "* **": "reviewer" } },
+            reviewer: {
+              actor: "agent",
+              prompt: "review this",
+              entry: true,
+              on: { "* **": "done" },
+            },
+            done: { commit: "chore: done" },
+          },
+        },
+      },
+    }
+    const entryCompiled = compileWorkflowConfig(entryRaw, "/dir")
+    const entryModel = buildVizModel(entryCompiled.definition, entryCompiled.tree, {})
+    const named = (name: string) => entryModel.states.find((s) => s.name === name)!
+
+    expect(named("reviewer").flags).toContain("entry")
+
+    expect(named("idle").flags).not.toContain("entry")
+    expect(named("idle").initial).toBe(true)
+
+    expect(named("done").flags).not.toContain("entry")
+  })
+
   it("falls back to the raw pattern string when it fails to render", () => {
     const badRaw = {
       entry: { default: "root" },

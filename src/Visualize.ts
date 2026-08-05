@@ -73,7 +73,7 @@ export interface VizState {
   readonly file?: string
   readonly mode?: string
   readonly retry?: { readonly max: number; readonly otherwise: string }
-  /** Boolean state flags that are set: reviewWindow/reviewBase/reviewEntry/fixEntry/requireProgress/answerGate. */
+  /** Boolean state flags that are set: reviewWindow/reviewBase/entry/requireProgress/answerGate. */
   readonly flags: readonly string[]
   readonly on: readonly VizEdge[]
   /** Every edge (and retry redirect) that targets this state — computed, for the "routes in from" view. */
@@ -107,9 +107,10 @@ export interface VizModel {
 const FLAG_KEYS = ["reviewWindow", "reviewBase", "requireProgress", "answerGate"] as const
 
 // The boolean state flags that are set. `initial` is NOT included here — it is
-// carried as its own `VizState.initial` field. `reviewEntry`/`fixEntry` are also
-// excluded — they are no longer per-state `StateDef` flags but named entries on
-// `WorkflowDefinition.entries` (see `toVizState`'s `entries` parameter).
+// carried as its own `VizState.initial` field. `entry` is also excluded — it is
+// not a per-state `StateDef` flag but derived from whether the state's name
+// appears in `WorkflowDefinition.entries.manual`, the same way `initial` is
+// derived from `entries.default` (see `toVizState`'s `entries` parameter).
 const flagsOf = (def: StateDef): string[] => FLAG_KEYS.filter((k) => def[k] === true)
 
 const edgeToViz = ([pattern, to, describe, action]: OnEdge): VizEdge =>
@@ -121,7 +122,7 @@ const stripUndefined = (o: Record<string, unknown>): Record<string, unknown> => 
   return o
 }
 
-/** Describe one compiled state for the viewer (optional fields omitted when unset). `onEdges` is that state's `on`, ALREADY RENDERED against `it.vars` (see `buildVizModel`) — never `def.on` directly, which would show the unrendered literal. `entries` is the workflow's `entries` — `name`'s match against `.default`/`.review`/`.fix` drives `initial` and the `reviewEntry`/`fixEntry` flags. */
+/** Describe one compiled state for the viewer (optional fields omitted when unset). `onEdges` is that state's `on`, ALREADY RENDERED against `it.vars` (see `buildVizModel`) — never `def.on` directly, which would show the unrendered literal. `entries` is the workflow's `entries` — `name`'s match against `.default`/`.manual` drives `initial`/the `entry` flag. */
 const toVizState = (
   name: string,
   def: StateDef,
@@ -141,11 +142,7 @@ const toVizState = (
     file: def.file,
     mode: def.mode,
     retry: def.retry,
-    flags: [
-      ...flagsOf(def),
-      ...(entries.review === name ? ["reviewEntry"] : []),
-      ...(entries.fix === name ? ["fixEntry"] : []),
-    ],
+    flags: [...flagsOf(def), ...(entries.manual.includes(name) ? ["entry"] : [])],
     on: onEdges.map(edgeToViz),
     incoming,
     group,

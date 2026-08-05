@@ -75,11 +75,11 @@ describe("flattenMachines — entry resolution", () => {
     expect(out.entries).toEqual({ default: "start" })
   })
 
-  it("resolves a bare reference-key entry.review to the referenced machine's own entry", () => {
+  it("ignores legacy entry.review/entry.fix raw keys entirely — entries is just {default}", () => {
     const errors: string[] = []
     const out = flattenMachines(
       {
-        entry: { default: "unified", review: "review-gate" },
+        entry: { default: "unified", review: "review-gate", fix: "review-gate" },
         machines: {
           unified: {
             entry: "start",
@@ -97,87 +97,6 @@ describe("flattenMachines — entry resolution", () => {
       errors,
     )
     expect(errors).toEqual([])
-    expect(out.entries).toEqual({ default: "start", review: "review-gate.check" })
-  })
-
-  it("resolves entry.fix transitively through a chain of reference keys", () => {
-    const errors: string[] = []
-    const out = flattenMachines(
-      {
-        entry: { default: "unified", fix: "outer" },
-        machines: {
-          unified: {
-            entry: "start",
-            states: {
-              start: agentState({ "* **": "start" }),
-              outer: { machine: "middle" },
-            },
-          },
-          middle: {
-            entry: "inner",
-            states: { inner: { machine: "innermost" } },
-          },
-          innermost: {
-            entry: "fixup",
-            states: { fixup: checkState({ C: "fixup" }) },
-          },
-        },
-      },
-      errors,
-    )
-    expect(errors).toEqual([])
-    expect(out.entries).toEqual({ default: "start", fix: "outer.inner.fixup" })
-  })
-
-  it("resolves entry.review naming a state path through a reference", () => {
-    const errors: string[] = []
-    const out = flattenMachines(
-      {
-        entry: { default: "unified", review: "review-gate.check" },
-        machines: {
-          unified: {
-            entry: "start",
-            states: {
-              start: agentState({ "* **": "start" }),
-              "review-gate": { machine: "reviewMachine" },
-            },
-          },
-          reviewMachine: {
-            entry: "check",
-            states: { check: checkState({ C: "check" }) },
-          },
-        },
-      },
-      errors,
-    )
-    expect(errors).toEqual([])
-    expect(out.entries).toEqual({ default: "start", review: "review-gate.check" })
-  })
-
-  it('reports "entry.review" naming an unresolvable path', () => {
-    const errors: string[] = []
-    const out = flattenMachines(
-      {
-        entry: { default: "unified", review: "review-gate.chek" },
-        machines: {
-          unified: {
-            entry: "start",
-            states: {
-              start: agentState({ "* **": "start" }),
-              "review-gate": { machine: "reviewMachine" },
-            },
-          },
-          reviewMachine: {
-            entry: "check",
-            states: { check: checkState({ C: "check" }) },
-          },
-        },
-      },
-      errors,
-    )
-    expect(errors).toEqual([
-      `"entry.review" names "review-gate.chek", which is not a state or machine reference`,
-    ])
     expect(out.entries).toEqual({ default: "start" })
   })
 })

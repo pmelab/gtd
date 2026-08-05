@@ -322,7 +322,7 @@ describe("basenameFallbackMode", () => {
 describe("buildFileModeMap", () => {
   const def = (states: WorkflowDefinition["states"]): WorkflowDefinition => ({
     states,
-    entries: { default: Object.keys(states)[0]! },
+    entries: { default: Object.keys(states)[0]!, manual: [] },
   })
 
   it("renders each state's `file:` (vars-layer context) into an absolute path keyed to its `mode`", () => {

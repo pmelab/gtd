@@ -47,7 +47,7 @@
 # EVERY entry first runs the test suite and only proceeds when it is GREEN — you
 # never start new work (or a review) on top of a red baseline. A red run halts
 # at a human blocked gate (fix the failures and re-run, exactly like the
-# escalate states), or is what `gtd fix` exists to repair.
+# escalate states), or is what `gtd --entry fix-precheck` exists to repair.
 #
 # The initial `idle` state FORKS on which steering file the human creates,
 # routing into that flow's OWN start gate:
@@ -59,12 +59,12 @@
 #     `plan-gate.check` -> the SIMPLE flow (one grilling Q&A loop, a monolithic
 #     build, no decomposition, no agentic review).
 #
-# A third entry, `gtd review <commitish>`, jumps to `review-gate.check`
-# (`entry.review`) and, once green, to `review.reviewing` to review a foreign
-# branch through the same shared tail. A fourth, `gtd fix`, jumps to
-# `fix-precheck` (`entry.fix`): a red suite drops straight into the shared
-# `build.fix` loop and out through the review + squash tail; a green suite is
-# a no-op back to `idle`.
+# A third entry, `gtd --entry review-gate.check`, jumps there directly and,
+# once green, to `review.reviewing` to review a foreign branch through the
+# same shared tail. A fourth, `gtd --entry fix-precheck`, jumps there: a red
+# suite drops straight into the shared `build.fix` loop and out through the
+# review + squash tail; a green suite is a no-op back to `idle`. Both states
+# declare `entry: true` — otherwise unreachable from `entries.default`.
 #
 # All three converge at `review.reviewing` -> `review.await-review`. Ticking a
 # REVIEW.md box means only "I reviewed this hunk"; a COMMENT (not an unticked
@@ -121,11 +121,16 @@ vars:
   # `coderModel` (default "base") is the tier for the build/fix turns.
   plannerModel: smart
   coderModel: base
+  # The fixed diff base for `gtd --entry review-gate.check --var
+  # reviewBase=<commitish>` — a plain non-gtd branch reviewed against that
+  # commitish rather than the process start. Declared here (rather than left
+  # undeclared) so `--var reviewBase=...` passes the CLI's declared-name
+  # check; the default empty string renders blank, which the entry command
+  # refuses (a review entry always requires an explicit base).
+  reviewBase: ""
 
 entry:
   default: unified
-  review: review-gate.check
-  fix: fix-precheck
 
 machines:
   # ── DEDUP: the check/fix/escalate health triple ───────────────────────────
@@ -240,18 +245,33 @@ machines:
   # that into "halt at blocked" vs "proceed to $onGreen". The script and blocked
   # message/describe differ per entry, so they ride in as `with:` params.
   assertGreen:
-    params: [onGreen, blockedMessage, blockedDescribe, checkLabel, blockedLabel]
+    params: [onGreen, blockedMessage, blockedDescribe, checkLabel, blockedLabel, reviewBase]
     entry: check
     states:
       check:
         actor: check
         label: $checkLabel
-        # Anchored here and aliased by `fix-precheck` (`gtd fix` entry): one
-        # suite-check script shared by all four call sites (this machine's ×3
+        # Anchored here and aliased by `fix-precheck` (`gtd --entry
+        # fix-precheck` entry): one suite-check script shared by all four
+        # call sites (this machine's ×3
         # instances plus `fix-precheck`) instead of four source copies. These
         # gates run BEFORE planning, so — unlike `makeGreen.check` — they must
         # NOT sweep `todoFile`/`requirementsFile`: the human's fresh sketch
         # still legitimately exists here.
+        # `entry: true` on the shared local marks all three `assertGreen`
+        # instances (plan-gate/spec-gate/review-gate) as manual entries —
+        # only `review-gate.check` actually needs the reachability root (it
+        # is otherwise unreachable from `entries.default`), but the shared
+        # dedup makes marking one mark all three. Accepted as correct: all
+        # three ARE the workflow's entry gates.
+        entry: true
+        # `reviewBase: $reviewBase` — only `review-gate` binds a real
+        # template (`<%= it.vars.reviewBase %>`), fixing the whole process's
+        # diff base to whatever `gtd --entry review-gate.check --var
+        # reviewBase=<commitish>` supplies. `plan-gate`/`spec-gate` bind the
+        # literal empty string, which compiles away to "no base" here — they
+        # are reached from `idle`, never manually entered with a base.
+        reviewBase: $reviewBase
         script: &suiteCheck |
           #!/usr/bin/env bash
           # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
@@ -426,10 +446,10 @@ machines:
         mode: review
         model: <%= it.vars.plannerModel %>
         memory: review
-        # `gtd review <commitish>` (a plain non-gtd branch, e.g. a colleague's PR)
-        # does NOT enter here directly — it enters `review-gate.check`
-        # (`entry.review`) first, which runs the green-baseline gate and, once
-        # green, transitions here. The `Gtd-Review-Base:` trailer rides on that
+        # `gtd --entry review-gate.check` (a plain non-gtd branch, e.g. a
+        # colleague's PR) does NOT enter here directly — it enters
+        # `review-gate.check` first, which runs the green-baseline gate and,
+        # once green, transitions here. The `Gtd-Review-Base:` trailer rides on that
         # entry commit (the process's oldest), so everything below still reuses
         # the same reviewing/await-review/feedback machinery over <commitish>..HEAD.
         prompt: |
@@ -963,13 +983,15 @@ machines:
         on:
           "* <%= it.vars.packagesDir %>/**": packages.picking
 
-      # ── Green-baseline gate: `gtd fix` entry ──────────────────────────────────
-      # `gtd fix` enters HERE (`entry.fix`): run the suite, then a red run drops
-      # straight into the shared `build.fix` loop (-> build.check -> review + squash
-      # tail); a green run is a no-op back to `idle` (nothing to fix).
+      # ── Green-baseline gate: `gtd --entry fix-precheck` entry ─────────────────
+      # `gtd --entry fix-precheck` enters HERE: run the suite, then a red run
+      # drops straight into the shared `build.fix` loop (-> build.check ->
+      # review + squash tail); a green run is a no-op back to `idle` (nothing
+      # to fix).
       fix-precheck:
         actor: check
         label: Checking the baseline
+        entry: true
         script: *suiteCheck
         on:
           "A <%= it.vars.feedbackFile %>": build.fix
@@ -996,8 +1018,9 @@ machines:
           commit using its content as the message. The diff below is exactly what
           that commit will contain: `it.retainedDiff`, the changes THIS process
           made (its trace/retry boundary onward). For a normal build cycle that is
-          the whole feature; for a `gtd review` process it is only the fixes made
-          during the review — NOT the changeset that was under review.
+          the whole feature; for a `gtd --entry review-gate.check` process it is
+          only the fixes made during the review — NOT the changeset that was
+          under review.
           <% if (it.retainedDiff.trim()) { %>
 
           Write `<%= it.vars.commitMsgFile %>` with ONE conventional-commits message
@@ -1036,6 +1059,7 @@ machines:
         machine: assertGreen
         with:
           onGreen: plan
+          reviewBase: ""
           blockedMessage: |
             The test baseline is red — gtd will not start new work on a broken suite.
             `<%= it.vars.feedbackFile %>` holds the failing output.
@@ -1047,8 +1071,8 @@ machines:
           blockedDescribe: >-
             edit the code and/or `.gtd/FEEDBACK.md` to fix the failing tests
             (**plan-gate.check**). To repair the baseline as its own separate
-            reviewed commit instead, abandon this start and run `gtd fix` from a
-            clean `idle`.
+            reviewed commit instead, abandon this start and run
+            `gtd --entry fix-precheck` from a clean `idle`.
           checkLabel: Checking the baseline
           blockedLabel: Baseline is red
 
@@ -1057,6 +1081,7 @@ machines:
         machine: assertGreen
         with:
           onGreen: product
+          reviewBase: ""
           blockedMessage: |
             The test baseline is red — gtd will not start new work on a broken suite.
             `<%= it.vars.feedbackFile %>` holds the failing output.
@@ -1068,16 +1093,17 @@ machines:
           blockedDescribe: >-
             edit the code and/or `.gtd/FEEDBACK.md` to fix the failing tests
             (**spec-gate.check**). To repair the baseline as its own separate
-            reviewed commit instead, abandon this start and run `gtd fix` from a
-            clean `idle`.
+            reviewed commit instead, abandon this start and run
+            `gtd --entry fix-precheck` from a clean `idle`.
           checkLabel: Checking the baseline
           blockedLabel: Baseline is red
 
-      # ── Green-baseline gate: `gtd review` entry (`entry.review` -> review.reviewing). ─
+      # ── Green-baseline gate: `gtd --entry review-gate.check` entry -> review.reviewing. ─
       review-gate:
         machine: assertGreen
         with:
           onGreen: review
+          reviewBase: <%= it.vars.reviewBase %>
           blockedMessage: |
             The test baseline is red — gtd will not start a review on a broken suite.
             `<%= it.vars.feedbackFile %>` holds the failing output.

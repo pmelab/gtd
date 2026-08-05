@@ -61,3 +61,45 @@ Feature: Refusals — out-of-turn and no-match steps commit nothing
     And stderr contains "A COMMIT_MSG.md"
     And stderr contains "M COMMIT_MSG.md"
     And the commit count is unchanged
+
+  Scenario: a bare "--entry" with no value is a usage error
+    Given a test project
+    And the workflow
+    When I run gtd with args "--entry"
+    Then it fails
+    And stderr contains "--entry requires a value"
+
+  Scenario: a second "--entry" occurrence is a usage error, not last-wins
+    Given a test project
+    And the workflow
+    When I run gtd with args "--entry review-gate.check --entry fix-precheck"
+    Then it fails
+    And stderr contains "--entry may be given at most once"
+
+  Scenario: a duplicate "--var" name is a usage error, not last-wins
+    Given a test project
+    And the workflow
+    When I run gtd with args "--entry review-gate.check --var reviewBase=a --var reviewBase=b"
+    Then it fails
+    And stderr contains "specified more than once"
+
+  Scenario: "--var" given with no "--entry" is a usage error
+    Given a test project
+    And the workflow
+    When I run gtd with args "--var reviewBase=a"
+    Then it fails
+    And stderr contains "--var requires --entry"
+
+  Scenario: "--cost" combined with "--entry" is a usage error
+    Given a test project
+    And the workflow
+    When I run gtd with args "step human --entry review-gate.check --cost=5"
+    Then it fails
+    And stderr contains "cannot be combined with --entry"
+
+  Scenario: "--model" combined with "--entry" is a usage error
+    Given a test project
+    And the workflow
+    When I run gtd with args "step human --entry review-gate.check --cost=5 --model=gpt"
+    Then it fails
+    And stderr contains "cannot be combined with --entry"

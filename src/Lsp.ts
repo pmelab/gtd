@@ -533,7 +533,7 @@ const loadModeMap = async (
         Effect.provide(configLayerForRoot(root)),
       ),
     )
-    const vars = resolveVars(config.workflowVars, config.rcVars, process.env)
+    const vars = resolveVars(config.workflowVars, config.rcVars, {}, process.env)
     const { map, warnings } = buildFileModeMap(config.workflow, vars, root)
     for (const warning of warnings) onWarn(warning)
     return map
@@ -585,7 +585,7 @@ const resolveSteeringFile = (
     const envVars = yield* EnvVars
     const rest = yield* resolveRest()
     const run = yield* computeProcessRun(git, rest.def)
-    const vars = resolveVars(config.workflowVars, config.rcVars, envVars.all)
+    const vars = resolveVars(config.workflowVars, config.rcVars, {}, envVars.all)
     const context = yield* buildTemplateContext(
       git,
       worktree.read,

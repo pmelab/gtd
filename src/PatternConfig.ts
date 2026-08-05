@@ -31,8 +31,6 @@ import { flattenMachines, type MachineNode } from "./Machines.js"
  *     validate: <shell command>
  * entry:
  *   default: <machine name>     # which machine is the ROOT instance
- *   review: <target>?           # resolved through the flattener's resolver, seeded at the root
- *   fix: <target>?
  * machines:
  *   <name>:
  *     params: [<param>, ...]?   # advisory only — documents which $params a caller may bind
@@ -52,6 +50,7 @@ import { flattenMachines, type MachineNode } from "./Machines.js"
  *         label: <string>     # optional, opaque display name — never on a commit state
  *         file: <string>      # optional, an Eta template naming the state's steering file — never on a commit state
  *         mode: <modeName>    # optional, requires "file" — a built-in (qa/review) or a `modes:` entry; never on a commit state
+ *         entry: true         # optional — an EXTRA reachability root (WorkflowEntries.manual), enterable via `gtd step <actor> --entry <this state's qualified name>`; distinct from the top-level `entry:` key above
  *       <local>: { machine: <name>, with: { ... } }       # a REFERENCE — instantiates <name> as a child, see src/Machines.ts
  * ```
  *
@@ -255,6 +254,7 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "reviewBase",
   "requireProgress",
   "answerGate",
+  "entry",
 ])
 
 const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["entry", "machines", "vars", "modes"])
@@ -264,8 +264,8 @@ const KNOWN_REF_KEYS: ReadonlySet<string> = new Set(["machine", "with"])
 /** A state-level key removed by the `entry:`/`machines:` rewrite, naming its replacement so a stale config's error points somewhere useful instead of a bare "unknown key". */
 const LEGACY_STATE_KEY_HINTS: Readonly<Record<string, string>> = {
   initial: `"initial" no longer exists — declare this state's qualified path in the top-level "entry.default" instead`,
-  reviewEntry: `"reviewEntry" no longer exists — declare this state's qualified path in the top-level "entry.review" instead`,
-  fixEntry: `"fixEntry" no longer exists — declare this state's qualified path in the top-level "entry.fix" instead`,
+  reviewEntry: `"reviewEntry" no longer exists — declare "entry: true" on this state instead`,
+  fixEntry: `"fixEntry" no longer exists — declare "entry: true" on this state instead`,
 }
 
 /** A reference-level key from the old `use:` invocation shape, naming its replacement. */
@@ -297,6 +297,27 @@ const detectLegacyShape = (raw: Record<string, unknown>): void => {
   const found = Object.keys(LEGACY_TOP_KEY_MESSAGES).filter((k) => k in raw)
   if (found.length === 0) return
   throw new Error(formatErrors(found.map((k) => LEGACY_TOP_KEY_MESSAGES[k]!)))
+}
+
+/**
+ * A top-level `entry.review`/`entry.fix` key from the pre-`entry: true`
+ * shape. Detected and thrown FIRST — right after `detectLegacyShape`, before
+ * `flattenMachines` (or anything else) ever runs — so a stale config
+ * migrating off the named review/fix entry points gets ONLY this message,
+ * never mixed with `detectLegacyShape`'s own unrelated top-level findings or
+ * any generic downstream complaint about an unknown key inside `entry:`.
+ */
+const LEGACY_ENTRY_KEY_MESSAGES: Readonly<Record<string, string>> = {
+  review: `entry.review is no longer supported — declare \`entry: true\` on that state and enter it with \`gtd --entry <state>\``,
+  fix: `entry.fix is no longer supported — declare \`entry: true\` on that state and enter it with \`gtd --entry <state>\``,
+}
+
+const detectLegacyEntryKeys = (raw: Record<string, unknown>): void => {
+  const entryRaw = raw["entry"]
+  if (!isPlainObject(entryRaw)) return
+  const found = Object.keys(LEGACY_ENTRY_KEY_MESSAGES).filter((k) => k in entryRaw)
+  if (found.length === 0) return
+  throw new Error(formatErrors(found.map((k) => LEGACY_ENTRY_KEY_MESSAGES[k]!)))
 }
 
 /**
@@ -707,10 +728,12 @@ const compileMode = (
 }
 
 /**
- * A boolean state flag (`initial`/`reviewWindow`/`reviewBase`/`reviewEntry`/`fixEntry`/`requireProgress`/`answerGate`): `true` only
- * when the raw value is the literal `true`; a non-boolean is a config error;
- * `false` (or absent) compiles away to `undefined` so it never lands in the
- * `StateDef` — `false` and "unset" mean the same thing for every such flag.
+ * A boolean state flag (`reviewWindow`/`requireProgress`/`answerGate`/
+ * `entry`): `true` only when the raw value is the literal `true`; a
+ * non-boolean is a config error; `false` (or absent) compiles away to
+ * `undefined` so it never lands in the `StateDef` — `false` and "unset" mean
+ * the same thing for every such flag. `reviewBase` no longer goes through
+ * this — see `compileBooleanOrTemplateFlag`.
  */
 const compileBooleanFlag = (
   raw: Record<string, unknown>,
@@ -727,7 +750,29 @@ const compileBooleanFlag = (
   return value === true ? true : undefined
 }
 
-/** One state's compiled parts, assembled into a `StateDef` (only present fields carried over — `exactOptionalPropertyTypes`). `initial`/`reviewEntry`/`fixEntry` are NOT here — they never land on a `StateDef`; `compileState` compiles them separately into the raw entry-flag result `compileWorkflowConfig` collects across all states into `WorkflowDefinition.entries` (see `CompiledState`). */
+/**
+ * `reviewBase`'s own flag shape: the literal `true`, OR a non-blank string (an
+ * Eta template rendering a commitish, returned verbatim — no trimming, just a
+ * blank-after-trim rejection) — see `StateDef.reviewBase`'s widened type.
+ * `false`, a number, an object, or a blank string are all rejected with the
+ * same finding shape `compileBooleanFlag` uses; `undefined` (absent) passes
+ * through untouched.
+ */
+const compileBooleanOrTemplateFlag = (
+  raw: Record<string, unknown>,
+  key: string,
+  name: string,
+  errors: string[],
+): true | string | undefined => {
+  const value = raw[key]
+  if (value === undefined) return undefined
+  if (value === true) return true
+  if (typeof value === "string" && value.trim() !== "") return value
+  errors.push(`state "${name}": "${key}" must be a boolean or a non-blank string`)
+  return undefined
+}
+
+/** One state's compiled parts, assembled into a `StateDef` (only present fields carried over — `exactOptionalPropertyTypes`). `entry` is NOT here — it never lands on a `StateDef`; `compileState` validates it separately (`compileBooleanFlag`, result discarded) and `compileWorkflowConfig` reads the RAW `entry: true` flag directly off each qualified state to build `WorkflowDefinition.entries.manual`. */
 interface StateParts {
   readonly actor: string | undefined
   readonly content: Partial<Record<ContentKey, string>>
@@ -739,7 +784,7 @@ interface StateParts {
   readonly file: string | undefined
   readonly mode: StateMode | undefined
   readonly reviewWindow: true | undefined
-  readonly reviewBase: true | undefined
+  readonly reviewBase: true | string | undefined
   readonly requireProgress: true | undefined
   readonly answerGate: true | undefined
 }
@@ -796,11 +841,12 @@ const assembleStateDef = (parts: StateParts): StateDef => ({
  * QUALIFIED state entry from `FlattenedWorkflow.states` (`src/Machines.ts`) —
  * `$param`s already substituted, every `on`/`retry.otherwise` target already
  * an absolute qualified name — so this is exactly the flat compilation the
- * pre-`entry:`/`machines:` compiler already did. The entry-point flags
- * (`initial`/`reviewEntry`/`fixEntry`) are gone from this shape entirely: the
- * flattener resolves `entry.default`/`.review`/`.fix` directly into
- * `WorkflowDefinition.entries`, so there is nothing left for this function to
- * collect.
+ * pre-`entry:`/`machines:` compiler already did. The old named entry-point
+ * flags (`initial`/`reviewEntry`/`fixEntry`) are gone from this shape
+ * entirely: the flattener resolves `entry.default` directly into
+ * `WorkflowDefinition.entries.default`, and a state's own `entry: true` flag
+ * (validated here, collected by the caller) seeds `entries.manual` instead —
+ * neither ever lands on the compiled `StateDef`.
  */
 const compileState = (
   name: string,
@@ -821,7 +867,7 @@ const compileState = (
     )
   }
 
-  return assembleStateDef({
+  const def = assembleStateDef({
     actor: compileActor(raw, name, errors),
     content: compileContent(raw, name, configDir, errors, inlineFileRefs),
     on: compileOn(raw.on, name, errors),
@@ -832,10 +878,19 @@ const compileState = (
     file: compileFile(raw, name, errors),
     mode: compileMode(raw, name, errors),
     reviewWindow: compileBooleanFlag(raw, "reviewWindow", name, errors),
-    reviewBase: compileBooleanFlag(raw, "reviewBase", name, errors),
+    reviewBase: compileBooleanOrTemplateFlag(raw, "reviewBase", name, errors),
     requireProgress: compileBooleanFlag(raw, "requireProgress", name, errors),
     answerGate: compileBooleanFlag(raw, "answerGate", name, errors),
   })
+
+  // `entry: true` is authoring-only — a per-state reachability-root flag the
+  // caller (`compileWorkflowConfig`) reads directly off the RAW state object
+  // to build `entries.manual`. Validated here (so a non-boolean value is
+  // still a compile-time finding) but its result is discarded: `entry` must
+  // never land on the compiled `StateDef`.
+  compileBooleanFlag(raw, "entry", name, errors)
+
+  return def
 }
 
 // ── Top-level compile ────────────────────────────────────────────────────────
@@ -855,16 +910,20 @@ const compileState = (
  * config-shape problem or `validateDefinition` finding — never partially
  * succeeds.
  *
- * Three error-sequencing rules, in order:
+ * Four error-sequencing rules, in order:
  *
  * 1. `detectLegacyShape` short-circuits first — a stale pre-`entry:`/`machines:`
  *    config throws with ONLY the migration findings, never mixed with
  *    downstream noise.
- * 2. Unassemblable throws early: `flattenMachines`'s `entries` coming back
+ * 2. `detectLegacyEntryKeys` short-circuits next — a stale top-level
+ *    `entry.review`/`entry.fix` key (the pre-`entry: true` named entry points)
+ *    throws with ONLY its own migration findings, before `flattenMachines`
+ *    (or anything else) has a chance to notice those same keys some other way.
+ * 3. Unassemblable throws early: `flattenMachines`'s `entries` coming back
  *    `undefined` (no `entry.default`, no `machines`, an unresolvable root)
  *    means there is no definition for `validateDefinition` to add findings to
  *    — throw immediately with whatever findings exist so far.
- * 3. Otherwise the flattener's findings and `validateDefinition`'s findings
+ * 4. Otherwise the flattener's findings and `validateDefinition`'s findings
  *    merge into one de-duplicated, thrown error.
  */
 export const compileWorkflowConfig = (
@@ -878,6 +937,7 @@ export const compileWorkflowConfig = (
   }
 
   detectLegacyShape(raw)
+  detectLegacyEntryKeys(raw)
 
   const errors: string[] = []
 
@@ -899,9 +959,17 @@ export const compileWorkflowConfig = (
   }
 
   const states: Record<string, StateDef> = {}
+  const manualSet = new Set<string>()
   for (const [name, s] of Object.entries(flattened.states)) {
     states[name] = compileState(name, s, configDir, errors, inlineFileRefs)
+    // A state's own `entry: true` (distinct from the top-level `entry:`
+    // machine-tree key of the same name) is authoring-only — `compileState`
+    // validates its shape but never carries it onto the `StateDef`. Collected
+    // here, off the RAW (pre-compile) qualified state value, into a sorted,
+    // deduped `entries.manual` — see `PatternMachine.WorkflowEntries`.
+    if (isPlainObject(s) && s["entry"] === true) manualSet.add(name)
   }
+  const manual = Array.from(manualSet).sort()
 
   // A definition can still be assembled (however messy) whenever the flattener
   // resolved `entries` — so run `validateDefinition` unconditionally and merge
@@ -910,10 +978,9 @@ export const compileWorkflowConfig = (
   // `validateDefinition` would otherwise have caught (e.g. a bad content kind
   // in an unrelated state). De-duplicate identical messages (both passes can
   // independently notice the same problem).
+  const entries = { default: flattened.entries.default, manual }
   const definition: WorkflowDefinition =
-    modes !== undefined
-      ? { states, entries: flattened.entries, modes }
-      : { states, entries: flattened.entries }
+    modes !== undefined ? { states, entries, modes } : { states, entries }
   const definitionErrors = validateDefinition(definition)
   const allErrors = Array.from(new Set([...errors, ...definitionErrors]))
   if (allErrors.length > 0) throw new Error(formatErrors(allErrors))

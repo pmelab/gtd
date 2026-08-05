@@ -177,9 +177,9 @@ const stateJsonSchema = {
         "When true, gtd opens a review checkout window while the machine rests here — HEAD/index are rewound to the review base so the whole base..HEAD diff surfaces as uncommitted changes in the editor. Forbidden on a commit state.",
     },
     reviewBase: {
-      type: "boolean",
+      oneOf: [{ const: true }, { type: "string" }],
       description:
-        "Marks the state whose most-recent in-process commit anchors the review window's diff base; absent any, the base is the process start. Forbidden on a commit state.",
+        "true marks the state whose most-recent in-process commit anchors the review window's diff base; absent any, the base is the process start. A string is a different shape: an Eta template rendering a commitish that becomes the WHOLE PROCESS's fixed diff base when this state is entered manually via `gtd --entry <state> --base <commitish>` (see the `entry` property below). Forbidden on a commit state.",
     },
     requireProgress: {
       type: "boolean",
@@ -190,6 +190,11 @@ const stateJsonSchema = {
       type: "boolean",
       description:
         "When true, a step at this state is refused unless every open question in its qa-mode `file:` is answered — exactly one checkbox ticked per question. Requires a `file:` and `mode: qa`. Forbidden on a commit state.",
+    },
+    entry: {
+      const: true,
+      description:
+        "Marks this state as an extra manual entry point (WorkflowEntries.manual), enterable via `gtd --entry <state>`. Not to be confused with the top-level `entry:` key naming the root machine (entry.default) — same name, different level, by design.",
     },
   },
 } as const
@@ -242,27 +247,17 @@ const machineJsonSchema = {
   },
 } as const
 
-/** The top-level `entry:` value — which machine is the root instance, and the review/fix entry points. */
+/** The top-level `entry:` value — which machine is the root instance. */
 const entryJsonSchema = {
   type: "object",
   description:
-    "The workflow's entry points, resolved through the same resolver an `on`/`retry.otherwise` target uses (see src/Machines.ts) — each accepts either a bare state path or an instance/reference-key path.",
+    "The workflow's root machine, resolved through the same resolver an `on`/`retry.otherwise` target uses (see src/Machines.ts) — accepts either a bare state path or an instance/reference-key path. Extra manual entry points are declared per-state instead, via a state's own `entry: true` (see `stateJsonSchema`'s `entry` property) — not here.",
   additionalProperties: false,
   required: ["default"],
   properties: {
     default: {
       type: "string",
       description: "Which declared `machines:` entry is the ROOT instance.",
-    },
-    review: {
-      type: "string",
-      description:
-        "Where `gtd review <commitish>` enters to start a brand new process reviewing <commitish>..HEAD.",
-    },
-    fix: {
-      type: "string",
-      description:
-        "Where `gtd fix` enters to start a brand new process that goes straight into repairing the current failing tests.",
     },
   },
 } as const

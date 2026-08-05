@@ -18,8 +18,9 @@ import {
   UNATTRIBUTED_MODEL,
   withCostTrailer,
   withRenderedOn,
-  withReviewBaseTrailer,
   parseReviewBaseTrailer,
+  withEntryTrailers,
+  parseEntryVarTrailers,
 } from "./Edge.js"
 import { withHistoryTrailer, parseHistoryTrailer } from "./RetainedHistory.js"
 import type { TemplateContext } from "./PatternTemplates.js"
@@ -76,7 +77,7 @@ const run = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromis
  */
 const def: WorkflowDefinition = {
   states: { idle: { actor: "human", message: "m" } },
-  entries: { default: "idle" },
+  entries: { default: "idle", manual: [] },
 }
 
 describe("computeProcessRun", () => {
@@ -89,6 +90,7 @@ describe("computeProcessRun", () => {
       diffBase: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
       trace: [],
       costEntries: [],
+      entryVars: {},
     })
   })
 
@@ -109,6 +111,7 @@ describe("computeProcessRun", () => {
       diffBase: "h0",
       trace: ["grilling", "building"],
       costEntries: [],
+      entryVars: {},
     })
   })
 
@@ -138,6 +141,7 @@ describe("computeProcessRun", () => {
       diffBase: "h0",
       trace: [],
       costEntries: [],
+      entryVars: {},
     })
   })
 
@@ -160,6 +164,7 @@ describe("computeProcessRun", () => {
       diffBase: "h2",
       trace: ["grilling", "building"],
       costEntries: [],
+      entryVars: {},
     })
   })
 
@@ -180,6 +185,7 @@ describe("computeProcessRun", () => {
       diffBase: "h2",
       trace: [],
       costEntries: [],
+      entryVars: {},
     })
   })
 
@@ -288,6 +294,58 @@ describe("computeProcessRun", () => {
     expect(result.diffBase).toBe("h0")
   })
 
+  it("collects `Gtd-Var:` entries off the process's OLDEST commit into `entryVars`", async () => {
+    const history = [
+      { hash: "h0", message: "feat: add calculator", removedErrors: false, touched: [] },
+      {
+        hash: "h1",
+        message: "gtd(human): reviewing\n\nGtd-Var: base=refs/heads/main\nGtd-Var: reviewer=alice",
+        removedErrors: false,
+        touched: [],
+      },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result.entryVars).toEqual({ base: "refs/heads/main", reviewer: "alice" })
+  })
+
+  it("a `Gtd-Var:` trailer on a LATER turn (not the process's oldest commit) never shows up in `entryVars`", async () => {
+    const history = [
+      { hash: "h0", message: "feat: add calculator", removedErrors: false, touched: [] },
+      { hash: "h1", message: "gtd(human): reviewing", removedErrors: false, touched: [] },
+      // A later turn happens to carry a trailer that LOOKS like the entry-var
+      // one — never mistaken for the process's own entry commit.
+      {
+        hash: "h2",
+        message: "gtd(human): await-review\n\nGtd-Var: sneaky=not-the-real-entry",
+        removedErrors: false,
+        touched: [],
+      },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result.entryVars).toEqual({})
+  })
+
+  it("with no `Gtd-Var:` trailer, `entryVars` defaults to `{}`", async () => {
+    const history = [
+      { hash: "h0", message: "chore: init", removedErrors: false, touched: [] },
+      { hash: "h1", message: "gtd(human): grilling", removedErrors: false, touched: [] },
+    ]
+    const git = stubGit({
+      hasCommits: () => Effect.succeed(true),
+      commitHistory: () => Effect.succeed(history),
+    })
+    const result = await run(computeProcessRun(git, def))
+    expect(result.entryVars).toEqual({})
+  })
+
   it("with no `Gtd-Review-Base:` trailer, `diffBase` defaults to `startParentHash` (the ordinary case)", async () => {
     const history = [
       { hash: "h0", message: "chore: init", removedErrors: false, touched: [] },
@@ -356,6 +414,7 @@ describe("executeDecision", () => {
           diffBase: "p",
           trace: ["grilling"],
           costEntries: [],
+          entryVars: {},
         },
         {
           kind: "commit",
@@ -383,6 +442,7 @@ describe("executeDecision", () => {
           diffBase: "p",
           trace: ["grilling"],
           costEntries: [],
+          entryVars: {},
         },
         {
           kind: "commit",
@@ -436,6 +496,7 @@ describe("executeDecision", () => {
           diffBase: "parent-hash",
           trace: ["squashing"],
           costEntries: [],
+          entryVars: {},
         },
         { kind: "squash", state: "done", template: "feat: <%= it.state %>" },
         context({ state: "done" }),
@@ -461,6 +522,7 @@ describe("executeDecision", () => {
           diffBase: "parent-hash",
           trace: [],
           costEntries: [],
+          entryVars: {},
         },
         { kind: "squash", state: "done", template: '<%~ it.read("missing.md") %>' },
         context(),
@@ -478,7 +540,14 @@ describe("executeDecision", () => {
     const outcome = await run(
       executeDecision(
         git,
-        { startHash: "s", startParentHash: "p", diffBase: "p", trace: [], costEntries: [] },
+        {
+          startHash: "s",
+          startParentHash: "p",
+          diffBase: "p",
+          trace: [],
+          costEntries: [],
+          entryVars: {},
+        },
         { kind: "noop", state: "idle" },
         context(),
       ),
@@ -538,14 +607,6 @@ describe("parseCostTrailers", () => {
   })
 })
 
-describe("withReviewBaseTrailer", () => {
-  it("appends a `Gtd-Review-Base:` trailer after a blank line, leaving the subject as the first line", () => {
-    const message = withReviewBaseTrailer("gtd(human): reviewing", "abc123")
-    expect(message).toBe("gtd(human): reviewing\n\nGtd-Review-Base: abc123")
-    expect(message.split("\n")[0]).toBe("gtd(human): reviewing")
-  })
-})
-
 describe("parseReviewBaseTrailer", () => {
   it("reads the hash back off a message carrying the trailer", () => {
     expect(parseReviewBaseTrailer("gtd(human): reviewing\n\nGtd-Review-Base: abc123")).toBe(
@@ -556,6 +617,58 @@ describe("parseReviewBaseTrailer", () => {
   it("is undefined when the message carries no such trailer", () => {
     expect(parseReviewBaseTrailer("gtd(human): reviewing")).toBeUndefined()
     expect(parseReviewBaseTrailer("chore: init\n\nGtd-Cost: 10")).toBeUndefined()
+  })
+})
+
+describe("withEntryTrailers / parseEntryVarTrailers", () => {
+  it("neither base nor vars leaves the subject unchanged, no trailing blank line", () => {
+    const message = withEntryTrailers("gtd(human): reviewing", { vars: {} })
+    expect(message).toBe("gtd(human): reviewing")
+  })
+
+  it("base only appends a `Gtd-Review-Base:` trailer after a blank line, leaving the subject as the first line", () => {
+    const message = withEntryTrailers("gtd(human): reviewing", { base: "abc123", vars: {} })
+    expect(message).toBe("gtd(human): reviewing\n\nGtd-Review-Base: abc123")
+    expect(message.split("\n")[0]).toBe("gtd(human): reviewing")
+    expect(parseReviewBaseTrailer(message)).toBe("abc123")
+  })
+
+  it("vars only appends one `Gtd-Var:` line per entry, in `Object.entries` order", () => {
+    const message = withEntryTrailers("gtd(human): reviewing", {
+      vars: { reviewer: "alice", base: "refs/heads/main" },
+    })
+    expect(message).toBe(
+      "gtd(human): reviewing\n\nGtd-Var: reviewer=alice\nGtd-Var: base=refs/heads/main",
+    )
+    expect(parseEntryVarTrailers(message)).toEqual({
+      reviewer: "alice",
+      base: "refs/heads/main",
+    })
+  })
+
+  it("base + vars together: the review-base line comes first, then the var lines", () => {
+    const message = withEntryTrailers("gtd(human): reviewing", {
+      base: "deadbeef",
+      vars: { reviewer: "alice" },
+    })
+    expect(message).toBe(
+      "gtd(human): reviewing\n\nGtd-Review-Base: deadbeef\nGtd-Var: reviewer=alice",
+    )
+    expect(parseReviewBaseTrailer(message)).toBe("deadbeef")
+    expect(parseEntryVarTrailers(message)).toEqual({ reviewer: "alice" })
+  })
+
+  it("a var value containing `=` round-trips (split on the FIRST `=` only)", () => {
+    const message = withEntryTrailers("gtd(human): reviewing", {
+      vars: { base: "refs/heads/a=b" },
+    })
+    expect(message).toBe("gtd(human): reviewing\n\nGtd-Var: base=refs/heads/a=b")
+    expect(parseEntryVarTrailers(message)).toEqual({ base: "refs/heads/a=b" })
+  })
+
+  it("parseEntryVarTrailers returns {} when the message carries no such lines", () => {
+    expect(parseEntryVarTrailers("gtd(human): reviewing")).toEqual({})
+    expect(parseEntryVarTrailers("chore: init\n\nGtd-Cost: 10")).toEqual({})
   })
 })
 
@@ -600,9 +713,9 @@ describe("totalCostOf / costByModel", () => {
   })
 })
 
-describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)", () => {
+describe("resolveVars — the four-layer `it.vars` merge (workflow < rc < entryVars < env)", () => {
   it("with only a workflow default, that default wins", () => {
-    expect(resolveVars({ testCommand: "npm test" }, {}, {})).toEqual({
+    expect(resolveVars({ testCommand: "npm test" }, {}, {}, {})).toEqual({
       testCommand: "npm test",
     })
   })
@@ -613,6 +726,7 @@ describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)"
         { testCommand: "npm test", reviewer: "alice" },
         { testCommand: "npm run check" },
         {},
+        {},
       ),
     ).toEqual({ testCommand: "npm run check", reviewer: "alice" })
   })
@@ -622,18 +736,19 @@ describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)"
       resolveVars(
         { testCommand: "npm test" },
         { testCommand: "npm run check" },
+        {},
         { GTD_TESTCOMMAND: "echo env-wins" },
       ),
     ).toEqual({ testCommand: "echo env-wins" })
   })
 
   it("ignores a `GTD_*` env var whose uppercased name matches no declared var", () => {
-    expect(resolveVars({}, {}, { GTD_BRANDNEW: "hello" })).toEqual({})
+    expect(resolveVars({}, {}, {}, { GTD_BRANDNEW: "hello" })).toEqual({})
   })
 
   it("matches only the fully-uppercased name — `GTD_TestCommand` (not all-caps) does not override", () => {
     expect(
-      resolveVars({ testCommand: "npm test" }, {}, { GTD_TestCommand: "not-uppercase" }),
+      resolveVars({ testCommand: "npm test" }, {}, {}, { GTD_TestCommand: "not-uppercase" }),
     ).toEqual({ testCommand: "npm test" })
   })
 
@@ -642,9 +757,38 @@ describe("resolveVars — the three-layer `it.vars` merge (workflow < rc < env)"
       resolveVars(
         { kept: "default", unset: "default" },
         {},
+        {},
         { PATH: "/usr/bin", GTD_KEPT: "yes", GTD_LOOP_LOG: "/tmp/log", GTD_UNSET: undefined },
       ),
     ).toEqual({ kept: "yes", unset: "default" })
+  })
+
+  it("entryVars overrides both the workflow default and the rc value for the same name", () => {
+    expect(
+      resolveVars(
+        { testCommand: "npm test", reviewer: "alice" },
+        { testCommand: "npm run check" },
+        { testCommand: "npm run entry-check" },
+        {},
+      ),
+    ).toEqual({ testCommand: "npm run entry-check", reviewer: "alice" })
+  })
+
+  it("entryVars introduces a name declared by neither workflow nor rc (a plain unconditional spread)", () => {
+    expect(resolveVars({}, {}, { base: "refs/heads/main" }, {})).toEqual({
+      base: "refs/heads/main",
+    })
+  })
+
+  it("env still beats entryVars — the topmost layer wins", () => {
+    expect(
+      resolveVars(
+        { testCommand: "npm test" },
+        {},
+        { testCommand: "npm run entry-check" },
+        { GTD_TESTCOMMAND: "echo env-wins" },
+      ),
+    ).toEqual({ testCommand: "echo env-wins" })
   })
 })
 
@@ -757,7 +901,7 @@ describe("withRenderedOn — patches only the resting state's `on` for `step`", 
       idle: { actor: "human", message: "m", on: [["A <%= it.vars.x %>", "idle"]] },
       other: { actor: "human", message: "m", on: [["A <%= it.vars.y %>", "other"]] },
     },
-    entries: { default: "idle" },
+    entries: { default: "idle", manual: [] },
   }
 
   it("replaces the named state's `on` with the given rendered edges", () => {
