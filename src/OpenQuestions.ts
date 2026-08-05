@@ -24,7 +24,10 @@
  * both read. Base VALIDATION stays loose (the checkbox convention is NOT
  * required — a plain prose body is still valid); the only reported error is the
  * empty-`###` one. An ANSWERED question is prose (the agent drops the checkboxes
- * when it resolves and moves it down), so it carries no options.
+ * when it resolves and moves it down), so it carries no options. Each option
+ * also carries an `endLine` spanning any wrapped continuation lines
+ * (`QuestionOption.endLine`) — for editor tooling only; it feeds no validation
+ * and no `answered` decision.
  *
  * A question is answered/accepted by MOVING its `###` block from
  * `## Open Questions` down into `## Answered Questions` — the agent does this on
@@ -63,7 +66,7 @@ export type OpenQuestionStatus = "open" | "answered"
  */
 export const FREE_TEXT_PLACEHOLDER = "_your answer_"
 
-/** One checkbox option under an OPEN question: its ticked state, its text (the free-text placeholder normalized to `""`), and its source line for editor tooling. */
+/** One checkbox option under an OPEN question: its ticked state, its text (the free-text placeholder normalized to `""`), and its source line span for editor tooling. */
 export interface QuestionOption {
   readonly checked: boolean
   /** Text after the `- [ ]`/`- [x]` marker, trimmed. The unfilled free-text placeholder (`FREE_TEXT_PLACEHOLDER`) normalizes to `""`. */
@@ -72,6 +75,8 @@ export interface QuestionOption {
   readonly freeText: boolean
   /** 0-based line index of this option's own `- [ ]`/`- [x]` line, for editor tooling. */
   readonly sourceLine: number
+  /** 0-based line index of the LAST line of this option's list item — equal to `sourceLine` for a single-line option, greater when the item's text wraps onto continuation lines. Editor tooling maps a cursor anywhere in `sourceLine..endLine` to this option. */
+  readonly endLine: number
 }
 
 export interface OpenQuestion {
@@ -169,14 +174,32 @@ const splitQuestionBlocks = (lines: readonly string[], start: number): readonly 
 const CHECKBOX_RE = /^\s*[-*]\s*\[([ xX])\]\s?(.*)$/
 
 /**
+ * The body index of the last line belonging to the list item that starts at
+ * `index`: the run of following lines that are neither blank nor a checkbox of
+ * their own (see the span rule in the module doc). Indentation is NOT
+ * required — an unindented lazy wrap is as much part of the item as an
+ * indented one.
+ */
+const itemEndIndex = (body: readonly string[], index: number): number => {
+  let end = index
+  for (let i = index + 1; i < body.length; i += 1) {
+    const line = body[i]!
+    if (line.trim().length === 0 || CHECKBOX_RE.test(line)) break
+    end = i
+  }
+  return end
+}
+
+/**
  * Extracts the checkbox options from a question block's body, in document
  * order. The LAST option is the free-text slot (`freeText: true`); its text is
  * normalized to `""` when it still carries the unfilled `FREE_TEXT_PLACEHOLDER`.
  * `bodyStart` is the absolute 0-based line index of `body[0]` (the line right
- * after the `###` heading), so each option carries its true source line.
+ * after the `###` heading), so each option carries its true source line and
+ * span (`itemEndIndex`).
  */
 const parseOptions = (body: readonly string[], bodyStart: number): QuestionOption[] => {
-  const raw: { checked: boolean; text: string; sourceLine: number }[] = []
+  const raw: { checked: boolean; text: string; sourceLine: number; bodyIndex: number }[] = []
   body.forEach((line, i) => {
     const match = CHECKBOX_RE.exec(line)
     if (!match) return
@@ -184,6 +207,7 @@ const parseOptions = (body: readonly string[], bodyStart: number): QuestionOptio
       checked: match[1] !== " ",
       text: match[2]!.trim(),
       sourceLine: bodyStart + i,
+      bodyIndex: i,
     })
   })
   const lastIndex = raw.length - 1
@@ -191,7 +215,13 @@ const parseOptions = (body: readonly string[], bodyStart: number): QuestionOptio
     const freeText = i === lastIndex
     const normalized =
       freeText && option.text.trim().toLowerCase() === FREE_TEXT_PLACEHOLDER ? "" : option.text
-    return { checked: option.checked, text: normalized, freeText, sourceLine: option.sourceLine }
+    return {
+      checked: option.checked,
+      text: normalized,
+      freeText,
+      sourceLine: option.sourceLine,
+      endLine: bodyStart + itemEndIndex(body, option.bodyIndex),
+    }
   })
 }
 

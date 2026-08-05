@@ -45,9 +45,10 @@ Feature: gtd --entry <state> — start a brand new process at a declared state
     And the last commit subject is "gtd(check): review-gate.check → review.reviewing"
     When I run gtd next
     Then it succeeds
-    And stdout contains "## Full diff under review"
-    And stdout contains "src/calc.ts"
-    And stdout contains "add = (a: number, b: number)"
+    # The reviewing prompt NAMES the fixed base rather than inlining its diff.
+    And stdout contains the hash of "base"
+    And stdout does not contain "## Full diff under review"
+    And stdout does not contain "diff --git"
 
   Scenario: the "--entry=<state>" equals-sign form works identically to the space-separated form
     Given I mark the current commit as "base"

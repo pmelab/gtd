@@ -14,8 +14,11 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
   hand-authored current state and asking the client to show its steering
   file (`window/showDocument`). A final scenario proves go-to-definition: a
   `textDocument/definition` on a `.gtd/REVIEW.md` hunk pointer line returns a
-  `Location` in the referenced file at its `#line` (basename fallback). Real
-  subprocess I/O (spawn + stdio JSON-RPC framing), so this runs @live.
+  `Location` in the referenced file at its `#line` (basename fallback). One
+  more scenario proves a `qa`-mode code action is offered from a wrapped
+  option's continuation line, not just its own `- [ ]` line (see
+  `QuestionOption.endLine` in src/OpenQuestions.ts). Real subprocess I/O
+  (spawn + stdio JSON-RPC framing), so this runs @live.
 
   Scenario: the initialize handshake succeeds and advertises symbol/code-action support
     Given a test project
@@ -140,3 +143,46 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       """
     Then the LSP response has no error
     And the LSP response result points to "src/calc.ts" at line 4
+
+  Scenario: a code action is offered on a wrapped option's continuation line, not just its checkbox line
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                file: ".gtd/PLAN.md"
+                mode: qa
+                prompt: "develop the plan"
+                on:
+                  "* **": idle
+      """
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests code actions at line 9 in ".gtd/PLAN.md" containing:
+      """
+      Build a calculator.
+
+      ## Open Questions
+
+      ### Which API?
+
+      - [ ] REST
+      - [ ] GraphQL
+      - [ ] _your answer_
+        a wrapped continuation of the free-text answer
+      """
+    Then the LSP response has no error
+    And the LSP response result contains a code action titled "gtd: pick this option"

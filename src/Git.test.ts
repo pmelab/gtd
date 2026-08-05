@@ -187,80 +187,44 @@ for (const [tierName, makeTier] of tiers) {
     })
 
     // -----------------------------------------------------------------------
-    describe("commitDiff", () => {
-      it("returns the diff a commit introduced for a modified tracked file", async () => {
-        t.commit("feat: add target", { "target.txt": "original content" })
-        t.commit("feat: modify target", { "target.txt": "modified content" })
-        const hash = t.resolveRef("HEAD")
-
-        const diff = await t.run(Effect.flatMap(GitService, (g) => g.commitDiff(hash)))
-
-        expect(diff).toContain("target.txt")
-        expect(diff).toContain("-original content")
-        expect(diff).toContain("+modified content")
-      })
-
-      it("renders the whole tree as additions for a root commit", async () => {
-        // The tier's global beforeEach already created a root commit (readme.txt: "hello")
-        const rootHash = t.resolveRef("HEAD")
-
-        const diff = await t.run(Effect.flatMap(GitService, (g) => g.commitDiff(rootHash)))
-
-        expect(diff).toContain("readme.txt")
-        expect(diff).toContain("new file mode")
-        expect(diff).toContain("+hello")
-      })
-
-      it("returns an empty string for an empty commit", async () => {
-        if (tierName === "Live") {
-          gitExec("commit", "--allow-empty", `-m "chore: empty commit"`)
-        } else {
-          // InMemory equivalent of --allow-empty: commit with no worktree changes
-          t.stageAndCommit("chore: empty commit")
-        }
-        const hash = t.resolveRef("HEAD")
-
-        const diff = await t.run(Effect.flatMap(GitService, (g) => g.commitDiff(hash)))
-
-        expect(diff).toBe("")
-      })
-
-      it("excludes matching paths, keeping other files' hunks", async () => {
-        t.writeFileDeep("TODO.md", "todo content")
-        t.writeFileDeep("src/a.ts", "export const a = 1")
-        t.stageAndCommit("feat: touch two files")
-        const hash = t.resolveRef("HEAD")
-
-        const diff = await t.run(Effect.flatMap(GitService, (g) => g.commitDiff(hash, ["TODO.md"])))
-
-        expect(diff).not.toContain("TODO.md")
-        expect(diff).toContain("src/a.ts")
-        expect(diff).toContain("+export const a = 1")
-      })
-
-      it("fails for an unresolvable hash", async () => {
-        const result = await t.runEither(
-          Effect.flatMap(GitService, (g) => g.commitDiff("totally-invalid-hash-xyz")),
-        )
-        expect(result._tag).toBe("Left")
-      })
-    })
-
-    // -----------------------------------------------------------------------
-    describe("diffRef", () => {
-      it("returns diff between ref and HEAD after a change", async () => {
+    describe("changedPathsSince", () => {
+      it("returns the paths changed since ref, with their status, excluding paths before it", async () => {
         t.commit("feat: second commit", { "foo.txt": "foo content" })
         t.commit("feat: third commit", { "bar.txt": "bar content" })
 
-        const diff = await t.run(Effect.flatMap(GitService, (g) => g.diffRef("HEAD~1")))
+        const changed = await t.run(
+          Effect.flatMap(GitService, (g) => g.changedPathsSince("HEAD~1")),
+        )
 
-        expect(diff).toContain("bar.txt")
-        expect(diff).not.toContain("foo.txt")
+        expect(changed).toEqual([{ path: "bar.txt", status: "A" }])
       })
 
-      it("returns empty string when ref equals HEAD", async () => {
-        const diff = await t.run(Effect.flatMap(GitService, (g) => g.diffRef("HEAD")))
-        expect(diff.trim()).toBe("")
+      it("reports an added, a modified, and a deleted path across the range", async () => {
+        t.commit("chore: add other.txt", { "other.txt": "will be removed" })
+        const base = t.resolveRef("HEAD")
+        t.commit("feat: modify readme, add new.txt", { "readme.txt": "changed", "new.txt": "new" })
+        t.deleteFile("other.txt")
+        t.stageAndCommit("chore: remove other.txt")
+
+        const changed = await t.run(Effect.flatMap(GitService, (g) => g.changedPathsSince(base)))
+
+        expect([...changed].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+          { path: "new.txt", status: "A" },
+          { path: "other.txt", status: "D" },
+          { path: "readme.txt", status: "M" },
+        ])
+      })
+
+      it("returns [] when ref equals HEAD", async () => {
+        const changed = await t.run(Effect.flatMap(GitService, (g) => g.changedPathsSince("HEAD")))
+        expect(changed).toEqual([])
+      })
+
+      it("fails for an unreachable ref", async () => {
+        const result = await t.runEither(
+          Effect.flatMap(GitService, (g) => g.changedPathsSince("totally-invalid-ref-xyz")),
+        )
+        expect(result._tag).toBe("Left")
       })
     })
 

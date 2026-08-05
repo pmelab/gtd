@@ -311,6 +311,91 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And the log file contains "AGENT MEMORY=fix RESUME=1"
     And stdout contains "[you]  idle"
 
+  Scenario: Recovers when the remembered session has vanished instead of stalling the loop
+    # Same "fix" scope re-entering twice as the scenario above, except the stub
+    # simulates the remembered session having vanished: on the SECOND "fixing"
+    # entry (GTD_LOOP_MEMORY_RESUME=1, the doomed resume) it prints claude's
+    # exact missing-session message and exits 1 instead of doing real work.
+    # run_agent_turn must recognise that as recoverable — warn, mint a fresh
+    # session, retry with RESUME=0 — rather than stopping the loop, so the run
+    # still reaches its human gate at "idle".
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                memory: work
+                prompt: "Create src/fix.ts for the initial build."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: |
+                  set +e
+                  mkdir -p .gtd
+                  c=".git/testcount"
+                  n=$(cat "$c" 2>/dev/null || echo 0)
+                  n=$((n + 1))
+                  echo "$n" > "$c"
+                  if [ "$n" -lt 3 ]; then echo "fail $n" > .gtd/FEEDBACK.md; else rm -f .gtd/FEEDBACK.md; fi
+                on:
+                  "A .gtd/FEEDBACK.md": fixing
+                  "M .gtd/FEEDBACK.md": fixing
+                  "D .gtd/FEEDBACK.md": done
+                  "C": done
+              fixing:
+                actor: agent
+                memory: fix
+                prompt: "Fix the failing check."
+                on:
+                  "* **": checking
+              done:
+                commit: "chore: fixed"
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      echo "AGENT MEMORY=${GTD_LOOP_MEMORY} RESUME=${GTD_LOOP_MEMORY_RESUME}"
+      if [ "${GTD_LOOP_MEMORY_RESUME}" = "1" ]; then
+        echo "No conversation found with session ID: ${GTD_LOOP_SESSION_ID}" >&2
+        exit 1
+      fi
+      case "$GTD_LOOP_PROMPT" in
+        *"initial build"*)
+          mkdir -p src
+          echo 'export const x = 1' > src/fix.ts
+          ;;
+        *"Fix the failing"*)
+          echo "// touched at ${GTD_LOOP_MEMORY}" >> src/fix.ts
+          ;;
+        *)
+          echo "gtd-loop test stub: unrecognized prompt" >&2
+          exit 1
+          ;;
+      esac
+      """
+    When I run bare gtd
+    Then it succeeds
+    And the log file contains "AGENT MEMORY=fix RESUME=1"
+    And the log file contains "AGENT MEMORY=fix RESUME=0" 2 times
+    And stderr contains "is gone — continuing in a fresh session"
+    And stdout contains "[you]  idle"
+
   Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed
     # `planning` declares file:/mode: (.gtd/PLAN.md as `qa`), so its output has
     # a checkable format. The stub writes a MALFORMED plan first (a bare `###`
@@ -377,6 +462,64 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And the log file contains "AGENT: fixing the plan"
     And stdout contains "[fix] attempt 1"
     And the git log contains "chore: planned"
+
+  Scenario: Does not print validate findings on a fix attempt, only logs them
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": planning
+              planning:
+                actor: agent
+                file: .gtd/PLAN.md
+                mode: qa
+                prompt: "Write .gtd/PLAN.md with the plan."
+                on:
+                  "* **": done
+              done:
+                commit: "chore: planned"
+      """
+    And a commit "gtd(agent): planning" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      mkdir -p .gtd
+      case "$GTD_LOOP_PROMPT" in
+        *"does not pass"*)
+          cat > .gtd/PLAN.md <<'PLAN'
+      Plan: build the calculator. No open questions.
+      PLAN
+          ;;
+        *)
+          cat > .gtd/PLAN.md <<'PLAN'
+      Plan: build the calculator.
+
+      ## Open Questions
+
+      ###
+
+      Forgot to write the question.
+      PLAN
+          ;;
+      esac
+      """
+    When I run bare gtd
+    Then it succeeds
+    And stdout contains "[fix] attempt 1"
+    And stderr does not contain "has no question text"
+    And the log file contains "has no question text"
 
   Scenario: Renders a transition line and a bare self-loop capture line, logging what gtd step committed
     # `working -> checking` differs (a real transition), while `checking`'s own
@@ -575,6 +718,36 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     And stdout does not contain "CHECK: verifying the tree"
     And the log file contains "CHECK: verifying the tree"
 
+  Scenario: Surfaces a check script's failure output but still decides the outcome from the tree
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: checking
+            states:
+              checking:
+                actor: check
+                script: |
+                  echo "CHECK BOOM" >&2
+                  mkdir -p .gtd
+                  echo x > .gtd/FEEDBACK.md
+                  exit 1
+                on:
+                  "A .gtd/FEEDBACK.md": reviewing
+              reviewing:
+                actor: human
+                message: "sign off"
+      """
+    When I run bare gtd
+    Then it succeeds
+    And stderr contains "CHECK BOOM"
+    And stderr contains "exited 1 — continuing"
+    And stdout contains "checking → reviewing"
+
   Scenario: Renders plain ASCII markers with no ANSI escape codes under NO_COLOR
     Given a test project
     And a gtd config file at ".gtdrc" with:
@@ -672,6 +845,126 @@ Feature: gtd loop — the packaged reference loop driver (v3)
     When I run bare gtd
     Then it fails
     And stderr contains "no progress at 'working'"
+    And stderr contains "see .git/gtd-loop.log"
+
+  Scenario: Prints the agent CLI's own failure output instead of exiting silently
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "true"
+                on:
+                  "A .gtd/FEEDBACK.md": working
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      echo "BOOM: agent exploded" >&2
+      exit 3
+      """
+    When I run bare gtd
+    Then it fails
+    And stderr contains "the agent turn at 'working' failed (exit 3)"
+    And stderr contains "BOOM: agent exploded"
+    And stderr contains "see .git/gtd-loop.log"
+
+  Scenario: Caps a failing turn's replayed output at 20 lines and points at the log
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Build the package described below: write src/calc.ts exporting add(a, b)."
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "true"
+                on:
+                  "A .gtd/FEEDBACK.md": working
+      """
+    And a commit "gtd(agent): working" that adds "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And a stub agent script that responds to prompts with:
+      """
+      for i in $(seq 1 30); do printf "line %03d\n" "$i"; done
+      exit 1
+      """
+    When I run bare gtd
+    Then it fails
+    And stderr contains "line 030"
+    And stderr contains "(10 earlier lines in"
+    And stderr does not contain "line 001"
+    And the log file contains "line 001"
+
+  Scenario: Reports a mid-run failure to resolve the next step with the error marker and the log pointer
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: watching
+            states:
+              watching:
+                actor: check
+                script: "true"
+                on:
+                  "C": working
+              working:
+                actor: agent
+                prompt: "<%~ it.vars.missing.deep %>"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
+      """
+    And a commit "gtd(check): watching" that adds "NOTE.md" with:
+      """
+      note
+      """
+    When I run bare gtd
+    Then it fails
+    And stderr contains "[err]"
+    And stderr contains "could not determine the next step"
+    And stderr contains "Cannot read properties of undefined"
     And stderr contains "see .git/gtd-loop.log"
 
   Scenario: Stops instead of stepping when a steering file still fails gtd validate after 3 fix attempts

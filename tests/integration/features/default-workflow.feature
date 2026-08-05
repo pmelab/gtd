@@ -213,10 +213,10 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And ".gtd/COMMIT_MSG.md" does not exist
     And "src/thing.ts" exists
 
-  Scenario: a feedback round's reviewing covers only the changes since the last review (incremental it.reviewDiff)
-    # reviewBase: true on review.deciding anchors it.reviewDiff: a re-review sees
-    # only what changed AFTER the previous review round, not the whole cycle.
-    # fileA landed before the review-deciding boundary; fileB after it.
+  Scenario: a feedback round's reviewing base is anchored at the last review round (incremental it.reviewBase)
+    # reviewBase: true on review.deciding anchors it.reviewBase: a re-review's
+    # range starts only from the previous review round's boundary, not the
+    # whole cycle. fileA landed before that boundary; fileB after it.
     Given a test project
     And the workflow
     And a commit "gtd(agent): review.reviewing" that adds "fileA.ts" with:
@@ -236,9 +236,10 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       Feedback:
       - [ ] ./fileA.ts#1 — also add B
       """
+    And I mark the current commit as "review-round-1"
     And a commit "gtd(check): review.building" that adds ".gtd/marker.md" with:
       """
-      entering feedback-building
+      entering review.building
       """
     And a commit "gtd(agent): build.check" that adds "fileB.ts" with:
       """
@@ -250,11 +251,9 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd next
     Then it succeeds
-    # The reviewing prompt inlines it.reviewDiff — the post-feedback change
-    # (fileB) but NOT the already-reviewed fileA from before the review.deciding
-    # boundary.
-    And stdout contains "fileB.ts"
-    And stdout does not contain "fileA.ts"
+    # The reviewing prompt names it.reviewBase — the previous review round's
+    # boundary — not fileA/fileB directly; no diff content is ever inlined.
+    And stdout contains the hash of "review-round-1"
 
   Scenario: a green check run that also cleans up leftover feedback moves on to reviewing with no residue (D .gtd/FEEDBACK.md)
     Given a test project

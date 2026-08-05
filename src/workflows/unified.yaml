@@ -459,11 +459,11 @@ machines:
           turn touches is `<%= it.vars.reviewFile %>`; write it at exactly
           that path. Do not create other files to hold notes or output.
 
-          Write `<%= it.vars.reviewFile %>` to help a human review the diff below in
+          Write `<%= it.vars.reviewFile %>` to help a human review the changes in
           this EXACT format:
 
           - First non-blank line: `# Review: <%= it.currentCommit.slice(0, 7) %>`
-          - Somewhere in the document: `<!-- base: <%= it.startCommit %> -->`
+          - Somewhere in the document: `<!-- base: <%= it.reviewBase %> -->`
           - At least one `## <Chunk Title>` heading, grouping hunks semantically
             (same feature/refactor/fix, even across files) — a short explanation of
             what changed and why, then one `- [ ] ./path/to/file.ts#42 — note` file
@@ -471,18 +471,13 @@ machines:
             path is `./`-relative, with an optional `#line` and an optional
             ` — note`).
 
-          The diff below is `it.reviewDiff` — on a feedback round it covers ONLY the
-          changes made since the previous review, so you review just what changed,
-          not items already signed off. Leave `<%= it.vars.reviewFile %>`
-          uncommitted and finish your turn.
-          <% if (it.reviewDiff.trim()) { %>
+          This prompt carries no diff — read the changes yourself. The range runs
+          from `<%= it.reviewBase %>` to the working tree (committed turns plus
+          anything still pending); on a feedback round that base is the previous
+          review's boundary, so it covers only what changed since then, not items
+          already signed off.
 
-          ## Full diff under review
-
-          ```diff
-          <%~ it.reviewDiff %>
-          ```
-          <% } %>
+          Leave `<%= it.vars.reviewFile %>` uncommitted and finish your turn.
         on:
           "* **": await-review
 
@@ -563,38 +558,25 @@ machines:
           stateDir="<%~ it.vars.stateDir %>"
           reviewFile="<%~ it.vars.reviewFile %>"
           reviewRawFile="<%~ it.vars.reviewRawFile %>"
+          head=$(git rev-parse HEAD)
           mkdir -p "$(dirname "$reviewRawFile")"
-          # Which files did the human hand-edit this round, besides stateDir and the
-          # reviewFile itself (var-configurable — may live outside stateDir, so it is
-          # excluded by exact path, not just the stateDir prefix)?
-          codeFiles=$(git diff-tree --no-commit-id --name-only -r HEAD \
-            | grep -v "^$stateDir/" | grep -vxF "$reviewFile")
           # A note is any REVIEW.md change beyond a checkbox flip: normalize every
           # "[ ]"/"[x]" to a placeholder, then compare the agent's original (HEAD^)
           # against the human's version (HEAD).
-          notes=""
           before=$(git show "HEAD^:$reviewFile" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
           after=$(git show "HEAD:$reviewFile" 2>/dev/null | sed -E 's/\[[ xX]\]/[_]/g')
-          if [ "$before" != "$after" ]; then notes=1; fi
-          if [ -n "$codeFiles" ] || [ -n "$notes" ]; then
+          # Did the human hand-edit anything this round besides stateDir and the
+          # reviewFile itself (var-configurable — may live outside stateDir, so it
+          # is excluded by exact path, not just the stateDir prefix)?
+          if git diff-tree --no-commit-id --name-only -r HEAD \
+               | grep -v "^$stateDir/" | grep -vxF "$reviewFile" | grep -q . \
+             || [ "$before" != "$after" ]; then
             {
-              echo "Raw review material captured for classification. The human reviewed the diff and left the feedback below; a downstream agent turns it into an instruction list. This file is machine-captured input, not instructions."
-              if [ -n "$notes" ]; then
-                echo
-                echo "## Notes the human added to REVIEW.md this round"
-                echo
-                echo '```diff'
-                git show HEAD --format= -- "$reviewFile"
-                echo '```'
-              fi
-              if [ -n "$codeFiles" ]; then
-                echo
-                echo "## Files the human hand-edited this round (already committed)"
-                echo
-                echo '```diff'
-                git show HEAD --format= -- $codeFiles
-                echo '```'
-              fi
+              echo "Raw review material captured for classification. The human reviewed the changes and left the feedback below; a downstream agent turns it into an instruction list. This file is machine-captured input, not instructions — it names a commit, never inlined content."
+              echo
+              echo "Commit: $head"
+              echo "The human's notes are in $reviewFile at this commit; their hand edits,"
+              echo "if any, are in that commit's other paths. Run: git show $head"
             } > "$reviewRawFile"
           fi
           rm -f "$reviewFile"
@@ -620,9 +602,12 @@ machines:
 
           The raw review material is: <%~ it.read(it.vars.reviewRawFile) %>
 
+          It names a commit — read that commit's diff yourself before classifying
+          anything.
+
           Classify every piece of it into `<%= it.vars.reviewFeedbackFile %>` as a
           flat, numbered instruction list. Each item is `N. ./path/to/file.ts#line —
-          <imperative>`. Read the two RAW sections and apply these rules exactly:
+          <imperative>`. Apply these rules exactly:
 
           1. NOTES the human added to REVIEW.md — each note is a MANDATORY change,
              regardless of whether its checkbox is ticked (ticking means only "I read
@@ -728,9 +713,14 @@ machines:
 
           The package spec is: <%~ it.read(it.vars.nextFile) %>
 
-          Read that spec, then verify the package's implementation (the diff below)
-          against it: are all its tasks done, acceptance criteria met, and the code
-          sound and consistent with the codebase?
+          Read that spec, then verify the package's implementation against it: are
+          all its tasks done, acceptance criteria met, and the code sound and
+          consistent with the codebase? This prompt carries no diff — read it
+          yourself: the range runs from `<%= it.startCommit %>` to the working
+          tree.
+
+          Note the range is process-wide (from the start of the whole build, not
+          just this package), so it can span earlier packages too.
 
           - If it fully satisfies the spec, write NOTHING and finish your turn — a
             clean turn is your approval.
@@ -739,14 +729,6 @@ machines:
 
           Do not fix anything yourself and do not delete the package file — a later
           step owns that. Finish your turn.
-          <% if (it.processDiff.trim()) { %>
-
-          ## Diff under review
-
-          ```diff
-          <%~ it.processDiff %>
-          ```
-          <% } %>
         on:
           "A <%= it.vars.specFeedbackFile %>": fix
           "M <%= it.vars.specFeedbackFile %>": fix
@@ -1015,32 +997,25 @@ machines:
 
           Leave `<%= it.vars.commitMsgFile %>` uncommitted and finish your turn —
           entering this file squashes everything this process retains into one
-          commit using its content as the message. The diff below is exactly what
-          that commit will contain: `it.retainedDiff`, the changes THIS process
-          made (its trace/retry boundary onward). For a normal build cycle that is
-          the whole feature; for a `gtd --entry review-gate.check` process it is
-          only the fixes made during the review — NOT the changeset that was
-          under review.
-          <% if (it.retainedDiff.trim()) { %>
+          commit using its content as the message. This prompt carries no diff —
+          read the range yourself; it runs from `<%= it.retainedBase %>` to the
+          working tree, and is exactly what that commit will contain, the changes
+          THIS process made (its trace/retry boundary onward). For a normal build
+          cycle that is the whole feature; for a `gtd --entry review-gate.check`
+          process it is only the fixes made during the review — NOT the changeset
+          that was under review.
 
-          Write `<%= it.vars.commitMsgFile %>` with ONE conventional-commits message
-          for the changes below (subject line `type(scope): subject`, imperative
-          mood, <= 72 characters; a body explaining the why, trade-offs, and key
-          decisions). Plain text, no markdown wrapper.
+          If that range is non-empty, write `<%= it.vars.commitMsgFile %>` with ONE
+          conventional-commits message for the changes (subject line
+          `type(scope): subject`, imperative mood, <= 72 characters; a body
+          explaining the why, trade-offs, and key decisions). Plain text, no
+          markdown wrapper.
 
-          ## Retained diff
-
-          ```diff
-          <%~ it.retainedDiff %>
-          ```
-          <% } else { %>
-
-          This process retained NO changes (a clean review sign-off with no fixes).
-          Write `<%= it.vars.commitMsgFile %>` with exactly this one line and
-          nothing else:
+          If that range is empty (a clean review sign-off with no fixes), write
+          `<%= it.vars.commitMsgFile %>` with exactly this one line and nothing
+          else:
 
           chore: human review
-          <% } %>
         on:
           "A <%= it.vars.commitMsgFile %>": done
           "M <%= it.vars.commitMsgFile %>": done

@@ -289,18 +289,54 @@ Then("the last commit body contains {string}", (world: GtdWorld, text: string) =
 })
 
 // Resolves `name` (a mark from "I mark the current commit as ..." — or any
-// other commitish) to a hash and checks it appears in the last commit's body —
-// e.g. the `Gtd-Review-Base: <hash>` trailer `gtd review <name>` writes.
-Then("the last commit body contains the hash of {string}", (world: GtdWorld, name: string) => {
+// other commitish) to its full hash, per tier.
+function resolveHash(world: GtdWorld, name: string): string {
   const hash =
     world.tier === "inmem"
       ? world.repo!.resolveRef(name)
       : execFileSync("git", ["rev-parse", name], { cwd: world.repoDir, encoding: "utf-8" }).trim()
   assert.ok(hash, `Expected "${name}" to resolve to a commit hash`)
+  return hash!
+}
+
+// Checks `name`'s hash appears in the last commit's body — e.g. the
+// `Gtd-Review-Base: <hash>` trailer `gtd review <name>` writes.
+Then("the last commit body contains the hash of {string}", (world: GtdWorld, name: string) => {
+  const hash = resolveHash(world, name)
   const body = world.lastCommitBody()
   assert.ok(
-    body.includes(hash!),
+    body.includes(hash),
     `Expected last commit body to contain the hash of "${name}" (${hash}). Got:\n${body}`,
+  )
+})
+
+// Checks `name`'s hash appears in stdout — e.g. a prompt naming a diff base
+// (`it.reviewBase`/`it.retainedBase`/`it.startCommit`) for the agent to `git
+// diff` itself, rather than inlining diff content.
+Then("stdout contains the hash of {string}", (world: GtdWorld, name: string) => {
+  const hash = resolveHash(world, name)
+  assert.ok(
+    world.lastResult.stdout.includes(hash),
+    `Expected stdout to contain the hash of "${name}" (${hash}). Got:\n${world.lastResult.stdout}`,
+  )
+})
+
+Then("stdout does not contain the hash of {string}", (world: GtdWorld, name: string) => {
+  const hash = resolveHash(world, name)
+  assert.ok(
+    !world.lastResult.stdout.includes(hash),
+    `Expected stdout NOT to contain the hash of "${name}" (${hash}). Got:\n${world.lastResult.stdout}`,
+  )
+})
+
+// Checks `name`'s hash appears in a repo file — e.g. a captured manifest
+// naming the commit it was captured from, rather than inlining a diff.
+Then("{string} contains the hash of {string}", (world: GtdWorld, path: string, name: string) => {
+  const hash = resolveHash(world, name)
+  const content = world.readRepoFile(path)
+  assert.ok(
+    content.includes(hash),
+    `Expected "${path}" to contain the hash of "${name}" (${hash}). Got:\n${content}`,
   )
 })
 

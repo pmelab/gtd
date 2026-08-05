@@ -114,8 +114,8 @@ export const parseCostTrailers = (messages: readonly string[]): CostEntry[] => {
 // carrying that commitish's full hash as a `Gtd-Review-Base:` trailer.
 // `computeProcessRun` reads that
 // trailer back off the process's own first (oldest) commit to override the
-// run's DIFF base (`ProcessRun.diffBase`) — everything downstream that
-// renders a diff (`it.processDiff`, the review checkout window's default
+// run's DIFF base (`ProcessRun.diffBase`) — everything downstream keyed to
+// the diff base (`it.startCommit`, the review checkout window's default
 // base) keys off that one value, so re-pointing it makes the whole existing
 // review flow (reviewing → await-review → feedback laps) operate over
 // `<commitish>..HEAD` with no duplicated logic. The process's TRACE/retry
@@ -267,13 +267,13 @@ export interface ProcessRun {
   /** The parent of the run's first commit — `EMPTY_TREE` when the run covers the whole history. The squash reset target — this is the process's TRACE/retry boundary, never overridden by a `Gtd-Review-Base:` trailer (see `diffBase`). */
   readonly startParentHash: string
   /**
-   * The base a rendered process diff (`it.processDiff`) or the review
-   * checkout window's default base compares against: normally identical to
-   * `startParentHash`, but overridden to a `Gtd-Review-Base: <hash>`
-   * trailer's hash when the process's FIRST (oldest) commit carries one (see
+   * The base `it.startCommit` renders, and the review checkout window's
+   * default base compares against: normally identical to `startParentHash`,
+   * but overridden to a `Gtd-Review-Base: <hash>` trailer's hash when the
+   * process's FIRST (oldest) commit carries one (see
    * `withEntryTrailers`/`parseReviewBaseTrailer` — written by
    * `gtd review <commitish>`, `src/program.ts`). The trace/retry boundary
-   * itself is untouched by this; only which commit a diff/window compares
+   * itself is untouched by this; only which commit a template/window compares
    * against moves.
    */
   readonly diffBase: string
@@ -459,28 +459,10 @@ export const withRenderedOn = (
  * `--cost`/`--model` (folded into the process's committed cost entries so a
  * `commit:` squash template sees the whole-process total AND per-model
  * breakdown including the squashing step) — `0`/absent for the pure emitters
- * (`gtd next`/`gtd status`), where no step is being performed.
+ * (`gtd next`/`gtd status`), where no step is being performed. No diff is ever
+ * computed here — `it.reviewBase`/`it.retainedBase` are bases a template tells
+ * the agent to `git diff` itself.
  */
-/** Join a committed diff and the pending working-tree diff, dropping empties. */
-const joinDiffs = (committed: string, pending: string): string =>
-  [committed, pending].filter((d) => d.trim().length > 0).join("\n\n")
-
-/**
- * The committed half of `it.reviewDiff`: the diff from `reviewDiffBase` (the
- * previous review round's boundary) when it is a distinct base, else the
- * already-computed process-wide `committedDiff` (first review — reviewDiff
- * collapses to processDiff).
- */
-const committedReviewDiffOf = (
-  git: GitOperations,
-  processDiffBase: string,
-  reviewDiffBase: string | undefined,
-  committedDiff: string,
-): Effect.Effect<string, never> =>
-  reviewDiffBase !== undefined && reviewDiffBase !== processDiffBase
-    ? git.diffRef(reviewDiffBase).pipe(Effect.catchAll(() => Effect.succeed("")))
-    : Effect.succeed(committedDiff)
-
 export const buildTemplateContext = (
   git: GitOperations,
   read: (path: string) => string,
@@ -491,7 +473,7 @@ export const buildTemplateContext = (
   edges: readonly OnEdge[] | undefined,
   currentCost = 0,
   currentModel?: string,
-  reviewDiffBase?: string,
+  reviewBase?: string,
 ): Effect.Effect<TemplateContext, Error> =>
   Effect.gen(function* () {
     const hasCommits = yield* git.hasCommits()
@@ -501,36 +483,6 @@ export const buildTemplateContext = (
           .resolveRef("HEAD~1")
           .pipe(Effect.catchAll(() => Effect.succeed(run.startParentHash)))
       : ""
-    const committedDiff = yield* git
-      .diffRef(run.diffBase)
-      .pipe(Effect.catchAll(() => Effect.succeed("")))
-    const pendingDiff = yield* git.diffHead().pipe(Effect.catchAll(() => Effect.succeed("")))
-    const processDiff = joinDiffs(committedDiff, pendingDiff)
-    // `reviewDiff` narrows the review to changes since the previous review
-    // round: `reviewDiffBase` is the most-recent in-process `reviewBase` commit
-    // (the caller resolves it via `reviewBaseHash`), or `undefined`/the process
-    // start on the first review — where it collapses back to `processDiff`.
-    const committedReviewDiff = yield* committedReviewDiffOf(
-      git,
-      run.diffBase,
-      reviewDiffBase,
-      committedDiff,
-    )
-    const reviewDiff = joinDiffs(committedReviewDiff, pendingDiff)
-    // `retainedDiff` is based at the process's trace/retry boundary
-    // (`startParentHash`) — what a squash actually keeps — NOT `diffBase`,
-    // which a `Gtd-Review-Base:` trailer can push back past the review's own
-    // start. They coincide for a normal cycle (`committedDiff` already covers
-    // it); only a `gtd review` process needs the narrower re-diff.
-    const committedRetainedDiff =
-      run.diffBase === run.startParentHash
-        ? committedDiff
-        : yield* git.diffRef(run.startParentHash).pipe(Effect.catchAll(() => Effect.succeed("")))
-    const retainedDiff = joinDiffs(committedRetainedDiff, pendingDiff)
-    const lastDiff =
-      run.trace.length > 0
-        ? yield* git.commitDiff(currentCommit).pipe(Effect.catchAll(() => Effect.succeed("")))
-        : ""
     // Fold the in-flight step's own cost into the committed entries so a squash
     // template (rendered against the pending tree) counts the squashing step too.
     const stepEntry =
@@ -544,16 +496,31 @@ export const buildTemplateContext = (
       previousCommit,
       state,
       actor,
-      processDiff,
-      reviewDiff,
-      retainedDiff,
-      lastDiff,
+      reviewBase: reviewBase ?? run.diffBase,
+      retainedBase: run.startParentHash,
       processCost: totalCostOf(allCostEntries),
       processCostByModel: costByModel(allCostEntries),
       read,
       vars,
       edges: toTemplateEdges(edges),
     }
+  })
+
+/**
+ * True when this process would retain NOTHING: nothing pending and no net
+ * change between its trace/retry boundary and HEAD. Replaces the old
+ * `it.retainedDiff.trim() === ""` probe in program.ts — paths only, no
+ * content rendering.
+ */
+export const retainsNothing = (
+  git: GitOperations,
+  run: ProcessRun,
+  changes: readonly PendingChange[],
+): Effect.Effect<boolean, Error> =>
+  Effect.gen(function* () {
+    if (changes.length > 0) return false
+    const touched = yield* git.changedPathsSince(run.startParentHash)
+    return touched.length === 0
   })
 
 // ── Rendering the resolved rest's content ────────────────────────────────────

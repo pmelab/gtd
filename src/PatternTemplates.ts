@@ -6,11 +6,12 @@ import { Eta } from "eta"
  * `./PatternConfig.js`) as an Eta template over the agreed variable set.
  *
  * PURE-ISH BY DESIGN: this module owns only the Eta wiring. Every impure
- * value — the commit hashes, the diffs, and the `read` filesystem callback —
- * is INJECTED by the caller via `TemplateContext`. A later edge phase (Phase
- * 3) is responsible for actually computing `processDiff`/`lastDiff`, walking
- * git for the hashes, and wiring a real `read` that hits the working tree;
- * this module never touches git or the filesystem itself.
+ * value — the commit hashes, the diff bases, and the `read` filesystem
+ * callback — is INJECTED by the caller via `TemplateContext`. `src/Edge.ts`
+ * is responsible for actually walking git for the hashes and wiring a real
+ * `read` that hits the working tree; this module never touches git or the
+ * filesystem itself. A template never sees rendered diff CONTENT — only base
+ * hashes a prompt tells the agent to `git diff` itself.
  *
  * Render errors (a malformed template, `read()` throwing for a missing
  * path, etc) are NOT caught here — they propagate as thrown errors, exactly as
@@ -48,32 +49,26 @@ export interface TemplateContext {
   readonly state: string
   /** The actor this render is for. */
   readonly actor: string
-  /** `startCommit..HEAD` plus the pending working-tree diff — the WHOLE process. */
-  readonly processDiff: string
   /**
-   * Like `processDiff`, but based at the most-recent in-process commit that
-   * entered a `reviewBase: true` state (the previous review round's boundary)
-   * when one exists — so a re-review covers only the changes SINCE the last
-   * review round. Equal to `processDiff` when no such commit exists (the first
-   * review of a cycle) — assembled by `src/Edge.ts`.
+   * The base of the previous review round's boundary: the most-recent
+   * in-process commit that entered a `reviewBase: true` state, when one
+   * exists, else `startCommit` (the first review of a cycle). A template
+   * names this hash in prose so the agent can `git diff` the range itself
+   * (base → working tree) — it never sees rendered diff content. Assembled
+   * by `src/Edge.ts`.
    */
-  readonly reviewDiff: string
+  readonly reviewBase: string
   /**
-   * The diff a squash would KEEP: `startParentHash..HEAD` plus the pending
-   * working-tree diff — the current process's OWN commits, based at its
-   * trace/retry boundary (`ProcessRun.startParentHash`), which a
-   * `Gtd-Review-Base:` trailer NEVER overrides. Equal to `processDiff` for a
-   * normal cycle (there `diffBase == startParentHash`); for a `gtd review`
-   * process it narrows to just the review's own feedback commits — what the
-   * squash commit actually retains — instead of the whole reviewed changeset.
-   * A squash `commit:` template renders its message from THIS, not
-   * `processDiff`, so the message describes what the commit contains. Empty
-   * when the review made no changes (a clean sign-off). Assembled by
-   * `src/Edge.ts`.
+   * The base a squash would KEEP from: the current process's trace/retry
+   * boundary (`ProcessRun.startParentHash`), which a `Gtd-Review-Base:`
+   * trailer NEVER overrides. Equal to `startCommit` for a normal cycle; for a
+   * `gtd review` process it narrows to just the review's own feedback
+   * commits — what the squash commit actually retains — instead of the whole
+   * reviewed changeset. A squash `commit:` template names this hash in prose
+   * so the agent can `git diff` the range itself to see what the commit will
+   * contain. Assembled by `src/Edge.ts`.
    */
-  readonly retainedDiff: string
-  /** The diff of the last transition alone. */
-  readonly lastDiff: string
+  readonly retainedBase: string
   /**
    * The total token cost accumulated over the current process: the sum of
    * every `Gtd-Cost:` trailer on the process's turn commits (recorded by
@@ -141,10 +136,8 @@ export const varsOnlyContext = (vars: Record<string, string>, state = ""): Templ
   previousCommit: "",
   state,
   actor: "",
-  processDiff: "",
-  reviewDiff: "",
-  retainedDiff: "",
-  lastDiff: "",
+  reviewBase: "",
+  retainedBase: "",
   processCost: 0,
   processCostByModel: [],
   read: (path: string) => {

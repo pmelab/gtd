@@ -23,7 +23,16 @@ set -euo pipefail
 # Every call the loop body makes below goes through `run_gtd` too, so the loop
 # always drives the exact same build/source it was launched from — no
 # dependence on a `gtd` binary being on PATH.
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# Follow symlinks first: npm's global install exposes this script as a
+# symlink in the node prefix's bin/, and dist/ only exists next to the REAL
+# script inside the package.
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_SOURCE" ]]; do
+  SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_SOURCE")" &>/dev/null && pwd)"
+  SCRIPT_SOURCE="$(readlink "$SCRIPT_SOURCE")"
+  [[ "$SCRIPT_SOURCE" != /* ]] && SCRIPT_SOURCE="$SCRIPT_DIR/$SCRIPT_SOURCE"
+done
+SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_SOURCE")" &>/dev/null && pwd)"
 
 run_gtd() {
   if [[ -n "${GTD_BIN:-}" ]]; then
@@ -44,12 +53,12 @@ if [[ "$FANCY" == 1 ]]; then
   C_RESET=$'\e[0m'; C_BOLD=$'\e[1m'; C_DIM=$'\e[2m'
   C_CYAN=$'\e[36m'; C_GREEN=$'\e[32m'; C_YELLOW=$'\e[33m'; C_RED=$'\e[31m'
   M_TRANS="➡️"; M_AGENT="🤖"; M_CHECK="🔧"; M_HUMAN="✍️"
-  M_FIX="🔁"; M_COMMIT="✅"; M_SETTLE="🎉"; M_ERROR="❌"; M_ELLIPSIS="…"
+  M_FIX="🔁"; M_COMMIT="✅"; M_SETTLE="🎉"; M_ERROR="❌"; M_WARN="⚠️"; M_ELLIPSIS="…"
 else
   C_RESET=""; C_BOLD=""; C_DIM=""
   C_CYAN=""; C_GREEN=""; C_YELLOW=""; C_RED=""
   M_TRANS="->"; M_AGENT="[agent]"; M_CHECK="[check]"; M_HUMAN="[you]"
-  M_FIX="[fix]"; M_COMMIT="[commit]"; M_SETTLE="[done]"; M_ERROR="[err]"; M_ELLIPSIS="..."
+  M_FIX="[fix]"; M_COMMIT="[commit]"; M_SETTLE="[done]"; M_ERROR="[err]"; M_WARN="[warn]"; M_ELLIPSIS="..."
 fi
 
 # emit_file_rows <files> — render a commit's changed files as dim, indented
@@ -114,14 +123,85 @@ emit_error() {
 }
 
 # emit_log_pointer — the "see the log" line printed right after every
-# emit_error call, to stderr: suppression must never hide a failure, so every
-# error points at where the redirected subprocess output actually went.
+# emit_error call, to stderr: it names the log as the OVERFLOW channel — the
+# failing execution's own output is already replayed inline (see emit_block/
+# emit_output_since below); the log is where the rest of it, and the full
+# run's other output, lives.
 emit_log_pointer() {
   if [[ "$FANCY" == 1 ]]; then
     printf '%s📄 see %s%s\n' "$C_DIM" "$GTD_LOOP_LOG" "$C_RESET" >&2
   else
     printf '%ssee %s%s\n' "$C_DIM" "$GTD_LOOP_LOG" "$C_RESET" >&2
   fi
+}
+
+# Suppressed subprocess output goes to $GTD_LOOP_LOG in full, but a FAILING
+# execution also replays inline: mark the log's size before the call, print
+# what was appended since. Bounded to the last $ERR_TAIL_LINES lines — the log
+# holds the rest, and the overflow row says where.
+ERR_TAIL_LINES=20
+
+# log_offset — the log's current size in bytes (0 when it doesn't exist yet).
+log_offset() {
+  local n=0
+  if [[ -n "${GTD_LOOP_LOG:-}" && -f "$GTD_LOOP_LOG" ]]; then n="$(wc -c <"$GTD_LOOP_LOG")"; fi
+  printf '%s' "${n// /}"
+}
+
+# emit_block <text> — replay captured subprocess output to stderr, dim and
+# indented like emit_file_rows, capped at the LAST $ERR_TAIL_LINES lines with
+# an overflow row naming the log. Empty <text> prints nothing. CSI escapes are
+# stripped under FANCY=0 (the plain-ASCII promise), using a sed form (\e, not
+# \x1b) that both BSD and GNU sed accept.
+emit_block() {
+  local text="$1" total overflow
+  [[ -z "$text" ]] && return 0
+  if [[ "$FANCY" == 0 ]]; then
+    text="$(sed $'s/\e\\[[0-9;]*[a-zA-Z]//g' <<<"$text")"
+  fi
+  total="$(wc -l <<<"$text")"
+  total="${total// /}"
+  if ((total > ERR_TAIL_LINES)); then
+    overflow=$((total - ERR_TAIL_LINES))
+    printf '   %s%s (%d earlier lines in %s)%s\n' "$C_DIM" "$M_ELLIPSIS" "$overflow" "$GTD_LOOP_LOG" "$C_RESET" >&2
+    text="$(tail -n "$ERR_TAIL_LINES" <<<"$text")"
+  fi
+  while IFS= read -r line; do
+    printf '   %s%s%s\n' "$C_DIM" "$line" "$C_RESET" >&2
+  done <<<"$text"
+}
+
+# emit_output_since <offset> — emit_block over the log bytes appended since
+# <offset>.
+emit_output_since() {
+  local offset="$1" bytes=""
+  if [[ -n "${GTD_LOOP_LOG:-}" && -f "$GTD_LOOP_LOG" ]]; then
+    bytes="$(tail -c "+$((offset + 1))" "$GTD_LOOP_LOG" 2>/dev/null || true)"
+  fi
+  emit_block "$bytes"
+}
+
+# A resume that failed because the session it names no longer exists — claude
+# prints "No conversation found with session ID: <uuid>". Loose on purpose: any
+# adapter whose CLI says something session-shaped gets the same recovery
+# instead of stopping the loop.
+SESSION_GONE_RE='no conversation found with session id|no such session|session (id )?[^ ]*( was)? not found|session [^ ]* does not exist'
+
+# session_gone_since <offset> — true when the log bytes appended since <offset>
+# carry the missing-session signature above. Blind (returns false) when no log
+# is configured, so recovery is best-effort, never a hard dependency.
+session_gone_since() {
+  local offset="$1" bytes=""
+  if [[ -n "${GTD_LOOP_LOG:-}" && -f "$GTD_LOOP_LOG" ]]; then
+    bytes="$(tail -c "+$((offset + 1))" "$GTD_LOOP_LOG" 2>/dev/null || true)"
+  fi
+  [[ -n "$bytes" ]] && grep -qiE "$SESSION_GONE_RE" <<<"$bytes"
+}
+
+# emit_warn <message> — a surfaced but NON-fatal failure (a check script that
+# exited non-zero).
+emit_warn() {
+  printf '%s %s%s%s\n' "$M_WARN" "$C_YELLOW" "$1" "$C_RESET" >&2
 }
 
 # ── Git-derivation helpers (parse_subject, report_commits) ──────────────────
@@ -276,7 +356,18 @@ fi
 # still resumes one planning session. The scope, session id, and a
 # resume-or-fresh flag are exported as $GTD_LOOP_MEMORY / $GTD_LOOP_SESSION_ID
 # / $GTD_LOOP_MEMORY_RESUME; the default adapter turns them into
-# `--resume`/`--session-id`. An adapter that ignores them keeps working.
+# `--resume`/`--session-id`. An adapter that ignores them keeps working. A
+# remembered session that has since vanished (the retention window elapsed, a
+# wiped `~/.claude/projects`, a machine change) degrades to a fresh session
+# with a warning rather than failing the turn — see run_agent_turn's own
+# comment.
+
+# new_session_id — mints an opaque session id for a fresh memory scope
+# (uuidgen, falling back to the kernel's random uuid, or empty when neither is
+# available — the default adapter then omits --session-id entirely).
+new_session_id() {
+  uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo ""
+}
 
 prev_state=""
 prev_content=""
@@ -308,7 +399,7 @@ fi
 # the resume flag; the memory scope ($memory/$session_id) is read from the
 # enclosing iteration, so a same-turn re-prompt (the validate gate) resumes the
 # same session.
-run_agent_turn() {
+invoke_agent() {
   local prompt="$1" do_resume="$2" cmd="${GTD_LOOP_AGENT_CMD:-}"
   if [[ -z "$cmd" ]]; then
     cmd='claude -p "$GTD_LOOP_PROMPT"'
@@ -323,6 +414,33 @@ run_agent_turn() {
   GTD_LOOP_PROMPT="$prompt" GTD_LOOP_MODEL="$model" GTD_LOOP_MEMORY="$memory" \
     GTD_LOOP_SESSION_ID="$session_id" GTD_LOOP_MEMORY_RESUME="$do_resume" bash -c "$cmd" \
     >>"${GTD_LOOP_LOG:-/dev/null}" 2>&1
+}
+
+# run_agent_turn <prompt> <resume> — invoke_agent, with one recovery: a
+# resumed turn (do_resume == 1) that fails AND whose output carries the
+# missing-session signature (session_gone_since) means the marker's session no
+# longer exists on disk. Rather than failing the turn (and every turn after
+# it, since the dead id would just be resumed again), mint a fresh session,
+# rewrite $memory_marker with it — the self-healing part, so a later launch
+# doesn't repeat this — and retry the SAME prompt once with resume off. $resume
+# and $session_id are the enclosing iteration's globals; recovery rewrites them
+# too, so a later validate-gate re-prompt in the same turn resumes the newly
+# pinned session. Blind to the failure mode when session_gone_since can't tell
+# (no log configured): a genuine agent failure then correctly propagates.
+run_agent_turn() {
+  local prompt="$1" do_resume="$2" offset status=0
+  offset="$(log_offset)"
+  invoke_agent "$prompt" "$do_resume" && return 0
+  status=$?
+  if [[ "$do_resume" == "1" ]] && session_gone_since "$offset"; then
+    emit_warn "the remembered agent session for '$memory' is gone — continuing in a fresh session (this turn starts without its previous context)"
+    session_id="$(new_session_id)"
+    resume=0
+    printf '%s\n%s\n' "$memory" "$session_id" >"$memory_marker"
+    invoke_agent "$prompt" 0
+    return $?
+  fi
+  return $status
 }
 
 # The furthest commit already reported to the terminal by report_commits (see
@@ -375,9 +493,10 @@ fi
 
 while true; do
   if ! next_json="$(run_gtd next --json 2>&1)"; then
-    echo "gtd-loop: could not determine the next step:" >&2
-    echo "$next_json" >&2
-    echo "Run \`gtd status\` to inspect the repo." >&2
+    emit_error "could not determine the next step:
+$next_json
+Run \`gtd status\` to inspect the repo."
+    emit_log_pointer
     exit 1
   fi
 
@@ -394,17 +513,29 @@ while true; do
     # (or an outer wrapper) edits and re-launches; the opening move above
     # captures what they left.
     emit_gate "$state" "$label"
-    run_gtd next
+    if ! gate_out="$(run_gtd next 2>&1)"; then
+      emit_error "$gate_out"
+      emit_log_pointer
+      exit 1
+    fi
+    printf '%s\n' "$gate_out"
     exit 0
   fi
 
   if [[ "$kind" == "script" ]]; then
     emit_action "$M_CHECK" "$label"
-    # Execute the emitted wrapper verbatim; its exit code is deliberately
-    # ignored (`|| true` under `set -e`) — the script encodes its outcome in
-    # the tree, and `gtd step` captures whatever it left there via the state's
-    # own `on` patterns. Its own output goes to the log, not the terminal.
-    bash -c "$content" >>"$GTD_LOOP_LOG" 2>&1 || true
+    # Execute the emitted wrapper verbatim; its exit code decides nothing
+    # (the script encodes its outcome in the tree, and `gtd step` captures
+    # whatever it left there via the state's own `on` patterns) but a non-zero
+    # exit is surfaced as a warning — its own output goes to the log, and to
+    # the terminal too when it exits non-zero.
+    script_offset="$(log_offset)"
+    script_status=0
+    bash -c "$content" >>"$GTD_LOOP_LOG" 2>&1 || script_status=$?
+    if ((script_status != 0)); then
+      emit_warn "the check script at '$state' exited $script_status — continuing; the outcome is whatever it left in the tree:"
+      emit_output_since "$script_offset"
+    fi
     if ! step_out="$(run_gtd step "$actor" 2>&1)"; then
       printf '%s\n' "$step_out" >>"$GTD_LOOP_LOG"
       emit_error "$step_out"
@@ -461,7 +592,7 @@ $next_out"
       resume=1
       session_id="$prev_session"
     else
-      session_id="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "")"
+      session_id="$(new_session_id)"
     fi
     printf '%s\n%s\n' "$memory" "$session_id" >"$memory_marker"
   else
@@ -478,24 +609,42 @@ $next_out"
   # driver-side equivalent, so the next rest is only ever handed a well-formed
   # file. gtd itself never validates at step time — this is the loop's job.
   emit_action "$M_AGENT" "$label"
-  run_agent_turn "$content" "$resume"
+  turn_offset="$(log_offset)"
+  agent_status=0
+  run_agent_turn "$content" "$resume" || agent_status=$?
+  if ((agent_status != 0)); then
+    emit_error "the agent turn at '$state' failed (exit $agent_status):"
+    emit_output_since "$turn_offset"
+    emit_log_pointer
+    exit 1
+  fi
 
   fix_attempt=0
   while ! validate_out="$(run_gtd validate 2>&1)"; do
     fix_attempt=$((fix_attempt + 1))
     if ((fix_attempt > 3)); then
+      printf '%s\n' "$validate_out" >>"$GTD_LOOP_LOG"
       emit_error "'$state' still fails \`gtd validate\` after 3 fix attempts:
 $validate_out
 Stopping rather than stepping with a malformed steering file."
       emit_log_pointer
       exit 1
     fi
+    printf '%s\n' "$validate_out" >>"$GTD_LOOP_LOG"
+    emit_action "$M_FIX" "attempt $fix_attempt"
     # Resume the same session when there is one (the agent just wrote the file);
     # otherwise a fresh invocation still gets the findings via the prompt.
     fix_resume=0
     [[ -n "$session_id" ]] && fix_resume=1
-    emit_action "$M_FIX" "attempt $fix_attempt"
-    run_agent_turn "$content"$'\n\n'"Your last turn does not pass \`gtd validate\`. Fix these format violations, then finish:"$'\n'"$validate_out" "$fix_resume"
+    turn_offset="$(log_offset)"
+    agent_status=0
+    run_agent_turn "$content"$'\n\n'"Your last turn does not pass \`gtd validate\`. Fix these format violations, then finish:"$'\n'"$validate_out" "$fix_resume" || agent_status=$?
+    if ((agent_status != 0)); then
+      emit_error "the agent's fix attempt $fix_attempt at '$state' failed (exit $agent_status):"
+      emit_output_since "$turn_offset"
+      emit_log_pointer
+      exit 1
+    fi
   done
 
   if ! step_out="$(run_gtd step "$actor" 2>&1)"; then

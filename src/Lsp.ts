@@ -135,7 +135,7 @@ export const questionSymbols = (content: string): DocumentSymbol[] => {
     const children: DocumentSymbol[] = question.options.map((option) => ({
       name: `${option.checked ? "[x]" : "[ ]"} ${option.text || "your answer"}`,
       kind: SymbolKind.Boolean,
-      range: lineRange(lines, option.sourceLine),
+      range: spanRange(lines, option.sourceLine, option.endLine),
       selectionRange: lineRange(lines, option.sourceLine),
     }))
     return {
@@ -337,11 +337,12 @@ const optionCodeAction = (
 }
 
 /**
- * Code actions for a `qa`-mode file: on an open question's option line, "pick
- * this option" (radio semantics — check it and uncheck every sibling in the
- * same question, so exactly one stays ticked) or "uncheck this option" when it
- * is already the chosen one. No action off an option line, or on an
- * answered-section (prose) question.
+ * Code actions for a `qa`-mode file: anywhere on an open question's option's
+ * list item — its `- [ ]` line or any of its wrapped continuation lines (see
+ * `QuestionOption.endLine`) — "pick this option" (radio semantics — check it
+ * and uncheck every sibling in the same question, so exactly one stays
+ * ticked) or "uncheck this option" when it is already the chosen one. No
+ * action off an option's span, or on an answered-section (prose) question.
  */
 export const questionCodeActions = (uri: string, content: string, range: Range): CodeAction[] => {
   const { questions } = parseOpenQuestions(content)
@@ -349,7 +350,9 @@ export const questionCodeActions = (uri: string, content: string, range: Range):
   const actions: CodeAction[] = []
   for (const question of questions) {
     if (question.status !== "open") continue
-    const option = question.options.find((o) => o.sourceLine === cursorLine)
+    const option = question.options.find(
+      (o) => cursorLine >= o.sourceLine && cursorLine <= o.endLine,
+    )
     if (!option) continue
     const action = optionCodeAction(uri, content, question, option)
     if (action) actions.push(action)

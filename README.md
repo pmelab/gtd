@@ -115,10 +115,12 @@ for). The two steering-file entries are chosen by which file you create:
   per-package **agentic review** that verifies the package against its spec.
 
 Both flows converge on the same tail: an agent hands you a `.gtd/REVIEW.md`
-checkbox review of the diff — tick a box as you review each hunk (ticking just
-records "I read this"), and leave a **comment** to request changes: a note on a
-line, an inline `// TODO`-style comment in the code, or a direct code edit. Any
-comment sends a build + re-review round — an agent first turns your comments
+checkbox review of the diff — the prompt never inlines the diff itself; it names
+the commit the changes are based at and the agent runs `git diff` to read the
+range before writing the review. Tick a box as you review each hunk (ticking
+just records "I read this"), and leave a **comment** to request changes: a note
+on a line, an inline `// TODO`-style comment in the code, or a direct code edit.
+Any comment sends a build + re-review round — an agent first turns your comments
 into an explicit instruction list, then a build turn implements it (a re-review
 then covers only the follow-through, and a hand-edit is treated as your own fix
 the agent completes without reverting your lines; a comment can't be silently
@@ -315,19 +317,112 @@ re-launching it — its opening move captures whatever you left, so you never ru
 
 Anything richer at that boundary — opening your editor, desktop notifications,
 terminal-multiplexer status — is the job of an outer wrapper around `gtd`, not
-of the loop itself. Pass `--once` to restrict a run to exactly one beat — one
-human-gate capture, one check, or one agent turn — instead of driving all the
-way to idle.
+of the loop itself; see
+[Terminal-multiplexer status: a herdr wrapper](#terminal-multiplexer-status-a-herdr-wrapper)
+below for a worked example. Pass `--once` to restrict a run to exactly one beat
+— one human-gate capture, one check, or one agent turn — instead of driving all
+the way to idle.
 
 Bare `gtd` prints one line per event — colored and emoji on a real terminal,
 plain ASCII under `NO_COLOR` or when piped — and redirects the noisier
 agent/check/step subprocess output to a per-repo/per-worktree log file (its path
-is the run's first output line, ready to `tail -f`).
+is the run's first output line, ready to `tail -f`). Any execution that FAILS
+also replays its last 20 lines of output inline on stderr, on top of the log
+still holding the complete record: an agent turn that fails stops the loop (it
+would fail identically next lap), while a check script that exits non-zero is
+reported as a warning and the loop carries on, because the outcome lives in the
+tree, not in the script's exit code.
 
 A workflow state can declare an optional `label:` — a human-readable display
 name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
 per-beat progress lines; an outer wrapper (a terminal multiplexer, a notifier)
 can use it the same way.
+
+A state can also declare an optional `memory:` scope label: consecutive agent
+turns sharing the same label continue one agent session (remembered in the git
+dir, so it survives restarts across the same worktree), while a changed or
+absent label starts a fresh one. If the remembered session no longer exists
+(retention expired, `~/.claude/projects` wiped, a machine change), the driver
+degrades to a fresh session with a warning instead of stopping the loop.
+
+### Terminal-multiplexer status: a herdr wrapper
+
+[herdr](https://herdr.dev) shows a per-pane status in its sidebar. This wrapper
+reports `gtd`'s own lifecycle to that status without any herdr-specific
+knowledge in `gtd` itself: `working` while the loop drives, `blocked` when it
+comes to rest on a human (a gate, a stall, a non-zero exit), and `idle`
+(rendered as "done" once the pane's tab is unfocused) when a run ends without
+anything owed. It needs nothing from `gtd` beyond `gtd next --json`'s `.actor`
+field, which the loop's driver already reads at every beat.
+
+Save this as `~/.local/bin/gtdh`, `chmod +x` it, and run `gtdh` in place of
+`gtd` — it's a plain bash file, so it works from fish or any other shell, and it
+forwards every argument (`gtdh --once`, `gtdh status`, ...).
+
+```bash
+#!/usr/bin/env bash
+# Report gtd's own lifecycle to the herdr pane it runs in: working while the
+# loop drives, blocked when it rests on you, idle (shown as "done") otherwise.
+# Needs nothing from gtd but `gtd next --json`. Outside herdr it is a plain
+# passthrough. Requires `jq` — so does gtd's own loop driver.
+set -uo pipefail
+
+pane="${HERDR_PANE_ID:-}"
+
+# `--agent gtd` is deliberate: herdr only lets screen detection (or a visible
+# approval prompt) override a reported state when the reported label names a
+# KNOWN agent. "gtd" names none, so the loop's `claude -p` turns can never move
+# this pane's status.
+report() { # report <state>
+  [ -n "$pane" ] || return 0
+  herdr pane report-agent "$pane" \
+    --source custom:gtd --agent gtd --state "$1" >/dev/null 2>&1 || true
+}
+
+report working
+trap 'report blocked; exit 130' INT TERM
+
+# HERDR_PANE_ID is unset for the loop: herdr's Claude Code hook needs it, and
+# without it no `claude -p` turn reports a claude SESSION identity for this
+# pane. That is load-bearing, not cosmetic — a pane that owns one rejects every
+# later state report, so the report below would be dropped.
+env -u HERDR_PANE_ID gtd "$@"
+rc=$?
+
+# Whose turn is it now? `gtd next --json` is mutation-free. A human actor means
+# gtd is waiting on you; anything else means the run ended with nothing owed.
+actor="$(gtd next --json 2>/dev/null | jq -r '.actor // ""' 2>/dev/null || true)"
+
+if [ "$rc" -ne 0 ] || [ -z "$actor" ] || [ "$actor" = human ]; then
+  report blocked
+else
+  report idle
+fi
+
+exit $rc
+```
+
+A few things to know before relying on it:
+
+- **Give `gtd` its own pane.** Run an interactive `claude` (or any agent whose
+  herdr integration reports session identity) in the same pane and that pane
+  owns a `herdr:claude` session until the process exits; while it does, the
+  wrapper's reports are silently ignored and the sidebar stops tracking `gtd`.
+- **`blocked` covers the resting `idle` state too** — gtd's own `idle` is a
+  human gate (it waits for you to write a steering file), so a finished cycle
+  reads as "your turn", which is what it is.
+- The status **persists after the wrapper exits** — that's the point: the
+  sidebar keeps showing which worktree is waiting on you. Hand the pane back to
+  ordinary detection with
+  `herdr pane release-agent "$HERDR_PANE_ID" --source custom:gtd --agent gtd`.
+- A non-zero exit (a stall, a refusal, an error) reports `blocked`: herdr has no
+  failure state, and those all need a human.
+- Ctrl-C reports `blocked` rather than leaving a stale `working`.
+
+Optionally,
+`herdr pane report-metadata "$HERDR_PANE_ID" --source custom:gtd-display --token summary=<text>`
+sets a value renderable as `$summary` in an Agent sidebar row, if you want more
+than the state itself.
 
 ## Configuration
 
@@ -435,6 +530,22 @@ bindings (dedup), or a complex cluster grouped under one name for source
 comprehension (encapsulation). Every reference is expanded at load time into
 concrete, qualified states (`<local>.<childLocal>`, however deep) before the
 engine ever sees the definition — see `src/Machines.ts` for the mechanism.
+
+Besides `it.vars` (below), a `script`/`prompt`/`message`/`commit` template sees:
+
+- **`it.startCommit`** — the process's diff base (the commit the current cycle
+  started from, or the base a `--var reviewBase=<commitish>` entry resolved to).
+- **`it.reviewBase`** — the previous review round's boundary, falling back to
+  `it.startCommit` on a first review.
+- **`it.retainedBase`** — the process's trace/retry boundary, what a squash
+  actually keeps (never moved by a review entry's fixed base).
+- **`it.currentCommit`** / **`it.previousCommit`** — HEAD's hash and its parent,
+  at render time.
+
+A template never sees rendered diff CONTENT — no field carries a diff. It names
+a base and leaves the agent to run `git diff <base>` itself; this keeps every
+render cheap (no diff computed on `gtd next`/`gtd status`/`gtd lsp`) and the
+prompt small and cacheable.
 
 Authoring or editing a workflow with a coding agent? `skills/authoring/SKILL.md`
 is the agent-facing contract for producing a valid `workflow:` — the state
@@ -568,9 +679,11 @@ the compiler's job at load time.
 per `review`-mode chunk that still has an unchecked hunk (an outline of the
 packages left to review) plus check/uncheck actions over those chunks,
 go-to-definition from a `review`-mode hunk line into the file it points at (at
-its `#line`), symbols over a `qa`-mode file's open questions, diagnostics for
-both (live as you edit), and a `gtd.openSteeringFile` command that jumps to the
-current state's steering file.
+its `#line`), symbols over a `qa`-mode file's open questions plus "pick this
+option"/"uncheck this option" code actions on each option — offered anywhere on
+the option's list item, including any wrapped continuation lines, not just its
+own `- [ ]` line — diagnostics for both (live as you edit), and a
+`gtd.openSteeringFile` command that jumps to the current state's steering file.
 
 It is config-driven via each state's `file:`/`mode:`, and falls back to basename
 dispatch (`REVIEW.md` → `review`) with no config in sight. `qa` and `review` are

@@ -43,9 +43,8 @@ const failingGitLayer = Layer.succeed(GitService, {
   isAncestor: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   topLevel: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitHistory: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  diffHead: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  diffRef: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
-  commitDiff: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
+  changedPathsSince: () =>
+    Effect.fail(new Error("GitService must not be called for --version/--help")),
   changedPaths: () => Effect.fail(new Error("GitService must not be called for --version/--help")),
   commitAllWithPrefix: () =>
     Effect.fail(new Error("GitService must not be called for --version/--help")),
@@ -617,7 +616,7 @@ describe("gtd step <actor> --entry <state> — a custom workflow declaring `entr
 
 describe("gtd step <actor> --entry <state> — the bundled unified template", () => {
   // Full downstream coverage (the review checkout window, feedback laps, the
-  // fix-precheck green-baseline gate) lives in review-entry.feature/
+  // fix-precheck green-baseline gate) lives in entry.feature/
   // fix-entry.feature; these pin only the entry commit itself — the same
   // happy-path shape the old `gtd review`/`gtd fix` tests pinned.
 
