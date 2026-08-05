@@ -169,6 +169,29 @@ Then("the log file contains {string}", (world: GtdWorld, text: string) => {
   )
 })
 
+// Counts NON-OVERLAPPING occurrences — used to prove a recovered retry ran
+// (e.g. "AGENT MEMORY=fix RESUME=0" appearing twice: once for the scope's
+// first entry, once for the retry after a doomed resume), which a plain
+// "contains" assertion can't distinguish from a single occurrence.
+Then(
+  "the log file contains {string} {int} times",
+  (world: GtdWorld, text: string, count: number) => {
+    const path = join(world.repoDir, loopLogPath(world))
+    const content = existsSync(path) ? readFileSync(path, "utf-8") : ""
+    let actual = 0
+    let idx = 0
+    while ((idx = content.indexOf(text, idx)) !== -1) {
+      actual++
+      idx += text.length
+    }
+    assert.strictEqual(
+      actual,
+      count,
+      `Expected the log file ("${loopLogPath(world)}") to contain "${text}" exactly ${count} times, found ${actual}. Got:\n${content}`,
+    )
+  },
+)
+
 // The plain-ASCII rendering proof: no ANSI escape sequence (ESC "[") anywhere.
 // Built from a char code rather than a regex literal to avoid embedding a
 // literal control character in source.

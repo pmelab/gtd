@@ -181,6 +181,23 @@ emit_output_since() {
   emit_block "$bytes"
 }
 
+# A resume that failed because the session it names no longer exists — claude
+# prints "No conversation found with session ID: <uuid>". Loose on purpose: any
+# adapter whose CLI says something session-shaped gets the same recovery
+# instead of stopping the loop.
+SESSION_GONE_RE='no conversation found with session id|no such session|session (id )?[^ ]*( was)? not found|session [^ ]* does not exist'
+
+# session_gone_since <offset> — true when the log bytes appended since <offset>
+# carry the missing-session signature above. Blind (returns false) when no log
+# is configured, so recovery is best-effort, never a hard dependency.
+session_gone_since() {
+  local offset="$1" bytes=""
+  if [[ -n "${GTD_LOOP_LOG:-}" && -f "$GTD_LOOP_LOG" ]]; then
+    bytes="$(tail -c "+$((offset + 1))" "$GTD_LOOP_LOG" 2>/dev/null || true)"
+  fi
+  [[ -n "$bytes" ]] && grep -qiE "$SESSION_GONE_RE" <<<"$bytes"
+}
+
 # emit_warn <message> — a surfaced but NON-fatal failure (a check script that
 # exited non-zero).
 emit_warn() {
@@ -339,7 +356,18 @@ fi
 # still resumes one planning session. The scope, session id, and a
 # resume-or-fresh flag are exported as $GTD_LOOP_MEMORY / $GTD_LOOP_SESSION_ID
 # / $GTD_LOOP_MEMORY_RESUME; the default adapter turns them into
-# `--resume`/`--session-id`. An adapter that ignores them keeps working.
+# `--resume`/`--session-id`. An adapter that ignores them keeps working. A
+# remembered session that has since vanished (the retention window elapsed, a
+# wiped `~/.claude/projects`, a machine change) degrades to a fresh session
+# with a warning rather than failing the turn — see run_agent_turn's own
+# comment.
+
+# new_session_id — mints an opaque session id for a fresh memory scope
+# (uuidgen, falling back to the kernel's random uuid, or empty when neither is
+# available — the default adapter then omits --session-id entirely).
+new_session_id() {
+  uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo ""
+}
 
 prev_state=""
 prev_content=""
@@ -371,7 +399,7 @@ fi
 # the resume flag; the memory scope ($memory/$session_id) is read from the
 # enclosing iteration, so a same-turn re-prompt (the validate gate) resumes the
 # same session.
-run_agent_turn() {
+invoke_agent() {
   local prompt="$1" do_resume="$2" cmd="${GTD_LOOP_AGENT_CMD:-}"
   if [[ -z "$cmd" ]]; then
     cmd='claude -p "$GTD_LOOP_PROMPT"'
@@ -386,6 +414,33 @@ run_agent_turn() {
   GTD_LOOP_PROMPT="$prompt" GTD_LOOP_MODEL="$model" GTD_LOOP_MEMORY="$memory" \
     GTD_LOOP_SESSION_ID="$session_id" GTD_LOOP_MEMORY_RESUME="$do_resume" bash -c "$cmd" \
     >>"${GTD_LOOP_LOG:-/dev/null}" 2>&1
+}
+
+# run_agent_turn <prompt> <resume> — invoke_agent, with one recovery: a
+# resumed turn (do_resume == 1) that fails AND whose output carries the
+# missing-session signature (session_gone_since) means the marker's session no
+# longer exists on disk. Rather than failing the turn (and every turn after
+# it, since the dead id would just be resumed again), mint a fresh session,
+# rewrite $memory_marker with it — the self-healing part, so a later launch
+# doesn't repeat this — and retry the SAME prompt once with resume off. $resume
+# and $session_id are the enclosing iteration's globals; recovery rewrites them
+# too, so a later validate-gate re-prompt in the same turn resumes the newly
+# pinned session. Blind to the failure mode when session_gone_since can't tell
+# (no log configured): a genuine agent failure then correctly propagates.
+run_agent_turn() {
+  local prompt="$1" do_resume="$2" offset status=0
+  offset="$(log_offset)"
+  invoke_agent "$prompt" "$do_resume" && return 0
+  status=$?
+  if [[ "$do_resume" == "1" ]] && session_gone_since "$offset"; then
+    emit_warn "the remembered agent session for '$memory' is gone — continuing in a fresh session (this turn starts without its previous context)"
+    session_id="$(new_session_id)"
+    resume=0
+    printf '%s\n%s\n' "$memory" "$session_id" >"$memory_marker"
+    invoke_agent "$prompt" 0
+    return $?
+  fi
+  return $status
 }
 
 # The furthest commit already reported to the terminal by report_commits (see
@@ -537,7 +592,7 @@ $next_out"
       resume=1
       session_id="$prev_session"
     else
-      session_id="$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "")"
+      session_id="$(new_session_id)"
     fi
     printf '%s\n%s\n' "$memory" "$session_id" >"$memory_marker"
   else

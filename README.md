@@ -308,6 +308,13 @@ name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
 per-beat progress lines; an outer wrapper (a terminal multiplexer, a notifier)
 can use it the same way.
 
+A state can also declare an optional `memory:` scope label: consecutive agent
+turns sharing the same label continue one agent session (remembered in the git
+dir, so it survives restarts across the same worktree), while a changed or
+absent label starts a fresh one. If the remembered session no longer exists
+(retention expired, `~/.claude/projects` wiped, a machine change), the driver
+degrades to a fresh session with a warning instead of stopping the loop.
+
 ### Terminal-multiplexer status: a herdr wrapper
 
 [herdr](https://herdr.dev) shows a per-pane status in its sidebar. This wrapper
