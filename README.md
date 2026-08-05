@@ -179,11 +179,11 @@ Commands:
                    turn commit (summed into it.processCost/processCostByModel)
   review <commitish>
                    Start a NEW review process at the workflow's declared
-                   review-entry state (reviewEntry: true), reviewing
+                   review-entry state (entry.review), reviewing
                    <commitish>..HEAD — e.g. a colleague's PR branch. Requires
                    a clean tree resting at the workflow's initial state
   fix              Start a NEW process at the workflow's declared fix-entry
-                   state (fixEntry: true) that goes straight into repairing the
+                   state (entry.fix) that goes straight into repairing the
                    current failing tests. Requires a clean tree resting at the
                    workflow's initial state
   abandon          End the process currently underway without completing it:
@@ -360,33 +360,57 @@ workflow:
     <name>:
       format: <shell command> # at least one of format/validate
       validate: <shell command>
-  states:
+  entry:
+    default: <machine name> # which machine is the ROOT instance
+    review: <target> # optional — the review-entry state/reference
+    fix: <target> # optional — the fix-entry state/reference
+  machines:
     <name>:
-      actor: <string> # forbidden on a commit state, required otherwise
-      script: <string> # exactly one of script/prompt/message/commit
-      prompt: <string>
-      message: <string>
-      commit: <string>
-      on: # a mapping, DECLARATION ORDER PRESERVED
-        "<pattern>": <targetState> # short form
-        "<pattern>": {
-            to: <targetState>,
-            describe: <sentence>,
-            action: <label>,
-          } # description/action
-      initial: true # exactly one state across the whole workflow
-      retry:
-        max: <number>
-        otherwise: <targetState>
-      model: <string> # optional, opaque harness hint — forbidden on a commit state
-      memory: <string> # optional, opaque memory-scope label — forbidden on a commit state
-      file: <string> # optional, an Eta template naming the state's steering file
-      mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry
+      params: [<param>, ...] # optional, advisory — documents which $params a caller may bind
+      entry: <local or ref key> # this machine's own default local, resolved recursively
+      states:
+        <local>:
+          actor: <string> # forbidden on a commit state, required otherwise
+          script: <string> # exactly one of script/prompt/message/commit
+          prompt: <string>
+          message: <string>
+          commit: <string>
+          on: # a mapping, DECLARATION ORDER PRESERVED
+            "<pattern>": <targetState> # short form
+            "<pattern>": {
+                to: <targetState>,
+                describe: <sentence>,
+                action: <label>,
+              } # description/action
+          retry:
+            max: <number>
+            otherwise: <targetState>
+          model: <string> # optional, opaque harness hint — forbidden on a commit state
+          memory: <string> # optional, opaque memory-scope label — forbidden on a commit state
+          file: <string> # optional, an Eta template naming the state's steering file
+          mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry
+        <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
 ```
+
+A workflow is authored as a TREE of reusable, parameterized machines — a
+gate/loop written once and instantiated several times with different `with:`
+bindings (dedup), or a complex cluster grouped under one name for source
+comprehension (encapsulation). Every reference is expanded at load time into
+concrete, qualified states (`<local>.<childLocal>`, however deep) before the
+engine ever sees the definition — see `src/Machines.ts` for the mechanism.
 
 Authoring or editing a workflow with a coding agent? `skills/authoring/SKILL.md`
 is the agent-facing contract for producing a valid `workflow:` — the state
 model, pattern grammar, load-time rules, and how to verify a change compiles.
+
+> **Upgrading from a pre-8.2 `workflow:`?** The old flat `states:` shape (with a
+> per-state `initial: true`/`reviewEntry: true`/`fixEntry: true` flag) is no
+> longer accepted — finish or `gtd abandon` any in-flight cycle before
+> upgrading, since the old and new shapes aren't compatible mid-cycle. Wrap your
+> states under a single
+> `machines: { <name>: { entry: <initial state>, states: {...} } }` and declare
+> `entry: { default: <name> }` at the top level (moving any
+> `reviewEntry`/`fixEntry` state to `entry.review`/`entry.fix`).
 
 ### Variables
 
@@ -394,9 +418,9 @@ Every template — `script`/`prompt`/`message`/`commit`, and
 `model`/`memory`/`file` — sees `it.vars`: a flat `Record<string, string>`
 assembled from three layers, **later wins**:
 
-1. **The workflow's own `vars:` key** (sibling to `states:`) — the workflow
-   author's declared defaults. The unified template declares
-   `vars: { testCommand: "npm test" }`, read by `checking`'s script as
+1. **The workflow's own `vars:` key** (sibling to `entry:`/`machines:`) — the
+   workflow author's declared defaults. The unified template declares
+   `vars: { testCommand: "npm test" }`, read by `build.check`'s script as
    `<%~ it.vars.testCommand %>`.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow.
@@ -450,9 +474,9 @@ Those findings include the **semantic graph checks**: every `on` target and
 
 Many of these problems never reach gtd at all if your editor validates against
 the [published schema](#schema), which fully types the `workflow:` key. The
-rules JSON Schema cannot express — exactly one content kind, exactly one
-`initial: true`, targets naming defined states, reachability — remain the
-compiler's job at load time.
+rules JSON Schema cannot express — exactly one content kind, `entry.default`
+resolving to a real state, targets naming defined states, reachability — remain
+the compiler's job at load time.
 
 ## Repository requirements
 

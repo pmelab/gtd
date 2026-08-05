@@ -15,20 +15,24 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       workflow:
         vars:
           reviewer: alice
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Assigned reviewer: <%= it.vars.reviewer %>"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Assigned reviewer: <%= it.vars.reviewer %>"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -45,20 +49,24 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       workflow:
         vars:
           reviewer: alice
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Assigned reviewer: <%= it.vars.reviewer %>"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Assigned reviewer: <%= it.vars.reviewer %>"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       vars:
         reviewer: bob
       """
@@ -78,20 +86,24 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       workflow:
         vars:
           reviewer: alice
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Assigned reviewer: <%= it.vars.reviewer %>"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Assigned reviewer: <%= it.vars.reviewer %>"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       vars:
         reviewer: bob
       """
@@ -111,20 +123,24 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "Brand new: <%= it.vars.brandNew %>"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "Brand new: <%= it.vars.brandNew %>"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -135,10 +151,10 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     Then it succeeds
     And stdout does not contain "hello"
 
-  Scenario: the simple workflow's "checking" script renders "npm test" from its own declared default
+  Scenario: the simple workflow's "build.check" script renders "npm test" from its own declared default
     Given a test project
     And the workflow
-    And a commit "gtd(agent): checking" that adds "src/thing.ts" with:
+    And a commit "gtd(agent): build.check" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """
@@ -149,7 +165,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
   Scenario: a "GTD_STATEDIR" override relocates the check script's scratch output path
     Given a test project
     And the workflow
-    And a commit "gtd(agent): checking" that adds "src/thing.ts" with:
+    And a commit "gtd(agent): build.check" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """
@@ -166,23 +182,27 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       workflow:
         vars:
           testCommand: npm test
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": building
-          building:
-            actor: agent
-            prompt: "build"
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: "<%~ it.vars.testCommand %> > .gtd/.check-output 2>&1"
-            on:
-              "C": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": building
+              building:
+                actor: agent
+                prompt: "build"
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "<%~ it.vars.testCommand %> > .gtd/.check-output 2>&1"
+                on:
+                  "C": idle
       vars:
         testCommand: echo overridden
       """
@@ -198,7 +218,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
   Scenario: a "GTD_TESTCOMMAND" environment variable overrides the simple workflow's own testCommand
     Given a test project
     And the workflow
-    And a commit "gtd(agent): checking" that adds "src/thing.ts" with:
+    And a commit "gtd(agent): build.check" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """
@@ -215,21 +235,25 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       workflow:
         vars:
           reviewModel: opus
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            model: "<%= it.vars.reviewModel %>"
-            prompt: "do the work"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                model: "<%= it.vars.reviewModel %>"
+                prompt: "do the work"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -245,21 +269,25 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            model: "<%= it.vars.nope.deeper %>"
-            prompt: "do the work"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                model: "<%= it.vars.nope.deeper %>"
+                prompt: "do the work"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -275,21 +303,25 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       workflow:
         vars:
           planScope: plan
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            memory: "<%= it.vars.planScope %>"
-            prompt: "do the work"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                memory: "<%= it.vars.planScope %>"
+                prompt: "do the work"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -303,13 +335,13 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
   Scenario: the simple template resolves a planner-tier state's model from "vars.plannerModel"
     Given a test project
     And the workflow
-    And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): plan.planning" that adds ".gtd/TODO.md" with:
       """
       a sketch
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"planning\""
+    And stdout contains "\"state\":\"plan.planning\""
     And stdout contains "\"model\":\"smart\""
 
   Scenario: the simple template resolves a coder-tier state's model from "vars.coderModel"
@@ -327,7 +359,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
   Scenario: a "GTD_PLANNERMODEL" override repoints every planner-tier state at once
     Given a test project
     And the workflow
-    And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): plan.planning" that adds ".gtd/TODO.md" with:
       """
       a sketch
       """

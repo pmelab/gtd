@@ -7,31 +7,31 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
   a shared base, with no gtd process of its own — by writing ONE empty
   `gtd(human): <review-entry-state>` commit carrying the resolved base's full
   hash as a `Gtd-Review-Base:` trailer. Everything downstream (the `simple`
-  template's `reviewing` → `await-review` → feedback laps, and the
+  template's `review.reviewing` → `review.await-review` → feedback laps, and the
   `await-review` review checkout window) then operates over that diff with no
   duplicated logic. The unified template declares `reviewEntry: true` on
-  `review-precheck` — the green-baseline gate that runs the suite and, once
-  green, transitions to `reviewing`.
+  `review-gate.check` — the green-baseline gate that runs the suite and, once
+  green, transitions to `review.reviewing`.
 
   Background:
     Given a test project
     And the workflow
     And I mark the current commit as "base"
 
-  Scenario: happy path — a colleague's PR branch reviewed from its shared base, gated then resting at reviewing
+  Scenario: happy path — a colleague's PR branch reviewed from its shared base, gated then resting at review.reviewing
     Given a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
     When I run gtd with args "review base"
     Then it succeeds
-    And the last commit subject is "gtd(human): review-precheck"
+    And the last commit subject is "gtd(human): review-gate.check"
     And the last commit body contains "Gtd-Review-Base:"
     And the last commit body contains the hash of "base"
-    # The green-baseline gate: a clean tree (tests pass) advances to reviewing.
+    # The green-baseline gate: a clean tree (tests pass) advances to review.reviewing.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-precheck → reviewing"
+    And the last commit subject is "gtd(check): review-gate.check → review.reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "## Full diff under review"
@@ -42,18 +42,22 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
     Given a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do it"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do it"
+                on:
+                  "* **": idle
       """
     When I run gtd with args "review base"
     Then it fails
@@ -115,7 +119,7 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
     # crossing the idle boundary, so the process's diff base stays anchored
     # at "base") — the diff base is history-derived, not tied to any one
     # turn's own content.
-    Given a commit "gtd(agent): reviewing" that adds "src/fix.ts" with:
+    Given a commit "gtd(agent): review.reviewing" that adds "src/fix.ts" with:
       """
       export const fixed = true
       """
@@ -137,11 +141,11 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
     When I run gtd with args "review base"
     Then it succeeds
     # A fix authored during the review, then the human signs off into squashing.
-    Given a commit "gtd(agent): reviewing" that adds "src/fix.ts" with:
+    Given a commit "gtd(agent): review.reviewing" that adds "src/fix.ts" with:
       """
       export const fixed = true
       """
-    And an empty commit "gtd(human): reviewing → squashing"
+    And an empty commit "gtd(human): review.reviewing → squashing"
     When I run gtd next
     Then it succeeds
     And stdout contains "## Retained diff"
@@ -156,7 +160,7 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
     When I run gtd with args "review base"
     Then it succeeds
     # No fix authored — the human signs off straight into squashing.
-    And an empty commit "gtd(human): reviewing → squashing"
+    And an empty commit "gtd(human): review.reviewing → squashing"
     When I run gtd next
     Then it succeeds
     And stdout contains "chore: human review"
@@ -169,7 +173,7 @@ Feature: gtd review <commitish> — start a review process from an ordinary bran
       export const add = (a: number, b: number) => a + b
       """
     And I run gtd with args "review base"
-    And a commit "gtd(agent): await-review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(agent): review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 

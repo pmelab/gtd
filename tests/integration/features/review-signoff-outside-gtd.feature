@@ -18,14 +18,14 @@ Feature: Review sign-off reaches squashing even when reviewFile lives outside .g
   AGENTS.md and review-feedback-guards.feature, which simulate this same state
   for the pure-engine routing rules instead).
 
-  Scenario: a clean sign-off (all boxes ticked, no comment, no code edit) reaches squashing, not feedback-collecting
+  Scenario: a clean sign-off (all boxes ticked, no comment, no code edit) reaches squashing, not review.collecting
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
       vars:
         reviewFile: REVIEW.md
       """
-    And a commit "gtd(agent): checking → reviewing" that adds "REVIEW.md" with:
+    And a commit "gtd(agent): build.check → review.reviewing" that adds "REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -34,7 +34,7 @@ Feature: Review sign-off reaches squashing even when reviewFile lives outside .g
       ## calc
       - [ ] ./src/calc.ts#1 — new add function
       """
-    And a commit "gtd(human): await-review → review-deciding" that adds "REVIEW.md" with:
+    And a commit "gtd(human): review.await-review → review.deciding" that adds "REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -47,4 +47,4 @@ Feature: Review sign-off reaches squashing even when reviewFile lives outside .g
     And I execute the printed check script
     And I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-deciding → squashing"
+    And the last commit subject is "gtd(check): review.deciding → squashing"

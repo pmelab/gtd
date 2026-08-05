@@ -11,16 +11,20 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            prompt: "also a prompt"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                prompt: "also a prompt"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     When I run gtd status
     Then it fails
@@ -33,13 +37,17 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": nowhere
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": nowhere
       """
     When I run gtd status
     Then it fails
@@ -52,20 +60,24 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": done
-          orphan:
-            actor: human
-            message: "no edge leads here"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": done
+              orphan:
+                actor: human
+                message: "no edge leads here"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     When I run gtd status
     Then it fails
@@ -78,14 +90,18 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            prompt: "also a prompt"
-            on:
-              "* **": nowhere
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                prompt: "also a prompt"
+                on:
+                  "* **": nowhere
       """
     When I run gtd status
     Then it fails
@@ -101,15 +117,19 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
         modes:
           adr:
             validate: "adr-lint <%= it.file %>"
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            file: docs/adr.md
-            mode: adrs
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                file: docs/adr.md
+                mode: adrs
+                on:
+                  "* **": idle
       """
     When I run gtd status
     Then it fails
@@ -125,13 +145,17 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
       workflow:
         modes:
           adr: {}
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": idle
       """
     When I run gtd status
     Then it fails
@@ -147,13 +171,17 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
           adr:
             validate: "adr-lint <%= it.file %>"
             lint: "also adr-lint"
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": idle
       """
     When I run gtd status
     Then it fails
@@ -172,3 +200,102 @@ Feature: An invalid "workflow:" config fails loudly at load time, naming the sta
     Then it fails
     And stderr contains "gtd config:"
     And stderr contains "mode \"qa\": unknown key(s) formatt"
+
+  Scenario: a top-level legacy "states:" key fails with the migration message, not downstream noise
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        states:
+          idle:
+            actor: human
+            message: "start"
+      """
+    When I run gtd status
+    Then it fails
+    And stderr contains "workflow config:"
+    And stderr contains "top-level \"states:\" is no longer supported"
+    And stderr contains "declare a machine under \"machines:\" and name it in \"entry.default:\""
+
+  Scenario: a machine reference cycle fails naming the whole cycle
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: outer
+        machines:
+          outer:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": child
+              child:
+                machine: inner
+          inner:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start2"
+              back:
+                machine: outer
+      """
+    When I run gtd status
+    Then it fails
+    And stderr contains "workflow config:"
+    And stderr contains "machine reference cycle: outer → inner → outer"
+
+  Scenario: a "machines:" entry declared but never referenced fails naming it
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "hi"
+                on:
+                  "* **": idle
+          unused:
+            entry: s
+            states:
+              s:
+                actor: human
+                message: "hi"
+      """
+    When I run gtd status
+    Then it fails
+    And stderr contains "workflow config:"
+    And stderr contains "machine \"unused\" is declared but never referenced"
+
+  Scenario: a sideways "on" target names the unbound-param remedy, not just "not a defined state"
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "hi"
+                on:
+                  "* **": nowhere
+      """
+    When I run gtd status
+    Then it fails
+    And stderr contains "workflow config:"
+    And stderr contains "\"on\" target \"nowhere\" is not a state or reference of machine \"root\""
+    And stderr contains "declare a \"params:\" entry and bind it at the reference site"

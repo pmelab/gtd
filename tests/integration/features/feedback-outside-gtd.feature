@@ -21,7 +21,7 @@ Feature: A red check writes feedbackFile even when it lives outside stateDir
   AGENTS.md and review-signoff-outside-gtd.feature, which covers the same
   class of bug for `reviewFile`/issue #128).
 
-  Scenario: a red check writes the relocated feedbackFile and routes to fixing, not reviewing
+  Scenario: a red check writes the relocated feedbackFile and routes to build.fix, not review.reviewing
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -29,7 +29,7 @@ Feature: A red check writes feedbackFile even when it lives outside stateDir
         feedbackFile: notes/FEEDBACK.md
         testCommand: "false"
       """
-    And a commit "gtd(agent): building → checking" that adds "NOTE.md" with:
+    And a commit "gtd(agent): building → build.check" that adds "NOTE.md" with:
       """
       a note
       """
@@ -37,4 +37,4 @@ Feature: A red check writes feedbackFile even when it lives outside stateDir
     And I execute the printed check script
     And I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): checking → fixing"
+    And the last commit subject is "gtd(check): build.check → build.fix"

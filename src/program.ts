@@ -104,11 +104,11 @@ Commands:
                    turn commit (summed into it.processCost/processCostByModel)
   review <commitish>
                    Start a NEW review process at the workflow's declared
-                   review-entry state (reviewEntry: true), reviewing
+                   review-entry state (entry.review), reviewing
                    <commitish>..HEAD — e.g. a colleague's PR branch. Requires
                    a clean tree resting at the workflow's initial state
   fix              Start a NEW process at the workflow's declared fix-entry
-                   state (fixEntry: true) that goes straight into repairing the
+                   state (entry.fix) that goes straight into repairing the
                    current failing tests. Requires a clean tree resting at the
                    workflow's initial state
   abandon          End the process currently underway without completing it:
@@ -574,7 +574,7 @@ const runStepCommand = (
 
 /**
  * `gtd review <commitish>`: start a brand NEW review process at the active
- * workflow's declared `reviewEntry: true` state (see
+ * workflow's declared `entry.review` state (see
  * `PatternMachine.reviewEntryStateOf`), reviewing `<commitish>..HEAD` — e.g. a
  * colleague's PR branch pushed on top of a shared base, with no gtd process of
  * its own. Writes an ordinary EMPTY turn commit
@@ -592,7 +592,7 @@ const runStepCommand = (
  *    plain non-gtd branch (the normal case) resolves there via the
  *    inert-subject rule (see `resolveState`); a process already underway refuses.
  * b. The working tree must be clean.
- * c. The active workflow must declare a `reviewEntry: true` state.
+ * c. The active workflow must declare an `entry.review` state.
  * d. `<commitish>` must resolve to a commit, be an ancestor of HEAD, and
  *    differ from HEAD (nothing to review otherwise).
  */
@@ -664,7 +664,7 @@ const runReviewCommand = (
 
 /**
  * `gtd fix`: start a brand NEW process at the active workflow's declared
- * `fixEntry: true` state (see `PatternMachine.fixEntryStateOf`), which goes
+ * `entry.fix` state (see `PatternMachine.fixEntryStateOf`), which goes
  * straight into repairing the current failing tests. Mirrors `runReviewCommand`
  * but simpler — it takes no argument and writes NO `Gtd-Review-Base:` trailer:
  * the fix process reviews its own fixes from the ordinary process start, so a
@@ -678,7 +678,7 @@ const runReviewCommand = (
  *    dedicated `gtd fix` entry is distinct from the "no active cycle" rest, and
  *    a process already underway refuses (finish or abandon it first).
  * b. The working tree must be clean — the fixes belong to their own process.
- * c. The active workflow must declare a `fixEntry: true` state.
+ * c. The active workflow must declare an `entry.fix` state.
  */
 const runFixCommand = (
   argv: readonly string[],
@@ -1611,7 +1611,7 @@ const runVisualizeCommand = (
     if ("error" in opts) return yield* Effect.fail(new Error(opts.error))
 
     const config = yield* (yield* ConfigService).load
-    const model = buildVizModel(config.workflow, config.rawWorkflow, {
+    const model = buildVizModel(config.workflow, config.machineTree, {
       ...config.workflowVars,
       ...config.rcVars,
     })

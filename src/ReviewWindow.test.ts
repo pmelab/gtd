@@ -31,11 +31,12 @@ import type { WorkflowDefinition } from "./PatternMachine.js"
 // `checkpoint` reviewBase state between two building turns.
 const def: WorkflowDefinition = {
   states: {
-    idle: { actor: "human", message: "i", initial: true, on: [["* **", "building"]] },
+    idle: { actor: "human", message: "i", on: [["* **", "building"]] },
     building: { actor: "agent", prompt: "b", on: [["* **", "gate"]] },
     checkpoint: { actor: "human", message: "c", reviewBase: true, on: [["* **", "gate"]] },
     gate: { actor: "human", message: "g", reviewWindow: true, on: [["* **", "idle"]] },
   },
+  entries: { default: "idle" },
 }
 
 let repoDir: string
@@ -76,7 +77,12 @@ const runIn = <A>(
       Effect.provide(GitService.Live),
       Effect.provide(
         Layer.succeed(ConfigService, {
-          load: Effect.succeed({ workflow: def, workflowVars: {}, rcVars: {}, rawWorkflow: {} }),
+          load: Effect.succeed({
+            workflow: def,
+            workflowVars: {},
+            rcVars: {},
+            machineTree: { key: "unified", machine: "unified", states: [], children: [] },
+          }),
         }),
       ),
       Effect.provide(Cwd.layer(dir)),

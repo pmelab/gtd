@@ -15,19 +15,19 @@ describe("the bundled unified workflow template", () => {
   it("compiles with no validation findings and exactly one initial state", () => {
     const { definition } = compileTemplate()
     expect(validateDefinition(definition)).toEqual([])
-    const initial = Object.values(definition.states).filter((s) => s.initial)
-    expect(initial).toHaveLength(1)
+    expect(definition.entries.default).toBeTruthy()
+    expect(definition.states[definition.entries.default]).toBeDefined()
   })
 
   it("declares exactly one review checkout window and one review entry", () => {
     // The cycle runs to a human review gate, so it must declare exactly one
     // `reviewWindow: true` state (the gate that opens the editor's checkout
-    // window) and exactly one `reviewEntry: true` state (the
+    // window) and exactly one `entries.review` state (the
     // `gtd review <commitish>` entry point) — see src/ReviewWindow.ts.
     const { definition } = compileTemplate()
     const states = Object.values(definition.states)
     expect(states.filter((s) => s.reviewWindow === true)).toHaveLength(1)
-    expect(states.filter((s) => s.reviewEntry === true)).toHaveLength(1)
+    expect(definition.entries.review).toBeTruthy()
   })
 
   it("declares exactly one review-base state anchoring the incremental review window", () => {
@@ -40,17 +40,31 @@ describe("the bundled unified workflow template", () => {
     // idle routes `.gtd/REQUIREMENTS.md` to the advanced flow's start gate and
     // everything else (e.g. `.gtd/TODO.md`) to the simple flow's start gate —
     // the REQUIREMENTS row is declared first so it wins. Each gate runs the
-    // suite before proceeding to planning/product-qa.
+    // suite before proceeding to planning/product Q&A.
     const { definition } = compileTemplate()
     const idle = definition.states.idle!
     const targets = (idle.on ?? []).map(([, to]) => to)
-    expect(targets).toContain("spec-precheck")
-    expect(targets).toContain("plan-precheck")
+    expect(targets).toContain("spec-gate.check")
+    expect(targets).toContain("plan-gate.check")
     // The gates proceed to the planning states once green.
-    expect((definition.states["plan-precheck"]!.on ?? []).map(([, to]) => to)).toContain("planning")
-    expect((definition.states["spec-precheck"]!.on ?? []).map(([, to]) => to)).toContain(
-      "product-qa",
+    expect((definition.states["plan-gate.check"]!.on ?? []).map(([, to]) => to)).toContain(
+      "plan.planning",
     )
+    expect((definition.states["spec-gate.check"]!.on ?? []).map(([, to]) => to)).toContain(
+      "product.author",
+    )
+  })
+
+  it("resolves entry.default/.review/.fix to three distinct declared states", () => {
+    const { definition } = compileTemplate()
+    const { default: def, review, fix } = definition.entries
+    expect(def).toBeTruthy()
+    expect(review).toBeTruthy()
+    expect(fix).toBeTruthy()
+    expect(new Set([def, review, fix]).size).toBe(3)
+    expect(definition.states[def]).toBeDefined()
+    expect(definition.states[review!]).toBeDefined()
+    expect(definition.states[fix!]).toBeDefined()
   })
 
   it("exposes the compiled default as the built-in fallback (definition + its own vars)", () => {

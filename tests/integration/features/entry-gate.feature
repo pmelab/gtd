@@ -15,18 +15,18 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     Given a test project
     And the workflow
 
-  Scenario: simple flow — a green baseline proceeds from the gate into planning
+  Scenario: simple flow — a green baseline proceeds from the gate into plan.planning
     Given a file ".gtd/TODO.md" with:
       """
       Build a thing.
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → plan-precheck"
+    And the last commit subject is "gtd(human): idle → plan-gate.check"
     # A clean tree at the gate = tests pass = green -> planning.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): plan-precheck → planning"
+    And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
 
   Scenario: simple flow — a red baseline halts at plan-blocked, then a fix re-runs the gate to green
     Given a file ".gtd/TODO.md" with:
@@ -35,7 +35,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → plan-precheck"
+    And the last commit subject is "gtd(human): idle → plan-gate.check"
     # Simulate a red run: the check script left the failing output behind.
     Given a file ".gtd/FEEDBACK.md" with:
       """
@@ -43,7 +43,7 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): plan-precheck → plan-blocked"
+    And the last commit subject is "gtd(check): plan-gate.check → plan-gate.blocked"
     # The halt message tells the human the baseline is red and names gtd fix.
     When I run gtd next
     Then it succeeds
@@ -57,23 +57,23 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): plan-blocked → plan-precheck"
+    And the last commit subject is "gtd(human): plan-gate.blocked → plan-gate.check"
     # Re-run the gate: now green -> planning.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): plan-precheck → planning"
+    And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
 
-  Scenario: advanced flow — a green baseline proceeds from the gate into product-qa
+  Scenario: advanced flow — a green baseline proceeds from the gate into product.author
     Given a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget with product requirements.
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → spec-precheck"
+    And the last commit subject is "gtd(human): idle → spec-gate.check"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): spec-precheck → product-qa"
+    And the last commit subject is "gtd(check): spec-gate.check → product.author"
 
   Scenario: advanced flow — a red baseline halts at spec-blocked
     Given a file ".gtd/REQUIREMENTS.md" with:
@@ -82,11 +82,11 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → spec-precheck"
+    And the last commit subject is "gtd(human): idle → spec-gate.check"
     Given a file ".gtd/FEEDBACK.md" with:
       """
       compile error: baseline broken
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): spec-precheck → spec-blocked"
+    And the last commit subject is "gtd(check): spec-gate.check → spec-gate.blocked"

@@ -29,7 +29,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(check): review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -52,7 +52,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): await-review → review-deciding"
+    And the last commit subject is "gtd(human): review.await-review → review.deciding"
 
     # review-deciding: CAPTURES raw material into REVIEW_RAW.md, removes REVIEW.md
     Given a file ".gtd/REVIEW_RAW.md" with:
@@ -66,7 +66,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
     And the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-deciding → feedback-collecting"
+    And the last commit subject is "gtd(check): review.deciding → review.collecting"
 
     # feedback-collecting: raw material → instruction list, deletes the raw file
     Given a file ".gtd/REVIEW_FEEDBACK.md" with:
@@ -76,7 +76,7 @@ Feature: Review feedback — capture, classification, and the no-op guards
     And the file ".gtd/REVIEW_RAW.md" is deleted
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): feedback-collecting → feedback-building"
+    And the last commit subject is "gtd(agent): review.collecting → review.building"
 
     # feedback-building: implements the instruction and deletes the file
     Given "src/calc.ts" is modified to:
@@ -86,11 +86,11 @@ Feature: Review feedback — capture, classification, and the no-op guards
     And the file ".gtd/REVIEW_FEEDBACK.md" is deleted
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): feedback-building → checking"
+    And the last commit subject is "gtd(agent): review.building → build.check"
 
   Scenario: feedback-building refuses a work-free turn that just deletes the instructions
-    Given an empty commit "gtd(human): await-review → review-deciding"
-    And a commit "gtd(agent): feedback-collecting → feedback-building" that adds ".gtd/REVIEW_FEEDBACK.md" with:
+    Given an empty commit "gtd(human): review.await-review → review.deciding"
+    And a commit "gtd(agent): review.collecting → review.building" that adds ".gtd/REVIEW_FEEDBACK.md" with:
       """
       1. ./src/calc.ts#1 — rename the exported `add` to `sum`
       """
@@ -101,8 +101,8 @@ Feature: Review feedback — capture, classification, and the no-op guards
     And stderr contains "without addressing its instructions"
 
   Scenario: feedback-building allows deleting a NOTHING ACTIONABLE sentinel with no code change
-    Given an empty commit "gtd(human): await-review → review-deciding"
-    And a commit "gtd(agent): feedback-collecting → feedback-building" that adds ".gtd/REVIEW_FEEDBACK.md" with:
+    Given an empty commit "gtd(human): review.await-review → review.deciding"
+    And a commit "gtd(agent): review.collecting → review.building" that adds ".gtd/REVIEW_FEEDBACK.md" with:
       """
       NOTHING ACTIONABLE — the human left only an approving remark.
       """
@@ -110,10 +110,10 @@ Feature: Review feedback — capture, classification, and the no-op guards
     Given the file ".gtd/REVIEW_FEEDBACK.md" is deleted
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): feedback-building → checking"
+    And the last commit subject is "gtd(agent): review.building → build.check"
 
   Scenario: feedback-collecting refuses a silent no-op — raw consumed, nothing written
-    Given a commit "gtd(check): review-deciding → feedback-collecting" that adds ".gtd/REVIEW_RAW.md" with:
+    Given a commit "gtd(check): review.deciding → review.collecting" that adds ".gtd/REVIEW_RAW.md" with:
       """
       Raw review material captured for classification.
 

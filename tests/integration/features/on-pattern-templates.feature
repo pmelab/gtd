@@ -15,22 +15,26 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
       workflow:
         vars:
           outFile: OUT.md
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work"
-            on:
-              "A <%= it.vars.outFile %>": captured
-              "* **": working
-          captured:
-            actor: human
-            message: "done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work"
+                on:
+                  "A <%= it.vars.outFile %>": captured
+                  "* **": working
+              captured:
+                actor: human
+                message: "done"
       vars:
         outFile: RENAMED.md
       """
@@ -53,21 +57,25 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
       workflow:
         vars:
           outFile: OUT.md
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work"
-            on:
-              "A <%= it.vars.outFile %>": captured
-          captured:
-            actor: human
-            message: "done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work"
+                on:
+                  "A <%= it.vars.outFile %>": captured
+              captured:
+                actor: human
+                message: "done"
       vars:
         outFile: RENAMED.md
       """
@@ -90,22 +98,26 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
       workflow:
         vars:
           outFile: OUT.md
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work"
-            on:
-              "A <%= it.vars.outFile %>": captured
-              "* **": working
-          captured:
-            actor: human
-            message: "done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work"
+                on:
+                  "A <%= it.vars.outFile %>": captured
+                  "* **": working
+              captured:
+                actor: human
+                message: "done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -127,22 +139,26 @@ Feature: "on" pattern keys are Eta templates over "it.vars"
       workflow:
         vars:
           outFile: OUT.md
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "start"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work"
-            on:
-              "A <%= it.vars.outFile %>": captured
-              "* **": working
-          captured:
-            actor: human
-            message: "done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work"
+                on:
+                  "A <%= it.vars.outFile %>": captured
+                  "* **": working
+              captured:
+                actor: human
+                message: "done"
       vars:
         outFile: RENAMED.md
       """

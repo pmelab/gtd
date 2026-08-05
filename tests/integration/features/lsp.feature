@@ -52,20 +52,24 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            file: ".gtd/PLAN.md"
-            mode: qa
-            prompt: "develop the plan"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                file: ".gtd/PLAN.md"
+                mode: qa
+                prompt: "develop the plan"
+                on:
+                  "* **": idle
       """
     And an LSP server started in the test project
     When the LSP client sends an initialize request
@@ -88,20 +92,24 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            file: ".gtd/PLAN.md"
-            mode: qa
-            prompt: "develop the plan"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                file: ".gtd/PLAN.md"
+                mode: qa
+                prompt: "develop the plan"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds ".gtd/PLAN.md" with:
       """

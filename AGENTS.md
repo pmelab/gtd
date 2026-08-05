@@ -36,15 +36,17 @@ DEFAULT — a state command with no `workflow:` configured falls back to it, so
 gtd works out of the box with no config. `gtd init` seeds only
 `vars.testCommand` + a `modes:` formatting suggestion, never the workflow.
 
-To change what it does, edit `src/workflows/unified.yaml` (states, `actor`,
-exactly one content kind, `on` edges, `retry`, `model`, `file`/`mode`,
-`reviewWindow`/`reviewBase`). It compiles through the same
-`compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through, so it
-never needs its own logic. After editing, update:
+To change what it does, edit `src/workflows/unified.yaml` (`entry:`/`machines:`,
+each state's `actor`, exactly one content kind, `on` edges, `retry`, `model`,
+`file`/`mode`, `reviewWindow`/`reviewBase`). It compiles through the same
+`compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through (which
+flattens `entry:`/`machines:` via `src/Machines.ts`'s `flattenMachines` before
+any per-state compilation), so it never needs its own logic. After editing,
+update:
 
 - **`src/workflows/templates.test.ts`** — the invariants the compiled template
-  must keep (one initial state, one review window, one review/fix entry, the two
-  entry-file forks)
+  must keep (one `entry.default`, one review window, one review/fix entry, the
+  two entry-file forks)
 - **e2e feature files** that assert on the bundled template's shape (they set it
   up with the `Given the workflow` step —
   `tests/integration/features/default-workflow.feature` (simple flow),
@@ -78,7 +80,7 @@ name gtd interprets. Don't add a blessed config key for one.
 ### Scripted checks (no in-process execution)
 
 Checks are just an ordinary actor's turns at a `script`-content state (the
-bundled template's `checking` state, awaited by the `check` actor) — **the
+bundled template's `build.check` state, awaited by the `check` actor) — **the
 engine NEVER executes anything itself**. `gtd next` renders and prints the
 script; the DRIVER (`bin/gtd`, or any loop harness) executes it verbatim via
 `bash`. The only place gtd spawns a subprocess at all is a steering-file mode's

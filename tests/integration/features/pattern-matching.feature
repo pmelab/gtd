@@ -12,24 +12,28 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          start:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "A NOTE.md": added
-              "M NOTE.md": modified
-              "D NOTE.md": deleted
-          added:
-            actor: human
-            message: "added"
-          modified:
-            actor: human
-            message: "modified"
-          deleted:
-            actor: human
-            message: "deleted"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "go"
+                on:
+                  "A NOTE.md": added
+                  "M NOTE.md": modified
+                  "D NOTE.md": deleted
+              added:
+                actor: human
+                message: "added"
+              modified:
+                actor: human
+                message: "modified"
+              deleted:
+                actor: human
+                message: "deleted"
       """
     And a file "NOTE.md" with:
       """
@@ -44,24 +48,28 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          start:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "A NOTE.md": added
-              "M NOTE.md": modified
-              "D NOTE.md": deleted
-          added:
-            actor: human
-            message: "added"
-          modified:
-            actor: human
-            message: "modified"
-          deleted:
-            actor: human
-            message: "deleted"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "go"
+                on:
+                  "A NOTE.md": added
+                  "M NOTE.md": modified
+                  "D NOTE.md": deleted
+              added:
+                actor: human
+                message: "added"
+              modified:
+                actor: human
+                message: "modified"
+              deleted:
+                actor: human
+                message: "deleted"
       """
     And a commit "chore: seed" that adds "NOTE.md" with:
       """
@@ -80,24 +88,28 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          start:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "A NOTE.md": added
-              "M NOTE.md": modified
-              "D NOTE.md": deleted
-          added:
-            actor: human
-            message: "added"
-          modified:
-            actor: human
-            message: "modified"
-          deleted:
-            actor: human
-            message: "deleted"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "go"
+                on:
+                  "A NOTE.md": added
+                  "M NOTE.md": modified
+                  "D NOTE.md": deleted
+              added:
+                actor: human
+                message: "added"
+              modified:
+                actor: human
+                message: "modified"
+              deleted:
+                actor: human
+                message: "deleted"
       """
     And a commit "chore: seed" that adds "NOTE.md" with:
       """
@@ -113,16 +125,20 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          start:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* NOTE.md": any-change
-          any-change:
-            actor: human
-            message: "matched"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "go"
+                on:
+                  "* NOTE.md": any-change
+              any-change:
+                actor: human
+                message: "matched"
       """
     And a file "NOTE.md" with:
       """
@@ -137,16 +153,20 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          start:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* .gtd/*": shallow
-          shallow:
-            actor: human
-            message: "matched"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "go"
+                on:
+                  "* .gtd/*": shallow
+              shallow:
+                actor: human
+                message: "matched"
       """
     And a file ".gtd/sub/DEEP.md" with:
       """
@@ -162,16 +182,20 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          start:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* .gtd/**": deep
-          deep:
-            actor: human
-            message: "matched"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "go"
+                on:
+                  "* .gtd/**": deep
+              deep:
+                actor: human
+                message: "matched"
       """
     And a file ".gtd/sub/DEEP.md" with:
       """
@@ -186,20 +210,24 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          start:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* NOTE.md": first-match
-              "A NOTE.md": second-match
-          first-match:
-            actor: human
-            message: "matched first"
-          second-match:
-            actor: human
-            message: "matched second"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "go"
+                on:
+                  "* NOTE.md": first-match
+                  "A NOTE.md": second-match
+              first-match:
+                actor: human
+                message: "matched first"
+              second-match:
+                actor: human
+                message: "matched second"
       """
     And a file "NOTE.md" with:
       """
@@ -214,16 +242,20 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          start:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "C": settled
-          settled:
-            actor: human
-            message: "clean"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "go"
+                on:
+                  "C": settled
+              settled:
+                actor: human
+                message: "clean"
       """
     When I run gtd step human
     Then it succeeds
@@ -234,16 +266,20 @@ Feature: Pattern-matching grammar — statuses, glob depth, declaration order, c
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          start:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* NOTE.md": working
-          working:
-            actor: agent
-            message: "..."
+        entry:
+          default: root
+        machines:
+          root:
+            entry: start
+            states:
+              start:
+                actor: human
+                message: "go"
+                on:
+                  "* NOTE.md": working
+              working:
+                actor: agent
+                message: "..."
       """
     And I record the commit count
     When I run gtd step human

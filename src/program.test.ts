@@ -15,7 +15,7 @@ import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
-import { compileTemplate, renderInitConfig } from "./workflows/templates.js"
+import { compileTemplate, defaultMachineTree, renderInitConfig } from "./workflows/templates.js"
 import {
   classifyAnswerCompleteness,
   classifyFeedbackProgress,
@@ -67,7 +67,7 @@ const stubConfigLayer = Layer.succeed(ConfigService, {
     workflow: compileTemplate().definition,
     workflowVars: {},
     rcVars: {},
-    rawWorkflow: {},
+    machineTree: defaultMachineTree,
   }),
 })
 
@@ -318,7 +318,7 @@ describe("gtd review <commitish> — subcommand guards", () => {
     const repo = seededRepo()
     const base = repo.commitHistory()[0]!.hash
     repo.writeFile(".gtd/TODO.md", "sketch\n")
-    repo.commitAllWithPrefix("gtd(human): planning")
+    repo.commitAllWithPrefix("gtd(agent): plan.planning")
     const before = repo.commitHistory().length
     const { exit } = await runReview(repo, base)
     expect(Exit.isSuccess(exit)).toBe(false)
@@ -336,25 +336,29 @@ describe("gtd review <commitish> — subcommand guards", () => {
 
   it("a workflow declaring no reviewEntry state fails with a clear usage error", async () => {
     const repo = seededRepo()
-    // A minimal custom workflow with no `reviewEntry:` anywhere, COMMITTED
-    // (not left pending) so the clean-tree guard passes and this test
-    // exercises the reviewEntry guard specifically.
+    // A minimal custom workflow with no top-level `entry.review` anywhere,
+    // COMMITTED (not left pending) so the clean-tree guard passes and this
+    // test exercises the reviewEntry guard specifically.
     repo.writeFile(
       ".gtdrc.yaml",
       [
         "workflow:",
-        "  states:",
-        "    idle:",
-        "      actor: human",
-        "      initial: true",
-        "      message: hi",
-        "      on:",
-        '        "* **": working',
-        "    working:",
-        "      actor: agent",
-        "      prompt: go",
-        "      on:",
-        '        "* **": idle',
+        "  entry:",
+        "    default: root",
+        "  machines:",
+        "    root:",
+        "      entry: idle",
+        "      states:",
+        "        idle:",
+        "          actor: human",
+        "          message: hi",
+        "          on:",
+        '            "* **": working',
+        "        working:",
+        "          actor: agent",
+        "          prompt: go",
+        "          on:",
+        '            "* **": idle',
         "",
       ].join("\n"),
     )
@@ -367,10 +371,10 @@ describe("gtd review <commitish> — subcommand guards", () => {
     }
   })
 
-  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the unified template's review-entry state (review-precheck)", async () => {
+  it("the happy path writes one empty entry commit with a Gtd-Review-Base trailer, resting at the unified template's review-entry state (review-gate.check)", async () => {
     const repo = seededRepo()
-    // Pin the bundled unified template (whose `review-precheck` state
-    // declares `reviewEntry: true`) explicitly and commit it — this is the same
+    // Pin the bundled unified template (whose top-level `entry.review` names
+    // `review-gate.check`) explicitly and commit it — this is the same
     // machine gtd runs as its built-in default, materialized via
     // `renderInitConfig` (see src/workflows/templates.ts).
     repo.writeFile(".gtdrc.json", renderInitConfig())
@@ -384,9 +388,9 @@ describe("gtd review <commitish> — subcommand guards", () => {
 
     const { output, exit } = await runReview(repo, base)
     expect(Exit.isSuccess(exit)).toBe(true)
-    expect(output).toContain("committed: gtd(human): review-precheck")
+    expect(output).toContain("committed: gtd(human): review-gate.check")
     expect(repo.commitHistory()).toHaveLength(before + 1)
-    expect(repo.lastCommitSubject()).toBe("gtd(human): review-precheck")
+    expect(repo.lastCommitSubject()).toBe("gtd(human): review-gate.check")
     const message = repo.commitHistory().at(-1)!.message
     expect(message).toContain(`Gtd-Review-Base: ${base}`)
   })
@@ -452,7 +456,7 @@ describe("gtd fix — subcommand guards", () => {
     repo.writeFile(".gtdrc.json", renderInitConfig())
     repo.commitAllWithPrefix("chore: init gtd workflow")
     repo.writeFile(".gtd/TODO.md", "sketch\n")
-    repo.commitAllWithPrefix("gtd(human): planning")
+    repo.commitAllWithPrefix("gtd(agent): plan.planning")
     const before = repo.commitHistory().length
     const { exit } = await runFix(repo)
     expect(Exit.isSuccess(exit)).toBe(false)
@@ -465,18 +469,22 @@ describe("gtd fix — subcommand guards", () => {
       ".gtdrc.yaml",
       [
         "workflow:",
-        "  states:",
-        "    idle:",
-        "      actor: human",
-        "      initial: true",
-        "      message: hi",
-        "      on:",
-        '        "* **": working',
-        "    working:",
-        "      actor: agent",
-        "      prompt: go",
-        "      on:",
-        '        "* **": idle',
+        "  entry:",
+        "    default: root",
+        "  machines:",
+        "    root:",
+        "      entry: idle",
+        "      states:",
+        "        idle:",
+        "          actor: human",
+        "          message: hi",
+        "          on:",
+        '            "* **": working',
+        "        working:",
+        "          actor: agent",
+        "          prompt: go",
+        "          on:",
+        '            "* **": idle',
         "",
       ].join("\n"),
     )
@@ -511,36 +519,44 @@ describe("gtd next --json / gtd status — label emission", () => {
 
   const workflowWithLabel = [
     "workflow:",
-    "  states:",
-    "    idle:",
-    "      actor: human",
-    "      initial: true",
-    "      message: write NOTE.md to start a cycle",
-    "      on:",
-    '        "* **": working',
-    "    working:",
-    "      actor: agent",
-    "      label: planning",
-    "      prompt: do the work described in NOTE.md",
-    "      on:",
-    '        "* **": idle',
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: write NOTE.md to start a cycle",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          label: planning",
+    "          prompt: do the work described in NOTE.md",
+    "          on:",
+    '            "* **": idle',
     "",
   ].join("\n")
 
   const workflowWithoutLabel = [
     "workflow:",
-    "  states:",
-    "    idle:",
-    "      actor: human",
-    "      initial: true",
-    "      message: write NOTE.md to start a cycle",
-    "      on:",
-    '        "* **": working',
-    "    working:",
-    "      actor: agent",
-    "      prompt: do the work described in NOTE.md",
-    "      on:",
-    '        "* **": idle',
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: write NOTE.md to start a cycle",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: do the work described in NOTE.md",
+    "          on:",
+    '            "* **": idle',
     "",
   ].join("\n")
 
@@ -659,24 +675,28 @@ describe("gtd status — Next: preview", () => {
 
   const workflowWithNextEdges = [
     "workflow:",
-    "  states:",
-    "    idle:",
-    "      actor: human",
-    "      initial: true",
-    "      message: write NOTE.md to start a cycle",
-    "      on:",
-    '        "* **": working',
-    "    working:",
-    "      actor: agent",
-    "      prompt: do the work described in NOTE.md",
-    "      on:",
-    '        "A PLAN.md":',
-    "          to: accepted",
-    "          action: Accept plan",
-    '        "M REVIEW.md": idle',
-    "    accepted:",
-    "      actor: human",
-    "      message: plan accepted",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: write NOTE.md to start a cycle",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: do the work described in NOTE.md",
+    "          on:",
+    '            "A PLAN.md":',
+    "              to: accepted",
+    "              action: Accept plan",
+    '            "M REVIEW.md": idle',
+    "        accepted:",
+    "          actor: human",
+    "          message: plan accepted",
     "",
   ].join("\n")
 

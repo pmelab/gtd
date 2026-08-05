@@ -14,18 +14,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": checking
-          checking:
-            actor: check
-            script: "echo hi"
-            on:
-              "C": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": checking
+              checking:
+                actor: check
+                script: "echo hi"
+                on:
+                  "C": idle
       """
     And a commit "gtd(human): checking" that adds "NOTE.md" with:
       """
@@ -43,18 +47,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -72,26 +80,30 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "..."
-            on:
-              "A DONE.md": done
-              "M .gtd/FEEDBACK.md": fixing
-          fixing:
-            actor: agent
-            prompt: "..."
-            on:
-              "* **": working
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "..."
+                on:
+                  "A DONE.md": done
+                  "M .gtd/FEEDBACK.md": fixing
+              fixing:
+                actor: agent
+                prompt: "..."
+                on:
+                  "* **": working
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -117,22 +129,26 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "..."
-            on:
-              "A DONE.md":
-                to: done
-                action: "Finish up"
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "..."
+                on:
+                  "A DONE.md":
+                    to: done
+                    action: "Finish up"
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -154,20 +170,24 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "..."
-            on:
-              "A DONE.md": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "..."
+                on:
+                  "A DONE.md": done
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -189,19 +209,23 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            model: smart
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                model: smart
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -224,18 +248,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -257,19 +285,23 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            memory: plan
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                memory: plan
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -292,18 +324,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -325,19 +361,23 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            label: "Doing the work"
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                label: "Doing the work"
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -360,18 +400,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -393,20 +437,24 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "..."
-            on:
-              "A DONE.md": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "..."
+                on:
+                  "A DONE.md": done
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -431,20 +479,24 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            file: ".gtd/PLAN.md"
-            mode: qa
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                file: ".gtd/PLAN.md"
+                mode: qa
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -470,18 +522,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "do the work described in NOTE.md"
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "do the work described in NOTE.md"
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """
@@ -505,31 +561,35 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          gate:
-            actor: human
-            initial: true
-            message: |
-              Decide what to do next.
+        entry:
+          default: root
+        machines:
+          root:
+            entry: gate
+            states:
+              gate:
+                actor: human
+                message: |
+                  Decide what to do next.
 
-              What each change does next (then run `gtd step human`):
-              <% it.edges.forEach(function (e) { if (e.describe) { %>
-              <%~ "- " + e.describe + "\n" %>
-              <% } }) %>
-            on:
-              "C":
-                to: accept
-                describe: "Change nothing to accept the current state and proceed."
-              "* **":
-                to: revise
-                describe: "Change any source file to leave feedback and start another round."
-          accept:
-            commit: "chore: accept"
-          revise:
-            actor: agent
-            prompt: "revise"
-            on:
-              "* **": gate
+                  What each change does next (then run `gtd step human`):
+                  <% it.edges.forEach(function (e) { if (e.describe) { %>
+                  <%~ "- " + e.describe + "\n" %>
+                  <% } }) %>
+                on:
+                  "C":
+                    to: accept
+                    describe: "Change nothing to accept the current state and proceed."
+                  "* **":
+                    to: revise
+                    describe: "Change any source file to leave feedback and start another round."
+              accept:
+                commit: "chore: accept"
+              revise:
+                actor: agent
+                prompt: "revise"
+                on:
+                  "* **": gate
       """
     When I run gtd next
     Then it succeeds
@@ -548,18 +608,22 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "go"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "..."
-            on:
-              "* **": idle
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "go"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "..."
+                on:
+                  "* **": idle
       """
     And a commit "gtd(human): working" that adds "NOTE.md" with:
       """

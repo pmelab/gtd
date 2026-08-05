@@ -10,12 +10,14 @@ import {
 import type { ResolvedRest } from "./Edge.js"
 import type { OnEdge, PendingChange } from "./PatternMachine.js"
 
-// A small workflow authored with a sub-machine, so we exercise both the
-// compiled (flat) states AND the raw sub-machine grouping.
+// A small workflow authored with a machine reference, so we exercise both the
+// compiled (flat) states AND the machine-instance tree.
 const raw = {
-  submachines: {
+  entry: { default: "root" },
+  machines: {
     gate: {
       params: ["onGreen"],
+      entry: "check",
       states: {
         check: {
           actor: "check",
@@ -30,31 +32,28 @@ const raw = {
         },
       },
     },
-  },
-  use: [
-    {
-      submachine: "gate",
-      name: "start",
-      as: { check: "start-check", blocked: "start-blocked" },
-      with: { onGreen: "planning" },
+    root: {
+      entry: "idle",
+      states: {
+        idle: { actor: "human", message: "idle", on: { "* **": "start.check" } },
+        planning: {
+          actor: "agent",
+          prompt: "plan",
+          model: "smart",
+          memory: "plan",
+          file: ".gtd/TODO.md",
+          answerGate: true,
+          on: { "* **": "done" },
+        },
+        done: { commit: "chore: done" },
+        start: { machine: "gate", with: { onGreen: "planning" } },
+      },
     },
-  ],
-  states: {
-    idle: { actor: "human", message: "idle", initial: true, on: { "* **": "start-check" } },
-    planning: {
-      actor: "agent",
-      prompt: "plan",
-      model: "smart",
-      memory: "plan",
-      file: ".gtd/TODO.md",
-      answerGate: true,
-      on: { "* **": "done" },
-    },
-    done: { commit: "chore: done" },
   },
 }
 
-const model = buildVizModel(compileWorkflowConfig(raw, "/dir").definition, raw, {
+const compiled = compileWorkflowConfig(raw, "/dir")
+const model = buildVizModel(compiled.definition, compiled.tree, {
   testCommand: "npm test",
 })
 const stateNamed = (name: string) => model.states.find((s) => s.name === name)!
@@ -62,8 +61,9 @@ const stateNamed = (name: string) => model.states.find((s) => s.name === name)!
 describe("buildVizModel", () => {
   it("carries the initial state and every state's actor + content kind", () => {
     expect(model.initial).toBe("idle")
-    expect(stateNamed("idle")).toMatchObject({ actor: "human", kind: "message", initial: true })
-    expect(stateNamed("start-check")).toMatchObject({ actor: "check", kind: "script" })
+    expect(stateNamed("idle")).toMatchObject({ actor: "human", kind: "message" })
+    expect(stateNamed("idle").initial).toBe(true)
+    expect(stateNamed("start.check")).toMatchObject({ actor: "check", kind: "script" })
     expect(stateNamed("done")).toMatchObject({ kind: "commit" })
     // a commit state carries no actor
     expect(stateNamed("done").actor).toBeUndefined()
@@ -79,61 +79,73 @@ describe("buildVizModel", () => {
   it("carries a prompt/message/script state's raw content, omits it for a commit state", () => {
     expect(stateNamed("planning").content).toBe("plan")
     expect(stateNamed("idle").content).toBe("idle")
-    expect(stateNamed("start-check").content).toBe("run")
+    expect(stateNamed("start.check").content).toBe("run")
     expect(stateNamed("done").content).toBeUndefined()
   })
 
-  it("groups states by their sub-machine invocation (using its `name`)", () => {
+  it("groups states by their machine instance", () => {
     expect(model.groups).toContainEqual({
       name: "start",
-      submachine: "gate",
-      states: ["start-check", "start-blocked"],
+      machine: "gate",
+      states: ["start.check", "start.blocked"],
+      depth: 0,
     })
-    expect(stateNamed("start-check").group).toBe("start")
-    expect(stateNamed("start-blocked").group).toBe("start")
+    expect(stateNamed("start.check").group).toBe("start")
+    expect(stateNamed("start.blocked").group).toBe("start")
     expect(stateNamed("idle").group).toBeUndefined()
   })
 
   it("computes incoming edges (routes in from)", () => {
-    // start-check green (C) -> planning
-    expect(stateNamed("planning").incoming).toContainEqual({ from: "start-check", pattern: "C" })
-    // idle -> start-check
-    expect(stateNamed("start-check").incoming).toContainEqual({ from: "idle", pattern: "* **" })
+    // start.check green (C) -> planning
+    expect(stateNamed("planning").incoming).toContainEqual({ from: "start.check", pattern: "C" })
+    // idle -> start.check
+    expect(stateNamed("start.check").incoming).toContainEqual({ from: "idle", pattern: "* **" })
   })
 
   it("passes vars through", () => {
     expect(model.vars).toEqual({ testCommand: "npm test" })
   })
 
-  it("yields no groups for a workflow with no sub-machines", () => {
+  it("yields no groups for a workflow with no machine references", () => {
     const flatRaw = {
-      states: {
-        a: { actor: "human", message: "a", initial: true, on: { "* **": "b" } },
-        b: { commit: "chore: b" },
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: { actor: "human", message: "a", on: { "* **": "b" } },
+            b: { commit: "chore: b" },
+          },
+        },
       },
     }
-    const flatModel = buildVizModel(compileWorkflowConfig(flatRaw, "/dir").definition, flatRaw, {})
+    const flatCompiled = compileWorkflowConfig(flatRaw, "/dir")
+    const flatModel = buildVizModel(flatCompiled.definition, flatCompiled.tree, {})
     expect(flatModel.groups).toEqual([])
     expect(flatModel.states.every((s) => s.group === undefined)).toBe(true)
   })
 
   it("renders a templated `on` pattern against vars, in both the state's own edges and the incoming-edges map", () => {
     const templatedRaw = {
-      states: {
-        a: {
-          actor: "human",
-          message: "a",
-          initial: true,
-          on: { "A <%= it.vars.feedbackFile %>": "b" },
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: {
+              actor: "human",
+              message: "a",
+              on: { "A <%= it.vars.feedbackFile %>": "b" },
+            },
+            b: { commit: "chore: b" },
+          },
         },
-        b: { commit: "chore: b" },
       },
     }
-    const templatedModel = buildVizModel(
-      compileWorkflowConfig(templatedRaw, "/dir").definition,
-      templatedRaw,
-      { feedbackFile: ".gtd/FEEDBACK.md" },
-    )
+    const templatedCompiled = compileWorkflowConfig(templatedRaw, "/dir")
+    const templatedModel = buildVizModel(templatedCompiled.definition, templatedCompiled.tree, {
+      feedbackFile: ".gtd/FEEDBACK.md",
+    })
     expect(templatedModel.states.find((s) => s.name === "a")!.on).toEqual([
       { pattern: "A .gtd/FEEDBACK.md", to: "b" },
     ])
@@ -145,26 +157,28 @@ describe("buildVizModel", () => {
 
   it("carries an on-edge's action when present, omits it when absent — all 4 describe/action combinations", () => {
     const rawWithAction = {
-      states: {
-        a: {
-          actor: "human",
-          message: "a",
-          initial: true,
-          on: {
-            C: "b",
-            "A file1.md": { to: "b", describe: "d1" },
-            "A file2.md": { to: "b", action: "act2" },
-            "A file3.md": { to: "b", describe: "d3", action: "act3" },
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: {
+              actor: "human",
+              message: "a",
+              on: {
+                C: "b",
+                "A file1.md": { to: "b", describe: "d1" },
+                "A file2.md": { to: "b", action: "act2" },
+                "A file3.md": { to: "b", describe: "d3", action: "act3" },
+              },
+            },
+            b: { commit: "chore: b" },
           },
         },
-        b: { commit: "chore: b" },
       },
     }
-    const actionModel = buildVizModel(
-      compileWorkflowConfig(rawWithAction, "/dir").definition,
-      rawWithAction,
-      {},
-    )
+    const actionCompiled = compileWorkflowConfig(rawWithAction, "/dir")
+    const actionModel = buildVizModel(actionCompiled.definition, actionCompiled.tree, {})
     const edges = actionModel.states.find((s) => s.name === "a")!.on
     expect(edges).toEqual([
       { pattern: "C", to: "b" },
@@ -179,17 +193,23 @@ describe("buildVizModel", () => {
 
   it("falls back to the raw pattern string when it fails to render", () => {
     const badRaw = {
-      states: {
-        a: {
-          actor: "human",
-          message: "a",
-          initial: true,
-          on: { "A <%= it.vars.missing.deeper %>": "b" },
+      entry: { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: {
+              actor: "human",
+              message: "a",
+              on: { "A <%= it.vars.missing.deeper %>": "b" },
+            },
+            b: { commit: "chore: b" },
+          },
         },
-        b: { commit: "chore: b" },
       },
     }
-    const badModel = buildVizModel(compileWorkflowConfig(badRaw, "/dir").definition, badRaw, {})
+    const badCompiled = compileWorkflowConfig(badRaw, "/dir")
+    const badModel = buildVizModel(badCompiled.definition, badCompiled.tree, {})
     expect(badModel.states.find((s) => s.name === "a")!.on).toEqual([
       { pattern: "A <%= it.vars.missing.deeper %>", to: "b" },
     ])
@@ -208,38 +228,38 @@ describe("buildCurrentStateModel", () => {
 
   it("flags the on-edge that matches the pending changes", () => {
     const changes: PendingChange[] = [{ status: "A", path: ".gtd/FEEDBACK.md" }]
-    const model = buildCurrentStateModel(restAt("start-check"), changes, onEdgesAt("start-check"))
-    expect(model).toMatchObject({ state: "start-check", actor: "check", kind: "script" })
+    const model = buildCurrentStateModel(restAt("start.check"), changes, onEdgesAt("start.check"))
+    expect(model).toMatchObject({ state: "start.check", actor: "check", kind: "script" })
     expect(model.edges).toEqual([
-      { pattern: "A .gtd/FEEDBACK.md", to: "start-blocked", matched: true },
+      { pattern: "A .gtd/FEEDBACK.md", to: "start.blocked", matched: true },
       { pattern: "C", to: "planning", matched: false },
     ])
   })
 
   it("flags the clean-tree edge when there are no pending changes", () => {
-    const model = buildCurrentStateModel(restAt("start-check"), [], onEdgesAt("start-check"))
+    const model = buildCurrentStateModel(restAt("start.check"), [], onEdgesAt("start.check"))
     expect(model.edges).toEqual([
-      { pattern: "A .gtd/FEEDBACK.md", to: "start-blocked", matched: false },
+      { pattern: "A .gtd/FEEDBACK.md", to: "start.blocked", matched: false },
       { pattern: "C", to: "planning", matched: true },
     ])
   })
 
   it("matches/emits from the given (pre-rendered) onEdges, not `rest.stateDef.on`", () => {
     const changes: PendingChange[] = [{ status: "A", path: "elsewhere.md" }]
-    const rendered = [["A elsewhere.md", "start-blocked"] as const, ["C", "planning"] as const]
-    const model = buildCurrentStateModel(restAt("start-check"), changes, rendered)
+    const rendered = [["A elsewhere.md", "start.blocked"] as const, ["C", "planning"] as const]
+    const model = buildCurrentStateModel(restAt("start.check"), changes, rendered)
     expect(model.edges).toEqual([
-      { pattern: "A elsewhere.md", to: "start-blocked", matched: true },
+      { pattern: "A elsewhere.md", to: "start.blocked", matched: true },
       { pattern: "C", to: "planning", matched: false },
     ])
   })
 
   it("carries the group when given one, omits it otherwise", () => {
     expect(
-      buildCurrentStateModel(restAt("start-check"), [], onEdgesAt("start-check"), "start").group,
+      buildCurrentStateModel(restAt("start.check"), [], onEdgesAt("start.check"), "start").group,
     ).toBe("start")
     expect(
-      buildCurrentStateModel(restAt("start-check"), [], onEdgesAt("start-check")).group,
+      buildCurrentStateModel(restAt("start.check"), [], onEdgesAt("start.check")).group,
     ).toBeUndefined()
   })
 
@@ -259,20 +279,20 @@ describe("buildCurrentStateModel", () => {
 
   it("carries an edge's action on both the matched AND an unmatched edge, omits it when absent", () => {
     const onEdges: OnEdge[] = [
-      ["A .gtd/FEEDBACK.md", "start-blocked", undefined, "Reject"],
+      ["A .gtd/FEEDBACK.md", "start.blocked", undefined, "Reject"],
       ["C", "planning", undefined, "Approve"],
     ]
     const changes: PendingChange[] = [{ status: "A", path: ".gtd/FEEDBACK.md" }]
-    const withAction = buildCurrentStateModel(restAt("start-check"), changes, onEdges)
+    const withAction = buildCurrentStateModel(restAt("start.check"), changes, onEdges)
     expect(withAction.edges).toEqual([
-      { pattern: "A .gtd/FEEDBACK.md", to: "start-blocked", matched: true, action: "Reject" },
+      { pattern: "A .gtd/FEEDBACK.md", to: "start.blocked", matched: true, action: "Reject" },
       { pattern: "C", to: "planning", matched: false, action: "Approve" },
     ])
 
     const withoutAction = buildCurrentStateModel(
-      restAt("start-check"),
+      restAt("start.check"),
       [],
-      onEdgesAt("start-check"),
+      onEdgesAt("start.check"),
     )
     // no source edge carries an action — the key must be OMITTED, not `action: undefined`
     for (const edge of withoutAction.edges) expect(edge).not.toHaveProperty("action")
@@ -281,7 +301,7 @@ describe("buildCurrentStateModel", () => {
   it("passes pending changes through", () => {
     const changes: PendingChange[] = [{ status: "A", path: ".gtd/FEEDBACK.md" }]
     expect(
-      buildCurrentStateModel(restAt("start-check"), changes, onEdgesAt("start-check")).pending,
+      buildCurrentStateModel(restAt("start.check"), changes, onEdgesAt("start.check")).pending,
     ).toEqual(changes)
   })
 })

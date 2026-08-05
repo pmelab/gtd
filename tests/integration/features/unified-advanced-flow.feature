@@ -3,20 +3,20 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
 
   Coverage of the ADVANCED entry of `src/workflows/unified.yaml` (started by
   creating `.gtd/REQUIREMENTS.md`): the two-phase product/technical Q&A
-  (product-qa ⇄ answer, technical-qa ⇄ answer), package decomposition, the
-  per-package build loop (picking → package-building → package-checking), the
-  per-package agentic `spec-review` gate (issues → spec-fix → re-check →
-  re-review; clean = approval → closing), and the queue closing out to the
-  SHARED tail (`reviewing`) once every package is done.
+  (product.author ⇄ answer, technical.author ⇄ answer), package decomposition, the
+  per-package build loop (packages.picking → packages.building → packages.health.check), the
+  per-package agentic `packages.spec.review` gate (issues → packages.spec.fix → re-check →
+  re-review; clean = approval → packages.closing), and the queue closing out to the
+  SHARED tail (`review.reviewing`) once every package is done.
 
   The Q&A phases use the qa checkbox format: the agent surfaces each open
   question with candidate-answer checkboxes plus a `- [ ] _your answer_` slot,
-  and the `answerGate` on product-answer/technical-answer refuses a step
+  and the `answerGate` on product.answer/technical.answer refuses a step
   while any open question lacks exactly one tick. Ticking loops back to the
   agent (which folds answers in); a clean step advances only when no open
   questions remain (agent surfaced none, or the human deleted the section).
 
-  Check-actor states (picking, package-checking, closing, review-deciding) are
+  Check-actor states (packages.picking, packages.health.check, packages.closing, review.deciding) are
   simulated by writing their verdict files directly and running
   `gtd step check` — @inmem never executes the scripts themselves.
 
@@ -29,7 +29,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → spec-precheck"
+    And the last commit subject is "gtd(human): idle → spec-gate.check"
 
   Scenario: idle forks on the entry file — TODO.md (anything else) starts the simple flow gate
     Given a test project
@@ -40,12 +40,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → plan-precheck"
+    And the last commit subject is "gtd(human): idle → plan-gate.check"
 
   Scenario: the answer gate refuses an unanswered open question, then ticking loops back and a converged plan advances
     Given a test project
     And the workflow
-    And a commit "gtd(agent): product-answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(agent): product.answer" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget.
 
@@ -62,7 +62,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
     Then it fails
     And stderr contains "not answered"
     And stderr contains "Which storage backend?"
-    # tick exactly one option -> loops back to product-qa to fold the answer in
+    # tick exactly one option -> loops back to product.author to fold the answer in
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a widget.
@@ -77,12 +77,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): product-answer → product-qa"
+    And the last commit subject is "gtd(human): product.answer → product.author"
 
   Scenario: the accept-all escape — deleting the whole Open Questions section is allowed and loops to the agent to finalize
     Given a test project
     And the workflow
-    And a commit "gtd(agent): product-answer" that adds ".gtd/REQUIREMENTS.md" with:
+    And a commit "gtd(agent): product.answer" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a widget.
 
@@ -101,12 +101,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): product-answer → product-qa"
+    And the last commit subject is "gtd(human): product.answer → product.author"
 
   Scenario: a ticked free-text slot with text is a valid answer; the placeholder alone is refused
     Given a test project
     And the workflow
-    And a commit "gtd(agent): technical-answer" that adds ".gtd/ARCHITECTURE.md" with:
+    And a commit "gtd(agent): technical.answer" that adds ".gtd/ARCHITECTURE.md" with:
       """
       Modules: widget.ts, store.ts.
 
@@ -122,7 +122,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
     When I run gtd step human
     Then it fails
     And stderr contains "not answered"
-    # replace the placeholder with real text -> answered, loops to technical-qa
+    # replace the placeholder with real text -> answered, loops to technical.author
     Given ".gtd/ARCHITECTURE.md" is modified to:
       """
       Modules: widget.ts, store.ts.
@@ -137,7 +137,7 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): technical-answer → technical-qa"
+    And the last commit subject is "gtd(human): technical.answer → technical.author"
 
   Scenario: the advanced flow runs product + technical Q&A, decomposes into a package, builds it, fails and passes the spec-review gate, then closes out to review
     Given a test project
@@ -148,28 +148,28 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → spec-precheck"
+    And the last commit subject is "gtd(human): idle → spec-gate.check"
 
-    # spec-precheck: green baseline gate — a clean tree (tests pass) -> product-qa
+    # spec-gate.check: green baseline gate — a clean tree (tests pass) -> product.author
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): spec-precheck → product-qa"
+    And the last commit subject is "gtd(check): spec-gate.check → product.author"
 
-    # product-qa: develops the product plan in REQUIREMENTS.md
+    # product.author: develops the product plan in REQUIREMENTS.md
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a widget. Product plan: it exposes a `widget()` factory.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): product-qa → product-answer"
+    And the last commit subject is "gtd(agent): product.author → product.answer"
 
-    # product-answer: accept with a clean step -> technical-qa
+    # product.answer: accept with a clean step -> technical.author
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): product-answer → technical-qa"
+    And the last commit subject is "gtd(human): product.answer → technical.author"
 
-    # technical-qa: writes ARCHITECTURE.md, deletes REQUIREMENTS.md
+    # technical.author: writes ARCHITECTURE.md, deletes REQUIREMENTS.md
     Given the file ".gtd/REQUIREMENTS.md" is deleted
     And a file ".gtd/ARCHITECTURE.md" with:
       """
@@ -177,12 +177,12 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): technical-qa → technical-answer"
+    And the last commit subject is "gtd(agent): technical.author → technical.answer"
 
-    # technical-answer: accept with a clean step -> decompose
+    # technical.answer: accept with a clean step -> decompose
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): technical-answer → decompose"
+    And the last commit subject is "gtd(human): technical.answer → decompose"
 
     # decompose: writes one package file, deletes ARCHITECTURE.md
     Given the file ".gtd/ARCHITECTURE.md" is deleted
@@ -193,41 +193,41 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): decompose → picking"
+    And the last commit subject is "gtd(agent): decompose → packages.picking"
 
-    # picking: takes the first package file into NEXT.md
+    # packages.picking: takes the first package file into NEXT.md
     Given a file ".gtd/NEXT.md" with:
       """
       .gtd/packages/01-widget.md
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): picking → package-building"
+    And the last commit subject is "gtd(check): packages.picking → packages.building"
 
-    # package-building: implements the package's tasks, leaving the package file
+    # packages.building: implements the package's tasks, leaving the package file
     Given a file "src/widget.ts" with:
       """
       export const widget = () => ({})
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): package-building → package-checking"
+    And the last commit subject is "gtd(agent): packages.building → packages.health.check"
 
-    # package-checking (green): a clean step moves to the spec-review gate
+    # packages.health.check (green): a clean step moves to the packages.spec.review gate
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): package-checking → spec-review"
+    And the last commit subject is "gtd(check): packages.health.check → packages.spec.review"
 
-    # spec-review (issues): the reviewer writes SPEC_FEEDBACK.md -> spec-fix
+    # packages.spec.review (issues): the reviewer writes SPEC_FEEDBACK.md -> packages.spec.fix
     Given a file ".gtd/SPEC_FEEDBACK.md" with:
       """
       widget() should return a frozen object.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): spec-review → spec-fix"
+    And the last commit subject is "gtd(agent): packages.spec.review → packages.spec.fix"
 
-    # spec-fix: addresses the concern, deletes SPEC_FEEDBACK.md -> package-checking
+    # packages.spec.fix: addresses the concern, deletes SPEC_FEEDBACK.md -> packages.health.check
     Given the file ".gtd/SPEC_FEEDBACK.md" is deleted
     And "src/widget.ts" is modified to:
       """
@@ -235,32 +235,32 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): spec-fix → package-checking"
+    And the last commit subject is "gtd(agent): packages.spec.fix → packages.health.check"
 
-    # package-checking (green) -> spec-review again
+    # packages.health.check (green) -> packages.spec.review again
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): package-checking → spec-review"
+    And the last commit subject is "gtd(check): packages.health.check → packages.spec.review"
 
-    # spec-review (clean = approval): the reviewer writes nothing -> closing
+    # packages.spec.review (clean = approval): the reviewer writes nothing -> packages.closing
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): spec-review → closing"
+    And the last commit subject is "gtd(agent): packages.spec.review → packages.closing"
 
-    # closing: removes the reviewed package file and NEXT.md -> picking
+    # packages.closing: removes the reviewed package file and NEXT.md -> packages.picking
     Given the file ".gtd/packages/01-widget.md" is deleted
     And the file ".gtd/NEXT.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): closing → picking"
+    And the last commit subject is "gtd(check): packages.closing → packages.picking"
 
-    # picking: the queue is now empty — a clean step closes out to the shared
+    # packages.picking: the queue is now empty — a clean step closes out to the shared
     # review tail
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): picking → reviewing"
+    And the last commit subject is "gtd(check): packages.picking → review.reviewing"
 
-    # reviewing: writes REVIEW.md and hands to the shared human review gate
+    # review.reviewing: writes REVIEW.md and hands to the shared human review gate
     # (the tail from here — sign-off into the squash finale — is shared with the
     # simple flow, exercised in default-workflow.feature)
     Given a file ".gtd/REVIEW.md" with:
@@ -277,4 +277,83 @@ Feature: The bundled unified workflow — advanced-flow entry and per-package lo
     And the git ref "refs/worktree/gtd/review-head" exists
     When I run gtd status
     Then it succeeds
-    And stdout contains "State: await-review"
+    And stdout contains "State: review.await-review"
+
+  Scenario: a custom two-level nested machine reference resolves $param bindings and qualified names across both levels
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          leaf:
+            params: [onDone]
+            entry: work
+            states:
+              work:
+                actor: agent
+                prompt: "do the work"
+                on:
+                  "* **": $onDone
+          mid:
+            params: [onDone]
+            entry: gate
+            states:
+              gate:
+                actor: human
+                message: "approve?"
+                on:
+                  "* **": inner
+              inner:
+                machine: leaf
+                with:
+                  onDone: $onDone
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": nested
+              nested:
+                machine: mid
+                with:
+                  onDone: done
+              done:
+                commit: "chore: done"
+      """
+    And a file "NOTE.md" with:
+      """
+      kick off
+      """
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): idle → nested.gate"
+
+    # root's own idle -> nested resolved through mid's own entry (nested.gate);
+    # this step resolves ONE level deeper still, through mid's "inner" reference
+    # into leaf's own entry (nested.inner.work) — a two-level qualified name.
+    Given a file "NOTE.md" with:
+      """
+      approved
+      """
+    When I run gtd step human
+    Then it succeeds
+    And the last commit subject is "gtd(human): nested.gate → nested.inner.work"
+    When I run gtd next
+    Then it succeeds
+    And stdout contains "do the work"
+
+    # leaf's own $onDone was bound at mid's reference site to mid's OWN
+    # $onDone, which was in turn bound at root's reference site to "done" — a
+    # param threaded grandparent -> parent -> child resolves in the
+    # grandparent's namespace, landing on the commit state two levels up.
+    Given a file "NOTE.md" with:
+      """
+      done
+      """
+    When I run gtd step agent
+    Then it succeeds
+    And the last commit subject is "chore: done"

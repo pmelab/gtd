@@ -5,7 +5,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
   (started by creating `.gtd/TODO.md`) through the SHARED tail: the
   planning/await-plan iteration loop, a check/fix round, the fix-retry-escalate
   path once `fixing`'s cap (max 3) is reached, the human review gate and its
-  `review-deciding` arbiter (a COMMENT — a note or a code edit — is feedback; an
+  `review.deciding` arbiter (a COMMENT — a note or a code edit — is feedback; an
   all-ticked no-comment step is sign-off), the sign-off gate's refusals (an
   unfinished review, a deleted REVIEW.md), and the SQUASH finale (`squashing` →
   `done`) that every entry point shares — the only path to which is full
@@ -15,9 +15,9 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
   editing it — no `qa` mode, no open-questions Q&A (that lives in the ADVANCED
   flow). REVIEW.md checkboxes aren't validated by an in-machine state either —
   the producing agent self-validates via `gtd validate` (covered in
-  validate.feature), so `planning` hands straight to `await-plan` and
-  `reviewing` straight to `await-review`. The remaining `check`-actor states
-  here (`checking`, `review-deciding`) are simulated by writing their verdict
+  validate.feature), so `plan.planning` hands straight to `plan.await-plan` and
+  `review.reviewing` straight to `review.await-review`. The remaining `check`-actor states
+  here (`build.check`, `review.deciding`) are simulated by writing their verdict
   files directly and running `gtd step check` — @inmem never executes the
   scripts themselves.
 
@@ -30,14 +30,14 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → plan-precheck"
+    And the last commit subject is "gtd(human): idle → plan-gate.check"
 
-    # plan-precheck: green baseline gate — a clean tree (tests pass) -> planning
+    # plan-gate.check: green baseline gate — a clean tree (tests pass) -> plan.planning
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): plan-precheck → planning"
+    And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
 
-    # planning: develops the sketch into a concrete plan and hands to await-plan
+    # plan.planning: develops the sketch into a concrete plan and hands to plan.await-plan
     Given ".gtd/TODO.md" is modified to:
       """
       Build a thing. Implementation plan: add src/thing.ts exporting `thing`,
@@ -45,12 +45,12 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): planning → await-plan"
+    And the last commit subject is "gtd(agent): plan.planning → plan.await-plan"
 
     # await-plan: accept the plan as-is with a clean step -> building
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): await-plan → building"
+    And the last commit subject is "gtd(human): plan.await-plan → building"
 
     # building: implements the plan directly, deletes TODO.md when done
     Given the file ".gtd/TODO.md" is deleted
@@ -60,27 +60,27 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → checking"
+    And the last commit subject is "gtd(agent): building → build.check"
 
-    # checking (red): a failing run leaves FEEDBACK.md, sends the cycle to fixing
+    # build.check (red): a failing run leaves FEEDBACK.md, sends the cycle to build.fix
     Given a file ".gtd/FEEDBACK.md" with:
       """
       1 test failed
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): checking → fixing"
+    And the last commit subject is "gtd(check): build.check → build.fix"
 
-    # fixing: addresses the feedback, deletes it, steps back to checking
+    # build.fix: addresses the feedback, deletes it, steps back to build.check
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): fixing → checking"
+    And the last commit subject is "gtd(agent): build.fix → build.check"
 
-    # checking (green): a clean step moves on to reviewing
+    # build.check (green): a clean step moves on to review.reviewing
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): checking → reviewing"
+    And the last commit subject is "gtd(check): build.check → review.reviewing"
 
     # reviewing: writes REVIEW.md and hands straight to await-review
     Given a file ".gtd/REVIEW.md" with:
@@ -99,7 +99,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And the git ref "refs/worktree/gtd/review-head" exists
     When I run gtd status
     Then it succeeds
-    And stdout contains "State: await-review"
+    And stdout contains "State: review.await-review"
 
     # await-review: a COMMENT is feedback — here a note added to the line (the
     # box may be ticked or not; the note is the signal). Every human step routes
@@ -115,9 +115,9 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): await-review → review-deciding"
+    And the last commit subject is "gtd(human): review.await-review → review.deciding"
 
-    # review-deciding: the note is a change to REVIEW.md beyond a tick, so it
+    # review.deciding: the note is a change to REVIEW.md beyond a tick, so it
     # CAPTURES the raw material into REVIEW_RAW.md and removes REVIEW.md — the
     # A/M REVIEW_RAW.md row is declared before the D REVIEW.md row so a feedback
     # round wins
@@ -132,10 +132,10 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-deciding → feedback-collecting"
+    And the last commit subject is "gtd(check): review.deciding → review.collecting"
 
-    # feedback-collecting: turns the raw material into an instruction list in
-    # REVIEW_FEEDBACK.md and deletes REVIEW_RAW.md, stepping to feedback-building
+    # review.collecting: turns the raw material into an instruction list in
+    # REVIEW_FEEDBACK.md and deletes REVIEW_RAW.md, stepping to review.building
     Given a file ".gtd/REVIEW_FEEDBACK.md" with:
       """
       1. ./src/thing.ts#1 — add a doc comment above the new export
@@ -143,10 +143,10 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And the file ".gtd/REVIEW_RAW.md" is deleted
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): feedback-collecting → feedback-building"
+    And the last commit subject is "gtd(agent): review.collecting → review.building"
 
-    # feedback-building: implements the requested change directly (no Q&A),
-    # deletes the feedback file, steps to checking
+    # review.building: implements the requested change directly (no Q&A),
+    # deletes the feedback file, steps to build.check
     Given the file ".gtd/REVIEW_FEEDBACK.md" is deleted
     And "src/thing.ts" is modified to:
       """
@@ -155,12 +155,12 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): feedback-building → checking"
+    And the last commit subject is "gtd(agent): review.building → build.check"
 
-    # checking (green) -> reviewing regenerates an incremental REVIEW.md
+    # build.check (green) -> review.reviewing regenerates an incremental REVIEW.md
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): checking → reviewing"
+    And the last commit subject is "gtd(check): build.check → review.reviewing"
     Given a file ".gtd/REVIEW.md" with:
       """
       # Review: def5678
@@ -175,7 +175,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And the git ref "refs/worktree/gtd/review-head" exists
     When I run gtd status
     Then it succeeds
-    And stdout contains "State: await-review"
+    And stdout contains "State: review.await-review"
 
     # await-review: tick every box and leave no comment — the decider sees no
     # note and no code edit, removes REVIEW.md, routing to the squash finale
@@ -190,11 +190,11 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): await-review → review-deciding"
+    And the last commit subject is "gtd(human): review.await-review → review.deciding"
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review-deciding → squashing"
+    And the last commit subject is "gtd(check): review.deciding → squashing"
 
     # squashing: the agent writes the one-commit message; entering `done`
     # collapses the whole cycle into a single commit and leaves .gtd empty
@@ -214,16 +214,16 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     And "src/thing.ts" exists
 
   Scenario: a feedback round's reviewing covers only the changes since the last review (incremental it.reviewDiff)
-    # reviewBase: true on review-deciding anchors it.reviewDiff: a re-review sees
+    # reviewBase: true on review.deciding anchors it.reviewDiff: a re-review sees
     # only what changed AFTER the previous review round, not the whole cycle.
     # fileA landed before the review-deciding boundary; fileB after it.
     Given a test project
     And the workflow
-    And a commit "gtd(agent): reviewing" that adds "fileA.ts" with:
+    And a commit "gtd(agent): review.reviewing" that adds "fileA.ts" with:
       """
       export const A = 1
       """
-    And a commit "gtd(agent): await-review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(agent): review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: aaaaaaa
       <!-- base: 0000000 -->
@@ -231,27 +231,27 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       ## A
       - [ ] ./fileA.ts#1
       """
-    And a commit "gtd(human): review-deciding" that adds ".gtd/REVIEW_FEEDBACK.md" with:
+    And a commit "gtd(human): review.deciding" that adds ".gtd/REVIEW_FEEDBACK.md" with:
       """
       Feedback:
       - [ ] ./fileA.ts#1 — also add B
       """
-    And a commit "gtd(check): feedback-building" that adds ".gtd/marker.md" with:
+    And a commit "gtd(check): review.building" that adds ".gtd/marker.md" with:
       """
       entering feedback-building
       """
-    And a commit "gtd(agent): checking" that adds "fileB.ts" with:
+    And a commit "gtd(agent): build.check" that adds "fileB.ts" with:
       """
       export const B = 2
       """
-    And a commit "gtd(check): reviewing" that adds ".gtd/note.md" with:
+    And a commit "gtd(check): review.reviewing" that adds ".gtd/note.md" with:
       """
       green, re-reviewing
       """
     When I run gtd next
     Then it succeeds
     # The reviewing prompt inlines it.reviewDiff — the post-feedback change
-    # (fileB) but NOT the already-reviewed fileA from before the review-deciding
+    # (fileB) but NOT the already-reviewed fileA from before the review.deciding
     # boundary.
     And stdout contains "fileB.ts"
     And stdout does not contain "fileA.ts"
@@ -263,14 +263,14 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
       export const thing = 1
       """
-    And a commit "gtd(agent): checking" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd(agent): build.check" that adds ".gtd/FEEDBACK.md" with:
       """
       1 test failed
       """
     Given the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): checking → reviewing"
+    And the last commit subject is "gtd(check): build.check → review.reviewing"
     And ".gtd/FEEDBACK.md" does not exist
 
   Scenario: a green check run mechanically sweeps a leaked TODO.md and still moves on to reviewing (sole D .gtd/TODO.md)
@@ -280,44 +280,44 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
       export const thing = 1
       """
-    And a commit "gtd(agent): checking" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(agent): build.check" that adds ".gtd/TODO.md" with:
       """
       Build a thing.
       """
     Given the file ".gtd/TODO.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): checking → reviewing"
+    And the last commit subject is "gtd(check): build.check → review.reviewing"
     And ".gtd/TODO.md" does not exist
 
   Scenario: repeated check failures escalate once fixing's retry cap (3) is reached
     Given a test project
     And the workflow
-    And a commit "gtd(agent): checking" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd(agent): build.check" that adds ".gtd/FEEDBACK.md" with:
       """
       attempt 1 failed
       """
-    And a commit "gtd(check): fixing" that adds ".gtd/fix-1.md" with:
+    And a commit "gtd(check): build.fix" that adds ".gtd/fix-1.md" with:
       """
       fixed attempt 1
       """
-    And a commit "gtd(agent): checking" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd(agent): build.check" that adds ".gtd/FEEDBACK.md" with:
       """
       attempt 2 failed
       """
-    And a commit "gtd(check): fixing" that adds ".gtd/fix-2.md" with:
+    And a commit "gtd(check): build.fix" that adds ".gtd/fix-2.md" with:
       """
       fixed attempt 2
       """
-    And a commit "gtd(agent): checking" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd(agent): build.check" that adds ".gtd/FEEDBACK.md" with:
       """
       attempt 3 failed
       """
-    And a commit "gtd(check): fixing" that adds ".gtd/fix-3.md" with:
+    And a commit "gtd(check): build.fix" that adds ".gtd/fix-3.md" with:
       """
       fixed attempt 3
       """
-    And a commit "gtd(agent): checking" that adds ".gtd/marker.md" with:
+    And a commit "gtd(agent): build.check" that adds ".gtd/marker.md" with:
       """
       entering checking a 4th time
       """
@@ -327,12 +327,12 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): checking → escalate"
+    And the last commit subject is "gtd(check): build.check → build.escalate"
 
   Scenario: deleting REVIEW.md at await-review is refused — sign off by ticking every box, not by deleting
     Given a test project
     And the workflow
-    And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(check): review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -352,7 +352,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
   Scenario: stepping at await-review with a box still unticked and no comment is refused — finish reviewing first
     Given a test project
     And the workflow
-    And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(check): review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -382,7 +382,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
   Scenario: at await-review, gtd next surfaces the sign-off vs. feedback contract in its human-gate message
     Given a test project
     And the workflow
-    And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(check): review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -400,7 +400,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
   Scenario: a code edit at await-review is feedback — it routes to review-deciding (which turns it into a fix + re-review round)
     Given a test project
     And the workflow
-    And a commit "gtd(check): await-review" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(check): review.await-review" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -415,7 +415,7 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): await-review → review-deciding"
+    And the last commit subject is "gtd(human): review.await-review → review.deciding"
 
   Scenario: an approved cycle's squash commit is a process boundary — a fresh cycle's fixing retry budget doesn't pool with a previous cycle's
     Given a test project
@@ -423,27 +423,27 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     # cycle 1: already spent its whole fixing retry budget (3 entries) before
     # ending at a squash commit — a plain (non-gtd) commit subject, which is a
     # process boundary.
-    And a commit "gtd(agent): checking" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd(agent): build.check" that adds ".gtd/FEEDBACK.md" with:
       """
       cycle 1 attempt 1 failed
       """
-    And a commit "gtd(check): fixing" that adds ".gtd/fix-1.md" with:
+    And a commit "gtd(check): build.fix" that adds ".gtd/fix-1.md" with:
       """
       fixed cycle 1 attempt 1
       """
-    And a commit "gtd(agent): checking" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd(agent): build.check" that adds ".gtd/FEEDBACK.md" with:
       """
       cycle 1 attempt 2 failed
       """
-    And a commit "gtd(check): fixing" that adds ".gtd/fix-2.md" with:
+    And a commit "gtd(check): build.fix" that adds ".gtd/fix-2.md" with:
       """
       fixed cycle 1 attempt 2
       """
-    And a commit "gtd(agent): checking" that adds ".gtd/FEEDBACK.md" with:
+    And a commit "gtd(agent): build.check" that adds ".gtd/FEEDBACK.md" with:
       """
       cycle 1 attempt 3 failed
       """
-    And a commit "gtd(check): fixing" that adds ".gtd/fix-3.md" with:
+    And a commit "gtd(check): build.fix" that adds ".gtd/fix-3.md" with:
       """
       fixed cycle 1 attempt 3
       """
@@ -460,49 +460,49 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
       """
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → plan-precheck"
+    And the last commit subject is "gtd(human): idle → plan-gate.check"
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): plan-precheck → planning"
+    And the last commit subject is "gtd(check): plan-gate.check → plan.planning"
     Given ".gtd/TODO.md" is modified to:
       """
       Build a second thing. Plan: add src/thing2.ts exporting `thing2`.
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): planning → await-plan"
+    And the last commit subject is "gtd(agent): plan.planning → plan.await-plan"
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): await-plan → building"
+    And the last commit subject is "gtd(human): plan.await-plan → building"
     Given a file "src/thing2.ts" with:
       """
       export const thing2 = 1
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → checking"
+    And the last commit subject is "gtd(agent): building → build.check"
     Given a file ".gtd/FEEDBACK.md" with:
       """
       cycle 2 attempt 1 failed
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): checking → fixing"
+    And the last commit subject is "gtd(check): build.check → build.fix"
 
   Scenario: the simple flow's agent states emit their memory scope labels
     # The scope labels let a memory-aware driver retain memory within a loop
     # (same label across laps) and clear it at a phase boundary (a
-    # differently-labelled state). planning=plan, building=build, fixing=fix,
-    # reviewing=review — see src/workflows/unified.yaml.
+    # differently-labelled state). plan.planning=plan, building=build, build.fix=fix,
+    # review.reviewing=review — see src/workflows/unified.yaml.
     Given a test project
     And the workflow
-    And a commit "gtd(human): planning" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(human): plan.planning" that adds ".gtd/TODO.md" with:
       """
       Build a thing.
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"planning\""
+    And stdout contains "\"state\":\"plan.planning\""
     And stdout contains "\"memory\":\"plan\""
     Given a commit "gtd(human): building" that adds "src/thing.ts" with:
       """
@@ -512,19 +512,19 @@ Feature: The bundled unified workflow — simple-flow full-cycle journeys
     Then it succeeds
     And stdout contains "\"state\":\"building\""
     And stdout contains "\"memory\":\"build\""
-    Given a commit "gtd(human): fixing" that adds ".gtd/FEEDBACK.md" with:
+    Given a commit "gtd(human): build.fix" that adds ".gtd/FEEDBACK.md" with:
       """
       a failing test
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"fixing\""
+    And stdout contains "\"state\":\"build.fix\""
     And stdout contains "\"memory\":\"fix\""
-    Given a commit "gtd(human): reviewing" that adds "src/thing2.ts" with:
+    Given a commit "gtd(human): review.reviewing" that adds "src/thing2.ts" with:
       """
       export const thing2 = 2
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"reviewing\""
+    And stdout contains "\"state\":\"review.reviewing\""
     And stdout contains "\"memory\":\"review\""

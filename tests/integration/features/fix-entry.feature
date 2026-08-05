@@ -34,7 +34,7 @@ Feature: gtd fix — start a process that goes straight into repairing failing t
     And the git status is clean
     And the git log does not contain "gtd("
 
-  Scenario: a red suite drops into the shared fixing loop and out through checking to reviewing
+  Scenario: a red suite drops into the shared build.fix loop and out through build.check to review.reviewing
     When I run gtd with args "fix"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
@@ -45,7 +45,7 @@ Feature: gtd fix — start a process that goes straight into repairing failing t
       """
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): fix-precheck → fixing"
+    And the last commit subject is "gtd(check): fix-precheck → build.fix"
     # fixing: the agent addresses the feedback and deletes it.
     Given the file ".gtd/FEEDBACK.md" is deleted
     And a file "src/repair.ts" with:
@@ -54,11 +54,11 @@ Feature: gtd fix — start a process that goes straight into repairing failing t
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): fixing → checking"
+    And the last commit subject is "gtd(agent): build.fix → build.check"
     # A now-green check hands off to the shared review + squash tail.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): checking → reviewing"
+    And the last commit subject is "gtd(check): build.check → review.reviewing"
 
   Scenario: refuses on a dirty working tree, authoring nothing
     Given a file "scratch.txt" with:

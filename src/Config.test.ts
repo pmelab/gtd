@@ -38,12 +38,16 @@ afterEach(() => {
 const minimalWorkflowYaml = (idleMessage: string) =>
   [
     `workflow:`,
-    `  states:`,
-    `    idle:`,
-    `      actor: human`,
-    `      initial: true`,
-    `      message: "${idleMessage}"`,
-    `      on: {}`,
+    `  entry:`,
+    `    default: root`,
+    `  machines:`,
+    `    root:`,
+    `      entry: idle`,
+    `      states:`,
+    `        idle:`,
+    `          actor: human`,
+    `          message: "${idleMessage}"`,
+    `          on: {}`,
     ``,
   ].join("\n")
 
@@ -111,8 +115,14 @@ describe("ConfigService", () => {
       join(projectDir, "gtd.config.json"),
       JSON.stringify({
         workflow: {
-          states: {
-            idle: { actor: "human", initial: true, message: "json idle", on: {} },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "idle",
+              states: {
+                idle: { actor: "human", message: "json idle", on: {} },
+              },
+            },
           },
         },
       }),
@@ -128,8 +138,13 @@ describe("ConfigService", () => {
       join(projectDir, ".gtdrc.yaml"),
       [
         `workflow:`,
-        `  states:`,
-        `    idle: { actor: human, initial: true, message: "x", on: {} }`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle: { actor: human, message: "x", on: {} }`,
         `vars:`,
         `  greeting: hi`,
         `  attempts: 3`,
@@ -151,8 +166,13 @@ describe("ConfigService", () => {
       join(projectDir, ".gtdrc.yaml"),
       [
         `workflow:`,
-        `  states:`,
-        `    idle: { actor: human, initial: true, message: "x", on: {} }`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle: { actor: human, message: "x", on: {} }`,
         `vars:`,
         `  greeting: ancestor`,
         `  onlyAncestor: yes`,
@@ -178,14 +198,18 @@ describe("ConfigService", () => {
         `    adr:`,
         `      format: "never-used"`,
         `      validate: "adr-lint <%= it.file %>"`,
-        `  states:`,
-        `    idle:`,
-        `      actor: human`,
-        `      initial: true`,
-        `      message: "hi"`,
-        `      file: docs/adr.md`,
-        `      mode: adr`,
-        `      on: {}`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle:`,
+        `          actor: human`,
+        `          message: "hi"`,
+        `          file: docs/adr.md`,
+        `          mode: adr`,
+        `          on: {}`,
         ``,
       ].join("\n"),
     )
@@ -205,14 +229,18 @@ describe("ConfigService", () => {
         `  adr:`,
         `    validate: "adr-lint <%= it.file %>"`,
         `workflow:`,
-        `  states:`,
-        `    idle:`,
-        `      actor: human`,
-        `      initial: true`,
-        `      message: "hi"`,
-        `      file: docs/adr.md`,
-        `      mode: adr`,
-        `      on: {}`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle:`,
+        `          actor: human`,
+        `          message: "hi"`,
+        `          file: docs/adr.md`,
+        `          mode: adr`,
+        `          on: {}`,
         ``,
       ].join("\n"),
     )
@@ -232,8 +260,13 @@ describe("ConfigService", () => {
         `  adr:`,
         `    lint: "adr-lint"`,
         `workflow:`,
-        `  states:`,
-        `    idle: { actor: human, initial: true, message: "x", on: {} }`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle: { actor: human, message: "x", on: {} }`,
         ``,
       ].join("\n"),
     )
@@ -270,9 +303,18 @@ describe("ConfigService", () => {
   it("surfaces the workflow compiler's own error on an invalid `workflow:` key", async () => {
     writeFileSync(
       join(projectDir, ".gtdrc.yaml"),
-      [`workflow:`, `  states:`, `    idle:`, `      message: "no actor, no initial"`, ``].join(
-        "\n",
-      ),
+      [
+        `workflow:`,
+        `  entry:`,
+        `    default: root`,
+        `  machines:`,
+        `    root:`,
+        `      entry: idle`,
+        `      states:`,
+        `        idle:`,
+        `          message: "no actor"`,
+        ``,
+      ].join("\n"),
     )
 
     const exit = await runExit(Effect.flatMap(ConfigService, (c) => c.load))
@@ -289,7 +331,13 @@ describe("ConfigService", () => {
       JSON.stringify({
         $schema: "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json",
         workflow: {
-          states: { idle: { actor: "human", initial: true, message: "x", on: {} } },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "idle",
+              states: { idle: { actor: "human", message: "x", on: {} } },
+            },
+          },
         },
       }),
     )
@@ -316,19 +364,31 @@ describe("ConfigService", () => {
 const idleMessageRefYaml = (ref: string) =>
   [
     `workflow:`,
-    `  states:`,
-    `    idle:`,
-    `      actor: human`,
-    `      initial: true`,
-    `      message: "${ref}"`,
-    `      on: {}`,
+    `  entry:`,
+    `    default: root`,
+    `  machines:`,
+    `    root:`,
+    `      entry: idle`,
+    `      states:`,
+    `        idle:`,
+    `          actor: human`,
+    `          message: "${ref}"`,
+    `          on: {}`,
     ``,
   ].join("\n")
 
 // A partial workflow that overlays only `idle.model` — merged over an ancestor
 // that supplies the rest of the state (so the ancestor's `message` survives).
 const idleModelOverlayYaml = (model: string) =>
-  [`workflow:`, `  states:`, `    idle:`, `      model: "${model}"`, ``].join("\n")
+  [
+    `workflow:`,
+    `  machines:`,
+    `    root:`,
+    `      states:`,
+    `        idle:`,
+    `          model: "${model}"`,
+    ``,
+  ].join("\n")
 
 describe("ConfigService — content file refs resolve against the declaring config file", () => {
   it("resolves a `./`-relative ref from a .gtdrc stored in an ANCESTOR dir against the ancestor, not the child cwd gtd runs from", async () => {

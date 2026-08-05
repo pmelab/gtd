@@ -41,7 +41,7 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
   Scenario: a subject naming an actor the workflow doesn't declare resolves to the initial state
     Given a test project
     And the workflow
-    And a commit "gtd(nobody): planning" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(nobody): plan.planning" that adds ".gtd/TODO.md" with:
       """
       a plan
       """
@@ -56,15 +56,19 @@ Feature: Initial-state entry — every unrecognized HEAD lands at the initial st
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": done
-          done:
-            commit: "chore: done"
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": done
+              done:
+                commit: "chore: done"
       """
     And a commit "gtd(agent): done" that adds ".gtd/COMMIT_MSG.md" with:
       """

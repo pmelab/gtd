@@ -22,8 +22,8 @@ import {
   mergeModes,
 } from "../../../../src/PatternConfig.js"
 import {
+  defaultMachineTree,
   defaultWorkflowDefinition,
-  defaultWorkflowRaw,
   defaultWorkflowVars,
 } from "../../../../src/workflows/templates.js"
 import { InMemRepo } from "./Repo.js"
@@ -440,15 +440,15 @@ const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
         modes !== undefined ? { ...defaultWorkflowDefinition, modes } : defaultWorkflowDefinition,
       workflowVars: defaultWorkflowVars,
       rcVars,
-      rawWorkflow: defaultWorkflowRaw,
+      machineTree: defaultMachineTree,
     }
   }
-  const { definition, vars: workflowVars } = compileWorkflowConfig(
-    raw["workflow"],
-    "/repo",
-    rcModes,
-  )
-  return { workflow: definition, workflowVars, rcVars, rawWorkflow: raw["workflow"] }
+  const {
+    definition,
+    vars: workflowVars,
+    tree,
+  } = compileWorkflowConfig(raw["workflow"], "/repo", rcModes)
+  return { workflow: definition, workflowVars, rcVars, machineTree: tree }
 }
 
 const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> => {

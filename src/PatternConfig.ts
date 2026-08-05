@@ -9,7 +9,7 @@ import {
   type StateMode,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
-import { expandSubmachines } from "./Submachines.js"
+import { flattenMachines, type MachineNode } from "./Machines.js"
 
 /**
  * The v3 `.gtdrc` `workflow:` config compiler. This
@@ -29,23 +29,36 @@ import { expandSubmachines } from "./Submachines.js"
  *   <name>:
  *     format: <shell command>    # at least one of format/validate
  *     validate: <shell command>
- * states:
+ * entry:
+ *   default: <machine name>     # which machine is the ROOT instance
+ *   review: <target>?           # resolved through the flattener's resolver, seeded at the root
+ *   fix: <target>?
+ * machines:
  *   <name>:
- *     actor: <string>    # forbidden on a commit state, required otherwise
- *     script: <string>   # exactly one of script/prompt/message/commit
- *     on:                # a mapping, DECLARATION ORDER PRESERVED — each <pattern> KEY is itself an Eta template, rendered against `it.vars` at the edge (src/Edge.ts's renderOnEdges) before the pure engine ever sees it
- *       "<pattern>": <targetState>                    # short form
- *       "<pattern>": { to: <targetState>, describe: <sentence> }  # with a human-readable route description (describe is NEVER Eta-rendered, unlike the pattern key)
- *     initial: true       # exactly one state across the whole workflow
- *     retry:
- *       max: <number>
- *       otherwise: <targetState>
- *     model: <string>     # optional, opaque harness hint — never on a commit state
- *     memory: <string>    # optional, opaque memory-scope label — never on a commit state
- *     label: <string>     # optional, opaque display name — never on a commit state
- *     file: <string>      # optional, an Eta template naming the state's steering file — never on a commit state
- *     mode: <modeName>    # optional, requires "file" — a built-in (qa/review) or a `modes:` entry; never on a commit state
+ *     params: [<param>, ...]?   # advisory only — documents which $params a caller may bind
+ *     entry: <local or ref key> # this machine's OWN default local, resolved recursively
+ *     states:
+ *       <local>:                # an ordinary state
+ *         actor: <string>    # forbidden on a commit state, required otherwise
+ *         script: <string>   # exactly one of script/prompt/message/commit
+ *         on:                # a mapping, DECLARATION ORDER PRESERVED — each <pattern> KEY is itself an Eta template, rendered against `it.vars` at the edge (src/Edge.ts's renderOnEdges) before the pure engine ever sees it
+ *           "<pattern>": <targetState>                    # short form
+ *           "<pattern>": { to: <targetState>, describe: <sentence> }  # with a human-readable route description (describe is NEVER Eta-rendered, unlike the pattern key)
+ *         retry:
+ *           max: <number>
+ *           otherwise: <targetState>
+ *         model: <string>     # optional, opaque harness hint — never on a commit state
+ *         memory: <string>    # optional, opaque memory-scope label — never on a commit state
+ *         label: <string>     # optional, opaque display name — never on a commit state
+ *         file: <string>      # optional, an Eta template naming the state's steering file — never on a commit state
+ *         mode: <modeName>    # optional, requires "file" — a built-in (qa/review) or a `modes:` entry; never on a commit state
+ *       <local>: { machine: <name>, with: { ... } }       # a REFERENCE — instantiates <name> as a child, see src/Machines.ts
  * ```
+ *
+ * The raw `entry:`/`machines:` value is flattened by `src/Machines.ts`'s
+ * `flattenMachines` into qualified states plus resolved entry points BEFORE any
+ * per-state compilation below ever runs — this module never sees an unresolved
+ * `$param` or a bare reference path.
  *
  * ## `vars:` — one of `it.vars`'s three layers
  *
@@ -232,7 +245,6 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "actor",
   ...CONTENT_KEYS,
   "on",
-  "initial",
   "retry",
   "model",
   "memory",
@@ -241,13 +253,98 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "mode",
   "reviewWindow",
   "reviewBase",
-  "reviewEntry",
-  "fixEntry",
   "requireProgress",
   "answerGate",
 ])
 
-const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["vars", "states", "modes"])
+const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["entry", "machines", "vars", "modes"])
+const KNOWN_MACHINE_KEYS: ReadonlySet<string> = new Set(["params", "entry", "states"])
+const KNOWN_REF_KEYS: ReadonlySet<string> = new Set(["machine", "with"])
+
+/** A state-level key removed by the `entry:`/`machines:` rewrite, naming its replacement so a stale config's error points somewhere useful instead of a bare "unknown key". */
+const LEGACY_STATE_KEY_HINTS: Readonly<Record<string, string>> = {
+  initial: `"initial" no longer exists — declare this state's qualified path in the top-level "entry.default" instead`,
+  reviewEntry: `"reviewEntry" no longer exists — declare this state's qualified path in the top-level "entry.review" instead`,
+  fixEntry: `"fixEntry" no longer exists — declare this state's qualified path in the top-level "entry.fix" instead`,
+}
+
+/** A reference-level key from the old `use:` invocation shape, naming its replacement. */
+const LEGACY_REF_KEY_HINTS: Readonly<Record<string, string>> = {
+  as: `"as" no longer exists — a reference's local name (the key itself) IS the concrete name; there is nothing left to rename`,
+  name: `"name" no longer exists — a reference's local name (the key itself) names the instance`,
+  set: `"set" no longer exists — bind extra per-instance values via "with:" instead`,
+}
+
+/** Render an unknown-key list, appending a legacy-key hint in parentheses for any key `hints` recognizes. */
+const formatUnknownKeys = (
+  keys: readonly string[],
+  hints: Readonly<Record<string, string>>,
+): string => keys.map((k) => (hints[k] !== undefined ? `${k} (${hints[k]})` : k)).join(", ")
+
+/**
+ * A top-level key from the pre-Package-02 raw shape (flat `states:`, or the
+ * sub-machine expander's `submachines:`/`use:`). Detected and thrown FIRST, before
+ * any other validation, so a stale config produces only this migration table —
+ * never forty downstream "machines is required"-style findings piled on top.
+ */
+const LEGACY_TOP_KEY_MESSAGES: Readonly<Record<string, string>> = {
+  states: `top-level "states:" is no longer supported — declare a machine under "machines:" and name it in "entry.default:"`,
+  submachines: `top-level "submachines:" is no longer supported — declare machines directly under "machines:"`,
+  use: `top-level "use:" is no longer supported — reference a machine inline via a { machine, with } entry inside a machine's own "states:"`,
+}
+
+const detectLegacyShape = (raw: Record<string, unknown>): void => {
+  const found = Object.keys(LEGACY_TOP_KEY_MESSAGES).filter((k) => k in raw)
+  if (found.length === 0) return
+  throw new Error(formatErrors(found.map((k) => LEGACY_TOP_KEY_MESSAGES[k]!)))
+}
+
+/**
+ * Structural validation over the raw `machines:` map that `src/Machines.ts`'s
+ * `flattenMachines` does not itself perform: unknown keys on a machine
+ * (`KNOWN_MACHINE_KEYS`) and unknown keys on a reference local
+ * (`KNOWN_REF_KEYS`), the latter surfacing the old `use:` invocation's
+ * `as`/`name`/`set` keys through `LEGACY_REF_KEY_HINTS` rather than a bare
+ * "unknown key". Findings are pushed onto `errors`; a malformed shape (not an
+ * object, a non-object machine/state) is left for `flattenMachines`/
+ * `compileState` to report — this pass only adds what they don't already cover.
+ */
+/** Validate one machine's own reference locals against `KNOWN_REF_KEYS`, pushing findings onto `errors`. */
+const validateMachineRefs = (
+  machineName: string,
+  machineRaw: Record<string, unknown>,
+  errors: string[],
+): void => {
+  const statesRaw = machineRaw["states"]
+  if (!isPlainObject(statesRaw)) return
+  for (const [local, def] of Object.entries(statesRaw)) {
+    if (!isRefRaw(def)) continue
+    const unknownRefKeys = Object.keys(def).filter((k) => !KNOWN_REF_KEYS.has(k))
+    if (unknownRefKeys.length > 0) {
+      errors.push(
+        `machine "${machineName}": reference "${local}": unknown key(s) ${formatUnknownKeys(unknownRefKeys, LEGACY_REF_KEY_HINTS)}`,
+      )
+    }
+  }
+}
+
+const validateMachinesShape = (raw: unknown, errors: string[]): void => {
+  if (raw === undefined) return
+  if (!isPlainObject(raw)) {
+    errors.push(
+      `"machines" must be a mapping of machine name -> { params?, entry, states }, got ${describeType(raw)}`,
+    )
+    return
+  }
+  for (const [machineName, machineRaw] of Object.entries(raw)) {
+    if (!isPlainObject(machineRaw)) continue
+    const unknownMachineKeys = Object.keys(machineRaw).filter((k) => !KNOWN_MACHINE_KEYS.has(k))
+    if (unknownMachineKeys.length > 0) {
+      errors.push(`machine "${machineName}": unknown key(s) ${unknownMachineKeys.join(", ")}`)
+    }
+    validateMachineRefs(machineName, machineRaw, errors)
+  }
+}
 
 // ── Compilation result ───────────────────────────────────────────────────────
 
@@ -256,6 +353,8 @@ export interface CompiledWorkflowConfig {
   readonly definition: WorkflowDefinition
   /** The compiled `vars:` map (scalar-coerced) — the lowest-precedence layer of the merged `it.vars` (see `src/Edge.ts`'s `resolveVars`). `{}` when absent. */
   readonly vars: Record<string, string>
+  /** The machine-instance tree `flattenMachines` (`src/Machines.ts`) built while compiling — a compilation OUTPUT for tooling (`gtd visualize`), never part of the pure `WorkflowDefinition` the engine reads. */
+  readonly tree: MachineNode
 }
 
 const formatErrors = (errors: readonly string[]): string =>
@@ -294,6 +393,10 @@ const resolveContent = (
   }
 }
 
+/** A local is a REFERENCE iff its raw value carries a `machine` key — the same predicate `src/Machines.ts` uses. */
+const isRefRaw = (v: unknown): v is Record<string, unknown> =>
+  isPlainObject(v) && typeof v["machine"] === "string"
+
 /**
  * Inline every `./`/`../` content file reference in ONE raw `workflow:` value
  * against `configDir` — the directory of the `.gtdrc` that DECLARED it — and
@@ -302,41 +405,76 @@ const resolveContent = (
  * Used by `src/Config.ts`'s `loadMerged` to resolve each config level's
  * references against its OWN file's directory BEFORE the levels are
  * deep-merged. The merge collapses every level into one anonymous object, so it
- * erases which file a given `states.x.prompt` came from; resolving up front,
- * per level, is the only way `./gtd-prompts/x.md` in a parent `.gtdrc` resolves
- * against the parent (not the cwd a child repo runs from). `compileWorkflowConfig`
- * is then invoked with `inlineFileRefs: false` on the merged result.
+ * erases which file a given `machines.x.states.y.prompt` came from; resolving up
+ * front, per level, is the only way `./gtd-prompts/x.md` in a parent `.gtdrc`
+ * resolves against the parent (not the cwd a child repo runs from).
+ * `compileWorkflowConfig` is then invoked with `inlineFileRefs: false` on the
+ * merged result. Walks `machines[*].states[*]`, skipping reference entries (an
+ * object carrying a `machine` key) — a reference has no content of its own to
+ * inline.
  *
- * Malformed shapes (a non-object workflow, non-object `states`, a non-object
- * state, a non-string content value) pass through untouched —
+ * Malformed shapes (a non-object workflow, non-object `machines`, a non-object
+ * machine/state, a non-string content value) pass through untouched —
  * `compileWorkflowConfig`/`validateDefinition` own those findings; this pass
  * only rewrites the strings it recognizes as file references, collecting a load
  * error (via `resolveContent`) for any that is missing or unreadable.
  */
+/** Inline one ordinary (non-reference) state's own content file references; a reference passes through untouched. */
+const inlineStateFileRefs = (
+  def: Record<string, unknown>,
+  machineName: string,
+  local: string,
+  configDir: string,
+  errors: string[],
+): Record<string, unknown> => {
+  if (typeof def["machine"] === "string") return def
+  const next: Record<string, unknown> = { ...def }
+  for (const key of CONTENT_KEYS) {
+    const value = def[key]
+    if (typeof value !== "string" || !isFileReference(value)) continue
+    const resolved = resolveContent(
+      value,
+      configDir,
+      `machine "${machineName}" state "${local}" (${key})`,
+      errors,
+    )
+    if (resolved !== undefined) next[key] = resolved
+  }
+  return next
+}
+
+/** Inline every state's content file references for one machine; a malformed machine/states shape passes through untouched. */
+const inlineMachineFileRefs = (
+  machineRaw: unknown,
+  machineName: string,
+  configDir: string,
+  errors: string[],
+): unknown => {
+  if (!isPlainObject(machineRaw)) return machineRaw
+  const rawStates = machineRaw["states"]
+  if (!isPlainObject(rawStates)) return machineRaw
+  const states: Record<string, unknown> = {}
+  for (const [local, def] of Object.entries(rawStates)) {
+    states[local] = isPlainObject(def)
+      ? inlineStateFileRefs(def, machineName, local, configDir, errors)
+      : def
+  }
+  return { ...machineRaw, states }
+}
+
 export const inlineWorkflowFileRefs = (
   rawWorkflow: unknown,
   configDir: string,
   errors: string[],
 ): unknown => {
   if (!isPlainObject(rawWorkflow)) return rawWorkflow
-  const rawStates = rawWorkflow["states"]
-  if (!isPlainObject(rawStates)) return rawWorkflow
-  const states: Record<string, unknown> = {}
-  for (const [name, state] of Object.entries(rawStates)) {
-    if (!isPlainObject(state)) {
-      states[name] = state
-      continue
-    }
-    const next: Record<string, unknown> = { ...state }
-    for (const key of CONTENT_KEYS) {
-      const value = state[key]
-      if (typeof value !== "string" || !isFileReference(value)) continue
-      const resolved = resolveContent(value, configDir, `state "${name}" (${key})`, errors)
-      if (resolved !== undefined) next[key] = resolved
-    }
-    states[name] = next
+  const rawMachines = rawWorkflow["machines"]
+  if (!isPlainObject(rawMachines)) return rawWorkflow
+  const machines: Record<string, unknown> = {}
+  for (const [machineName, machineRaw] of Object.entries(rawMachines)) {
+    machines[machineName] = inlineMachineFileRefs(machineRaw, machineName, configDir, errors)
   }
-  return { ...rawWorkflow, states }
+  return { ...rawWorkflow, machines }
 }
 
 // ── Per-state field compilers ────────────────────────────────────────────────
@@ -568,13 +706,6 @@ const compileMode = (
   return raw.mode as StateMode
 }
 
-/** The `initial` field: `true` only when the raw value is the literal boolean `true`. */
-const compileInitial = (
-  raw: Record<string, unknown>,
-  name: string,
-  errors: string[],
-): true | undefined => compileBooleanFlag(raw, "initial", name, errors)
-
 /**
  * A boolean state flag (`initial`/`reviewWindow`/`reviewBase`/`reviewEntry`/`fixEntry`/`requireProgress`/`answerGate`): `true` only
  * when the raw value is the literal `true`; a non-boolean is a config error;
@@ -596,12 +727,11 @@ const compileBooleanFlag = (
   return value === true ? true : undefined
 }
 
-/** One state's compiled parts, assembled into a `StateDef` (only present fields carried over — `exactOptionalPropertyTypes`). */
+/** One state's compiled parts, assembled into a `StateDef` (only present fields carried over — `exactOptionalPropertyTypes`). `initial`/`reviewEntry`/`fixEntry` are NOT here — they never land on a `StateDef`; `compileState` compiles them separately into the raw entry-flag result `compileWorkflowConfig` collects across all states into `WorkflowDefinition.entries` (see `CompiledState`). */
 interface StateParts {
   readonly actor: string | undefined
   readonly content: Partial<Record<ContentKey, string>>
   readonly on: readonly OnEdge[] | undefined
-  readonly initial: true | undefined
   readonly retry: RetryDef | undefined
   readonly model: string | undefined
   readonly memory: string | undefined
@@ -610,8 +740,6 @@ interface StateParts {
   readonly mode: StateMode | undefined
   readonly reviewWindow: true | undefined
   readonly reviewBase: true | undefined
-  readonly reviewEntry: true | undefined
-  readonly fixEntry: true | undefined
   readonly requireProgress: true | undefined
   readonly answerGate: true | undefined
 }
@@ -649,7 +777,6 @@ const assembleStateDef = (parts: StateParts): StateDef => ({
   ...definedEntries({
     actor: parts.actor,
     on: parts.on,
-    initial: parts.initial,
     retry: parts.retry,
     model: parts.model,
     memory: parts.memory,
@@ -658,15 +785,23 @@ const assembleStateDef = (parts: StateParts): StateDef => ({
     mode: parts.mode,
     reviewWindow: parts.reviewWindow,
     reviewBase: parts.reviewBase,
-    reviewEntry: parts.reviewEntry,
-    fixEntry: parts.fixEntry,
     requireProgress: parts.requireProgress,
     answerGate: parts.answerGate,
   }),
   ...assembleContentFields(parts.content),
 })
 
-/** One state's full shape: actor, content, `on`, `initial`, `retry`. */
+/**
+ * One state's full shape: actor, content, `on`, `retry`. Operates on a
+ * QUALIFIED state entry from `FlattenedWorkflow.states` (`src/Machines.ts`) —
+ * `$param`s already substituted, every `on`/`retry.otherwise` target already
+ * an absolute qualified name — so this is exactly the flat compilation the
+ * pre-`entry:`/`machines:` compiler already did. The entry-point flags
+ * (`initial`/`reviewEntry`/`fixEntry`) are gone from this shape entirely: the
+ * flattener resolves `entry.default`/`.review`/`.fix` directly into
+ * `WorkflowDefinition.entries`, so there is nothing left for this function to
+ * collect.
+ */
 const compileState = (
   name: string,
   raw: unknown,
@@ -681,14 +816,15 @@ const compileState = (
 
   const unknownKeys = Object.keys(raw).filter((k) => !KNOWN_STATE_KEYS.has(k))
   if (unknownKeys.length > 0) {
-    errors.push(`state "${name}": unknown key(s) ${unknownKeys.join(", ")}`)
+    errors.push(
+      `state "${name}": unknown key(s) ${formatUnknownKeys(unknownKeys, LEGACY_STATE_KEY_HINTS)}`,
+    )
   }
 
   return assembleStateDef({
     actor: compileActor(raw, name, errors),
     content: compileContent(raw, name, configDir, errors, inlineFileRefs),
     on: compileOn(raw.on, name, errors),
-    initial: compileInitial(raw, name, errors),
     retry: compileRetry(raw.retry, name, errors),
     model: compileModel(raw, name, errors),
     memory: compileMemory(raw, name, errors),
@@ -697,8 +833,6 @@ const compileState = (
     mode: compileMode(raw, name, errors),
     reviewWindow: compileBooleanFlag(raw, "reviewWindow", name, errors),
     reviewBase: compileBooleanFlag(raw, "reviewBase", name, errors),
-    reviewEntry: compileBooleanFlag(raw, "reviewEntry", name, errors),
-    fixEntry: compileBooleanFlag(raw, "fixEntry", name, errors),
     requireProgress: compileBooleanFlag(raw, "requireProgress", name, errors),
     answerGate: compileBooleanFlag(raw, "answerGate", name, errors),
   })
@@ -708,17 +842,30 @@ const compileState = (
 
 /**
  * Compile the raw, decoded `workflow:` YAML value into a `WorkflowDefinition`
- * plus the workflow's own compiled `vars:` map. `configDir` is the config
- * file's own directory, used to resolve `./`/`../` file references. `rcModes`
- * is the already-compiled top-level `.gtdrc` `modes:` key (`src/Config.ts`),
- * layered over the workflow's own `modes:` per half BEFORE validation — so a
- * state may name a mode either layer declares. `inlineFileRefs` (default
- * `true`) inlines content file references against `configDir`; the real config
- * path (`src/Config.ts`'s `loadMerged`) passes `false` because it has already
- * inlined every reference per declaring file across the merge chain, so
- * `configDir` is then irrelevant. Throws a single `Error` (message:
- * `"workflow config:\n  - ..."`, one line per finding) on ANY config-shape
- * problem or `validateDefinition` finding — never partially succeeds.
+ * plus the workflow's own compiled `vars:` map and its machine tree. `configDir`
+ * is the config file's own directory, used to resolve `./`/`../` file
+ * references. `rcModes` is the already-compiled top-level `.gtdrc` `modes:` key
+ * (`src/Config.ts`), layered over the workflow's own `modes:` per half BEFORE
+ * validation — so a state may name a mode either layer declares.
+ * `inlineFileRefs` (default `true`) inlines content file references against
+ * `configDir`; the real config path (`src/Config.ts`'s `loadMerged`) passes
+ * `false` because it has already inlined every reference per declaring file
+ * across the merge chain, so `configDir` is then irrelevant. Throws a single
+ * `Error` (message: `"workflow config:\n  - ..."`, one line per finding) on ANY
+ * config-shape problem or `validateDefinition` finding — never partially
+ * succeeds.
+ *
+ * Three error-sequencing rules, in order:
+ *
+ * 1. `detectLegacyShape` short-circuits first — a stale pre-`entry:`/`machines:`
+ *    config throws with ONLY the migration findings, never mixed with
+ *    downstream noise.
+ * 2. Unassemblable throws early: `flattenMachines`'s `entries` coming back
+ *    `undefined` (no `entry.default`, no `machines`, an unresolvable root)
+ *    means there is no definition for `validateDefinition` to add findings to
+ *    — throw immediately with whatever findings exist so far.
+ * 3. Otherwise the flattener's findings and `validateDefinition`'s findings
+ *    merge into one de-duplicated, thrown error.
  */
 export const compileWorkflowConfig = (
   raw: unknown,
@@ -730,48 +877,50 @@ export const compileWorkflowConfig = (
     throw new Error(`workflow config: must be an object, got ${describeType(raw)}`)
   }
 
+  detectLegacyShape(raw)
+
   const errors: string[] = []
 
-  // Sub-machine expansion (Option C) runs FIRST, as a raw → raw pre-pass: it
-  // turns the optional `submachines:`/`use:` keys into concrete `states` and
-  // strips them, so everything below sees the familiar `{ vars, states, modes }`
-  // shape and the engine stays oblivious to sub-machines (see src/Submachines.ts).
-  const expanded = expandSubmachines(raw, errors)
-  const cfg: Record<string, unknown> = isPlainObject(expanded) ? expanded : raw
-
-  const unknownTopKeys = Object.keys(cfg).filter((k) => !KNOWN_TOP_KEYS.has(k))
+  const unknownTopKeys = Object.keys(raw).filter((k) => !KNOWN_TOP_KEYS.has(k))
   if (unknownTopKeys.length > 0) {
     errors.push(`unknown top-level key(s) ${unknownTopKeys.join(", ")}`)
   }
 
-  const vars = compileVarsMap(cfg.vars, errors)
-  const modes = mergeModes(compileModesMap(cfg.modes, errors), rcModes)
+  const vars = compileVarsMap(raw.vars, errors)
+  const modes = mergeModes(compileModesMap(raw.modes, errors), rcModes)
+  validateMachinesShape(raw.machines, errors)
 
-  const rawStates = cfg.states
-  if (!isPlainObject(rawStates) || Object.keys(rawStates).length === 0) {
-    // Truly unassemblable: there is no per-state work to even attempt, so
-    // there is nothing `validateDefinition` could add — throw with just the
-    // shape errors collected so far.
-    errors.push(`"states" must be a non-empty object`)
+  const flattened = flattenMachines(raw, errors)
+  if (flattened.entries === undefined) {
+    // Unassemblable: there is no per-state work to even attempt, so there is
+    // nothing `validateDefinition` could add — throw with just the findings
+    // collected so far.
     throw new Error(formatErrors(errors))
   }
 
   const states: Record<string, StateDef> = {}
-  for (const [name, s] of Object.entries(rawStates)) {
+  for (const [name, s] of Object.entries(flattened.states)) {
     states[name] = compileState(name, s, configDir, errors, inlineFileRefs)
   }
 
-  // A definition can still be assembled (however messy) whenever `states`
-  // itself parsed — so run `validateDefinition` unconditionally and merge its
-  // findings with the shape errors collected above into ONE thrown error,
+  // A definition can still be assembled (however messy) whenever the flattener
+  // resolved `entries` — so run `validateDefinition` unconditionally and merge
+  // its findings with the shape errors collected above into ONE thrown error,
   // rather than stopping at the first shape problem and hiding everything
-  // `validateDefinition` would otherwise have caught (e.g. a bad `on` target
+  // `validateDefinition` would otherwise have caught (e.g. a bad content kind
   // in an unrelated state). De-duplicate identical messages (both passes can
   // independently notice the same problem).
-  const definition: WorkflowDefinition = modes !== undefined ? { states, modes } : { states }
+  const definition: WorkflowDefinition =
+    modes !== undefined
+      ? { states, entries: flattened.entries, modes }
+      : { states, entries: flattened.entries }
   const definitionErrors = validateDefinition(definition)
   const allErrors = Array.from(new Set([...errors, ...definitionErrors]))
   if (allErrors.length > 0) throw new Error(formatErrors(allErrors))
 
-  return { definition, vars }
+  // `flattened.tree` is `undefined` only when the root machine itself could not
+  // be instantiated (`src/Machines.ts`'s `flattenMachines`) — which is exactly
+  // the case already ruled out by the `entries === undefined` throw above,
+  // since `entries` can only resolve once the root instantiated.
+  return { definition, vars, tree: flattened.tree! }
 }

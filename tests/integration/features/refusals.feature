@@ -23,21 +23,25 @@ Feature: Refusals — out-of-turn and no-match steps commit nothing
     And a gtd config file at ".gtdrc" with:
       """
       workflow:
-        states:
-          idle:
-            actor: human
-            initial: true
-            message: "write NOTE.md to start a cycle"
-            on:
-              "* **": working
-          working:
-            actor: agent
-            prompt: "develop the note, then write COMMIT_MSG.md with the final message"
-            on:
-              "A COMMIT_MSG.md": done
-              "M COMMIT_MSG.md": done
-          done:
-            commit: '<%~ it.read("COMMIT_MSG.md") %>'
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "write NOTE.md to start a cycle"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                prompt: "develop the note, then write COMMIT_MSG.md with the final message"
+                on:
+                  "A COMMIT_MSG.md": done
+                  "M COMMIT_MSG.md": done
+              done:
+                commit: '<%~ it.read("COMMIT_MSG.md") %>'
       """
     And a file "NOTE.md" with:
       """

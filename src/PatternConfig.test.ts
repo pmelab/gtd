@@ -9,40 +9,45 @@ import { compileWorkflowConfig } from "./PatternConfig.js"
 
 /** The plan's draft/check/revise shape (decision 7): a squashing prompt state feeding a `commit:` final state. */
 const draftCheckRevise = {
-  states: {
-    idle: {
-      actor: "human",
-      message: "waiting for a draft",
-      initial: true,
-      on: {
-        "A DRAFT.md": "checking",
-        "* *": "checking",
+  entry: { default: "root" },
+  machines: {
+    root: {
+      entry: "idle",
+      states: {
+        idle: {
+          actor: "human",
+          message: "waiting for a draft",
+          on: {
+            "A DRAFT.md": "checking",
+            "* *": "checking",
+          },
+        },
+        checking: {
+          actor: "check",
+          script: "npm run lint DRAFT.md",
+          on: {
+            "A FEEDBACK.md": "revising",
+            C: "squashing",
+          },
+        },
+        revising: {
+          actor: "agent",
+          prompt: "Address the feedback in FEEDBACK.md, then delete it.",
+          on: {
+            "* *": "checking",
+          },
+        },
+        squashing: {
+          actor: "agent",
+          prompt: "Write a commit message to COMMIT_MSG.md.",
+          on: {
+            "A COMMIT_MSG.md": "done",
+          },
+        },
+        done: {
+          commit: "chore: <%~ it.read('COMMIT_MSG.md') %>",
+        },
       },
-    },
-    checking: {
-      actor: "check",
-      script: "npm run lint DRAFT.md",
-      on: {
-        "A FEEDBACK.md": "revising",
-        C: "squashing",
-      },
-    },
-    revising: {
-      actor: "agent",
-      prompt: "Address the feedback in FEEDBACK.md, then delete it.",
-      on: {
-        "* *": "checking",
-      },
-    },
-    squashing: {
-      actor: "agent",
-      prompt: "Write a commit message to COMMIT_MSG.md.",
-      on: {
-        "A COMMIT_MSG.md": "done",
-      },
-    },
-    done: {
-      commit: "chore: <%~ it.read('COMMIT_MSG.md') %>",
     },
   },
 }
@@ -58,12 +63,12 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
     expect(definition.states["idle"]).toEqual({
       actor: "human",
       message: "waiting for a draft",
-      initial: true,
       on: [
         ["A DRAFT.md", "checking"],
         ["* *", "checking"],
       ],
     })
+    expect(definition.entries).toEqual({ default: "idle" })
     expect(definition.states["done"]).toEqual({
       commit: "chore: <%~ it.read('COMMIT_MSG.md') %>",
     })
@@ -106,8 +111,14 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
     try {
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: 1, initial: true, message: "hi", on: {} },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: { actor: 1, message: "hi", on: {} },
+              },
+            },
           },
           vars: { bad: { nested: true } },
         },
@@ -202,14 +213,19 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
   it("accepts a state whose `mode:` is declared only by `rcModes`", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          a: {
-            actor: "agent",
-            prompt: "write the ADR",
-            initial: true,
-            file: "docs/adr/0001.md",
-            mode: "adr",
-            on: { "* *": "a" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "a",
+            states: {
+              a: {
+                actor: "agent",
+                prompt: "write the ADR",
+                file: "docs/adr/0001.md",
+                mode: "adr",
+                on: { "* *": "a" },
+              },
+            },
           },
         },
       },
@@ -223,14 +239,19 @@ describe("compileWorkflowConfig — realistic multi-state workflow", () => {
     const { definition } = compileWorkflowConfig(
       {
         modes: { adr: { validate: "adr-lint <%= it.file %>" } },
-        states: {
-          a: {
-            actor: "agent",
-            prompt: "write the ADR",
-            initial: true,
-            file: "docs/adr/0001.md",
-            mode: "adr",
-            on: { "* *": "a" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "a",
+            states: {
+              a: {
+                actor: "agent",
+                prompt: "write the ADR",
+                file: "docs/adr/0001.md",
+                mode: "adr",
+                on: { "* *": "a" },
+              },
+            },
           },
         },
       },
@@ -246,24 +267,29 @@ describe("compileWorkflowConfig — `on` order preservation", () => {
   it("preserves multi-row declaration order as OnEdge tuples", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          start: {
-            actor: "human",
-            message: "go",
-            initial: true,
-            on: {
-              "A z.md": "a",
-              "A a.md": "b",
-              "M m.md": "c",
-              "D d.md": "d",
-              "* *": "e",
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "start",
+            states: {
+              start: {
+                actor: "human",
+                message: "go",
+                on: {
+                  "A z.md": "a",
+                  "A a.md": "b",
+                  "M m.md": "c",
+                  "D d.md": "d",
+                  "* *": "e",
+                },
+              },
+              a: { commit: "a" },
+              b: { commit: "b" },
+              c: { commit: "c" },
+              d: { commit: "d" },
+              e: { commit: "e" },
             },
           },
-          a: { commit: "a" },
-          b: { commit: "b" },
-          c: { commit: "c" },
-          d: { commit: "d" },
-          e: { commit: "e" },
         },
       },
       "/config-dir",
@@ -282,24 +308,30 @@ describe("compileWorkflowConfig — `on` order preservation", () => {
     // hand back a plain object whose key iteration order matches the
     // document's declaration order (not, say, alphabetical or Map-based).
     const yaml = `
-states:
-  start:
-    actor: human
-    message: go
-    initial: true
-    on:
-      "A z.md": a
-      "A a.md": b
-      C: c
-  a:
-    commit: a
-  b:
-    commit: b
-  c:
-    commit: c
+entry:
+  default: root
+machines:
+  root:
+    entry: start
+    states:
+      start:
+        actor: human
+        message: go
+        on:
+          "A z.md": a
+          "A a.md": b
+          C: c
+      a:
+        commit: a
+      b:
+        commit: b
+      c:
+        commit: c
 `
-    const raw = parseYaml(yaml) as { states: { start: { on: Record<string, string> } } }
-    expect(Object.keys(raw.states.start.on)).toEqual(["A z.md", "A a.md", "C"])
+    const raw = parseYaml(yaml) as {
+      machines: { root: { states: { start: { on: Record<string, string> } } } }
+    }
+    expect(Object.keys(raw.machines.root.states.start.on)).toEqual(["A z.md", "A a.md", "C"])
 
     const { definition } = compileWorkflowConfig(raw, "/config-dir")
     expect(definition.states["start"]!.on).toEqual([
@@ -312,21 +344,26 @@ states:
   it("compiles the { to, describe } object form, carrying describe as the edge's third element, while the string form stays a two-element edge", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          gate: {
-            actor: "human",
-            message: "choose",
-            initial: true,
-            on: {
-              C: { to: "accept", describe: "Change nothing to accept and proceed." },
-              "* **": "revise",
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "gate",
+            states: {
+              gate: {
+                actor: "human",
+                message: "choose",
+                on: {
+                  C: { to: "accept", describe: "Change nothing to accept and proceed." },
+                  "* **": "revise",
+                },
+              },
+              accept: { commit: "chore: accept" },
+              revise: {
+                actor: "agent",
+                prompt: "revise",
+                on: { "* **": "gate" },
+              },
             },
-          },
-          accept: { commit: "chore: accept" },
-          revise: {
-            actor: "agent",
-            prompt: "revise",
-            on: { "* **": "gate" },
           },
         },
       },
@@ -356,14 +393,19 @@ describe("compileWorkflowConfig — file references", () => {
     writeFileSync(join(dir, "check.sh"), "#!/bin/sh\nnpm test\n")
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          checking: {
-            actor: "check",
-            script: "./check.sh",
-            initial: true,
-            on: { "* *": "done" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "checking",
+            states: {
+              checking: {
+                actor: "check",
+                script: "./check.sh",
+                on: { "* *": "done" },
+              },
+              done: { commit: "chore: done" },
+            },
           },
-          done: { commit: "chore: done" },
         },
       },
       dir,
@@ -377,14 +419,19 @@ describe("compileWorkflowConfig — file references", () => {
     mkdirSync(sub)
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          working: {
-            actor: "agent",
-            prompt: "../shared-prompt.md",
-            initial: true,
-            on: { "* *": "done" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "working",
+            states: {
+              working: {
+                actor: "agent",
+                prompt: "../shared-prompt.md",
+                on: { "* *": "done" },
+              },
+              done: { commit: "chore: done" },
+            },
           },
-          done: { commit: "chore: done" },
         },
       },
       sub,
@@ -395,14 +442,19 @@ describe("compileWorkflowConfig — file references", () => {
   it("treats any other string as inline template source, verbatim", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          idle: {
-            actor: "human",
-            message: "hello, this contains a / slash but is not a file ref",
-            initial: true,
-            on: { "* *": "done" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "idle",
+            states: {
+              idle: {
+                actor: "human",
+                message: "hello, this contains a / slash but is not a file ref",
+                on: { "* *": "done" },
+              },
+              done: { commit: "chore: done" },
+            },
           },
-          done: { commit: "chore: done" },
         },
       },
       dir,
@@ -416,14 +468,19 @@ describe("compileWorkflowConfig — file references", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            checking: {
-              actor: "check",
-              script: "./does-not-exist.sh",
-              initial: true,
-              on: { "* *": "done" },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "checking",
+              states: {
+                checking: {
+                  actor: "check",
+                  script: "./does-not-exist.sh",
+                  on: { "* *": "done" },
+                },
+                done: { commit: "chore: done" },
+              },
             },
-            done: { commit: "chore: done" },
           },
         },
         dir,
@@ -442,32 +499,44 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   })
 
   it("rejects an unknown top-level key", () => {
-    expect(() => compileWorkflowConfig({ states: {}, bogus: 1 }, "/dir")).toThrowError(
+    expect(() => compileWorkflowConfig({ machines: {}, bogus: 1 }, "/dir")).toThrowError(
       /unknown top-level key\(s\) bogus/,
     )
   })
 
-  it("rejects a missing or empty `states` object", () => {
+  it("rejects a missing entry.default or one that names an undeclared machine", () => {
     expect(() => compileWorkflowConfig({}, "/dir")).toThrowError(
-      /"states" must be a non-empty object/,
+      /"entry\.default" must name a machine/,
     )
-    expect(() => compileWorkflowConfig({ states: {} }, "/dir")).toThrowError(
-      /"states" must be a non-empty object/,
-    )
+    expect(() =>
+      compileWorkflowConfig({ entry: { default: "root" }, machines: {} }, "/dir"),
+    ).toThrowError(/entry\.default: unknown machine "root"/)
   })
 
   it("rejects a non-object state", () => {
-    expect(() => compileWorkflowConfig({ states: { a: "nope" } }, "/dir")).toThrowError(
-      /state "a": must be an object, got string/,
-    )
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: { root: { entry: "a", states: { a: "nope" } } },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/machines\.root\.a: state must be an object, got string/)
   })
 
   it("rejects an unknown state key", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: "human", message: "hi", initial: true, bogusKey: true },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: { actor: "human", message: "hi", bogusKey: true },
+              },
+            },
           },
         },
         "/dir",
@@ -477,29 +546,42 @@ describe("compileWorkflowConfig — config-shape validation", () => {
 
   it("rejects a non-string actor", () => {
     expect(() =>
-      compileWorkflowConfig({ states: { a: { actor: 1, message: "hi", initial: true } } }, "/dir"),
-    ).toThrowError(/state "a": "actor" must be a string/)
-  })
-
-  it("rejects a non-boolean initial", () => {
-    expect(() =>
       compileWorkflowConfig(
-        { states: { a: { actor: "human", message: "hi", initial: "yes" } } },
+        {
+          entry: { default: "root" },
+          machines: { root: { entry: "a", states: { a: { actor: 1, message: "hi" } } } },
+        },
         "/dir",
       ),
-    ).toThrowError(/state "a": "initial" must be a boolean/)
+    ).toThrowError(/state "a": "actor" must be a string/)
   })
 
   it("rejects a non-boolean reviewWindow/reviewBase", () => {
     expect(() =>
       compileWorkflowConfig(
-        { states: { a: { actor: "human", message: "hi", initial: true, reviewWindow: "yes" } } },
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: { a: { actor: "human", message: "hi", reviewWindow: "yes" } },
+            },
+          },
+        },
         "/dir",
       ),
     ).toThrowError(/state "a": "reviewWindow" must be a boolean/)
     expect(() =>
       compileWorkflowConfig(
-        { states: { a: { actor: "human", message: "hi", initial: true, reviewBase: 1 } } },
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: { a: { actor: "human", message: "hi", reviewBase: 1 } },
+            },
+          },
+        },
         "/dir",
       ),
     ).toThrowError(/state "a": "reviewBase" must be a boolean/)
@@ -508,20 +590,25 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("compiles reviewWindow/reviewBase booleans onto the StateDef (false omitted)", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          a: {
-            actor: "human",
-            message: "hi",
-            initial: true,
-            reviewBase: true,
-            on: { "* *": "b" },
-          },
-          b: {
-            actor: "human",
-            message: "review",
-            reviewWindow: true,
-            reviewBase: false,
-            on: { C: "a" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "a",
+            states: {
+              a: {
+                actor: "human",
+                message: "hi",
+                reviewBase: true,
+                on: { "* *": "b" },
+              },
+              b: {
+                actor: "human",
+                message: "review",
+                reviewWindow: true,
+                reviewBase: false,
+                on: { C: "a" },
+              },
+            },
           },
         },
       },
@@ -536,14 +623,20 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("compiles a requireProgress boolean onto the StateDef", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          a: { actor: "human", message: "hi", initial: true, on: { "* *": "b" } },
-          b: {
-            actor: "agent",
-            prompt: "p",
-            file: ".gtd/F.md",
-            requireProgress: true,
-            on: { "* **": "a" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "a",
+            states: {
+              a: { actor: "human", message: "hi", on: { "* *": "b" } },
+              b: {
+                actor: "agent",
+                prompt: "p",
+                file: ".gtd/F.md",
+                requireProgress: true,
+                on: { "* **": "a" },
+              },
+            },
           },
         },
       },
@@ -552,33 +645,36 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(definition.states.b!.requireProgress).toBe(true)
   })
 
-  it("rejects a non-boolean reviewEntry", () => {
-    expect(() =>
-      compileWorkflowConfig(
-        { states: { a: { actor: "human", message: "hi", initial: true, reviewEntry: "yes" } } },
-        "/dir",
-      ),
-    ).toThrowError(/state "a": "reviewEntry" must be a boolean/)
-  })
-
-  it("compiles a `reviewEntry` boolean onto the StateDef (false omitted)", () => {
-    const shape = (reviewEntry: boolean) => ({
-      states: {
-        a: { actor: "human", message: "hi", initial: true, on: { "* *": "b" } },
-        b: { actor: "human", message: "review", reviewEntry, on: { C: "a" } },
+  it("compiles `entry.review` into `entries.review` (absent when not declared)", () => {
+    const shape = (withReview: boolean) => ({
+      entry: withReview ? { default: "root", review: "b" } : { default: "root" },
+      machines: {
+        root: {
+          entry: "a",
+          states: {
+            a: { actor: "human", message: "hi", on: { "* *": "b" } },
+            b: { actor: "human", message: "review", on: { C: "a" } },
+          },
+        },
       },
     })
     const { definition: withTrue } = compileWorkflowConfig(shape(true), "/dir")
-    expect(withTrue.states.b!.reviewEntry).toBe(true)
+    expect(withTrue.entries.review).toBe("b")
 
     const { definition: withFalse } = compileWorkflowConfig(shape(false), "/dir")
-    // `false` compiles away — never lands on the StateDef.
-    expect("reviewEntry" in withFalse.states.b!).toBe(false)
+    // Absent from `entry:` — never becomes an entry.
+    expect(withFalse.entries.review).toBeUndefined()
   })
 
   it("rejects zero content keys and more than one content key", () => {
     expect(() =>
-      compileWorkflowConfig({ states: { a: { actor: "human", initial: true } } }, "/dir"),
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: { root: { entry: "a", states: { a: { actor: "human" } } } },
+        },
+        "/dir",
+      ),
     ).toThrowError(
       /state "a": must declare exactly one of script\/prompt\/message\/commit \(found 0\)/,
     )
@@ -586,8 +682,14 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: "human", message: "hi", prompt: "also this", initial: true },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: { actor: "human", message: "hi", prompt: "also this" },
+              },
+            },
           },
         },
         "/dir",
@@ -600,7 +702,10 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("rejects a non-string content value", () => {
     expect(() =>
       compileWorkflowConfig(
-        { states: { a: { actor: "human", message: 42, initial: true } } },
+        {
+          entry: { default: "root" },
+          machines: { root: { entry: "a", states: { a: { actor: "human", message: 42 } } } },
+        },
         "/dir",
       ),
     ).toThrowError(/state "a": "message" must be a string/)
@@ -610,9 +715,15 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: "human", message: "hi", initial: true, on: "nope" },
-            b: { commit: "chore: b" },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: { actor: "human", message: "hi", on: "nope" },
+                b: { commit: "chore: b" },
+              },
+            },
           },
         },
         "/dir",
@@ -624,8 +735,14 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: "human", message: "hi", initial: true, on: { "* *": 1 } },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: { actor: "human", message: "hi", on: { "* *": 1 } },
+              },
+            },
           },
         },
         "/dir",
@@ -639,8 +756,14 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: "human", message: "hi", initial: true, on: { "* *": { to: 1 } } },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: { actor: "human", message: "hi", on: { "* *": { to: 1 } } },
+              },
+            },
           },
         },
         "/dir",
@@ -652,14 +775,19 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: {
-              actor: "human",
-              message: "hi",
-              initial: true,
-              on: { "* *": { to: "b", describe: 5 } },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: {
+                  actor: "human",
+                  message: "hi",
+                  on: { "* *": { to: "b", describe: 5 } },
+                },
+                b: { commit: "chore: b" },
+              },
             },
-            b: { commit: "chore: b" },
           },
         },
         "/dir",
@@ -671,14 +799,19 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: {
-              actor: "human",
-              message: "hi",
-              initial: true,
-              on: { "* *": { to: "b", explain: "nope" } },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: {
+                  actor: "human",
+                  message: "hi",
+                  on: { "* *": { to: "b", explain: "nope" } },
+                },
+                b: { commit: "chore: b" },
+              },
             },
-            b: { commit: "chore: b" },
           },
         },
         "/dir",
@@ -689,25 +822,30 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("compiles the `action` field through onto the edge's fourth element, alongside `describe`", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          gate: {
-            actor: "human",
-            message: "choose",
-            initial: true,
-            on: {
-              C: {
-                to: "accept",
-                describe: "Change nothing to accept and proceed.",
-                action: "Accept plan",
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "gate",
+            states: {
+              gate: {
+                actor: "human",
+                message: "choose",
+                on: {
+                  C: {
+                    to: "accept",
+                    describe: "Change nothing to accept and proceed.",
+                    action: "Accept plan",
+                  },
+                  "* **": "revise",
+                },
               },
-              "* **": "revise",
+              accept: { commit: "chore: accept" },
+              revise: {
+                actor: "agent",
+                prompt: "revise",
+                on: { "* **": "gate" },
+              },
             },
-          },
-          accept: { commit: "chore: accept" },
-          revise: {
-            actor: "agent",
-            prompt: "revise",
-            on: { "* **": "gate" },
           },
         },
       },
@@ -722,14 +860,19 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("compiles an `action`-without-`describe` edge, placing an explicit `undefined` in the third slot", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          gate: {
-            actor: "human",
-            message: "choose",
-            initial: true,
-            on: { C: { to: "accept", action: "Accept plan" } },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "gate",
+            states: {
+              gate: {
+                actor: "human",
+                message: "choose",
+                on: { C: { to: "accept", action: "Accept plan" } },
+              },
+              accept: { commit: "chore: accept" },
+            },
           },
-          accept: { commit: "chore: accept" },
         },
       },
       "/config-dir",
@@ -741,14 +884,19 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: {
-              actor: "human",
-              message: "hi",
-              initial: true,
-              on: { "* *": { to: "b", action: 5 } },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: {
+                  actor: "human",
+                  message: "hi",
+                  on: { "* *": { to: "b", action: 5 } },
+                },
+                b: { commit: "chore: b" },
+              },
             },
-            b: { commit: "chore: b" },
           },
         },
         "/dir",
@@ -759,15 +907,20 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("compiles a `model` string through onto the state", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          working: {
-            actor: "agent",
-            model: "smart",
-            prompt: "do the thing",
-            initial: true,
-            on: { "* *": "done" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "working",
+            states: {
+              working: {
+                actor: "agent",
+                model: "smart",
+                prompt: "do the thing",
+                on: { "* *": "done" },
+              },
+              done: { commit: "chore: done" },
+            },
           },
-          done: { commit: "chore: done" },
         },
       },
       "/dir",
@@ -778,14 +931,19 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("omits `model` entirely when the state declares none", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          working: {
-            actor: "agent",
-            prompt: "do the thing",
-            initial: true,
-            on: { "* *": "done" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "working",
+            states: {
+              working: {
+                actor: "agent",
+                prompt: "do the thing",
+                on: { "* *": "done" },
+              },
+              done: { commit: "chore: done" },
+            },
           },
-          done: { commit: "chore: done" },
         },
       },
       "/dir",
@@ -797,8 +955,12 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: "human", message: "hi", initial: true, model: 42 },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: { a: { actor: "human", message: "hi", model: 42 } },
+            },
           },
         },
         "/dir",
@@ -810,13 +972,18 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     try {
       compileWorkflowConfig(
         {
-          states: {
-            a: {
-              actor: "human",
-              message: "hi",
-              initial: true,
-              model: 42,
-              on: { "* **": "nowhere" },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: {
+                  actor: "human",
+                  message: "hi",
+                  model: 42,
+                  on: { "* **": "nowhere" },
+                },
+              },
             },
           },
         },
@@ -833,15 +1000,20 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("compiles a `memory` string through onto the state", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          working: {
-            actor: "agent",
-            memory: "plan",
-            prompt: "do the thing",
-            initial: true,
-            on: { "* *": "done" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "working",
+            states: {
+              working: {
+                actor: "agent",
+                memory: "plan",
+                prompt: "do the thing",
+                on: { "* *": "done" },
+              },
+              done: { commit: "chore: done" },
+            },
           },
-          done: { commit: "chore: done" },
         },
       },
       "/dir",
@@ -852,14 +1024,19 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("omits `memory` entirely when the state declares none", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          working: {
-            actor: "agent",
-            prompt: "do the thing",
-            initial: true,
-            on: { "* *": "done" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "working",
+            states: {
+              working: {
+                actor: "agent",
+                prompt: "do the thing",
+                on: { "* *": "done" },
+              },
+              done: { commit: "chore: done" },
+            },
           },
-          done: { commit: "chore: done" },
         },
       },
       "/dir",
@@ -871,8 +1048,12 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: "human", message: "hi", initial: true, memory: 42 },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: { a: { actor: "human", message: "hi", memory: 42 } },
+            },
           },
         },
         "/dir",
@@ -884,13 +1065,18 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     try {
       compileWorkflowConfig(
         {
-          states: {
-            a: {
-              actor: "human",
-              message: "hi",
-              initial: true,
-              memory: 42,
-              on: { "* **": "nowhere" },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: {
+                  actor: "human",
+                  message: "hi",
+                  memory: 42,
+                  on: { "* **": "nowhere" },
+                },
+              },
             },
           },
         },
@@ -907,15 +1093,20 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("compiles a `label` string through onto the state", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          working: {
-            actor: "agent",
-            label: "Build",
-            prompt: "do the thing",
-            initial: true,
-            on: { "* *": "done" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "working",
+            states: {
+              working: {
+                actor: "agent",
+                label: "Build",
+                prompt: "do the thing",
+                on: { "* *": "done" },
+              },
+              done: { commit: "chore: done" },
+            },
           },
-          done: { commit: "chore: done" },
         },
       },
       "/dir",
@@ -926,14 +1117,19 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("omits `label` entirely when the state declares none", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          working: {
-            actor: "agent",
-            prompt: "do the thing",
-            initial: true,
-            on: { "* *": "done" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "working",
+            states: {
+              working: {
+                actor: "agent",
+                prompt: "do the thing",
+                on: { "* *": "done" },
+              },
+              done: { commit: "chore: done" },
+            },
           },
-          done: { commit: "chore: done" },
         },
       },
       "/dir",
@@ -945,8 +1141,12 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: "human", message: "hi", initial: true, label: 42 },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: { a: { actor: "human", message: "hi", label: 42 } },
+            },
           },
         },
         "/dir",
@@ -958,13 +1158,18 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     try {
       compileWorkflowConfig(
         {
-          states: {
-            a: {
-              actor: "human",
-              message: "hi",
-              initial: true,
-              label: 42,
-              on: { "* **": "nowhere" },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: {
+                  actor: "human",
+                  message: "hi",
+                  label: 42,
+                  on: { "* **": "nowhere" },
+                },
+              },
             },
           },
         },
@@ -981,16 +1186,21 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("compiles `file`/`mode` strings through onto the state", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          working: {
-            actor: "agent",
-            file: "<%= it.vars.todoFile %>",
-            mode: "qa",
-            prompt: "do the thing",
-            initial: true,
-            on: { "* *": "done" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "working",
+            states: {
+              working: {
+                actor: "agent",
+                file: "<%= it.vars.todoFile %>",
+                mode: "qa",
+                prompt: "do the thing",
+                on: { "* *": "done" },
+              },
+              done: { commit: "chore: done" },
+            },
           },
-          done: { commit: "chore: done" },
         },
       },
       "/dir",
@@ -1002,14 +1212,19 @@ describe("compileWorkflowConfig — config-shape validation", () => {
   it("omits `file`/`mode` entirely when the state declares neither", () => {
     const { definition } = compileWorkflowConfig(
       {
-        states: {
-          working: {
-            actor: "agent",
-            prompt: "do the thing",
-            initial: true,
-            on: { "* *": "done" },
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "working",
+            states: {
+              working: {
+                actor: "agent",
+                prompt: "do the thing",
+                on: { "* *": "done" },
+              },
+              done: { commit: "chore: done" },
+            },
           },
-          done: { commit: "chore: done" },
         },
       },
       "/dir",
@@ -1022,8 +1237,12 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: "human", message: "hi", initial: true, file: 42 },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: { a: { actor: "human", message: "hi", file: 42 } },
+            },
           },
         },
         "/dir",
@@ -1035,13 +1254,18 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: {
-              actor: "human",
-              message: "hi",
-              initial: true,
-              file: ".gtd/TODO.md",
-              mode: 42,
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: {
+                  actor: "human",
+                  message: "hi",
+                  file: ".gtd/TODO.md",
+                  mode: 42,
+                },
+              },
             },
           },
         },
@@ -1054,14 +1278,19 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: {
-              actor: "human",
-              message: "hi",
-              initial: true,
-              file: ".gtd/TODO.md",
-              mode: "yolo",
-              on: {},
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: {
+                  actor: "human",
+                  message: "hi",
+                  file: ".gtd/TODO.md",
+                  mode: "yolo",
+                  on: {},
+                },
+              },
             },
           },
         },
@@ -1074,15 +1303,20 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: {
-              actor: "human",
-              message: "hi",
-              initial: true,
-              on: { "* *": "b" },
-              retry: { max: "three", bogus: 1 },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: {
+                  actor: "human",
+                  message: "hi",
+                  on: { "* *": "b" },
+                  retry: { max: "three", bogus: 1 },
+                },
+                b: { commit: "chore: b" },
+              },
             },
-            b: { commit: "chore: b" },
           },
         },
         "/dir",
@@ -1094,15 +1328,20 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: {
-              actor: "human",
-              message: "hi",
-              initial: true,
-              on: { "* *": "b" },
-              retry: { max: 1, otherwise: "nowhere" },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: {
+                  actor: "human",
+                  message: "hi",
+                  on: { "* *": "b" },
+                  retry: { max: 1, otherwise: "nowhere" },
+                },
+                b: { commit: "chore: b" },
+              },
             },
-            b: { commit: "chore: b" },
           },
         },
         "/dir",
@@ -1114,9 +1353,15 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     expect(() =>
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: "human", message: "hi", initial: true, on: { "* *": "b" } },
-            b: { commit: "chore: b", actor: "human" },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: { actor: "human", message: "hi", on: { "* *": "b" } },
+                b: { commit: "chore: b", actor: "human" },
+              },
+            },
           },
         },
         "/dir",
@@ -1124,26 +1369,18 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     ).toThrowError(/commit state "b" must not declare an actor/)
   })
 
-  it("rejects a workflow with no initial state (surfaced from validateDefinition)", () => {
-    expect(() =>
-      compileWorkflowConfig(
-        {
-          states: {
-            a: { actor: "human", message: "hi", on: { "* *": "b" } },
-            b: { commit: "chore: b" },
-          },
-        },
-        "/dir",
-      ),
-    ).toThrowError(/workflow must declare exactly one initial state \(found 0\)/)
-  })
-
   it("collects multiple shape errors into one thrown message", () => {
     try {
       compileWorkflowConfig(
         {
-          states: {
-            a: { actor: 1, initial: "nope" },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: { actor: 1, model: 42 },
+              },
+            },
           },
         },
         "/dir",
@@ -1152,7 +1389,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       expect(message).toContain('state "a": "actor" must be a string')
-      expect(message).toContain('state "a": "initial" must be a boolean')
+      expect(message).toContain('state "a": "model" must be a string')
       expect(message).toContain(
         'state "a": must declare exactly one of script/prompt/message/commit (found 0)',
       )
@@ -1163,13 +1400,18 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     try {
       compileWorkflowConfig(
         {
-          states: {
-            idle: {
-              actor: "human",
-              initial: true,
-              message: "start",
-              prompt: "also a prompt",
-              on: { "* **": "nowhere" },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "idle",
+              states: {
+                idle: {
+                  actor: "human",
+                  message: "start",
+                  prompt: "also a prompt",
+                  on: { "* **": "nowhere" },
+                },
+              },
             },
           },
         },
@@ -1189,15 +1431,20 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     try {
       compileWorkflowConfig(
         {
-          states: {
-            a: {
-              actor: "human",
-              initial: true,
-              message: "start",
-              prompt: "also a prompt",
-              on: { "* **": "b" },
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: {
+                  actor: "human",
+                  message: "start",
+                  prompt: "also a prompt",
+                  on: { "* **": "b" },
+                },
+                b: { actor: "human", message: "hi", on: { "* **": "nowhere" } },
+              },
             },
-            b: { actor: "human", message: "hi", on: { "* **": "nowhere" } },
           },
         },
         "/dir",
@@ -1209,6 +1456,138 @@ describe("compileWorkflowConfig — config-shape validation", () => {
         'state "a": must declare exactly one of script/prompt/message/commit (found 2)',
       )
       expect(message).toContain('state "b": "on" target "nowhere" is not a defined state')
+    }
+  })
+})
+
+describe("compileWorkflowConfig — legacy shape detection & error sequencing", () => {
+  it("each legacy top-level key throws its own migration message", () => {
+    expect(() => compileWorkflowConfig({ states: {} }, "/dir")).toThrowError(
+      /top-level "states:" is no longer supported — declare a machine under "machines:" and name it in "entry\.default:"/,
+    )
+    expect(() => compileWorkflowConfig({ submachines: {} }, "/dir")).toThrowError(
+      /top-level "submachines:" is no longer supported — declare machines directly under "machines:"/,
+    )
+    expect(() => compileWorkflowConfig({ use: {} }, "/dir")).toThrowError(
+      /top-level "use:" is no longer supported/,
+    )
+  })
+
+  it("a state-level `initial:` key surfaces its replacement hint instead of a bare unknown-key error", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: { entry: "a", states: { a: { actor: "human", message: "hi", initial: true } } },
+          },
+        },
+        "/dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain(
+        'state "a": unknown key(s) initial ("initial" no longer exists — declare this state\'s qualified path in the top-level "entry.default" instead)',
+      )
+    }
+  })
+
+  it("a reference's legacy `as`/`name`/`set` keys each surface a replacement hint instead of a bare unknown-key error", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "child1",
+              states: {
+                child1: { machine: "leaf", as: "x" },
+                child2: { machine: "leaf", name: "y" },
+                child3: { machine: "leaf", set: { z: 1 } },
+              },
+            },
+            leaf: { entry: "s", states: { s: { actor: "human", message: "hi" } } },
+          },
+        },
+        "/dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain(
+        'machine "root": reference "child1": unknown key(s) as ("as" no longer exists — a reference\'s local name (the key itself) IS the concrete name; there is nothing left to rename)',
+      )
+      expect(message).toContain(
+        'machine "root": reference "child2": unknown key(s) name ("name" no longer exists — a reference\'s local name (the key itself) names the instance)',
+      )
+      expect(message).toContain(
+        'machine "root": reference "child3": unknown key(s) set ("set" no longer exists — bind extra per-instance values via "with:" instead)',
+      )
+    }
+  })
+
+  it("the legacy-detection short-circuit throws only the migration finding, never mixed with downstream noise from a missing `entry`/`machines`", () => {
+    try {
+      compileWorkflowConfig({ states: { a: { actor: "human", message: "hi" } } }, "/dir")
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toBe(
+        'workflow config:\n  - top-level "states:" is no longer supported — declare a machine under "machines:" and name it in "entry.default:"',
+      )
+    }
+  })
+
+  it("an unassemblable config (entry.default names something unresolvable) throws before compileState/validateDefinition ever run, even though flattening already emitted a real state", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: { entry: "bogus", states: { a: { actor: 1 } } },
+          },
+        },
+        "/dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      // Only the flattener's entry.default finding — never compileState's
+      // "actor must be a string" (which would fire on state "a" if the
+      // per-state compile loop or validateDefinition ever ran).
+      expect(message).toBe(
+        'workflow config:\n  - "entry.default" names "bogus", which is not a state or machine reference',
+      )
+    }
+  })
+
+  it("the merge rule: a flattener-level sideways-target finding in one state and a validateDefinition content-kind finding in another both surface in one thrown error", () => {
+    try {
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "a",
+              states: {
+                a: { actor: "human", message: "hi", on: { "* **": "nowhere" } },
+                b: { actor: "human", message: "hi", prompt: "also a prompt" },
+              },
+            },
+          },
+        },
+        "/dir",
+      )
+      expect.unreachable("expected compileWorkflowConfig to throw")
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      expect(message).toContain(
+        'machines.root.a: "on" target "nowhere" is not a state or reference of machine "root" — declare a "params:" entry and bind it at the reference site',
+      )
+      expect(message).toContain(
+        'state "b": must declare exactly one of script/prompt/message/commit (found 2)',
+      )
     }
   })
 })

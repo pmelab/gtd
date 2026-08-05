@@ -1409,6 +1409,18 @@
       })()
       const groupBoxId = (i) => "g" + i
       const groupIndexOf = (name) => (MODEL.groups || []).findIndex((g) => g.name === name)
+      // `g.states` is that instance's DIRECT states only (`MODEL.groups` is a
+      // flat, depth-first projection of the machine tree) — a diagram scoped to
+      // `g` (the main flow collapsing `g`, or `g`'s own sub-machine panel) needs
+      // its whole subtree: direct states unioned with every descendant's.
+      const allStatesOf = (g) => {
+        const prefix = g.name + "."
+        const states = [...(g.states || [])]
+        ;(MODEL.groups || []).forEach((other) => {
+          if (other.name.startsWith(prefix)) states.push(...(other.states || []))
+        })
+        return states
+      }
       const shapeFor = (kind, label) => {
         const l = `"${label.replace(/"/g, "&quot;")}"`
         switch (kind) {
@@ -1476,10 +1488,20 @@
         const inSet = new Set(states.map((s) => s.name))
         const lines = ["flowchart TD"]
 
+        // Collapse a state to the outermost instance strictly below `scope`
+        // (the child of `scope` that is an ancestor of the state), not the
+        // state's own innermost group — walk from `scope` toward the state one
+        // path segment at a time and stop at the first instance boundary. A
+        // state whose group IS `scope` (a direct member) stays a real node.
         const unitOf = (name) => {
           const s = byName[name]
-          if (s && s.group && s.group !== scope) return { kind: "box", group: s.group }
-          return { kind: "node", name }
+          const group = s ? s.group : undefined
+          if (group === scope) return { kind: "node", name }
+          const scopePrefix = scope ? scope + "." : ""
+          const rest = name.startsWith(scopePrefix) ? name.slice(scopePrefix.length) : name
+          const firstSeg = rest.split(".")[0]
+          const boundary = scope ? scope + "." + firstSeg : firstSeg
+          return { kind: "box", group: boundary }
         }
         const unitId = (name) => {
           const u = unitOf(name)
@@ -1490,10 +1512,12 @@
         const emittedBoxes = new Set()
         const emittedGhosts = new Set()
         const nodeLine = (s) => `  ${idFor(s.name)}${shapeFor(s.kind, s.name)}:::${actorOf(s)}`
-        const boxLine = (g, i) =>
-          `  ${groupBoxId(i)}["${esc(g.name)}<br/><span class='sm-hint'>▸ ${g.states.length} state${
-            g.states.length === 1 ? "" : "s"
+        const boxLine = (g, i) => {
+          const n = allStatesOf(g).length
+          return `  ${groupBoxId(i)}["${esc(g.name)}<br/><span class='sm-hint'>▸ ${n} state${
+            n === 1 ? "" : "s"
           }</span>"]:::submachine`
+        }
         const ghostLine = (s) => `  e${idFor(s.name)}${shapeFor(s.kind, s.name)}:::external`
 
         states.forEach((s) => {
@@ -1919,13 +1943,16 @@
           card.className = "dia-card sm-card"
           card.id = "sm-" + i
           card.style.marginBottom = "16px"
+          card.style.marginLeft = (g.depth || 0) * 24 + "px"
           if (CURRENT && CURRENT.group === g.name) card.open = true
           card.innerHTML =
-            `<summary class="h"><span class="nm">${esc(g.name)} · instantiates <b>${esc(g.submachine)}</b></span></summary>` +
+            `<summary class="h"><span class="nm">${esc(g.name)} · instantiates <b>${esc(g.machine)}</b></span></summary>` +
             `<div class="dia-scroll" id="smDia${i}"><div class="dia-msg">Rendering diagram…</div></div>`
           el.appendChild(card)
 
-          const members = (g.states || []).map((n) => byName[n]).filter(Boolean)
+          const members = allStatesOf(g)
+            .map((n) => byName[n])
+            .filter(Boolean)
           registerDiagram(
             card.querySelector(`#smDia${i}`),
             () => buildFlowSrc(members, { scope: g.name }),
@@ -2120,7 +2147,7 @@
         ;(MODEL.groups || []).forEach((g) => {
           sections.push({
             label: g.name,
-            flow: g.submachine,
+            flow: g.machine,
             items: STATES.filter((s) => s.group === g.name),
           })
         })

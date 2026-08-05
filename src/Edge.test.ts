@@ -68,14 +68,15 @@ const stubGit = (overrides: Partial<GitOperations>): GitOperations => ({
 const run = <A>(effect: Effect.Effect<A, Error>): Promise<A> => Effect.runPromise(effect)
 
 /**
- * A minimal definition for `computeProcessRun`'s tests: only `idle`'s
- * `initial: true` matters to the boundary walk (`initialStateOf` never looks
- * up any OTHER state named in test history, e.g. "grilling"/"building" below
- * — the walk only compares parsed state names against the initial state's
- * NAME as a string).
+ * A minimal definition for `computeProcessRun`'s tests: only `idle` being
+ * `entries.default` matters to the boundary walk (`initialStateOf` never
+ * looks up any OTHER state named in test history, e.g. "grilling"/"building"
+ * below — the walk only compares parsed state names against the initial
+ * state's NAME as a string).
  */
 const def: WorkflowDefinition = {
-  states: { idle: { actor: "human", message: "m", initial: true } },
+  states: { idle: { actor: "human", message: "m" } },
+  entries: { default: "idle" },
 }
 
 describe("computeProcessRun", () => {
@@ -753,9 +754,10 @@ describe("renderOnEdges — `on` pattern keys rendered against `it.vars`", () =>
 describe("withRenderedOn — patches only the resting state's `on` for `step`", () => {
   const def: WorkflowDefinition = {
     states: {
-      idle: { actor: "human", message: "m", initial: true, on: [["A <%= it.vars.x %>", "idle"]] },
+      idle: { actor: "human", message: "m", on: [["A <%= it.vars.x %>", "idle"]] },
       other: { actor: "human", message: "m", on: [["A <%= it.vars.y %>", "other"]] },
     },
+    entries: { default: "idle" },
   }
 
   it("replaces the named state's `on` with the given rendered edges", () => {

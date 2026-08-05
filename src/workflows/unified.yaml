@@ -11,82 +11,86 @@
 # is INLINE (no `./`-relative file references): the bundled template ships
 # inside a single-file build (`dist/gtd.bundle.mjs`), so its content must
 # already be resolved at BUILD time. `renderInitConfig` (src/workflows/
-# templates.ts) can MATERIALIZE this inline source into a `.gtdrc.json`
+# templates.ts) can MATERIALIZE this raw source into a `.gtdrc.json`
 # `workflow:` value — the way to eject/customize the machine, and the hermetic
 # test fixture — but `gtd init` itself no longer writes the workflow.
 #
-# ── Authored with SUB-MACHINES (Option C) ──────────────────────────────────
+# ── Authored with MACHINES (entry:/machines:) ───────────────────────────────
 #
-# This template is written with `submachines:`/`use:` (see src/Submachines.ts).
-# Expansion is a compile-time raw → raw pre-pass with NO runtime footprint: the
-# pure engine only ever sees the flat concrete states, and each invocation's
-# `as:` rename map spells out the concrete state name every expanded state gets,
-# so the compiled `WorkflowDefinition` is exactly what a hand-written flat
-# workflow would produce. The sub-machines split into DEDUP (a gate/loop
-# authored once, invoked several times) and ENCAPSULATION (a single-instance
-# cluster grouped for reading):
+# This template is written as a tree of reusable, parameterized MACHINES (see
+# src/Machines.ts) — a gate/loop written once and instantiated several times
+# with different `with:` bindings (dedup), or a complex cluster grouped under
+# one name for source comprehension (encapsulation). Every reference below is
+# an ordinary `{ machine: <name>, with: { ... } }` local, expanded at
+# compile-time into concrete, qualified states before the pure engine ever
+# sees the definition — no runtime footprint.
 #
 #   * makeGreen (dedup ×2)    — the check/fix/escalate health triple shared by
-#                               the simple build tail and the advanced package
-#                               loop (identical script/prompt/message).
+#                               the simple build tail (`build.*`) and the
+#                               advanced package loop (`packages.health.*`).
 #   * assertGreen (dedup ×3)  — the green-baseline gate (check + human blocked)
-#                               guarding the simple, advanced and review entries.
+#                               guarding the simple (`plan-gate`), advanced
+#                               (`spec-gate`) and review (`review-gate`) entries.
 #   * qaLoop (dedup ×2)       — the checkbox Q&A author/answer loop shared by the
-#                               product (product-qa) and technical (technical-qa)
+#                               product (`product.*`) and technical (`technical.*`)
 #                               phases of the advanced flow.
-#   * planLoop (encap)        — the simple flow's plan-iteration loop.
-#   * humanReview (encap)     — the shared review tail (reviewing → await-review →
-#                               review-deciding → feedback collect/build).
-#   * specGate (encap)        — the advanced flow's per-package agentic review.
-#   * packageLoop (encap)     — the advanced flow's per-package build queue.
+#   * planLoop (encap)        — the simple flow's plan-iteration loop (`plan.*`).
+#   * humanReview (encap)     — the shared review tail (`review.*`: reviewing →
+#                               await-review → deciding → collecting/building).
+#   * specReview (encap)      — the advanced flow's per-package agentic review
+#                               (`packages.spec.*`).
+#   * packageLoop (encap)     — the advanced flow's per-package build queue
+#                               (`packages.*`).
 #
 # ── Four entry points behind a green-baseline gate, one shared tail ─────────
 #
 # EVERY entry first runs the test suite and only proceeds when it is GREEN — you
 # never start new work (or a review) on top of a red baseline. A red run halts
-# at a human `*-blocked` gate (fix the failures and re-run, exactly like
-# the `escalate` states), or is what `gtd fix` exists to repair.
+# at a human blocked gate (fix the failures and re-run, exactly like the
+# escalate states), or is what `gtd fix` exists to repair.
 #
 # The initial `idle` state FORKS on which steering file the human creates,
 # routing into that flow's OWN start gate:
 #
 #   * the configured requirementsFile (default .gtd/REQUIREMENTS.md) ->
-#     `spec-precheck` -> the ADVANCED flow (product + technical Q&A, package
+#     `spec-gate.check` -> the ADVANCED flow (product + technical Q&A, package
 #     decomposition, per-package parallel build + agentic spec-review).
 #   * anything else (e.g. the configured todoFile, default .gtd/TODO.md) ->
-#     `plan-precheck` -> the SIMPLE flow (one grilling Q&A loop, a monolithic
+#     `plan-gate.check` -> the SIMPLE flow (one grilling Q&A loop, a monolithic
 #     build, no decomposition, no agentic review).
 #
-# A third entry, `gtd review <commitish>`, jumps to `review-precheck`
-# (reviewEntry) and, once green, to `reviewing` to review a foreign branch
-# through the same shared tail. A fourth, `gtd fix`, jumps to `fix-precheck`
-# (fixEntry): a red suite drops straight into the shared `fixing` loop and out
-# through the review + squash tail; a green suite is a no-op back to `idle`.
+# A third entry, `gtd review <commitish>`, jumps to `review-gate.check`
+# (`entry.review`) and, once green, to `review.reviewing` to review a foreign
+# branch through the same shared tail. A fourth, `gtd fix`, jumps to
+# `fix-precheck` (`entry.fix`): a red suite drops straight into the shared
+# `build.fix` loop and out through the review + squash tail; a green suite is
+# a no-op back to `idle`.
 #
-# All three converge at `reviewing` -> `await-review`. Ticking a REVIEW.md box
-# means only "I reviewed this hunk"; a COMMENT (not an unticked box) is what asks
-# for changes. Every human step at `await-review` goes to `review-deciding`,
-# which inspects the step and routes:
+# All three converge at `review.reviewing` -> `review.await-review`. Ticking a
+# REVIEW.md box means only "I reviewed this hunk"; a COMMENT (not an unticked
+# box) is what asks for changes. Every human step at `review.await-review`
+# goes to `review.deciding`, which inspects the step and routes:
 #   * no comment (every box ticked, no REVIEW.md note, no code edit) -> the diff
 #     is a bare REVIEW.md deletion -> squashing -> done (the ONLY path to the
 #     finale — the whole cycle collapses into one commit).
 #   * any comment — a note in REVIEW.md OR a hand-edit to code — ->
-#     review-deciding writes REVIEW_FEEDBACK.md -> feedback-building implements
+#     review.deciding writes REVIEW_FEEDBACK.md -> review.collecting implements
 #     it (completing any code the human hand-edited, never reverting their
-#     lines) -> checking -> reviewing regenerates an INCREMENTAL REVIEW.md
-#     (review-deciding carries `reviewBase: true`, so each feedback round's
-#     review + checkout window covers only `last-review..HEAD`, i.e. the agent's
-#     follow-through, not the human's own edit) -> await-review, looping until
-#     sign-off.
+#     lines) -> review.building -> back through `build.check` (the shared
+#     health triple, bound via the `$onBuilt` param) -> review.reviewing
+#     regenerates an INCREMENTAL REVIEW.md (review.deciding carries
+#     `reviewBase: true`, so each feedback round's review + checkout window
+#     covers only `last-review..HEAD`, i.e. the agent's follow-through, not the
+#     human's own edit) -> await-review, looping until sign-off.
 # Two dead ends never commit: the sign-off gate (src/program.ts) REFUSES a step
 # that leaves a box unticked with no comment (finish reviewing first) and a
 # deleted REVIEW.md (restore it and tick the boxes).
 #
-# The shared health segment (`checking`/`fixing`/`escalate`) serves the simple
-# build and the feedback loop — its green edge targets
-# `reviewing`. The advanced per-package loop keeps its OWN health triple
-# (`package-checking`/`package-fixing`/`package-escalate`) because its green edge targets
-# the per-package `spec-review` gate instead.
+# The shared health segment (`build.check`/`build.fix`/`build.escalate`) serves
+# the simple build and the feedback loop — its green edge targets
+# `review.reviewing`. The advanced per-package loop keeps its OWN health triple
+# (`packages.health.check`/`.fix`/`.escalate`) because its green edge targets
+# the per-package `packages.spec.review` gate instead.
 #
 # Every `on` pattern's path below is written as the matching var's Eta
 # template (e.g. `"A <%= it.vars.feedbackFile %>"`), not a literal `.gtd/...`
@@ -118,16 +122,22 @@ vars:
   plannerModel: smart
   coderModel: base
 
-submachines:
+entry:
+  default: unified
+  review: review-gate.check
+  fix: fix-precheck
+
+machines:
   # ── DEDUP: the check/fix/escalate health triple ───────────────────────────
   # Runs the suite; a red run records the configured feedbackFile, a green run
   # cleans it up.
   # The `on` rules turn that into "fix" vs "$onGreen". The fix turn retries up to
-  # 3× before escalating to a human. Invoked for the shared build tail
-  # (checking/fixing/escalate -> reviewing) and the advanced package loop
-  # (package-checking/package-fixing/package-escalate -> spec-review).
+  # 3× before escalating to a human. Instantiated for the shared build tail
+  # (`build.check`/`.fix`/`.escalate` -> review.reviewing) and the advanced
+  # package loop (`packages.health.check`/`.fix`/`.escalate` -> packages.spec.review).
   makeGreen:
     params: [onGreen, escalateDescribe, checkLabel, fixLabel, escalateLabel]
+    entry: check
     states:
       check:
         actor: check
@@ -150,8 +160,8 @@ submachines:
           feedback="<%~ it.vars.feedbackFile %>"
           mkdir -p "$(dirname "$feedback")"
           # Sweep steering files spent by the states that led here: the plan
-          # (building), the raw review capture (feedback-collecting), and the
-          # feedback instructions (feedback-building) — each `rm -f` is a
+          # (building), the raw review capture (review.collecting), and the
+          # feedback instructions (review.building) — each `rm -f` is a
           # no-op when the file is already gone or never existed on this path.
           todo="<%~ it.vars.todoFile %>"
           reviewRaw="<%~ it.vars.reviewRawFile %>"
@@ -231,16 +241,17 @@ submachines:
   # message/describe differ per entry, so they ride in as `with:` params.
   assertGreen:
     params: [onGreen, blockedMessage, blockedDescribe, checkLabel, blockedLabel]
+    entry: check
     states:
       check:
         actor: check
         label: $checkLabel
         # Anchored here and aliased by `fix-precheck` (`gtd fix` entry): one
-        # suite-check script shared by all four call sites (this submachine's
-        # ×3 uses plus `fix-precheck`) instead of four source copies. These gates
-        # run BEFORE planning, so — unlike `makeGreen.check` — they must NOT
-        # sweep `todoFile`/`requirementsFile`: the human's fresh sketch still
-        # legitimately exists here.
+        # suite-check script shared by all four call sites (this machine's ×3
+        # instances plus `fix-precheck`) instead of four source copies. These
+        # gates run BEFORE planning, so — unlike `makeGreen.check` — they must
+        # NOT sweep `todoFile`/`requirementsFile`: the human's fresh sketch
+        # still legitimately exists here.
         script: &suiteCheck |
           #!/usr/bin/env bash
           # gtd check turn — run the suite; a red run records .gtd/FEEDBACK.md, a
@@ -291,8 +302,8 @@ submachines:
   # ── DEDUP: the checkbox Q&A author/answer loop ─────────────────────────────
   # The agent develops a plan file, surfacing `## Open Questions` as checkbox
   # lists; the human answers (answerGate refuses an unanswered step) and either
-  # advances or sends it back. Invoked for the product (product-qa) and
-  # technical (technical-qa) phases of the advanced flow.
+  # advances or sends it back. Instantiated for the product (`product.*`) and
+  # technical (`technical.*`) phases of the advanced flow.
   qaLoop:
     params:
       [
@@ -305,6 +316,7 @@ submachines:
         authorLabel,
         answerLabel,
       ]
+    entry: author
     states:
       author:
         actor: agent
@@ -336,6 +348,7 @@ submachines:
   # ── ENCAPSULATION: the simple flow's plan-iteration loop ───────────────────
   planLoop:
     params: [onAccept]
+    entry: planning
     states:
       planning:
         actor: agent
@@ -399,11 +412,12 @@ submachines:
             action: Revise plan
             describe: >-
               rewrite a step, add a constraint, or leave an inline comment to
-              send it back for another round (**planning**).
+              send it back for another round (**plan.planning**).
 
   # ── ENCAPSULATION: the shared review tail ──────────────────────────────────
   humanReview:
-    params: [onSignoff]
+    params: [onSignoff, onBuilt]
+    entry: reviewing
     states:
       reviewing:
         actor: agent
@@ -413,11 +427,11 @@ submachines:
         model: <%= it.vars.plannerModel %>
         memory: review
         # `gtd review <commitish>` (a plain non-gtd branch, e.g. a colleague's PR)
-        # does NOT enter here directly — it enters `review-precheck` (reviewEntry)
-        # first, which runs the green-baseline gate and, once green, transitions
-        # here. The `Gtd-Review-Base:` trailer rides on that entry commit (the
-        # process's oldest), so everything below still reuses the same
-        # reviewing/await-review/feedback machinery over <commitish>..HEAD.
+        # does NOT enter here directly — it enters `review-gate.check`
+        # (`entry.review`) first, which runs the green-baseline gate and, once
+        # green, transitions here. The `Gtd-Review-Base:` trailer rides on that
+        # entry commit (the process's oldest), so everything below still reuses
+        # the same reviewing/await-review/feedback machinery over <commitish>..HEAD.
         prompt: |
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
@@ -458,13 +472,13 @@ submachines:
         file: <%= it.vars.reviewFile %>
         mode: review
         # While the cycle rests here, gtd opens a "review checkout window": raw HEAD
-        # is rewound to the review base (the most-recent `review-deciding` commit —
-        # so a feedback round shows only `last-review..HEAD` — or the process start
-        # on the first review) with the working tree untouched, surfacing the diff
+        # is rewound to the review base (the most-recent `deciding` commit — so a
+        # feedback round shows only `last-review..HEAD` — or the process start on
+        # the first review) with the working tree untouched, surfacing the diff
         # as ordinary uncommitted changes. It closes on the next invocation.
         #
-        # Every human step here routes to `review-deciding`, which decides sign-off
-        # vs. feedback from the step's CONTENT (a comment, not a tick). Ticking a box
+        # Every human step here routes to `deciding`, which decides sign-off vs.
+        # feedback from the step's CONTENT (a comment, not a tick). Ticking a box
         # only records "I reviewed this hunk". Two dead ends can't be told apart by a
         # file-pattern edge, so the sign-off gate (`enforceReviewSignoffGate` in
         # src/program.ts) catches them BEFORE the step commits and refuses: an
@@ -484,16 +498,16 @@ submachines:
             one commit (**squashing**).
           - **Request changes** — leave a comment: a note on a
             `<%= it.vars.reviewFile %>` line, or a direct code edit — to send it to a
-            build + re-review round (**review-deciding** → **feedback-building**). A
+            build + re-review round (**review.deciding** → **review.building**). A
             code edit counts as your own fix: the agent completes the follow-through
             it implies and never reverts your lines.
 
           Stepping with a box still unticked and no comment is refused (finish
           reviewing first); so is deleting `<%= it.vars.reviewFile %>`.
         on:
-          "* **": review-deciding
+          "* **": deciding
 
-      review-deciding:
+      deciding:
         actor: check
         label: Reviewing
         file: <%= it.vars.reviewFile %>
@@ -506,17 +520,17 @@ submachines:
         script: |
           #!/usr/bin/env bash
           # gtd check turn — decide the human's review step from its CONTENT. HEAD is
-          # the human's `await-review -> review-deciding` commit; HEAD^ is the
-          # `reviewing` commit that wrote the agent's original REVIEW.md (the sign-off
-          # gate refuses an incomplete step, so review-deciding is entered exactly
-          # once per round — nothing commits in between). It is FEEDBACK when the
-          # human left a comment: a note in REVIEW.md (any edit beyond a "[ ]"->"[x]"
-          # tick) OR a hand-edit to any file this round other than `.gtd/` or the
-          # state's own reviewFile (which is var-configurable and may live outside
-          # `.gtd/`, e.g. a root-level REVIEW.md — issue #128). Otherwise it is a
-          # clean sign-off. This turn only CAPTURES the raw material into REVIEW_RAW.md
-          # (the `feedback-collecting` agent then turns it into instructions); it does
-          # NOT interpret it. Either way, remove REVIEW.md; what the resulting diff
+          # the human's `await-review -> deciding` commit; HEAD^ is the `reviewing`
+          # commit that wrote the agent's original REVIEW.md (the sign-off gate
+          # refuses an incomplete step, so `deciding` is entered exactly once per
+          # round — nothing commits in between). It is FEEDBACK when the human left
+          # a comment: a note in REVIEW.md (any edit beyond a "[ ]"->"[x]" tick) OR a
+          # hand-edit to any file this round other than `.gtd/` or the state's own
+          # reviewFile (which is var-configurable and may live outside `.gtd/`, e.g.
+          # a root-level REVIEW.md — issue #128). Otherwise it is a clean sign-off.
+          # This turn only CAPTURES the raw material into REVIEW_RAW.md (the
+          # `collecting` agent then turns it into instructions); it does NOT
+          # interpret it. Either way, remove REVIEW.md; what the resulting diff
           # MEANS is decided by this state's own `on` rules — the A/M REVIEW_RAW.md
           # rows are declared BEFORE the D REVIEW.md row so a feedback round (which
           # also deletes REVIEW.md) is captured as feedback, not mistaken for a
@@ -565,11 +579,11 @@ submachines:
           fi
           rm -f "$reviewFile"
         on:
-          "A <%= it.vars.reviewRawFile %>": feedback-collecting
-          "M <%= it.vars.reviewRawFile %>": feedback-collecting
+          "A <%= it.vars.reviewRawFile %>": collecting
+          "M <%= it.vars.reviewRawFile %>": collecting
           "D <%= it.vars.reviewFile %>": $onSignoff
 
-      feedback-collecting:
+      collecting:
         actor: agent
         label: Collecting your feedback
         file: <%= it.vars.reviewFeedbackFile %>
@@ -619,10 +633,10 @@ submachines:
           Delete `<%= it.vars.reviewRawFile %>`, leave everything else uncommitted,
           and finish your turn.
         on:
-          "A <%= it.vars.reviewFeedbackFile %>": feedback-building
-          "M <%= it.vars.reviewFeedbackFile %>": feedback-building
+          "A <%= it.vars.reviewFeedbackFile %>": building
+          "M <%= it.vars.reviewFeedbackFile %>": building
 
-      feedback-building:
+      building:
         actor: agent
         label: Addressing your feedback
         file: <%= it.vars.reviewFeedbackFile %>
@@ -662,23 +676,24 @@ submachines:
           instructions file WITHOUT making the changes it asks for is refused — the
           feedback must actually be addressed.
         on:
-          "* **": checking
+          "* **": $onBuilt
 
   # ── ENCAPSULATION: the advanced flow's per-package agentic review ──────────
-  specGate:
-    params: [onApproved]
+  specReview:
+    params: [onApproved, onFixed]
+    entry: review
     states:
-      spec-review:
+      review:
         actor: agent
         label: Reviewing the package
         model: <%= it.vars.plannerModel %>
         memory: review
         # Bounded per cycle: once entered `max` times, a transition into it is
-        # redirected to `closing` (force-close the package and move on — the
+        # redirected to `$onApproved` (force-close the package and move on — the
         # unresolved concern is deferred to the shared human review at the tail,
         # which sees the whole diff anyway). NOTE the cap is PROCESS-scoped, so it
         # pools across packages — the same documented limitation the shared
-        # `fixing` cap has (see STATES.md / docs/configuration.md).
+        # `build.fix` cap has (see STATES.md / docs/configuration.md).
         retry:
           max: 3
           otherwise: $onApproved
@@ -713,12 +728,12 @@ submachines:
           ```
           <% } %>
         on:
-          "A <%= it.vars.specFeedbackFile %>": spec-fix
-          "M <%= it.vars.specFeedbackFile %>": spec-fix
+          "A <%= it.vars.specFeedbackFile %>": fix
+          "M <%= it.vars.specFeedbackFile %>": fix
           "D <%= it.vars.specFeedbackFile %>": $onApproved
           "C": $onApproved
 
-      spec-fix:
+      fix:
         actor: agent
         label: Fixing review feedback
         file: <%= it.vars.specFeedbackFile %>
@@ -738,11 +753,12 @@ submachines:
           Delete `<%= it.vars.specFeedbackFile %>` once every concern is addressed.
           Leave everything else uncommitted and finish your turn.
         on:
-          "* **": package-checking
+          "* **": $onFixed
 
   # ── ENCAPSULATION: the advanced flow's per-package build queue ─────────────
   packageLoop:
     params: [onDrained]
+    entry: picking
     states:
       picking:
         actor: check
@@ -776,10 +792,10 @@ submachines:
           fi
         on:
           "D <%= it.vars.nextFile %>": $onDrained
-          "* <%= it.vars.nextFile %>": package-building
+          "* <%= it.vars.nextFile %>": building
           "C": $onDrained
 
-      package-building:
+      building:
         actor: agent
         label: Building
         model: <%= it.vars.coderModel %>
@@ -788,7 +804,7 @@ submachines:
           You are an autonomous coding agent. This workflow steers itself
           through its own state files — treat them as its private scratchpad,
           never as project code or documentation. This turn writes no state
-          file: do NOT delete the package file (the `spec-review` gate reads
+          file: do NOT delete the package file (the spec-review gate reads
           it after you) and never touch `<%= it.vars.nextFile %>` — the
           `picking` state owns it.
 
@@ -804,7 +820,7 @@ submachines:
           Leave the package file in place and everything else uncommitted, then
           finish your turn.
         on:
-          "* **": package-checking
+          "* **": health.check
 
       closing:
         actor: check
@@ -814,8 +830,8 @@ submachines:
           # gtd check turn (the package closer) — remove the just-reviewed package
           # file (its path is in NEXT.md) plus any leftover spec feedback, so
           # `picking` selects the NEXT package (or falls through to review when the
-          # queue is empty). Reached on approval (spec-review clean) and on the
-          # spec-review retry cap (force-close, deferring the concern to the tail).
+          # queue is empty). Reached on approval (spec review clean) and on the
+          # spec review retry cap (force-close, deferring the concern to the tail).
           set +e
           pkg=$(cat <%~ it.vars.nextFile %> 2>/dev/null)
           [ -n "$pkg" ] && rm -f "$pkg"
@@ -823,422 +839,423 @@ submachines:
         on:
           "* **": picking
 
-use:
-  # Shared health triple: checking/fixing/escalate -> reviewing.
-  - submachine: makeGreen
-    name: build
-    as: { check: checking, fix: fixing, escalate: escalate }
-    with:
-      onGreen: reviewing
-      escalateDescribe: >-
-        edit the code and/or `.gtd/FEEDBACK.md` yourself (**checking**).
-      checkLabel: Running checks
-      fixLabel: Fixing the check
-      escalateLabel: Escalating to a human
-  # Advanced package health triple: package-checking/package-fixing/package-escalate -> spec-review.
-  - submachine: makeGreen
-    name: package
-    as: { check: package-checking, fix: package-fixing, escalate: package-escalate }
-    with:
-      onGreen: spec-review
-      escalateDescribe: >-
-        edit the code and/or `.gtd/FEEDBACK.md` yourself (**package-checking**).
-      checkLabel: Running checks
-      fixLabel: Fixing the check
-      escalateLabel: Escalating to a human
+      # Per-package health triple: packages.health.check/.fix/.escalate -> packages.spec.review.
+      health:
+        machine: makeGreen
+        with:
+          onGreen: spec
+          escalateDescribe: >-
+            edit the code and/or `.gtd/FEEDBACK.md` yourself
+            (**packages.health.check**).
+          checkLabel: Running checks
+          fixLabel: Fixing the check
+          escalateLabel: Escalating to a human
 
-  # Green-baseline gate: simple flow entry.
-  - submachine: assertGreen
-    name: plan
-    as: { check: plan-precheck, blocked: plan-blocked }
-    with:
-      onGreen: planning
-      blockedMessage: |
-        The test baseline is red — gtd will not start new work on a broken suite.
-        `<%= it.vars.feedbackFile %>` holds the failing output.
+      # Per-package agentic review: packages.spec.review/.fix -> closing (approved),
+      # or back to packages.health.check (fixed, re-verify before re-reviewing).
+      spec:
+        machine: specReview
+        with:
+          onApproved: closing
+          onFixed: health.check
 
-        What each change does next (then run `gtd step human`):
-        <% it.edges.forEach(function (e) { if (e.describe) { %>
-        <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
-        <% } }) %>
-      blockedDescribe: >-
-        edit the code and/or `.gtd/FEEDBACK.md` to fix the failing tests
-        (**plan-precheck**). To repair the baseline as its own separate
-        reviewed commit instead, abandon this start and run `gtd fix` from a
-        clean `idle`.
-      checkLabel: Checking the baseline
-      blockedLabel: Baseline is red
+  # The root machine — the whole "advanced/simple" flow tree described in
+  # this file's header comment.
+  unified:
+    entry: idle
+    states:
+      # ── Shared entry ────────────────────────────────────────────────────────
+      idle:
+        actor: human
+        label: Idle
+        # Every human-gate `message:` below closes with the same rendered "What
+        # each change does next" list, built from `it.edges` (the resting state's
+        # own `on` edges — each edge's `describe:` is the single source of truth).
+        message: |
+          No active gtd cycle.
 
-  # Green-baseline gate: advanced flow entry.
-  - submachine: assertGreen
-    name: spec
-    as: { check: spec-precheck, blocked: spec-blocked }
-    with:
-      onGreen: product-qa
-      blockedMessage: |
-        The test baseline is red — gtd will not start new work on a broken suite.
-        `<%= it.vars.feedbackFile %>` holds the failing output.
+          To start one, create a steering file describing what you want built:
 
-        What each change does next (then run `gtd step human`):
-        <% it.edges.forEach(function (e) { if (e.describe) { %>
-        <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
-        <% } }) %>
-      blockedDescribe: >-
-        edit the code and/or `.gtd/FEEDBACK.md` to fix the failing tests
-        (**spec-precheck**). To repair the baseline as its own separate
-        reviewed commit instead, abandon this start and run `gtd fix` from a
-        clean `idle`.
-      checkLabel: Checking the baseline
-      blockedLabel: Baseline is red
+          - `<%= it.vars.todoFile %>` — a short sketch — starts the SIMPLE flow
+            (plan, build, review).
+          - `<%= it.vars.requirementsFile %>` — the product requirements — starts
+            the ADVANCED flow (product + technical Q&A, package decomposition,
+            parallel build, per-package agentic review).
 
-  # Green-baseline gate: `gtd review` entry (reviewEntry -> reviewing).
-  - submachine: assertGreen
-    name: review
-    as: { check: review-precheck, blocked: review-blocked }
-    set:
-      check: { reviewEntry: true }
-    with:
-      onGreen: reviewing
-      blockedMessage: |
-        The test baseline is red — gtd will not start a review on a broken suite.
-        `<%= it.vars.feedbackFile %>` holds the failing output.
+          What each change does next (then run `gtd step human`):
+          <% it.edges.forEach(function (e) { if (e.describe) { %>
+          <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
+          <% } }) %>
+        on:
+          "* <%= it.vars.requirementsFile %>":
+            to: spec-gate
+            action: Start advanced flow
+            describe: >-
+              save the product requirements to `.gtd/REQUIREMENTS.md` — gtd first
+              checks the test baseline is green, then the agent develops them
+              through product then technical Q&A, decomposes the work into
+              packages, and builds each in parallel (**spec-gate.check**).
+          "* **":
+            to: plan-gate
+            action: Start simple flow
+            describe: >-
+              save a short sketch to `.gtd/TODO.md` (or any other change) — gtd
+              first checks the test baseline is green, then the agent reads it,
+              explores the codebase, and develops it into a concrete
+              implementation plan (**plan-gate.check**).
 
-        What each change does next (then run `gtd step human`):
-        <% it.edges.forEach(function (e) { if (e.describe) { %>
-        <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
-        <% } }) %>
-      blockedDescribe: >-
-        edit the code and/or `.gtd/FEEDBACK.md` to fix the failing tests
-        (**review-precheck**).
-      checkLabel: Checking the baseline
-      blockedLabel: Baseline is red
+      # ── Simple flow: monolithic build (plan loop is the `plan` instance) ───────
+      building:
+        actor: agent
+        label: Building
+        file: <%= it.vars.todoFile %>
+        model: <%= it.vars.coderModel %>
+        memory: build
+        prompt: |
+          You are an autonomous coding agent. This workflow steers itself through
+          its own state files — treat them as its private scratchpad, never as
+          project code or documentation. The only state file this turn touches is
+          `<%= it.vars.todoFile %>`; delete it once its work is complete. Do not
+          create other files to hold notes or output.
 
-  # Advanced flow: product Q&A loop (product-qa/product-answer -> technical-qa).
-  - submachine: qaLoop
-    name: product
-    as: { author: product-qa, answer: product-answer }
-    with:
-      authorFile: <%= it.vars.requirementsFile %>
-      onAdvance: technical-qa
-      authorPrompt: |
-        You are an autonomous coding agent. This workflow steers itself
-        through its own state files — treat them as its private scratchpad,
-        never as project code or documentation. The only state file this turn
-        touches is `<%= it.vars.requirementsFile %>`; develop it. Do not
-        create other files to hold notes or output.
+          The plan to implement is: <%~ it.read(it.vars.todoFile) %>
 
-        `<%= it.vars.requirementsFile %>` holds the product requirements (or the
-        plan you already wrote plus the human's answers on a return lap). Read it,
-        explore the codebase, and develop it into a concrete, PRODUCT-level plan
-        in this one turn.
+          Read that plan and implement it in full. Use TDD discipline: one test,
+          then the implementation that passes it, then the next — never write all
+          the tests first.
 
-        Scope: product and user-facing decisions only. Leave implementation
-        details (file/module structure, data models, tech-stack choices) for the
-        next phase (`<%= it.vars.architectureFile %>`).
+          Delete `<%= it.vars.todoFile %>` once the work it describes is complete
+          and verified. Leave everything else uncommitted and finish your turn.
+        on:
+          "* **": build.check
 
-        For every open point you cannot settle yourself, add a question under a
-        `## Open Questions` heading near the top: one `### <question>` sub-heading
-        each, followed by a checkbox list of candidate answers — aim for TWO
-        concrete options plus a final free-text slot, ALL left UNTICKED:
+      # ── Advanced flow: decomposition (Q&A loops are the `product`/`technical` instances) ─
+      decompose:
+        actor: agent
+        label: Decomposing into packages
+        model: <%= it.vars.coderModel %>
+        memory: build
+        prompt: |
+          You are an autonomous coding agent. This workflow steers itself through
+          its own state files — treat them as its private scratchpad, never as
+          project code or documentation. The only state files this turn touches
+          are the package files it writes under `<%= it.vars.packagesDir %>/` and
+          `<%= it.vars.architectureFile %>`, which it deletes. Do not create other
+          files to hold notes or output.
 
-            ### <the question>
+          Read `<%= it.vars.architectureFile %>` (the converged technical plan) and
+          decompose it into an ordered set of WORK PACKAGES, one file each under
+          `<%= it.vars.packagesDir %>/` (e.g. `<%= it.vars.packagesDir %>/01-name.md`,
+          `<%= it.vars.packagesDir %>/02-name.md`, ...). Order the packages so the
+          test suite can pass again after each one lands.
 
-            - [ ] <first option — a concrete answer, a few words of rationale>
-            - [ ] <second option>
-            - [ ] _your answer_
+          Each package file describes a set of INDEPENDENT tasks that can be
+          implemented concurrently without ordering constraints between them — a
+          single build turn will fan them out to parallel subagents. Give each task
+          a clear description, acceptance criteria as `- [ ]` checkboxes, and the
+          relevant paths. Also state the package's overall requirement so it can be
+          reviewed against its spec. Do NOT put ordering-dependent tasks in the same
+          package — split them across ordered packages instead.
 
-        Never tick a box yourself — the human ticks exactly one per question. The
-        last `- [ ] _your answer_` line is the human's own-answer slot; write it
-        with the literal `_your answer_` placeholder and leave it for them.
+          No package file may reference any other `.gtd/` file. Once the package
+          files are written, delete `<%= it.vars.architectureFile %>`. Leave
+          everything uncommitted and finish your turn.
+        on:
+          "* <%= it.vars.packagesDir %>/**": packages.picking
 
-        On a RETURN lap the human has ticked one option per question (or replaced
-        `_your answer_` with their own text). For each answered question: fold the
-        chosen answer into the plan prose, then MOVE the question down into a
-        `## Answered Questions` section as `### <question>` followed by the
-        resolved answer in plain PROSE (drop the checkboxes). Never re-raise a
-        question the human deleted; if the human deleted the whole
-        `## Open Questions` section, treat the plan as accepted and surface no new
-        questions unless something is genuinely still blocking. Omit
-        `## Open Questions` entirely once there are none left.
+      # ── Green-baseline gate: `gtd fix` entry ──────────────────────────────────
+      # `gtd fix` enters HERE (`entry.fix`): run the suite, then a red run drops
+      # straight into the shared `build.fix` loop (-> build.check -> review + squash
+      # tail); a green run is a no-op back to `idle` (nothing to fix).
+      fix-precheck:
+        actor: check
+        label: Checking the baseline
+        script: *suiteCheck
+        on:
+          "A <%= it.vars.feedbackFile %>": build.fix
+          "M <%= it.vars.feedbackFile %>": build.fix
+          "D <%= it.vars.feedbackFile %>": idle
+          "C": idle
 
-        Leave `<%= it.vars.requirementsFile %>` uncommitted and finish your turn.
-      answerMessage: |
-        `<%= it.vars.requirementsFile %>` holds the product plan under
-        development. Each question under `## Open Questions` offers a few options
-        plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
-        exactly one box (`- [x]`); for your own answer, replace `_your answer_`
-        with your text and tick that line. Stepping is refused while any question
-        is unanswered.
+      # ── Shared tail: squash finale (review loop is the `review` instance) ─────
+      squashing:
+        actor: agent
+        label: Squashing
+        file: <%= it.vars.commitMsgFile %>
+        model: <%= it.vars.coderModel %>
+        memory: build
+        prompt: |
+          You are an autonomous coding agent. The cycle is approved and done. This
+          workflow steers itself through its own state files — treat them as its
+          private scratchpad, never as project code or documentation. The only
+          state file this turn touches is `<%= it.vars.commitMsgFile %>`; write
+          it. Do not create other files to hold notes or output.
 
-        What each change does next (then run `gtd step human`):
-        <% it.edges.forEach(function (e) { if (e.describe) { %>
-        <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
-        <% } }) %>
-      advanceDescribe: >-
-        with no open questions left (the agent surfaced none, or you deleted
-        the section and it finalized the plan), change nothing to move on to
-        technical Q&A (**technical-qa**).
-      editDescribe: >-
-        tick exactly one option per open question (replace `_your answer_` for
-        your own) to send the plan back for the agent to fold your answers in
-        (**product-qa**). Delete a question to skip it, or delete the whole
-        `## Open Questions` section to accept the plan as-is.
-      authorLabel: Refining the product plan
-      answerLabel: Awaiting your answers
+          Leave `<%= it.vars.commitMsgFile %>` uncommitted and finish your turn —
+          entering this file squashes everything this process retains into one
+          commit using its content as the message. The diff below is exactly what
+          that commit will contain: `it.retainedDiff`, the changes THIS process
+          made (its trace/retry boundary onward). For a normal build cycle that is
+          the whole feature; for a `gtd review` process it is only the fixes made
+          during the review — NOT the changeset that was under review.
+          <% if (it.retainedDiff.trim()) { %>
 
-  # Advanced flow: technical Q&A loop (technical-qa/technical-answer -> decompose).
-  - submachine: qaLoop
-    name: technical
-    as: { author: technical-qa, answer: technical-answer }
-    with:
-      authorFile: <%= it.vars.architectureFile %>
-      onAdvance: decompose
-      authorPrompt: |
-        You are an autonomous coding agent. This workflow steers itself
-        through its own state files — treat them as its private scratchpad,
-        never as project code or documentation. The only state files this
-        turn touches are `<%= it.vars.architectureFile %>` (write it) and
-        `<%= it.vars.requirementsFile %>` (delete it once its content is
-        folded in). Do not create other files to hold notes or output.
+          Write `<%= it.vars.commitMsgFile %>` with ONE conventional-commits message
+          for the changes below (subject line `type(scope): subject`, imperative
+          mood, <= 72 characters; a body explaining the why, trade-offs, and key
+          decisions). Plain text, no markdown wrapper.
 
-        Read `<%= it.vars.requirementsFile %>` (the converged product plan) and
-        develop `<%= it.vars.architectureFile %>` from it in this one turn:
-        file/module structure, data models, library/tech-stack choices,
-        error-handling strategy — the *how*, building on the *what* already
-        settled. Do not re-open product-level decisions; treat them as settled.
+          ## Retained diff
 
-        For every open point you cannot settle yourself, add a question under a
-        `## Open Questions` heading exactly as the grilling phase does: one
-        `### <question>` each, followed by a checkbox list — TWO concrete options
-        plus a final free-text slot, ALL left UNTICKED:
+          ```diff
+          <%~ it.retainedDiff %>
+          ```
+          <% } else { %>
 
-            ### <the question>
+          This process retained NO changes (a clean review sign-off with no fixes).
+          Write `<%= it.vars.commitMsgFile %>` with exactly this one line and
+          nothing else:
 
-            - [ ] <first option>
-            - [ ] <second option>
-            - [ ] _your answer_
+          chore: human review
+          <% } %>
+        on:
+          "A <%= it.vars.commitMsgFile %>": done
+          "M <%= it.vars.commitMsgFile %>": done
 
-        Never tick a box yourself. On a RETURN lap the human has ticked one option
-        per question (or replaced `_your answer_` with their own text): fold each
-        chosen answer into the plan prose, then MOVE the question into a
-        `## Answered Questions` section as `### <question>` + the resolved answer
-        in plain PROSE (drop the checkboxes). Never re-raise a deleted question;
-        treat a deleted `## Open Questions` section as acceptance. Omit
-        `## Open Questions` once there are none left.
+      done:
+        commit: |
+          <%~ it.read(it.vars.commitMsgFile) %>
 
-        Once `<%= it.vars.architectureFile %>` is written, delete
-        `<%= it.vars.requirementsFile %>` — its content has been folded in and it
-        must not linger. Leave everything uncommitted and finish your turn.
-      answerMessage: |
-        `<%= it.vars.architectureFile %>` holds the technical plan under
-        development. Each question under `## Open Questions` offers a few options
-        plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
-        exactly one box (`- [x]`); for your own answer, replace `_your answer_`
-        with your text and tick that line. Stepping is refused while any question
-        is unanswered.
+          Token cost: <%= it.processCost %>
+          <% it.processCostByModel.forEach(function(m){ %>
+          - <%= m.model %>: <%= m.cost %>
+          <% }) %>
 
-        What each change does next (then run `gtd step human`):
-        <% it.edges.forEach(function (e) { if (e.describe) { %>
-        <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
-        <% } }) %>
-      advanceDescribe: >-
-        with no open questions left (the agent surfaced none, or you deleted
-        the section and it finalized the plan), change nothing to move on to
-        decomposing the work into packages (**decompose**).
-      editDescribe: >-
-        tick exactly one option per open question (replace `_your answer_` for
-        your own) to send the plan back for the agent to fold your answers in
-        (**technical-qa**). Delete a question to skip it, or delete the whole
-        `## Open Questions` section to accept the plan as-is.
-      authorLabel: Refining the technical plan
-      answerLabel: Awaiting your answers
+      # ── Green-baseline gate: simple flow entry. ────────────────────────────────
+      plan-gate:
+        machine: assertGreen
+        with:
+          onGreen: plan
+          blockedMessage: |
+            The test baseline is red — gtd will not start new work on a broken suite.
+            `<%= it.vars.feedbackFile %>` holds the failing output.
 
-  # Simple flow plan-iteration loop (planning/await-plan -> building).
-  - submachine: planLoop
-    with:
-      onAccept: building
+            What each change does next (then run `gtd step human`):
+            <% it.edges.forEach(function (e) { if (e.describe) { %>
+            <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
+            <% } }) %>
+          blockedDescribe: >-
+            edit the code and/or `.gtd/FEEDBACK.md` to fix the failing tests
+            (**plan-gate.check**). To repair the baseline as its own separate
+            reviewed commit instead, abandon this start and run `gtd fix` from a
+            clean `idle`.
+          checkLabel: Checking the baseline
+          blockedLabel: Baseline is red
 
-  # Shared review tail (reviewing -> await-review -> ... -> squashing).
-  - submachine: humanReview
-    with:
-      onSignoff: squashing
+      # ── Green-baseline gate: advanced flow entry. ──────────────────────────────
+      spec-gate:
+        machine: assertGreen
+        with:
+          onGreen: product
+          blockedMessage: |
+            The test baseline is red — gtd will not start new work on a broken suite.
+            `<%= it.vars.feedbackFile %>` holds the failing output.
 
-  # Advanced per-package agentic review (spec-review/spec-fix -> closing).
-  - submachine: specGate
-    with:
-      onApproved: closing
+            What each change does next (then run `gtd step human`):
+            <% it.edges.forEach(function (e) { if (e.describe) { %>
+            <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
+            <% } }) %>
+          blockedDescribe: >-
+            edit the code and/or `.gtd/FEEDBACK.md` to fix the failing tests
+            (**spec-gate.check**). To repair the baseline as its own separate
+            reviewed commit instead, abandon this start and run `gtd fix` from a
+            clean `idle`.
+          checkLabel: Checking the baseline
+          blockedLabel: Baseline is red
 
-  # Advanced per-package build queue (picking/package-building/closing -> reviewing).
-  - submachine: packageLoop
-    with:
-      onDrained: reviewing
+      # ── Green-baseline gate: `gtd review` entry (`entry.review` -> review.reviewing). ─
+      review-gate:
+        machine: assertGreen
+        with:
+          onGreen: review
+          blockedMessage: |
+            The test baseline is red — gtd will not start a review on a broken suite.
+            `<%= it.vars.feedbackFile %>` holds the failing output.
 
-states:
-  # ── Shared entry ────────────────────────────────────────────────────────
-  idle:
-    actor: human
-    initial: true
-    label: Idle
-    # Every human-gate `message:` below closes with the same rendered "What
-    # each change does next" list, built from `it.edges` (the resting state's
-    # own `on` edges — each edge's `describe:` is the single source of truth).
-    message: |
-      No active gtd cycle.
+            What each change does next (then run `gtd step human`):
+            <% it.edges.forEach(function (e) { if (e.describe) { %>
+            <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
+            <% } }) %>
+          blockedDescribe: >-
+            edit the code and/or `.gtd/FEEDBACK.md` to fix the failing tests
+            (**review-gate.check**).
+          checkLabel: Checking the baseline
+          blockedLabel: Baseline is red
 
-      To start one, create a steering file describing what you want built:
+      # ── Advanced flow: product Q&A loop (product.author/.answer -> technical.author). ─
+      product:
+        machine: qaLoop
+        with:
+          authorFile: <%= it.vars.requirementsFile %>
+          onAdvance: technical
+          authorPrompt: |
+            You are an autonomous coding agent. This workflow steers itself
+            through its own state files — treat them as its private scratchpad,
+            never as project code or documentation. The only state file this turn
+            touches is `<%= it.vars.requirementsFile %>`; develop it. Do not
+            create other files to hold notes or output.
 
-      - `<%= it.vars.todoFile %>` — a short sketch — starts the SIMPLE flow
-        (plan, build, review).
-      - `<%= it.vars.requirementsFile %>` — the product requirements — starts
-        the ADVANCED flow (product + technical Q&A, package decomposition,
-        parallel build, per-package agentic review).
+            `<%= it.vars.requirementsFile %>` holds the product requirements (or the
+            plan you already wrote plus the human's answers on a return lap). Read it,
+            explore the codebase, and develop it into a concrete, PRODUCT-level plan
+            in this one turn.
 
-      What each change does next (then run `gtd step human`):
-      <% it.edges.forEach(function (e) { if (e.describe) { %>
-      <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
-      <% } }) %>
-    on:
-      "* <%= it.vars.requirementsFile %>":
-        to: spec-precheck
-        action: Start advanced flow
-        describe: >-
-          save the product requirements to `.gtd/REQUIREMENTS.md` — gtd first
-          checks the test baseline is green, then the agent develops them
-          through product then technical Q&A, decomposes the work into
-          packages, and builds each in parallel (**spec-precheck**).
-      "* **":
-        to: plan-precheck
-        action: Start simple flow
-        describe: >-
-          save a short sketch to `.gtd/TODO.md` (or any other change) — gtd
-          first checks the test baseline is green, then the agent reads it,
-          explores the codebase, and develops it into a concrete
-          implementation plan (**plan-precheck**).
+            Scope: product and user-facing decisions only. Leave implementation
+            details (file/module structure, data models, tech-stack choices) for the
+            next phase (`<%= it.vars.architectureFile %>`).
 
-  # ── Simple flow: monolithic build (plan loop is the `planLoop` sub-machine) ─
-  building:
-    actor: agent
-    label: Building
-    file: <%= it.vars.todoFile %>
-    model: <%= it.vars.coderModel %>
-    memory: build
-    prompt: |
-      You are an autonomous coding agent. This workflow steers itself through
-      its own state files — treat them as its private scratchpad, never as
-      project code or documentation. The only state file this turn touches is
-      `<%= it.vars.todoFile %>`; delete it once its work is complete. Do not
-      create other files to hold notes or output.
+            For every open point you cannot settle yourself, add a question under a
+            `## Open Questions` heading near the top: one `### <question>` sub-heading
+            each, followed by a checkbox list of candidate answers — aim for TWO
+            concrete options plus a final free-text slot, ALL left UNTICKED:
 
-      The plan to implement is: <%~ it.read(it.vars.todoFile) %>
+                ### <the question>
 
-      Read that plan and implement it in full. Use TDD discipline: one test,
-      then the implementation that passes it, then the next — never write all
-      the tests first.
+                - [ ] <first option — a concrete answer, a few words of rationale>
+                - [ ] <second option>
+                - [ ] _your answer_
 
-      Delete `<%= it.vars.todoFile %>` once the work it describes is complete
-      and verified. Leave everything else uncommitted and finish your turn.
-    on:
-      "* **": checking
+            Never tick a box yourself — the human ticks exactly one per question. The
+            last `- [ ] _your answer_` line is the human's own-answer slot; write it
+            with the literal `_your answer_` placeholder and leave it for them.
 
-  # ── Advanced flow: decomposition (Q&A loops are the `qaLoop` sub-machine) ───
-  decompose:
-    actor: agent
-    label: Decomposing into packages
-    model: <%= it.vars.coderModel %>
-    memory: build
-    prompt: |
-      You are an autonomous coding agent. This workflow steers itself through
-      its own state files — treat them as its private scratchpad, never as
-      project code or documentation. The only state files this turn touches
-      are the package files it writes under `<%= it.vars.packagesDir %>/` and
-      `<%= it.vars.architectureFile %>`, which it deletes. Do not create other
-      files to hold notes or output.
+            On a RETURN lap the human has ticked one option per question (or replaced
+            `_your answer_` with their own text). For each answered question: fold the
+            chosen answer into the plan prose, then MOVE the question down into a
+            `## Answered Questions` section as `### <question>` followed by the
+            resolved answer in plain PROSE (drop the checkboxes). Never re-raise a
+            question the human deleted; if the human deleted the whole
+            `## Open Questions` section, treat the plan as accepted and surface no new
+            questions unless something is genuinely still blocking. Omit
+            `## Open Questions` entirely once there are none left.
 
-      Read `<%= it.vars.architectureFile %>` (the converged technical plan) and
-      decompose it into an ordered set of WORK PACKAGES, one file each under
-      `<%= it.vars.packagesDir %>/` (e.g. `<%= it.vars.packagesDir %>/01-name.md`,
-      `<%= it.vars.packagesDir %>/02-name.md`, ...). Order the packages so the
-      test suite can pass again after each one lands.
+            Leave `<%= it.vars.requirementsFile %>` uncommitted and finish your turn.
+          answerMessage: |
+            `<%= it.vars.requirementsFile %>` holds the product plan under
+            development. Each question under `## Open Questions` offers a few options
+            plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
+            exactly one box (`- [x]`); for your own answer, replace `_your answer_`
+            with your text and tick that line. Stepping is refused while any question
+            is unanswered.
 
-      Each package file describes a set of INDEPENDENT tasks that can be
-      implemented concurrently without ordering constraints between them — a
-      single build turn will fan them out to parallel subagents. Give each task
-      a clear description, acceptance criteria as `- [ ]` checkboxes, and the
-      relevant paths. Also state the package's overall requirement so it can be
-      reviewed against its spec. Do NOT put ordering-dependent tasks in the same
-      package — split them across ordered packages instead.
+            What each change does next (then run `gtd step human`):
+            <% it.edges.forEach(function (e) { if (e.describe) { %>
+            <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
+            <% } }) %>
+          advanceDescribe: >-
+            with no open questions left (the agent surfaced none, or you deleted
+            the section and it finalized the plan), change nothing to move on to
+            technical Q&A (**technical.author**).
+          editDescribe: >-
+            tick exactly one option per open question (replace `_your answer_` for
+            your own) to send the plan back for the agent to fold your answers in
+            (**product.author**). Delete a question to skip it, or delete the whole
+            `## Open Questions` section to accept the plan as-is.
+          authorLabel: Refining the product plan
+          answerLabel: Awaiting your answers
 
-      No package file may reference any other `.gtd/` file. Once the package
-      files are written, delete `<%= it.vars.architectureFile %>`. Leave
-      everything uncommitted and finish your turn.
-    on:
-      "* <%= it.vars.packagesDir %>/**": picking
+      # ── Advanced flow: technical Q&A loop (technical.author/.answer -> decompose). ─
+      technical:
+        machine: qaLoop
+        with:
+          authorFile: <%= it.vars.architectureFile %>
+          onAdvance: decompose
+          authorPrompt: |
+            You are an autonomous coding agent. This workflow steers itself
+            through its own state files — treat them as its private scratchpad,
+            never as project code or documentation. The only state files this
+            turn touches are `<%= it.vars.architectureFile %>` (write it) and
+            `<%= it.vars.requirementsFile %>` (delete it once its content is
+            folded in). Do not create other files to hold notes or output.
 
-  # ── Green-baseline gate: `gtd fix` entry ──────────────────────────────────
-  # `gtd fix` enters HERE (fixEntry): run the suite, then a red run drops
-  # straight into the shared `fixing` loop (-> checking -> review + squash
-  # tail); a green run is a no-op back to `idle` (nothing to fix).
-  fix-precheck:
-    actor: check
-    fixEntry: true
-    label: Checking the baseline
-    script: *suiteCheck
-    on:
-      "A <%= it.vars.feedbackFile %>": fixing
-      "M <%= it.vars.feedbackFile %>": fixing
-      "D <%= it.vars.feedbackFile %>": idle
-      "C": idle
+            Read `<%= it.vars.requirementsFile %>` (the converged product plan) and
+            develop `<%= it.vars.architectureFile %>` from it in this one turn:
+            file/module structure, data models, library/tech-stack choices,
+            error-handling strategy — the *how*, building on the *what* already
+            settled. Do not re-open product-level decisions; treat them as settled.
 
-  # ── Shared tail: squash finale (review loop is the `humanReview` sub-machine) ─
-  squashing:
-    actor: agent
-    label: Squashing
-    file: <%= it.vars.commitMsgFile %>
-    model: <%= it.vars.coderModel %>
-    memory: build
-    prompt: |
-      You are an autonomous coding agent. The cycle is approved and done. This
-      workflow steers itself through its own state files — treat them as its
-      private scratchpad, never as project code or documentation. The only
-      state file this turn touches is `<%= it.vars.commitMsgFile %>`; write
-      it. Do not create other files to hold notes or output.
+            For every open point you cannot settle yourself, add a question under a
+            `## Open Questions` heading exactly as the grilling phase does: one
+            `### <question>` each, followed by a checkbox list — TWO concrete options
+            plus a final free-text slot, ALL left UNTICKED:
 
-      Leave `<%= it.vars.commitMsgFile %>` uncommitted and finish your turn —
-      entering this file squashes everything this process retains into one
-      commit using its content as the message. The diff below is exactly what
-      that commit will contain: `it.retainedDiff`, the changes THIS process
-      made (its trace/retry boundary onward). For a normal build cycle that is
-      the whole feature; for a `gtd review` process it is only the fixes made
-      during the review — NOT the changeset that was under review.
-      <% if (it.retainedDiff.trim()) { %>
+                ### <the question>
 
-      Write `<%= it.vars.commitMsgFile %>` with ONE conventional-commits message
-      for the changes below (subject line `type(scope): subject`, imperative
-      mood, <= 72 characters; a body explaining the why, trade-offs, and key
-      decisions). Plain text, no markdown wrapper.
+                - [ ] <first option>
+                - [ ] <second option>
+                - [ ] _your answer_
 
-      ## Retained diff
+            Never tick a box yourself. On a RETURN lap the human has ticked one option
+            per question (or replaced `_your answer_` with their own text): fold each
+            chosen answer into the plan prose, then MOVE the question into a
+            `## Answered Questions` section as `### <question>` + the resolved answer
+            in plain PROSE (drop the checkboxes). Never re-raise a deleted question;
+            treat a deleted `## Open Questions` section as acceptance. Omit
+            `## Open Questions` once there are none left.
 
-      ```diff
-      <%~ it.retainedDiff %>
-      ```
-      <% } else { %>
+            Once `<%= it.vars.architectureFile %>` is written, delete
+            `<%= it.vars.requirementsFile %>` — its content has been folded in and it
+            must not linger. Leave everything uncommitted and finish your turn.
+          answerMessage: |
+            `<%= it.vars.architectureFile %>` holds the technical plan under
+            development. Each question under `## Open Questions` offers a few options
+            plus a `- [ ] _your answer_` slot. Answer EVERY question by ticking
+            exactly one box (`- [x]`); for your own answer, replace `_your answer_`
+            with your text and tick that line. Stepping is refused while any question
+            is unanswered.
 
-      This process retained NO changes (a clean review sign-off with no fixes).
-      Write `<%= it.vars.commitMsgFile %>` with exactly this one line and
-      nothing else:
+            What each change does next (then run `gtd step human`):
+            <% it.edges.forEach(function (e) { if (e.describe) { %>
+            <%~ "- " + (e.action ? "**" + e.action + "** — " : "") + e.describe + "\n" %>
+            <% } }) %>
+          advanceDescribe: >-
+            with no open questions left (the agent surfaced none, or you deleted
+            the section and it finalized the plan), change nothing to move on to
+            decomposing the work into packages (**decompose**).
+          editDescribe: >-
+            tick exactly one option per open question (replace `_your answer_` for
+            your own) to send the plan back for the agent to fold your answers in
+            (**technical.author**). Delete a question to skip it, or delete the whole
+            `## Open Questions` section to accept the plan as-is.
+          authorLabel: Refining the technical plan
+          answerLabel: Awaiting your answers
 
-      chore: human review
-      <% } %>
-    on:
-      "A <%= it.vars.commitMsgFile %>": done
-      "M <%= it.vars.commitMsgFile %>": done
+      # ── Simple flow plan-iteration loop (plan.planning/.await-plan -> building). ──
+      plan:
+        machine: planLoop
+        with:
+          onAccept: building
 
-  done:
-    commit: |
-      <%~ it.read(it.vars.commitMsgFile) %>
+      # ── Shared review tail (review.* -> ... -> squashing). ─────────────────────
+      review:
+        machine: humanReview
+        with:
+          onSignoff: squashing
+          onBuilt: build
 
-      Token cost: <%= it.processCost %>
-      <% it.processCostByModel.forEach(function(m){ %>
-      - <%= m.model %>: <%= m.cost %>
-      <% }) %>
+      # ── Advanced per-package build queue (packages.* -> review). ───────────────
+      packages:
+        machine: packageLoop
+        with:
+          onDrained: review
+
+      # ── Shared health triple: build.check/.fix/.escalate -> review. ────────────
+      build:
+        machine: makeGreen
+        with:
+          onGreen: review
+          escalateDescribe: >-
+            edit the code and/or `.gtd/FEEDBACK.md` yourself (**build.check**).
+          checkLabel: Running checks
+          fixLabel: Fixing the check
+          escalateLabel: Escalating to a human
