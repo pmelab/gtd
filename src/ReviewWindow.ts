@@ -211,8 +211,8 @@ export const closeReviewWindow: Effect.Effect<{ readonly closed: boolean }, Erro
  * is nothing to surface and the window stays closed.
  *
  * Ordering is crash-safe: base ref → head ref → mixed reset → `.gtd/` index
- * pin → intent-to-add. A crash before the head-ref write leaves only a stale
- * base ref (overwritten on the next open); a crash after it leaves HEAD ==
+ * pin. A crash before the head-ref write leaves only a stale base ref
+ * (overwritten on the next open); a crash after it leaves HEAD ==
  * review-head, which the next invocation's close restores as a no-op.
  */
 export const openReviewWindow: Effect.Effect<
@@ -246,9 +246,25 @@ export const openReviewWindow: Effect.Effect<
   // the reviewable diff — pin its index entries back to the saved head so the
   // editor's unstaged view shows only the code changes.
   yield* git.restoreStagedFrom(REVIEW_HEAD_REF, [".gtd"])
-  // Files added since the base would otherwise show as untracked; register
-  // them so editors render proper content diffs (and "discard" stays a
-  // coherent reject-this-file gesture).
-  yield* git.addIntentToAdd()
+  // Files added since the base are left UNTRACKED, deliberately — do not
+  // "improve" this with a `git add --intent-to-add .` (gtd ≤ 8.2 did):
+  //
+  // - Discarding an intent-to-add path (`git checkout -- <path>`, i.e. an
+  //   editor's "discard changes") TRUNCATES it to zero bytes instead of
+  //   removing it, and the survivor is then committed by the next step's
+  //   `git add -A` — so rejecting a new file during review silently landed an
+  //   empty one. Untracked, discard deletes the file, which is the gesture the
+  //   reviewer meant.
+  // - It was the one whole-tree index WRITE in the open sequence, taken
+  //   milliseconds after the mixed reset above wakes every watcher on the repo
+  //   (editor SCM, `gtd lsp`, git-aware prompts — all of which write the index
+  //   to refresh their stat cache), so it lost the `index.lock` race often
+  //   enough to fail the whole invocation over a cosmetic step.
+  //
+  // The cost is that a terminal `git diff` no longer lists new files at the
+  // gate (`git status` does); the editor SCM views this window exists for show
+  // them either way, and the engine is indifferent — `changedPaths` unions
+  // `git ls-files --others` in, so the resting state's `on` patterns see an
+  // untracked add as `A` exactly like a staged one.
   return { opened: true }
 })
