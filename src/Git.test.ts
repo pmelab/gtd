@@ -5,7 +5,7 @@ import { execSync } from "node:child_process"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { NodeContext } from "@effect/platform-node"
-import { GitService } from "./Git.js"
+import { GitService, isIndexLockError, withIndexLockRetry } from "./Git.js"
 import { Cwd } from "./Cwd.js"
 import { InMemRepo } from "../tests/integration/support/inmem/Repo.js"
 import { makeGitServiceLayer } from "../tests/integration/support/inmem/layers.js"
@@ -488,3 +488,79 @@ for (const [tierName, makeTier] of tiers) {
     })
   })
 }
+
+// ---------------------------------------------------------------------------
+// index.lock contention retry — the review window shares one worktree index
+// with the reviewer's editor/lsp/prompt, all of which write the index to
+// refresh their stat cache when a `git reset --mixed` wakes them. gtd's own
+// index writes must ride out the resulting `index.lock` race, not fail on it.
+// ---------------------------------------------------------------------------
+
+describe("index.lock retry", () => {
+  it("recognizes git's index.lock contention message and nothing else", () => {
+    expect(
+      isIndexLockError(
+        new Error(
+          "git add -A failed (exit 128): fatal: Unable to create " +
+            "'/repo/.git/index.lock': File exists.\n\nAnother git process seems to be running",
+        ),
+      ),
+    ).toBe(true)
+    // A different non-zero exit (a rejected commit, a missing ref) must NOT retry.
+    expect(isIndexLockError(new Error("git commit failed (exit 1): nothing to commit"))).toBe(false)
+  })
+
+  it("retries a transient lock error to success, but propagates any other failure at once", async () => {
+    let lockAttempts = 0
+    await expect(
+      Effect.runPromise(
+        withIndexLockRetry(
+          Effect.suspend(() => {
+            lockAttempts += 1
+            return lockAttempts < 3
+              ? Effect.fail(new Error("Unable to create 'index.lock': File exists"))
+              : Effect.succeed("ok")
+          }),
+        ),
+      ),
+    ).resolves.toBe("ok")
+    expect(lockAttempts).toBe(3)
+
+    let otherAttempts = 0
+    const res = await Effect.runPromise(
+      Effect.either(
+        withIndexLockRetry(
+          Effect.suspend(() => {
+            otherAttempts += 1
+            return Effect.fail(new Error("nothing to commit"))
+          }),
+        ),
+      ),
+    )
+    expect(res._tag).toBe("Left")
+    expect(otherAttempts).toBe(1)
+  })
+
+  it("a real index-writing command survives a lock that clears mid-flight", async () => {
+    const lock = join(repoDir, ".git", "index.lock")
+    writeFileSync(lock, "")
+    // Release the lock 50ms in — after the first attempt fails, well within the
+    // jittered backoff budget (~315ms+ before the 6 retries exhaust). Without
+    // the retry, `git add -A` fails on its first, immediate attempt.
+    const timer = setTimeout(() => {
+      try {
+        rmSync(lock)
+      } catch {
+        // already removed
+      }
+    }, 50)
+    try {
+      writeFileSync(join(repoDir, "new.txt"), "content")
+      await runLive(Effect.flatMap(GitService, (g) => g.commitAllWithPrefix("gtd(test): capture")))
+    } finally {
+      clearTimeout(timer)
+    }
+    expect(existsSync(lock)).toBe(false)
+    expect(gitExec("log", "-1", "--pretty=%s")).toBe("gtd(test): capture")
+  })
+})
