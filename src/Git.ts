@@ -118,12 +118,6 @@ export interface GitWriterOperations {
     source: string,
     paths: ReadonlyArray<string>,
   ) => Effect.Effect<void, Error>
-  /**
-   * `git add --intent-to-add .` — register untracked files in the index with
-   * an empty placeholder so they render as additions (with content hunks) in
-   * `git diff` and editor SCM views, without staging their content.
-   */
-  readonly addIntentToAdd: () => Effect.Effect<void, Error>
 }
 
 export interface GitOperations extends GitReaderOperations, GitWriterOperations {}
@@ -359,8 +353,6 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
             // makes `git restore` complain — the pin is best-effort plumbing.
             Effect.catchAll(() => Effect.void),
           ),
-
-    addIntentToAdd: () => exec("git", "add", "--intent-to-add", ".").pipe(Effect.asVoid),
   }
 }
 
