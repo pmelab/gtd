@@ -4,6 +4,7 @@ import { ConfigService } from "./Config.js"
 import {
   contentKindOf,
   initialStateOf,
+  memoryScopeAt,
   parseStateSubject,
   resolveState,
   type ChangeStatus,
@@ -221,6 +222,23 @@ export interface ResolvedRest {
  * visualize`'s best-effort current-state read, which prefers the review
  * checkout window's saved head over a HEAD that may be mid-window-rewind (see
  * `src/ReviewWindow.ts`'s `REVIEW_HEAD_REF`).
+ *
+ * A HEAD subject that DOES parse as a `gtd(actor): state` commit, but whose
+ * named state the CURRENT workflow definition doesn't declare AT ALL, is
+ * refused loudly here rather than silently falling through `resolveState`'s
+ * own initial-state fallback: an in-flight process left resting at a state a
+ * workflow upgrade then renamed/removed out from under it would otherwise
+ * look like a perfectly fresh, idle repo — the same courtesy the earlier
+ * `entry.review`/`entry.fix` removal got, pointing at the command that
+ * actually resolves it rather than a generic failure. Distinct from
+ * `memoryScopeAt`'s graceful "unmapped state reads as fresh entry" behavior
+ * (`src/PatternMachine.ts`, package 04), which handles a state that IS
+ * declared but merely missing from `scopes` (a compiler bug, not a rename) —
+ * this is about a state that no longer exists in the definition at all. Every
+ * OTHER case `resolveState` already folds into "rest at the initial state"
+ * (an unparseable subject, an actor mismatch, a commit-state target) is left
+ * exactly as it was — those are legitimately "no active process" readings,
+ * not a renamed-out-from-under-us one.
  */
 export const resolveRest = (
   atRef?: string,
@@ -231,6 +249,17 @@ export const resolveRest = (
     const def = config.workflow
     const hasCommits = yield* git.hasCommits()
     const headSubject = hasCommits ? yield* git.lastCommitSubject(atRef) : ""
+    const parsedHead = parseStateSubject(headSubject)
+    if (parsedHead !== undefined && def.states[parsedHead.state] === undefined) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd: HEAD rests at "${parsedHead.state}", which the active workflow no longer declares ` +
+            `— this looks like a process left in-flight from before a workflow change. Run \`gtd ` +
+            `abandon\` to discard it and start over (or check out the workflow version it started ` +
+            `under).`,
+        ),
+      )
+    }
     const state = resolveState(def, headSubject)
     const stateDef = def.states[state]!
     // `resolveState` never rests at a commit state (it excludes them
@@ -260,6 +289,12 @@ export const pendingChanges = (
 
 // ── The current process run ──────────────────────────────────────────────────
 
+/** One process-trace entry: a state entered, plus the hash of the commit that entered it — the pair `memoryKeyFor` needs to anchor a memory key to the commit immediately BEFORE an unbroken scope entry began. */
+export interface TraceEntry {
+  readonly state: StateName
+  readonly hash: string
+}
+
 /** The contiguous run of `gtd(actor): state` commits ending at HEAD. */
 export interface ProcessRun {
   /** The run's first commit's hash, or HEAD's own hash when the run is empty (no turn has landed yet this process). */
@@ -277,8 +312,8 @@ export interface ProcessRun {
    * against moves.
    */
   readonly diffBase: string
-  /** State names entered so far this process, oldest→newest (empty when no turn has landed yet). */
-  readonly trace: readonly StateName[]
+  /** States entered so far this process, oldest→newest, each paired with the hash of the commit that entered it (empty when no turn has landed yet). */
+  readonly trace: readonly TraceEntry[]
   /** Every `Gtd-Cost:` entry recorded on the process's turn commits — summed into `it.processCost` and grouped into `it.processCostByModel` (empty when none were recorded). */
   readonly costEntries: readonly CostEntry[]
   /** The `Gtd-Var:` trailers recorded on the process's FIRST (oldest) commit — an entry commit's fixed `it.vars` overrides, folded into `resolveVars`'s merge (empty when the process's oldest commit carries none, or the process is empty). */
@@ -344,7 +379,10 @@ export const computeProcessRun = (
     }
     const startIdx = i + 1
     const processCommits = history.slice(startIdx)
-    const trace = processCommits.map((h) => parseStateSubject(subjectOf(h.message))!.state)
+    const trace: TraceEntry[] = processCommits.map((h) => ({
+      state: parseStateSubject(subjectOf(h.message))!.state,
+      hash: h.hash,
+    }))
     const costEntries = parseCostTrailers(processCommits.map((h) => h.message))
     const startParentHash = i >= 0 ? history[i]!.hash : EMPTY_TREE
     const startHash =
@@ -354,6 +392,53 @@ export const computeProcessRun = (
     const diffBase = reviewBaseOverride ?? startParentHash
     return { startHash, startParentHash, diffBase, trace, costEntries, entryVars }
   })
+
+// The display name for the root machine instance's own memory scope
+// (`scopes[state] === ""`, per `src/Machines.ts`'s `InstancePath` convention)
+// — `memoryScopeAt` (package 04) never names the root itself, so a driver
+// keying memory off a root-owned prompt state needs SOME label rather than a
+// bare `#<hash>` key.
+const ROOT_MEMORY_SCOPE_NAME = "root"
+
+/**
+ * Compute the commit-anchored memory key for the currently-rested state, or
+ * `undefined` when none applies — the pure `memoryScopeAt` (package 04)
+ * result turned into an actual key string a memory-aware driver can group
+ * consecutive agent turns by (see `TraceEntry`/`ProcessRun.trace`).
+ *
+ * Only a `prompt`-content rest carries a memory key — mirrors the rule that
+ * only a prompt state carries `model` (kept here, not inside `memoryScopeAt`,
+ * so that stays a clean, reusable primitive with no content-kind opinion).
+ * `undefined` also propagates when `memoryScopeAt` itself can't resolve a
+ * scope (`rest.state` absent from `scopes` — see its own doc comment).
+ *
+ * The key is `${scope || ROOT_MEMORY_SCOPE_NAME}#${token.slice(0, 7)}`, where
+ * `token` anchors to the commit the CURRENT unbroken scope entry started
+ * FROM, not the entry's own commit: `run.startParentHash` at `entryIndex <=
+ * 0` (an empty trace, or the entry sitting at trace position 0 — no earlier
+ * commit exists yet), else `run.trace[entryIndex - 1].hash`. Anchoring to the
+ * entry's own commit would give a workflow whose initial state is a prompt
+ * state two different tokens across its first two turns (nothing committed
+ * yet before the very first turn) — anchoring to the commit the entry
+ * started FROM makes the empty-trace and position-0 cases coincide by
+ * construction.
+ */
+export const memoryKeyFor = (
+  scopes: Readonly<Record<StateName, string>>,
+  rest: ResolvedRest,
+  run: ProcessRun,
+): string | undefined => {
+  if (contentKindOf(rest.stateDef) !== "prompt") return undefined
+  const resolved = memoryScopeAt(
+    scopes,
+    rest.state,
+    run.trace.map((entry) => entry.state),
+  )
+  if (resolved === undefined) return undefined
+  const { scope, entryIndex } = resolved
+  const token = entryIndex <= 0 ? run.startParentHash : run.trace[entryIndex - 1]!.hash
+  return `${scope || ROOT_MEMORY_SCOPE_NAME}#${token.slice(0, 7)}`
+}
 
 // ── Variables (`it.vars`) ────────────────────────────────────────────────────
 
@@ -532,7 +617,7 @@ export interface RenderedRest {
   readonly content: string
   /** The resolved rest's `model` hint, verbatim — omitted (not `undefined`-valued) when the state declares none, so `--json` callers can `key in obj`/`??`-check its absence. */
   readonly model?: string
-  /** The resolved rest's `memory` scope label, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
+  /** The resolved rest's COMPUTED memory key (`src/Edge.ts`'s `memoryKeyFor`, package 05/06) — a commit-anchored `<scope>#<hash7>` string, omitted (not `undefined`-valued) for a non-`prompt` rest or when no scope resolves, same discipline as `model`. No longer sourced from the state's own (still-accepted, but now unread) `memory:` declaration. */
   readonly memory?: string
   /** The resolved rest's `label`, RENDERED — omitted (not `undefined`-valued) when the state declares none, same discipline as `model`. */
   readonly label?: string
@@ -561,24 +646,6 @@ export const renderModel = (
   Effect.try({
     try: () =>
       stateDef.model !== undefined ? renderStateTemplate(stateDef.model, context) : undefined,
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
-
-/**
- * Render a state's declared `memory:` scope label (if any) through the SAME
- * template context as its content/`model` — see `renderModel`'s doc comment;
- * a plain label (e.g. `"plan"`) passes through unchanged, while
- * `memory: "<%= it.vars.planScope %>"` resolves against the merged `it.vars`.
- * The render-failure semantics are identical (propagates as a thrown/rejected
- * error, same call site as `gtd next`/`gtd status`).
- */
-export const renderMemory = (
-  stateDef: StateDef,
-  context: TemplateContext,
-): Effect.Effect<string | undefined, Error> =>
-  Effect.try({
-    try: () =>
-      stateDef.memory !== undefined ? renderStateTemplate(stateDef.memory, context) : undefined,
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
@@ -627,10 +694,19 @@ const omitUndefined = <T extends Record<string, unknown>>(
     [K in keyof T]?: Exclude<T[K], undefined>
   }
 
-/** Render the resolved rest's declared content (script/prompt/message — never `commit`, since `resolveRest` never rests at a commit state) plus its `model:`/`memory:`/`label:`/`file:` hints, if declared (see `renderModel`/`renderMemory`/`renderLabel`/`renderFile`). `mode:` is a closed literal, never Eta-rendered — passed through verbatim. */
+/**
+ * Render the resolved rest's declared content (script/prompt/message — never
+ * `commit`, since `resolveRest` never rests at a commit state) plus its
+ * `model:`/`label:`/`file:` hints, if declared (see
+ * `renderModel`/`renderLabel`/`renderFile`), and the COMPUTED memory key the
+ * caller passes in (`memory`, from `memoryKeyFor` — package 05/06; this
+ * module no longer derives it from `rest.stateDef.memory` itself). `mode:` is
+ * a closed literal, never Eta-rendered — passed through verbatim.
+ */
 export const renderRest = (
   rest: ResolvedRest,
   context: TemplateContext,
+  memory: string | undefined,
 ): Effect.Effect<RenderedRest, Error> =>
   Effect.gen(function* () {
     const kind = contentKindOf(rest.stateDef)
@@ -647,7 +723,7 @@ export const renderRest = (
     })
     const hints = {
       model: yield* renderModel(rest.stateDef, context),
-      memory: yield* renderMemory(rest.stateDef, context),
+      memory,
       label: yield* renderLabel(rest.stateDef, context),
       file: yield* renderFile(rest.stateDef, context),
       mode: rest.stateDef.mode,

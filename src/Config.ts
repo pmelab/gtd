@@ -10,10 +10,11 @@ import {
   inlineWorkflowFileRefs,
   mergeModes,
 } from "./PatternConfig.js"
-import { type ModeDef, type WorkflowDefinition } from "./PatternMachine.js"
+import { type ModeDef, type StateName, type WorkflowDefinition } from "./PatternMachine.js"
 import type { MachineNode } from "./Machines.js"
 import {
   defaultMachineTree,
+  defaultStateScopes,
   defaultWorkflowDefinition,
   defaultWorkflowVars,
 } from "./workflows/templates.js"
@@ -37,6 +38,14 @@ export interface ConfigOperations {
    * pure engine never does.
    */
   readonly machineTree: MachineNode
+  /**
+   * The active workflow's memory-scope map — qualified state name -> the
+   * machine-instance path that owns it, the compilation OUTPUT
+   * `flattenMachines` (`src/Machines.ts`) built while compiling the `.gtdrc`
+   * `workflow:` key (`CompiledWorkflowConfig.scopes`), or the built-in
+   * default's map (`defaultStateScopes`) when no `workflow:` is configured.
+   */
+  readonly stateScopes: Record<StateName, string>
 }
 
 /**
@@ -277,14 +286,16 @@ const toOperations = (decoded: DecodedConfig, root: string): ConfigOperations =>
       workflowVars: defaultWorkflowVars,
       rcVars,
       machineTree: defaultMachineTree,
+      stateScopes: defaultStateScopes,
     }
   }
   const {
     definition,
     vars: workflowVars,
     tree,
+    scopes,
   } = compileWorkflowConfig(decoded.workflow, root, rcModes, false)
-  return { workflow: definition, workflowVars, rcVars, machineTree: tree }
+  return { workflow: definition, workflowVars, rcVars, machineTree: tree, stateScopes: scopes }
 }
 
 const formatSchemaError = (e: ParseError): string => {

@@ -8,8 +8,9 @@ Feature: A red check writes feedbackFile even when it lives outside stateDir
   nested `notes/FEEDBACK.md` whose parent directory was never created), the
   write's redirection fails silently: the shell command errors out before
   `printf` runs, the tree stays clean, and the check step wrongly reads that
-  as a passing suite (`checking`'s "C" pattern routes to `reviewing`) instead
-  of surfacing the failure. The fix adds a `mkdir -p "$(dirname "$feedback")"`
+  as a passing suite (`build.health.check`'s "C" pattern routes to
+  `review.reviewing`) instead of surfacing the failure. The fix adds a
+  `mkdir -p "$(dirname "$feedback")"`
   right after hoisting the feedback path, so a relocated feedbackFile's parent
   directory is created regardless of where it lives — `stateDir` stays at its
   default (`.gtd`) so the scratch check-output file still lands there
@@ -29,7 +30,7 @@ Feature: A red check writes feedbackFile even when it lives outside stateDir
         feedbackFile: notes/FEEDBACK.md
         testCommand: "false"
       """
-    And a commit "gtd(agent): building → build.check" that adds "NOTE.md" with:
+    And a commit "gtd(agent): build.building → build.health.check" that adds "NOTE.md" with:
       """
       a note
       """
@@ -37,4 +38,4 @@ Feature: A red check writes feedbackFile even when it lives outside stateDir
     And I execute the printed check script
     And I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): build.check → build.fix"
+    And the last commit subject is "gtd(check): build.health.check → build.fix"

@@ -205,3 +205,42 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     When I run gtd step human
     Then it succeeds
     And the last commit subject is "gtd(human): product.answer → product.author"
+
+  Scenario: a state-level "model:" is rejected at load time — a machine's own model is the only way to declare one
+    # A state's `model:` moved to the machine that owns it back in the
+    # machine-scoped-memory restructure (src/PatternConfig.ts's
+    # `LEGACY_STATE_KEY_HINTS`) — the compiler now points a stale `.gtdrc`
+    # authoring it directly on a state at the machine-level replacement
+    # (`machines.<name>.model`) instead of a bare "unknown key". This is a
+    # config LOAD failure (before `gtd validate` ever reaches a steering
+    # file), so any command surfaces it identically — `gtd validate` is as
+    # good a home for it as any other, alongside this file's other
+    # validate-error scenarios.
+    Given a test project
+    And a gtd config file at ".gtdrc" with:
+      """
+      workflow:
+        entry:
+          default: root
+        machines:
+          root:
+            entry: idle
+            states:
+              idle:
+                actor: human
+                message: "start"
+                on:
+                  "* **": working
+              working:
+                actor: agent
+                model: smart
+                prompt: "go"
+                on:
+                  "* **": idle
+      """
+    When I run gtd with args "validate"
+    Then it fails
+    And stderr contains "workflow config:"
+    And stderr contains "unknown key"
+    And stderr contains "model"
+    And stderr contains "machine"

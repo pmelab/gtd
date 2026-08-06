@@ -63,6 +63,21 @@ describe("ConfigService", () => {
     expect(cfg.rcVars).toEqual({})
   })
 
+  it("with no config anywhere: `stateScopes` comes from the built-in default's compiled scopes", async () => {
+    const cfg = await getConfig()
+
+    expect(cfg.stateScopes).toEqual(compileTemplate().scopes)
+    expect(Object.keys(cfg.stateScopes).sort()).toEqual(Object.keys(cfg.workflow.states).sort())
+  })
+
+  it("a custom `workflow:`'s `stateScopes` comes from its own compiled scopes", async () => {
+    writeFileSync(join(projectDir, ".gtdrc.yaml"), minimalWorkflowYaml("custom idle"))
+
+    const cfg = await getConfig()
+
+    expect(cfg.stateScopes).toEqual({ idle: "" })
+  })
+
   it("a config with a top-level `vars:` but no `workflow:` uses the built-in default", async () => {
     writeFileSync(join(projectDir, ".gtdrc.yaml"), `vars:\n  testCommand: "custom-test"\n`)
 
@@ -377,16 +392,16 @@ const idleMessageRefYaml = (ref: string) =>
     ``,
   ].join("\n")
 
-// A partial workflow that overlays only `idle.model` — merged over an ancestor
+// A partial workflow that overlays only `idle.label` — merged over an ancestor
 // that supplies the rest of the state (so the ancestor's `message` survives).
-const idleModelOverlayYaml = (model: string) =>
+const idleLabelOverlayYaml = (label: string) =>
   [
     `workflow:`,
     `  machines:`,
     `    root:`,
     `      states:`,
     `        idle:`,
-    `          model: "${model}"`,
+    `          label: "${label}"`,
     ``,
   ].join("\n")
 
@@ -411,14 +426,14 @@ describe("ConfigService — content file refs resolve against the declaring conf
     mkdirSync(join(projectDir, "prompts"), { recursive: true })
     writeFileSync(join(projectDir, "prompts", "idle.md"), "ancestor idle")
     writeFileSync(join(projectDir, ".gtdrc.yaml"), idleMessageRefYaml("./prompts/idle.md"))
-    writeFileSync(join(child, ".gtdrc.yaml"), idleModelOverlayYaml("opus-x"))
+    writeFileSync(join(child, ".gtdrc.yaml"), idleLabelOverlayYaml("Idle"))
 
     const cfg = await getConfig(child)
 
     // `message` came from the ancestor and inlined against the ancestor dir; the
-    // child only overlaid `model`.
+    // child only overlaid `label`.
     expect(cfg.workflow.states["idle"]?.message).toBe("ancestor idle")
-    expect(cfg.workflow.states["idle"]?.model).toBe("opus-x")
+    expect(cfg.workflow.states["idle"]?.label).toBe("Idle")
   })
 
   it("resolves a child's overriding ref against the CHILD dir (each level uses its own file), child wins", async () => {

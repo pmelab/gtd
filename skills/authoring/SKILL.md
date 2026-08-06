@@ -82,8 +82,6 @@ states:
       "<pattern>": { to: <targetState>, describe: <sentence> }
     initial: true # EXACTLY ONE state across the workflow carries this
     retry: { max: <int>, otherwise: <targetState> } # optional cap (see "Retry")
-    model: <string> # optional opaque harness hint (Eta-rendered)
-    memory: <string> # optional opaque memory-scope label (Eta-rendered)
     file: <string> # optional steering file this state is about (Eta-rendered)
     mode: <modeName> # optional, REQUIRES file: — qa | review | a modes: entry
     reviewWindow: true # optional — open the review checkout window at rest here
@@ -98,6 +96,28 @@ authenticates against it, and it becomes the commit subject
 your own freely; the set of valid actors is derived from what your states
 declare.
 
+### `model` lives on the machine, not the state — and there is no `memory:`
+
+A state never declares its own `model:` — the opaque harness hint is declared
+**once**, on the state's OWNING machine (`machines.<name>.model`), and is
+stamped onto every one of that machine's own `prompt` states automatically. When
+you group states under a reusable machine (see `src/workflows/unified.yaml` for
+worked examples), give that machine's identity — a planner persona, a coder
+persona — one `model:` at the top, not a repeated per-state field. A `model:`
+left on a state fails to load, naming the machine to move it to.
+
+There is also **no `memory:` key at all** — a state's memory scope is never
+authored; it is computed from the state's position in the machine tree (each
+machine INSTANCE gets its own scope, fresh on every entry). The one authoring
+implication worth flagging: if you reuse one machine at two call sites (a
+"dedup" instantiation, e.g. one shared gate machine referenced from two places),
+you can no longer rely on that reuse to deliberately share one agent
+conversation across both sites — each instance gets its OWN scope and its own
+fresh-per-entry memory, so two references to the same machine are two
+independent conversations, never one shared session. If you need two call sites
+to share a conversation, they need to be the SAME machine instance (the same
+position in the tree), not two references to a shared, reusable machine.
+
 ### Content kinds — exactly one per state
 
 - **`prompt`** — instructions for an agent. The driver hands `content` to the
@@ -110,9 +130,10 @@ declare.
 - **`message`** — text for a human. Drivers halt here; the human edits files and
   runs `gtd step <actor>`.
 - **`commit`** — a squash-commit message template. A state with `commit:` is
-  **final**: it has NO `actor`, NO `on`, and no `model`/`memory`/`file`/`mode`/
-  `review*`. Entering it squashes the whole process into one commit (see "Squash
-  finale").
+  **final**: it has NO `actor`, NO `on`, and no `file`/`mode`/`review*` — nor
+  does it ever receive its machine's `model:` stamp (that's only stamped onto
+  `prompt` states). Entering it squashes the whole process into one commit (see
+  "Squash finale").
 
 ## Patterns — how `on` routes
 
@@ -166,9 +187,9 @@ the engine uses. See the human gates in `unified.yaml` for the pattern.
 
 ## Templates: content is Eta, `on` keys are NOT
 
-Every `script`/`prompt`/`message`/`commit` value — plus `model`/`memory`/`file`
-— is an [Eta](https://eta.js.org) template rendered against a context you
-reference as `it.<name>`:
+Every `script`/`prompt`/`message`/`commit` value — plus a machine's own `model:`
+and a state's `file:` — is an [Eta](https://eta.js.org) template rendered
+against a context you reference as `it.<name>`:
 
 - `it.vars.<name>` — the merged variable map (see "Variables").
 - `it.read(path)` — read a working-tree file by repo-relative path (throws if
@@ -280,13 +301,16 @@ before declaring a workflow done:
   commit state.
 - Every state declares **exactly one** content kind.
 - Every non-commit state has an `actor`; every **commit state has NO `actor` and
-  NO `on`** (and no `model`/`memory`/`file`/`mode`/`review*`).
+  NO `on`** (and no `file`/`mode`/`review*`, and never receives its machine's
+  `model:` stamp).
 - Every `on` pattern parses; every `on` target and every `retry.otherwise` names
   a **defined** state.
 - `retry.max` is a non-negative integer.
-- `model`/`memory`/`file`, when present, are non-empty strings, forbidden on
-  commit states. `mode` names a known mode (built-in or `modes:` entry) and
-  requires a sibling `file:`.
+- `model`, declared once per machine, is stamped onto every one of that
+  machine's own `prompt` states — there is no per-state `model:` and no
+  `memory:` key at all. `file`, when present, must be a non-empty string,
+  forbidden on commit states. `mode` names a known mode (built-in or `modes:`
+  entry) and requires a sibling `file:`.
 - Every `modes:` entry declares at least one non-blank `format:`/`validate:`.
 - `entry: true` (any number of states) never on the initial or a commit state. A
   `reviewBase` template (the string form) must not be blank.

@@ -103,42 +103,27 @@ export interface StateDef {
    * provides (e.g. `"smart"`, `"fast"`, or a concrete model id). Unset means
    * "use the harness's default". Plays no role in engine decisions — `step`
    * and `resolveState` never read it. Forbidden on a commit state (never at
-   * rest, emits nothing — see `validateDefinition`).
+   * rest, emits nothing — see `validateDefinition`). No longer authored
+   * directly on a state: the compiler (`src/PatternConfig.ts`, over
+   * `src/Machines.ts`'s flattening pass) STAMPS this field from the state's
+   * owning machine's own `model:` declaration, onto every one of that
+   * machine's emitted states whose content kind is `prompt` — a state itself
+   * never declares `model:` directly anymore.
    */
   readonly model?: string
-  /**
-   * An OPAQUE memory-scope label — gtd never interprets this string, it only
-   * passes it through verbatim (`gtd next --json`/`gtd status --json`) so a
-   * memory-aware driving loop can decide when an agent turn continues from the
-   * previous turn's memory and when it starts fresh. The contract is a
-   * comparison, not a command: two agent turns emitting the SAME `memory`
-   * value belong to the same memory scope (the driver retains memory across
-   * them), and a change in value — or the first agent turn — is where the
-   * driver starts fresh. This makes a loop that keeps re-entering one state
-   * (e.g. a planning or fix loop) retain memory across its laps, while a phase
-   * boundary that moves to a differently-labelled state clears it. Unset means
-   * "use the harness's default". Rendered as an Eta template through the same
-   * `it.vars`-carrying context as `model`/content (a plain string with no Eta
-   * tags passes through unchanged). Plays no role in engine decisions — `step`
-   * and `resolveState` never read it. Forbidden on a commit state (never at
-   * rest, emits nothing — see `validateDefinition`), same rule family as
-   * `model`.
-   */
-  readonly memory?: string
   /**
    * An OPAQUE, human-readable display NAME for the state — gtd never
    * interprets this string, it only passes it through verbatim (`gtd next
    * --json`/`gtd status --json`) so a driving loop or viewer can show
-   * something nicer than the raw state name. Unlike `memory`, there is no
-   * comparison semantics here — it is just a label. Unset means "show the
-   * raw state name" — that fallback lives in the CONSUMER (a driver/viewer),
-   * not in gtd itself, which simply omits the field. Rendered as an Eta
-   * template through the same `it.vars`-carrying context as
-   * `model`/`memory`/content (a plain string with no Eta tags passes through
-   * unchanged). Plays no role in engine decisions — `step` and
-   * `resolveState` never read it. Forbidden on a commit state (never at
-   * rest, emits nothing — see `validateDefinition`), same rule family as
-   * `model`/`memory`.
+   * something nicer than the raw state name. There is no comparison
+   * semantics here — it is just a label. Unset means "show the raw state
+   * name" — that fallback lives in the CONSUMER (a driver/viewer), not in
+   * gtd itself, which simply omits the field. Rendered as an Eta template
+   * through the same `it.vars`-carrying context as `model`/content (a plain
+   * string with no Eta tags passes through unchanged). Plays no role in
+   * engine decisions — `step` and `resolveState` never read it. Forbidden on
+   * a commit state (never at rest, emits nothing — see `validateDefinition`),
+   * same rule family as `model`.
    */
   readonly label?: string
   /**
@@ -718,6 +703,59 @@ const applyRetry = (
 }
 
 /**
+ * A plain string-prefix test: is `state` inside `scope`'s subtree? Sound
+ * because `src/Machines.ts` already refuses any local name containing a
+ * `.` (a compile-time error), so a qualified name's dotted path segments are
+ * unambiguous — no tree walk or parent map needed. `scope === ""` is the
+ * root scope and matches every state. Otherwise it's an exact match, or a
+ * TRUE dotted descendant (`state.startsWith(scope + ".")`) — a same-prefix
+ * SIBLING is deliberately not a match: `inScope("packages.itemx.building",
+ * "packages.item")` is `false`, because `"packages.itemx"` merely starts
+ * with the characters `"packages.item"` without the `.` separator that
+ * would make it an actual descendant.
+ */
+export const inScope = (state: string, scope: string): boolean =>
+  scope === "" || state === scope || state.startsWith(`${scope}.`)
+
+/**
+ * Resolve the memory scope for `state`, given the process `trace` so far.
+ * This is a pure primitive a later package's memory-key computation is
+ * built on — it never touches git or the filesystem.
+ *
+ * `undefined` means `state` itself isn't in `scopes` — memory is an
+ * optimization, never a correctness input, so this ambiguous case resolves
+ * toward "fresh" by refusing to resolve at all. Otherwise the result always
+ * carries `state`'s own scope `M = scopes[state]`, plus an `entryIndex`:
+ * the trace position where the CURRENT unbroken run of "in `M`'s subtree"
+ * rows began, so a state's own conversation can dip into child scopes
+ * (`packages.item.health`, `packages.item.spec`, ...) and back without
+ * losing its place — only a trace row whose scope is a sibling or ancestor
+ * of `M` (not inside `M`'s subtree) breaks the run. `entryIndex: -1` covers
+ * both an empty `trace` and a `trace` with nothing ever inside `M`'s
+ * subtree — both are "fresh", just for different reasons. A trace row
+ * naming a state absent from `scopes` is skipped rather than thrown on —
+ * treated as not-in-scope for both membership and run-continuity.
+ */
+export const memoryScopeAt = (
+  scopes: Readonly<Record<StateName, string>>,
+  state: StateName,
+  trace: readonly StateName[],
+): { readonly scope: string; readonly entryIndex: number } | undefined => {
+  const scope = scopes[state]
+  if (scope === undefined) return undefined
+
+  let entryIndex = -1
+  for (let k = 0; k < trace.length; k++) {
+    const rowScope = scopes[trace[k]!]
+    if (rowScope === undefined || !inScope(rowScope, scope)) continue
+    const prevScope = k === 0 ? undefined : scopes[trace[k - 1]!]
+    const prevInScope = prevScope !== undefined && inScope(prevScope, scope)
+    if (k === 0 || !prevInScope) entryIndex = k
+  }
+  return { scope, entryIndex }
+}
+
+/**
  * Decide what invoking `invoker` at `state` does — a pure decision, not an
  * effect. Refusals: `invoker` isn't `state`'s declared actor (out-of-turn),
  * or the tree is dirty and no `on` pattern matches (no-match, naming the
@@ -874,19 +912,7 @@ const validateModel = (name: string, state: StateDef): string[] => {
   return errors
 }
 
-/** `memory`, when present, must be a non-empty string; forbidden on a commit state — same rule family as `model` (`validateModel`): a commit state is never at rest, so no agent turn there could carry or continue a memory scope. */
-const validateMemory = (name: string, state: StateDef): string[] => {
-  const errors: string[] = []
-  if (state.memory !== undefined && state.memory === "") {
-    errors.push(`state "${name}": "memory" must be a non-empty string`)
-  }
-  if (isCommitState(state) && state.memory !== undefined) {
-    errors.push(`state "${name}": a commit state cannot declare "memory"`)
-  }
-  return errors
-}
-
-/** `label`, when present, must be a non-empty string; forbidden on a commit state — same rule family as `model`/`memory` (`validateModel`/`validateMemory`): a commit state is never at rest and emits nothing for a driver/viewer to display a label for. */
+/** `label`, when present, must be a non-empty string; forbidden on a commit state — same rule family as `model` (`validateModel`): a commit state is never at rest and emits nothing for a driver/viewer to display a label for. */
 const validateLabel = (name: string, state: StateDef): string[] => {
   const errors: string[] = []
   if (state.label !== undefined && state.label === "") {
@@ -1121,7 +1147,6 @@ const validateState = (
     ...validateOnEdges(name, state, names),
     ...validateRetry(name, state, names),
     ...validateModel(name, state),
-    ...validateMemory(name, state),
     ...validateLabel(name, state),
     ...validateFile(name, state),
     ...validateMode(def, name, state),
@@ -1143,10 +1168,9 @@ const validateState = (
  * non-commit states carry an `actor`; every `on` pattern parses and every
  * `on` target and `retry.otherwise` names a defined state; `retry.max` is a
  * non-negative integer; `model`, when present, is a non-empty string and is
- * never declared on a commit state; `memory`, when present, is a non-empty
+ * never declared on a commit state; `label`, when present, is a non-empty
  * string and is never declared on a commit state (same rule family as
- * `model`); `label`, when present, is a non-empty string and is never
- * declared on a commit state (same rule family as `model`); `file`, when
+ * `model`); `file`, when
  * present, is a non-empty string and is never declared on a commit state;
  * `mode`, when present, names a mode the definition knows (a built-in or a
  * `modes:` entry — see `knownModes`), requires a sibling `file`, and is

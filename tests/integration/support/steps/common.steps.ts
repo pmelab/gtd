@@ -411,6 +411,43 @@ Then("the commit count is unchanged", (world: GtdWorld) => {
   )
 })
 
+// Pulls `.memory` off the most recent `gtd next --json`/`gtd status --json`
+// stdout (`world.lastResult.stdout`) — for scenarios comparing the COMPUTED
+// `<scope>#<hash>` memory key across turns without knowing its exact value.
+const currentMemoryKey = (world: GtdWorld): string | undefined => {
+  const parsed = JSON.parse(world.lastResult.stdout) as { memory?: string }
+  return parsed.memory
+}
+
+Then("I record the memory key as {string}", (world: GtdWorld, label: string) => {
+  world.recordedMemoryKeys[label] = currentMemoryKey(world)
+})
+
+Then("the memory key matches the one recorded as {string}", (world: GtdWorld, label: string) => {
+  const recorded = world.recordedMemoryKeys[label]
+  assert.notStrictEqual(recorded, undefined, `no memory key was ever recorded as "${label}"`)
+  assert.strictEqual(
+    currentMemoryKey(world),
+    recorded,
+    `expected the memory key to match the one recorded as "${label}" (${recorded})`,
+  )
+})
+
+Then(
+  "the memory key differs from the one recorded as {string}",
+  (world: GtdWorld, label: string) => {
+    const recorded = world.recordedMemoryKeys[label]
+    assert.notStrictEqual(recorded, undefined, `no memory key was ever recorded as "${label}"`)
+    const current = currentMemoryKey(world)
+    assert.notStrictEqual(current, undefined, "expected a memory key on this turn, got none")
+    assert.notStrictEqual(
+      current,
+      recorded,
+      `expected the memory key to differ from the one recorded as "${label}" (${recorded}), got the same value`,
+    )
+  },
+)
+
 Then("the commit count increased by {int}", (world: GtdWorld, n: number) => {
   assert.notStrictEqual(
     world.savedCommitCount,

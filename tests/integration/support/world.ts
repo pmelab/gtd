@@ -36,6 +36,8 @@ export class GtdWorld extends QuickPickleWorld {
     stderr: "",
   }
   savedCommitCount: number | undefined = undefined
+  /** Named `memory` keys captured from a prior `gtd next --json`/`gtd status --json` output (`world.lastResult.stdout`), for scenarios that must prove two turns' computed keys are the SAME (session resumed) or DIFFERENT (fresh session) without knowing the exact `<scope>#<hash>` value in advance. */
+  recordedMemoryKeys: Record<string, string | undefined> = {}
   /** Path to a stub agent script for `gtd-loop` scenarios (@live only). */
   stubAgentPath: string | undefined = undefined
   /** Explicit `$GTD_LOOP_LOG` value a scenario wants exported (loop logging scenarios, @live only). */

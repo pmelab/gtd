@@ -6,10 +6,12 @@ import {
   entryBaseTemplateOf,
   enterableStates,
   initialStateOf,
+  inScope,
   isCommitState,
   isReviewBaseState,
   isReviewWindowState,
   matchesPattern,
+  memoryScopeAt,
   parsePattern,
   parseStateSubject,
   resolveState,
@@ -784,6 +786,117 @@ describe("step — retry redirection", () => {
   })
 })
 
+// ── Memory scoping primitives ─────────────────────────────────────────────────
+
+describe("inScope — dotted-prefix scope test", () => {
+  it('the root scope ("") matches every state', () => {
+    expect(inScope("anything", "")).toBe(true)
+    expect(inScope("", "")).toBe(true)
+  })
+
+  it("an exact match is in scope", () => {
+    expect(inScope("a.b", "a.b")).toBe(true)
+  })
+
+  it("a true dotted descendant is in scope", () => {
+    expect(inScope("a.b.c", "a.b")).toBe(true)
+  })
+
+  it("a same-prefix SIBLING (no dot separator) is NOT in scope", () => {
+    expect(inScope("packages.itemx.building", "packages.item")).toBe(false)
+  })
+
+  it("a sibling with no shared prefix at all is not in scope", () => {
+    expect(inScope("b.c", "a.b")).toBe(false)
+  })
+
+  it("a scope that's a strict suffix/substring of the state, but not a prefix, is not in scope", () => {
+    expect(inScope("x.a.b", "a.b")).toBe(false)
+  })
+})
+
+describe("memoryScopeAt", () => {
+  // The worked trace: qualified state name -> that state's OWN scope.
+  // Rows 11/13 name the same state (`packages.item.spec.review`) and rows
+  // 2/4 name the same state (`product.author`) — the table maps each
+  // DISTINCT state name once, consistently.
+  const rows: ReadonlyArray<readonly [state: string, scope: string]> = [
+    ["spec-gate.check", "spec-gate"], // 1
+    ["product.author", "product"], // 2
+    ["product.answer", "product"], // 3
+    ["product.author", "product"], // 4
+    ["technical.author", "technical"], // 5
+    ["build.decompose", "build"], // 6
+    ["packages.picking", "packages"], // 7
+    ["packages.item.building", "packages.item"], // 8
+    ["packages.item.health.check", "packages.item.health"], // 9
+    ["packages.item.fix-suite", "packages.item"], // 10
+    ["packages.item.spec.review", "packages.item.spec"], // 11
+    ["packages.item.fix-spec", "packages.item"], // 12
+    ["packages.item.spec.review", "packages.item.spec"], // 13
+    ["packages.item.closing", "packages.item"], // 14
+  ]
+  const scopes: Readonly<Record<string, string>> = Object.fromEntries(rows)
+  const trace = rows.map(([state]) => state)
+
+  it("a parent scope's unbroken run survives an excursion into child scopes: querying row 12's state over trace 1..11, and querying row 10's state over trace 1..9, both resolve entryIndex to row 8 (index 7)", () => {
+    // Rows 9 and 11 are both true dotted descendants of `packages.item`
+    // (`packages.item.health`, `packages.item.spec`), so they don't break
+    // the run that started at row 8 (`packages.item.building`).
+    expect(memoryScopeAt(scopes, "packages.item.fix-spec", trace.slice(0, 11))).toEqual({
+      scope: "packages.item",
+      entryIndex: 7,
+    })
+    expect(memoryScopeAt(scopes, "packages.item.fix-suite", trace.slice(0, 9))).toEqual({
+      scope: "packages.item",
+      entryIndex: 7,
+    })
+  })
+
+  it("a PARENT scope in between breaks the run for a query scoped at the CHILD: querying row 13's state over trace 1..12 resolves entryIndex to row 11 (index 10)", () => {
+    // Row 12 (`packages.item.fix-spec`, scope `packages.item`) is the
+    // PARENT of `packages.item.spec`, not a descendant of it — inScope is
+    // false — so it breaks any run scoped at `packages.item.spec`. The only
+    // trace row ever inside that subtree is row 11 itself, which therefore
+    // starts (and is) its own unbroken run.
+    expect(memoryScopeAt(scopes, "packages.item.spec.review", trace.slice(0, 12))).toEqual({
+      scope: "packages.item.spec",
+      entryIndex: 10,
+    })
+  })
+
+  it("an empty trace resolves to entryIndex: -1 (fresh), not undefined, for a state present in scopes", () => {
+    expect(memoryScopeAt(scopes, "packages.item.closing", [])).toEqual({
+      scope: "packages.item",
+      entryIndex: -1,
+    })
+  })
+
+  it("nothing in the trace ever inside the scope's subtree also falls back to entryIndex: -1", () => {
+    expect(memoryScopeAt(scopes, "technical.author", ["product.author", "product.answer"])).toEqual(
+      {
+        scope: "technical",
+        entryIndex: -1,
+      },
+    )
+  })
+
+  it("querying a state absent from `scopes` returns undefined entirely", () => {
+    expect(memoryScopeAt(scopes, "no-such-state", trace.slice(0, 12))).toBeUndefined()
+  })
+
+  it("a trace row naming a state absent from `scopes` is skipped, not thrown on, when the QUERIED state is itself present", () => {
+    // "ghost" isn't in `scopes`; it sits right before the row that starts
+    // the qualifying run, so it correctly counts as "not in scope" for
+    // run-continuity purposes without crashing.
+    const traceWithGap = ["ghost", "packages.item.building"]
+    expect(memoryScopeAt(scopes, "packages.item.fix-suite", traceWithGap)).toEqual({
+      scope: "packages.item",
+      entryIndex: 1,
+    })
+  })
+})
+
 // ── Definition validation ─────────────────────────────────────────────────────
 
 describe("validateDefinition", () => {
@@ -984,53 +1097,6 @@ describe("validateDefinition", () => {
       },
     })
     expect(errors).toContain('state "a": "model" must be a non-empty string')
-    expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
-  })
-
-  it("accepts a state declaring a valid `memory`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", memory: "plan", on: [] },
-      },
-    })
-    expect(errors).toEqual([])
-  })
-
-  it("rejects an empty-string `memory`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", memory: "", on: [] },
-      },
-    })
-    expect(errors).toContain('state "a": "memory" must be a non-empty string')
-  })
-
-  it("rejects a commit state that declares a `memory`", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: { actor: "h", message: "x", on: [["* *", "b"]] },
-        b: { commit: "chore: b", memory: "plan" },
-      },
-    })
-    expect(errors).toContain('state "b": a commit state cannot declare "memory"')
-  })
-
-  it("aggregates a bad `memory` alongside other unrelated findings", () => {
-    const errors = validateDefinition({
-      entries: { default: "a", manual: [] },
-      states: {
-        a: {
-          actor: "h",
-          message: "x",
-          memory: "",
-          on: [["* *", "ghost"]],
-        },
-      },
-    })
-    expect(errors).toContain('state "a": "memory" must be a non-empty string')
     expect(errors).toContain('state "a": "on" target "ghost" is not a defined state')
   })
 

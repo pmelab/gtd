@@ -9,7 +9,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
   It writes one `gtd(human): fix-precheck` entry commit (no `Gtd-Review-Base:`
   trailer: a fix reviews its own fixes from the ordinary process start).
   `fix-precheck` runs the suite: a red run drops straight into the shared
-  `fixing` loop (-> checking -> review + squash tail); a green run is a no-op
+  `build.fix` loop (-> `build.health.check` -> review + squash tail); a green run is a no-op
   back to `idle`. `@inmem` scenarios never execute the check script; they
   simulate its outcome by writing (red) or not writing (green)
   .gtd/FEEDBACK.md.
@@ -37,7 +37,7 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
     And the git status is clean
     And the git log does not contain "gtd("
 
-  Scenario: a red suite drops into the shared build.fix loop and out through build.check to review.reviewing
+  Scenario: a red suite drops into the shared build.fix loop and out through build.health.check to review.reviewing
     When I run gtd with args "--entry fix-precheck"
     Then it succeeds
     And the last commit subject is "gtd(human): fix-precheck"
@@ -57,11 +57,11 @@ Feature: gtd --entry fix-precheck — start a process that goes straight into re
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.fix → build.check"
+    And the last commit subject is "gtd(agent): build.fix → build.health.check"
     # A now-green check hands off to the shared review + squash tail.
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): build.check → review.reviewing"
+    And the last commit subject is "gtd(check): build.health.check → review.reviewing"
 
   Scenario: a dirty working tree is captured into the entry commit, not refused
     Given a file "scratch.txt" with:

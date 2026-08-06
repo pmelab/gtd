@@ -151,10 +151,10 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     Then it succeeds
     And stdout does not contain "hello"
 
-  Scenario: the simple workflow's "build.check" script renders "npm test" from its own declared default
+  Scenario: the simple workflow's "build.health.check" script renders "npm test" from its own declared default
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.check" that adds "src/thing.ts" with:
+    And a commit "gtd(agent): build.health.check" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """
@@ -165,7 +165,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
   Scenario: a "GTD_STATEDIR" override relocates the check script's scratch output path
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.check" that adds "src/thing.ts" with:
+    And a commit "gtd(agent): build.health.check" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """
@@ -218,7 +218,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
   Scenario: a "GTD_TESTCOMMAND" environment variable overrides the simple workflow's own testCommand
     Given a test project
     And the workflow
-    And a commit "gtd(agent): build.check" that adds "src/thing.ts" with:
+    And a commit "gtd(agent): build.health.check" that adds "src/thing.ts" with:
       """
       export const thing = 1
       """
@@ -228,7 +228,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
     And stdout contains "echo env-wins"
     And stdout does not contain "npm test >"
 
-  Scenario: a state's "model:" resolves an "it.vars" reference in "gtd next --json"
+  Scenario: a machine's "model:" resolves an "it.vars" reference in "gtd next --json"
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -239,6 +239,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
           default: root
         machines:
           root:
+            model: "<%= it.vars.reviewModel %>"
             entry: idle
             states:
               idle:
@@ -248,7 +249,6 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
                   "* **": working
               working:
                 actor: agent
-                model: "<%= it.vars.reviewModel %>"
                 prompt: "do the work"
                 on:
                   "* **": done
@@ -273,6 +273,7 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
           default: root
         machines:
           root:
+            model: "<%= it.vars.nope.deeper %>"
             entry: idle
             states:
               idle:
@@ -282,7 +283,6 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
                   "* **": working
               working:
                 actor: agent
-                model: "<%= it.vars.nope.deeper %>"
                 prompt: "do the work"
                 on:
                   "* **": done
@@ -295,42 +295,6 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
       """
     When I run gtd next
     Then it fails
-
-  Scenario: a state's "memory:" resolves an "it.vars" reference in "gtd next --json"
-    Given a test project
-    And a gtd config file at ".gtdrc" with:
-      """
-      workflow:
-        vars:
-          planScope: plan
-        entry:
-          default: root
-        machines:
-          root:
-            entry: idle
-            states:
-              idle:
-                actor: human
-                message: "start"
-                on:
-                  "* **": working
-              working:
-                actor: agent
-                memory: "<%= it.vars.planScope %>"
-                prompt: "do the work"
-                on:
-                  "* **": done
-              done:
-                commit: "chore: done"
-      """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
-      """
-      a note
-      """
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"working\""
-    And stdout contains "\"memory\":\"plan\""
 
   Scenario: the simple template resolves a planner-tier state's model from "vars.plannerModel"
     Given a test project
@@ -347,13 +311,13 @@ Feature: "it.vars" — the three-layer merged variable map every template sees
   Scenario: the simple template resolves a coder-tier state's model from "vars.coderModel"
     Given a test project
     And the workflow
-    And a commit "gtd(agent): building" that adds ".gtd/TODO.md" with:
+    And a commit "gtd(agent): build.building" that adds ".gtd/TODO.md" with:
       """
       the plan
       """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"building\""
+    And stdout contains "\"state\":\"build.building\""
     And stdout contains "\"model\":\"base\""
 
   Scenario: a "GTD_PLANNERMODEL" override repoints every planner-tier state at once

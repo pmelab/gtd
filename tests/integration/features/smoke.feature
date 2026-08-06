@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
   both refusal shapes) has its own dedicated feature files — see
   refusals.feature, default-workflow.feature, retry.feature, squash.feature.
 
-  Scenario: the simple workflow's happy path advances idle -> plan-gate.check -> plan.planning -> plan.await-plan -> building -> build.check
+  Scenario: the simple workflow's happy path advances idle -> plan-gate.check -> plan.planning -> plan.await-plan -> build.building -> build.health.check
     Given a test project
     And the workflow
     And a file ".gtd/TODO.md" with:
@@ -34,14 +34,14 @@ Feature: v3 pattern-machine smoke — simple workflow hops, gtd next --json, cus
     And the last commit subject is "gtd(agent): plan.planning → plan.await-plan"
     When I run gtd step human
     Then it succeeds
-    And the last commit subject is "gtd(human): plan.await-plan → building"
+    And the last commit subject is "gtd(human): plan.await-plan → build.building"
     Given a file "src/thing.ts" with:
       """
       export const thing = 1
       """
     When I run gtd step agent
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → build.check"
+    And the last commit subject is "gtd(agent): build.building → build.health.check"
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project

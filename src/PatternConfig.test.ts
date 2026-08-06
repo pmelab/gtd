@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { parse as parseYaml } from "yaml"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { compileWorkflowConfig } from "./PatternConfig.js"
+import { assertScopesCoverStates, compileWorkflowConfig } from "./PatternConfig.js"
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -973,31 +973,34 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     ).toThrowError(/state "a": "on.\* \*.action" must be a string/)
   })
 
-  it("compiles a `model` string through onto the state", () => {
-    const { definition } = compileWorkflowConfig(
-      {
-        entry: { default: "root" },
-        machines: {
-          root: {
-            entry: "working",
-            states: {
-              working: {
-                actor: "agent",
-                model: "smart",
-                prompt: "do the thing",
-                on: { "* *": "done" },
+  it("rejects a state-level `model`, naming the machine to move it to", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              entry: "working",
+              states: {
+                working: {
+                  actor: "agent",
+                  model: "smart",
+                  prompt: "do the thing",
+                  on: { "* *": "done" },
+                },
+                done: { commit: "chore: done" },
               },
-              done: { commit: "chore: done" },
             },
           },
         },
-      },
-      "/dir",
+        "/dir",
+      ),
+    ).toThrowError(
+      /machine "root": state "working": unknown key\(s\) model \("model" is no longer a state key — declare it once on the machine that owns this state \("machines\.root\.model"\)\)/,
     )
-    expect(definition.states["working"]!.model).toBe("smart")
   })
 
-  it("omits `model` entirely when the state declares none", () => {
+  it("omits `model` entirely when the owning machine declares none", () => {
     const { definition } = compileWorkflowConfig(
       {
         entry: { default: "root" },
@@ -1066,54 +1069,7 @@ describe("compileWorkflowConfig — config-shape validation", () => {
     }
   })
 
-  it("compiles a `memory` string through onto the state", () => {
-    const { definition } = compileWorkflowConfig(
-      {
-        entry: { default: "root" },
-        machines: {
-          root: {
-            entry: "working",
-            states: {
-              working: {
-                actor: "agent",
-                memory: "plan",
-                prompt: "do the thing",
-                on: { "* *": "done" },
-              },
-              done: { commit: "chore: done" },
-            },
-          },
-        },
-      },
-      "/dir",
-    )
-    expect(definition.states["working"]!.memory).toBe("plan")
-  })
-
-  it("omits `memory` entirely when the state declares none", () => {
-    const { definition } = compileWorkflowConfig(
-      {
-        entry: { default: "root" },
-        machines: {
-          root: {
-            entry: "working",
-            states: {
-              working: {
-                actor: "agent",
-                prompt: "do the thing",
-                on: { "* *": "done" },
-              },
-              done: { commit: "chore: done" },
-            },
-          },
-        },
-      },
-      "/dir",
-    )
-    expect(definition.states["working"]).not.toHaveProperty("memory")
-  })
-
-  it("rejects a non-string `memory` as a config-shape error", () => {
+  it("rejects a state-level `memory`, explaining scopes are positional", () => {
     expect(() =>
       compileWorkflowConfig(
         {
@@ -1121,42 +1077,15 @@ describe("compileWorkflowConfig — config-shape validation", () => {
           machines: {
             root: {
               entry: "a",
-              states: { a: { actor: "human", message: "hi", memory: 42 } },
+              states: { a: { actor: "human", message: "hi", memory: "plan" } },
             },
           },
         },
         "/dir",
       ),
-    ).toThrowError(/state "a": "memory" must be a string/)
-  })
-
-  it("aggregates a bad `memory` alongside an unrelated config-shape error", () => {
-    try {
-      compileWorkflowConfig(
-        {
-          entry: { default: "root" },
-          machines: {
-            root: {
-              entry: "a",
-              states: {
-                a: {
-                  actor: "human",
-                  message: "hi",
-                  memory: 42,
-                  on: { "* **": "nowhere" },
-                },
-              },
-            },
-          },
-        },
-        "/dir",
-      )
-      throw new Error("expected compileWorkflowConfig to throw")
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      expect(message).toContain('state "a": "memory" must be a string')
-      expect(message).toContain('state "a": "on" target "nowhere" is not a defined state')
-    }
+    ).toThrowError(
+      /state "a": unknown key\(s\) memory \("memory" no longer exists — a machine's memory scope is derived from its position in the tree and starts fresh on every entry\)/,
+    )
   })
 
   it("compiles a `label` string through onto the state", () => {
@@ -1720,5 +1649,145 @@ describe("compileWorkflowConfig — legacy shape detection & error sequencing", 
         'state "b": must declare exactly one of script/prompt/message/commit (found 2)',
       )
     }
+  })
+})
+
+describe("compileWorkflowConfig — machine-level `model`", () => {
+  it("stamps a machine-level `model` onto its own `prompt` state", () => {
+    const { definition } = compileWorkflowConfig(
+      {
+        entry: { default: "root" },
+        machines: {
+          root: {
+            model: "smart",
+            entry: "working",
+            states: {
+              working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
+              done: { commit: "chore: done" },
+            },
+          },
+        },
+      },
+      "/dir",
+    )
+    expect(definition.states["working"]!.model).toBe("smart")
+    expect(definition.states["done"]).not.toHaveProperty("model")
+  })
+
+  it("rejects a non-string machine-level `model` as a config-shape error", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              model: 42,
+              entry: "working",
+              states: {
+                working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
+                done: { commit: "chore: done" },
+              },
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/machines\.root: "model" must be a non-empty string/)
+  })
+
+  it("rejects a blank machine-level `model` as a config-shape error", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              model: "",
+              entry: "working",
+              states: {
+                working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
+                done: { commit: "chore: done" },
+              },
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/machines\.root: "model" must be a non-empty string/)
+  })
+
+  it("rejects a machine declaring `model` with no `prompt` state anywhere in its own states", () => {
+    expect(() =>
+      compileWorkflowConfig(
+        {
+          entry: { default: "root" },
+          machines: {
+            root: {
+              model: "smart",
+              entry: "working",
+              states: {
+                working: { actor: "check", script: "npm test", on: { C: "done" } },
+                done: { commit: "chore: done" },
+              },
+            },
+          },
+        },
+        "/dir",
+      ),
+    ).toThrowError(/machine "root": declares "model" but has no "prompt" state/)
+  })
+})
+
+describe("compileWorkflowConfig — `scopes`", () => {
+  it("populates `scopes` from the flattener's instance paths, covering every state including check/human/commit states", () => {
+    const { scopes } = compileWorkflowConfig(draftCheckRevise, "/config-dir")
+    expect(scopes).toEqual({
+      idle: "",
+      checking: "",
+      revising: "",
+      squashing: "",
+      done: "",
+    })
+  })
+
+  it("gives a referenced child machine's states a scope distinct from the root's", () => {
+    const { scopes } = compileWorkflowConfig(
+      {
+        entry: { default: "root" },
+        machines: {
+          root: {
+            entry: "child",
+            states: {
+              child: { machine: "leaf" },
+            },
+          },
+          leaf: {
+            entry: "working",
+            states: {
+              working: { actor: "agent", prompt: "do the thing", on: { "* *": "done" } },
+              done: { commit: "chore: done" },
+            },
+          },
+        },
+      },
+      "/dir",
+    )
+    expect(scopes).toEqual({ "child.working": "child", "child.done": "child" })
+  })
+})
+
+describe("assertScopesCoverStates — compiler invariant", () => {
+  it("pushes no finding when every state has a scope", () => {
+    const errors: string[] = []
+    assertScopesCoverStates(["a", "b"], { a: "", b: "child" }, errors)
+    expect(errors).toEqual([])
+  })
+
+  it("pushes an internal-error finding naming the compiler, not the author, when a state is missing from `scopes`", () => {
+    const errors: string[] = []
+    assertScopesCoverStates(["a", "b"], { a: "" }, errors)
+    expect(errors).toEqual([
+      'internal error: scopes map produced by the flattener is missing state "b"',
+    ])
   })
 })

@@ -82,6 +82,7 @@ const runIn = <A>(
             workflowVars: {},
             rcVars: {},
             machineTree: { key: "unified", machine: "unified", states: [], children: [] },
+            stateScopes: {},
           }),
         }),
       ),

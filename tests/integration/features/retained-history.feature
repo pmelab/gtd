@@ -76,7 +76,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review.deciding → squashing"
+    And the last commit subject is "gtd(check): review.deciding → build.squashing"
 
     Given a file ".gtd/COMMIT_MSG.md" with:
       """
@@ -99,12 +99,12 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       gtd(human): idle → plan-gate.check
       gtd(check): plan-gate.check → plan.planning
       gtd(agent): plan.planning → plan.await-plan
-      gtd(human): plan.await-plan → building
-      gtd(agent): building → build.check
-      gtd(check): build.check → review.reviewing
+      gtd(human): plan.await-plan → build.building
+      gtd(agent): build.building → build.health.check
+      gtd(check): build.health.check → review.reviewing
       gtd(agent): review.reviewing → review.await-review
       gtd(human): review.await-review → review.deciding
-      gtd(check): review.deciding → squashing
+      gtd(check): review.deciding → build.squashing
       """
     And the git ref "refs/worktree/gtd/history" does not exist
 
@@ -363,7 +363,7 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd step check
     Then it succeeds
-    And the last commit subject is "gtd(check): review.deciding → squashing"
+    And the last commit subject is "gtd(check): review.deciding → build.squashing"
 
     Given a file ".gtd/COMMIT_MSG.md" with:
       """
@@ -385,12 +385,12 @@ Feature: gtd restore — undo a squash (or an abandon) by hard-resetting to the 
       gtd(human): idle → plan-gate.check
       gtd(check): plan-gate.check → plan.planning
       gtd(agent): plan.planning → plan.await-plan
-      gtd(human): plan.await-plan → building
-      gtd(agent): building → build.check
-      gtd(check): build.check → review.reviewing
+      gtd(human): plan.await-plan → build.building
+      gtd(agent): build.building → build.health.check
+      gtd(check): build.health.check → review.reviewing
       gtd(agent): review.reviewing → review.await-review
       gtd(human): review.await-review → review.deciding
-      gtd(check): review.deciding → squashing
+      gtd(check): review.deciding → build.squashing
       """
 
   Scenario: --json reports the restored state, hash, and prior state on success

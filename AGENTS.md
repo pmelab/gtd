@@ -37,12 +37,12 @@ gtd works out of the box with no config. `gtd init` seeds only
 `vars.testCommand` + a `modes:` formatting suggestion, never the workflow.
 
 To change what it does, edit `src/workflows/unified.yaml` (`entry:`/`machines:`,
-each state's `actor`, exactly one content kind, `on` edges, `retry`, `model`,
-`file`/`mode`, `reviewWindow`/`reviewBase`). It compiles through the same
-`compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through (which
-flattens `entry:`/`machines:` via `src/Machines.ts`'s `flattenMachines` before
-any per-state compilation), so it never needs its own logic. After editing,
-update:
+each machine's `model`, each state's `actor`, exactly one content kind, `on`
+edges, `retry`, `file`/`mode`, `reviewWindow`/`reviewBase`). It compiles through
+the same `compileWorkflowConfig` a user's `.gtdrc` `workflow:` key goes through
+(which flattens `entry:`/`machines:` via `src/Machines.ts`'s `flattenMachines`
+before any per-state compilation), so it never needs its own logic. After
+editing, update:
 
 - **`src/workflows/templates.test.ts`** — the invariants the compiled template
   must keep (one `entry.default`, one review window, one review/fix entry, the
@@ -56,6 +56,14 @@ update:
   `templates-vars.feature`, `entry-gate.feature` (the green-baseline gate on
   every entry), `fix-entry.feature` (`--entry fix-precheck`), `entry.feature`
   (`--entry <state>`), `entry-vars.feature`, `prompt-diff-ranges.feature`)
+
+MACHINES, not individual states, are the unit of conversational identity: a
+machine's own `model:` stamps every one of its `prompt` states, and its memory
+scope (`src/PatternMachine.ts`'s `memoryScopeAt`/`src/Edge.ts`'s `memoryKeyFor`)
+is keyed off its position in the machine tree, not off any per-state field. So
+reviewing a workflow-shape change should also ask "which machine owns this
+state's model and memory scope" — alongside, not instead of, the per-state
+checks above.
 
 A genuinely new engine capability (a new content kind, a new `on` pattern
 grammar, a new state property) is a different, much rarer kind of change — that
@@ -81,8 +89,8 @@ name gtd interprets. Don't add a blessed config key for one.
 ### Scripted checks (no in-process execution)
 
 Checks are just an ordinary actor's turns at a `script`-content state (the
-bundled template's `build.check` state, awaited by the `check` actor) — **the
-engine NEVER executes anything itself**. `gtd next` renders and prints the
+bundled template's `build.health.check` state, awaited by the `check` actor) —
+**the engine NEVER executes anything itself**. `gtd next` renders and prints the
 script; the DRIVER (`bin/gtd`, or any loop harness) executes it verbatim via
 `bash`. The only place gtd spawns a subprocess at all is a steering-file mode's
 own `format:`/`validate:` command.

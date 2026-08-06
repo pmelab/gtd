@@ -10,6 +10,7 @@ import {
   type PendingChange,
   type RetryDef,
   type StateDef,
+  type StateName,
   type WorkflowDefinition,
   type WorkflowEntries,
 } from "./PatternMachine.js"
@@ -69,7 +70,6 @@ export interface VizState {
   readonly content?: string
   readonly initial?: boolean
   readonly model?: string
-  readonly memory?: string
   readonly file?: string
   readonly mode?: string
   readonly retry?: { readonly max: number; readonly otherwise: string }
@@ -94,6 +94,8 @@ export interface VizGroup {
   readonly parent?: string
   /** `0` for a top-level reference, incrementing with nesting depth. */
   readonly depth: number
+  /** This instance's machine's own `model:` (stamped onto every one of its `prompt`-content states — see `Machines.ts`'s `resolveInstanceModel`), read off any one of them. Absent when the machine declares no `model:` or owns no `prompt` state. */
+  readonly model?: string
 }
 
 /** The whole workflow, described for the viewer — the `/workflow.json` payload. */
@@ -138,7 +140,6 @@ const toVizState = (
     content: contentOf(def),
     initial: entries.default === name ? true : undefined,
     model: def.model,
-    memory: def.memory,
     file: def.file,
     mode: def.mode,
     retry: def.retry,
@@ -175,10 +176,10 @@ const renderedOnByState = (
     ]),
   )
 
-/** A state's qualified name minus its last segment — the instance it directly belongs to, or `undefined` for a root-owned state. */
-const groupOf = (name: string): string | undefined => {
-  const dot = name.lastIndexOf(".")
-  return dot === -1 ? undefined : name.slice(0, dot)
+/** A state's owning instance path, straight from `scopes` (`CompiledWorkflowConfig.scopes`/`ConfigOperations.stateScopes`) — a direct lookup, NOT a string chop off the qualified name (a state's group is not always "everything before the last dot"). `""` (the root instance's own path) means root-owned, reported as `undefined` here — same convention `VizState.group` has always had for a root-owned state. */
+const groupOf = (name: string, scopes: Record<StateName, string>): string | undefined => {
+  const scope = scopes[name]
+  return scope === "" || scope === undefined ? undefined : scope
 }
 
 /**
@@ -209,19 +210,47 @@ const flattenTree = (
 }
 
 /**
+ * The `model` of one group — a machine instance's own `model:`, read off any
+ * ONE of that group's own prompt-content states (by construction every prompt
+ * state one machine instance owns carries the identical `def.model` — see
+ * `Machines.ts`'s `resolveInstanceModel`/`emitTree`). `undefined` when the
+ * group owns no prompt state (e.g. a queue/gate machine of only
+ * script/message/commit states) or its machine declares no `model:` — never
+ * guessed.
+ */
+const modelOfGroup = (
+  groupName: string,
+  workflow: WorkflowDefinition,
+  scopes: Record<StateName, string>,
+): string | undefined => {
+  for (const [name, def] of Object.entries(workflow.states)) {
+    if (scopes[name] === groupName && contentKindOf(def) === "prompt") return def.model
+  }
+  return undefined
+}
+
+/**
  * Build the viewer's JSON description from the active COMPILED workflow plus
- * the machine tree its flattening produced (`CompiledWorkflowConfig.tree`).
- * `vars` is shown for reference, AND used to render every state's `on` pattern
- * (see `renderedOnByState`) so the diagram shows real paths rather than a
+ * the machine tree its flattening produced (`CompiledWorkflowConfig.tree`)
+ * and the memory-scope map its flattening produced alongside it
+ * (`CompiledWorkflowConfig.scopes`/`ConfigOperations.stateScopes`) — qualified
+ * state name -> the machine-instance path that owns it. `vars` is shown for
+ * reference, AND used to render every state's `on` pattern (see
+ * `renderedOnByState`) so the diagram shows real paths rather than a
  * repointed var's stale literal.
  */
 export const buildVizModel = (
   workflow: WorkflowDefinition,
   tree: MachineNode,
   vars: Record<string, string>,
+  scopes: Record<StateName, string>,
 ): VizModel => {
-  const groups: VizGroup[] = []
-  flattenTree(tree, undefined, 0, groups)
+  const flatGroups: VizGroup[] = []
+  flattenTree(tree, undefined, 0, flatGroups)
+  const groups = flatGroups.map((group) => {
+    const model = modelOfGroup(group.name, workflow, scopes)
+    return model !== undefined ? { ...group, model } : group
+  })
 
   const renderedOn = renderedOnByState(workflow, vars)
 
@@ -241,7 +270,7 @@ export const buildVizModel = (
       name,
       def,
       renderedOn.get(name) ?? [],
-      groupOf(name),
+      groupOf(name, scopes),
       incoming.get(name) ?? [],
       workflow.entries,
     ),

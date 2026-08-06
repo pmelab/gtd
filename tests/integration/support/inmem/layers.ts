@@ -22,6 +22,7 @@ import {
 } from "../../../../src/PatternConfig.js"
 import {
   defaultMachineTree,
+  defaultStateScopes,
   defaultWorkflowDefinition,
   defaultWorkflowVars,
 } from "../../../../src/workflows/templates.js"
@@ -364,14 +365,16 @@ const makeConfigOps = (raw: Record<string, unknown>): ConfigOperations => {
       workflowVars: defaultWorkflowVars,
       rcVars,
       machineTree: defaultMachineTree,
+      stateScopes: defaultStateScopes,
     }
   }
   const {
     definition,
     vars: workflowVars,
     tree,
+    scopes,
   } = compileWorkflowConfig(raw["workflow"], "/repo", rcModes)
-  return { workflow: definition, workflowVars, rcVars, machineTree: tree }
+  return { workflow: definition, workflowVars, rcVars, machineTree: tree, stateScopes: scopes }
 }
 
 const makeInMemoryConfigService = (repo: InMemRepo): Layer.Layer<ConfigService> => {

@@ -12,10 +12,10 @@ import {
   buildTemplateContext,
   computeProcessRun,
   executeDecision,
+  memoryKeyFor,
   pendingChanges,
   renderFile,
   renderLabel,
-  renderMemory,
   renderModel,
   renderOnEdges,
   renderRest,
@@ -520,7 +520,11 @@ const renderOnEdgesOrFail = (
  * path renders a DIFFERENT state, so it builds its own context inline
  * instead of sharing this helper). `renderedOn` is the resting state's `on`
  * edges already rendered against `it.vars` (`renderOnEdges`) — `next`/`status`
- * reuse it instead of re-rendering the same patterns themselves.
+ * reuse it instead of re-rendering the same patterns themselves. `memory` is
+ * the COMPUTED memory key (`memoryKeyFor`, package 05/06) for this rest —
+ * `undefined` for a non-`prompt` rest or when no scope resolves — computed
+ * once here (against the loaded config's `stateScopes`) rather than by each
+ * caller separately.
  */
 const resolveRestContext = (
   git: GitOperations,
@@ -530,6 +534,7 @@ const resolveRestContext = (
     readonly run: ProcessRun
     readonly context: TemplateContext
     readonly renderedOn: readonly OnEdge[]
+    readonly memory: string | undefined
   },
   Error,
   GitService | ConfigService | WorktreeReader | EnvVars
@@ -555,7 +560,8 @@ const resolveRestContext = (
       undefined,
       reviewBase,
     )
-    return { rest, run, context, renderedOn }
+    const memory = memoryKeyFor(config.stateScopes, rest, run)
+    return { rest, run, context, renderedOn, memory }
   })
 
 /** The user-facing message for a `step` refusal — out-of-turn names the awaited actor, no-match names every declared pattern. */
@@ -600,7 +606,13 @@ const stepAsActor = (
     const renderedOn = yield* renderOnEdgesOrFail(rest.stateDef.on, vars)
     const decision = step(withRenderedOn(rest.def, rest.state, renderedOn), rest.state, invoker, {
       changes,
-      processTrace: run.trace,
+      // `StepPayload.processTrace` stays `readonly StateName[]` — the pure
+      // engine's retry-entry counting (`applyRetry`) only ever compares state
+      // NAMES, never commit hashes, so widening it to carry `TraceEntry`s
+      // (added to `ProcessRun.trace` for `memoryKeyFor`, package 05/06) would
+      // just churn every `step` test that builds a payload for data the
+      // engine never reads.
+      processTrace: run.trace.map((entry) => entry.state),
     })
 
     if (decision.kind === "refusal") {
@@ -890,7 +902,9 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
  * `gtd abandon`: end the process currently underway WITHOUT completing it,
  * returning the machine to the workflow's initial state — the recovery path out
  * of a process nobody is going to finish (`runEntryCommand`'s "already
- * underway" refusal names it: "finish it, or run `gtd abandon`, before entering").
+ * underway" refusal names it: "finish it, or run `gtd abandon`, before entering"
+ * — and so does `resolveRest`'s refusal when HEAD names a state a workflow
+ * change has since removed).
  *
  * NOTHING is discarded. The shared bracket in `makeProgram` has already closed
  * any open review checkout window (so HEAD is the real head), and abandon then
@@ -900,6 +914,15 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
  * carried — the code, the `.gtd/` steering files — stays in the working tree as
  * uncommitted changes for the human to keep, re-commit, or discard with
  * ordinary git.
+ *
+ * Deliberately reads the current state off `computeProcessRun`'s OWN trace
+ * (its last entry, oldest→newest) rather than `resolveRest` — `resolveRest`
+ * refuses when HEAD names a state the CURRENT workflow no longer declares
+ * (the escape hatch THIS command is), so routing through it here would make
+ * the one command that must still work in that exact situation refuse right
+ * alongside everything else. `computeProcessRun`'s boundary walk only ever
+ * compares state NAMES (never a declaration lookup), so it resolves a
+ * renamed-away trace exactly as well as an ordinary one.
  *
  * Idempotent: resting at the initial state (a plain non-gtd branch, or a
  * just-squashed cycle) is a no-op SUCCESS, not a refusal — a recovery command
@@ -916,9 +939,11 @@ const runAbandonCommand = (
     yield* rejectExtraArgs("abandon", argv)
 
     const git = yield* GitService
-    const rest = yield* resolveRest()
-    const initial = initialStateOf(rest.def)
-    if (rest.state === initial) {
+    const config = yield* (yield* ConfigService).load
+    const def = config.workflow
+    const initial = initialStateOf(def)
+    const run = yield* computeProcessRun(git, def)
+    if (run.trace.length === 0) {
       if (json) {
         write(JSON.stringify({ state: initial, abandoned: false }) + "\n")
       } else {
@@ -926,12 +951,12 @@ const runAbandonCommand = (
       }
       return
     }
+    const restState = run.trace[run.trace.length - 1]!.state
 
-    const run = yield* computeProcessRun(git, rest.def)
     if (run.startParentHash === EMPTY_TREE) {
       return yield* Effect.fail(
         new Error(
-          `gtd abandon: the process underway (resting at "${rest.state}") starts at the ` +
+          `gtd abandon: the process underway (resting at "${restState}") starts at the ` +
             "repository's first commit — there is no earlier commit to rewind to",
         ),
       )
@@ -947,13 +972,13 @@ const runAbandonCommand = (
         JSON.stringify({
           state: initial,
           abandoned: true,
-          from: rest.state,
+          from: restState,
           head: run.startParentHash,
         }) + "\n",
       )
     } else {
       write(
-        `abandoned the process resting at "${rest.state}" — HEAD is back at ` +
+        `abandoned the process resting at "${restState}" — HEAD is back at ` +
           `${run.startParentHash.slice(0, 7)} ("${subject}"), resting at "${initial}".\n` +
           `Everything the process produced is kept as uncommitted changes (\`git status\`); ` +
           `discard them with \`git checkout -- . && git clean -fd .gtd\` for a clean tree.\n`,
@@ -1079,8 +1104,8 @@ const runNextCommand = (
 ): Effect.Effect<void, Error, ProgramRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const { rest, context } = yield* resolveRestContext(git)
-    const rendered = yield* renderRest(rest, context)
+    const { rest, context, memory } = yield* resolveRestContext(git)
+    const rendered = yield* renderRest(rest, context, memory)
     write(json ? nextJsonOutput(rendered) : nextPlainOutput(rendered))
   })
 
@@ -1631,10 +1656,9 @@ const runStatusCommand = (
   Effect.gen(function* () {
     yield* rejectExtraArgs("status", argv)
     const git: GitOperations = yield* GitService
-    const { rest, context, renderedOn } = yield* resolveRestContext(git)
+    const { rest, context, renderedOn, memory } = yield* resolveRestContext(git)
     const changes = yield* pendingChanges(git)
     const model = yield* renderModel(rest.stateDef, context)
-    const memory = yield* renderMemory(rest.stateDef, context)
     const label = yield* renderLabel(rest.stateDef, context)
     const file = yield* renderFile(rest.stateDef, context)
     const statusChanges = computeStatusChanges(renderedOn, changes)
@@ -1773,10 +1797,15 @@ const runVisualizeCommand = (
     if ("error" in opts) return yield* Effect.fail(new Error(opts.error))
 
     const config = yield* (yield* ConfigService).load
-    const model = buildVizModel(config.workflow, config.machineTree, {
-      ...config.workflowVars,
-      ...config.rcVars,
-    })
+    const model = buildVizModel(
+      config.workflow,
+      config.machineTree,
+      {
+        ...config.workflowVars,
+        ...config.rcVars,
+      },
+      config.stateScopes,
+    )
 
     if (json) {
       write(JSON.stringify(model, null, 2) + "\n")
@@ -1978,6 +2007,13 @@ const runInReviewWindowBracket = (
     // rewound to the review base, so the pure machine would otherwise resolve
     // against the wrong commit. Keyed on the ref alone — a no-op when no window
     // is open.
+    //
+    // Second, independent reason this must come BEFORE the subcommand runs:
+    // the computed memory key (`memoryKeyFor`, package 05/06) is derived from
+    // `ProcessRun.trace`, which is walked back from HEAD — while the window is
+    // open, HEAD is rewound and the trace truncated, which would silently
+    // resolve the wrong `entryIndex` (and so the wrong commit-anchored token)
+    // rather than failing loudly.
     yield* closeReviewWindow
 
     // Re-arm the window after the subcommand — on success AND on refusal/error,

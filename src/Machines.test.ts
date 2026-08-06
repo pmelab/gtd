@@ -5,6 +5,7 @@ import { flattenMachines } from "./Machines.js"
 const agentState = (on: Record<string, unknown>) => ({ actor: "agent", prompt: "p", on })
 const checkState = (on: Record<string, unknown>) => ({ actor: "check", script: "s", on })
 const commitState = (msg = "chore: done") => ({ commit: msg })
+const humanState = (on: Record<string, unknown>) => ({ actor: "human", message: "m", on })
 
 describe("flattenMachines — flattening and qualification", () => {
   it("emits a single machine's states qualified at the root (empty path prefix)", () => {
@@ -358,6 +359,168 @@ describe("flattenMachines — Pass 1 guards", () => {
       errors,
     )
     expect(errors).toContain('machine "oldLoop" is declared but never referenced')
+  })
+})
+
+describe("flattenMachines — model stamping", () => {
+  it("stamps a directly-declared machine model onto every prompt-content state, and never onto non-prompt states", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: {
+            model: "opus",
+            entry: "start",
+            states: {
+              start: agentState({ "* **": "check" }),
+              check: checkState({ C: "gate" }),
+              gate: humanState({ "* **": "done" }),
+              done: commitState(),
+            },
+          },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect((out.states["start"] as { model: unknown }).model).toBe("opus")
+    expect(out.states["check"]).not.toHaveProperty("model")
+    expect(out.states["gate"]).not.toHaveProperty("model")
+    expect(out.states["done"]).not.toHaveProperty("model")
+  })
+
+  it("resolves a machine model declared as a whole-value $param through the reference site's binding", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: {
+            entry: "child",
+            states: {
+              child: { machine: "childMachine", with: { model: "some-value" } },
+            },
+          },
+          childMachine: {
+            model: "$model",
+            params: ["model"],
+            entry: "step",
+            states: {
+              step: agentState({ "* **": "step" }),
+            },
+          },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect((out.states["child.step"] as { model: unknown }).model).toBe("some-value")
+  })
+
+  it("stamps nothing when a whole-value $model param resolves to the empty string", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: {
+            entry: "child",
+            states: {
+              child: { machine: "childMachine", with: { model: "" } },
+            },
+          },
+          childMachine: {
+            model: "$model",
+            params: ["model"],
+            entry: "step",
+            states: {
+              step: agentState({ "* **": "step" }),
+            },
+          },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect(out.states["child.step"]).not.toHaveProperty("model")
+  })
+
+  it("stamps nothing when a machine declares no model", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: { entry: "start", states: { start: agentState({ "* **": "start" }) } },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect(out.states["start"]).not.toHaveProperty("model")
+  })
+})
+
+describe("flattenMachines — scopes", () => {
+  it("covers every emitted state (prompt, script, human-gate, and commit alike) with its owning instance path", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: {
+            entry: "start",
+            states: {
+              start: agentState({ "* **": "packages" }),
+              packages: { machine: "packageLoop" },
+            },
+          },
+          packageLoop: {
+            entry: "check",
+            states: {
+              check: checkState({ C: "gate" }),
+              gate: humanState({ "* **": "finish" }),
+              finish: commitState(),
+            },
+          },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect(Object.keys(out.scopes).sort()).toEqual(Object.keys(out.states).sort())
+    expect(out.scopes["start"]).toBe("")
+    expect(out.scopes["packages.check"]).toBe("packages")
+    expect(out.scopes["packages.gate"]).toBe("packages")
+    expect(out.scopes["packages.finish"]).toBe("packages")
+  })
+
+  it("gives two distinct references to the same machine two distinct scopes entries", () => {
+    const errors: string[] = []
+    const out = flattenMachines(
+      {
+        entry: { default: "unified" },
+        machines: {
+          unified: {
+            entry: "first",
+            states: {
+              first: { machine: "worker" },
+              second: { machine: "worker" },
+            },
+          },
+          worker: {
+            entry: "step",
+            states: { step: agentState({ "* **": "step" }) },
+          },
+        },
+      },
+      errors,
+    )
+    expect(errors).toEqual([])
+    expect(out.scopes["first.step"]).toBe("first")
+    expect(out.scopes["second.step"]).toBe("second")
+    expect(out.scopes["first.step"]).not.toBe(out.scopes["second.step"])
   })
 })
 

@@ -146,16 +146,6 @@ const stateJsonSchema = {
         },
       },
     },
-    model: {
-      type: "string",
-      description:
-        'Opaque harness hint passed through `gtd next --json`/`gtd status --json` (e.g. "smart"). Never interpreted by gtd. Forbidden on a commit state.',
-    },
-    memory: {
-      type: "string",
-      description:
-        'Opaque memory-scope label passed through `gtd next --json`/`gtd status --json` (e.g. "plan"). A memory-aware driver retains an agent\'s memory across consecutive agent turns sharing this label and starts fresh when it changes. Never interpreted by gtd. Forbidden on a commit state.',
-    },
     label: {
       type: "string",
       description:
@@ -234,6 +224,11 @@ const machineJsonSchema = {
       type: "string",
       description:
         "This machine's own default local (a local state name, or a reference key), resolved recursively.",
+    },
+    model: {
+      type: "string",
+      description:
+        'Opaque harness hint stamped onto every one of this machine\'s own `prompt` states (e.g. "smart"), passed through `gtd next --json`/`gtd status --json`. The ONLY place a model may be declared — a state carrying its own `model:` is a config error. Never interpreted by gtd. A machine declaring this with no `prompt` state is a config error.',
     },
     states: {
       type: "object",

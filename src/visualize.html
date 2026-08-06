@@ -1512,9 +1512,10 @@
         const nodeLine = (s) => `  ${idFor(s.name)}${shapeFor(s.kind, s.name)}:::${actorOf(s)}`
         const boxLine = (g, i) => {
           const n = allStatesOf(g).length
+          const modelSuffix = g.model ? ` · model: ${esc(g.model)}` : ""
           return `  ${groupBoxId(i)}["${esc(g.name)}<br/><span class='sm-hint'>▸ ${n} state${
             n === 1 ? "" : "s"
-          }</span>"]:::submachine`
+          }${modelSuffix}</span>"]:::submachine`
         }
         const ghostLine = (s) => `  e${idFor(s.name)}${shapeFor(s.kind, s.name)}:::external`
 
@@ -1944,7 +1945,9 @@
           card.style.marginLeft = (g.depth || 0) * 24 + "px"
           if (CURRENT && CURRENT.group === g.name) card.open = true
           card.innerHTML =
-            `<summary class="h"><span class="nm">${esc(g.name)} · instantiates <b>${esc(g.machine)}</b></span></summary>` +
+            `<summary class="h"><span class="nm">${esc(g.name)} · instantiates <b>${esc(g.machine)}</b>${
+              g.model ? ` · model: ${esc(g.model)}` : ""
+            }</span></summary>` +
             `<div class="dia-scroll" id="smDia${i}"><div class="dia-msg">Rendering diagram…</div></div>`
           el.appendChild(card)
 
@@ -2106,16 +2109,7 @@
         if (!actorFilter.has(actorOf(s))) return false
         if (kindFilter !== "all" && s.kind !== kindFilter) return false
         if (!q) return true
-        const hay = [
-          s.name,
-          s.actor,
-          s.kind,
-          s.file,
-          s.mode,
-          s.model,
-          s.memory,
-          (s.flags || []).join(" "),
-        ]
+        const hay = [s.name, s.actor, s.kind, s.file, s.mode, s.model, (s.flags || []).join(" ")]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
@@ -2189,7 +2183,6 @@
         kv.push(["actor", pill(a)])
         kv.push(["kind", `<span class="kind">${esc(s.kind)}</span>`])
         kv.push(["model", s.model ? esc(s.model) : '<span class="none">—</span>'])
-        kv.push(["memory", s.memory ? esc(s.memory) : '<span class="none">—</span>'])
         kv.push(["file", s.file ? esc(s.file) : '<span class="none">—</span>'])
         kv.push(["mode", s.mode ? esc(s.mode) : '<span class="none">—</span>'])
         if (s.retry)

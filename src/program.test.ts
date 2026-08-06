@@ -15,7 +15,12 @@ import { Cwd } from "./Cwd.js"
 import { EnvVars } from "./EnvVars.js"
 import { GitService } from "./Git.js"
 import { WorktreeReader } from "./WorktreeReader.js"
-import { compileTemplate, defaultMachineTree, renderInitConfig } from "./workflows/templates.js"
+import {
+  compileTemplate,
+  defaultMachineTree,
+  defaultStateScopes,
+  renderInitConfig,
+} from "./workflows/templates.js"
 import {
   classifyAnswerCompleteness,
   classifyFeedbackProgress,
@@ -69,6 +74,7 @@ const stubConfigLayer = Layer.succeed(ConfigService, {
     workflowVars: {},
     rcVars: {},
     machineTree: defaultMachineTree,
+    stateScopes: defaultStateScopes,
   }),
 })
 
@@ -794,6 +800,266 @@ describe("gtd next --json / gtd status — label emission", () => {
     expect(Exit.isSuccess(exit)).toBe(true)
     const parsed = JSON.parse(output) as Record<string, unknown>
     expect(parsed).not.toHaveProperty("label")
+  })
+})
+
+describe("gtd next --json / gtd status — memory key emission", () => {
+  // `memory` is now COMPUTED (src/Edge.ts's `memoryKeyFor`, package 05/06)
+  // from the resting state's scope (`ConfigOperations.stateScopes`) and a
+  // commit-anchored hash — there is no authored `memory:` state key at all
+  // (package 10 removed it outright) — pinned end-to-end for a realistic
+  // nested-scope, repeated-entry trace in
+  // tests/integration/features/gtd-loop.feature; these mirror that coverage
+  // at the unit level using the same InMemRepo + inMemoryLayers precedent as
+  // the label-emission block above. This workflow is a single flat "root"
+  // machine (no sub-machine references), so every one of its states' scope
+  // is `""` — the root — displayed as `memoryKeyFor`'s `"root"` fallback name.
+
+  const workflowPrompt = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: write NOTE.md to start a cycle",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: do the work described in NOTE.md",
+    "          on:",
+    '            "* **": idle',
+    "",
+  ].join("\n")
+
+  const workflowNonPrompt = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: write NOTE.md to start a cycle",
+    "          on:",
+    '            "* **": checking',
+    "        checking:",
+    "          actor: check",
+    "          script: echo hi",
+    "          on:",
+    '            "C": idle',
+    "",
+  ].join("\n")
+
+  const seededRepoAt = (workflowYaml: string, lastCommitSubject: string): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gitignore", "node_modules\n")
+    repo.writeFile("README.md", "# test project\n")
+    repo.writeFile(".gtdrc.yaml", workflowYaml)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.commitAllWithPrefix(lastCommitSubject)
+    return repo
+  }
+
+  const runProgram = async (
+    repo: InMemRepo,
+    ...args: string[]
+  ): Promise<{ output: string; exit: Exit.Exit<void, Error> }> => {
+    let output = ""
+    const write = (chunk: string) => {
+      output += chunk
+    }
+    const argv = ["node", "gtd.js", ...args]
+    const exit = await Effect.runPromiseExit(
+      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+    )
+    return { output, exit }
+  }
+
+  const MEMORY_KEY = /^root#[0-9a-f]{7}$/
+
+  it("gtd next --json computes a <scope>#<hash7> memory key for a prompt rest", async () => {
+    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
+    const { output, exit } = await runProgram(repo, "next", "--json")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(parsed.memory).toMatch(MEMORY_KEY)
+  })
+
+  it("gtd status --json computes the same memory key shape", async () => {
+    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
+    const { output, exit } = await runProgram(repo, "status", "--json")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(parsed.memory).toMatch(MEMORY_KEY)
+  })
+
+  it("gtd status shows the computed memory key as a plain-text Memory: line", async () => {
+    const repo = seededRepoAt(workflowPrompt, "gtd(human): working")
+    const { output, exit } = await runProgram(repo, "status")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(output).toContain("State: working")
+    expect(output).toMatch(/Memory: root#[0-9a-f]{7}/)
+  })
+
+  it("gtd next --json omits memory entirely for a non-prompt rest", async () => {
+    const repo = seededRepoAt(workflowNonPrompt, "gtd(human): checking")
+    const { output, exit } = await runProgram(repo, "next", "--json")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(parsed).not.toHaveProperty("memory")
+  })
+
+  it("gtd status --json omits memory entirely for a non-prompt rest", async () => {
+    const repo = seededRepoAt(workflowNonPrompt, "gtd(human): checking")
+    const { output, exit } = await runProgram(repo, "status", "--json")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    const parsed = JSON.parse(output) as Record<string, unknown>
+    expect(parsed).not.toHaveProperty("memory")
+  })
+})
+
+describe("gtd next — refuses when HEAD names a state the current workflow no longer declares", () => {
+  // A workflow upgrade that renames/removes a state out from under an
+  // in-flight process must not look like a fresh, idle repo (silently
+  // falling back to the initial state) — it must refuse loudly, pointing at
+  // `gtd abandon` as the escape hatch, exactly like the earlier
+  // `entry.review`/`entry.fix` removal's courtesy message. Distinct from a
+  // state merely missing from `scopes` (package 04's `memoryScopeAt`, a
+  // compiler bug) — this is a state absent from `definition.states` entirely.
+
+  const workflow = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": working',
+    "        working:",
+    "          actor: agent",
+    "          prompt: go",
+    "          on:",
+    '            "* **": idle',
+    "",
+  ].join("\n")
+
+  const seededRepoAt = (lastCommitSubject: string): InMemRepo => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", workflow)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    repo.commitAllWithPrefix(lastCommitSubject)
+    return repo
+  }
+
+  const runProgram = async (
+    repo: InMemRepo,
+    ...args: string[]
+  ): Promise<{ output: string; exit: Exit.Exit<void, Error> }> => {
+    let output = ""
+    const write = (chunk: string) => {
+      output += chunk
+    }
+    const argv = ["node", "gtd.js", ...args]
+    const exit = await Effect.runPromiseExit(
+      makeProgram({ argv, write }).pipe(Effect.provide(inMemoryLayers(repo))),
+    )
+    return { output, exit }
+  }
+
+  it("refuses, naming the vanished state and pointing at `gtd abandon`", async () => {
+    const repo = seededRepoAt("gtd(agent): renamedAway")
+    const { exit } = await runProgram(repo, "next")
+    expect(Exit.isSuccess(exit)).toBe(false)
+    if (Exit.isFailure(exit)) {
+      const message = String(exit.cause)
+      expect(message).toContain("renamedAway")
+      expect(message).toContain("gtd abandon")
+    }
+  })
+
+  it("a state that IS declared, resting normally, is unaffected", async () => {
+    const repo = seededRepoAt("gtd(human): working")
+    const { exit } = await runProgram(repo, "next")
+    expect(Exit.isSuccess(exit)).toBe(true)
+  })
+
+  it("`gtd abandon` itself still works for a renamed-away rest — the escape hatch it points to must not refuse right alongside everything else", async () => {
+    const repo = seededRepoAt("gtd(agent): renamedAway")
+    const before = repo.commitHistory().length
+    const { output, exit } = await runProgram(repo, "abandon")
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(output).toContain('abandoned the process resting at "renamedAway"')
+    expect(repo.commitHistory()).toHaveLength(before - 1)
+  })
+})
+
+describe("gtd step — StepPayload.processTrace still receives plain state names", () => {
+  // `ProcessRun.trace` widened to `TraceEntry[]` (state + commit hash, for
+  // `memoryKeyFor` — package 05/06), but `PatternMachine.step`'s
+  // `StepPayload.processTrace` stays `readonly StateName[]` — retry-entry
+  // counting (`applyRetry`) only ever compares state NAMES. If the mapping
+  // at the one call site (`stepAsActor`, src/program.ts) ever regressed to
+  // pass `TraceEntry` objects through instead, retry redirection would never
+  // trigger (an object never `===` a string), so this pins the real
+  // end-to-end behavior, not just the type.
+
+  const workflow = [
+    "workflow:",
+    "  entry:",
+    "    default: root",
+    "  machines:",
+    "    root:",
+    "      entry: idle",
+    "      states:",
+    "        idle:",
+    "          actor: human",
+    "          message: hi",
+    "          on:",
+    '            "* **": looping',
+    "        looping:",
+    "          actor: agent",
+    "          prompt: go",
+    "          retry:",
+    "            max: 1",
+    "            otherwise: idle",
+    "          on:",
+    '            "* **": looping',
+    "",
+  ].join("\n")
+
+  it("redirects via `retry.otherwise` once the prior-visit count in the trace reaches `max`", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile(".gtdrc.yaml", workflow)
+    repo.commitAllWithPrefix("chore: add custom workflow")
+    // Simulates having already entered "looping" once this process — the
+    // ONE prior visit `retry.max: 1` allows before redirecting.
+    repo.commitAllWithPrefix("gtd(human): looping")
+    repo.writeFile("src/fix.ts", "export const x = 1\n")
+
+    let output = ""
+    const write = (chunk: string) => {
+      output += chunk
+    }
+    const exit = await Effect.runPromiseExit(
+      makeProgram({ argv: ["node", "gtd.js", "step", "agent"], write }).pipe(
+        Effect.provide(inMemoryLayers(repo)),
+      ),
+    )
+    expect(Exit.isSuccess(exit)).toBe(true)
+    expect(repo.lastCommitSubject()).toBe("gtd(agent): looping → idle")
   })
 })
 

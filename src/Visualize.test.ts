@@ -33,14 +33,13 @@ const raw = {
       },
     },
     root: {
+      model: "smart",
       entry: "idle",
       states: {
         idle: { actor: "human", message: "idle", on: { "* **": "start.check" } },
         planning: {
           actor: "agent",
           prompt: "plan",
-          model: "smart",
-          memory: "plan",
           file: ".gtd/TODO.md",
           answerGate: true,
           on: { "* **": "done" },
@@ -53,9 +52,14 @@ const raw = {
 }
 
 const compiled = compileWorkflowConfig(raw, "/dir")
-const model = buildVizModel(compiled.definition, compiled.tree, {
-  testCommand: "npm test",
-})
+const model = buildVizModel(
+  compiled.definition,
+  compiled.tree,
+  {
+    testCommand: "npm test",
+  },
+  compiled.scopes,
+)
 const stateNamed = (name: string) => model.states.find((s) => s.name === name)!
 
 describe("buildVizModel", () => {
@@ -69,9 +73,9 @@ describe("buildVizModel", () => {
     expect(stateNamed("done").actor).toBeUndefined()
   })
 
-  it("carries model/memory/file/mode/flags and flattens on-edges", () => {
+  it("carries model/file/mode/flags and flattens on-edges", () => {
     const planning = stateNamed("planning")
-    expect(planning).toMatchObject({ model: "smart", memory: "plan", file: ".gtd/TODO.md" })
+    expect(planning).toMatchObject({ model: "smart", file: ".gtd/TODO.md" })
     expect(planning.flags).toContain("answerGate")
     expect(planning.on).toEqual([{ pattern: "* **", to: "done" }])
   })
@@ -93,6 +97,82 @@ describe("buildVizModel", () => {
     expect(stateNamed("start.check").group).toBe("start")
     expect(stateNamed("start.blocked").group).toBe("start")
     expect(stateNamed("idle").group).toBeUndefined()
+  })
+
+  it("computes a group's model from a machine-level `model:` declaration, via any one of its prompt states", () => {
+    const modelRaw = {
+      entry: { default: "root" },
+      machines: {
+        worker: {
+          model: "sonnet",
+          entry: "think",
+          states: {
+            think: { actor: "agent", prompt: "think hard", on: { "* **": "done" } },
+            done: { commit: "chore: done" },
+          },
+        },
+        root: {
+          entry: "idle",
+          states: {
+            idle: { actor: "human", message: "idle", on: { "* **": "job.think" } },
+            job: { machine: "worker" },
+          },
+        },
+      },
+    }
+    const modelCompiled = compileWorkflowConfig(modelRaw, "/dir")
+    const modelModel = buildVizModel(
+      modelCompiled.definition,
+      modelCompiled.tree,
+      {},
+      modelCompiled.scopes,
+    )
+    expect(modelModel.groups.find((g) => g.name === "job")).toMatchObject({
+      machine: "worker",
+      model: "sonnet",
+    })
+  })
+
+  it("leaves a group's model absent when its machine has no prompt state (a script/message-only machine)", () => {
+    // the `gate` machine (the `start` group) has only script/message states,
+    // no prompt — no `def.model` to read.
+    expect(model.groups.find((g) => g.name === "start")).not.toHaveProperty("model")
+  })
+
+  it("computes VizState.group as a direct `scopes` lookup, not a chop off the qualified name's last dot segment", () => {
+    // A naive "chop at the last dot" of "outer.inner.leaf" would yield
+    // "outer.inner" — WRONG. This state's real owning instance, straight from
+    // `scopes` (as the flattener would produce for a state two levels deep in
+    // the tree), is "outer.deep".
+    const manualWorkflow = {
+      entries: { default: "outer.inner.leaf", manual: [] },
+      states: {
+        "outer.inner.leaf": { actor: "agent", prompt: "p", on: [] },
+        top: { commit: "chore: done" },
+      },
+    }
+    const manualTree = {
+      key: "root",
+      machine: "root",
+      states: ["top"],
+      children: [
+        {
+          key: "outer",
+          machine: "m",
+          states: [],
+          children: [
+            { key: "outer.deep", machine: "m2", states: ["outer.inner.leaf"], children: [] },
+          ],
+        },
+      ],
+    }
+    const manualScopes: Record<string, string> = {
+      "outer.inner.leaf": "outer.deep",
+      top: "",
+    }
+    const manualModel = buildVizModel(manualWorkflow, manualTree, {}, manualScopes)
+    expect(manualModel.states.find((s) => s.name === "outer.inner.leaf")!.group).toBe("outer.deep")
+    expect(manualModel.states.find((s) => s.name === "top")!.group).toBeUndefined()
   })
 
   it("computes incoming edges (routes in from)", () => {
@@ -120,7 +200,12 @@ describe("buildVizModel", () => {
       },
     }
     const flatCompiled = compileWorkflowConfig(flatRaw, "/dir")
-    const flatModel = buildVizModel(flatCompiled.definition, flatCompiled.tree, {})
+    const flatModel = buildVizModel(
+      flatCompiled.definition,
+      flatCompiled.tree,
+      {},
+      flatCompiled.scopes,
+    )
     expect(flatModel.groups).toEqual([])
     expect(flatModel.states.every((s) => s.group === undefined)).toBe(true)
   })
@@ -143,9 +228,14 @@ describe("buildVizModel", () => {
       },
     }
     const templatedCompiled = compileWorkflowConfig(templatedRaw, "/dir")
-    const templatedModel = buildVizModel(templatedCompiled.definition, templatedCompiled.tree, {
-      feedbackFile: ".gtd/FEEDBACK.md",
-    })
+    const templatedModel = buildVizModel(
+      templatedCompiled.definition,
+      templatedCompiled.tree,
+      {
+        feedbackFile: ".gtd/FEEDBACK.md",
+      },
+      templatedCompiled.scopes,
+    )
     expect(templatedModel.states.find((s) => s.name === "a")!.on).toEqual([
       { pattern: "A .gtd/FEEDBACK.md", to: "b" },
     ])
@@ -178,7 +268,12 @@ describe("buildVizModel", () => {
       },
     }
     const actionCompiled = compileWorkflowConfig(rawWithAction, "/dir")
-    const actionModel = buildVizModel(actionCompiled.definition, actionCompiled.tree, {})
+    const actionModel = buildVizModel(
+      actionCompiled.definition,
+      actionCompiled.tree,
+      {},
+      actionCompiled.scopes,
+    )
     const edges = actionModel.states.find((s) => s.name === "a")!.on
     expect(edges).toEqual([
       { pattern: "C", to: "b" },
@@ -211,7 +306,12 @@ describe("buildVizModel", () => {
       },
     }
     const entryCompiled = compileWorkflowConfig(entryRaw, "/dir")
-    const entryModel = buildVizModel(entryCompiled.definition, entryCompiled.tree, {})
+    const entryModel = buildVizModel(
+      entryCompiled.definition,
+      entryCompiled.tree,
+      {},
+      entryCompiled.scopes,
+    )
     const named = (name: string) => entryModel.states.find((s) => s.name === name)!
 
     expect(named("reviewer").flags).toContain("entry")
@@ -240,7 +340,7 @@ describe("buildVizModel", () => {
       },
     }
     const badCompiled = compileWorkflowConfig(badRaw, "/dir")
-    const badModel = buildVizModel(badCompiled.definition, badCompiled.tree, {})
+    const badModel = buildVizModel(badCompiled.definition, badCompiled.tree, {}, badCompiled.scopes)
     expect(badModel.states.find((s) => s.name === "a")!.on).toEqual([
       { pattern: "A <%= it.vars.missing.deeper %>", to: "b" },
     ])

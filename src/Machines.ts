@@ -145,6 +145,8 @@ export interface FlattenedWorkflow {
   readonly entries: { readonly default: string } | undefined
   /** `undefined` only when the root machine itself could not be instantiated. */
   readonly tree: MachineNode | undefined
+  /** qualified state name -> the instance path (see `InstancePath`) that owns it. */
+  readonly scopes: Record<string, InstancePath>
 }
 
 const qualify = (path: InstancePath, local: string): string =>
@@ -531,19 +533,43 @@ const emitState = (
   return out
 }
 
+/**
+ * Resolve an instance's own `model` value, substituting a whole-value
+ * `$param` at the reference site. A whole-value `$param` that resolves to the
+ * empty string compiles away to "field absent" (mirrors the same rule in
+ * `emitState`) — an instance that doesn't bind a model for this machine
+ * should not stamp `model: ""`.
+ */
+const resolveInstanceModel = (
+  rawMachine: Record<string, unknown>,
+  instance: Instance,
+  errors: string[],
+): unknown => {
+  const rawModel = rawMachine["model"]
+  if (rawModel === undefined) return undefined
+  const substituted = substituteScalar(rawModel, instance, `machines.${instance.machine}`, errors)
+  if (typeof rawModel === "string" && PARAM_REF.test(rawModel) && substituted === "") {
+    return undefined
+  }
+  return substituted
+}
+
 /** Walk the instance tree, emitting every instance's own direct states into `states` (qualified). */
 const emitTree = (
   instance: Instance,
   machinesRaw: Record<string, unknown>,
   states: Record<string, unknown>,
+  scopes: Record<string, InstancePath>,
   instancesByPath: ReadonlyMap<InstancePath, Instance>,
   errors: string[],
 ): void => {
   const rawMachine = machinesRaw[instance.machine] as Record<string, unknown>
   const statesRaw = rawMachine["states"] as Record<string, unknown>
+  const resolvedModel = resolveInstanceModel(rawMachine, instance, errors)
   for (const [localName, local] of instance.locals) {
     if (local.kind !== "state") continue
-    states[qualify(instance.path, localName)] = emitState(
+    const qualified = qualify(instance.path, localName)
+    const emitted = emitState(
       statesRaw[localName],
       instance,
       localName,
@@ -551,9 +577,14 @@ const emitTree = (
       machinesRaw,
       errors,
     )
+    if (resolvedModel !== undefined && typeof emitted["prompt"] === "string") {
+      emitted["model"] = resolvedModel
+    }
+    states[qualified] = emitted
+    scopes[qualified] = instance.path
   }
   for (const child of instance.children)
-    emitTree(child, machinesRaw, states, instancesByPath, errors)
+    emitTree(child, machinesRaw, states, scopes, instancesByPath, errors)
 }
 
 /** Project an `Instance` tree into its `MachineNode` visualization tree. */
@@ -576,7 +607,7 @@ const buildTree = (instance: Instance): MachineNode => ({
  * shape without attempting the passes.
  */
 export const flattenMachines = (raw: unknown, errors: string[]): FlattenedWorkflow => {
-  const empty: FlattenedWorkflow = { states: {}, entries: undefined, tree: undefined }
+  const empty: FlattenedWorkflow = { states: {}, entries: undefined, tree: undefined, scopes: {} }
   if (!isPlainObject(raw)) {
     errors.push(`workflow must be an object, got ${describeType(raw)}`)
     return empty
@@ -604,7 +635,8 @@ export const flattenMachines = (raw: unknown, errors: string[]): FlattenedWorkfl
   if (root === undefined) return empty
 
   const states: Record<string, unknown> = {}
-  emitTree(root, machinesRaw, states, instancesByPath, errors)
+  const scopes: Record<string, InstancePath> = {}
+  emitTree(root, machinesRaw, states, scopes, instancesByPath, errors)
   const tree = buildTree(root)
 
   const rootMachine = machinesRaw[rootMachineName] as Record<string, unknown>
@@ -614,7 +646,7 @@ export const flattenMachines = (raw: unknown, errors: string[]): FlattenedWorkfl
       ? resolveEntry("entry.default", rootEntry, root, instancesByPath, machinesRaw, errors)
       : (errors.push(`machine "${rootMachineName}": "entry" must be a string`), undefined)
 
-  if (defaultResolved === undefined) return { states, entries: undefined, tree }
+  if (defaultResolved === undefined) return { states, entries: undefined, tree, scopes }
 
-  return { states, entries: { default: defaultResolved }, tree }
+  return { states, entries: { default: defaultResolved }, tree, scopes }
 }

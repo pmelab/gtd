@@ -150,10 +150,9 @@ as an _extra_ reachability root (and drives a badge in `gtd visualize`) for a
 state that would otherwise be unreachable from the ordinary `idle` rest —
 `review-gate.check` and `fix-precheck` need it for exactly that reason, while
 `plan-gate.check`/`spec-gate.check` carry it too (the bundled template dedups
-the three `assertGreen` instances into one shared machine, so flagging the
-shared state flags all three) even though `idle` already reaches them the
-ordinary way. `entry: true` is not a precondition for `--entry` to target a
-state.
+the three `entryGate` instances into one shared machine, so flagging the shared
+state flags all three) even though `idle` already reaches them the ordinary way.
+`entry: true` is not a precondition for `--entry` to target a state.
 
 Every agent state routes its model through two `vars` tiers — `plannerModel`
 (heavier planning and review) and `coderModel` (the coding turns) — so you can
@@ -338,12 +337,39 @@ name surfaced in `gtd next --json`/`gtd status`. The driver uses it for its
 per-beat progress lines; an outer wrapper (a terminal multiplexer, a notifier)
 can use it the same way.
 
-A state can also declare an optional `memory:` scope label: consecutive agent
-turns sharing the same label continue one agent session (remembered in the git
-dir, so it survives restarts across the same worktree), while a changed or
-absent label starts a fresh one. If the remembered session no longer exists
-(retention expired, `~/.claude/projects` wiped, a machine change), the driver
-degrades to a fresh session with a warning instead of stopping the loop.
+Memory is **entry-scoped to a machine**, not a state-authored label: each
+machine instance (a node in the `machines:` tree, e.g. `build`, `build.health`,
+`packages.item`, `packages.item.health`) owns its own conversational scope, and
+a `prompt`-content state's `memory` key — surfaced in `gtd next --json`/
+`gtd status --json`'s `memory` field, and as a `Memory: <key>` line in plain
+`gtd status` — is computed, never authored, as `<scope>#<hash7>`: `<scope>` is
+that machine instance's dotted path (the root instance is shown as `root`), and
+`<hash7>` anchors to the commit the CURRENT unbroken entry into that scope
+started FROM. Entering a **descendant** scope (e.g. dipping from `build` into
+`build.health`) does not break the parent's unbroken run — a full agent turn in
+a nested child machine, then back to the parent, still resumes the SAME parent
+conversation; entering a **sibling or unrelated** scope does start a fresh one.
+Two instances of the same reusable machine (e.g. `build.health` and
+`packages.item.health`, both instantiating `healthGate`) get different scopes
+and so never share a key, even though they're the "same shaped" machine. One
+consequence is a structural guarantee: **a reviewer's turn never resumes an
+implementer's session, and vice versa** — a reviewer machine and the implementer
+machine it reviews are always different instances with different scopes.
+
+The loop driver (`bin/gtd`) tracks this as a per-scope **session table** — one
+`<key> <session_id>` row per scope — persisted at `$gitdir/gtd-loop-memory` (the
+git dir, never the working tree, so `gtd status` and the pending diff never see
+it), not a single "last" value: this is what lets a scope's session survive an
+excursion into a child machine's own agent turn (the child writes its own row;
+the parent's row is untouched). On each agent-prompt turn, the driver looks the
+current key up by exact string match against the table (a hit resumes that row's
+session, a miss starts fresh) and, on write, replaces only the ONE row whose
+scope matches the current key's scope — every other scope's row is left as-is.
+This is exported to the agent adapter as `$GTD_LOOP_MEMORY` (the key),
+`$GTD_LOOP_SESSION_ID`, and `$GTD_LOOP_MEMORY_RESUME` (`"1"` when resuming). If
+the remembered session no longer exists (retention expired, `~/.claude/projects`
+wiped, a machine change), the driver degrades to a fresh session with a warning
+instead of stopping the loop.
 
 ### Terminal-multiplexer status: a herdr wrapper
 
@@ -489,6 +515,7 @@ workflow:
     default: <machine name> # which machine is the ROOT instance
   machines:
     <name>:
+      model: <string> # optional, opaque harness hint — stamped onto every one of THIS machine's own `prompt` states; declared ONCE per machine, never per state
       params: [<param>, ...] # optional, advisory — documents which $params a caller may bind
       entry: <local or ref key> # this machine's own default local, resolved recursively
       states:
@@ -508,8 +535,6 @@ workflow:
           retry:
             max: <number>
             otherwise: <targetState>
-          model: <string> # optional, opaque harness hint — forbidden on a commit state
-          memory: <string> # optional, opaque memory-scope label — forbidden on a commit state
           file: <string> # optional, an Eta template naming the state's steering file
           mode: <modeName> # optional, requires "file" — a built-in (qa/review/prose) or a `modes:` entry
           reviewWindow: true # optional — open the review checkout window at rest here
@@ -518,6 +543,11 @@ workflow:
           entry: true # optional — an EXTRA reachability root (`entries.manual`), enterable via `gtd --entry <this state's qualified name>` — NOT a precondition for `--entry` (any declared, non-commit state is a valid target)
         <local>: { machine: <name>, with: { <param>: <value> } } # a REFERENCE — instantiates <name> as a child, qualified as `<local>.<childLocal>`
 ```
+
+There is no `memory:` key anywhere in this shape — a state's memory scope is
+never authored, only computed from its position in the machine tree (see
+[Driving the loop](#driving-the-loop) above for the key format and the driver's
+per-scope session table).
 
 The top-level `entry:` key (naming the root machine, `entry.default`) and a
 state's own `entry: true` flag are the same word at two different levels, by
@@ -530,6 +560,12 @@ bindings (dedup), or a complex cluster grouped under one name for source
 comprehension (encapsulation). Every reference is expanded at load time into
 concrete, qualified states (`<local>.<childLocal>`, however deep) before the
 engine ever sees the definition — see `src/Machines.ts` for the mechanism.
+MACHINE BOUNDARIES ARE THE UNIT OF CONVERSATIONAL IDENTITY: a machine that holds
+an identity (a planner or a coder persona) declares its own `model:` once, at
+the machine level, instead of repeating it per state — and, per the memory rule
+above, two references to the SAME machine (a dedup instantiation) are always two
+independent instances with two independent memory scopes, never one shared
+conversation across both call sites.
 
 Besides `it.vars` (below), a `script`/`prompt`/`message`/`commit` template sees:
 
@@ -576,15 +612,48 @@ model, pattern grammar, load-time rules, and how to verify a change compiles.
 > `gtd --entry <the state that was entry.fix>` (e.g. the bundled template's
 > `gtd --entry fix-precheck`).
 
+> **Upgrading a `workflow:` that still declares a per-state `model:` or
+> `memory:`?** `model:` moved from a state key to a MACHINE key: declare it once
+> on the `machines.<name>:` entry instead of on every one of that machine's
+> states — it is stamped onto every one of that machine's own `prompt` states
+> automatically (see the `workflow:` shape above). A state that still declares
+> its own `model:` is a load error naming the machine to move it to, never a
+> silently ignored key. `memory:` is gone outright, with **no** replacement key
+> — a workflow author simply removes it; a state's memory scope is now computed
+> from its position in the machine tree instead of authored (see
+> [Driving the loop](#driving-the-loop)). The bundled template was also
+> restructured so machine boundaries line up with this new identity model,
+> renaming thirteen states:
+>
+> - `building` → `build.building`
+> - `decompose` → `build.decompose`
+> - `squashing` → `build.squashing`
+> - `review.building` → `build.addressing`
+> - `packages.building` → `packages.item.building`
+> - `packages.closing` → `packages.item.closing`
+> - `packages.health.check` → `packages.item.health.check`
+> - `packages.health.fix` → `packages.item.fix-suite`
+> - `packages.health.escalate` → `packages.item.health.escalate`
+> - `packages.spec.review` → `packages.item.spec.review`
+> - `packages.spec.fix` → `packages.item.fix-spec`
+> - `build.check` → `build.health.check`
+> - `build.escalate` → `build.health.escalate`
+>
+> Because of these renames, an in-flight process left resting at one of the old
+> qualified state names can no longer be resumed after upgrading — those names
+> no longer exist in the definition, and gtd refuses loudly rather than silently
+> treating the rest as idle. Run `gtd abandon` to discard it and start over (or
+> finish the process on the pre-upgrade workflow version first).
+
 ### Variables
 
-Every template — `script`/`prompt`/`message`/`commit`, and
-`model`/`memory`/`file` — sees `it.vars`: a flat `Record<string, string>`
+Every template — `script`/`prompt`/`message`/`commit`, a machine's own `model:`,
+and a state's `file:` — sees `it.vars`: a flat `Record<string, string>`
 assembled from four layers, **later wins**:
 
 1. **The workflow's own `vars:` key** (sibling to `entry:`/`machines:`) — the
    workflow author's declared defaults. The unified template declares
-   `vars: { testCommand: "npm test" }`, read by `build.check`'s script as
+   `vars: { testCommand: "npm test" }`, read by `build.health.check`'s script as
    `<%~ it.vars.testCommand %>`.
 2. **A top-level `.gtdrc` `vars:` key** (a sibling of `workflow:`, NOT nested
    inside it) — per-repo tuning without redefining the whole workflow.

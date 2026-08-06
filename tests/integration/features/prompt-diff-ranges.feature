@@ -4,10 +4,10 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
   A gtd prompt never inlines a rendered diff. Instead it names the commit its
   changes are based at (`it.reviewBase`/`it.retainedBase`/`it.startCommit`) and
   tells the agent to inspect the range itself with `git diff`. Coverage for
-  the `review.reviewing` and `squashing` prompt sites lives with their own flows
-  (`default-workflow.feature`'s incremental-review scenario, `entry.feature`'s
+  the `review.reviewing` and `build.squashing` prompt sites lives with their own
+  flows (`default-workflow.feature`'s incremental-review scenario, `entry.feature`'s
   first-review scenario, `squash.feature`); this file covers the two sites
-  nothing else exercises: `packages.spec.review` (the advanced flow's
+  nothing else exercises: `packages.item.spec.review` (the advanced flow's
   per-package prompt) and `review.deciding`'s captured manifest — see
   `src/workflows/unified.yaml` and `src/PatternTemplates.ts`.
 
@@ -15,7 +15,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
     Given a test project
     And the workflow
 
-  Scenario: packages.spec.review (advanced flow) prints the process base hash, never a rendered diff
+  Scenario: packages.item.spec.review (advanced flow) prints the process base hash, never a rendered diff
     Given a commit "feat: add architecture" that adds "src/db.ts" with:
       """
       export const db = {}
@@ -25,9 +25,9 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       """
       Package: add a db module.
       """
-    And an empty commit "gtd(check): packages.picking → packages.building"
-    And an empty commit "gtd(agent): packages.building → packages.health.check"
-    And an empty commit "gtd(check): packages.health.check → packages.spec.review"
+    And an empty commit "gtd(check): packages.picking → packages.item.building"
+    And an empty commit "gtd(agent): packages.item.building → packages.item.health.check"
+    And an empty commit "gtd(check): packages.item.health.check → packages.item.spec.review"
     When I run gtd next
     Then it succeeds
     And stdout contains the hash of "cycle-start"
@@ -40,7 +40,7 @@ Feature: Prompts carry diff RANGES, never diff CONTENT
       """
       export const add = (a: number, b: number) => a + b
       """
-    And a commit "gtd(agent): build.check → review.reviewing" that adds ".gtd/REVIEW.md" with:
+    And a commit "gtd(agent): build.health.check → review.reviewing" that adds ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 

@@ -88,6 +88,15 @@ export const defaultWorkflowDefinition: WorkflowDefinition = DEFAULT_WORKFLOW.de
  */
 export const defaultMachineTree: MachineNode = DEFAULT_WORKFLOW.tree
 
+/**
+ * The built-in default's memory-scope map — qualified state name -> the
+ * machine-instance path that owns it, the same `scopes` map
+ * `flattenMachines` (`src/Machines.ts`) built while compiling
+ * `DEFAULT_WORKFLOW` above. `src/Config.ts` exposes it as
+ * `ConfigOperations.stateScopes` for the built-in default.
+ */
+export const defaultStateScopes: Record<string, string> = DEFAULT_WORKFLOW.scopes
+
 /** The built-in default workflow's own declared `vars:` defaults (layer 1 of the merged `it.vars`). */
 export const defaultWorkflowVars: Record<string, string> = DEFAULT_WORKFLOW.vars
 

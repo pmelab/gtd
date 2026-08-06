@@ -7,9 +7,10 @@ import {
   type RetryDef,
   type StateDef,
   type StateMode,
+  type StateName,
   type WorkflowDefinition,
 } from "./PatternMachine.js"
-import { flattenMachines, type MachineNode } from "./Machines.js"
+import { flattenMachines, type InstancePath, type MachineNode } from "./Machines.js"
 
 /**
  * The v3 `.gtdrc` `workflow:` config compiler. This
@@ -34,6 +35,7 @@ import { flattenMachines, type MachineNode } from "./Machines.js"
  * machines:
  *   <name>:
  *     params: [<param>, ...]?   # advisory only — documents which $params a caller may bind
+ *     model: <string>?          # optional, opaque harness hint — stamped onto every one of THIS machine's own `prompt` states; a state may NOT declare its own
  *     entry: <local or ref key> # this machine's OWN default local, resolved recursively
  *     states:
  *       <local>:                # an ordinary state
@@ -45,8 +47,6 @@ import { flattenMachines, type MachineNode } from "./Machines.js"
  *         retry:
  *           max: <number>
  *           otherwise: <targetState>
- *         model: <string>     # optional, opaque harness hint — never on a commit state
- *         memory: <string>    # optional, opaque memory-scope label — never on a commit state
  *         label: <string>     # optional, opaque display name — never on a commit state
  *         file: <string>      # optional, an Eta template naming the state's steering file — never on a commit state
  *         mode: <modeName>    # optional, requires "file" — a built-in (qa/review) or a `modes:` entry; never on a commit state
@@ -246,7 +246,6 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
   "on",
   "retry",
   "model",
-  "memory",
   "label",
   "file",
   "mode",
@@ -258,14 +257,15 @@ const KNOWN_STATE_KEYS: ReadonlySet<string> = new Set([
 ])
 
 const KNOWN_TOP_KEYS: ReadonlySet<string> = new Set(["entry", "machines", "vars", "modes"])
-const KNOWN_MACHINE_KEYS: ReadonlySet<string> = new Set(["params", "entry", "states"])
+const KNOWN_MACHINE_KEYS: ReadonlySet<string> = new Set(["params", "entry", "states", "model"])
 const KNOWN_REF_KEYS: ReadonlySet<string> = new Set(["machine", "with"])
 
-/** A state-level key removed by the `entry:`/`machines:` rewrite, naming its replacement so a stale config's error points somewhere useful instead of a bare "unknown key". */
+/** A state-level key removed by the `entry:`/`machines:` rewrite (or, for `memory`, by the machine-scoped-memory restructure), naming its replacement so a stale config's error points somewhere useful instead of a bare "unknown key". The state-level `model` case is instead caught pre-flatten by `LEGACY_AUTHORED_STATE_KEY_HINTS`/`validateMachineStateKeys`, because by the time a state reaches `KNOWN_STATE_KEYS`/`compileState` its `model` may be a legitimately machine-stamped key. */
 const LEGACY_STATE_KEY_HINTS: Readonly<Record<string, string>> = {
   initial: `"initial" no longer exists — declare this state's qualified path in the top-level "entry.default" instead`,
   reviewEntry: `"reviewEntry" no longer exists — declare "entry: true" on this state instead`,
   fixEntry: `"fixEntry" no longer exists — declare "entry: true" on this state instead`,
+  memory: `"memory" no longer exists — a machine's memory scope is derived from its position in the tree and starts fresh on every entry`,
 }
 
 /** A reference-level key from the old `use:` invocation shape, naming its replacement. */
@@ -323,8 +323,9 @@ const detectLegacyEntryKeys = (raw: Record<string, unknown>): void => {
 /**
  * Structural validation over the raw `machines:` map that `src/Machines.ts`'s
  * `flattenMachines` does not itself perform: unknown keys on a machine
- * (`KNOWN_MACHINE_KEYS`) and unknown keys on a reference local
- * (`KNOWN_REF_KEYS`), the latter surfacing the old `use:` invocation's
+ * (`KNOWN_MACHINE_KEYS`), keys that have MOVED off a state
+ * (`LEGACY_AUTHORED_STATE_KEY_HINTS`), and unknown keys on a reference local
+ * (`KNOWN_REF_KEYS`), the last surfacing the old `use:` invocation's
  * `as`/`name`/`set` keys through `LEGACY_REF_KEY_HINTS` rather than a bare
  * "unknown key". Findings are pushed onto `errors`; a malformed shape (not an
  * object, a non-object machine/state) is left for `flattenMachines`/
@@ -349,6 +350,85 @@ const validateMachineRefs = (
   }
 }
 
+/**
+ * A key an author may no longer put on a STATE, mapped to the hint naming its
+ * replacement. Checked against the AUTHORED `machines.<name>.states` map rather
+ * than through `KNOWN_STATE_KEYS`/`compileState`, because those two see the
+ * FLATTENED shape — where `src/Machines.ts` has already stamped the owning
+ * machine's own `model` onto each of its `prompt` states, and a `model` key is
+ * exactly what a well-formed emitted state carries.
+ */
+const LEGACY_AUTHORED_STATE_KEY_HINTS: Readonly<Record<string, (machineName: string) => string>> = {
+  model: (machineName) =>
+    `"model" is no longer a state key — declare it once on the machine that owns this state ("machines.${machineName}.model")`,
+}
+
+/** Flag any `LEGACY_AUTHORED_STATE_KEY_HINTS` key declared on one machine's own (non-reference) states. */
+const validateMachineStateKeys = (
+  machineName: string,
+  machineRaw: Record<string, unknown>,
+  errors: string[],
+): void => {
+  const statesRaw = machineRaw["states"]
+  if (!isPlainObject(statesRaw)) return
+  for (const [local, def] of Object.entries(statesRaw)) {
+    if (!isPlainObject(def) || isRefRaw(def)) continue
+    for (const [key, hint] of Object.entries(LEGACY_AUTHORED_STATE_KEY_HINTS)) {
+      if (!(key in def)) continue
+      errors.push(
+        `machine "${machineName}": state "${local}": unknown key(s) ${key} (${hint(machineName)})`,
+      )
+    }
+  }
+}
+
+/**
+ * The machine-level `model:` field — the ONLY place a model may be authored
+ * (`validateMachineStateKeys`, above, rejects the state-level form): a
+ * non-empty string, else a load error naming the machine. Validates the value
+ * a machine stamps onto its own `prompt` states (`src/Machines.ts`'s
+ * `resolveInstanceModel`/`emitTree`); the per-state `compileModel` (below) is
+ * then only the type guard over that STAMPED value.
+ */
+const compileMachineModel = (
+  machineName: string,
+  machineRaw: Record<string, unknown>,
+  errors: string[],
+): void => {
+  if (machineRaw.model === undefined) return
+  if (typeof machineRaw.model !== "string" || machineRaw.model === "") {
+    errors.push(`machines.${machineName}: "model" must be a non-empty string`)
+  }
+}
+
+/** Does `machineRaw` declare at least one of its OWN (non-reference) states with content kind `prompt`? Mirrors exactly which states `src/Machines.ts` stamps a machine-level `model` onto — a reference local's states belong to the CHILD machine, never this one. */
+const machineHasPromptState = (machineRaw: Record<string, unknown>): boolean => {
+  const statesRaw = machineRaw["states"]
+  if (!isPlainObject(statesRaw)) return false
+  return Object.values(statesRaw).some(
+    (def) => isPlainObject(def) && !isRefRaw(def) && typeof def["prompt"] === "string",
+  )
+}
+
+/**
+ * A machine declaring `model:` with no `prompt`-content state anywhere among
+ * its own states is a load error, not a silent no-op — see this module's
+ * "BOUNDARY CORRECTION" note in package 02: the model would never land on any
+ * emitted state, so the declaration does nothing.
+ */
+const validateMachineModelHasPromptState = (
+  machineName: string,
+  machineRaw: Record<string, unknown>,
+  errors: string[],
+): void => {
+  if (machineRaw.model === undefined) return
+  if (!machineHasPromptState(machineRaw)) {
+    errors.push(
+      `machine "${machineName}": declares "model" but has no "prompt" state — this would never take effect`,
+    )
+  }
+}
+
 const validateMachinesShape = (raw: unknown, errors: string[]): void => {
   if (raw === undefined) return
   if (!isPlainObject(raw)) {
@@ -364,6 +444,9 @@ const validateMachinesShape = (raw: unknown, errors: string[]): void => {
       errors.push(`machine "${machineName}": unknown key(s) ${unknownMachineKeys.join(", ")}`)
     }
     validateMachineRefs(machineName, machineRaw, errors)
+    validateMachineStateKeys(machineName, machineRaw, errors)
+    compileMachineModel(machineName, machineRaw, errors)
+    validateMachineModelHasPromptState(machineName, machineRaw, errors)
   }
 }
 
@@ -376,6 +459,8 @@ export interface CompiledWorkflowConfig {
   readonly vars: Record<string, string>
   /** The machine-instance tree `flattenMachines` (`src/Machines.ts`) built while compiling — a compilation OUTPUT for tooling (`gtd visualize`), never part of the pure `WorkflowDefinition` the engine reads. */
   readonly tree: MachineNode
+  /** Qualified state name -> the machine-instance path (`InstancePath`) that owns it, straight from `FlattenedWorkflow.scopes` — the memory-scope lookup a future package (`src/Edge.ts`) threads through. Its key set is asserted (below, in `compileWorkflowConfig`) to exactly match `definition.states`'s key set. */
+  readonly scopes: Record<StateName, InstancePath>
 }
 
 const formatErrors = (errors: readonly string[]): string =>
@@ -657,7 +742,7 @@ const compileActor = (
   return raw.actor
 }
 
-/** The `model` field: an opaque string, or undefined (either absent or invalid — the type mismatch is its own error). Never interpreted or validated beyond "is it a string" — see `PatternMachine.StateDef.model`. */
+/** The `model` field as it reaches a FLATTENED state — never authored there (`validateMachineStateKeys` rejects that), only stamped on by the owning machine (`src/Machines.ts`'s `emitTree`). An opaque string, or undefined (either absent or invalid — the type mismatch is its own error). Never interpreted or validated beyond "is it a string" — see `PatternMachine.StateDef.model`. */
 const compileModel = (
   raw: Record<string, unknown>,
   name: string,
@@ -669,20 +754,6 @@ const compileModel = (
     return undefined
   }
   return raw.model
-}
-
-/** The `memory` field: an opaque memory-scope label (Eta template), or undefined (either absent or invalid — the type mismatch is its own error). Never interpreted or validated beyond "is it a string" — see `PatternMachine.StateDef.memory`. */
-const compileMemory = (
-  raw: Record<string, unknown>,
-  name: string,
-  errors: string[],
-): string | undefined => {
-  if (raw.memory === undefined) return undefined
-  if (typeof raw.memory !== "string") {
-    errors.push(`state "${name}": "memory" must be a string`)
-    return undefined
-  }
-  return raw.memory
 }
 
 /** The `label` field: an opaque display name, or undefined (either absent or invalid — the type mismatch is its own error). Never interpreted or validated beyond "is it a string" — see `PatternMachine.StateDef.label`. */
@@ -779,7 +850,6 @@ interface StateParts {
   readonly on: readonly OnEdge[] | undefined
   readonly retry: RetryDef | undefined
   readonly model: string | undefined
-  readonly memory: string | undefined
   readonly label: string | undefined
   readonly file: string | undefined
   readonly mode: StateMode | undefined
@@ -824,7 +894,6 @@ const assembleStateDef = (parts: StateParts): StateDef => ({
     on: parts.on,
     retry: parts.retry,
     model: parts.model,
-    memory: parts.memory,
     label: parts.label,
     file: parts.file,
     mode: parts.mode,
@@ -873,7 +942,6 @@ const compileState = (
     on: compileOn(raw.on, name, errors),
     retry: compileRetry(raw.retry, name, errors),
     model: compileModel(raw, name, errors),
-    memory: compileMemory(raw, name, errors),
     label: compileLabel(raw, name, errors),
     file: compileFile(raw, name, errors),
     mode: compileMode(raw, name, errors),
@@ -891,6 +959,28 @@ const compileState = (
   compileBooleanFlag(raw, "entry", name, errors)
 
   return def
+}
+
+/**
+ * Compiler invariant, not a workflow-author finding: `flattenMachines`
+ * (`src/Machines.ts`) promises a `scopes` entry for EVERY state it emits (see
+ * that module's doc comment, "Bindings carry their scope") — a mismatch here
+ * means the flattener itself missed a state, which must fail loudly rather
+ * than silently produce a memory key that reads as "outside every scope".
+ * Exported so this invariant is directly testable against a contrived
+ * `scopes` map, independent of whether `flattenMachines` itself can currently
+ * be made to violate its own guarantee.
+ */
+export const assertScopesCoverStates = (
+  stateNames: readonly string[],
+  scopes: Readonly<Record<string, InstancePath>>,
+  errors: string[],
+): void => {
+  for (const name of stateNames) {
+    if (!(name in scopes)) {
+      errors.push(`internal error: scopes map produced by the flattener is missing state "${name}"`)
+    }
+  }
 }
 
 // ── Top-level compile ────────────────────────────────────────────────────────
@@ -981,6 +1071,9 @@ export const compileWorkflowConfig = (
   const entries = { default: flattened.entries.default, manual }
   const definition: WorkflowDefinition =
     modes !== undefined ? { states, entries, modes } : { states, entries }
+
+  assertScopesCoverStates(Object.keys(states), flattened.scopes, errors)
+
   const definitionErrors = validateDefinition(definition)
   const allErrors = Array.from(new Set([...errors, ...definitionErrors]))
   if (allErrors.length > 0) throw new Error(formatErrors(allErrors))
@@ -989,5 +1082,5 @@ export const compileWorkflowConfig = (
   // be instantiated (`src/Machines.ts`'s `flattenMachines`) — which is exactly
   // the case already ruled out by the `entries === undefined` throw above,
   // since `entries` can only resolve once the root instantiated.
-  return { definition, vars, tree: flattened.tree! }
+  return { definition, vars, tree: flattened.tree!, scopes: flattened.scopes }
 }

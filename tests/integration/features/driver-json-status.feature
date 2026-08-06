@@ -204,7 +204,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout contains "\"next\":null"
 
-  Scenario: gtd next --json carries the state's declared model hint, and gtd status shows it too
+  Scenario: gtd next --json carries the owning machine's model hint, and gtd status shows it too
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -213,6 +213,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
           default: root
         machines:
           root:
+            model: smart
             entry: idle
             states:
               idle:
@@ -222,7 +223,6 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
                   "* **": working
               working:
                 actor: agent
-                model: smart
                 prompt: "do the work described in NOTE.md"
                 on:
                   "* **": idle
@@ -243,7 +243,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout contains "\"model\":\"smart\""
 
-  Scenario: gtd next --json and gtd status --json omit "model" entirely when the state declares none
+  Scenario: gtd next --json and gtd status --json omit "model" entirely when the owning machine declares none
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -280,7 +280,7 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     Then it succeeds
     And stdout does not contain "\"model\""
 
-  Scenario: gtd next --json carries the state's declared memory scope, and gtd status shows it too
+  Scenario: gtd next --json computes a commit-anchored memory key from the resting prompt state's scope, and gtd status shows it too
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -298,7 +298,6 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
                   "* **": working
               working:
                 actor: agent
-                memory: plan
                 prompt: "do the work described in NOTE.md"
                 on:
                   "* **": idle
@@ -310,16 +309,16 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
-    And stdout contains "\"memory\":\"plan\""
+    And stdout matches "\"memory\":\"root#[0-9a-f]{7}\""
     When I run gtd status
     Then it succeeds
     And stdout contains "State: working"
-    And stdout contains "Memory: plan"
+    And stdout matches "Memory: root#[0-9a-f]{7}"
     When I run gtd status with "--json"
     Then it succeeds
-    And stdout contains "\"memory\":\"plan\""
+    And stdout matches "\"memory\":\"root#[0-9a-f]{7}\""
 
-  Scenario: gtd next --json and gtd status --json omit "memory" entirely when the state declares none
+  Scenario: gtd next --json and gtd status --json omit "memory" entirely for a non-prompt state — the computed key only ever applies to a prompt turn
     Given a test project
     And a gtd config file at ".gtdrc" with:
       """
@@ -341,13 +340,9 @@ Feature: Driver protocol — gtd next --json content kinds, gtd status pattern m
                 on:
                   "* **": idle
       """
-    And a commit "gtd(human): working" that adds "NOTE.md" with:
-      """
-      a note
-      """
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"working\""
+    And stdout contains "\"state\":\"idle\""
     And stdout does not contain "\"memory\""
     When I run gtd status
     Then it succeeds
